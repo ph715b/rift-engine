@@ -31,6 +31,8 @@ function buildInitialGameState(): GameState {
     phase: "Awaken",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
   };
 }
 

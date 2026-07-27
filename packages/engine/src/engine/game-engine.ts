@@ -7,6 +7,8 @@ import { validateMoveUnit } from "../actions/validate-move-unit.js";
 import { executeMoveUnit } from "../actions/execute-move-unit.js";
 import { validateRecallUnit } from "../actions/validate-recall-unit.js";
 import { executeRecallUnit } from "../actions/execute-recall-unit.js";
+import { validatePassFocus } from "../actions/validate-pass-focus.js";
+import { executePassFocus } from "../actions/execute-pass-focus.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
 import type { SubmitResult } from "./submit-result.js";
@@ -40,11 +42,11 @@ export function startGame(state: GameState): { state: GameState; result: SubmitR
 
 /**
  * Mirrors GameEngine.submit(PlayerAction) (engine/GameEngine.java:133-276),
- * scoped to the two action types implemented so far. A bare `Pass` ends the
- * turn outright (`turnManager.endTurn(); turnManager.runStartOfTurn();`,
- * :270-271) — there is no "both players must pass" requirement here, that
- * two-consecutive-passes mechanic belongs to PassFocus/the chain/Showdown
- * system (not modeled yet), which is a different action entirely.
+ * scoped to the action types implemented so far. A bare `Pass` ends the turn
+ * outright (`turnManager.endTurn(); turnManager.runStartOfTurn();`, :270-271)
+ * and is illegal while a Showdown is open — the two-consecutive-passes
+ * mechanic belongs to PassFocus instead (executePassFocus), which only
+ * passes Focus within an open Showdown, not the whole turn.
  */
 export function submit(state: GameState, action: PlayerAction): { state: GameState; result: SubmitResult } {
   if (winner(state) !== null) {
@@ -71,6 +73,11 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
       const validation = validateRecallUnit(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
       return withWinnerCheck(executeRecallUnit(state, action));
+    }
+    case "PassFocus": {
+      const validation = validatePassFocus(state, action);
+      if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
+      return withWinnerCheck(executePassFocus(state, action));
     }
   }
 }

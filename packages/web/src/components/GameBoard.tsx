@@ -40,8 +40,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // the continuously-updated ref isn't.
   const lastDragZoneRef = useRef<string | null>(null);
 
-  const isHumanTurn = state.activePlayerIndex === HUMAN_INDEX;
+  // The "acting player" — normally the active player, but during an open
+  // Showdown it's whoever holds Focus instead, which can be either player
+  // regardless of whose turn it nominally is (mirrors GameState.java's
+  // actingPlayer() precedence: Showdown -> focusHolder, Neutral -> activePlayerIndex).
+  const actingPlayerIndex = state.turnState === "Showdown" ? state.focusHolder : state.activePlayerIndex;
+  const isHumanTurn = actingPlayerIndex === HUMAN_INDEX;
   const isGameOver = result.type === "GameOver";
+  const isShowdownOpen = state.turnState === "Showdown";
+  const showdownBattlefield = isShowdownOpen
+    ? state.battlefields.find((bf) => bf.id === state.showdownBattlefieldId)
+    : undefined;
 
   const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
 
@@ -108,6 +117,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (pass) applyAction(pass);
   }
 
+  function handlePassFocus() {
+    const passFocus = legal.find((a) => a.type === "PassFocus");
+    if (passFocus) applyAction(passFocus);
+  }
+
   // Drag handlers — additive to the click flow above. Dragging never
   // relocates anything by itself; it only ever ends by committing a real
   // action (which then animates via the layoutId in CardView), or springing
@@ -152,7 +166,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       <div className="header">
         <h1>Rift-Engine</h1>
         <span>
-          Turn {state.turnNumber} · {state.phase} · {isHumanTurn ? "Your turn" : "AI's turn"}
+          Turn {state.turnNumber} · {state.phase} ·{" "}
+          {isShowdownOpen
+            ? `Showdown at ${showdownBattlefield?.name ?? "?"} — ${isHumanTurn ? "your" : "AI's"} Focus`
+            : isHumanTurn
+              ? "Your turn"
+              : "AI's turn"}
         </span>
       </div>
 
@@ -203,6 +222,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 selectedUnit={selectedUnit}
                 isMoveTarget={isHumanTurn && selectedUnit !== null && Boolean(moveActionTo(selectedUnit, bf.id))}
                 isDragOver={dragOverZoneId === bf.id}
+                isShowdownActive={state.showdownBattlefieldId === bf.id}
                 onSelectUnit={handleSelectUnit}
                 onMoveHere={() => handleBattlefieldClick(bf.id)}
                 canDragUnit={canDragUnit}
@@ -281,9 +301,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       </div>
 
       <div className="actions">
-        <button onClick={handlePass} disabled={!isHumanTurn || isGameOver}>
-          Pass
-        </button>
+        {isShowdownOpen ? (
+          <button onClick={handlePassFocus} disabled={!isHumanTurn || isGameOver}>
+            Pass Focus
+          </button>
+        ) : (
+          <button onClick={handlePass} disabled={!isHumanTurn || isGameOver}>
+            Pass
+          </button>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import { claimBattlefieldControl, resolveShowdown } from "../engine/combat.js";
+import { claimBattlefieldControl } from "../engine/combat.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
 
@@ -39,10 +39,13 @@ function addToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: s
  * `unit.exhaust()` runs for every move regardless of destination,
  * ActionExecutor.java:849).
  *
- * If the destination becomes contested (both players present), combat
- * resolves immediately — see combat.ts's own doc comment for why there's no
- * priority window here yet. Otherwise this is a walk-in: the mover claims
- * sole control, recording a conquest if it changed hands.
+ * If the destination becomes contested (both players present), this OPENS a
+ * Showdown (turnState/focusHolder/showdownBattlefieldId) instead of
+ * resolving combat immediately — mirrors GameEngine.enterShowdown
+ * (engine/GameEngine.java:829-858). Combat only actually resolves once two
+ * consecutive PassFocus actions close the window (execute-pass-focus.ts).
+ * Otherwise this is a walk-in: the mover claims sole control immediately,
+ * recording a conquest if it changed hands.
  */
 export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameState {
   const validation = validateMoveUnit(state, action);
@@ -59,7 +62,15 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   const opponent = next.players[opponentIndex];
   const opponentPresent = (bf.units[opponent.id]?.length ?? 0) > 0;
 
-  return opponentPresent
-    ? resolveShowdown(next, action.destinationBattlefieldId, action.playerIndex)
-    : claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+  if (!opponentPresent) {
+    return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+  }
+
+  return {
+    ...next,
+    turnState: "Showdown",
+    focusHolder: next.activePlayerIndex,
+    showdownBattlefieldId: action.destinationBattlefieldId,
+    consecutiveFocusPasses: 0,
+  };
 }

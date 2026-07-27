@@ -10,6 +10,10 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * Apathetic's movement lock, Mageseeker Investigator's surcharge) — only
  * the printed [Ganking] keyword itself is checked for battlefield-to-
  * battlefield moves. Base -> battlefield needs no keyword at all.
+ *
+ * The turnState check mirrors ActionValidator.validateShowdownOpen's hard
+ * rejection of MoveUnit ("the fight is already engaged") — once a Showdown
+ * is open, only PassFocus (and, eventually, reaction-speed plays) are legal.
  */
 export function validateMoveUnit(state: GameState, action: MoveUnitAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -17,6 +21,9 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
   }
   if (state.phase !== "Action") {
     return fail(`Units can only move during the Action phase, currently: ${state.phase}`);
+  }
+  if (state.turnState !== "Neutral") {
+    return fail("Cannot move units while a Showdown is open — the fight is already engaged");
   }
   if (action.unitInstanceIds.length === 0) {
     return fail("Must move at least one unit");

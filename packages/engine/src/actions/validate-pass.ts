@@ -4,10 +4,13 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
  * Mirrors ActionValidator's unconditional `case PlayerAction.Pass ignored ->
- * ValidationResult.ok()` in the closed-chain branch (engine/ActionValidator.java:85)
- * — Pass has no cost/state to check, only whose turn/phase it is (no
- * chain/Showdown modeled yet, so only the active player during their Action
- * phase may pass).
+ * ValidationResult.ok()` in the Neutral/chain-open branch
+ * (engine/ActionValidator.java:85) — Pass has no cost to check, only whose
+ * turn/phase/turnState it is. Rejecting it during an open Showdown mirrors
+ * validateShowdownOpen's own hard rejection ("Cannot end turn during a
+ * Showdown — use Pass Focus"): Pass ends the whole turn, which would
+ * otherwise abandon an unresolved fight and leave turnState stuck at
+ * "Showdown" forever.
  */
 export function validatePass(state: GameState, action: PassAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -15,6 +18,9 @@ export function validatePass(state: GameState, action: PassAction): ValidationRe
   }
   if (state.phase !== "Action") {
     return fail(`Can only pass during the Action phase, currently: ${state.phase}`);
+  }
+  if (state.turnState !== "Neutral") {
+    return fail("Cannot end your turn while a Showdown is open — use Pass Focus instead");
   }
   return ok();
 }

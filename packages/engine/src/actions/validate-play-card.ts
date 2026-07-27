@@ -11,10 +11,13 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  *
  * Not yet implemented: Spell/Gear/Legend plays, destination battlefields,
  * Accelerate/additional costs, floating Energy/Power, trash-play,
- * reaction-speed plays (chain/Showdown aren't modeled, so only the active
- * player, during their own Action phase, may act — matches
- * ActionValidator's `validateClosedChain` branch, the "no open chain, no
- * Showdown" case; engine/ActionValidator.java:74-90).
+ * reaction-speed plays (the spell chain isn't modeled yet, so only the
+ * active player, during their own Action phase, may act — matches
+ * ActionValidator's Neutral/chain-open branch, engine/ActionValidator.java:77-103).
+ * The turnState check below additionally rejects this during an open
+ * Showdown (ActionValidator.validateShowdownOpen requires isReaction ||
+ * isAction on a Spell to play one there — no card in this pool is tagged
+ * either yet, so nothing is legal to play during a Showdown at all).
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -22,6 +25,9 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   }
   if (state.phase !== "Action") {
     return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
+  }
+  if (state.turnState !== "Neutral") {
+    return fail("Cannot play cards while a Showdown is open — the fight is already engaged");
   }
 
   const actor: PlayerState | undefined = state.players[action.playerIndex];

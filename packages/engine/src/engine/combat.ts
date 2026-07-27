@@ -7,13 +7,15 @@ import { recordConquest } from "./scoring.js";
  * ShowdownResolver.java's general-purpose math only — every per-card
  * exception (Stun, Elder Dragon true-kill, death wards, Tryndamere's excess-
  * damage tracking, damage-assignment choice, etc.) is left out, since none
- * of those cards/mechanics exist in this engine yet. Also deliberately
- * skips the real priority/Focus-passing window a Showdown opens for
- * (letting either player respond with instant-speed spells before damage
- * resolves) — combat resolves immediately the instant a unit moves onto a
- * contested battlefield, because no Spell/Reaction timing is modeled yet
- * either. Both are documented gaps to close together once Spells land, not
- * independent oversights.
+ * of those cards/mechanics exist in this engine yet.
+ *
+ * This module is pure combat math — it has no knowledge of the Focus
+ * priority window a Showdown opens for before this ever runs (execute-move-
+ * unit.ts opens the window; execute-pass-focus.ts calls resolveShowdown once
+ * two consecutive passes close it). What's still not modeled is the full
+ * spell-chain/reaction system: no card can yet respond mid-Showdown, since
+ * no Spell/Reaction timing exists yet either — that's the remaining
+ * documented gap, deferred until Spells/Gear/Legend abilities are playable.
  */
 
 /** Damage a unit DEALS. Shield is purely defensive and never contributes here —

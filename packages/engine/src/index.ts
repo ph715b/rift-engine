@@ -18,6 +18,8 @@ export * from "./actions/validate-move-unit.js";
 export * from "./actions/execute-move-unit.js";
 export * from "./actions/validate-recall-unit.js";
 export * from "./actions/execute-recall-unit.js";
+export * from "./actions/validate-pass-focus.js";
+export * from "./actions/execute-pass-focus.js";
 
 export * from "./decks/deck-list.js";
 export * from "./decks/deck-validation.js";

@@ -35,6 +35,8 @@ function buildInitialGameState(): GameState {
     phase: "Awaken",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
   };
 }
 
@@ -145,5 +147,19 @@ describe("heuristic AI", () => {
       state = result.state;
       if (result.result.type === "GameOver") break;
     }
+  });
+
+  it("returns the sole legal PassFocus action during an open Showdown", () => {
+    const { state } = startGame(buildInitialGameState());
+    const showdownState: GameState = {
+      ...state,
+      turnState: "Showdown",
+      focusHolder: 1,
+      showdownBattlefieldId: state.battlefields[0]!.id,
+      consecutiveFocusPasses: 0,
+    };
+
+    const action = chooseAction(showdownState);
+    expect(action).toEqual({ type: "PassFocus", playerIndex: 1 });
   });
 });

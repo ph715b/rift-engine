@@ -70,6 +70,8 @@ function makeState(): GameState {
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
   };
 }
 

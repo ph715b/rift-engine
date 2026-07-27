@@ -15,6 +15,9 @@ export function validateRecallUnit(state: GameState, action: RecallUnitAction): 
   if (state.phase !== "Action") {
     return fail(`Units can only be recalled during the Action phase, currently: ${state.phase}`);
   }
+  if (state.turnState !== "Neutral") {
+    return fail("Cannot recall units while a Showdown is open — the fight is already engaged");
+  }
   if (action.unitInstanceIds.length === 0) {
     return fail("Must recall at least one unit");
   }

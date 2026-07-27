@@ -226,6 +226,16 @@ button:disabled {
   background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
 }
 
+.battlefield.showdown {
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 1px var(--color-danger);
+}
+
+.battlefield.showdown .battlefield-name span:last-child {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
 .battlefield-name {
   font-size: 0.8rem;
   color: var(--color-text-dim);

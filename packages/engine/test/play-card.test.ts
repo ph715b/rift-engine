@@ -64,6 +64,8 @@ function buildFixture() {
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
   };
 
   return { state, poro };

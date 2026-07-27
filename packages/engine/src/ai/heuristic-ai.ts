@@ -4,6 +4,7 @@ import { legalActions } from "../engine/legal-actions.js";
 import { executePlayCard } from "../actions/execute-play-card.js";
 import { executeMoveUnit } from "../actions/execute-move-unit.js";
 import { executeRecallUnit } from "../actions/execute-recall-unit.js";
+import { executePassFocus } from "../actions/execute-pass-focus.js";
 
 /**
  * A simple heuristic AI opponent — enough to be a real (if not yet strong)
@@ -36,6 +37,8 @@ function applyAction(state: GameState, action: PlayerAction): GameState {
       return executeMoveUnit(state, action);
     case "RecallUnit":
       return executeRecallUnit(state, action);
+    case "PassFocus":
+      return executePassFocus(state, action);
   }
 }
 
@@ -58,7 +61,16 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
 }
 
 /** Picks the legal action whose resulting state scores highest for the
- *  active player, falling back to Pass when nothing beats it. */
+ *  active player, falling back to Pass when nothing beats it.
+ *
+ *  `forIndex` is always `activePlayerIndex`, even during an open Showdown
+ *  where the *non*-active player can hold Focus and be the one actually
+ *  acting. This is currently harmless only because `legalActions` returns
+ *  exactly one candidate (PassFocus, for whoever holds Focus) during a
+ *  Showdown — the loop below always ends up picking that single real action
+ *  regardless of which index it's scored from. It'll need to become "the
+ *  acting player" (turnState === "Showdown" ? focusHolder : activePlayerIndex)
+ *  the moment a Showdown can ever offer more than one legal action. */
 export function chooseAction(state: GameState): PlayerAction {
   const forIndex = state.activePlayerIndex;
   const candidates = legalActions(state);

@@ -8,6 +8,7 @@ interface BattlefieldViewProps {
   selectedUnit: UnitInstance | null;
   isMoveTarget: boolean;
   isDragOver: boolean;
+  isShowdownActive: boolean;
   onSelectUnit: (unit: UnitInstance) => void;
   onMoveHere: () => void;
   canDragUnit: (unit: UnitInstance) => boolean;
@@ -22,6 +23,7 @@ export function BattlefieldView({
   selectedUnit,
   isMoveTarget,
   isDragOver,
+  isShowdownActive,
   onSelectUnit,
   onMoveHere,
   canDragUnit,
@@ -36,12 +38,13 @@ export function BattlefieldView({
   const classes = ["battlefield"];
   if (isMoveTarget) classes.push("selectable");
   if (isDragOver) classes.push("drag-over");
+  if (isShowdownActive) classes.push("showdown");
 
   return (
     <div className={classes.join(" ")} onClick={isMoveTarget ? onMoveHere : undefined} data-dropzone-id={battlefield.id}>
       <div className="battlefield-name">
         <span>{battlefield.name}</span>
-        <span>{controllerName}</span>
+        <span>{isShowdownActive ? "Showdown!" : controllerName}</span>
       </div>
       <div className="battlefield-side">
         {aiUnits.map((unit) => (

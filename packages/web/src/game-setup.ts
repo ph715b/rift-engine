@@ -36,5 +36,7 @@ export function createNewGame(config: MatchConfig, seed: number): GameState {
     phase: "Awaken",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
   };
 }

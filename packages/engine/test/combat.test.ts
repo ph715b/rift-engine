@@ -6,6 +6,12 @@ import { scoreHolds, recordConquest } from "../src/engine/scoring.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
 import { executeMoveUnit } from "../src/actions/execute-move-unit.js";
 import { validateMoveUnit } from "../src/actions/validate-move-unit.js";
+import { validateRecallUnit } from "../src/actions/validate-recall-unit.js";
+import { validatePass } from "../src/actions/validate-pass.js";
+import { validatePassFocus } from "../src/actions/validate-pass-focus.js";
+import { executePassFocus } from "../src/actions/execute-pass-focus.js";
+import { legalActions } from "../src/engine/legal-actions.js";
+import { submit } from "../src/engine/game-engine.js";
 
 let unitCounter = 0;
 function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
@@ -80,6 +86,8 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
+    showdownBattlefieldId: null,
+    consecutiveFocusPasses: 0,
     ...overrides,
   };
 }
@@ -171,7 +179,7 @@ describe("MoveUnit: walk-in vs. contested", () => {
     expect(state.players[0]!.points).toBe(1); // first-time conquest of a neutral battlefield
   });
 
-  it("moving into an enemy-occupied battlefield triggers combat immediately", () => {
+  it("moving into an enemy-occupied battlefield opens a Showdown instead of resolving combat immediately", () => {
     const mover = makeUnit({ might: 5 });
     const defender = makeUnit({ might: 1 });
     let state = makeState();
@@ -186,9 +194,18 @@ describe("MoveUnit: walk-in vs. contested", () => {
       destinationBattlefieldId: "bf1",
     });
 
-    expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
-    expect(state.battlefields[0]!.controllerId).toBe("p1");
-    expect(state.players[1]!.trash).toHaveLength(1);
+    // Combat hasn't run yet: both units still present, no trash, control unchanged.
+    expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1);
+    expect(state.battlefields[0]!.controllerId).toBe("p2");
+    expect(state.players[1]!.trash).toHaveLength(0);
+    expect(state.players[0]!.points).toBe(0);
+
+    // A Showdown window is open instead, held by the mover (the active player).
+    expect(state.turnState).toBe("Showdown");
+    expect(state.focusHolder).toBe(0);
+    expect(state.showdownBattlefieldId).toBe("bf1");
+    expect(state.consecutiveFocusPasses).toBe(0);
   });
 
   it("rejects moving an exhausted unit", () => {
@@ -296,6 +313,174 @@ describe("win condition via combat + scoring, end to end", () => {
       destinationBattlefieldId: "bf1",
     });
 
+    // Moving in opens a Showdown — the win-condition point isn't awarded yet.
+    expect(state.turnState).toBe("Showdown");
+    expect(state.players[0]!.points).toBe(7);
+
+    // First PassFocus (the mover, player 0) just flips Focus to player 1.
+    state = executePassFocus(state, { type: "PassFocus", playerIndex: 0 });
+    expect(state.turnState).toBe("Showdown");
+    expect(state.players[0]!.points).toBe(7);
+
+    // Second consecutive PassFocus (player 1) closes the window and resolves combat.
+    state = executePassFocus(state, { type: "PassFocus", playerIndex: 1 });
+    expect(state.turnState).toBe("Neutral");
     expect(state.players[0]!.points).toBe(8);
+  });
+});
+
+describe("Focus/Showdown priority window", () => {
+  it("legalActions during an open Showdown offers exactly PassFocus, for whoever holds Focus", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    expect(legalActions(state)).toEqual([{ type: "PassFocus", playerIndex: 0 }]);
+  });
+
+  it("validatePassFocus rejects when no Showdown is open", () => {
+    const state = makeState();
+    const result = validatePassFocus(state, { type: "PassFocus", playerIndex: 0 });
+    expect(result.ok).toBe(false);
+  });
+
+  it("validatePassFocus rejects the wrong player", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    // Focus is held by player 0 (the mover) right after opening.
+    const result = validatePassFocus(state, { type: "PassFocus", playerIndex: 1 });
+    expect(result.ok).toBe(false);
+  });
+
+  it("a single PassFocus flips the Focus holder without resolving combat", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    state = executePassFocus(state, { type: "PassFocus", playerIndex: 0 });
+
+    expect(state.turnState).toBe("Showdown");
+    expect(state.focusHolder).toBe(1);
+    expect(state.consecutiveFocusPasses).toBe(1);
+    // Combat still hasn't resolved.
+    expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1);
+  });
+
+  it("two consecutive PassFocus actions resolve combat and return to Neutral", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    state = executePassFocus(state, { type: "PassFocus", playerIndex: 0 });
+    state = executePassFocus(state, { type: "PassFocus", playerIndex: 1 });
+
+    // Same outcome a direct resolveShowdown call on the original board would give.
+    expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
+    expect(state.battlefields[0]!.controllerId).toBe("p1");
+    expect(state.players[1]!.trash).toHaveLength(1);
+    expect(state.players[0]!.points).toBe(1);
+
+    // Window fully closed.
+    expect(state.turnState).toBe("Neutral");
+    expect(state.showdownBattlefieldId).toBeNull();
+    expect(state.consecutiveFocusPasses).toBe(0);
+  });
+
+  it("MoveUnit, RecallUnit, PlayCard, and Pass are all illegal while a Showdown is open", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    const bystander = makeUnit();
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover, bystander];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    expect(
+      validateMoveUnit(state, {
+        type: "MoveUnit",
+        playerIndex: 0,
+        unitInstanceIds: [bystander.instanceId],
+        destinationBattlefieldId: "bf2",
+      }).ok,
+    ).toBe(false);
+
+    expect(
+      validateRecallUnit(state, { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [mover.instanceId] }).ok,
+    ).toBe(false);
+
+    expect(validatePass(state, { type: "Pass", playerIndex: 0 }).ok).toBe(false);
+  });
+
+  it("submit() rejects a wrong-player PassFocus as Invalid and resolves the game on the closing pass", () => {
+    const mover = makeUnit({ might: 5 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [mover];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+    state.players[0]!.points = 7;
+    state.players[0]!.conqueredBattlefieldsThisTurn = ["bf2", "bf3"];
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [mover.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    const wrongPlayer = submit(state, { type: "PassFocus", playerIndex: 1 });
+    expect(wrongPlayer.result.type).toBe("Invalid");
+
+    const firstPass = submit(state, { type: "PassFocus", playerIndex: 0 });
+    expect(firstPass.result.type).toBe("Ok");
+
+    const secondPass = submit(firstPass.state, { type: "PassFocus", playerIndex: 1 });
+    expect(secondPass.result).toEqual({ type: "GameOver", winnerId: "p1" });
   });
 });

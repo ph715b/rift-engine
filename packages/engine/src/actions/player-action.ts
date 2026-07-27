@@ -47,6 +47,18 @@ export interface RecallUnitAction {
 }
 
 /**
+ * Passes Focus/chain priority while a Showdown is open (engine/GameEngine.java's
+ * PassFocus, handlePassFocus). Distinct from Pass: Pass ends the whole turn
+ * and is illegal during an open Showdown; PassFocus only passes the
+ * initiative within it. Two consecutive PassFocus actions resolve combat —
+ * see execute-pass-focus.ts.
+ */
+export interface PassFocusAction {
+  type: "PassFocus";
+  playerIndex: 0 | 1;
+}
+
+/**
  * The player-submittable actions implemented so far. Mirrors a subset of
  * engine/PlayerAction.java's 17-variant sealed interface (PlayCard, MoveUnit,
  * RecallUnit, ActivateGear, ActivateUnit, FloatRune, PassFocus, Pass,
@@ -56,4 +68,4 @@ export interface RecallUnitAction {
  * validate/execute pair is actually implemented (M1's turn/priority
  * skeleton), not stubbed out ahead of that logic.
  */
-export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction;
+export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction | PassFocusAction;

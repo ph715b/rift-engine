@@ -93,5 +93,20 @@ export interface GameState {
   turnNumber: number;
   phase: Phase;
   turnState: TurnState;
+  /** Who currently acts during an open Showdown; meaningless while
+   *  turnState is "Neutral". Mirrors GameState.java's focusHolder. */
   focusHolder: 0 | 1;
+  /** Which battlefield is contested; null whenever turnState is "Neutral".
+   *  Mirrors GameState.java's showdownBf (id only, not the object, since our
+   *  BattlefieldState lives in the `battlefields` array). */
+  showdownBattlefieldId: string | null;
+  /** Consecutive PassFocus count while a Showdown is open; 2 resolves
+   *  combat and closes it. Mirrors GameState.java's consecutiveFocusPasses.
+   *  No separate showdownAttackerIndex field is needed the way Java's
+   *  showdownAttacker is: that field only exists for Charm-style effects
+   *  that let a caster move an *enemy's* unit (nothing like that is
+   *  implemented here), so activePlayerIndex — frozen for the Showdown's
+   *  whole lifetime, since Pass (the only thing that changes it) is illegal
+   *  while turnState is "Showdown" — is always the attacker. */
+  consecutiveFocusPasses: number;
 }
