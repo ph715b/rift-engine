@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { scoreHolds } from "./scoring.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -25,9 +26,10 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
 }
 
 /** Ready all exhausted cards for the active player; ready exhausted runes in
- *  their pool. Mirrors TurnManager.runAwaken (engine/TurnManager.java:65-84),
- *  minus UnitAbilities.cannotBeReadied (no card grants that yet) and
- *  ScoringSystem.onTurnStart (no scoring yet). */
+ *  their pool; reset their per-turn conquest tracking. Mirrors
+ *  TurnManager.runAwaken (engine/TurnManager.java:65-84) plus
+ *  ScoringSystem.onTurnStart (engine/ScoringSystem.java:30-32, called from
+ *  runAwaken), minus UnitAbilities.cannotBeReadied (no card grants that yet). */
 export function runAwaken(state: GameState): GameState {
   if (state.phase !== "Awaken") {
     throw new Error(`runAwaken requires Awaken phase, currently: ${state.phase}`);
@@ -48,19 +50,21 @@ export function runAwaken(state: GameState): GameState {
     activeGear: p.activeGear.map((g) => ({ ...g, exhausted: false })),
     legend: { ...p.legend, exhausted: false },
     channeled: p.channeled.map((r) => (r.state === "Exhausted" ? { ...r, state: "Ready" as const } : r)),
+    conqueredBattlefieldsThisTurn: [],
   }));
 
   return { ...next, phase: "Beginning" };
 }
 
-/** Scoring holds / start-of-Beginning-Phase triggers — not implemented yet
- *  (no ScoringSystem, no cards with Beginning-Phase abilities modeled). A
- *  pure phase-marker step until those land. */
+/** Scores holds for the active player. Mirrors TurnManager.runBeginning
+ *  (engine/TurnManager.java:86-98), minus killTemporaryUnits (no card
+ *  grants [Temporary] yet) and every Beginning-Phase ability hook (no
+ *  cards with onBeginningPhase effects modeled). */
 export function runBeginning(state: GameState): GameState {
   if (state.phase !== "Beginning") {
     throw new Error(`runBeginning requires Beginning phase, currently: ${state.phase}`);
   }
-  return { ...state, phase: "Channel" };
+  return { ...scoreHolds(state, state.activePlayerIndex), phase: "Channel" };
 }
 
 /**

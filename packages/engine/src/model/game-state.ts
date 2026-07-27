@@ -46,6 +46,17 @@ export interface PlayerState {
   floatingEnergy: number;
   floatingPower: Partial<Record<Domain, number>>;
   cardsPlayedThisTurn: number;
+  /**
+   * Battlefield ids this player has conquered so far this turn — needed for
+   * the final-point rule (core rules §466.2): if a Conquest would be a
+   * player's winning point, it's only awarded once they've conquered every
+   * battlefield in that same turn; otherwise it's withheld (not rolled
+   * back — the point simply never increments) and they draw a compensation
+   * card instead. Mirrors GameState.conqueredThisTurn (a confirmed real
+   * rules-vs-engine gap the Core-Rules-Audit found and fixed) and is reset
+   * every Awaken (ScoringSystem.onTurnStart, engine/ScoringSystem.java:26-32).
+   */
+  conqueredBattlefieldsThisTurn: string[];
 }
 
 /**
