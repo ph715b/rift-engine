@@ -10,11 +10,11 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * (engine/ActionExecutor.java:1492-1513) for the energy-only case.
  *
  * Not yet implemented: Spell/Gear/Legend plays, destination battlefields,
- * Accelerate/additional costs, floating Energy/Power, domain-restricted
- * Power payment, trash-play, reaction-speed plays (chain/Showdown aren't
- * modeled, so only the active player, during their own Action phase, may
- * act — matches ActionValidator's `validateClosedChain` branch, the "no
- * open chain, no Showdown" case; engine/ActionValidator.java:74-90).
+ * Accelerate/additional costs, floating Energy/Power, trash-play,
+ * reaction-speed plays (chain/Showdown aren't modeled, so only the active
+ * player, during their own Action phase, may act — matches
+ * ActionValidator's `validateClosedChain` branch, the "no open chain, no
+ * Showdown" case; engine/ActionValidator.java:74-90).
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -64,7 +64,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (rune.state !== "Ready") return fail(`Rune ${id} is already exhausted and cannot pay an Energy cost`);
   }
   for (const id of payment.powerRunes) {
-    if (!channeledById.has(id)) return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
+    const rune = channeledById.get(id);
+    if (!rune) return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
+    // Mirrors ActionExecutor.matchesPowerDomain (engine/ActionExecutor.java:1841-1843):
+    // a Power cost must be paid with runes of the exact domain it requires
+    // (card.powerDomain is only ever null when powerCost is 0, in which
+    // case this loop never runs).
+    if (card.powerDomain !== null && rune.domain !== card.powerDomain) {
+      return fail(`Rune ${id} is ${rune.domain}, but ${card.name}'s Power cost requires ${card.powerDomain}`);
+    }
   }
 
   return ok();

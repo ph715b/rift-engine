@@ -7,8 +7,8 @@ import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 
-function readyRune(id: string): RuneCard {
-  return { id, domain: "Order", state: "Ready" };
+function readyRune(id: string, domain: RuneCard["domain"] = "Order"): RuneCard {
+  return { id, domain, state: "Ready" };
 }
 
 function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerState {
@@ -162,7 +162,12 @@ describe("PlayCard: from the Champion Zone (not just hand)", () => {
     expect(champion.powerCost).toBe(1);
     state.players[0]!.championZone = champion;
     // Enough runes to cover the champion's real 5-energy + 1-power cost.
-    state.players[0]!.channeled = Array.from({ length: 6 }, (_, i) => readyRune(`champ-rune-${i}`));
+    // The Power rune must match the champion's printed powerDomain — Energy
+    // runes are domain-agnostic, so only the last (Power) rune needs it.
+    state.players[0]!.channeled = [
+      ...Array.from({ length: 5 }, (_, i) => readyRune(`champ-rune-${i}`)),
+      readyRune("champ-rune-5", champion.powerDomain ?? "Order"),
+    ];
 
     const action: PlayCardAction = {
       type: "PlayCard",
@@ -198,5 +203,94 @@ describe("PlayCard: from the Champion Zone (not just hand)", () => {
     };
 
     expect(validatePlayCard(state, action).ok).toBe(false);
+  });
+});
+
+describe("PlayCard: Power-cost rune recycling", () => {
+  it("recycles a rune paid for Power (removed from channeled, reset Ready, sent to the bottom of the rune deck) distinct from Energy exhaustion", () => {
+    const { state } = buildFixture();
+    const registry = defaultCardRegistry();
+    // Jinx - Demolitionist (OGN-030): 3 Energy + 1 Power (Fury).
+    const jinxDef = registry.get("OGN-030");
+    const jinx = createCardInstance(jinxDef) as UnitInstance;
+    expect(jinx.energyCost).toBe(3);
+    expect(jinx.powerCost).toBe(1);
+    expect(jinx.powerDomain).toBe("Fury");
+
+    state.players[0]!.hand = [jinx];
+    // 3 plain Ready runes for Energy, plus 1 Exhausted Fury rune to freely cover Power.
+    state.players[0]!.channeled = [
+      readyRune("e1"),
+      readyRune("e2"),
+      readyRune("e3"),
+      { id: "fury-exhausted", domain: "Fury", state: "Exhausted" },
+    ];
+    state.players[0]!.runeDeck = [];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: jinx,
+      payment: { energyRunes: ["e1", "e2", "e3"], powerRunes: ["fury-exhausted"] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+
+    // The Power rune is fully recycled out of the pool, reset to Ready, and
+    // sent to the bottom of the rune deck (ActionExecutor.java:1907-1911) —
+    // NOT left in `channeled` as merely Exhausted, unlike Energy runes.
+    expect(actor.channeled.find((r) => r.id === "fury-exhausted")).toBeUndefined();
+    expect(actor.channeled).toHaveLength(3);
+    expect(actor.runeDeck).toHaveLength(1);
+    expect(actor.runeDeck[0]).toEqual({ id: "fury-exhausted", domain: "Fury", state: "Ready" });
+
+    // Energy runes stay in the pool, now Exhausted.
+    expect(actor.channeled.every((r) => r.state === "Exhausted")).toBe(true);
+
+    // No double-duty rune was used here, so no floating Energy credit.
+    expect(actor.floatingEnergy).toBe(0);
+  });
+
+  it("credits +1 floating Energy when a single Ready rune pays both Energy and Power (double duty)", () => {
+    const { state } = buildFixture();
+    const registry = defaultCardRegistry();
+    const jinxDef = registry.get("OGN-030");
+    const jinx = createCardInstance(jinxDef) as UnitInstance;
+
+    state.players[0]!.hand = [jinx];
+    // Only 3 Ready runes total, one of which is Fury and must double up on both
+    // its own Energy slot and the Power cost (no Exhausted Fury rune available).
+    state.players[0]!.channeled = [
+      { id: "fury-ready", domain: "Fury", state: "Ready" },
+      readyRune("e1"),
+      readyRune("e2"),
+    ];
+    state.players[0]!.runeDeck = [];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: jinx,
+      payment: { energyRunes: ["fury-ready", "e1", "e2"], powerRunes: ["fury-ready"] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+
+    // The double-duty rune is recycled (Power wins), the other two are Exhausted.
+    expect(actor.channeled).toHaveLength(2);
+    expect(actor.channeled.every((r) => r.state === "Exhausted")).toBe(true);
+    expect(actor.runeDeck).toHaveLength(1);
+    expect(actor.runeDeck[0]!.id).toBe("fury-ready");
+    expect(actor.runeDeck[0]!.state).toBe("Ready");
+
+    // Its Energy-paying potential would otherwise be wasted, so the player is
+    // credited 1 floating Energy instead (ActionExecutor.java:1876-1886).
+    expect(actor.floatingEnergy).toBe(1);
   });
 });

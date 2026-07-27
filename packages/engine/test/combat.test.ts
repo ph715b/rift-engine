@@ -20,6 +20,7 @@ function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
     kind: "Unit",
     energyCost: 0,
     powerCost: 0,
+    powerDomain: null,
     might: 3,
     isChampion: false,
     keywords: {},

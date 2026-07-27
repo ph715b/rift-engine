@@ -4,9 +4,12 @@ import { allPresetDecks, presetDeckList } from "../src/decks/deck-presets.js";
 import { buildPlayerFromDeckList } from "../src/decks/player-setup.js";
 import { mulberry32 } from "../src/util/rng.js";
 import type { BattlefieldState, GameState } from "../src/model/game-state.js";
+import type { UnitInstance } from "../src/model/card.js";
+import { createCardInstance } from "../src/model/card.js";
 import { LEGACY_BATTLEFIELDS } from "../src/decks/deck-list.js";
 import { startGame, submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
+import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { chooseAction } from "../src/ai/heuristic-ai.js";
 
 function buildInitialGameState(): GameState {
@@ -60,6 +63,52 @@ describe("legalActions", () => {
   it("returns no actions outside the Action phase", () => {
     const state = buildInitialGameState(); // still phase: "Awaken"
     expect(legalActions(state)).toEqual([]);
+  });
+
+  it("generates a valid, affordable PlayCard candidate for a hand card with a domain-restricted Power cost", () => {
+    const { state } = startGame(buildInitialGameState());
+    const registry = defaultCardRegistry();
+    // Jinx - Demolitionist (OGN-030): 3 Energy + 1 Power (Fury).
+    const jinx = createCardInstance(registry.get("OGN-030")) as UnitInstance;
+    expect(jinx.powerCost).toBe(1);
+    expect(jinx.powerDomain).toBe("Fury");
+
+    const actor = state.players[0]!;
+    actor.hand = [...actor.hand, jinx];
+    actor.channeled = [
+      { id: "extra-e1", domain: "Order", state: "Ready" },
+      { id: "extra-e2", domain: "Order", state: "Ready" },
+      { id: "extra-e3", domain: "Order", state: "Ready" },
+      { id: "extra-fury", domain: "Fury", state: "Exhausted" },
+    ];
+
+    const actions = legalActions(state);
+    const play = actions.find((a) => a.type === "PlayCard" && a.card.instanceId === jinx.instanceId);
+    expect(play).toBeDefined();
+    expect(play!.type).toBe("PlayCard");
+    if (play!.type === "PlayCard") {
+      expect(validatePlayCard(state, play!)).toEqual({ ok: true });
+      expect(play!.payment.powerRunes).toEqual(["extra-fury"]); // free Exhausted match preferred
+    }
+  });
+
+  it("omits a PlayCard candidate when no domain-matching rune can cover the Power cost", () => {
+    const { state } = startGame(buildInitialGameState());
+    const registry = defaultCardRegistry();
+    const jinx = createCardInstance(registry.get("OGN-030")) as UnitInstance;
+
+    const actor = state.players[0]!;
+    actor.hand = [...actor.hand, jinx];
+    // Plenty of Energy, zero Fury runes anywhere in the pool.
+    actor.channeled = [
+      { id: "e1", domain: "Order", state: "Ready" },
+      { id: "e2", domain: "Order", state: "Ready" },
+      { id: "e3", domain: "Order", state: "Ready" },
+      { id: "e4", domain: "Order", state: "Ready" },
+    ];
+
+    const actions = legalActions(state);
+    expect(actions.some((a) => a.type === "PlayCard" && a.card.instanceId === jinx.instanceId)).toBe(false);
   });
 });
 

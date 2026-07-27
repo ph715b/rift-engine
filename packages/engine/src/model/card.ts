@@ -35,6 +35,11 @@ export interface UnitInstance extends CardInstanceBase {
   kind: "Unit";
   energyCost: number;
   powerCost: number;
+  /** Which domain a nonzero powerCost must be paid in — null whenever
+   *  powerCost is 0. Needed at runtime (not just on CardDefinition) so
+   *  auto-payment logic (legalActions/computeAutoPayment) can pick correctly
+   *  domain-matching runes without a registry lookup. */
+  powerDomain: Domain | null;
   might: number;
   isChampion: boolean;
   keywords: Partial<Record<Keyword, number>>;
@@ -48,6 +53,7 @@ export interface SpellInstance extends CardInstanceBase {
   kind: "Spell";
   energyCost: number;
   powerCost: number;
+  powerDomain: Domain | null;
   isReaction: boolean;
 }
 
@@ -55,6 +61,7 @@ export interface GearInstance extends CardInstanceBase {
   kind: "Gear";
   energyCost: number;
   powerCost: number;
+  powerDomain: Domain | null;
   attachedToInstanceId: string | null;
 }
 
@@ -88,6 +95,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         kind: "Unit",
         energyCost: def.energyCost,
         powerCost: def.powerCost,
+        powerDomain: def.powerDomain,
         might: def.might,
         isChampion: def.isChampion,
         keywords: def.keywords,
@@ -102,6 +110,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         kind: "Spell",
         energyCost: def.energyCost,
         powerCost: def.powerCost,
+        powerDomain: def.powerDomain,
         isReaction: def.isReaction,
       };
     case "Gear":
@@ -110,6 +119,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         kind: "Gear",
         energyCost: def.energyCost,
         powerCost: def.powerCost,
+        powerDomain: def.powerDomain,
         attachedToInstanceId: null,
       };
   }

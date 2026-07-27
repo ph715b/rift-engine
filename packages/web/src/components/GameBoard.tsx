@@ -5,8 +5,7 @@ import { createNewGame, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { RematchPanel } from "./RematchPanel.js";
-import { PlayerResourcesZone } from "./PlayerResourcesZone.js";
-import { PointTracker } from "./PointTracker.js";
+import { PlayerSideColumn } from "./PlayerSideColumn.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -166,114 +165,119 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         />
       )}
 
-      <div className="player-row">
-        <span>
-          AI Opponent — <strong>{ai.points} pts</strong> · hand: {ai.hand.length}
-        </span>
-        <PointTracker points={ai.points} />
-      </div>
+      <div className="board-main">
+        <PlayerSideColumn
+          label="AI Opponent"
+          points={ai.points}
+          handCount={ai.hand.length}
+          legend={ai.legend}
+          champion={ai.championZone}
+          runes={ai.channeled}
+          trashCount={ai.trash.length}
+          banishedCount={ai.banished.length}
+          runeDeckCount={ai.runeDeck.length}
+          isEnemy
+        />
 
-      <div className="zone card-zone">
-        <div className="zone-label">AI base</div>
-        <div className="card-row">
-          <AnimatePresence>
-            {ai.baseUnits.map((unit) => (
-              <CardView key={unit.instanceId} card={unit} isEnemy />
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
+        <div className="board-center">
+          <div className="zone card-zone">
+            <div className="zone-label">AI base</div>
+            <div className="card-row">
+              <AnimatePresence>
+                {ai.baseUnits.map((unit) => (
+                  <CardView key={unit.instanceId} card={unit} isEnemy />
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
 
-      <PlayerResourcesZone label="AI" legend={ai.legend} champion={ai.championZone} runes={ai.channeled} isEnemy />
-
-      {/* Column count is dynamic, not hardcoded to the current 2-per-1v1-match
-          rule: a real card (Baron Nashor) can add a 3rd battlefield mid-game. */}
-      <div className="battlefields" style={{ gridTemplateColumns: `repeat(${state.battlefields.length}, 1fr)` }}>
-        {state.battlefields.map((bf) => (
-          <BattlefieldView
-            key={bf.id}
-            battlefield={bf}
-            human={human}
-            ai={ai}
-            selectedUnit={selectedUnit}
-            isMoveTarget={isHumanTurn && selectedUnit !== null && Boolean(moveActionTo(selectedUnit, bf.id))}
-            isDragOver={dragOverZoneId === bf.id}
-            onSelectUnit={handleSelectUnit}
-            onMoveHere={() => handleBattlefieldClick(bf.id)}
-            canDragUnit={canDragUnit}
-            onUnitDrag={(_unit, point) => trackDragZone(point)}
-            onUnitDragEnd={(unit) => handleUnitDragEnd(unit)}
-          />
-        ))}
-      </div>
-
-      <PlayerResourcesZone
-        label="Your"
-        legend={human.legend}
-        champion={human.championZone}
-        runes={human.channeled}
-        isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardPlayable(human.championZone.instanceId))}
-        onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
-        onChampionDrag={
-          isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId) ? trackDragZone : undefined
-        }
-        onChampionDragEnd={
-          isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId)
-            ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
-            : undefined
-        }
-      />
-
-      <div
-        className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${
-          isHumanTurn && selectedUnit !== null && Boolean(recallActionFor(selectedUnit)) ? " selectable" : ""
-        }`}
-        data-dropzone-id={BASE_ZONE_ID}
-        onClick={isHumanTurn && selectedUnit !== null && recallActionFor(selectedUnit) ? handleBaseZoneClick : undefined}
-      >
-        <div className="zone-label">Your base</div>
-        <div className="card-row">
-          <AnimatePresence>
-            {human.baseUnits.map((unit) => (
-              <CardView
-                key={unit.instanceId}
-                card={unit}
-                isSelectable={isHumanTurn && !unit.exhausted}
-                isSelected={selectedUnit?.instanceId === unit.instanceId}
-                onClick={() => handleSelectUnit(unit)}
-                onDrag={canDragUnit(unit) ? trackDragZone : undefined}
-                onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}
+          {/* Column count is dynamic, not hardcoded to the current 2-per-1v1-match
+              rule: a real card (Baron Nashor) can add a 3rd battlefield mid-game. */}
+          <div className="battlefields" style={{ gridTemplateColumns: `repeat(${state.battlefields.length}, 1fr)` }}>
+            {state.battlefields.map((bf) => (
+              <BattlefieldView
+                key={bf.id}
+                battlefield={bf}
+                human={human}
+                ai={ai}
+                selectedUnit={selectedUnit}
+                isMoveTarget={isHumanTurn && selectedUnit !== null && Boolean(moveActionTo(selectedUnit, bf.id))}
+                isDragOver={dragOverZoneId === bf.id}
+                onSelectUnit={handleSelectUnit}
+                onMoveHere={() => handleBattlefieldClick(bf.id)}
+                canDragUnit={canDragUnit}
+                onUnitDrag={(_unit, point) => trackDragZone(point)}
+                onUnitDragEnd={(unit) => handleUnitDragEnd(unit)}
               />
             ))}
-          </AnimatePresence>
-        </div>
-      </div>
+          </div>
 
-      <div className="zone card-zone">
-        <div className="zone-label">Your hand</div>
-        <div className="card-row">
-          <AnimatePresence>
-            {human.hand.map((card) => (
-              <CardView
-                key={card.instanceId}
-                card={card}
-                isSelectable={isHumanTurn && Boolean(isCardPlayable(card.instanceId))}
-                onClick={() => handleHandCardClick(card.instanceId)}
-                onDrag={isHumanTurn && isCardPlayable(card.instanceId) ? trackDragZone : undefined}
-                onDragEnd={
-                  isHumanTurn && isCardPlayable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
-                }
-              />
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
+          <div
+            className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${
+              isHumanTurn && selectedUnit !== null && Boolean(recallActionFor(selectedUnit)) ? " selectable" : ""
+            }`}
+            data-dropzone-id={BASE_ZONE_ID}
+            onClick={isHumanTurn && selectedUnit !== null && recallActionFor(selectedUnit) ? handleBaseZoneClick : undefined}
+          >
+            <div className="zone-label">Your base</div>
+            <div className="card-row">
+              <AnimatePresence>
+                {human.baseUnits.map((unit) => (
+                  <CardView
+                    key={unit.instanceId}
+                    card={unit}
+                    isSelectable={isHumanTurn && !unit.exhausted}
+                    isSelected={selectedUnit?.instanceId === unit.instanceId}
+                    onClick={() => handleSelectUnit(unit)}
+                    onDrag={canDragUnit(unit) ? trackDragZone : undefined}
+                    onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
 
-      <div className="player-row">
-        <span>
-          You — <strong>{human.points} pts</strong>
-        </span>
-        <PointTracker points={human.points} />
+          <div className="zone card-zone">
+            <div className="zone-label">Your hand</div>
+            <div className="card-row">
+              <AnimatePresence>
+                {human.hand.map((card) => (
+                  <CardView
+                    key={card.instanceId}
+                    card={card}
+                    isSelectable={isHumanTurn && Boolean(isCardPlayable(card.instanceId))}
+                    onClick={() => handleHandCardClick(card.instanceId)}
+                    onDrag={isHumanTurn && isCardPlayable(card.instanceId) ? trackDragZone : undefined}
+                    onDragEnd={
+                      isHumanTurn && isCardPlayable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
+                    }
+                  />
+                ))}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+
+        <PlayerSideColumn
+          label="You"
+          points={human.points}
+          legend={human.legend}
+          champion={human.championZone}
+          runes={human.channeled}
+          trashCount={human.trash.length}
+          banishedCount={human.banished.length}
+          runeDeckCount={human.runeDeck.length}
+          isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardPlayable(human.championZone.instanceId))}
+          onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
+          onChampionDrag={
+            isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId) ? trackDragZone : undefined
+          }
+          onChampionDragEnd={
+            isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId)
+              ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
+              : undefined
+          }
+        />
       </div>
 
       <div className="actions">

@@ -58,6 +58,10 @@ button:disabled {
      not set independently. */
   --card-h: clamp(64px, 15dvh, 190px);
   --card-w: calc(var(--card-h) * 0.716);
+  /* Side rails are sized off card width (they hold compact Legend/Champion
+     cards + wrapped rune tiles), not the viewport, so they stay proportional
+     to the same card scale everything else already uses. */
+  --side-col-w: clamp(120px, 15vw, 210px);
 }
 
 .board {
@@ -89,17 +93,20 @@ button:disabled {
   letter-spacing: 0.03em;
 }
 
-.player-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  font-size: 1rem;
-  color: var(--color-text-dim);
-  flex: 0 0 auto;
+.board-main {
+  display: grid;
+  grid-template-columns: var(--side-col-w) 1fr var(--side-col-w);
+  gap: 0.75rem;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
-.player-row strong {
-  color: var(--color-text);
+.board-center {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  min-width: 0;
 }
 
 .zone {
@@ -113,14 +120,51 @@ button:disabled {
 }
 
 /* The 3 card-holding zones (AI base / your base / your hand) share
-   whatever vertical space is left after the fixed-size rows (header,
-   player info, rune pool, actions) — battlefields get a bit more (1.4x)
-   since it's the board's visual centerpiece. */
+   whatever vertical space is left in the center column after the
+   battlefields row — battlefields get a bit more (1.4x) since it's the
+   board's visual centerpiece. */
 .zone.card-zone {
   flex: 1 1 0;
 }
 
-.zone.compact-zone {
+.side-column {
+  flex: 0 0 auto;
+  gap: 0.6rem;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.side-column-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--color-text-dim);
+  flex: 0 0 auto;
+}
+
+.side-column-header strong {
+  color: var(--color-text);
+}
+
+.side-column-hand-count {
+  display: block;
+}
+
+.side-column-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.side-column-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
   flex: 0 0 auto;
 }
 
@@ -406,19 +450,6 @@ button:disabled {
 .deck-import-error {
   color: var(--color-danger);
   font-size: 0.85rem;
-}
-
-.resources-row {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.resources-cards {
-  display: flex;
-  gap: 0.6rem;
-  flex-shrink: 0;
 }
 
 .rune-row {
