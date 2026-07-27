@@ -1,5 +1,5 @@
+import { CardView, type DragPoint } from "./CardView.js";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
-import { CardView } from "./CardView.js";
 
 interface BattlefieldViewProps {
   battlefield: BattlefieldState;
@@ -7,8 +7,12 @@ interface BattlefieldViewProps {
   ai: PlayerState;
   selectedUnit: UnitInstance | null;
   isMoveTarget: boolean;
+  isDragOver: boolean;
   onSelectUnit: (unit: UnitInstance) => void;
   onMoveHere: () => void;
+  canDragUnit: (unit: UnitInstance) => boolean;
+  onUnitDrag: (unit: UnitInstance, point: DragPoint) => void;
+  onUnitDragEnd: (unit: UnitInstance, point: DragPoint) => void;
 }
 
 export function BattlefieldView({
@@ -17,19 +21,24 @@ export function BattlefieldView({
   ai,
   selectedUnit,
   isMoveTarget,
+  isDragOver,
   onSelectUnit,
   onMoveHere,
+  canDragUnit,
+  onUnitDrag,
+  onUnitDragEnd,
 }: BattlefieldViewProps) {
   const humanUnits = battlefield.units[human.id] ?? [];
   const aiUnits = battlefield.units[ai.id] ?? [];
   const controllerName =
     battlefield.controllerId === human.id ? "You" : battlefield.controllerId === ai.id ? "AI" : "Uncontrolled";
 
+  const classes = ["battlefield"];
+  if (isMoveTarget) classes.push("selectable");
+  if (isDragOver) classes.push("drag-over");
+
   return (
-    <div
-      className={`battlefield${isMoveTarget ? " selectable" : ""}`}
-      onClick={isMoveTarget ? onMoveHere : undefined}
-    >
+    <div className={classes.join(" ")} onClick={isMoveTarget ? onMoveHere : undefined} data-dropzone-id={battlefield.id}>
       <div className="battlefield-name">
         <span>{battlefield.name}</span>
         <span>{controllerName}</span>
@@ -47,6 +56,8 @@ export function BattlefieldView({
             isSelectable={!unit.exhausted}
             isSelected={selectedUnit?.instanceId === unit.instanceId}
             onClick={() => onSelectUnit(unit)}
+            onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}
+            onDragEnd={canDragUnit(unit) ? (info) => onUnitDragEnd(unit, info) : undefined}
           />
         ))}
       </div>
