@@ -1,3 +1,5 @@
+import { LEGACY_BATTLEFIELDS, type DeckList } from "./deck-list.js";
+
 /**
  * The four preconstructed Origins: Proving Grounds decks — reused directly
  * from registry/DeckPresets.java rather than re-sourced, per PRD decision
@@ -10,6 +12,27 @@ export interface PresetDeck {
   legendId: string;
   championId: string;
   deckCardIds: string[];
+}
+
+/**
+ * Fills in the fields a PresetDeck doesn't carry (DeckPresets.java's own
+ * record is just name/legendId/championId/deckCardIds) with the same
+ * defaults `SetupController` uses for these specific presets: a 6/6 rune
+ * split and the legacy battlefield trio, since the presets have "no
+ * verified real battlefield trio of their own to draw from"
+ * (registry/CustomDeckRegistry.java:16-18). No sideboard.
+ */
+export function presetDeckList(preset: PresetDeck): DeckList {
+  return {
+    name: preset.name,
+    legendId: preset.legendId,
+    championId: preset.championId,
+    cardIds: preset.deckCardIds,
+    runeDomainACount: 6,
+    runeDomainBCount: 6,
+    battlefieldNames: LEGACY_BATTLEFIELDS,
+    sideboardCardIds: [],
+  };
 }
 
 function deck(...pairs: [count: number, id: string][]): string[] {

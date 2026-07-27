@@ -11,10 +11,17 @@ export type Domain = (typeof DOMAINS)[number];
 
 const DOMAIN_ORDER = new Map<Domain, number>(DOMAINS.map((d, i) => [d, i]));
 
+/** Sorts a copy of `domains` into ordinal order. Matches CardRegistry.orderedDomains
+ *  (registry/CardRegistry.java:190-194), which decides e.g. which legend domain
+ *  "A"/"B" (a deck's runeDomainACount/B) refers to. */
+export function sortByDomainOrdinal(domains: readonly Domain[]): Domain[] {
+  return [...domains].sort((a, b) => DOMAIN_ORDER.get(a)! - DOMAIN_ORDER.get(b)!);
+}
+
 /** Lowest-ordinal domain in a set, matching CardLoader.java's `domains.stream().min(...)`. */
 export function lowestOrdinalDomain(domains: readonly Domain[]): Domain {
   if (domains.length === 0) throw new Error("lowestOrdinalDomain: empty domain list");
-  return [...domains].sort((a, b) => DOMAIN_ORDER.get(a)! - DOMAIN_ORDER.get(b)!)[0]!;
+  return sortByDomainOrdinal(domains)[0]!;
 }
 
 export function isDomain(value: string): value is Domain {

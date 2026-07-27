@@ -9,12 +9,21 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * PlayCard checks and ActionExecutor.java's `isValidPayment`
  * (engine/ActionExecutor.java:1492-1513) for the energy-only case.
  *
- * Not yet implemented (validated M1, alongside the turn/priority skeleton):
- * phase/priority legality, Spell/Gear/Legend plays, destination
- * battlefields, Accelerate/additional costs, floating Energy/Power,
- * domain-restricted Power payment.
+ * Not yet implemented: Spell/Gear/Legend plays, destination battlefields,
+ * Accelerate/additional costs, floating Energy/Power, domain-restricted
+ * Power payment, reaction-speed plays (chain/Showdown aren't modeled, so
+ * only the active player, during their own Action phase, may act — matches
+ * ActionValidator's `validateClosedChain` branch, the "no open chain, no
+ * Showdown" case; engine/ActionValidator.java:74-90).
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
+  if (action.playerIndex !== state.activePlayerIndex) {
+    return fail(`It is not player ${action.playerIndex}'s turn`);
+  }
+  if (state.phase !== "Action") {
+    return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
+  }
+
   const actor: PlayerState | undefined = state.players[action.playerIndex];
   if (!actor) return fail(`No player at index ${action.playerIndex}`);
 

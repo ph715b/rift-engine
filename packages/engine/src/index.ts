@@ -13,5 +13,17 @@ export * from "./actions/validation-result.js";
 export * from "./actions/player-action.js";
 export * from "./actions/validate-play-card.js";
 export * from "./actions/execute-play-card.js";
+export * from "./actions/validate-pass.js";
 
+export * from "./decks/deck-list.js";
+export * from "./decks/deck-validation.js";
+export * from "./decks/deck-file-parser.js";
+export * from "./decks/player-setup.js";
 export * from "./decks/deck-presets.js";
+
+export * from "./engine/turn-manager.js";
+export * from "./engine/win-condition.js";
+export * from "./engine/submit-result.js";
+export * from "./engine/game-engine.js";
+
+export * from "./util/rng.js";

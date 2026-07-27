@@ -21,6 +21,18 @@ export interface PlayerState {
   id: string;
   name: string;
   legend: LegendInstance;
+  /**
+   * The one champion copy set aside at deck-build time — starts face-up
+   * here, outside the draw deck, per Player.java:25 ("the champion starts
+   * face-up in the base zone") and CardRegistry.buildPlayerWithChampion
+   * (registry/CardRegistry.java:220-249), which pulls exactly one copy of
+   * the chosen champion out of the 40-card deck before shuffling the rest.
+   * Modeled as a field on PlayerState rather than a separate
+   * GameState-level `Map<Player, Card.Unit>` (as Java's
+   * `championZone`/`chosenChampion` are) since our GameState is already
+   * player-indexed.
+   */
+  championZone: UnitInstance | null;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

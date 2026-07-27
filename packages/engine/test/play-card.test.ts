@@ -16,6 +16,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     id,
     name,
     legend,
+    championZone: null,
     deck: [],
     hand: [],
     trash: [],
@@ -109,6 +110,9 @@ describe("PlayCard: Unit to base (M0 vertical slice)", () => {
     expect(actor.hand).toHaveLength(0);
     expect(actor.baseUnits).toHaveLength(1);
     expect(actor.baseUnits[0]!.instanceId).toBe(poro.instanceId);
+    // Daring Poro has no [Quick] — real core rule: units enter play exhausted
+    // by default (ActionExecutor.java:376-384).
+    expect(actor.baseUnits[0]!.exhausted).toBe(true);
 
     // Exactly the 2 runes spent on Energy are now Exhausted; the 3rd (unpaid) stays Ready.
     // Mirrors ActionExecutor.applyPayment (engine/ActionExecutor.java:1889-1891): a rune

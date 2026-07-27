@@ -16,6 +16,11 @@ import { validatePlayCard } from "./validate-play-card.js";
  *   - baseUnits.add(unit) (no `destination` battlefield supplied) — :353
  *   - payCost -> applyPayment: each energy rune paid becomes Exhausted,
  *     stays in the pool (returns to Ready at next Awaken) — :1889-1891
+ *   - the unit enters play EXHAUSTED unless it has [Quick] — real core rule,
+ *     not a placeholder default; ActionExecutor.java:376-384's full
+ *     condition also excludes Accelerate/several per-card exceptions, none
+ *     of which are modeled yet (no `payAccelerate` on our PlayCardAction) —
+ *     only the [Quick] check is ported so far.
  *   - cardsPlayedThisTurn++ — :267
  *
  * Throws if validation fails — callers are expected to call
@@ -36,11 +41,13 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     paidEnergyRuneIds.has(rune.id) ? { ...rune, state: "Exhausted" as const } : rune,
   );
 
+  const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) };
+
   const updatedActor: PlayerState = {
     ...actor,
     hand: actor.hand.filter((c) => c.instanceId !== card.instanceId),
     channeled: updatedChanneled,
-    baseUnits: [...actor.baseUnits, card],
+    baseUnits: [...actor.baseUnits, deployedUnit],
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
   };
 
