@@ -37,6 +37,10 @@ function buildInitialGameState(): GameState {
     focusHolder: 0,
     showdownBattlefieldId: null,
     consecutiveFocusPasses: 0,
+    chainOpen: true,
+    chainPriority: 0,
+    chainPasses: 0,
+    spellChain: [],
   };
 }
 
@@ -48,7 +52,7 @@ describe("legalActions", () => {
     expect(actions.some((a) => a.type === "Pass")).toBe(true);
     for (const action of actions) {
       if (action.type === "PlayCard") {
-        expect(action.card.kind).toBe("Unit");
+        expect(action.card.kind).not.toBe("Legend");
         expect(action.payment.energyRunes.length).toBeLessThanOrEqual(state.players[0].channeled.length);
       }
       if (action.type === "MoveUnit") {

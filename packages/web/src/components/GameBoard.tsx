@@ -41,16 +41,27 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const lastDragZoneRef = useRef<string | null>(null);
 
   // The "acting player" — normally the active player, but during an open
-  // Showdown it's whoever holds Focus instead, which can be either player
-  // regardless of whose turn it nominally is (mirrors GameState.java's
-  // actingPlayer() precedence: Showdown -> focusHolder, Neutral -> activePlayerIndex).
-  const actingPlayerIndex = state.turnState === "Showdown" ? state.focusHolder : state.activePlayerIndex;
+  // Showdown it's whoever holds Focus, and while the chain is closed (a
+  // spell pending resolution) it's whoever holds chain priority instead —
+  // either can be either player regardless of whose turn it nominally is
+  // (mirrors GameState.java's actingPlayer() precedence: chain closed ->
+  // chainPriority, Showdown -> focusHolder, else -> activePlayerIndex).
+  const actingPlayerIndex = !state.chainOpen
+    ? state.chainPriority
+    : state.turnState === "Showdown"
+      ? state.focusHolder
+      : state.activePlayerIndex;
   const isHumanTurn = actingPlayerIndex === HUMAN_INDEX;
   const isGameOver = result.type === "GameOver";
   const isShowdownOpen = state.turnState === "Showdown";
   const showdownBattlefield = isShowdownOpen
     ? state.battlefields.find((bf) => bf.id === state.showdownBattlefieldId)
     : undefined;
+  // A spell is pending resolution — the same PassFocus action/button used
+  // for Showdown-Focus-passing also passes chain priority here (they're the
+  // same underlying mechanism, distinguished only by which state is closed).
+  const isChainPending = !state.chainOpen;
+  const showPassFocus = isShowdownOpen || isChainPending;
 
   const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
 
@@ -169,9 +180,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           Turn {state.turnNumber} · {state.phase} ·{" "}
           {isShowdownOpen
             ? `Showdown at ${showdownBattlefield?.name ?? "?"} — ${isHumanTurn ? "your" : "AI's"} Focus`
-            : isHumanTurn
-              ? "Your turn"
-              : "AI's turn"}
+            : isChainPending
+              ? `Spell pending resolution — ${isHumanTurn ? "your" : "AI's"} priority`
+              : isHumanTurn
+                ? "Your turn"
+                : "AI's turn"}
         </span>
       </div>
 
@@ -195,6 +208,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           trashCount={ai.trash.length}
           banishedCount={ai.banished.length}
           runeDeckCount={ai.runeDeck.length}
+          activeGear={ai.activeGear}
           isEnemy
         />
 
@@ -287,6 +301,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           trashCount={human.trash.length}
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
+          activeGear={human.activeGear}
           isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardPlayable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
           onChampionDrag={
@@ -301,7 +316,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       </div>
 
       <div className="actions">
-        {isShowdownOpen ? (
+        {showPassFocus ? (
           <button onClick={handlePassFocus} disabled={!isHumanTurn || isGameOver}>
             Pass Focus
           </button>

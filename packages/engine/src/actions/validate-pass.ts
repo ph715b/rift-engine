@@ -22,5 +22,8 @@ export function validatePass(state: GameState, action: PassAction): ValidationRe
   if (state.turnState !== "Neutral") {
     return fail("Cannot end your turn while a Showdown is open — use Pass Focus instead");
   }
+  if (!state.chainOpen) {
+    return fail("Cannot end your turn while a spell is pending resolution — use Pass Focus instead");
+  }
   return ok();
 }

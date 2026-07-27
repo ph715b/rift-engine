@@ -25,6 +25,9 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
   if (state.turnState !== "Neutral") {
     return fail("Cannot move units while a Showdown is open — the fight is already engaged");
   }
+  if (!state.chainOpen) {
+    return fail("Cannot move units while a spell is pending resolution");
+  }
   if (action.unitInstanceIds.length === 0) {
     return fail("Must move at least one unit");
   }

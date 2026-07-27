@@ -18,28 +18,38 @@ import { computeAutoPayment } from "./rune-payment.js";
  * both the AI and the UI's "what can I click" logic consume the same
  * function, so they can't drift on what's legal.
  *
- * Scoped to what's implemented: PlayCard for Units only, from hand or the
- * Champion Zone, with an auto-computed rune payment covering both Energy
- * and domain-restricted Power costs (no Spells/Gear/Legend play, no
- * Accelerate/additional costs, no destination battlefields), MoveUnit for
- * every ready unit to every battlefield it can legally reach, RecallUnit
- * for every ready unit at a battlefield, and Pass. `computeAutoPayment`
- * picks a single minimal valid payment rather than exploring every possible
- * rune selection — which specific rune covers a domain-agnostic Energy
- * cost never changes the outcome, and for Power there's exactly one
- * eligible domain-matching pool to draw from anyway.
+ * Scoped to what's implemented: PlayCard for Units/Spells/Gear from hand or
+ * the Champion Zone (Unit only), with an auto-computed rune payment covering
+ * both Energy and domain-restricted Power costs (no Legend play, no
+ * Accelerate/additional costs, no destination battlefields, no targeting,
+ * no EquipGear), MoveUnit for every ready unit to every battlefield it can
+ * legally reach, RecallUnit for every ready unit at a battlefield, and Pass.
+ * `computeAutoPayment` picks a single minimal valid payment rather than
+ * exploring every possible rune selection — which specific rune covers a
+ * domain-agnostic Energy cost never changes the outcome, and for Power
+ * there's exactly one eligible domain-matching pool to draw from anyway.
+ * Every Spell in hand is a legal PlayCard candidate regardless of its
+ * isAction/isReaction tags — those only gate Showdown/reaction-speed
+ * timing (not modeled here), never a normal-turn cast.
  *
  * While a Showdown is open, none of the above are legal (mirrors
  * ActionValidator.validateShowdownOpen's hard rejection of MoveUnit/Pass,
- * plus the fact that no Spell/Reaction-speed card exists in this pool yet
- * to be the "something else" that's normally also legal there) — the only
- * candidate is PassFocus, for whoever currently holds Focus.
+ * plus the fact that no Spell/Reaction-speed card is castable there yet) —
+ * the only candidate is PassFocus, for whoever currently holds Focus.
+ * Likewise while the chain is closed (a Spell is pending resolution) — no
+ * reaction-speed cards can be played onto an already-closed chain yet, so
+ * the only candidate is PassFocus, for whoever holds chain priority.
  */
 export function legalActions(state: GameState): PlayerAction[] {
   if (state.phase !== "Action") return [];
 
   if (state.turnState === "Showdown") {
     const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.focusHolder };
+    return [passFocus];
+  }
+
+  if (!state.chainOpen) {
+    const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.chainPriority };
     return [passFocus];
   }
 
@@ -52,7 +62,7 @@ export function legalActions(state: GameState): PlayerAction[] {
 
   const playableSources = actor.championZone ? [...actor.hand, actor.championZone] : actor.hand;
   for (const card of playableSources) {
-    if (card.kind !== "Unit") continue;
+    if (card.kind === "Legend") continue;
     const payment = computeAutoPayment(actor.channeled, card.energyCost, card.powerCost, card.powerDomain);
     if (!payment) continue; // can't afford it — not a legal move
     const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment };

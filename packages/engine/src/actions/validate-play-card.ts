@@ -3,21 +3,25 @@ import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
- * Validates a PlayCard action for a Unit going to base, with a plain rune
+ * Validates a PlayCard action for a Unit/Spell/Gear, with a plain rune
  * payment (no float, no Accelerate, no additional cost, no destination
- * battlefield). Mirrors the relevant slice of ActionValidator.java's
- * PlayCard checks and ActionExecutor.java's `isValidPayment`
- * (engine/ActionExecutor.java:1492-1513) for the energy-only case.
+ * battlefield, no targeting). Mirrors the relevant slice of
+ * ActionValidator.java's PlayCard checks and ActionExecutor.java's
+ * `isValidPayment` (engine/ActionExecutor.java:1492-1513) for the
+ * energy-only case.
  *
- * Not yet implemented: Spell/Gear/Legend plays, destination battlefields,
+ * Not yet implemented: Legend plays, destination battlefields,
  * Accelerate/additional costs, floating Energy/Power, trash-play,
- * reaction-speed plays (the spell chain isn't modeled yet, so only the
- * active player, during their own Action phase, may act — matches
- * ActionValidator's Neutral/chain-open branch, engine/ActionValidator.java:77-103).
- * The turnState check below additionally rejects this during an open
- * Showdown (ActionValidator.validateShowdownOpen requires isReaction ||
- * isAction on a Spell to play one there — no card in this pool is tagged
- * either yet, so nothing is legal to play during a Showdown at all).
+ * targeting, and reaction-speed plays (the chain only ever OPENS via a
+ * normal cast — nothing can be played onto an already-closed chain yet,
+ * see the chainOpen check below — matches ActionValidator's Neutral/
+ * chain-open branch, engine/ActionValidator.java:77-103). `isAction`/
+ * `isReaction` on SpellDefinition deliberately aren't consulted here —
+ * they only gate Showdown/reaction-speed timing (ActionValidator.
+ * validateShowdownOpen), which is out of scope; a normal-turn cast is
+ * legal for ANY Spell regardless of those tags, matching Java's actual
+ * plain validatePlayCard path. The turnState check below rejects this
+ * during an open Showdown entirely (no card is castable there yet).
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -29,6 +33,9 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (state.turnState !== "Neutral") {
     return fail("Cannot play cards while a Showdown is open — the fight is already engaged");
   }
+  if (!state.chainOpen) {
+    return fail("Cannot play cards while a spell is pending resolution — no reaction-speed cards are supported yet");
+  }
 
   const actor: PlayerState | undefined = state.players[action.playerIndex];
   if (!actor) return fail(`No player at index ${action.playerIndex}`);
@@ -39,15 +46,17 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // champion copy set aside at deck-build time) — mirrors
   // ActionValidator.validatePlayCard's `inHand || isChampion` origin check
   // (engine/ActionValidator.java:1126-1138). Without this, a deck's
-  // champion could never actually enter play at all.
+  // champion could never actually enter play at all. `isChampion` is
+  // structurally always false for a Spell/Gear instance — championZone is
+  // typed UnitInstance | null, so a Spell/Gear instanceId can never match it.
   const inHand = actor.hand.some((c) => c.instanceId === card.instanceId);
   const isChampion = actor.championZone?.instanceId === card.instanceId;
   if (!inHand && !isChampion) {
     return fail(`${card.name} is not in ${actor.name}'s hand or Champion Zone`);
   }
 
-  if (card.kind !== "Unit") {
-    return fail(`PlayCard is only implemented for Unit cards so far (got ${card.kind})`);
+  if (card.kind === "Legend") {
+    return fail("PlayCard is not implemented for Legend cards");
   }
 
   if (payment.energyRunes.length !== card.energyCost) {

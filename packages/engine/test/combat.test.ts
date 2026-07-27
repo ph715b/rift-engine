@@ -88,6 +88,10 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     focusHolder: 0,
     showdownBattlefieldId: null,
     consecutiveFocusPasses: 0,
+    chainOpen: true,
+    chainPriority: 0,
+    chainPasses: 0,
+    spellChain: [],
     ...overrides,
   };
 }

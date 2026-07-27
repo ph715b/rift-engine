@@ -1,7 +1,15 @@
 import type { Domain } from "./domain.js";
-import type { CardInstance, GearInstance, LegendInstance, UnitInstance } from "./card.js";
+import type { CardInstance, GearInstance, LegendInstance, SpellInstance, UnitInstance } from "./card.js";
 import type { RuneCard } from "./rune.js";
 import type { Phase, TurnState } from "./phase.js";
+
+/** One pending Spell resolution on the chain. Mirrors GameState.java's
+ *  `record ChainEntry(PlayerAction.PlayCard action, Player caster)`, trimmed
+ *  to just what's needed since our PlayCardAction already carries the card. */
+export interface ChainEntry {
+  playerIndex: 0 | 1;
+  card: SpellInstance;
+}
 
 /**
  * All state owned by a single player. Mirrors model/Player.java's zones:
@@ -109,4 +117,30 @@ export interface GameState {
    *  whole lifetime, since Pass (the only thing that changes it) is illegal
    *  while turnState is "Showdown" — is always the attacker. */
   consecutiveFocusPasses: number;
+  /** true = no spell pending resolution (an "Open State"); false = a Spell
+   *  is on the chain and only PassFocus is legal until it resolves. Mirrors
+   *  GameState.java's chainOpen — shared between Neutral and Showdown
+   *  contexts, orthogonal to turnState (a Spell can't currently be cast
+   *  during a Showdown, since validatePlayCard rejects all PlayCard outside
+   *  turnState "Neutral", so in practice this only ever closes on a Neutral
+   *  turn for now). */
+  chainOpen: boolean;
+  /** Who currently has priority to act while the chain is closed; meaningless
+   *  while chainOpen (same "stale but harmless" convention as focusHolder).
+   *  Mirrors GameState.java's chainPriority — kept non-nullable like
+   *  focusHolder rather than `0 | 1 | null`, to match the existing
+   *  convention and avoid a null-handling ripple through every fixture. */
+  chainPriority: 0 | 1;
+  /** Consecutive PassFocus count while the chain is closed; 2 resolves the
+   *  top of the chain. Mirrors GameState.java's chainPasses — a sibling
+   *  counter to consecutiveFocusPasses, not the same one, since a chain can
+   *  close independently of any Showdown. */
+  chainPasses: number;
+  /** The actual LIFO stack of pending Spell resolutions. Mirrors
+   *  GameState.java's `Deque<ChainEntry> spellChain`. A real array (not a
+   *  single nullable slot) even though nothing can currently push a 2nd
+   *  entry before the 1st resolves (no reaction-speed casting is
+   *  implemented yet) — this is the correct general shape, not speculative:
+   *  it needs no restructuring the moment reaction casting is added. */
+  spellChain: ChainEntry[];
 }

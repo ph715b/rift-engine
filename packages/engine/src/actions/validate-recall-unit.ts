@@ -18,6 +18,9 @@ export function validateRecallUnit(state: GameState, action: RecallUnitAction): 
   if (state.turnState !== "Neutral") {
     return fail("Cannot recall units while a Showdown is open — the fight is already engaged");
   }
+  if (!state.chainOpen) {
+    return fail("Cannot recall units while a spell is pending resolution");
+  }
   if (action.unitInstanceIds.length === 0) {
     return fail("Must recall at least one unit");
   }

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { loadRuneArt, type LegendInstance, type RuneCard, type UnitInstance } from "@rift-engine/engine";
+import { loadRuneArt, type GearInstance, type LegendInstance, type RuneCard, type UnitInstance } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { PointTracker } from "./PointTracker.js";
@@ -14,6 +14,7 @@ interface PlayerSideColumnProps {
   trashCount: number;
   banishedCount: number;
   runeDeckCount: number;
+  activeGear: GearInstance[];
   isEnemy?: boolean;
   isChampionSelectable?: boolean;
   onChampionClick?: () => void;
@@ -43,6 +44,7 @@ export function PlayerSideColumn({
   trashCount,
   banishedCount,
   runeDeckCount,
+  activeGear,
   isEnemy,
   isChampionSelectable,
   onChampionClick,
@@ -104,6 +106,7 @@ export function PlayerSideColumn({
         <span title="Rune deck remaining">Rune deck: {runeDeckCount}</span>
         <span title="Trash">Trash: {trashCount}</span>
         <span title="Banished">Banished: {banishedCount}</span>
+        <span title="Gear in play, unattached">Gear: {activeGear.length}</span>
       </div>
     </div>
   );
