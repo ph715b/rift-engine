@@ -1,5 +1,3 @@
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import { LEGACY_BATTLEFIELDS, type DeckList } from "./deck-list.js";
 
 /**
@@ -60,27 +58,4 @@ export function parseDeckFile(contents: string): DeckList | null {
     battlefieldNames: battlefields,
     sideboardCardIds,
   };
-}
-
-/**
- * Loads every `.deck` file in a directory (e.g. `~/.riftbound/decks`),
- * mirroring `CustomDeckRegistry.loadAllFromDisk` (registry/CustomDeckRegistry.java:61-72).
- * Malformed files are skipped, not thrown — same as the Java original.
- */
-export function loadDeckFilesFromDirectory(dir: string): DeckList[] {
-  let fileNames: string[];
-  try {
-    fileNames = readdirSync(dir);
-  } catch {
-    return []; // no saved decks directory yet
-  }
-
-  const decks: DeckList[] = [];
-  for (const fileName of fileNames) {
-    if (!fileName.endsWith(".deck")) continue;
-    const contents = readFileSync(join(dir, fileName), "utf8");
-    const deck = parseDeckFile(contents);
-    if (deck) decks.push(deck);
-  }
-  return decks;
 }

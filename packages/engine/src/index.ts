@@ -29,5 +29,8 @@ export * from "./engine/submit-result.js";
 export * from "./engine/game-engine.js";
 export * from "./engine/combat.js";
 export * from "./engine/scoring.js";
+export * from "./engine/legal-actions.js";
+
+export * from "./ai/heuristic-ai.js";
 
 export * from "./util/rng.js";

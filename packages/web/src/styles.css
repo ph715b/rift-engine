@@ -1,0 +1,206 @@
+:root {
+  --color-bg: #14121f;
+  --color-bg-elevated: #1d1a2b;
+  --color-border: #33304a;
+  --color-text: #e9e6f5;
+  --color-text-dim: #a8a3c4;
+  --color-accent: #d4af37;
+  --color-accent-dim: #8a7a3f;
+  --color-danger: #c0455a;
+  --color-friendly-zone: #232042;
+  --color-enemy-zone: #2a1f26;
+
+  --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  color: var(--color-text);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.9rem;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.board {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  color: var(--color-accent);
+  letter-spacing: 0.03em;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.9rem;
+  color: var(--color-text-dim);
+}
+
+.player-row strong {
+  color: var(--color-text);
+}
+
+.zone {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: var(--color-bg-elevated);
+}
+
+.zone-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+  margin-bottom: 0.5rem;
+}
+
+.card-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-height: 90px;
+}
+
+.battlefields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+}
+
+.battlefield {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.6rem;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  cursor: default;
+  transition: border-color 0.15s ease;
+}
+
+.battlefield.selectable {
+  cursor: pointer;
+  border-color: var(--color-accent-dim);
+}
+
+.battlefield.selectable:hover {
+  border-color: var(--color-accent);
+}
+
+.battlefield-name {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+  display: flex;
+  justify-content: space-between;
+}
+
+.battlefield-side {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  min-height: 60px;
+}
+
+.card {
+  width: 76px;
+  height: 100px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-friendly-zone);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  user-select: none;
+}
+
+.card.enemy {
+  background: var(--color-enemy-zone);
+}
+
+.card.selectable {
+  cursor: pointer;
+}
+
+.card.selected {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.card.exhausted {
+  opacity: 0.55;
+}
+
+.card-name {
+  font-weight: 600;
+}
+
+.card-stats {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text-dim);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.banner {
+  text-align: center;
+  padding: 0.6rem;
+  border-radius: 8px;
+  background: var(--color-accent-dim);
+  color: var(--color-bg);
+  font-weight: 600;
+}

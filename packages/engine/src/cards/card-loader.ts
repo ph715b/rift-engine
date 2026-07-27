@@ -1,21 +1,26 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import ognRaw from "./ogn.json" with { type: "json" };
+import ogsRaw from "./ogs.json" with { type: "json" };
 import type { Domain } from "../model/domain.js";
 import { isDomain, lowestOrdinalDomain } from "../model/domain.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
 import type { CardDefinition } from "../model/card-definition.js";
 import { extractCardItems, type RawCard } from "./raw-card-schema.js";
 
-const CARDS_DIR = dirname(fileURLToPath(import.meta.url));
-
 /**
  * Card pool in scope: Origins (OGN) + Proving Grounds (OGS) only — see PRD
  * open-question #1's resolution. sfd.json/unl.json exist in the oracle
- * repos but are out of scope until their own milestone; add them to this
- * list the same way, when that happens.
+ * repos but are out of scope until their own milestone; add them here the
+ * same way, when that happens.
+ *
+ * Statically imported (not read via `fs` at runtime) so this module works
+ * unmodified in both Node and a bundled browser build (e.g. packages/web) —
+ * a real constraint discovered building the web board, not a preference:
+ * `fs`/`node:path` can't be bundled for the browser at all, and Rollup
+ * fails the build outright if anything in the module graph imports them
+ * unconditionally, even if the function that uses them is never called
+ * client-side.
  */
-const CARD_FILES = ["ogn.json", "ogs.json"];
+const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw];
 
 const KW_PATTERN = /\[([A-Za-z][a-zA-Z]*)(?: (\d+))?\]/g;
 
@@ -30,11 +35,6 @@ const KW_PATTERN = /\[([A-Za-z][a-zA-Z]*)(?: (\d+))?\]/g;
 const HIDDEN_KEYWORD_FALSE_POSITIVES = new Set(["Guerilla Warfare", "Ava Achiever", "Ember Monk", "Noxus Saboteur"]);
 
 const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
-
-function readJsonFile(filePath: string): unknown {
-  const raw = readFileSync(filePath, "utf8").replace(/^﻿/, "");
-  return JSON.parse(raw);
-}
 
 /** Rune/Battlefield/Token-supertype/Showcase-rarity/alternate-art entries never become playable
  *  CardDefinitions. Mirrors CardLoader.java's `skip()` (registry/CardLoader.java:274-282). */
@@ -153,11 +153,10 @@ function parseCardDefinition(card: RawCard): CardDefinition {
   }
 }
 
-/** Loads every non-skipped CardDefinition from the in-scope card files (Origins + Proving Grounds). */
+/** Every non-skipped CardDefinition from the in-scope card files (Origins + Proving Grounds). */
 export function loadCardDefinitions(): CardDefinition[] {
   const defs: CardDefinition[] = [];
-  for (const file of CARD_FILES) {
-    const raw = readJsonFile(join(CARDS_DIR, file));
+  for (const raw of CARD_FILES) {
     for (const item of extractCardItems(raw)) {
       if (shouldSkip(item)) continue;
       defs.push(parseCardDefinition(item));
