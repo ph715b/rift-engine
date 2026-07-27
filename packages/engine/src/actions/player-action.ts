@@ -36,6 +36,17 @@ export interface MoveUnitAction {
 }
 
 /**
+ * Moves one or more units from a battlefield back to base. Mirrors
+ * PlayerAction.RecallUnit (engine/PlayerAction.java) — Java's variant is
+ * just the unit list, no destination (there's only one base to return to).
+ */
+export interface RecallUnitAction {
+  type: "RecallUnit";
+  playerIndex: 0 | 1;
+  unitInstanceIds: string[];
+}
+
+/**
  * The player-submittable actions implemented so far. Mirrors a subset of
  * engine/PlayerAction.java's 17-variant sealed interface (PlayCard, MoveUnit,
  * RecallUnit, ActivateGear, ActivateUnit, FloatRune, PassFocus, Pass,
@@ -45,4 +56,4 @@ export interface MoveUnitAction {
  * validate/execute pair is actually implemented (M1's turn/priority
  * skeleton), not stubbed out ahead of that logic.
  */
-export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction;
+export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction;

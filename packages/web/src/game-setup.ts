@@ -1,9 +1,8 @@
 import {
   buildPlayerFromDeckList,
+  chooseMatchBattlefields,
   defaultCardRegistry,
-  LEGACY_BATTLEFIELDS,
   mulberry32,
-  type BattlefieldState,
   type DeckList,
   type GameState,
 } from "@rift-engine/engine";
@@ -15,20 +14,19 @@ export interface MatchConfig {
 
 /** Builds a fresh GameState for any pair of decks (presets, imported real
  *  .deck files, or user-built decks — buildPlayerFromDeckList doesn't care
- *  which). `seed` drives both players' shuffles deterministically, so the
- *  same seed always replays identically (NFR: replayable seeded shuffles). */
+ *  which). `seed` drives both players' shuffles and the battlefield choice
+ *  deterministically, so the same seed always replays identically (NFR:
+ *  replayable seeded shuffles). */
 export function createNewGame(config: MatchConfig, seed: number): GameState {
   const registry = defaultCardRegistry();
 
   const human = buildPlayerFromDeckList("p1", "You", config.humanDeck, registry, mulberry32(seed));
   const ai = buildPlayerFromDeckList("p2", "AI Opponent", config.aiDeck, registry, mulberry32(seed + 1));
 
-  const battlefields: BattlefieldState[] = LEGACY_BATTLEFIELDS.map((name, i) => ({
-    id: `bf-${i}`,
-    name,
-    controllerId: null,
-    units: {},
-  }));
+  // 1v1 has exactly 2 battlefields in play, one from each player's own
+  // deck's 3-battlefield pool — not a shared trio (confirmed against the
+  // Java oracle's real game-construction path, RiftboundApp.java:112-125).
+  const battlefields = chooseMatchBattlefields(config.humanDeck, config.aiDeck, mulberry32(seed + 2));
 
   return {
     players: [human, ai],

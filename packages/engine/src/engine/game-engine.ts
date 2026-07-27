@@ -5,6 +5,8 @@ import { executePlayCard } from "../actions/execute-play-card.js";
 import { validatePass } from "../actions/validate-pass.js";
 import { validateMoveUnit } from "../actions/validate-move-unit.js";
 import { executeMoveUnit } from "../actions/execute-move-unit.js";
+import { validateRecallUnit } from "../actions/validate-recall-unit.js";
+import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
 import type { SubmitResult } from "./submit-result.js";
@@ -64,6 +66,11 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
       const validation = validateMoveUnit(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
       return withWinnerCheck(executeMoveUnit(state, action));
+    }
+    case "RecallUnit": {
+      const validation = validateRecallUnit(state, action);
+      if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
+      return withWinnerCheck(executeRecallUnit(state, action));
     }
   }
 }

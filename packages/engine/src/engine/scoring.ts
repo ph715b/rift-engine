@@ -1,11 +1,5 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
-
-/** 2-player Victory Score — see win-condition.ts's own doc comment for why
- *  this is duplicated as a local constant rather than imported (avoiding a
- *  cyclic import isn't a concern in TS the way it was for the C# port, but
- *  these two modules genuinely don't need to share the value beyond this
- *  coincidence — see PRD's resolved port-strategy question). */
-const WIN_THRESHOLD = 8;
+import { WIN_THRESHOLD_1V1 } from "./constants.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -54,7 +48,7 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   }));
 
   const player = next.players[playerIndex];
-  if (player.points === WIN_THRESHOLD - 1) {
+  if (player.points === WIN_THRESHOLD_1V1 - 1) {
     const allBattlefieldIds = next.battlefields.map((bf) => bf.id);
     const conqueredAll = allBattlefieldIds.every((id) => player.conqueredBattlefieldsThisTurn.includes(id));
     if (!conqueredAll) {

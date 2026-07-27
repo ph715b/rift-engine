@@ -164,3 +164,25 @@ export function loadCardDefinitions(): CardDefinition[] {
   }
   return defs;
 }
+
+/**
+ * One real (non-alternate-art) rune image per domain — Rune-type cards are
+ * deliberately excluded from `loadCardDefinitions` (they're never a
+ * playable CardDefinition), but their art is still needed for display.
+ * Mirrors CardLoader.loadRuneArt (registry/CardLoader.java:224-238), the
+ * same "presentation-only side lookup, not a real CardDefinition" pattern.
+ */
+export function loadRuneArt(): Partial<Record<Domain, string>> {
+  const art: Partial<Record<Domain, string>> = {};
+  for (const raw of CARD_FILES) {
+    for (const item of extractCardItems(raw)) {
+      if (item.classification.type !== "Rune") continue;
+      if (item.metadata.alternate_art) continue;
+      const domains = parseDomains(item.classification.domain);
+      const domain = domains[0];
+      const imageUrl = item.media.image_url;
+      if (domain && imageUrl && !art[domain]) art[domain] = imageUrl;
+    }
+  }
+  return art;
+}

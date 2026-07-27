@@ -3,6 +3,7 @@ import type { PlayerAction } from "../actions/player-action.js";
 import { legalActions } from "../engine/legal-actions.js";
 import { executePlayCard } from "../actions/execute-play-card.js";
 import { executeMoveUnit } from "../actions/execute-move-unit.js";
+import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 
 /**
  * A simple heuristic AI opponent — enough to be a real (if not yet strong)
@@ -33,6 +34,8 @@ function applyAction(state: GameState, action: PlayerAction): GameState {
       return executePlayCard(state, action);
     case "MoveUnit":
       return executeMoveUnit(state, action);
+    case "RecallUnit":
+      return executeRecallUnit(state, action);
   }
 }
 

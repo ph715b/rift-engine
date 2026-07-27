@@ -60,6 +60,11 @@ export function buildPlayerFromDeckList(
 
   const championInstance = createCardInstance(registry.get(deckList.championId)) as UnitInstance;
   const runeDeck = buildRuneDeck(legendDef.domains, deckList.runeDomainACount, deckList.runeDomainBCount);
+  // Real rune decks are shuffled too, same as the main deck — mirrors
+  // CardRegistry.buildRuneDeck's `Collections.shuffle(runes)`
+  // (registry/CardRegistry.java:214). Missing this meant every game
+  // predictably drew one whole domain's runes before ever touching the other.
+  shuffle(runeDeck, rng);
 
   return {
     id,

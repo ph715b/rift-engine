@@ -40,6 +40,22 @@ describe("deck source 1: Proving Grounds presets", () => {
     expect(player.runeDeck.filter((r) => r.domain === "Body")).toHaveLength(6);
     expect(player.runeDeck.filter((r) => r.domain === "Order")).toHaveLength(6);
   });
+
+  it("shuffles the rune deck — not a predictable all-of-domain-A-then-domain-B block", () => {
+    // Mirrors CardRegistry.buildRuneDeck's `Collections.shuffle(runes)`
+    // (registry/CardRegistry.java:214) — a real gap in an earlier version of
+    // this port, which built the rune deck but never shuffled it, so every
+    // game predictably drew one whole domain's runes before the other.
+    const registry = defaultCardRegistry();
+    const garen = presetDeckList(allPresetDecks().find((d) => d.name.startsWith("Garen"))!);
+    const player = buildPlayerFromDeckList("p1", "Alice", garen, registry, mulberry32(7));
+
+    const domainSequence = player.runeDeck.map((r) => r.domain);
+    const firstHalf = new Set(domainSequence.slice(0, 6));
+    // Unshuffled, the first 6 entries would all be the same single domain
+    // (whichever was built first) — shuffled, the two domains should mix.
+    expect(firstHalf.size).toBeGreaterThan(1);
+  });
 });
 
 describe("deck source 2: the user's real .deck files", () => {

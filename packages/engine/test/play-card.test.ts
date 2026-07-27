@@ -145,3 +145,58 @@ describe("PlayCard: Unit to base (M0 vertical slice)", () => {
     expect(result.ok).toBe(false);
   });
 });
+
+describe("PlayCard: from the Champion Zone (not just hand)", () => {
+  it("can be played straight from championZone, clearing it and leaving hand untouched", () => {
+    const { state } = buildFixture();
+    const registry = defaultCardRegistry();
+    // Master Yi's champion (OGS-004) — a real champion sitting in reserve,
+    // per Player.java: "the champion starts face-up in the base zone" (its
+    // own dedicated zone, not hand). Before this fix, PlayCard only ever
+    // checked hand membership, so a deck's own champion could never enter
+    // play at all (ActionValidator.java:1126-1138 confirms hand-OR-Champion-
+    // Zone is the real origin check).
+    const championDef = registry.get("OGS-004");
+    const champion = createCardInstance(championDef) as UnitInstance;
+    expect(champion.energyCost).toBe(5);
+    expect(champion.powerCost).toBe(1);
+    state.players[0]!.championZone = champion;
+    // Enough runes to cover the champion's real 5-energy + 1-power cost.
+    state.players[0]!.channeled = Array.from({ length: 6 }, (_, i) => readyRune(`champ-rune-${i}`));
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: champion,
+      payment: {
+        energyRunes: state.players[0]!.channeled.slice(0, 5).map((r) => r.id),
+        powerRunes: state.players[0]!.channeled.slice(5, 6).map((r) => r.id),
+      },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+    expect(actor.championZone).toBeNull();
+    expect(actor.baseUnits.some((u) => u.instanceId === champion.instanceId)).toBe(true);
+    expect(actor.hand).toHaveLength(1); // the original hand card (Daring Poro) is untouched
+  });
+
+  it("rejects a card that's in neither hand nor the Champion Zone", () => {
+    const { state } = buildFixture();
+    const registry = defaultCardRegistry();
+    const championDef = registry.get("OGS-004");
+    const champion = createCardInstance(championDef) as UnitInstance;
+    // Not assigned to championZone or hand — a stray instance.
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: champion,
+      payment: { energyRunes: [], powerRunes: [] },
+    };
+
+    expect(validatePlayCard(state, action).ok).toBe(false);
+  });
+});

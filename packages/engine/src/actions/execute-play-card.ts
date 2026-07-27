@@ -12,7 +12,8 @@ import { validatePlayCard } from "./validate-play-card.js";
  * the rune pool directly; this does the equivalent updates immutably.
  *
  * Ported behavior, energy-only cost, Unit-to-base case:
- *   - hand.remove(card) — ActionExecutor.java:328
+ *   - hand.remove(card), or championZone.set(null) if it was played from
+ *     there instead — ActionExecutor.java:327-333
  *   - baseUnits.add(unit) (no `destination` battlefield supplied) — :353
  *   - payCost -> applyPayment: each energy rune paid becomes Exhausted,
  *     stays in the pool (returns to Ready at next Awaken) — :1889-1891
@@ -42,10 +43,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   );
 
   const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) };
+  const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
 
   const updatedActor: PlayerState = {
     ...actor,
     hand: actor.hand.filter((c) => c.instanceId !== card.instanceId),
+    championZone: playedFromChampionZone ? null : actor.championZone,
     channeled: updatedChanneled,
     baseUnits: [...actor.baseUnits, deployedUnit],
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,

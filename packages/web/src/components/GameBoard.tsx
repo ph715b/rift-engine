@@ -5,6 +5,8 @@ import { createNewGame, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { RematchPanel } from "./RematchPanel.js";
+import { PlayerResourcesZone } from "./PlayerResourcesZone.js";
+import { PointTracker } from "./PointTracker.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -73,6 +75,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     );
   }
 
+  function recallActionFor(unit: UnitInstance): PlayerAction | undefined {
+    return legal.find((a) => a.type === "RecallUnit" && a.unitInstanceIds[0] === unit.instanceId);
+  }
+
   function canDragUnit(unit: UnitInstance): boolean {
     return isHumanTurn && !unit.exhausted;
   }
@@ -89,6 +95,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function handleBattlefieldClick(battlefieldId: string) {
     if (!selectedUnit) return;
     const action = moveActionTo(selectedUnit, battlefieldId);
+    if (action) applyAction(action);
+  }
+
+  function handleBaseZoneClick() {
+    if (!selectedUnit) return;
+    const action = recallActionFor(selectedUnit);
     if (action) applyAction(action);
   }
 
@@ -118,8 +130,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const zone = lastDragZoneRef.current;
     setDragOverZoneId(null);
     lastDragZoneRef.current = null;
-    if (!zone || zone === BASE_ZONE_ID) return;
-    const action = moveActionTo(unit, zone);
+    if (!zone) return;
+    const action = zone === BASE_ZONE_ID ? recallActionFor(unit) : moveActionTo(unit, zone);
     if (action) applyAction(action);
   }
 
@@ -158,9 +170,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         <span>
           AI Opponent — <strong>{ai.points} pts</strong> · hand: {ai.hand.length}
         </span>
+        <PointTracker points={ai.points} />
       </div>
 
-      <div className="zone">
+      <div className="zone card-zone">
         <div className="zone-label">AI base</div>
         <div className="card-row">
           <AnimatePresence>
@@ -171,7 +184,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         </div>
       </div>
 
-      <div className="battlefields">
+      <PlayerResourcesZone label="AI" legend={ai.legend} champion={ai.championZone} runes={ai.channeled} isEnemy />
+
+      {/* Column count is dynamic, not hardcoded to the current 2-per-1v1-match
+          rule: a real card (Baron Nashor) can add a 3rd battlefield mid-game. */}
+      <div className="battlefields" style={{ gridTemplateColumns: `repeat(${state.battlefields.length}, 1fr)` }}>
         {state.battlefields.map((bf) => (
           <BattlefieldView
             key={bf.id}
@@ -190,7 +207,30 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         ))}
       </div>
 
-      <div className={`zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}`} data-dropzone-id={BASE_ZONE_ID}>
+      <PlayerResourcesZone
+        label="Your"
+        legend={human.legend}
+        champion={human.championZone}
+        runes={human.channeled}
+        isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardPlayable(human.championZone.instanceId))}
+        onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
+        onChampionDrag={
+          isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId) ? trackDragZone : undefined
+        }
+        onChampionDragEnd={
+          isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId)
+            ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
+            : undefined
+        }
+      />
+
+      <div
+        className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${
+          isHumanTurn && selectedUnit !== null && Boolean(recallActionFor(selectedUnit)) ? " selectable" : ""
+        }`}
+        data-dropzone-id={BASE_ZONE_ID}
+        onClick={isHumanTurn && selectedUnit !== null && recallActionFor(selectedUnit) ? handleBaseZoneClick : undefined}
+      >
         <div className="zone-label">Your base</div>
         <div className="card-row">
           <AnimatePresence>
@@ -209,7 +249,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         </div>
       </div>
 
-      <div className="zone">
+      <div className="zone card-zone">
         <div className="zone-label">Your hand</div>
         <div className="card-row">
           <AnimatePresence>
@@ -233,6 +273,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         <span>
           You — <strong>{human.points} pts</strong>
         </span>
+        <PointTracker points={human.points} />
       </div>
 
       <div className="actions">

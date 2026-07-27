@@ -11,10 +11,10 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  *
  * Not yet implemented: Spell/Gear/Legend plays, destination battlefields,
  * Accelerate/additional costs, floating Energy/Power, domain-restricted
- * Power payment, reaction-speed plays (chain/Showdown aren't modeled, so
- * only the active player, during their own Action phase, may act — matches
- * ActionValidator's `validateClosedChain` branch, the "no open chain, no
- * Showdown" case; engine/ActionValidator.java:74-90).
+ * Power payment, trash-play, reaction-speed plays (chain/Showdown aren't
+ * modeled, so only the active player, during their own Action phase, may
+ * act — matches ActionValidator's `validateClosedChain` branch, the "no
+ * open chain, no Showdown" case; engine/ActionValidator.java:74-90).
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -29,8 +29,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
   const { card, payment } = action;
 
-  if (!actor.hand.some((c) => c.instanceId === card.instanceId)) {
-    return fail(`${card.name} is not in ${actor.name}'s hand`);
+  // A card is playable from hand OR from the Champion Zone (the one
+  // champion copy set aside at deck-build time) — mirrors
+  // ActionValidator.validatePlayCard's `inHand || isChampion` origin check
+  // (engine/ActionValidator.java:1126-1138). Without this, a deck's
+  // champion could never actually enter play at all.
+  const inHand = actor.hand.some((c) => c.instanceId === card.instanceId);
+  const isChampion = actor.championZone?.instanceId === card.instanceId;
+  if (!inHand && !isChampion) {
+    return fail(`${card.name} is not in ${actor.name}'s hand or Champion Zone`);
   }
 
   if (card.kind !== "Unit") {
