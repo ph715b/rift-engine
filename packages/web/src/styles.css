@@ -56,12 +56,12 @@ button:disabled {
      monitor/window size instead of needing to scroll. Width is derived
      from height via the real cards' own aspect ratio (744x1039 ≈ 0.716),
      not set independently. */
-  --card-h: clamp(64px, 15dvh, 190px);
+  --card-h: clamp(70px, 16dvh, 210px);
   --card-w: calc(var(--card-h) * 0.716);
-  /* Side rails are sized off card width (they hold compact Legend/Champion
-     cards + wrapped rune tiles), not the viewport, so they stay proportional
-     to the same card scale everything else already uses. */
-  --side-col-w: clamp(120px, 15vw, 210px);
+  /* Side rails fit exactly one full-size card (every card on screen is the
+     same size now — no more compact scaling for Legend/Champion) plus the
+     .zone's own horizontal padding. */
+  --side-col-w: calc(var(--card-w) + 1.75rem);
 }
 
 .board {
@@ -157,6 +157,13 @@ button:disabled {
   align-items: center;
   gap: 0.5rem;
   flex: 0 0 auto;
+}
+
+/* Pins Legend/Champion to the bottom of the human player's own column,
+   next to their hand — mirrors the AI's column, where Legend/Champion sit
+   at the top, next to the AI's base row. */
+.side-column-cards.at-bottom {
+  margin-top: auto;
 }
 
 .side-column-meta {
@@ -271,11 +278,6 @@ button:disabled {
   background: var(--color-enemy-zone);
 }
 
-.card.card-compact {
-  width: calc(var(--card-w) * 0.62);
-  height: calc(var(--card-h) * 0.62);
-}
-
 .card.selectable {
   cursor: pointer;
 }
@@ -354,6 +356,43 @@ button:disabled {
 
 .stat-might {
   background: #a23b3b;
+}
+
+.card-status-badges {
+  position: absolute;
+  bottom: 0.3rem;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 0.3rem;
+  pointer-events: none;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.status-damage {
+  background: var(--color-danger);
+}
+
+.status-buff {
+  background: #2f8f4e;
+}
+
+.status-debuff {
+  background: #5a4a8f;
 }
 
 .actions {

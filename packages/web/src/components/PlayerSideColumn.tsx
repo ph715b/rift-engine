@@ -16,6 +16,11 @@ interface PlayerSideColumnProps {
   runeDeckCount: number;
   activeGear: GearInstance[];
   isEnemy?: boolean;
+  /** Pins the Legend/Champion block to the bottom of this column (near the
+   *  human player's own hand) instead of the top (the AI's default, next
+   *  to its base row) — a pure visual mirror, per the user's own layout
+   *  note. */
+  legendAtBottom?: boolean;
   isChampionSelectable?: boolean;
   onChampionClick?: () => void;
   onChampionDrag?: (point: DragPoint) => void;
@@ -46,6 +51,7 @@ export function PlayerSideColumn({
   runeDeckCount,
   activeGear,
   isEnemy,
+  legendAtBottom,
   isChampionSelectable,
   onChampionClick,
   onChampionDrag,
@@ -53,6 +59,22 @@ export function PlayerSideColumn({
 }: PlayerSideColumnProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
+
+  const legendAndChampion = (
+    <div className={`side-column-cards${legendAtBottom ? " at-bottom" : ""}`}>
+      <CardView card={legend} isEnemy={isEnemy} />
+      {champion && (
+        <CardView
+          card={champion}
+          isEnemy={isEnemy}
+          isSelectable={isChampionSelectable}
+          onClick={onChampionClick}
+          onDrag={onChampionDrag}
+          onDragEnd={onChampionDragEnd}
+        />
+      )}
+    </div>
+  );
 
   return (
     <div className="zone side-column">
@@ -64,20 +86,7 @@ export function PlayerSideColumn({
         <PointTracker points={points} />
       </div>
 
-      <div className="side-column-cards">
-        <CardView card={legend} isEnemy={isEnemy} compact />
-        {champion && (
-          <CardView
-            card={champion}
-            isEnemy={isEnemy}
-            isSelectable={isChampionSelectable}
-            onClick={onChampionClick}
-            onDrag={onChampionDrag}
-            onDragEnd={onChampionDragEnd}
-            compact
-          />
-        )}
-      </div>
+      {!legendAtBottom && legendAndChampion}
 
       <div className="zone-label">
         Runes ({readyCount}/{runes.length} ready)
@@ -108,6 +117,8 @@ export function PlayerSideColumn({
         <span title="Banished">Banished: {banishedCount}</span>
         <span title="Gear in play, unattached">Gear: {activeGear.length}</span>
       </div>
+
+      {legendAtBottom && legendAndChampion}
     </div>
   );
 }

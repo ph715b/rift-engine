@@ -30,11 +30,6 @@ interface CardViewProps {
    *  not just this one card. */
   onDragEnd?: (point: DragPoint) => void;
   onDrag?: (point: DragPoint) => void;
-  /** Smaller rendering for the Legend/Champion Zone, which sits in a single
-   *  compact row alongside the rune pool — full card size there would eat
-   *  too far into the no-scroll viewport budget shared with hand/base/
-   *  battlefields. Purely a size variant; all interactions still work. */
-  compact?: boolean;
 }
 
 /**
@@ -58,7 +53,7 @@ interface CardViewProps {
  * `defId` via the shared registry. Keeps the engine's runtime type lean;
  * this is purely a presentation concern.
  */
-export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onDragEnd, onDrag, compact }: CardViewProps) {
+export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onDragEnd, onDrag }: CardViewProps) {
   // Real React state, not whileDrag: Framer Motion's whileDrag animation
   // object silently drops `pointerEvents` (confirmed via computed style —
   // it never reaches the DOM), so it has to be a genuine style prop instead.
@@ -76,7 +71,6 @@ export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onD
   const setDragGhost = useDragGhost();
 
   const classes = ["card"];
-  if (compact) classes.push("card-compact");
   if (isEnemy) classes.push("enemy");
   if (isSelectable) classes.push("selectable");
   if (isSelected) classes.push("selected");
@@ -157,6 +151,27 @@ export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onD
               )}
               {card.kind === "Unit" && <span className="stat-badge stat-might">{card.might}</span>}
             </div>
+          )}
+        </div>
+      )}
+      {card.kind === "Unit" && (card.damage > 0 || card.bonus !== 0) && (
+        // Rendered regardless of real-art-vs-fallback — real card art never
+        // prints marked damage or a buff/debuff, since those are runtime
+        // state, not part of the card's design.
+        <div className="card-status-badges">
+          {card.damage > 0 && (
+            <span className="status-badge status-damage" title={`${card.damage} damage marked`}>
+              −{card.damage}
+            </span>
+          )}
+          {card.bonus !== 0 && (
+            <span
+              className={`status-badge ${card.bonus > 0 ? "status-buff" : "status-debuff"}`}
+              title={`${card.bonus > 0 ? "+" : ""}${card.bonus} Might this turn`}
+            >
+              {card.bonus > 0 ? "+" : ""}
+              {card.bonus}
+            </span>
           )}
         </div>
       )}

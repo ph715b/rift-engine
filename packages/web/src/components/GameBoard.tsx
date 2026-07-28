@@ -375,6 +375,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
           activeGear={human.activeGear}
+          legendAtBottom
           isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
           onChampionDrag={
