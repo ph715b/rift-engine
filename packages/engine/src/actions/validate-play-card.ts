@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { effectForCard, requiresTarget } from "../engine/card-effects.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
-import { computeEffectiveCost } from "../engine/rune-payment.js";
+import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -96,7 +96,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Power only for the matching domain. Mirrors ActionExecutor's
   // energyAfterFloat/powerAfterFloat, the same functions legal-actions.ts
   // uses to build its auto-payment candidates, so the two can't drift.
-  const effectiveCost = computeEffectiveCost(actor.floatingEnergy, actor.floatingPower, card.energyCost, card.powerCost, card.powerDomain);
+  const effectiveCost = computeEffectiveCost(
+    actor.floatingEnergy,
+    actor.floatingPower,
+    card.energyCost,
+    card.powerCost,
+    card.powerDomain,
+    card.powerDomainAlt,
+  );
 
   if (payment.energyRunes.length !== effectiveCost.energyCost) {
     return fail(`${card.name} costs ${effectiveCost.energyCost} energy after floating Energy, payment supplied ${payment.energyRunes.length}`);
@@ -123,9 +130,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // Mirrors ActionExecutor.matchesPowerDomain (engine/ActionExecutor.java:1841-1843):
     // a Power cost must be paid with runes of the exact domain it requires
     // (card.powerDomain is only ever null when powerCost is 0, in which
-    // case this loop never runs).
-    if (card.powerDomain !== null && rune.domain !== card.powerDomain) {
-      return fail(`Rune ${id} is ${rune.domain}, but ${card.name}'s Power cost requires ${card.powerDomain}`);
+    // case this loop never runs) — or, for a confirmed handful of genuinely
+    // hybrid-pip cards (card.powerDomainAlt), runes of that second domain too.
+    if (!matchesPowerDomain(rune, card.powerDomain, card.powerDomainAlt)) {
+      const required = card.powerDomainAlt !== undefined ? `${card.powerDomain} or ${card.powerDomainAlt}` : `${card.powerDomain}`;
+      return fail(`Rune ${id} is ${rune.domain}, but ${card.name}'s Power cost requires ${required}`);
     }
   }
 

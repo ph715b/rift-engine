@@ -21,6 +21,14 @@ export interface CardDefinitionBase {
   domains: Domain[];
   /** Null when the card has no Power cost; Legends never have one. */
   powerDomain: Domain | null;
+  /** A hardcoded per-card second domain that can ALSO pay this card's Power
+   *  cost — set only for a handful of cards whose printed Power pip is
+   *  visually split between two domains (confirmed by inspecting the card
+   *  art), e.g. Tibbers (Fury/Chaos). Absent for every other card, including
+   *  ones that merely list two raw domains for deckbuilding-identity reasons
+   *  without a hybrid pip (e.g. Decisive Strike). See card-loader.ts's
+   *  POWER_DOMAIN_ALT_OVERRIDES. */
+  powerDomainAlt?: Domain;
   imageUrl: string;
 }
 

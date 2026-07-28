@@ -481,3 +481,113 @@ describe("PlayCard: floating Energy/Power as a spendable resource", () => {
     expect(validatePlayCard(state, action)).toEqual({ ok: true });
   });
 });
+
+describe("PlayCard: Tibbers' hybrid Fury/Chaos Power cost (OGS-018)", () => {
+  function buildTibbersFixture(powerRunes: RuneCard[]) {
+    const registry = defaultCardRegistry();
+    const legend = createCardInstance(registry.get("OGS-023")) as LegendInstance;
+    const tibbers = createCardInstance(registry.get("OGS-018")) as UnitInstance;
+    expect(tibbers.energyCost).toBe(8);
+    expect(tibbers.powerCost).toBe(2);
+    expect(tibbers.powerDomain).toBe("Fury");
+    expect(tibbers.powerDomainAlt).toBe("Chaos");
+
+    const player: PlayerState = emptyPlayer("p1", "Alice", legend);
+    player.hand = [tibbers];
+    const energyRuneIds = Array.from({ length: 8 }, (_, i) => `e${i + 1}`);
+    player.channeled = [...powerRunes, ...energyRuneIds.map((id) => readyRune(id))];
+
+    const opponentLegendDef = registry.get("OGS-021");
+    const opponent: PlayerState = emptyPlayer("p2", "Bob", createCardInstance(opponentLegendDef) as LegendInstance);
+
+    const state: GameState = {
+      players: [player, opponent],
+      battlefields: [],
+      activePlayerIndex: 0,
+      turnNumber: 1,
+      phase: "Action",
+      turnState: "Neutral",
+      focusHolder: 0,
+      showdownBattlefieldId: null,
+      consecutiveFocusPasses: 0,
+      chainOpen: true,
+      chainPriority: 0,
+      chainPasses: 0,
+      spellChain: [],
+    };
+
+    return { state, tibbers, energyRuneIds };
+  }
+
+  it("accepts payment with 2 Fury runes", () => {
+    const { state, tibbers, energyRuneIds } = buildTibbersFixture([
+      { id: "p1", domain: "Fury", state: "Ready" },
+      { id: "p2", domain: "Fury", state: "Ready" },
+    ]);
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: tibbers,
+      payment: { energyRunes: energyRuneIds, powerRunes: ["p1", "p2"] },
+    };
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+  });
+
+  it("accepts payment with 2 Chaos runes", () => {
+    const { state, tibbers, energyRuneIds } = buildTibbersFixture([
+      { id: "p1", domain: "Chaos", state: "Ready" },
+      { id: "p2", domain: "Chaos", state: "Ready" },
+    ]);
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: tibbers,
+      payment: { energyRunes: energyRuneIds, powerRunes: ["p1", "p2"] },
+    };
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+  });
+
+  it("accepts payment with 1 Fury + 1 Chaos rune", () => {
+    const { state, tibbers, energyRuneIds } = buildTibbersFixture([
+      { id: "p1", domain: "Fury", state: "Ready" },
+      { id: "p2", domain: "Chaos", state: "Ready" },
+    ]);
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: tibbers,
+      payment: { energyRunes: energyRuneIds, powerRunes: ["p1", "p2"] },
+    };
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+  });
+
+  it("rejects payment with runes outside Fury/Chaos (e.g. Order)", () => {
+    const { state, tibbers, energyRuneIds } = buildTibbersFixture([
+      { id: "p1", domain: "Order", state: "Ready" },
+      { id: "p2", domain: "Order", state: "Ready" },
+    ]);
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: tibbers,
+      payment: { energyRunes: energyRuneIds, powerRunes: ["p1", "p2"] },
+    };
+    expect(validatePlayCard(state, action).ok).toBe(false);
+  });
+
+  it("floating Chaos Power reduces Tibbers' effective cost, and executing deducts from Chaos (not Fury, which is empty)", () => {
+    const { state, tibbers, energyRuneIds } = buildTibbersFixture([]);
+    state.players[0]!.floatingPower = { Chaos: 2 };
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: tibbers,
+      payment: { energyRunes: energyRuneIds, powerRunes: [] },
+    };
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    expect(next.players[0]!.floatingPower).toEqual({ Chaos: 0 });
+  });
+});

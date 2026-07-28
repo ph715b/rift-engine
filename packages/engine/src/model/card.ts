@@ -40,6 +40,10 @@ export interface UnitInstance extends CardInstanceBase {
    *  auto-payment logic (legalActions/computeAutoPayment) can pick correctly
    *  domain-matching runes without a registry lookup. */
   powerDomain: Domain | null;
+  /** A hardcoded second domain that can ALSO pay this card's Power cost —
+   *  see CardDefinitionBase.powerDomainAlt. Absent for every card except a
+   *  confirmed handful of genuinely hybrid-pip ones (e.g. Tibbers). */
+  powerDomainAlt?: Domain;
   might: number;
   isChampion: boolean;
   keywords: Partial<Record<Keyword, number>>;
@@ -54,6 +58,7 @@ export interface SpellInstance extends CardInstanceBase {
   energyCost: number;
   powerCost: number;
   powerDomain: Domain | null;
+  powerDomainAlt?: Domain;
   isReaction: boolean;
 }
 
@@ -62,6 +67,7 @@ export interface GearInstance extends CardInstanceBase {
   energyCost: number;
   powerCost: number;
   powerDomain: Domain | null;
+  powerDomainAlt?: Domain;
   attachedToInstanceId: string | null;
 }
 
@@ -96,6 +102,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         energyCost: def.energyCost,
         powerCost: def.powerCost,
         powerDomain: def.powerDomain,
+        ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         might: def.might,
         isChampion: def.isChampion,
         keywords: def.keywords,
@@ -111,6 +118,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         energyCost: def.energyCost,
         powerCost: def.powerCost,
         powerDomain: def.powerDomain,
+        ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         isReaction: def.isReaction,
       };
     case "Gear":
@@ -120,6 +128,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         energyCost: def.energyCost,
         powerCost: def.powerCost,
         powerDomain: def.powerDomain,
+        ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         attachedToInstanceId: null,
       };
   }

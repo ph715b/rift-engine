@@ -6,9 +6,16 @@ import type { RunePayment } from "../actions/player-action.js";
  *  rune. In our current card pool this only ever happens when powerCost is
  *  0 (no printed card here has an actual rainbow Power cost yet), but the
  *  check mirrors ActionExecutor.matchesPowerDomain (engine/ActionExecutor.java:1841-1843)
- *  exactly rather than assuming powerCost > 0 implies a domain. */
-function matchesPowerDomain(rune: RuneCard, powerDomain: Domain | null): boolean {
-  return powerDomain === null || rune.domain === powerDomain;
+ *  exactly rather than assuming powerCost > 0 implies a domain.
+ *
+ *  powerDomainAlt (optional) is a hardcoded per-card second domain that can
+ *  ALSO pay the cost — currently only set for a confirmed handful of
+ *  genuinely hybrid-pip cards (Tibbers, OGS-018; see card-loader.ts's
+ *  POWER_DOMAIN_ALT_OVERRIDES). Undefined for every other card, so
+ *  `rune.domain === powerDomainAlt` is always false there and this is
+ *  byte-identical to the old two-arg behavior for the rest of the pool. */
+export function matchesPowerDomain(rune: RuneCard, powerDomain: Domain | null, powerDomainAlt?: Domain): boolean {
+  return powerDomain === null || rune.domain === powerDomain || rune.domain === powerDomainAlt;
 }
 
 /**
@@ -32,17 +39,21 @@ export function energyAfterFloat(floatingEnergy: number, rawEnergyCost: number):
 /** Mirrors ActionExecutor.powerAfterFloat: floating Power only reduces a
  *  Power cost of the matching domain (or the full rainbow pool when
  *  powerDomain is null, matching matchesPowerDomain's own null-is-wildcard
- *  convention above). A zero raw cost short-circuits regardless of domain. */
+ *  convention above). A zero raw cost short-circuits regardless of domain.
+ *  For a hybrid card (powerDomainAlt set), the alt domain's floating pool
+ *  is summed in alongside the primary's — mirroring how `null` already
+ *  sums every domain for a full-rainbow cost. */
 export function powerAfterFloat(
   floatingPower: Partial<Record<Domain, number>>,
   rawPowerCost: number,
   powerDomain: Domain | null,
+  powerDomainAlt?: Domain,
 ): number {
   if (rawPowerCost === 0) return 0;
   const available =
     powerDomain === null
       ? Object.values(floatingPower).reduce((sum: number, n) => sum + (n ?? 0), 0)
-      : (floatingPower[powerDomain] ?? 0);
+      : (floatingPower[powerDomain] ?? 0) + (powerDomainAlt !== undefined ? (floatingPower[powerDomainAlt] ?? 0) : 0);
   return Math.max(0, rawPowerCost - available);
 }
 
@@ -56,10 +67,11 @@ export function computeEffectiveCost(
   energyCost: number,
   powerCost: number,
   powerDomain: Domain | null,
+  powerDomainAlt?: Domain,
 ): { energyCost: number; powerCost: number } {
   return {
     energyCost: energyAfterFloat(floatingEnergy, energyCost),
-    powerCost: powerAfterFloat(floatingPower, powerCost, powerDomain),
+    powerCost: powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt),
   };
 }
 
@@ -68,9 +80,10 @@ export function computeAutoPayment(
   energyCost: number,
   powerCost: number,
   powerDomain: Domain | null,
+  powerDomainAlt?: Domain,
 ): RunePayment | null {
-  const exhaustedMatch = channeled.filter((r) => r.state === "Exhausted" && matchesPowerDomain(r, powerDomain));
-  const readyMatch = channeled.filter((r) => r.state === "Ready" && matchesPowerDomain(r, powerDomain));
+  const exhaustedMatch = channeled.filter((r) => r.state === "Exhausted" && matchesPowerDomain(r, powerDomain, powerDomainAlt));
+  const readyMatch = channeled.filter((r) => r.state === "Ready" && matchesPowerDomain(r, powerDomain, powerDomainAlt));
 
   const powerRunes = exhaustedMatch.slice(0, powerCost);
   const stillNeededForPower = powerCost - powerRunes.length;

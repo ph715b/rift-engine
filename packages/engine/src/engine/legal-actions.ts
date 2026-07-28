@@ -78,8 +78,15 @@ export function legalActions(state: GameState): PlayerAction[] {
       card.energyCost,
       card.powerCost,
       card.powerDomain,
+      card.powerDomainAlt,
     );
-    const payment = computeAutoPayment(actor.channeled, effectiveCost.energyCost, effectiveCost.powerCost, card.powerDomain);
+    const payment = computeAutoPayment(
+      actor.channeled,
+      effectiveCost.energyCost,
+      effectiveCost.powerCost,
+      card.powerDomain,
+      card.powerDomainAlt,
+    );
     if (!payment) continue; // can't afford it — not a legal move
 
     if (requiresTarget(effectForCard(card))) {

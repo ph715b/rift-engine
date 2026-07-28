@@ -36,6 +36,24 @@ const HIDDEN_KEYWORD_FALSE_POSITIVES = new Set(["Guerilla Warfare", "Ava Achieve
 
 const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
 
+/**
+ * Cards whose printed Power pip is VISUALLY split between two domains
+ * (confirmed by direct inspection of the card art), as opposed to merely
+ * listing two raw domains in classification.domain — the ordinary
+ * multi-domain-identity case (e.g. Decisive Strike's Body+Order, whose pip
+ * is a solid single color and is NOT hybrid; that raw list is a Signature
+ * card's inherited Legend color identity, used for deckbuilding, not a
+ * dual Power cost). Hardcoded rather than derived from card data — precise
+ * and safe for a handful of confirmed cases, mirroring CARD_EFFECTS
+ * (engine/card-effects.ts)'s identical "not worth a parsing scheme until
+ * there are enough registered cases" reasoning. Add another entry here
+ * ONLY after the same visual confirmation, never by assuming every
+ * multi-domain card is hybrid.
+ */
+const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
+  "OGS-018": "Chaos", // Tibbers — Fury/Chaos split pip; lowestOrdinalDomain already yields "Fury" as the primary domain below
+};
+
 /** Rune/Battlefield/Token-supertype/Showcase-rarity/alternate-art entries never become playable
  *  CardDefinitions. Mirrors CardLoader.java's `skip()` (registry/CardLoader.java:274-282). */
 function shouldSkip(card: RawCard): boolean {
@@ -84,6 +102,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
   const energyCost = card.attributes.energy ?? 0;
   const powerCost = card.attributes.power ?? 0;
   const powerDomain = powerCost > 0 ? lowestOrdinalDomain(domains) : null;
+  const powerDomainAlt = powerCost > 0 ? POWER_DOMAIN_ALT_OVERRIDES[id] : undefined;
 
   switch (card.classification.type) {
     case "Legend":
@@ -104,6 +123,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         name,
         domains,
         powerDomain,
+        ...(powerDomainAlt !== undefined ? { powerDomainAlt } : {}),
         imageUrl,
         energyCost,
         powerCost,
@@ -124,6 +144,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         name,
         domains,
         powerDomain,
+        ...(powerDomainAlt !== undefined ? { powerDomainAlt } : {}),
         imageUrl,
         energyCost,
         powerCost,
@@ -139,6 +160,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         name,
         domains,
         powerDomain,
+        ...(powerDomainAlt !== undefined ? { powerDomainAlt } : {}),
         imageUrl,
         energyCost,
         powerCost,

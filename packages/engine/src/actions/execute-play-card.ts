@@ -105,11 +105,21 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // from the RAW printed cost rather than trusting validatePlayCard's
   // effective-cost math — mirrors ActionExecutor's deductFloat, which never
   // trusts an earlier-computed value at mutation time. Energy floats freely;
-  // Power floats only within its matching domain (card.powerDomain is only
-  // ever null when powerCost is 0, so the lookup is never needed then).
+  // Power floats only within its matching domain(s) (card.powerDomain is
+  // only ever null when powerCost is 0, so the lookup is never needed then).
+  // For a confirmed handful of genuinely hybrid-pip cards (card.powerDomainAlt,
+  // e.g. Tibbers), floating Power in EITHER domain can cover the cost —
+  // drain whichever alone already covers the spend first (preferring the
+  // primary powerDomain, the canonical domain used everywhere else), only
+  // reaching into the alt domain's pool for the shortfall. For every other
+  // card, altAvailable is always 0, making this identical to the old
+  // single-domain formula.
   const floatingEnergySpent = Math.min(actor.floatingEnergy, card.energyCost);
-  const floatingPowerAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
-  const floatingPowerSpent = Math.min(floatingPowerAvailable, card.powerCost);
+  const primaryAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
+  const altAvailable = card.powerDomainAlt !== undefined ? (actor.floatingPower[card.powerDomainAlt] ?? 0) : 0;
+  const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, card.powerCost);
+  const primarySpent = Math.min(primaryAvailable, floatingPowerSpent);
+  const altSpent = floatingPowerSpent - primarySpent;
 
   const handAfterRemoval = actor.hand.filter((c) => c.instanceId !== card.instanceId);
   const sharedUpdates = {
@@ -118,8 +128,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     floatingPower:
-      card.powerDomain !== null && floatingPowerSpent > 0
-        ? { ...actor.floatingPower, [card.powerDomain]: floatingPowerAvailable - floatingPowerSpent }
+      floatingPowerSpent > 0
+        ? {
+            ...actor.floatingPower,
+            ...(primarySpent > 0 && card.powerDomain !== null ? { [card.powerDomain]: primaryAvailable - primarySpent } : {}),
+            ...(altSpent > 0 && card.powerDomainAlt !== undefined ? { [card.powerDomainAlt]: altAvailable - altSpent } : {}),
+          }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
   };

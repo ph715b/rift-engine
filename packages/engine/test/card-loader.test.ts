@@ -43,4 +43,21 @@ describe("card loader", () => {
       expect(def.type).not.toBe("Battlefield");
     }
   });
+
+  it("gives Tibbers (OGS-018) a hardcoded Fury/Chaos hybrid Power domain", () => {
+    const def = defaultCardRegistry().get("OGS-018");
+    expect(def.type).toBe("Unit");
+    if (def.type !== "Unit") throw new Error("unreachable");
+    expect(def.name).toBe("Tibbers");
+    expect(def.powerDomain).toBe("Fury");
+    expect(def.powerDomainAlt).toBe("Chaos");
+    expect(def.energyCost).toBe(8);
+    expect(def.powerCost).toBe(2);
+    expect(def.might).toBe(7);
+  });
+
+  it("does NOT set powerDomainAlt for Decisive Strike (OGS-024), a non-hybrid multi-domain card", () => {
+    const def = defaultCardRegistry().get("OGS-024");
+    expect(def.powerDomainAlt).toBeUndefined();
+  });
 });

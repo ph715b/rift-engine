@@ -8,6 +8,7 @@ import {
   effectForCard,
   executeMulligan,
   legalActions,
+  matchesPowerDomain,
   requiresTarget,
   submit,
   type CardInstance,
@@ -373,15 +374,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   /** True if this rune could legally be added to the Power list right now —
-   *  domain-gated (or any domain, for a rainbow cost), Ready or Exhausted,
-   *  and only when the effective Power cost is actually nonzero. A null
+   *  domain-gated (or any domain, for a rainbow cost; or either of a
+   *  confirmed handful of genuinely hybrid-pip cards' two domains, e.g.
+   *  Tibbers' Fury/Chaos — see matchesPowerDomain), Ready or Exhausted, and
+   *  only when the effective Power cost is actually nonzero. A null
    *  powerDomain only ever means "no Power cost" in this card pool (never a
    *  real rainbow cost), so without the nonzero check every rune would
    *  falsely read as Power-eligible for a plain Energy-only card. */
   function isRuneEligibleForPower(rune: RuneCard): boolean {
     if (!pendingPlay || pendingPlay.card.kind === "Legend") return false;
-    const domain = pendingPlay.card.powerDomain;
-    if (domain !== null && rune.domain !== domain) return false;
+    if (!matchesPowerDomain(rune, pendingPlay.card.powerDomain, pendingPlay.card.powerDomainAlt)) return false;
     return (pendingLegalAction()?.payment.powerRunes.length ?? 0) > 0;
   }
 
@@ -429,7 +431,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
     const proposedIds = new Set([...pendingPlay.payment.energyRunes, ...pendingPlay.payment.powerRunes]);
     const remainingPool = human.channeled.filter((r) => !proposedIds.has(r.id));
-    const fill = computeAutoPayment(remainingPool, Math.max(remainingEnergy, 0), Math.max(remainingPower, 0), pendingPlay.card.powerDomain);
+    const fill = computeAutoPayment(
+      remainingPool,
+      Math.max(remainingEnergy, 0),
+      Math.max(remainingPower, 0),
+      pendingPlay.card.powerDomain,
+      pendingPlay.card.powerDomainAlt,
+    );
     if (!fill) return; // infeasible remainder — no-op
 
     setPendingPlay((prev) =>

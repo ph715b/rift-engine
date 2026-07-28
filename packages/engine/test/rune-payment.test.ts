@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { RuneCard } from "../src/model/rune.js";
-import { computeAutoPayment, computeEffectiveCost, energyAfterFloat, powerAfterFloat } from "../src/engine/rune-payment.js";
+import {
+  computeAutoPayment,
+  computeEffectiveCost,
+  energyAfterFloat,
+  matchesPowerDomain,
+  powerAfterFloat,
+} from "../src/engine/rune-payment.js";
 
 function rune(id: string, domain: RuneCard["domain"], state: RuneCard["state"] = "Ready"): RuneCard {
   return { id, domain, state };
@@ -64,6 +70,34 @@ describe("computeAutoPayment", () => {
     const payment = computeAutoPayment(channeled, 0, 1, null);
     expect(payment).toEqual({ energyRunes: [], powerRunes: ["only-order"] });
   });
+
+  it("pays a hybrid Power cost (e.g. Tibbers' Fury/Chaos) with pure Fury, pure Chaos, or a mix", () => {
+    const twoFury = [rune("f1", "Fury"), rune("f2", "Fury")];
+    expect(computeAutoPayment(twoFury, 0, 2, "Fury", "Chaos")!.powerRunes).toHaveLength(2);
+
+    const twoChaos = [rune("c1", "Chaos"), rune("c2", "Chaos")];
+    expect(computeAutoPayment(twoChaos, 0, 2, "Fury", "Chaos")!.powerRunes).toHaveLength(2);
+
+    const mixed = [rune("f1", "Fury"), rune("c1", "Chaos")];
+    expect(computeAutoPayment(mixed, 0, 2, "Fury", "Chaos")!.powerRunes).toHaveLength(2);
+
+    const wrongDomain = [rune("o1", "Order"), rune("o2", "Order")];
+    expect(computeAutoPayment(wrongDomain, 0, 2, "Fury", "Chaos")).toBeNull();
+  });
+});
+
+describe("matchesPowerDomain", () => {
+  it("accepts the alt domain when set, in addition to the primary", () => {
+    expect(matchesPowerDomain(rune("r", "Chaos"), "Fury", "Chaos")).toBe(true);
+    expect(matchesPowerDomain(rune("r", "Fury"), "Fury", "Chaos")).toBe(true);
+    expect(matchesPowerDomain(rune("r", "Order"), "Fury", "Chaos")).toBe(false);
+  });
+
+  it("behaves exactly as before when no alt domain is passed", () => {
+    expect(matchesPowerDomain(rune("r", "Chaos"), "Fury")).toBe(false);
+    expect(matchesPowerDomain(rune("r", "Fury"), "Fury")).toBe(true);
+    expect(matchesPowerDomain(rune("r", "Order"), null)).toBe(true);
+  });
 });
 
 describe("energyAfterFloat / powerAfterFloat / computeEffectiveCost", () => {
@@ -94,5 +128,11 @@ describe("energyAfterFloat / powerAfterFloat / computeEffectiveCost", () => {
 
   it("computeEffectiveCost reduces both Energy and domain-matched Power together", () => {
     expect(computeEffectiveCost(1, { Calm: 1 }, 3, 1, "Calm")).toEqual({ energyCost: 2, powerCost: 0 });
+  });
+
+  it("powerAfterFloat sums both the primary and alt domain's floating Power for a hybrid cost", () => {
+    expect(powerAfterFloat({ Chaos: 2 }, 2, "Fury", "Chaos")).toBe(0);
+    expect(powerAfterFloat({ Fury: 1, Chaos: 1 }, 2, "Fury", "Chaos")).toBe(0);
+    expect(powerAfterFloat({ Order: 5 }, 2, "Fury", "Chaos")).toBe(2); // wrong domain entirely, unaffected
   });
 });
