@@ -116,14 +116,43 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return playCardActionsFor(cardInstanceId).length > 0;
   }
 
-  /** The one action to submit immediately on click/drag — only for cards
-   *  whose effect doesn't require a target. A targeted card (e.g.
-   *  Incinerate) returns undefined here even though it's interactable,
-   *  since clicking it should arm it instead (see handleHandCardClick). */
+  /** True for a Unit with more than one distinct legal destination (base
+   *  plus one or more "reinforce" battlefields it already occupies) — keyed
+   *  off distinct destinations, not a raw action count, so a future
+   *  same-destination cost variant (e.g. Accelerate) can never falsely
+   *  trigger arming for a Unit that only has one real place to go. */
+  function unitNeedsPlacement(actions: PlayCardAction[]): boolean {
+    if (actions[0]?.card.kind !== "Unit") return false;
+    const destinations = new Set(actions.map((a) => a.destinationBattlefieldId ?? BASE_ZONE_ID));
+    return destinations.size > 1;
+  }
+
+  /** The one action to submit immediately on click/drag — only when the
+   *  card doesn't need a choice: not a targeted Spell (e.g. Incinerate),
+   *  and not a Unit with more than one legal destination. Either case
+   *  returns undefined here even though the card IS interactable, since
+   *  clicking it should arm it instead (see handleHandCardClick). */
   function immediatePlayAction(cardInstanceId: string): PlayCardAction | undefined {
-    const [first] = playCardActionsFor(cardInstanceId);
+    const actions = playCardActionsFor(cardInstanceId);
+    const [first] = actions;
     if (!first) return undefined;
-    return requiresTarget(effectForCard(first.card)) ? undefined : first;
+    if (requiresTarget(effectForCard(first.card))) return undefined;
+    if (unitNeedsPlacement(actions)) return undefined;
+    return first;
+  }
+
+  /** The armed Unit's PlayCardAction for a specific destination — `"base"`
+   *  for the base-play candidate, a battlefield id for a reinforce
+   *  candidate — or undefined if that destination isn't actually legal for
+   *  the currently-armed card. */
+  function placementActionAt(destination: string): PlayCardAction | undefined {
+    if (!selectedHandCard) return undefined;
+    return legal.find(
+      (a): a is PlayCardAction =>
+        a.type === "PlayCard" &&
+        a.card.instanceId === selectedHandCard.instanceId &&
+        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === destination,
+    );
   }
 
   function moveActionTo(unit: UnitInstance, battlefieldId: string): PlayerAction | undefined {
@@ -148,11 +177,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     }
     const [first] = playCardActionsFor(cardInstanceId);
     if (!first) return;
-    // A targeted card — arm it (toggle off if clicking the same one again).
+    // A card needing a choice (targeted Spell or multi-destination Unit) —
+    // arm it (toggle off if clicking the same one again). Clears
+    // `selectedUnit` so at most one of the two "armed" states is ever live —
+    // otherwise a stale selected unit could silently shadow this card's
+    // placement the next time a battlefield/base-zone is clicked.
+    setSelectedUnit(null);
     setSelectedHandCard((prev) => (prev?.instanceId === first.card.instanceId ? null : first.card));
   }
 
   function handleSelectUnit(unit: UnitInstance) {
+    setSelectedHandCard(null);
     setSelectedUnit((prev) => (prev?.instanceId === unit.instanceId ? null : unit));
   }
 
@@ -180,16 +215,28 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     handleSelectUnit(unit);
   }
 
+  const isBaseZoneTarget =
+    isHumanTurn &&
+    (selectedUnit !== null ? Boolean(recallActionFor(selectedUnit)) : Boolean(placementActionAt(BASE_ZONE_ID)));
+
   function handleBattlefieldClick(battlefieldId: string) {
-    if (!selectedUnit) return;
-    const action = moveActionTo(selectedUnit, battlefieldId);
-    if (action) applyAction(action);
+    if (selectedUnit) {
+      const action = moveActionTo(selectedUnit, battlefieldId);
+      if (action) applyAction(action);
+      return;
+    }
+    const placement = placementActionAt(battlefieldId);
+    if (placement) applyAction(placement);
   }
 
   function handleBaseZoneClick() {
-    if (!selectedUnit) return;
-    const action = recallActionFor(selectedUnit);
-    if (action) applyAction(action);
+    if (selectedUnit) {
+      const action = recallActionFor(selectedUnit);
+      if (action) applyAction(action);
+      return;
+    }
+    const placement = placementActionAt(BASE_ZONE_ID);
+    if (placement) applyAction(placement);
   }
 
   function handlePass() {
@@ -305,7 +352,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 human={human}
                 ai={ai}
                 selectedUnit={selectedUnit}
-                isMoveTarget={isHumanTurn && selectedUnit !== null && Boolean(moveActionTo(selectedUnit, bf.id))}
+                isMoveTarget={
+                  isHumanTurn &&
+                  (selectedUnit !== null ? Boolean(moveActionTo(selectedUnit, bf.id)) : Boolean(placementActionAt(bf.id)))
+                }
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
                 isUnitTargetable={isUnitLegalTarget}
@@ -319,11 +369,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           </div>
 
           <div
-            className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${
-              isHumanTurn && selectedUnit !== null && Boolean(recallActionFor(selectedUnit)) ? " selectable" : ""
-            }`}
+            className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${isBaseZoneTarget ? " selectable" : ""}`}
             data-dropzone-id={BASE_ZONE_ID}
-            onClick={isHumanTurn && selectedUnit !== null && recallActionFor(selectedUnit) ? handleBaseZoneClick : undefined}
+            onClick={isBaseZoneTarget ? handleBaseZoneClick : undefined}
           >
             <div className="zone-label">Your base</div>
             <div className="card-row">

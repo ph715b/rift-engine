@@ -1,5 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
+import { claimBattlefieldControl } from "../engine/combat.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 
@@ -28,10 +29,21 @@ import { validatePlayCard } from "./validate-play-card.js";
  *   - cardsPlayedThisTurn++ — :267
  *
  * Per-kind zone transition, post-payment:
- *   - Unit: hand.remove(card) or championZone.set(null) if played from there
- *     (:327-333); baseUnits.add(unit), entering play EXHAUSTED unless it has
- *     [Quick] (:376-384's full condition also excludes Accelerate/per-card
- *     exceptions, none modeled yet).
+ *   - Unit, no destination: hand.remove(card) or championZone.set(null) if
+ *     played from there (:327-333); baseUnits.add(unit), entering play
+ *     EXHAUSTED unless it has [Quick] (:376-384's full condition also
+ *     excludes Accelerate/per-card exceptions, none modeled yet).
+ *   - Unit, with destinationBattlefieldId ("reinforce" — see
+ *     validate-play-card.ts's presence rule): added to that battlefield's
+ *     units instead of base, exhaustion rule unchanged (destination-agnostic
+ *     per ActionExecutor.java:376-384). Landing on a contested battlefield
+ *     opens a Showdown via the identical mechanism MoveUnit's does — a
+ *     confirmed real mechanic, not inferred (GameEngine.java:201-263's own
+ *     "playtesting fix" comment: a unit played directly to a battlefield
+ *     never opened a real Showdown even when landing on enemy-occupied
+ *     territory). Landing uncontested claims control immediately
+ *     (`claimBattlefieldControl`, same walk-in shape MoveUnit's uncontested
+ *     case uses).
  *   - Spell: hand.remove(card); trash.add(card) IMMEDIATELY — before it ever
  *     resolves, mirroring ActionExecutor.payAndQueueSpell's trash-add at
  *     cast time (:566-567), not after resolution; pushes a ChainEntry onto
@@ -86,19 +98,55 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
   };
 
-  let updatedActor: PlayerState;
-  let nextState = state;
-
   if (card.kind === "Unit") {
     const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) };
     const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
-    updatedActor = {
+    const updatedActor: PlayerState = {
       ...actor,
       ...sharedUpdates,
       championZone: playedFromChampionZone ? null : actor.championZone,
-      baseUnits: [...actor.baseUnits, deployedUnit],
     };
-  } else if (card.kind === "Spell") {
+
+    if (action.destinationBattlefieldId === undefined) {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[action.playerIndex] = { ...updatedActor, baseUnits: [...actor.baseUnits, deployedUnit] };
+      return { ...state, players };
+    }
+
+    const players = [...state.players] as [PlayerState, PlayerState];
+    players[action.playerIndex] = updatedActor;
+
+    const bfIndex = state.battlefields.findIndex((bf) => bf.id === action.destinationBattlefieldId);
+    const bf = state.battlefields[bfIndex]!;
+    const battlefields = [...state.battlefields];
+    battlefields[bfIndex] = {
+      ...bf,
+      units: { ...bf.units, [actor.id]: [...(bf.units[actor.id] ?? []), deployedUnit] },
+    };
+
+    const next: GameState = { ...state, players, battlefields };
+
+    const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
+    const opponent = next.players[opponentIndex];
+    const opponentPresent = (bf.units[opponent.id]?.length ?? 0) > 0;
+
+    if (!opponentPresent) {
+      return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+    }
+
+    return {
+      ...next,
+      turnState: "Showdown",
+      focusHolder: action.playerIndex,
+      showdownBattlefieldId: action.destinationBattlefieldId,
+      consecutiveFocusPasses: 0,
+    };
+  }
+
+  let updatedActor: PlayerState;
+  let nextState = state;
+
+  if (card.kind === "Spell") {
     updatedActor = {
       ...actor,
       ...sharedUpdates,

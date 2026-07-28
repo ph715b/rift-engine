@@ -6,10 +6,10 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a plain rune
- * payment (no float, no Accelerate, no additional cost, no destination
- * battlefield). Mirrors the relevant slice of ActionValidator.java's
- * PlayCard checks and ActionExecutor.java's `isValidPayment`
- * (engine/ActionExecutor.java:1492-1513) for the energy-only case.
+ * payment (no float, no Accelerate, no additional cost). Mirrors the
+ * relevant slice of ActionValidator.java's PlayCard checks and
+ * ActionExecutor.java's `isValidPayment` (engine/ActionExecutor.java:1492-1513)
+ * for the energy-only case.
  *
  * Not yet implemented: Legend plays, destination battlefields,
  * Accelerate/additional costs, floating Energy/Power, trash-play, and
@@ -72,6 +72,21 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
     if (!findUnitOnBattlefield(state, action.targetUnitInstanceId)) {
       return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
+    }
+  }
+
+  // A Unit may be played directly to a battlefield only if the acting
+  // player already has a unit of their own there — a pure "reinforce"
+  // action. Mirrors ActionValidator.validateUnitDirectToBattlefield's
+  // universal rule (Battlefield.hasUnitsFor(actor)), minus every named-card
+  // exception that lets specific units deploy to an empty/enemy battlefield
+  // instead (Deadbloom Predator, Sneaky Deckhand, Rengar variants, etc.) —
+  // none of those cards have effects implemented yet.
+  if (card.kind === "Unit" && action.destinationBattlefieldId !== undefined) {
+    const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
+    if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
+    if ((destination.units[actor.id]?.length ?? 0) === 0) {
+      return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }
 

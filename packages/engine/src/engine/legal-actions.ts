@@ -22,20 +22,24 @@ import { effectForCard, requiresTarget } from "./card-effects.js";
  * Scoped to what's implemented: PlayCard for Units/Spells/Gear from hand or
  * the Champion Zone (Unit only), with an auto-computed rune payment covering
  * both Energy and domain-restricted Power costs (no Legend play, no
- * Accelerate/additional costs, no destination battlefields, no EquipGear),
- * MoveUnit for every ready unit to every battlefield it can legally reach,
- * RecallUnit for every ready unit at a battlefield, and Pass.
- * `computeAutoPayment` picks a single minimal valid payment rather than
- * exploring every possible rune selection — which specific rune covers a
- * domain-agnostic Energy cost never changes the outcome, and for Power
- * there's exactly one eligible domain-matching pool to draw from anyway.
- * Every Spell in hand is a legal PlayCard candidate regardless of its
- * isAction/isReaction tags — those only gate Showdown/reaction-speed
- * timing (not modeled here), never a normal-turn cast. A Spell whose
- * registered effect (card-effects.ts) requires a target fans out into one
- * PlayCardAction per legal target — every unit at any battlefield, either
- * owner, per this slice's un-restricted targeting rule — mirroring the
- * MoveUnit double-loop below it in this same function.
+ * Accelerate/additional costs, no EquipGear), MoveUnit for every ready unit
+ * to every battlefield it can legally reach, RecallUnit for every ready
+ * unit at a battlefield, and Pass. `computeAutoPayment` picks a single
+ * minimal valid payment rather than exploring every possible rune
+ * selection — which specific rune covers a domain-agnostic Energy cost
+ * never changes the outcome, and for Power there's exactly one eligible
+ * domain-matching pool to draw from anyway. Every Spell in hand is a legal
+ * PlayCard candidate regardless of its isAction/isReaction tags — those
+ * only gate Showdown/reaction-speed timing (not modeled here), never a
+ * normal-turn cast. A Spell whose registered effect (card-effects.ts)
+ * requires a target fans out into one PlayCardAction per legal target —
+ * every unit at any battlefield, either owner, per this slice's
+ * un-restricted targeting rule. A Unit ALSO fans out into one additional
+ * PlayCardAction per battlefield the actor already has a unit at
+ * (direct-to-battlefield "reinforce" — see validate-play-card.ts's
+ * presence rule), alongside its unconditional base-play candidate, never
+ * replacing it — mirroring the MoveUnit double-loop below it in this same
+ * function.
  *
  * While a Showdown is open, none of the above are legal (mirrors
  * ActionValidator.validateShowdownOpen's hard rejection of MoveUnit/Pass,
@@ -85,6 +89,18 @@ export function legalActions(state: GameState): PlayerAction[] {
 
     const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment };
     actions.push(play);
+
+    // A Unit may ALSO be played directly to any battlefield where the actor
+    // already has a unit of their own — "reinforce" — alongside the
+    // unconditional base-play candidate just pushed above, never replacing
+    // it. Mirrors validate-play-card.ts's presence rule exactly.
+    if (card.kind === "Unit") {
+      for (const bf of state.battlefields) {
+        if ((bf.units[actor.id]?.length ?? 0) === 0) continue;
+        const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, destinationBattlefieldId: bf.id };
+        actions.push(reinforce);
+      }
+    }
   }
 
   for (const unit of actor.baseUnits) {

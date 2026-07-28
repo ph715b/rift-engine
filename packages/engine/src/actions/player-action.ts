@@ -18,6 +18,11 @@ export interface PlayCardAction {
    *  damage/destroy Spell). Only meaningful when the card's registered
    *  effect requires a target — see engine/card-effects.ts. */
   targetUnitInstanceId?: string;
+  /** For a Unit card only: deploy directly to this battlefield instead of
+   *  base. Legal only when the acting player already has a unit of their
+   *  own there — mirrors ActionValidator.validateUnitDirectToBattlefield's
+   *  universal (exception-free) rule, `Battlefield.hasUnitsFor(actor)`. */
+  destinationBattlefieldId?: string;
 }
 
 export interface PassAction {
