@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { allPresetDecks, presetDeckList, type DeckList } from "@rift-engine/engine";
+import { allPresetDecks, presetDeckList, serializeDeckFile, type DeckList } from "@rift-engine/engine";
 import { getProfileDecks, removeProfileDeck } from "../profile.js";
+import { downloadTextFile } from "../download-file.js";
 import { DeckImport } from "./DeckImport.js";
+import { DecklistTextImport } from "./DecklistTextImport.js";
 import type { MatchConfig } from "../game-setup.js";
 
 const PRESET_DECK_LISTS = allPresetDecks().map(presetDeckList);
@@ -13,9 +15,10 @@ interface DeckListPickerProps {
   onSelect: (deck: DeckList) => void;
   onRemove?: (name: string) => void;
   onEdit?: (deck: DeckList) => void;
+  onExport?: (deck: DeckList) => void;
 }
 
-function DeckListPicker({ label, decks, selectedName, onSelect, onRemove, onEdit }: DeckListPickerProps) {
+function DeckListPicker({ label, decks, selectedName, onSelect, onRemove, onEdit, onExport }: DeckListPickerProps) {
   return (
     <div>
       {label && <div className="zone-label">{label}</div>}
@@ -28,6 +31,11 @@ function DeckListPicker({ label, decks, selectedName, onSelect, onRemove, onEdit
             {onEdit && (
               <button className="deck-option-edit" onClick={() => onEdit(deck)} title="Edit this deck">
                 ✎
+              </button>
+            )}
+            {onExport && (
+              <button className="deck-option-export" onClick={() => onExport(deck)} title="Download as a .deck file">
+                ⬇
               </button>
             )}
             {onRemove && (
@@ -47,6 +55,7 @@ interface LobbyProps {
   onStartMatch: (config: MatchConfig) => void;
   onBack: () => void;
   onOpenDeckBuilder: (initialDeck?: DeckList) => void;
+  onImportDecklistText: (deckList: DeckList, unresolvedNames: string[]) => void;
 }
 
 /**
@@ -57,7 +66,7 @@ interface LobbyProps {
  * rematch either reuses this exact config or jumps straight back here for
  * a quick swap, it never re-litigates the choice mid-game.
  */
-export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder }: LobbyProps) {
+export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklistText }: LobbyProps) {
   const [profileDecks, setProfileDecks] = useState(getProfileDecks);
   const [humanDeck, setHumanDeck] = useState<DeckList | null>(null);
   const [aiDeck, setAiDeck] = useState<DeckList | null>(PRESET_DECK_LISTS[0] ?? null);
@@ -70,6 +79,10 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder }: LobbyProps) {
     removeProfileDeck(name);
     refreshProfile();
     setHumanDeck((prev) => (prev?.name === name ? null : prev));
+  }
+
+  function handleExport(deck: DeckList) {
+    downloadTextFile(`${deck.name}.deck`, serializeDeckFile(deck));
   }
 
   return (
@@ -89,8 +102,10 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder }: LobbyProps) {
           onSelect={setHumanDeck}
           onRemove={handleRemove}
           onEdit={onOpenDeckBuilder}
+          onExport={handleExport}
         />
         <DeckImport onImported={refreshProfile} />
+        <DecklistTextImport onParsed={onImportDecklistText} />
         <button onClick={() => onOpenDeckBuilder()}>Build a deck</button>
       </div>
 

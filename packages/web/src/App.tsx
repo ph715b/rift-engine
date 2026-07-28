@@ -15,7 +15,7 @@ type Screen =
   // in isolation, no match being set up) and from Lobby's inline "Edit"
   // button (tweak a deck while setting up a match) — it needs to know which
   // one to bounce back to on Save/Cancel rather than assuming either.
-  | { type: "deckBuilder"; initialDeck?: DeckList; returnTo: "menu" | "lobby" }
+  | { type: "deckBuilder"; initialDeck?: DeckList; unresolvedNames?: string[]; returnTo: "menu" | "lobby" }
   | { type: "game"; config: MatchConfig };
 
 function CurrentScreen({ screen, setScreen }: { screen: Screen; setScreen: (s: Screen) => void }) {
@@ -33,12 +33,16 @@ function CurrentScreen({ screen, setScreen }: { screen: Screen; setScreen: (s: S
           onBack={() => setScreen({ type: "menu" })}
           onStartMatch={(config) => setScreen({ type: "game", config })}
           onOpenDeckBuilder={(initialDeck) => setScreen({ type: "deckBuilder", initialDeck, returnTo: "lobby" })}
+          onImportDecklistText={(deckList, unresolvedNames) =>
+            setScreen({ type: "deckBuilder", initialDeck: deckList, unresolvedNames, returnTo: "lobby" })
+          }
         />
       );
     case "deckBuilder":
       return (
         <DeckBuilder
           initialDeck={screen.initialDeck}
+          unresolvedNames={screen.unresolvedNames}
           onSaved={() => setScreen({ type: screen.returnTo })}
           onCancel={() => setScreen({ type: screen.returnTo })}
         />

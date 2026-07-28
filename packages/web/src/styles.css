@@ -519,6 +519,14 @@ button:disabled {
   color: var(--color-text-dim);
 }
 
+.deck-option-export {
+  border: none;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  padding: 0.4rem 0.6rem;
+  color: var(--color-text-dim);
+}
+
 .deck-import {
   border: 1px dashed var(--color-border);
   border-radius: 8px;
@@ -534,6 +542,50 @@ button:disabled {
 .deck-import-error {
   color: var(--color-danger);
   font-size: 0.85rem;
+}
+
+/* Informational, not an error — nothing is blocked when this shows, it's
+   just telling the user what a decklist-text import couldn't find. */
+.deck-import-warning {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.6rem 2rem 0.6rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+}
+
+.deck-import-warning-dismiss {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-dim);
+  padding: 0.2rem 0.4rem;
+}
+
+.decklist-text-import {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.decklist-text-import-textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-family: monospace;
+  resize: vertical;
+  margin-bottom: 0.4rem;
 }
 
 .deck-builder {
@@ -563,6 +615,44 @@ button:disabled {
 
 .deck-builder-search-input {
   margin-bottom: 0.5rem;
+}
+
+.battlefield-inputs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.battlefield-inputs .deck-builder-name-input {
+  width: auto;
+  flex: 1 1 0;
+}
+
+.battlefield-inputs .deck-builder-name-input.focused {
+  border-color: var(--color-accent);
+}
+
+.battlefield-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.card-tile.battlefield-tile {
+  /* Real battlefield cards print landscape, unlike every other portrait
+     card — override .card-tile's portrait --card-w/--card-h sizing rather
+     than inherit it, or the art crops badly. Compound selector (not just
+     .battlefield-tile) so this wins regardless of declaration order
+     relative to .card-tile's own width/height rule. */
+  width: 11rem;
+  height: 7.9rem;
+  padding: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.battlefield-tile.in-deck {
+  border-color: var(--color-accent);
 }
 
 .rune-stepper-row {

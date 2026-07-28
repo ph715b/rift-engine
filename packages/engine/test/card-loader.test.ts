@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadCardDefinitions } from "../src/cards/card-loader.js";
+import { loadBattlefieldDefinitions, loadCardDefinitions } from "../src/cards/card-loader.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { allPresetDecks } from "../src/decks/deck-presets.js";
 
@@ -59,5 +59,30 @@ describe("card loader", () => {
   it("does NOT set powerDomainAlt for Decisive Strike (OGS-024), a non-hybrid multi-domain card", () => {
     const def = defaultCardRegistry().get("OGS-024");
     expect(def.powerDomainAlt).toBeUndefined();
+  });
+});
+
+describe("loadBattlefieldDefinitions", () => {
+  it("loads real Battlefield-type cards with name/art/text, excluded from loadCardDefinitions", () => {
+    const battlefields = loadBattlefieldDefinitions();
+    expect(battlefields.length).toBeGreaterThan(20);
+    for (const b of battlefields) {
+      expect(b.name).toBeTruthy();
+      expect(b.imageUrl).toBeTruthy();
+    }
+    const names = battlefields.map((b) => b.name);
+    expect(names).toContain("Zaun Warrens");
+    expect(names).toContain("Targon's Peak");
+    expect(names).toContain("Reaver's Row");
+  });
+
+  it("never duplicates a battlefield name (dedupes any alternate art)", () => {
+    const names = loadBattlefieldDefinitions().map((b) => b.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("carries real rules text, not a placeholder", () => {
+    const altar = loadBattlefieldDefinitions().find((b) => b.name === "Altar to Unity");
+    expect(altar?.text).toContain("Recruit unit token");
   });
 });

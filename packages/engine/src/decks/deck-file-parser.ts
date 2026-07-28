@@ -59,3 +59,22 @@ export function parseDeckFile(contents: string): DeckList | null {
     sideboardCardIds,
   };
 }
+
+/**
+ * The mirror of parseDeckFile — writes the same KEY=value format back out.
+ * No CardRegistry needed: a DeckList already stores ids for everything
+ * except battlefieldNames (which the format itself stores as plain names).
+ */
+export function serializeDeckFile(deck: DeckList): string {
+  const lines = [
+    `NAME=${deck.name}`,
+    `LEGEND=${deck.legendId}`,
+    `CHAMPION=${deck.championId}`,
+    `RUNE_A=${deck.runeDomainACount}`,
+    `RUNE_B=${deck.runeDomainBCount}`,
+    ...deck.cardIds.map((id) => `CARD=${id}`),
+    ...deck.battlefieldNames.map((name) => `BATTLEFIELD=${name}`),
+    ...deck.sideboardCardIds.map((id) => `SIDEBOARD=${id}`),
+  ];
+  return lines.join("\n") + "\n";
+}

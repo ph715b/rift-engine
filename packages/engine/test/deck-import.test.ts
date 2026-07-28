@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { allPresetDecks, presetDeckList } from "../src/decks/deck-presets.js";
 import { validateDeckList } from "../src/decks/deck-validation.js";
-import { parseDeckFile } from "../src/decks/deck-file-parser.js";
+import { parseDeckFile, serializeDeckFile } from "../src/decks/deck-file-parser.js";
 import { buildPlayerFromDeckList } from "../src/decks/player-setup.js";
 import { mulberry32 } from "../src/util/rng.js";
 import type { DeckList } from "../src/decks/deck-list.js";
@@ -129,5 +129,32 @@ describe("deck source 3: an arbitrary user-built deck (not from any file)", () =
 
     const result = validateDeckList(tooManyCopies, registry);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("serializeDeckFile / parseDeckFile round-trip", () => {
+  it("every preset round-trips through serialize -> parse unchanged", () => {
+    for (const preset of allPresetDecks()) {
+      const deckList = presetDeckList(preset);
+      const roundTripped = parseDeckFile(serializeDeckFile(deckList));
+      expect(roundTripped).toEqual(deckList);
+    }
+  });
+
+  it("round-trips a deck with an empty sideboard", () => {
+    const garenPreset = presetDeckList(allPresetDecks().find((d) => d.name.startsWith("Garen"))!);
+    expect(garenPreset.sideboardCardIds).toEqual([]);
+    const roundTripped = parseDeckFile(serializeDeckFile(garenPreset));
+    expect(roundTripped).toEqual(garenPreset);
+  });
+
+  it("round-trips a deck with a real 8-card sideboard", () => {
+    const garenPreset = presetDeckList(allPresetDecks().find((d) => d.name.startsWith("Garen"))!);
+    const withSideboard: DeckList = {
+      ...garenPreset,
+      sideboardCardIds: garenPreset.cardIds.slice(0, 8),
+    };
+    const roundTripped = parseDeckFile(serializeDeckFile(withSideboard));
+    expect(roundTripped).toEqual(withSideboard);
   });
 });

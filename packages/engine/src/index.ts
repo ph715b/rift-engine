@@ -29,6 +29,7 @@ export * from "./actions/execute-float-rune.js";
 export * from "./decks/deck-list.js";
 export * from "./decks/deck-validation.js";
 export * from "./decks/deck-file-parser.js";
+export * from "./decks/decklist-text-parser.js";
 export * from "./decks/player-setup.js";
 export * from "./decks/battlefield-setup.js";
 export * from "./decks/deck-presets.js";

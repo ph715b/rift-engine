@@ -208,3 +208,43 @@ export function loadRuneArt(): Partial<Record<Domain, string>> {
   }
   return art;
 }
+
+export interface BattlefieldDefinition {
+  id: string;
+  name: string;
+  imageUrl: string;
+  text: string;
+  domains: Domain[];
+}
+
+/**
+ * Real Battlefield-type cards (name, art, rules text) — like Rune-type
+ * cards, Battlefields are deliberately excluded from `loadCardDefinitions`
+ * (`shouldSkip` above; `BattlefieldState` carries no per-name ability yet,
+ * so there's no playable CardDefinition to build), but a deck builder
+ * still wants to offer real, named battlefields to pick from rather than
+ * only free text. Same "presentation-only side lookup, not a real
+ * CardDefinition" pattern as `loadRuneArt`.
+ */
+export function loadBattlefieldDefinitions(): BattlefieldDefinition[] {
+  const seen = new Set<string>();
+  const defs: BattlefieldDefinition[] = [];
+  for (const raw of CARD_FILES) {
+    for (const item of extractCardItems(raw)) {
+      if (item.classification.type !== "Battlefield") continue;
+      if (item.metadata.alternate_art) continue;
+      if (seen.has(item.name)) continue;
+      const imageUrl = item.media.image_url;
+      if (!imageUrl) continue;
+      seen.add(item.name);
+      defs.push({
+        id: deriveId(item.riftbound_id),
+        name: item.name,
+        imageUrl,
+        text: item.text.plain ?? "",
+        domains: parseDomains(item.classification.domain),
+      });
+    }
+  }
+  return defs;
+}
