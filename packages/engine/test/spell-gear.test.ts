@@ -279,9 +279,11 @@ describe("chain gating: no other action is legal while a spell is pending resolu
     ).toBe(false);
   });
 
-  it("legalActions returns exactly PassFocus for whoever holds chain priority", () => {
+  it("legalActions returns PassFocus for whoever holds chain priority, plus FloatRune (the one action real enough to bypass a closed chain)", () => {
     const state = closedChainState();
-    expect(legalActions(state)).toEqual([{ type: "PassFocus", playerIndex: 0 }]);
+    const actions = legalActions(state);
+    expect(actions).toContainEqual({ type: "PassFocus", playerIndex: 0 });
+    expect(actions.every((a) => a.type === "PassFocus" || a.type === "FloatRune")).toBe(true);
   });
 
   it("validatePassFocus rejects the wrong player", () => {

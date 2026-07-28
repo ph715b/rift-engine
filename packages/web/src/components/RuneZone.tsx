@@ -2,12 +2,14 @@ import { useMemo } from "react";
 import { loadRuneArt, type RuneCard } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 
-/** Present only while the human has a card armed that still owes a rune
- *  payment — turns the (otherwise inert) rune tiles into left-click-for-
- *  Energy / right-click-for-Power controls. A rune proposed both ways at
- *  once is legitimate "double duty" (recycled for Power, its Energy
- *  potential spent directly by the same payment), not a bug. */
+/** Active while the human has a card armed that still owes a rune payment
+ *  — turns the (otherwise inert) rune tiles into left-click-for-Energy /
+ *  right-click-for-Power controls that STAGE a proposal into that card's
+ *  payment (not an immediate submit). A rune proposed both ways at once is
+ *  legitimate "double duty" (recycled for Power, its Energy potential
+ *  spent directly by the same payment), not a bug. */
 export interface PaymentMode {
+  kind: "payment";
   proposedEnergyIds: string[];
   proposedPowerIds: string[];
   isRuneEligibleForEnergy: (rune: RuneCard) => boolean;
@@ -16,9 +18,29 @@ export interface PaymentMode {
   onRuneRightClick: (rune: RuneCard) => void;
 }
 
+/** Active whenever no card is armed — the real, standalone FloatRune
+ *  action (confirmed against the official rules and the Java oracle):
+ *  left-click a Ready rune immediately exhausts it for 1 floating Energy;
+ *  right-click any rune (Ready or Exhausted) immediately recycles it for 1
+ *  floating Power of its domain. Unlike PaymentMode, both clicks submit at
+ *  once — there's no proposal being built toward a specific card, since
+ *  floating is independent of casting anything. */
+export interface FloatMode {
+  kind: "float";
+  isRuneEligibleForEnergy: (rune: RuneCard) => boolean;
+  isRuneEligibleForPower: (rune: RuneCard) => boolean;
+  onRuneLeftClick: (rune: RuneCard) => void;
+  onRuneRightClick: (rune: RuneCard) => void;
+}
+
+/** A tile can only ever be in one mode at a time — a discriminated union
+ *  makes that structural rather than a convention two sibling props would
+ *  have to maintain by hand. */
+export type RuneInteractionMode = PaymentMode | FloatMode;
+
 interface RuneZoneProps {
   runes: RuneCard[];
-  paymentMode?: PaymentMode;
+  mode?: RuneInteractionMode;
 }
 
 /**
@@ -29,7 +51,7 @@ interface RuneZoneProps {
  * Keeps the exact tile rendering/interaction previously inline in
  * PlayerSideColumn.tsx — only the container moved, not the logic.
  */
-export function RuneZone({ runes, paymentMode }: RuneZoneProps) {
+export function RuneZone({ runes, mode }: RuneZoneProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
 
@@ -41,10 +63,10 @@ export function RuneZone({ runes, paymentMode }: RuneZoneProps) {
       <div className="rune-row">
         {runes.map((rune) => {
           const art = runeArt[rune.domain];
-          const proposedEnergy = paymentMode?.proposedEnergyIds.includes(rune.id) ?? false;
-          const proposedPower = paymentMode?.proposedPowerIds.includes(rune.id) ?? false;
-          const canLeftClick = paymentMode ? proposedEnergy || paymentMode.isRuneEligibleForEnergy(rune) : false;
-          const canRightClick = paymentMode ? proposedPower || paymentMode.isRuneEligibleForPower(rune) : false;
+          const proposedEnergy = (mode?.kind === "payment" && mode.proposedEnergyIds.includes(rune.id)) ?? false;
+          const proposedPower = (mode?.kind === "payment" && mode.proposedPowerIds.includes(rune.id)) ?? false;
+          const canLeftClick = mode ? proposedEnergy || mode.isRuneEligibleForEnergy(rune) : false;
+          const canRightClick = mode ? proposedPower || mode.isRuneEligibleForPower(rune) : false;
           const classes = ["rune-tile"];
           if (rune.state === "Exhausted") classes.push("exhausted");
           if (proposedEnergy) classes.push("proposed-energy");
@@ -56,12 +78,12 @@ export function RuneZone({ runes, paymentMode }: RuneZoneProps) {
               className={classes.join(" ")}
               style={{ borderColor: DOMAIN_COLORS[rune.domain] }}
               title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}`}
-              onClick={canLeftClick ? () => paymentMode!.onRuneLeftClick(rune) : undefined}
+              onClick={canLeftClick ? () => mode!.onRuneLeftClick(rune) : undefined}
               onContextMenu={
                 canRightClick
                   ? (e) => {
                       e.preventDefault();
-                      paymentMode!.onRuneRightClick(rune);
+                      mode!.onRuneRightClick(rune);
                     }
                   : undefined
               }

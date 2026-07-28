@@ -13,6 +13,7 @@ import {
   submit,
   type CardInstance,
   type DeckList,
+  type FloatRuneAction,
   type GameState,
   type PlayCardAction,
   type PlayerAction,
@@ -626,6 +627,32 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         pendingResolvedAction.payment.powerRunes.length > pendingPlay.payment.powerRunes.length),
   );
 
+  // FloatRune: tap a rune directly into the floating pool, independent of
+  // casting anything — the real standalone action (confirmed against the
+  // official rules and the Java oracle), distinct from the payment-mode
+  // clicks above (which stage a proposal for an already-armed card).
+  // Gated on `!pendingPlay` rather than `!pendingStillOwesPayment` — the
+  // latter is also false while a card is armed but not yet resolved (e.g.
+  // a targeted Spell before its target is picked), and floating then would
+  // silently clear the armed card (applyAction always resets pendingPlay),
+  // which would be a surprising regression, not a feature.
+  const floatModeActive = isHumanTurn && !isGameOver && !pendingPlay;
+
+  function canFloatEnergy(rune: RuneCard): boolean {
+    return legal.some((a) => a.type === "FloatRune" && a.runeId === rune.id && !a.forPower);
+  }
+  function canFloatPower(rune: RuneCard): boolean {
+    return legal.some((a) => a.type === "FloatRune" && a.runeId === rune.id && a.forPower);
+  }
+  function floatEnergy(rune: RuneCard) {
+    const action = legal.find((a): a is FloatRuneAction => a.type === "FloatRune" && a.runeId === rune.id && !a.forPower);
+    if (action) applyAction(action);
+  }
+  function floatPower(rune: RuneCard) {
+    const action = legal.find((a): a is FloatRuneAction => a.type === "FloatRune" && a.runeId === rune.id && a.forPower);
+    if (action) applyAction(action);
+  }
+
   if (pregameState) {
     return <MulliganScreen hand={pregameState.players[HUMAN_INDEX].hand} onConfirm={handleMulliganConfirm} />;
   }
@@ -716,9 +743,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           <div className="base-and-runes">
             <RuneZone
               runes={human.channeled}
-              paymentMode={
+              mode={
                 pendingResolvedAction
                   ? {
+                      kind: "payment",
                       proposedEnergyIds: pendingPlay!.payment.energyRunes,
                       proposedPowerIds: pendingPlay!.payment.powerRunes,
                       isRuneEligibleForEnergy,
@@ -726,7 +754,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       onRuneLeftClick: toggleEnergyRune,
                       onRuneRightClick: togglePowerRune,
                     }
-                  : undefined
+                  : floatModeActive
+                    ? {
+                        kind: "float",
+                        isRuneEligibleForEnergy: canFloatEnergy,
+                        isRuneEligibleForPower: canFloatPower,
+                        onRuneLeftClick: floatEnergy,
+                        onRuneRightClick: floatPower,
+                      }
+                    : undefined
               }
             />
             <div

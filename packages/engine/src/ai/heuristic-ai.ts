@@ -39,6 +39,12 @@ function applyAction(state: GameState, action: PlayerAction): GameState {
       return executeRecallUnit(state, action);
     case "PassFocus":
       return executePassFocus(state, action);
+    case "FloatRune":
+      // Never reached — chooseAction filters FloatRune out of its own
+      // candidate pool below (evaluate() can't meaningfully value a
+      // resource banked for a future play it never sees). A safe no-op
+      // fallback so this switch stays exhaustive over PlayerAction.
+      return state;
   }
 }
 
@@ -61,19 +67,33 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
 }
 
 /** Picks the legal action whose resulting state scores highest for the
- *  active player, falling back to Pass when nothing beats it.
+ *  acting player, falling back to Pass when nothing beats it.
  *
- *  `forIndex` is always `activePlayerIndex`, even during an open Showdown
- *  where the *non*-active player can hold Focus and be the one actually
- *  acting. This is currently harmless only because `legalActions` returns
- *  exactly one candidate (PassFocus, for whoever holds Focus) during a
- *  Showdown — the loop below always ends up picking that single real action
- *  regardless of which index it's scored from. It'll need to become "the
- *  acting player" (turnState === "Showdown" ? focusHolder : activePlayerIndex)
- *  the moment a Showdown can ever offer more than one legal action. */
+ *  `forIndex` mirrors GameBoard.tsx's own `actingPlayerIndex` precedence
+ *  (chain closed -> chainPriority, Showdown -> focusHolder, else ->
+ *  activePlayerIndex) — this used to be hardcoded to `activePlayerIndex`,
+ *  which was harmless only because `legalActions` used to return exactly
+ *  one candidate (PassFocus) during a Showdown/closed chain, so the loop
+ *  below always picked that single real action regardless of which index
+ *  it was scored from. Now that FloatRune candidates can also appear
+ *  alongside PassFocus in those states (see legal-actions.ts), scoring them
+ *  "for activePlayerIndex" would be wrong whenever Focus/chain priority
+ *  sits with the other player — this is that exact fix.
+ *
+ *  FloatRune itself is filtered out of the candidate pool entirely:
+ *  `evaluate` only scores board state (points/Might), which can't
+ *  meaningfully value a resource banked for a future play this 1-ply
+ *  lookahead never sees — scoring it would only ever produce a meaningless
+ *  tie with Pass/PassFocus. Matches this project's "no speculative
+ *  heuristic without a real evaluative basis" precedent (e.g. the AI never
+ *  mulligans either, for the same reason). */
 export function chooseAction(state: GameState): PlayerAction {
-  const forIndex = state.activePlayerIndex;
-  const candidates = legalActions(state);
+  const forIndex: 0 | 1 = !state.chainOpen
+    ? state.chainPriority
+    : state.turnState === "Showdown"
+      ? state.focusHolder
+      : state.activePlayerIndex;
+  const candidates = legalActions(state).filter((a) => a.type !== "FloatRune");
 
   let best: PlayerAction = { type: "Pass", playerIndex: forIndex };
   let bestScore = -Infinity;

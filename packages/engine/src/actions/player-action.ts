@@ -68,6 +68,24 @@ export interface PassFocusAction {
 }
 
 /**
+ * Taps a channeled rune directly into the player's floating pool,
+ * independent of casting or activating anything — the real rule
+ * (confirmed against both the official Core Rules and
+ * engine/PlayerAction.java:164-173's `FloatRune(RuneCard rune, boolean
+ * forPower)`): exhaust a Ready rune for 1 floating Energy (`forPower:
+ * false`), or recycle a rune (Ready or Exhausted) for 1 floating Power of
+ * its domain (`forPower: true`). Unlike Java's implicit owner-scan, this
+ * carries an explicit `playerIndex` and an id (not an object reference),
+ * matching every other action in this file.
+ */
+export interface FloatRuneAction {
+  type: "FloatRune";
+  playerIndex: 0 | 1;
+  runeId: string;
+  forPower: boolean;
+}
+
+/**
  * The player-submittable actions implemented so far. Mirrors a subset of
  * engine/PlayerAction.java's 17-variant sealed interface (PlayCard, MoveUnit,
  * RecallUnit, ActivateGear, ActivateUnit, FloatRune, PassFocus, Pass,
@@ -77,4 +95,4 @@ export interface PassFocusAction {
  * validate/execute pair is actually implemented (M1's turn/priority
  * skeleton), not stubbed out ahead of that logic.
  */
-export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction | PassFocusAction;
+export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction | PassFocusAction | FloatRuneAction;

@@ -50,6 +50,7 @@ describe("legalActions", () => {
     const actions = legalActions(state);
 
     expect(actions.some((a) => a.type === "Pass")).toBe(true);
+    expect(actions.some((a) => a.type === "FloatRune")).toBe(true);
     for (const action of actions) {
       if (action.type === "PlayCard") {
         expect(action.card.kind).not.toBe("Legend");
@@ -69,6 +70,47 @@ describe("legalActions", () => {
   it("returns no actions outside the Action phase", () => {
     const state = buildInitialGameState(); // still phase: "Awaken"
     expect(legalActions(state)).toEqual([]);
+  });
+
+  it("a Ready rune yields both an Energy and a Power FloatRune candidate; an Exhausted rune yields only Power", () => {
+    const { state } = startGame(buildInitialGameState());
+    const actor = state.players[0]!;
+    actor.channeled = [
+      { id: "ready-1", domain: "Order", state: "Ready" },
+      { id: "exhausted-1", domain: "Order", state: "Exhausted" },
+    ];
+
+    const floatActions = legalActions(state).filter((a) => a.type === "FloatRune");
+    const forReady = floatActions.filter((a) => a.runeId === "ready-1");
+    const forExhausted = floatActions.filter((a) => a.runeId === "exhausted-1");
+
+    expect(forReady).toHaveLength(2);
+    expect(forReady.some((a) => !a.forPower)).toBe(true);
+    expect(forReady.some((a) => a.forPower)).toBe(true);
+
+    expect(forExhausted).toHaveLength(1);
+    expect(forExhausted[0]!.forPower).toBe(true);
+  });
+
+  it("FloatRune candidates are offered for the priority-holder during an open Showdown and a closed chain, alongside PassFocus", () => {
+    const { state } = startGame(buildInitialGameState());
+    state.players[1]!.channeled = [{ id: "ai-rune", domain: "Calm", state: "Ready" }];
+
+    const showdownState: GameState = {
+      ...state,
+      turnState: "Showdown",
+      focusHolder: 1,
+      showdownBattlefieldId: state.battlefields[0]!.id,
+      consecutiveFocusPasses: 0,
+    };
+    const showdownActions = legalActions(showdownState);
+    expect(showdownActions.some((a) => a.type === "PassFocus" && a.playerIndex === 1)).toBe(true);
+    expect(showdownActions.some((a) => a.type === "FloatRune" && a.playerIndex === 1 && a.runeId === "ai-rune")).toBe(true);
+
+    const closedChainState: GameState = { ...state, chainOpen: false, chainPriority: 1 };
+    const closedChainActions = legalActions(closedChainState);
+    expect(closedChainActions.some((a) => a.type === "PassFocus" && a.playerIndex === 1)).toBe(true);
+    expect(closedChainActions.some((a) => a.type === "FloatRune" && a.playerIndex === 1 && a.runeId === "ai-rune")).toBe(true);
   });
 
   it("generates a valid, affordable PlayCard candidate for a hand card with a domain-restricted Power cost", () => {

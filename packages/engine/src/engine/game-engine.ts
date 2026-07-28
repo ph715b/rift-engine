@@ -9,6 +9,8 @@ import { validateRecallUnit } from "../actions/validate-recall-unit.js";
 import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { validatePassFocus } from "../actions/validate-pass-focus.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
+import { validateFloatRune } from "../actions/validate-float-rune.js";
+import { executeFloatRune } from "../actions/execute-float-rune.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
 import type { SubmitResult } from "./submit-result.js";
@@ -89,6 +91,11 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
       const validation = validatePassFocus(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
       return withWinnerCheck(executePassFocus(state, action));
+    }
+    case "FloatRune": {
+      const validation = validateFloatRune(state, action);
+      if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
+      return withWinnerCheck(executeFloatRune(state, action));
     }
   }
 }
