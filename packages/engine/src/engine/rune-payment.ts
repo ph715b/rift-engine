@@ -23,6 +23,46 @@ function matchesPowerDomain(rune: RuneCard, powerDomain: Domain | null): boolean
  * exhaust-then-recycle "double duty" the real rules and the oracle's own
  * doc comment describe) before reaching for additional plain-Energy runes.
  */
+/** Mirrors ActionExecutor.energyAfterFloat: floating Energy reduces any
+ *  Energy cost, no domain restriction. */
+export function energyAfterFloat(floatingEnergy: number, rawEnergyCost: number): number {
+  return Math.max(0, rawEnergyCost - floatingEnergy);
+}
+
+/** Mirrors ActionExecutor.powerAfterFloat: floating Power only reduces a
+ *  Power cost of the matching domain (or the full rainbow pool when
+ *  powerDomain is null, matching matchesPowerDomain's own null-is-wildcard
+ *  convention above). A zero raw cost short-circuits regardless of domain. */
+export function powerAfterFloat(
+  floatingPower: Partial<Record<Domain, number>>,
+  rawPowerCost: number,
+  powerDomain: Domain | null,
+): number {
+  if (rawPowerCost === 0) return 0;
+  const available =
+    powerDomain === null
+      ? Object.values(floatingPower).reduce((sum: number, n) => sum + (n ?? 0), 0)
+      : (floatingPower[powerDomain] ?? 0);
+  return Math.max(0, rawPowerCost - available);
+}
+
+/** Single source of truth for "what does this cost after floating resources
+ *  are applied" — used identically by legal-actions, validate-play-card, and
+ *  (re-derived independently from raw cost) execute-play-card, so the three
+ *  can never drift out of sync with each other. */
+export function computeEffectiveCost(
+  floatingEnergy: number,
+  floatingPower: Partial<Record<Domain, number>>,
+  energyCost: number,
+  powerCost: number,
+  powerDomain: Domain | null,
+): { energyCost: number; powerCost: number } {
+  return {
+    energyCost: energyAfterFloat(floatingEnergy, energyCost),
+    powerCost: powerAfterFloat(floatingPower, powerCost, powerDomain),
+  };
+}
+
 export function computeAutoPayment(
   channeled: readonly RuneCard[],
   energyCost: number,

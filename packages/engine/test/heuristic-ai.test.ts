@@ -116,6 +116,55 @@ describe("legalActions", () => {
     const actions = legalActions(state);
     expect(actions.some((a) => a.type === "PlayCard" && a.card.instanceId === jinx.instanceId)).toBe(false);
   });
+
+  it("shrinks the auto-generated payment when floating Energy covers part of the cost", () => {
+    const { state } = startGame(buildInitialGameState());
+    const registry = defaultCardRegistry();
+    const jinx = createCardInstance(registry.get("OGN-030")) as UnitInstance; // 3 Energy + 1 Power(Fury)
+
+    const actor = state.players[0]!;
+    actor.hand = [...actor.hand, jinx];
+    actor.floatingEnergy = 2; // reduces the 3 Energy cost down to 1
+    // Only 1 plain Ready rune for Energy — would be infeasible at the raw
+    // cost of 3, but legal at the floating-reduced effective cost of 1.
+    actor.channeled = [
+      { id: "e1", domain: "Order", state: "Ready" },
+      { id: "extra-fury", domain: "Fury", state: "Exhausted" },
+    ];
+
+    const actions = legalActions(state);
+    const play = actions.find((a) => a.type === "PlayCard" && a.card.instanceId === jinx.instanceId);
+    expect(play).toBeDefined();
+    if (play!.type === "PlayCard") {
+      expect(play!.payment.energyRunes).toEqual(["e1"]);
+      expect(validatePlayCard(state, play!)).toEqual({ ok: true });
+    }
+  });
+
+  it("omits the Power-rune requirement entirely when floating Power fully covers the domain-matched cost", () => {
+    const { state } = startGame(buildInitialGameState());
+    const registry = defaultCardRegistry();
+    const jinx = createCardInstance(registry.get("OGN-030")) as UnitInstance; // 3 Energy + 1 Power(Fury)
+
+    const actor = state.players[0]!;
+    actor.hand = [...actor.hand, jinx];
+    actor.floatingPower = { Fury: 1 }; // fully covers the 1 Power(Fury) cost
+    // No Fury rune anywhere in the pool — would be infeasible at the raw
+    // cost, but legal once floating Power reduces it to 0.
+    actor.channeled = [
+      { id: "e1", domain: "Order", state: "Ready" },
+      { id: "e2", domain: "Order", state: "Ready" },
+      { id: "e3", domain: "Order", state: "Ready" },
+    ];
+
+    const actions = legalActions(state);
+    const play = actions.find((a) => a.type === "PlayCard" && a.card.instanceId === jinx.instanceId);
+    expect(play).toBeDefined();
+    if (play!.type === "PlayCard") {
+      expect(play!.payment.powerRunes).toHaveLength(0);
+      expect(validatePlayCard(state, play!)).toEqual({ ok: true });
+    }
+  });
 });
 
 describe("heuristic AI", () => {

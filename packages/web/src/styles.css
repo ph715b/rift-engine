@@ -526,7 +526,30 @@ button:disabled {
 }
 
 .rune-tile.exhausted {
-  opacity: 0.35;
+  /* Rune tiles aren't square, so a 90deg rotation (CardView's convention for
+     exhausted units) clips into an ugly diamond inside the fixed-size,
+     overflow-hidden box instead of a clean "tapped" look — grayscale +
+     a stronger opacity drop reads as "spent" without that clipping. */
+  opacity: 0.45;
+  filter: grayscale(70%);
+}
+
+.rune-tile.payable {
+  cursor: pointer;
+}
+
+.rune-tile.proposed-energy {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.rune-tile.proposed-power {
+  box-shadow: 0 0 0 2px var(--color-danger);
+}
+
+.rune-tile.proposed-energy.proposed-power {
+  box-shadow:
+    0 0 0 2px var(--color-accent),
+    0 0 0 4px var(--color-danger);
 }
 
 .point-tracker {

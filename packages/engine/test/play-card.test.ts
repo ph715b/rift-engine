@@ -295,8 +295,189 @@ describe("PlayCard: Power-cost rune recycling", () => {
     expect(actor.runeDeck[0]!.id).toBe("fury-ready");
     expect(actor.runeDeck[0]!.state).toBe("Ready");
 
-    // Its Energy-paying potential would otherwise be wasted, so the player is
-    // credited 1 floating Energy instead (ActionExecutor.java:1876-1886).
+    // True double duty already spends the rune's Energy-paying potential
+    // directly (it's in energyRunes too) — no floating credit is due.
+    expect(actor.floatingEnergy).toBe(0);
+  });
+
+  it("credits +1 floating Energy when a Ready rune is recycled for Power WITHOUT also paying Energy", () => {
+    const { state } = buildFixture();
+    const registry = defaultCardRegistry();
+    const jinxDef = registry.get("OGN-030");
+    const jinx = createCardInstance(jinxDef) as UnitInstance;
+
+    state.players[0]!.hand = [jinx];
+    // A Ready Fury rune covers Power alone (not listed in energyRunes); three
+    // separate plain Ready runes cover the 3 Energy cost.
+    state.players[0]!.channeled = [
+      { id: "fury-ready", domain: "Fury", state: "Ready" },
+      readyRune("e1"),
+      readyRune("e2"),
+      readyRune("e3"),
+    ];
+    state.players[0]!.runeDeck = [];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: jinx,
+      payment: { energyRunes: ["e1", "e2", "e3"], powerRunes: ["fury-ready"] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+
+    expect(actor.channeled).toHaveLength(3);
+    expect(actor.channeled.every((r) => r.state === "Exhausted")).toBe(true);
+    expect(actor.runeDeck).toHaveLength(1);
+    expect(actor.runeDeck[0]!.id).toBe("fury-ready");
+    expect(actor.runeDeck[0]!.state).toBe("Ready");
+
+    // Recycling this Ready rune for Power alone wastes its Energy-paying
+    // potential, so it's banked as floating Energy instead.
     expect(actor.floatingEnergy).toBe(1);
+  });
+});
+
+describe("PlayCard: floating Energy/Power as a spendable resource", () => {
+  it("partially consumes floating Energy, reducing the runes needed and floors the remainder at 0", () => {
+    const { state, poro } = buildFixture(); // Daring Poro: 2 Energy, 0 Power
+    state.players[0]!.floatingEnergy = 1;
+    // Only 1 rune channeled — the effective cost (2 - 1 floating = 1) makes this legal.
+    state.players[0]!.channeled = [readyRune("rune-1")];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: ["rune-1"], powerRunes: [] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+    expect(actor.floatingEnergy).toBe(0);
+  });
+
+  it("caps floating-Energy consumption at the raw cost — excess floating carries over unspent", () => {
+    const { state, poro } = buildFixture(); // 2 Energy
+    state.players[0]!.floatingEnergy = 5;
+    state.players[0]!.channeled = []; // fully covered by float — 0 runes needed
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: [], powerRunes: [] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+    // Only 2 of the 5 floating Energy were needed to cover this cost.
+    expect(actor.floatingEnergy).toBe(3);
+  });
+
+  it("floating Power only reduces the matching domain's cost, and is domain-isolated in the resulting state", () => {
+    const registry = defaultCardRegistry();
+    const jinxDef = registry.get("OGN-030"); // 3 Energy + 1 Power(Fury)
+    const jinx = createCardInstance(jinxDef) as UnitInstance;
+    const { state } = buildFixture();
+    state.players[0]!.hand = [jinx];
+    state.players[0]!.floatingPower = { Fury: 1, Order: 4 }; // Order float must never leak into Fury's cost
+    state.players[0]!.channeled = [readyRune("e1"), readyRune("e2"), readyRune("e3")]; // 0 Fury runes needed
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: jinx,
+      payment: { energyRunes: ["e1", "e2", "e3"], powerRunes: [] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+
+    const next = executePlayCard(state, action);
+    const actor = next.players[0]!;
+    expect(actor.floatingPower).toEqual({ Fury: 0, Order: 4 });
+  });
+
+  it("end-to-end: banking floating Energy from one cast reduces the runes required for a second cast the same turn", () => {
+    const registry = defaultCardRegistry();
+    const jinxDef = registry.get("OGN-030"); // 3 Energy + 1 Power(Fury)
+    const jinx = createCardInstance(jinxDef) as UnitInstance;
+    const { state, poro } = buildFixture(); // Daring Poro: 2 Energy, 0 Power
+    state.players[0]!.hand = [jinx, poro];
+    // A Ready Fury rune recycled for Power alone (not in energyRunes) banks 1 floating Energy.
+    state.players[0]!.channeled = [
+      { id: "fury-ready", domain: "Fury", state: "Ready" },
+      readyRune("e1"),
+      readyRune("e2"),
+      readyRune("e3"),
+    ];
+    state.players[0]!.runeDeck = [];
+
+    const firstAction: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: jinx,
+      payment: { energyRunes: ["e1", "e2", "e3"], powerRunes: ["fury-ready"] },
+    };
+    expect(validatePlayCard(state, firstAction)).toEqual({ ok: true });
+    const afterFirst = executePlayCard(state, firstAction);
+    expect(afterFirst.players[0]!.floatingEnergy).toBe(1);
+
+    // Daring Poro costs 2 Energy; with 1 floating Energy banked, only 1 rune
+    // is required now (the recycled Fury rune returned to the deck, so only
+    // the two already-Exhausted plain runes plus nothing else is available —
+    // confirm the SECOND action is legal with just 1 rune, proving the float
+    // from the first cast actually reduced this turn's second cost).
+    const secondActionState: GameState = {
+      ...afterFirst,
+      players: [{ ...afterFirst.players[0]!, channeled: [...afterFirst.players[0]!.channeled, readyRune("e4")] }, afterFirst.players[1]!],
+    };
+    const secondAction: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: ["e4"], powerRunes: [] },
+    };
+    expect(validatePlayCard(secondActionState, secondAction)).toEqual({ ok: true });
+
+    const afterSecond = executePlayCard(secondActionState, secondAction);
+    expect(afterSecond.players[0]!.floatingEnergy).toBe(0);
+  });
+
+  it("rejects a payment sized to the RAW cost once floating Energy should have reduced it", () => {
+    const { state, poro } = buildFixture(); // Daring Poro: 2 Energy
+    state.players[0]!.floatingEnergy = 1; // effective cost is now 1
+    state.players[0]!.channeled = [readyRune("rune-1"), readyRune("rune-2")];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: ["rune-1", "rune-2"], powerRunes: [] }, // sized to the raw cost, not the effective one
+    };
+
+    expect(validatePlayCard(state, action).ok).toBe(false);
+  });
+
+  it("accepts a payment sized to the floating-reduced effective cost", () => {
+    const { state, poro } = buildFixture();
+    state.players[0]!.floatingEnergy = 1;
+    state.players[0]!.channeled = [readyRune("rune-1"), readyRune("rune-2")];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: ["rune-1"], powerRunes: [] },
+    };
+
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
   });
 });

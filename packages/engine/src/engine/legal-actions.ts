@@ -7,7 +7,7 @@ import type {
   PlayerAction,
   RecallUnitAction,
 } from "../actions/player-action.js";
-import { computeAutoPayment } from "./rune-payment.js";
+import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { effectForCard, requiresTarget } from "./card-effects.js";
 
 /**
@@ -72,7 +72,14 @@ export function legalActions(state: GameState): PlayerAction[] {
   const playableSources = actor.championZone ? [...actor.hand, actor.championZone] : actor.hand;
   for (const card of playableSources) {
     if (card.kind === "Legend") continue;
-    const payment = computeAutoPayment(actor.channeled, card.energyCost, card.powerCost, card.powerDomain);
+    const effectiveCost = computeEffectiveCost(
+      actor.floatingEnergy,
+      actor.floatingPower,
+      card.energyCost,
+      card.powerCost,
+      card.powerDomain,
+    );
+    const payment = computeAutoPayment(actor.channeled, effectiveCost.energyCost, effectiveCost.powerCost, card.powerDomain);
     if (!payment) continue; // can't afford it — not a legal move
 
     if (requiresTarget(effectForCard(card))) {

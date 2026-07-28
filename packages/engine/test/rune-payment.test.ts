@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuneCard } from "../src/model/rune.js";
-import { computeAutoPayment } from "../src/engine/rune-payment.js";
+import { computeAutoPayment, computeEffectiveCost, energyAfterFloat, powerAfterFloat } from "../src/engine/rune-payment.js";
 
 function rune(id: string, domain: RuneCard["domain"], state: RuneCard["state"] = "Ready"): RuneCard {
   return { id, domain, state };
@@ -63,5 +63,36 @@ describe("computeAutoPayment", () => {
     const channeled = [rune("only-order", "Order")];
     const payment = computeAutoPayment(channeled, 0, 1, null);
     expect(payment).toEqual({ energyRunes: [], powerRunes: ["only-order"] });
+  });
+});
+
+describe("energyAfterFloat / powerAfterFloat / computeEffectiveCost", () => {
+  it("energyAfterFloat floors at 0 rather than going negative", () => {
+    expect(energyAfterFloat(0, 3)).toBe(3);
+    expect(energyAfterFloat(2, 3)).toBe(1);
+    expect(energyAfterFloat(5, 3)).toBe(0);
+  });
+
+  it("powerAfterFloat only draws from the matching domain's floating pool", () => {
+    expect(powerAfterFloat({ Calm: 1 }, 1, "Calm")).toBe(0);
+    expect(powerAfterFloat({ Calm: 1 }, 1, "Order")).toBe(1); // wrong domain — unaffected
+    expect(powerAfterFloat({}, 1, "Calm")).toBe(1); // nothing floating
+  });
+
+  it("powerAfterFloat short-circuits to 0 when the raw cost is already 0, regardless of domain", () => {
+    expect(powerAfterFloat({}, 0, "Calm")).toBe(0);
+    expect(powerAfterFloat({}, 0, null)).toBe(0);
+  });
+
+  it("powerAfterFloat sums every domain's floating Power when powerDomain is null (rainbow)", () => {
+    expect(powerAfterFloat({ Calm: 1, Order: 2 }, 2, null)).toBe(0);
+  });
+
+  it("computeEffectiveCost is a no-op when nothing is floating (matches every existing zero-float fixture)", () => {
+    expect(computeEffectiveCost(0, {}, 3, 1, "Calm")).toEqual({ energyCost: 3, powerCost: 1 });
+  });
+
+  it("computeEffectiveCost reduces both Energy and domain-matched Power together", () => {
+    expect(computeEffectiveCost(1, { Calm: 1 }, 3, 1, "Calm")).toEqual({ energyCost: 2, powerCost: 0 });
   });
 });

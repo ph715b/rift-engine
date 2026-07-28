@@ -4,6 +4,20 @@ import { DOMAIN_COLORS } from "../domain-colors.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { PointTracker } from "./PointTracker.js";
 
+/** Present only while the human has a card armed that still owes a rune
+ *  payment — turns the (otherwise inert) rune tiles into left-click-for-
+ *  Energy / right-click-for-Power controls. A rune proposed both ways at
+ *  once is legitimate "double duty" (recycled for Power, its Energy
+ *  potential spent directly by the same payment), not a bug. */
+interface PaymentMode {
+  proposedEnergyIds: string[];
+  proposedPowerIds: string[];
+  isRuneEligibleForEnergy: (rune: RuneCard) => boolean;
+  isRuneEligibleForPower: (rune: RuneCard) => boolean;
+  onRuneLeftClick: (rune: RuneCard) => void;
+  onRuneRightClick: (rune: RuneCard) => void;
+}
+
 interface PlayerSideColumnProps {
   label: string;
   points: number;
@@ -25,6 +39,7 @@ interface PlayerSideColumnProps {
   onChampionClick?: () => void;
   onChampionDrag?: (point: DragPoint) => void;
   onChampionDragEnd?: (point: DragPoint) => void;
+  paymentMode?: PaymentMode;
 }
 
 /**
@@ -56,6 +71,7 @@ export function PlayerSideColumn({
   onChampionClick,
   onChampionDrag,
   onChampionDragEnd,
+  paymentMode,
 }: PlayerSideColumnProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
@@ -94,12 +110,30 @@ export function PlayerSideColumn({
       <div className="rune-row">
         {runes.map((rune) => {
           const art = runeArt[rune.domain];
+          const proposedEnergy = paymentMode?.proposedEnergyIds.includes(rune.id) ?? false;
+          const proposedPower = paymentMode?.proposedPowerIds.includes(rune.id) ?? false;
+          const canLeftClick = paymentMode ? proposedEnergy || paymentMode.isRuneEligibleForEnergy(rune) : false;
+          const canRightClick = paymentMode ? proposedPower || paymentMode.isRuneEligibleForPower(rune) : false;
+          const classes = ["rune-tile"];
+          if (rune.state === "Exhausted") classes.push("exhausted");
+          if (proposedEnergy) classes.push("proposed-energy");
+          if (proposedPower) classes.push("proposed-power");
+          if (canLeftClick || canRightClick) classes.push("payable");
           return (
             <div
               key={rune.id}
-              className={`rune-tile${rune.state === "Exhausted" ? " exhausted" : ""}`}
+              className={classes.join(" ")}
               style={{ borderColor: DOMAIN_COLORS[rune.domain] }}
-              title={`${rune.domain} — ${rune.state}`}
+              title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}`}
+              onClick={canLeftClick ? () => paymentMode!.onRuneLeftClick(rune) : undefined}
+              onContextMenu={
+                canRightClick
+                  ? (e) => {
+                      e.preventDefault();
+                      paymentMode!.onRuneRightClick(rune);
+                    }
+                  : undefined
+              }
             >
               {art ? (
                 <img src={art} alt={rune.domain} draggable={false} />

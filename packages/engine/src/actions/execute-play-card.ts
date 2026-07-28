@@ -15,6 +15,11 @@ import { validatePlayCard } from "./validate-play-card.js";
  *
  * Cost payment (shared across every card kind) — payCost -> applyPayment
  * (engine/ActionExecutor.java:1869-1905):
+ *   - before rune selection, floating Energy/Power (banked from earlier
+ *     recycled runes this same turn) reduces the printed cost — validated
+ *     against by validate-play-card.ts's computeEffectiveCost, and spent
+ *     here independently via `deductFloat`'s own re-derivation from the RAW
+ *     cost (never trusting a value validation already computed).
  *   - a rune paid for Power is fully recycled — removed from the pool,
  *     reset to Ready, sent to the bottom of the rune deck (`flushToDeck`,
  *     :1907-1911) — NOT just exhausted, unlike Energy.
@@ -22,10 +27,15 @@ import { validatePlayCard } from "./validate-play-card.js";
  *     stays in the pool, returning to Ready at next Awaken.
  *   - a single Ready rune CAN cover both an Energy slot and a Power slot at
  *     once ("double duty" — computeAutoPayment's own doc comment); in that
- *     case it's recycled (Power wins), and since its Energy-paying potential
- *     would otherwise go to waste, the player is credited 1 floating Energy
- *     instead (the real rule this fixes a playtesting bug for, per
- *     ActionExecutor's own comment at :1876-1886).
+ *     case it's recycled (Power wins) and its Energy-paying potential is
+ *     used directly by that same payment, so nothing further is credited.
+ *   - a Ready rune recycled for Power WITHOUT also being used for Energy in
+ *     the same payment has its Energy-paying potential go to waste by being
+ *     recycled — so THAT case (not double duty) is what credits 1 floating
+ *     Energy instead, per ActionExecutor.applyPayment's real rule (:1876-1886):
+ *     `if (rune.isReady() && !payment.energyRunes().contains(rune))
+ *     player.floatingEnergy += 1;` — i.e. credited whenever a Ready
+ *     power-rune is NOT also an energy-rune in this payment, not the reverse.
  *   - cardsPlayedThisTurn++ — :267
  *
  * Per-kind zone transition, post-payment:
@@ -77,10 +87,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   const remainingChanneled: RuneCard[] = [];
   for (const rune of actor.channeled) {
     if (paidPowerIds.has(rune.id)) {
-      // Double duty: this Ready rune also paid an Energy slot, but gets
-      // recycled (Power wins) instead of merely Exhausted — credit the
-      // Energy-paying potential it would otherwise have wasted.
-      if (paidEnergyIds.has(rune.id)) floatingEnergyGained += 1;
+      // A Ready rune recycled for Power that is NOT also used for Energy in
+      // this same payment has its Energy-paying potential wasted by being
+      // recycled — bank it as floating Energy instead. True double duty
+      // (also in energyRunes) already spends that potential directly, so no
+      // credit is due there.
+      if (rune.state === "Ready" && !paidEnergyIds.has(rune.id)) floatingEnergyGained += 1;
       recycled.push({ ...rune, state: "Ready" });
     } else if (paidEnergyIds.has(rune.id)) {
       remainingChanneled.push({ ...rune, state: "Exhausted" });
@@ -89,12 +101,26 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     }
   }
 
+  // Floating Energy/Power is deducted independently here, re-derived fresh
+  // from the RAW printed cost rather than trusting validatePlayCard's
+  // effective-cost math — mirrors ActionExecutor's deductFloat, which never
+  // trusts an earlier-computed value at mutation time. Energy floats freely;
+  // Power floats only within its matching domain (card.powerDomain is only
+  // ever null when powerCost is 0, so the lookup is never needed then).
+  const floatingEnergySpent = Math.min(actor.floatingEnergy, card.energyCost);
+  const floatingPowerAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
+  const floatingPowerSpent = Math.min(floatingPowerAvailable, card.powerCost);
+
   const handAfterRemoval = actor.hand.filter((c) => c.instanceId !== card.instanceId);
   const sharedUpdates = {
     hand: handAfterRemoval,
     channeled: remainingChanneled,
     runeDeck: [...actor.runeDeck, ...recycled],
-    floatingEnergy: actor.floatingEnergy + floatingEnergyGained,
+    floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
+    floatingPower:
+      card.powerDomain !== null && floatingPowerSpent > 0
+        ? { ...actor.floatingPower, [card.powerDomain]: floatingPowerAvailable - floatingPowerSpent }
+        : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
   };
 

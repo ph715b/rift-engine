@@ -1,21 +1,22 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { effectForCard, requiresTarget } from "../engine/card-effects.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
+import { computeEffectiveCost } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
- * Validates a PlayCard action for a Unit/Spell/Gear, with a plain rune
- * payment (no float, no Accelerate, no additional cost). Mirrors the
- * relevant slice of ActionValidator.java's PlayCard checks and
- * ActionExecutor.java's `isValidPayment` (engine/ActionExecutor.java:1492-1513)
- * for the energy-only case.
+ * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
+ * sized to the floating-reduced (effective) cost — no Accelerate or other
+ * additional costs. Mirrors the relevant slice of ActionValidator.java's
+ * PlayCard checks and ActionExecutor.java's `isValidPayment`
+ * (engine/ActionExecutor.java:1492-1513) plus energyAfterFloat/
+ * powerAfterFloat for the floating-resource reduction.
  *
- * Not yet implemented: Legend plays, destination battlefields,
- * Accelerate/additional costs, floating Energy/Power, trash-play, and
- * reaction-speed plays (the chain only ever OPENS via a normal cast —
- * nothing can be played onto an already-closed chain yet, see the
- * chainOpen check below — matches ActionValidator's Neutral/chain-open
+ * Not yet implemented: Legend plays, Accelerate/additional costs,
+ * trash-play, and reaction-speed plays (the chain only ever OPENS via a
+ * normal cast — nothing can be played onto an already-closed chain yet, see
+ * the chainOpen check below — matches ActionValidator's Neutral/chain-open
  * branch, engine/ActionValidator.java:77-103). `isAction`/`isReaction` on
  * SpellDefinition deliberately aren't consulted here — they only gate
  * Showdown/reaction-speed timing (ActionValidator.validateShowdownOpen),
@@ -90,11 +91,18 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
   }
 
-  if (payment.energyRunes.length !== card.energyCost) {
-    return fail(`${card.name} costs ${card.energyCost} energy, payment supplied ${payment.energyRunes.length}`);
+  // Floating Energy/Power (banked from earlier recycled runes this turn)
+  // reduce the printed cost before rune selection — Energy unconditionally,
+  // Power only for the matching domain. Mirrors ActionExecutor's
+  // energyAfterFloat/powerAfterFloat, the same functions legal-actions.ts
+  // uses to build its auto-payment candidates, so the two can't drift.
+  const effectiveCost = computeEffectiveCost(actor.floatingEnergy, actor.floatingPower, card.energyCost, card.powerCost, card.powerDomain);
+
+  if (payment.energyRunes.length !== effectiveCost.energyCost) {
+    return fail(`${card.name} costs ${effectiveCost.energyCost} energy after floating Energy, payment supplied ${payment.energyRunes.length}`);
   }
-  if (payment.powerRunes.length !== card.powerCost) {
-    return fail(`${card.name} costs ${card.powerCost} power, payment supplied ${payment.powerRunes.length}`);
+  if (payment.powerRunes.length !== effectiveCost.powerCost) {
+    return fail(`${card.name} costs ${effectiveCost.powerCost} power after floating Power, payment supplied ${payment.powerRunes.length}`);
   }
   if (new Set(payment.energyRunes).size !== payment.energyRunes.length) {
     return fail("Payment may not reuse the same energy rune twice");
