@@ -439,6 +439,10 @@ button:disabled {
   margin: 12vh auto 0;
   padding: 1rem;
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .menu-screen h1 {
@@ -507,6 +511,14 @@ button:disabled {
   color: var(--color-danger);
 }
 
+.deck-option-edit {
+  border: none;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  padding: 0.4rem 0.6rem;
+  color: var(--color-text-dim);
+}
+
 .deck-import {
   border: 1px dashed var(--color-border);
   border-radius: 8px;
@@ -522,6 +534,118 @@ button:disabled {
 .deck-import-error {
   color: var(--color-danger);
   font-size: 0.85rem;
+}
+
+.deck-builder {
+  overflow-y: auto;
+  align-items: stretch;
+}
+
+.deck-builder-section {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-bg-elevated);
+  margin-bottom: 0.75rem;
+  flex: 0 0 auto;
+}
+
+.deck-builder-name-input,
+.deck-builder-search-input {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.deck-builder-search-input {
+  margin-bottom: 0.5rem;
+}
+
+.rune-stepper-row {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.rune-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.rune-stepper span:first-child {
+  min-width: 4.5rem;
+  font-weight: 600;
+}
+
+.stepper-button {
+  width: 1.8rem;
+  height: 1.8rem;
+  padding: 0;
+  border-radius: 6px;
+}
+
+.card-browser {
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.card-browser-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.card-tile {
+  position: relative;
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-friendly-zone);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.card-tile.in-deck {
+  border-color: var(--color-accent);
+}
+
+.card-tile-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.card-tile-fallback {
+  position: absolute;
+  inset: 0;
+  padding: 0.3rem;
+}
+
+.card-tile-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.25rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.card-tile-count {
+  font-size: 0.75rem;
+  min-width: 2rem;
+  text-align: center;
 }
 
 .rune-row {

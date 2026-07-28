@@ -1,5 +1,6 @@
 import type { CardRegistry } from "../cards/card-registry.js";
-import type { UnitDefinition } from "../model/card-definition.js";
+import type { CardDefinition, UnitDefinition } from "../model/card-definition.js";
+import type { Domain } from "../model/domain.js";
 import { fail, ok, type ValidationResult } from "../actions/validation-result.js";
 import { BATTLEFIELD_COUNT, DECK_SIZE, MAX_COPIES, RUNE_DECK_SIZE, SIDEBOARD_SIZE, type DeckList } from "./deck-list.js";
 
@@ -7,11 +8,27 @@ import { BATTLEFIELD_COUNT, DECK_SIZE, MAX_COPIES, RUNE_DECK_SIZE, SIDEBOARD_SIZ
  * A champion is eligible for a legend when its name shares the legend's
  * leading "CharacterName - " prefix and its domains are a subset of the
  * legend's. Mirrors DeckPresets.championsFor (registry/DeckPresets.java:48-60).
+ * Exported (not just used by validateDeckList below) so a deck-builder UI can
+ * filter its champion picker with the exact same rule, rather than a second
+ * copy of this logic drifting out of sync.
  */
-function isEligibleChampion(champion: UnitDefinition, legendName: string, legendDomains: readonly string[]): boolean {
+export function isEligibleChampion(champion: UnitDefinition, legendName: string, legendDomains: readonly string[]): boolean {
   const charName = legendName.includes(" - ") ? legendName.slice(0, legendName.indexOf(" - ")) : legendName;
   if (!champion.name.startsWith(`${charName} - `)) return false;
   return champion.domains.every((d) => legendDomains.includes(d));
+}
+
+/**
+ * Whether `card` can appear in a main deck led by a legend with
+ * `legendDomains` — not itself a Legend, and sharing at least one domain
+ * with the legend. Mirrors CardRegistry.forLegend (registry/CardRegistry.java:164-169),
+ * previously inlined only inside validateDeckList's main-deck loop below;
+ * exported so a deck-builder UI's card browser can filter with the same
+ * rule the validator enforces.
+ */
+export function isCardLegalForLegend(card: CardDefinition, legendDomains: readonly Domain[]): boolean {
+  if (card.type === "Legend") return false;
+  return card.domains.some((d) => legendDomains.includes(d));
 }
 
 /**
@@ -56,8 +73,9 @@ export function validateDeckList(deckList: DeckList, registry: CardRegistry): Va
     const def = registry.tryGet(id);
     if (!def) return fail(`Unknown card id in deck: ${id}`);
     if (def.type === "Legend") return fail(`${id} is a Legend and cannot be a main-deck card`);
-    const disjoint = def.domains.every((d) => !legendDef.domains.includes(d));
-    if (disjoint) return fail(`${def.name} shares no domain with legend ${legendDef.name}`);
+    if (!isCardLegalForLegend(def, legendDef.domains)) {
+      return fail(`${def.name} shares no domain with legend ${legendDef.name}`);
+    }
   }
 
   for (const [id, count] of copyCounts) {

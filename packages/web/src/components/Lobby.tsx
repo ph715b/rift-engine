@@ -12,9 +12,10 @@ interface DeckListPickerProps {
   selectedName: string | null;
   onSelect: (deck: DeckList) => void;
   onRemove?: (name: string) => void;
+  onEdit?: (deck: DeckList) => void;
 }
 
-function DeckListPicker({ label, decks, selectedName, onSelect, onRemove }: DeckListPickerProps) {
+function DeckListPicker({ label, decks, selectedName, onSelect, onRemove, onEdit }: DeckListPickerProps) {
   return (
     <div>
       {label && <div className="zone-label">{label}</div>}
@@ -24,6 +25,11 @@ function DeckListPicker({ label, decks, selectedName, onSelect, onRemove }: Deck
             <button className="deck-option-button" onClick={() => onSelect(deck)}>
               {deck.name}
             </button>
+            {onEdit && (
+              <button className="deck-option-edit" onClick={() => onEdit(deck)} title="Edit this deck">
+                ✎
+              </button>
+            )}
             {onRemove && (
               <button className="deck-option-remove" onClick={() => onRemove(deck.name)} title="Remove from profile">
                 ✕
@@ -40,6 +46,7 @@ function DeckListPicker({ label, decks, selectedName, onSelect, onRemove }: Deck
 interface LobbyProps {
   onStartMatch: (config: MatchConfig) => void;
   onBack: () => void;
+  onOpenDeckBuilder: (initialDeck?: DeckList) => void;
 }
 
 /**
@@ -50,7 +57,7 @@ interface LobbyProps {
  * rematch either reuses this exact config or jumps straight back here for
  * a quick swap, it never re-litigates the choice mid-game.
  */
-export function Lobby({ onStartMatch, onBack }: LobbyProps) {
+export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder }: LobbyProps) {
   const [profileDecks, setProfileDecks] = useState(getProfileDecks);
   const [humanDeck, setHumanDeck] = useState<DeckList | null>(null);
   const [aiDeck, setAiDeck] = useState<DeckList | null>(PRESET_DECK_LISTS[0] ?? null);
@@ -81,8 +88,10 @@ export function Lobby({ onStartMatch, onBack }: LobbyProps) {
           selectedName={humanDeck?.name ?? null}
           onSelect={setHumanDeck}
           onRemove={handleRemove}
+          onEdit={onOpenDeckBuilder}
         />
         <DeckImport onImported={refreshProfile} />
+        <button onClick={() => onOpenDeckBuilder()}>Build a deck</button>
       </div>
 
       <div className="zone">

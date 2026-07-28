@@ -1,8 +1,9 @@
 interface MainMenuProps {
   onNewGame: () => void;
+  onBuildDeck: () => void;
 }
 
-export function MainMenu({ onNewGame }: MainMenuProps) {
+export function MainMenu({ onNewGame, onBuildDeck }: MainMenuProps) {
   return (
     <div className="menu-screen">
       <h1>Rift-Engine</h1>
@@ -10,6 +11,7 @@ export function MainMenu({ onNewGame }: MainMenuProps) {
       <button className="menu-primary-button" onClick={onNewGame}>
         New Game
       </button>
+      <button onClick={onBuildDeck}>Build a Deck</button>
     </div>
   );
 }
