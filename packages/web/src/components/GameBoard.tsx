@@ -519,22 +519,48 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     lastDragZoneRef.current = zone;
     setDragOverZoneId(zone);
   }
-  /** Dropping a hand/champion card on the base zone either plays it
-   *  instantly (no choice needed) or — for any card needing a target,
-   *  placement, or a nonzero rune payment — arms it exactly as a click
-   *  would, so the drop gesture still gets the player into the pay/target
-   *  step instead of silently doing nothing. */
+  /** Dropping a hand/champion Unit resolves its destination directly from
+   *  wherever it was dropped (base, or a specific "reinforce" battlefield)
+   *  — the whole point of drag-and-drop is that the drop location itself
+   *  answers "where," so it shouldn't ALSO require a separate click on that
+   *  same zone afterward. Plays instantly if nothing else is owed, or arms
+   *  `pendingPlay` with the destination already resolved so only a still-
+   *  owed rune payment needs further interaction (the auto-submit effect
+   *  picks this up via `pendingLegalAction()` exactly as if a click had set
+   *  `destinationBattlefieldId`). A Spell's target is a specific unit, not
+   *  a zone, so dropping one just arms it (same as a plain click) regardless
+   *  of where it landed — still better than the old behavior, which did
+   *  nothing at all unless dropped on base specifically. Falls back to a
+   *  plain arm for a Unit dropped somewhere that isn't a legal destination
+   *  for it at all, rather than silently doing nothing. */
   function handleHandCardDragEnd(cardInstanceId: string) {
     const zone = lastDragZoneRef.current;
     setDragOverZoneId(null);
     lastDragZoneRef.current = null;
-    if (zone !== BASE_ZONE_ID) return;
-    const immediate = immediatePlayAction(cardInstanceId);
-    if (immediate) {
-      applyAction(immediate);
+    if (!zone) return;
+
+    const actions = playCardActionsFor(cardInstanceId);
+    const [first] = actions;
+    if (!first) return;
+
+    const placement =
+      first.card.kind === "Unit" ? actions.find((a) => (a.destinationBattlefieldId ?? BASE_ZONE_ID) === zone) : undefined;
+
+    if (!placement) {
+      handleHandCardClick(cardInstanceId);
       return;
     }
-    handleHandCardClick(cardInstanceId);
+    if (!actionNeedsPayment(placement)) {
+      applyAction(placement);
+      return;
+    }
+
+    setSelectedUnitIds(new Set());
+    setPendingPlay({
+      card: placement.card,
+      payment: { energyRunes: [], powerRunes: [] },
+      ...(placement.destinationBattlefieldId !== undefined ? { destinationBattlefieldId: placement.destinationBattlefieldId } : {}),
+    });
   }
   function handleUnitDragEnd(unit: UnitInstance) {
     const zone = lastDragZoneRef.current;
