@@ -68,7 +68,12 @@ interface GameBoardProps {
 export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
   const [{ state, result }, setGame] = useState(() => startGame(createNewGame(config, Date.now())));
-  const [selectedUnit, setSelectedUnit] = useState<UnitInstance | null>(null);
+  // Every unit id currently selected for a group Move/Recall — plain click
+  // toggles membership (click again to deselect; click a DIFFERENT unit adds
+  // to the selection instead of replacing it), so several units can be moved
+  // or recalled together in one action, matching the real rule that a single
+  // MoveUnit/RecallUnit action already carries a list of units.
+  const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   // The hand/champion card "armed" for play — set instead of playing
   // immediately whenever the card needs a target, a placement choice, or a
   // nonzero (post-floating) rune payment. A card needing none of those still
@@ -111,7 +116,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
   function applyAction(action: PlayerAction) {
     setGame((prev) => submit(prev.state, action));
-    setSelectedUnit(null);
+    setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
   }
@@ -220,6 +225,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     );
   }
 
+  /** Single-unit lookups — kept for drag (which resolves its own action from
+   *  exactly the one dragged unit, independent of any click-based
+   *  selection) and reused by the group helpers below as a per-unit legality
+   *  hint (still reads `legal`'s real exhaustion/Ganking/domain checks). */
   function moveActionTo(unit: UnitInstance, battlefieldId: string): PlayerAction | undefined {
     return legal.find(
       (a) => a.type === "MoveUnit" && a.unitInstanceIds[0] === unit.instanceId && a.destinationBattlefieldId === battlefieldId,
@@ -234,6 +243,57 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return isHumanTurn && !unit.exhausted;
   }
 
+  /** Every currently-selected unit, resolved from ids to live instances —
+   *  ids that no longer exist (e.g. the unit died) are silently dropped. */
+  function selectedUnits(): UnitInstance[] {
+    const everywhere = [...human.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[human.id] ?? [])];
+    return everywhere.filter((u) => selectedUnitIds.has(u.instanceId));
+  }
+
+  /** Group-level "is this destination reachable for my WHOLE current
+   *  selection" — every selected unit must individually reach it (reusing
+   *  `moveActionTo`'s/`recallActionFor`'s single-unit `legal` lookups as a
+   *  per-unit hint, not a group one — `legalActions()` never enumerates
+   *  multi-unit combinations). Proactively gating on this, rather than
+   *  submitting a partially-illegal group and letting the engine silently
+   *  reject it, keeps this codebase's existing invariant: if a destination
+   *  renders as `.selectable`, clicking it always works — there's no
+   *  error/toast UI here to explain a silent no-op. */
+  function isGroupMoveTarget(battlefieldId: string): boolean {
+    const units = selectedUnits();
+    return units.length > 0 && units.every((u) => Boolean(moveActionTo(u, battlefieldId)));
+  }
+
+  function isGroupRecallTarget(): boolean {
+    const units = selectedUnits();
+    return units.length > 0 && units.every((u) => Boolean(recallActionFor(u)));
+  }
+
+  /** Hand-constructs the real multi-unit action from local selection state
+   *  and submits it directly — mirroring the manual rune-payment feature's
+   *  precedent (`legal` is only ever consulted for per-unit legality hints
+   *  above, never searched for a literal multi-unit candidate, since
+   *  `legalActions()` intentionally never enumerates those). The engine's
+   *  own `validateMoveUnit`/`executeMoveUnit` already process an arbitrary
+   *  mixed-origin `unitInstanceIds` list correctly and are the real
+   *  arbiter — this is just what the UI hands them. */
+  function moveGroupTo(battlefieldId: string): PlayerAction | undefined {
+    const units = selectedUnits();
+    if (units.length === 0 || !units.every((u) => Boolean(moveActionTo(u, battlefieldId)))) return undefined;
+    return {
+      type: "MoveUnit",
+      playerIndex: HUMAN_INDEX,
+      unitInstanceIds: units.map((u) => u.instanceId),
+      destinationBattlefieldId: battlefieldId,
+    };
+  }
+
+  function recallGroup(): PlayerAction | undefined {
+    const units = selectedUnits();
+    if (units.length === 0 || !units.every((u) => Boolean(recallActionFor(u)))) return undefined;
+    return { type: "RecallUnit", playerIndex: HUMAN_INDEX, unitInstanceIds: units.map((u) => u.instanceId) };
+  }
+
   function handleHandCardClick(cardInstanceId: string) {
     const immediate = immediatePlayAction(cardInstanceId);
     if (immediate) {
@@ -243,11 +303,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const [first] = playCardActionsFor(cardInstanceId);
     if (!first) return;
     // A card needing a choice (target, placement, and/or payment) — arm it
-    // (toggle off if clicking the same one again). Clears `selectedUnit` so
-    // at most one of the two "armed" states is ever live — otherwise a
-    // stale selected unit could silently shadow this card's placement the
+    // (toggle off if clicking the same one again). Clears the unit selection
+    // so at most one of the two "armed" states is ever live — otherwise a
+    // stale unit selection could silently shadow this card's placement the
     // next time a battlefield/base-zone is clicked.
-    setSelectedUnit(null);
+    setSelectedUnitIds(new Set());
     setPendingPlay((prev) =>
       prev?.card.instanceId === first.card.instanceId ? null : { card: first.card, payment: { energyRunes: [], powerRunes: [] } },
     );
@@ -255,7 +315,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
   function handleSelectUnit(unit: UnitInstance) {
     setPendingPlay(null);
-    setSelectedUnit((prev) => (prev?.instanceId === unit.instanceId ? null : unit));
+    setSelectedUnitIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(unit.instanceId)) next.delete(unit.instanceId);
+      else next.add(unit.instanceId);
+      return next;
+    });
   }
 
   function isUnitLegalTarget(unit: UnitInstance): boolean {
@@ -398,12 +463,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }, [pendingPlay, legal]);
 
   const isBaseZoneTarget =
-    isHumanTurn &&
-    (selectedUnit !== null ? Boolean(recallActionFor(selectedUnit)) : Boolean(placementActionAt(BASE_ZONE_ID)));
+    isHumanTurn && (selectedUnitIds.size > 0 ? isGroupRecallTarget() : Boolean(placementActionAt(BASE_ZONE_ID)));
 
   function handleBattlefieldClick(battlefieldId: string) {
-    if (selectedUnit) {
-      const action = moveActionTo(selectedUnit, battlefieldId);
+    if (selectedUnitIds.size > 0) {
+      const action = moveGroupTo(battlefieldId);
       if (action) applyAction(action);
       return;
     }
@@ -413,8 +477,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   function handleBaseZoneClick() {
-    if (selectedUnit) {
-      const action = recallActionFor(selectedUnit);
+    if (selectedUnitIds.size > 0) {
+      const action = recallGroup();
       if (action) applyAction(action);
       return;
     }
@@ -473,7 +537,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function startNewMatch(newConfig: MatchConfig) {
     setConfig(newConfig);
     setGame(startGame(createNewGame(newConfig, Date.now())));
-    setSelectedUnit(null);
+    setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
   }
@@ -557,10 +621,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 battlefield={bf}
                 human={human}
                 ai={ai}
-                selectedUnit={selectedUnit}
+                selectedUnitIds={selectedUnitIds}
                 isMoveTarget={
-                  isHumanTurn &&
-                  (selectedUnit !== null ? Boolean(moveActionTo(selectedUnit, bf.id)) : Boolean(placementActionAt(bf.id)))
+                  isHumanTurn && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
                 }
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
@@ -587,7 +650,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     key={unit.instanceId}
                     card={unit}
                     isSelectable={isHumanTurn && !unit.exhausted}
-                    isSelected={selectedUnit?.instanceId === unit.instanceId}
+                    isSelected={selectedUnitIds.has(unit.instanceId)}
                     onClick={() => handleSelectUnit(unit)}
                     onDrag={canDragUnit(unit) ? trackDragZone : undefined}
                     onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}

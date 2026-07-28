@@ -5,7 +5,7 @@ interface BattlefieldViewProps {
   battlefield: BattlefieldState;
   human: PlayerState;
   ai: PlayerState;
-  selectedUnit: UnitInstance | null;
+  selectedUnitIds: Set<string>;
   isMoveTarget: boolean;
   isDragOver: boolean;
   isShowdownActive: boolean;
@@ -27,7 +27,7 @@ export function BattlefieldView({
   battlefield,
   human,
   ai,
-  selectedUnit,
+  selectedUnitIds,
   isMoveTarget,
   isDragOver,
   isShowdownActive,
@@ -71,7 +71,7 @@ export function BattlefieldView({
             key={unit.instanceId}
             card={unit}
             isSelectable={!unit.exhausted || isUnitTargetable(unit)}
-            isSelected={selectedUnit?.instanceId === unit.instanceId}
+            isSelected={selectedUnitIds.has(unit.instanceId)}
             onClick={() => onUnitClick(unit)}
             onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}
             onDragEnd={canDragUnit(unit) ? (info) => onUnitDragEnd(unit, info) : undefined}

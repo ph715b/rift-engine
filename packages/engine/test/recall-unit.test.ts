@@ -136,4 +136,23 @@ describe("RecallUnit: battlefield -> base", () => {
     const action: RecallUnitAction = { type: "RecallUnit", playerIndex: 1, unitInstanceIds: [unit.instanceId] };
     expect(validateRecallUnit(state, action).ok).toBe(false);
   });
+
+  it("recalls units from two DIFFERENT battlefields to base in a single action", () => {
+    const unitA = makeUnit();
+    const unitB = makeUnit();
+    let state = makeState();
+    state.battlefields.push({ id: "bf2", name: "Test Battlefield 2", controllerId: "p1", units: {} });
+    state.battlefields[0]!.units = { p1: [unitA] };
+    state.battlefields[1]!.units = { p1: [unitB] };
+
+    const action: RecallUnitAction = { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [unitA.instanceId, unitB.instanceId] };
+    expect(validateRecallUnit(state, action)).toEqual({ ok: true });
+
+    state = executeRecallUnit(state, action);
+
+    expect(state.battlefields[0]!.units["p1"] ?? []).toHaveLength(0);
+    expect(state.battlefields[1]!.units["p1"] ?? []).toHaveLength(0);
+    expect(state.players[0]!.baseUnits).toHaveLength(2);
+    expect(state.players[0]!.baseUnits.every((u) => u.exhausted)).toBe(true);
+  });
 });

@@ -239,6 +239,62 @@ describe("MoveUnit: walk-in vs. contested", () => {
     });
     expect(result.ok).toBe(false);
   });
+
+  it("moves a mixed-origin group (one from base, one from a different battlefield with [Ganking]) to a shared destination in a single action", () => {
+    const fromBase = makeUnit({ might: 4 });
+    const fromBattlefield = makeUnit({ might: 3, keywords: { Ganking: 1 } });
+    let state = makeState();
+    state.players[0]!.baseUnits = [fromBase];
+    state.battlefields[1]!.units = { p1: [fromBattlefield] }; // bf2
+
+    const action = {
+      type: "MoveUnit" as const,
+      playerIndex: 0 as const,
+      unitInstanceIds: [fromBase.instanceId, fromBattlefield.instanceId],
+      destinationBattlefieldId: "bf3",
+    };
+
+    expect(validateMoveUnit(state, action)).toEqual({ ok: true });
+
+    state = executeMoveUnit(state, action);
+
+    // Both units land at the shared destination together, in one action.
+    expect(state.players[0]!.baseUnits).toHaveLength(0);
+    expect(state.battlefields[1]!.units["p1"] ?? []).toHaveLength(0); // gone from its old battlefield
+    expect(state.battlefields[2]!.units["p1"]).toHaveLength(2); // bf3
+    expect(state.battlefields[2]!.units["p1"]!.every((u) => u.exhausted)).toBe(true);
+
+    // Uncontested landing claims control once, not once per unit.
+    expect(state.battlefields[2]!.controllerId).toBe("p1");
+    expect(state.players[0]!.points).toBe(1);
+  });
+
+  it("opens exactly one Showdown when a multi-unit move lands on a contested battlefield", () => {
+    const moverA = makeUnit({ might: 5 });
+    const moverB = makeUnit({ might: 2 });
+    const defender = makeUnit({ might: 1 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [moverA, moverB];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+
+    state = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [moverA.instanceId, moverB.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    // Both attackers landed; combat hasn't resolved yet.
+    expect(state.battlefields[0]!.units["p1"]).toHaveLength(2);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1);
+    expect(state.battlefields[0]!.controllerId).toBe("p2");
+
+    // Exactly one Showdown window opened for the whole group, not one per unit.
+    expect(state.turnState).toBe("Showdown");
+    expect(state.focusHolder).toBe(0);
+    expect(state.showdownBattlefieldId).toBe("bf1");
+  });
 });
 
 describe("scoring: holds", () => {
