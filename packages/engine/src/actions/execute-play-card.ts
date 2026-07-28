@@ -109,7 +109,14 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
       chainOpen: false,
       chainPriority: action.playerIndex,
       chainPasses: 0,
-      spellChain: [...state.spellChain, { playerIndex: action.playerIndex, card }],
+      spellChain: [
+        ...state.spellChain,
+        {
+          playerIndex: action.playerIndex,
+          card,
+          ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+        },
+      ],
     };
   } else {
     updatedActor = {

@@ -9,6 +9,9 @@ import type { Phase, TurnState } from "./phase.js";
 export interface ChainEntry {
   playerIndex: 0 | 1;
   card: SpellInstance;
+  /** Only meaningful when the resolved card's registered effect requires a
+   *  target (see engine/card-effects.ts's requiresTarget). */
+  targetUnitInstanceId?: string;
 }
 
 /**

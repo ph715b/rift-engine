@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import { resolveShowdown } from "../engine/combat.js";
+import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
 
@@ -23,10 +24,9 @@ export function executePassFocus(state: GameState, action: PassFocusAction): Gam
 /**
  * Two consecutive PassFocus actions while the chain is closed resolve its
  * top entry. Mirrors GameEngine.handleChainPass (engine/GameEngine.java:742-771).
- * No EffectRegistry-equivalent exists yet, so "resolving" an entry is
- * intentionally a no-op beyond popping it — the Spell's zone placement
- * (trash) already happened at cast time (execute-play-card.ts), mirroring
- * Java's own safe no-op-if-unregistered-effect behavior
+ * Dispatches the popped entry to `resolveCardEffect`, which no-ops for any
+ * card with no registered effect (card-effects.ts) — exactly Java's own
+ * safe no-op-if-unregistered-effect behavior
  * (ActionExecutor.resolveChainEntry only dispatches `if (EffectRegistry.has(...))`).
  *
  * Deliberately NOT handling the case where the chain closes while a Showdown
@@ -44,9 +44,11 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
     return { ...state, chainPriority: opponent, chainPasses };
   }
 
-  const spellChain = state.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
+  const poppedEntry = state.spellChain[state.spellChain.length - 1]!;
+  const resolved = resolveCardEffect(state, poppedEntry);
+  const spellChain = resolved.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
   if (spellChain.length === 0) {
-    return { ...state, spellChain, chainOpen: true, chainPasses: 0 };
+    return { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };
   }
   // The player who owns the next link to resolve gets priority first for a
   // fresh round of passes on it — mirrors GameEngine.java:758-767. Currently
@@ -55,7 +57,7 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // yet) but kept correct and covered by a white-box test, not speculative:
   // it needs no restructuring the moment reaction casting is added.
   const newTop = spellChain[spellChain.length - 1]!;
-  return { ...state, spellChain, chainPriority: newTop.playerIndex, chainPasses: 0 };
+  return { ...resolved, spellChain, chainPriority: newTop.playerIndex, chainPasses: 0 };
 }
 
 /**

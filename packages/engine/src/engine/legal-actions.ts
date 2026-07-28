@@ -8,6 +8,7 @@ import type {
   RecallUnitAction,
 } from "../actions/player-action.js";
 import { computeAutoPayment } from "./rune-payment.js";
+import { effectForCard, requiresTarget } from "./card-effects.js";
 
 /**
  * Enumerates every currently-legal PlayerAction for the active player (or,
@@ -21,16 +22,20 @@ import { computeAutoPayment } from "./rune-payment.js";
  * Scoped to what's implemented: PlayCard for Units/Spells/Gear from hand or
  * the Champion Zone (Unit only), with an auto-computed rune payment covering
  * both Energy and domain-restricted Power costs (no Legend play, no
- * Accelerate/additional costs, no destination battlefields, no targeting,
- * no EquipGear), MoveUnit for every ready unit to every battlefield it can
- * legally reach, RecallUnit for every ready unit at a battlefield, and Pass.
+ * Accelerate/additional costs, no destination battlefields, no EquipGear),
+ * MoveUnit for every ready unit to every battlefield it can legally reach,
+ * RecallUnit for every ready unit at a battlefield, and Pass.
  * `computeAutoPayment` picks a single minimal valid payment rather than
  * exploring every possible rune selection — which specific rune covers a
  * domain-agnostic Energy cost never changes the outcome, and for Power
  * there's exactly one eligible domain-matching pool to draw from anyway.
  * Every Spell in hand is a legal PlayCard candidate regardless of its
  * isAction/isReaction tags — those only gate Showdown/reaction-speed
- * timing (not modeled here), never a normal-turn cast.
+ * timing (not modeled here), never a normal-turn cast. A Spell whose
+ * registered effect (card-effects.ts) requires a target fans out into one
+ * PlayCardAction per legal target — every unit at any battlefield, either
+ * owner, per this slice's un-restricted targeting rule — mirroring the
+ * MoveUnit double-loop below it in this same function.
  *
  * While a Showdown is open, none of the above are legal (mirrors
  * ActionValidator.validateShowdownOpen's hard rejection of MoveUnit/Pass,
@@ -65,6 +70,19 @@ export function legalActions(state: GameState): PlayerAction[] {
     if (card.kind === "Legend") continue;
     const payment = computeAutoPayment(actor.channeled, card.energyCost, card.powerCost, card.powerDomain);
     if (!payment) continue; // can't afford it — not a legal move
+
+    if (requiresTarget(effectForCard(card))) {
+      for (const bf of state.battlefields) {
+        for (const targets of Object.values(bf.units)) {
+          for (const target of targets) {
+            const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, targetUnitInstanceId: target.instanceId };
+            actions.push(play);
+          }
+        }
+      }
+      continue;
+    }
+
     const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment };
     actions.push(play);
   }

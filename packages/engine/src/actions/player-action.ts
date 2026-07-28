@@ -14,6 +14,10 @@ export interface PlayCardAction {
   playerIndex: 0 | 1;
   card: CardInstance;
   payment: RunePayment;
+  /** The unit instance this card's effect targets, if it has one (e.g. a
+   *  damage/destroy Spell). Only meaningful when the card's registered
+   *  effect requires a target — see engine/card-effects.ts. */
+  targetUnitInstanceId?: string;
 }
 
 export interface PassAction {

@@ -1,27 +1,34 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { effectForCard, requiresTarget } from "../engine/card-effects.js";
+import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a plain rune
  * payment (no float, no Accelerate, no additional cost, no destination
- * battlefield, no targeting). Mirrors the relevant slice of
- * ActionValidator.java's PlayCard checks and ActionExecutor.java's
- * `isValidPayment` (engine/ActionExecutor.java:1492-1513) for the
- * energy-only case.
+ * battlefield). Mirrors the relevant slice of ActionValidator.java's
+ * PlayCard checks and ActionExecutor.java's `isValidPayment`
+ * (engine/ActionExecutor.java:1492-1513) for the energy-only case.
  *
  * Not yet implemented: Legend plays, destination battlefields,
- * Accelerate/additional costs, floating Energy/Power, trash-play,
- * targeting, and reaction-speed plays (the chain only ever OPENS via a
- * normal cast — nothing can be played onto an already-closed chain yet,
- * see the chainOpen check below — matches ActionValidator's Neutral/
- * chain-open branch, engine/ActionValidator.java:77-103). `isAction`/
- * `isReaction` on SpellDefinition deliberately aren't consulted here —
- * they only gate Showdown/reaction-speed timing (ActionValidator.
- * validateShowdownOpen), which is out of scope; a normal-turn cast is
- * legal for ANY Spell regardless of those tags, matching Java's actual
- * plain validatePlayCard path. The turnState check below rejects this
- * during an open Showdown entirely (no card is castable there yet).
+ * Accelerate/additional costs, floating Energy/Power, trash-play, and
+ * reaction-speed plays (the chain only ever OPENS via a normal cast —
+ * nothing can be played onto an already-closed chain yet, see the
+ * chainOpen check below — matches ActionValidator's Neutral/chain-open
+ * branch, engine/ActionValidator.java:77-103). `isAction`/`isReaction` on
+ * SpellDefinition deliberately aren't consulted here — they only gate
+ * Showdown/reaction-speed timing (ActionValidator.validateShowdownOpen),
+ * which is out of scope; a normal-turn cast is legal for ANY Spell
+ * regardless of those tags, matching Java's actual plain validatePlayCard
+ * path. The turnState check below rejects this during an open Showdown
+ * entirely (no card is castable there yet).
+ *
+ * Targeting is validated for the small set of registered card-effects.ts
+ * effects that need one (DealDamage/DestroyUnit) — every such card in this
+ * slice restricts to "a unit at a battlefield," so the check is just
+ * findUnitOnBattlefield returning something. Cards with no registered
+ * effect, or an untargeted one (BuffAllFriendlies), skip this entirely.
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -57,6 +64,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
   if (card.kind === "Legend") {
     return fail("PlayCard is not implemented for Legend cards");
+  }
+
+  if (requiresTarget(effectForCard(card))) {
+    if (!action.targetUnitInstanceId) {
+      return fail(`${card.name} requires a target unit`);
+    }
+    if (!findUnitOnBattlefield(state, action.targetUnitInstanceId)) {
+      return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
+    }
   }
 
   if (payment.energyRunes.length !== card.energyCost) {

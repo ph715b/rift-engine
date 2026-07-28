@@ -9,7 +9,14 @@ interface BattlefieldViewProps {
   isMoveTarget: boolean;
   isDragOver: boolean;
   isShowdownActive: boolean;
-  onSelectUnit: (unit: UnitInstance) => void;
+  /** Is this unit a legal target for the currently-armed spell (if any)?
+   *  Independent of whose unit it is — a targeted spell in this engine can
+   *  affect either player's units at a battlefield. */
+  isUnitTargetable: (unit: UnitInstance) => boolean;
+  /** Unified click handler for any unit at this battlefield, friendly or
+   *  enemy — GameBoard decides whether this commits an armed spell against
+   *  the unit or falls through to ordinary move-selection. */
+  onUnitClick: (unit: UnitInstance) => void;
   onMoveHere: () => void;
   canDragUnit: (unit: UnitInstance) => boolean;
   onUnitDrag: (unit: UnitInstance, point: DragPoint) => void;
@@ -24,7 +31,8 @@ export function BattlefieldView({
   isMoveTarget,
   isDragOver,
   isShowdownActive,
-  onSelectUnit,
+  isUnitTargetable,
+  onUnitClick,
   onMoveHere,
   canDragUnit,
   onUnitDrag,
@@ -48,7 +56,13 @@ export function BattlefieldView({
       </div>
       <div className="battlefield-side">
         {aiUnits.map((unit) => (
-          <CardView key={unit.instanceId} card={unit} isEnemy />
+          <CardView
+            key={unit.instanceId}
+            card={unit}
+            isEnemy
+            isSelectable={isUnitTargetable(unit)}
+            onClick={() => onUnitClick(unit)}
+          />
         ))}
       </div>
       <div className="battlefield-side">
@@ -56,9 +70,9 @@ export function BattlefieldView({
           <CardView
             key={unit.instanceId}
             card={unit}
-            isSelectable={!unit.exhausted}
+            isSelectable={!unit.exhausted || isUnitTargetable(unit)}
             isSelected={selectedUnit?.instanceId === unit.instanceId}
-            onClick={() => onSelectUnit(unit)}
+            onClick={() => onUnitClick(unit)}
             onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}
             onDragEnd={canDragUnit(unit) ? (info) => onUnitDragEnd(unit, info) : undefined}
           />

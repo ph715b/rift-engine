@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
-import { chooseAction, legalActions, startGame, submit, type DeckList, type PlayerAction, type UnitInstance } from "@rift-engine/engine";
+import {
+  chooseAction,
+  effectForCard,
+  legalActions,
+  requiresTarget,
+  startGame,
+  submit,
+  type CardInstance,
+  type DeckList,
+  type PlayCardAction,
+  type PlayerAction,
+  type UnitInstance,
+} from "@rift-engine/engine";
 import { createNewGame, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
@@ -30,6 +42,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
   const [{ state, result }, setGame] = useState(() => startGame(createNewGame(config, Date.now())));
   const [selectedUnit, setSelectedUnit] = useState<UnitInstance | null>(null);
+  // The hand/champion card "armed" for a targeted spell — set instead of
+  // playing immediately when the card's effect requires a target (e.g.
+  // Incinerate); the next matching unit click commits it. Untargeted cards
+  // (Units, Gear, BuffAllFriendlies-style Spells) never arm — they still
+  // play instantly on click, unchanged from before targeting existed.
+  const [selectedHandCard, setSelectedHandCard] = useState<CardInstance | null>(null);
   const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
   // Tracks the last drop zone seen during the drag (from onDrag, updated on
   // every pointer move) — read at drop time instead of recomputing there.
@@ -68,6 +86,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function applyAction(action: PlayerAction) {
     setGame((prev) => submit(prev.state, action));
     setSelectedUnit(null);
+    setSelectedHandCard(null);
     setDragOverZoneId(null);
   }
 
@@ -84,8 +103,27 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const human = state.players[HUMAN_INDEX];
   const ai = state.players[AI_INDEX];
 
-  function isCardPlayable(cardInstanceId: string): PlayerAction | undefined {
-    return legal.find((a) => a.type === "PlayCard" && a.card.instanceId === cardInstanceId);
+  function playCardActionsFor(cardInstanceId: string): PlayCardAction[] {
+    return legal.filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === cardInstanceId);
+  }
+
+  /** Is this hand/champion card interactable at all right now — drives
+   *  isSelectable/highlighting. True whenever any legal PlayCard action
+   *  exists, whether the card is targeted (arms on click) or not (plays
+   *  immediately on click) — unlike `immediatePlayAction`, this doesn't
+   *  care which. */
+  function isCardInteractable(cardInstanceId: string): boolean {
+    return playCardActionsFor(cardInstanceId).length > 0;
+  }
+
+  /** The one action to submit immediately on click/drag — only for cards
+   *  whose effect doesn't require a target. A targeted card (e.g.
+   *  Incinerate) returns undefined here even though it's interactable,
+   *  since clicking it should arm it instead (see handleHandCardClick). */
+  function immediatePlayAction(cardInstanceId: string): PlayCardAction | undefined {
+    const [first] = playCardActionsFor(cardInstanceId);
+    if (!first) return undefined;
+    return requiresTarget(effectForCard(first.card)) ? undefined : first;
   }
 
   function moveActionTo(unit: UnitInstance, battlefieldId: string): PlayerAction | undefined {
@@ -103,12 +141,43 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   function handleHandCardClick(cardInstanceId: string) {
-    const action = isCardPlayable(cardInstanceId);
-    if (action) applyAction(action);
+    const immediate = immediatePlayAction(cardInstanceId);
+    if (immediate) {
+      applyAction(immediate);
+      return;
+    }
+    const [first] = playCardActionsFor(cardInstanceId);
+    if (!first) return;
+    // A targeted card — arm it (toggle off if clicking the same one again).
+    setSelectedHandCard((prev) => (prev?.instanceId === first.card.instanceId ? null : first.card));
   }
 
   function handleSelectUnit(unit: UnitInstance) {
     setSelectedUnit((prev) => (prev?.instanceId === unit.instanceId ? null : unit));
+  }
+
+  function isUnitLegalTarget(unit: UnitInstance): boolean {
+    if (!selectedHandCard) return false;
+    return legal.some(
+      (a) => a.type === "PlayCard" && a.card.instanceId === selectedHandCard.instanceId && a.targetUnitInstanceId === unit.instanceId,
+    );
+  }
+
+  /** Unified click handler for any unit at a battlefield, friendly or enemy.
+   *  If a targeted spell is armed and this unit is a legal target, commits
+   *  it; otherwise falls through to ordinary move-selection. */
+  function handleUnitClick(unit: UnitInstance) {
+    if (selectedHandCard) {
+      const action = legal.find(
+        (a): a is PlayCardAction =>
+          a.type === "PlayCard" && a.card.instanceId === selectedHandCard.instanceId && a.targetUnitInstanceId === unit.instanceId,
+      );
+      if (action) {
+        applyAction(action);
+        return;
+      }
+    }
+    handleSelectUnit(unit);
   }
 
   function handleBattlefieldClick(battlefieldId: string) {
@@ -147,7 +216,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setDragOverZoneId(null);
     lastDragZoneRef.current = null;
     if (zone !== BASE_ZONE_ID) return;
-    const action = isCardPlayable(cardInstanceId);
+    const action = immediatePlayAction(cardInstanceId);
     if (action) applyAction(action);
   }
   function handleUnitDragEnd(unit: UnitInstance) {
@@ -165,6 +234,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setConfig(newConfig);
     setGame(startGame(createNewGame(newConfig, Date.now())));
     setSelectedUnit(null);
+    setSelectedHandCard(null);
     setDragOverZoneId(null);
   }
 
@@ -185,6 +255,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               : isHumanTurn
                 ? "Your turn"
                 : "AI's turn"}
+          {selectedHandCard && ` — choose a target for ${selectedHandCard.name}`}
         </span>
       </div>
 
@@ -237,7 +308,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 isMoveTarget={isHumanTurn && selectedUnit !== null && Boolean(moveActionTo(selectedUnit, bf.id))}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
-                onSelectUnit={handleSelectUnit}
+                isUnitTargetable={isUnitLegalTarget}
+                onUnitClick={handleUnitClick}
                 onMoveHere={() => handleBattlefieldClick(bf.id)}
                 canDragUnit={canDragUnit}
                 onUnitDrag={(_unit, point) => trackDragZone(point)}
@@ -279,11 +351,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                   <CardView
                     key={card.instanceId}
                     card={card}
-                    isSelectable={isHumanTurn && Boolean(isCardPlayable(card.instanceId))}
+                    isSelectable={isHumanTurn && isCardInteractable(card.instanceId)}
+                    isSelected={selectedHandCard?.instanceId === card.instanceId}
                     onClick={() => handleHandCardClick(card.instanceId)}
-                    onDrag={isHumanTurn && isCardPlayable(card.instanceId) ? trackDragZone : undefined}
+                    onDrag={isHumanTurn && immediatePlayAction(card.instanceId) ? trackDragZone : undefined}
                     onDragEnd={
-                      isHumanTurn && isCardPlayable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
+                      isHumanTurn && immediatePlayAction(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
                     }
                   />
                 ))}
@@ -302,13 +375,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
           activeGear={human.activeGear}
-          isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardPlayable(human.championZone.instanceId))}
+          isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
           onChampionDrag={
-            isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId) ? trackDragZone : undefined
+            isHumanTurn && human.championZone && immediatePlayAction(human.championZone.instanceId) ? trackDragZone : undefined
           }
           onChampionDragEnd={
-            isHumanTurn && human.championZone && isCardPlayable(human.championZone.instanceId)
+            isHumanTurn && human.championZone && immediatePlayAction(human.championZone.instanceId)
               ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
               : undefined
           }

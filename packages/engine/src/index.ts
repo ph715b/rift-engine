@@ -37,6 +37,9 @@ export * from "./engine/combat.js";
 export * from "./engine/scoring.js";
 export * from "./engine/legal-actions.js";
 export * from "./engine/rune-payment.js";
+export * from "./engine/card-effects.js";
+export * from "./engine/target-lookup.js";
+export * from "./engine/card-effect-resolution.js";
 
 export * from "./ai/heuristic-ai.js";
 
