@@ -442,13 +442,22 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     lastDragZoneRef.current = zone;
     setDragOverZoneId(zone);
   }
+  /** Dropping a hand/champion card on the base zone either plays it
+   *  instantly (no choice needed) or — for any card needing a target,
+   *  placement, or a nonzero rune payment — arms it exactly as a click
+   *  would, so the drop gesture still gets the player into the pay/target
+   *  step instead of silently doing nothing. */
   function handleHandCardDragEnd(cardInstanceId: string) {
     const zone = lastDragZoneRef.current;
     setDragOverZoneId(null);
     lastDragZoneRef.current = null;
     if (zone !== BASE_ZONE_ID) return;
-    const action = immediatePlayAction(cardInstanceId);
-    if (action) applyAction(action);
+    const immediate = immediatePlayAction(cardInstanceId);
+    if (immediate) {
+      applyAction(immediate);
+      return;
+    }
+    handleHandCardClick(cardInstanceId);
   }
   function handleUnitDragEnd(unit: UnitInstance) {
     const zone = lastDragZoneRef.current;
@@ -599,9 +608,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     isSelectable={isHumanTurn && isCardInteractable(card.instanceId)}
                     isSelected={pendingPlay?.card.instanceId === card.instanceId}
                     onClick={() => handleHandCardClick(card.instanceId)}
-                    onDrag={isHumanTurn && immediatePlayAction(card.instanceId) ? trackDragZone : undefined}
+                    onDrag={isHumanTurn && isCardInteractable(card.instanceId) ? trackDragZone : undefined}
                     onDragEnd={
-                      isHumanTurn && immediatePlayAction(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
+                      isHumanTurn && isCardInteractable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
                     }
                   />
                 ))}
@@ -624,10 +633,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
           onChampionDrag={
-            isHumanTurn && human.championZone && immediatePlayAction(human.championZone.instanceId) ? trackDragZone : undefined
+            isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId) ? trackDragZone : undefined
           }
           onChampionDragEnd={
-            isHumanTurn && human.championZone && immediatePlayAction(human.championZone.instanceId)
+            isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId)
               ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
               : undefined
           }
