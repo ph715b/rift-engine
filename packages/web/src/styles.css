@@ -522,9 +522,12 @@ button:disabled {
 }
 
 .rune-tile {
-  width: calc(var(--card-h) * 0.32);
-  height: calc(var(--card-h) * 0.45);
-  border-radius: 5px;
+  /* Every card on screen is the same size, runes included — no more
+     compact scaling for rune tiles specifically, per the user's own
+     "uniform card size" note. */
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: 10px;
   border: 2px solid;
   overflow: hidden;
   flex-shrink: 0;
@@ -672,7 +675,6 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 1.5rem;
-  max-width: 900px;
   width: 100%;
   margin: 0 auto;
   padding: 1.5rem;
@@ -682,6 +684,17 @@ button:disabled {
      (which clipped the cards out of the visible/interactive area entirely). */
   flex: 1 1 auto;
   min-height: 0;
+  /* This screen only ever shows a banner, one row of cards, and a button —
+     none of the full board's other zones (hand/base/battlefields/side
+     rails) compete for space here, so cards can be noticeably bigger than
+     the board's own --card-h while still fitting on one screen.
+     --card-w must be redefined here too, not just --card-h: a custom
+     property's var() references resolve using the scope where THAT
+     property is defined, not wherever it's later used — --card-w's
+     root-level definition stays locked to the root --card-h forever
+     unless it's redeclared using the local one, same as this one is. */
+  --card-h: clamp(200px, 52dvh, 480px);
+  --card-w: calc(var(--card-h) * 0.716);
 }
 
 .mulligan-screen .card-row {
