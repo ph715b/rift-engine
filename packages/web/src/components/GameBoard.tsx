@@ -567,7 +567,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPendingPlay({
       card: placement.card,
       payment: { energyRunes: [], powerRunes: [] },
-      ...(placement.destinationBattlefieldId !== undefined ? { destinationBattlefieldId: placement.destinationBattlefieldId } : {}),
+      // `PlayCardAction.destinationBattlefieldId` is undefined to mean
+      // "base," but `PendingPlay.destinationBattlefieldId` uses undefined
+      // to mean "not yet resolved" and BASE_ZONE_ID as the explicit
+      // resolved-to-base sentinel (see the PendingPlay doc comment) — this
+      // MUST always be set here (never omitted), or a Unit with a reinforce
+      // option available (unitNeedsPlacement true) dropped on base gets
+      // wrongly treated by pendingLegalAction() as still needing a
+      // placement click, defeating the whole point of the drag.
+      destinationBattlefieldId: placement.destinationBattlefieldId ?? BASE_ZONE_ID,
     });
   }
   function handleUnitDragEnd(unit: UnitInstance) {
