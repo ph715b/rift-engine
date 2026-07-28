@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { loadRuneArt, type RuneCard } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 
@@ -43,6 +43,13 @@ interface RuneZoneProps {
   mode?: RuneInteractionMode;
 }
 
+const DEFAULT_TILE_GAP_PX = 6;
+/** Never compress past this fraction of a tile's own width — even in an
+ *  extreme count (up to all 12 rune-deck cards channeled at once) this
+ *  keeps a visible sliver of every tile's border/domain color, rather than
+ *  letting tiles fully vanish behind their neighbor. */
+const MAX_OVERLAP_FRACTION = 0.85;
+
 /**
  * A player's channeled-rune pool as its own board zone, sitting next to
  * that player's Base zone (per the user's own layout note — runes used to
@@ -50,18 +57,65 @@ interface RuneZoneProps {
  * same row, they read the same way the battlefield boxes already do).
  * Keeps the exact tile rendering/interaction previously inline in
  * PlayerSideColumn.tsx — only the container moved, not the logic.
+ *
+ * Tiles are full card size now (uniform with every other card on screen),
+ * which a fixed-width zone can't always fit side by side once the pool
+ * grows toward the 12-rune deck's maximum — rather than wrapping to a
+ * second row (which forced an internal vertical scrollbar, per the user's
+ * own report), this measures the zone's actual available width and fans
+ * the tiles out with a computed overlap, so any count always fits in one
+ * row without ever scrolling.
  */
 export function RuneZone({ runes, mode }: RuneZoneProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
+
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [tileOffsetPx, setTileOffsetPx] = useState(DEFAULT_TILE_GAP_PX);
+
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+
+    function recompute() {
+      const row = rowRef.current;
+      const firstTile = row?.firstElementChild as HTMLElement | null | undefined;
+      if (!row || !firstTile) return;
+
+      const n = runes.length;
+      const containerWidth = row.clientWidth;
+      const tileWidth = firstTile.offsetWidth;
+      if (n <= 1 || tileWidth === 0) {
+        setTileOffsetPx(DEFAULT_TILE_GAP_PX);
+        return;
+      }
+
+      const naturalTotal = n * tileWidth + (n - 1) * DEFAULT_TILE_GAP_PX;
+      if (naturalTotal <= containerWidth) {
+        setTileOffsetPx(DEFAULT_TILE_GAP_PX);
+        return;
+      }
+
+      const fitOffset = (containerWidth - n * tileWidth) / (n - 1);
+      setTileOffsetPx(Math.max(fitOffset, -tileWidth * MAX_OVERLAP_FRACTION));
+    }
+
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(row);
+    const firstTile = row.firstElementChild;
+    if (firstTile) observer.observe(firstTile);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runes.length]);
 
   return (
     <div className="zone card-zone">
       <div className="zone-label">
         Runes ({readyCount}/{runes.length} ready)
       </div>
-      <div className="rune-row">
-        {runes.map((rune) => {
+      <div className="rune-row" ref={rowRef}>
+        {runes.map((rune, index) => {
           const art = runeArt[rune.domain];
           const proposedEnergy = (mode?.kind === "payment" && mode.proposedEnergyIds.includes(rune.id)) ?? false;
           const proposedPower = (mode?.kind === "payment" && mode.proposedPowerIds.includes(rune.id)) ?? false;
@@ -76,7 +130,14 @@ export function RuneZone({ runes, mode }: RuneZoneProps) {
             <div
               key={rune.id}
               className={classes.join(" ")}
-              style={{ borderColor: DOMAIN_COLORS[rune.domain] }}
+              style={{
+                borderColor: DOMAIN_COLORS[rune.domain],
+                marginLeft: index === 0 ? 0 : tileOffsetPx,
+                // Later tiles stack visually on top of earlier ones so an
+                // overlapped tile's near (left) edge — including its own
+                // click/hover target — is never obscured by its neighbor.
+                zIndex: index,
+              }}
               title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}`}
               onClick={canLeftClick ? () => mode!.onRuneLeftClick(rune) : undefined}
               onContextMenu={

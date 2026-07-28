@@ -65,7 +65,12 @@ button:disabled {
 }
 
 .board {
-  max-width: 1800px;
+  /* Widened per the user's own note — the side rails only ever hold
+     Legend/Champion + a few meta-count lines now that runes moved into
+     their own zone (RuneZone.tsx), so there was unused width on very wide
+     screens that the center column (and its rune zones especially) could
+     use instead. */
+  max-width: 2200px;
   width: 96vw;
   height: 100dvh;
   margin: 0 auto;
@@ -517,7 +522,11 @@ button:disabled {
 .rune-row {
   display: flex;
   gap: 0.4rem;
-  flex-wrap: wrap;
+  /* Never wrap to a second row — RuneZone.tsx measures the available width
+     itself and fans/overlaps the tiles (negative margin) so any channeled
+     count (up to all 12 in the rune deck) fits in one row without ever
+     wrapping into a vertical scrollbar. */
+  flex-wrap: nowrap;
   align-items: center;
 }
 
