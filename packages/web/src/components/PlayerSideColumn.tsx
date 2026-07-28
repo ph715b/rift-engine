@@ -1,22 +1,6 @@
-import { useMemo } from "react";
-import { loadRuneArt, type GearInstance, type LegendInstance, type RuneCard, type UnitInstance } from "@rift-engine/engine";
-import { DOMAIN_COLORS } from "../domain-colors.js";
+import type { GearInstance, LegendInstance, UnitInstance } from "@rift-engine/engine";
 import { CardView, type DragPoint } from "./CardView.js";
 import { PointTracker } from "./PointTracker.js";
-
-/** Present only while the human has a card armed that still owes a rune
- *  payment — turns the (otherwise inert) rune tiles into left-click-for-
- *  Energy / right-click-for-Power controls. A rune proposed both ways at
- *  once is legitimate "double duty" (recycled for Power, its Energy
- *  potential spent directly by the same payment), not a bug. */
-interface PaymentMode {
-  proposedEnergyIds: string[];
-  proposedPowerIds: string[];
-  isRuneEligibleForEnergy: (rune: RuneCard) => boolean;
-  isRuneEligibleForPower: (rune: RuneCard) => boolean;
-  onRuneLeftClick: (rune: RuneCard) => void;
-  onRuneRightClick: (rune: RuneCard) => void;
-}
 
 interface PlayerSideColumnProps {
   label: string;
@@ -24,7 +8,6 @@ interface PlayerSideColumnProps {
   handCount?: number;
   legend: LegendInstance;
   champion: UnitInstance | null;
-  runes: RuneCard[];
   trashCount: number;
   banishedCount: number;
   runeDeckCount: number;
@@ -39,20 +22,18 @@ interface PlayerSideColumnProps {
   onChampionClick?: () => void;
   onChampionDrag?: (point: DragPoint) => void;
   onChampionDragEnd?: (point: DragPoint) => void;
-  paymentMode?: PaymentMode;
 }
 
 /**
  * A player's full "meta" column — everything that isn't hand/base/
- * battlefield cards: Legend, Champion (reserve), channeled runes, score, and
- * the Trash/Banished/remaining-rune-deck counts. Lives in one of the two
- * side rails flanking the board's central column (battlefields/base/hand),
- * per the user's own layout note: those rails were previously unused
- * horizontal space at wide aspect ratios, while Legend/Champion/rune-pool
- * used to eat a full-width row out of the vertical (scroll-constrained)
- * budget instead. Moving them here is a pure space trade, not a new zone —
- * Trash/Banished/rune-deck counts are the one genuinely new thing (state
- * that already existed on PlayerState but was never surfaced in the UI).
+ * battlefield/rune cards: Legend, Champion (reserve), score, and the
+ * Trash/Banished/remaining-rune-deck counts. Lives in one of the two side
+ * rails flanking the board's central column (battlefields/base/hand). The
+ * channeled-rune pool itself lives in `RuneZone`, its own board zone next
+ * to each player's Base zone — per the user's own layout note, runes used
+ * to live here too, tucked into a narrow side rail where they were easy to
+ * miss; as a peer zone to Base they read the same way the battlefield
+ * boxes already do.
  */
 export function PlayerSideColumn({
   label,
@@ -60,7 +41,6 @@ export function PlayerSideColumn({
   handCount,
   legend,
   champion,
-  runes,
   trashCount,
   banishedCount,
   runeDeckCount,
@@ -71,11 +51,7 @@ export function PlayerSideColumn({
   onChampionClick,
   onChampionDrag,
   onChampionDragEnd,
-  paymentMode,
 }: PlayerSideColumnProps) {
-  const runeArt = useMemo(() => loadRuneArt(), []);
-  const readyCount = runes.filter((r) => r.state === "Ready").length;
-
   const legendAndChampion = (
     <div className={`side-column-cards${legendAtBottom ? " at-bottom" : ""}`}>
       <CardView card={legend} isEnemy={isEnemy} />
@@ -103,47 +79,6 @@ export function PlayerSideColumn({
       </div>
 
       {!legendAtBottom && legendAndChampion}
-
-      <div className="zone-label">
-        Runes ({readyCount}/{runes.length} ready)
-      </div>
-      <div className="rune-row">
-        {runes.map((rune) => {
-          const art = runeArt[rune.domain];
-          const proposedEnergy = paymentMode?.proposedEnergyIds.includes(rune.id) ?? false;
-          const proposedPower = paymentMode?.proposedPowerIds.includes(rune.id) ?? false;
-          const canLeftClick = paymentMode ? proposedEnergy || paymentMode.isRuneEligibleForEnergy(rune) : false;
-          const canRightClick = paymentMode ? proposedPower || paymentMode.isRuneEligibleForPower(rune) : false;
-          const classes = ["rune-tile"];
-          if (rune.state === "Exhausted") classes.push("exhausted");
-          if (proposedEnergy) classes.push("proposed-energy");
-          if (proposedPower) classes.push("proposed-power");
-          if (canLeftClick || canRightClick) classes.push("payable");
-          return (
-            <div
-              key={rune.id}
-              className={classes.join(" ")}
-              style={{ borderColor: DOMAIN_COLORS[rune.domain] }}
-              title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}`}
-              onClick={canLeftClick ? () => paymentMode!.onRuneLeftClick(rune) : undefined}
-              onContextMenu={
-                canRightClick
-                  ? (e) => {
-                      e.preventDefault();
-                      paymentMode!.onRuneRightClick(rune);
-                    }
-                  : undefined
-              }
-            >
-              {art ? (
-                <img src={art} alt={rune.domain} draggable={false} />
-              ) : (
-                <span className="rune-tile-fallback" style={{ background: DOMAIN_COLORS[rune.domain] }} />
-              )}
-            </div>
-          );
-        })}
-      </div>
 
       <div className="side-column-meta">
         <span title="Rune deck remaining">Rune deck: {runeDeckCount}</span>

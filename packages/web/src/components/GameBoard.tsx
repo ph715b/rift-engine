@@ -26,6 +26,7 @@ import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
+import { RuneZone } from "./RuneZone.js";
 import { MulliganScreen } from "./MulliganScreen.js";
 
 const HUMAN_INDEX = 0;
@@ -665,7 +666,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           handCount={ai.hand.length}
           legend={ai.legend}
           champion={ai.championZone}
-          runes={ai.channeled}
           trashCount={ai.trash.length}
           banishedCount={ai.banished.length}
           runeDeckCount={ai.runeDeck.length}
@@ -674,15 +674,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         />
 
         <div className="board-center">
-          <div className="zone card-zone">
-            <div className="zone-label">AI base</div>
-            <div className="card-row">
-              <AnimatePresence>
-                {ai.baseUnits.map((unit) => (
-                  <CardView key={unit.instanceId} card={unit} isEnemy />
-                ))}
-              </AnimatePresence>
+          <div className="base-and-runes">
+            <div className="zone card-zone">
+              <div className="zone-label">AI base</div>
+              <div className="card-row">
+                <AnimatePresence>
+                  {ai.baseUnits.map((unit) => (
+                    <CardView key={unit.instanceId} card={unit} isEnemy />
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
+            <RuneZone runes={ai.channeled} />
           </div>
 
           {/* Column count is dynamic, not hardcoded to the current 2-per-1v1-match
@@ -710,26 +713,43 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             ))}
           </div>
 
-          <div
-            className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${isBaseZoneTarget ? " selectable" : ""}`}
-            data-dropzone-id={BASE_ZONE_ID}
-            onClick={isBaseZoneTarget ? handleBaseZoneClick : undefined}
-          >
-            <div className="zone-label">Your base</div>
-            <div className="card-row">
-              <AnimatePresence>
-                {human.baseUnits.map((unit) => (
-                  <CardView
-                    key={unit.instanceId}
-                    card={unit}
-                    isSelectable={isHumanTurn && !unit.exhausted}
-                    isSelected={selectedUnitIds.has(unit.instanceId)}
-                    onClick={() => handleSelectUnit(unit)}
-                    onDrag={canDragUnit(unit) ? trackDragZone : undefined}
-                    onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}
-                  />
-                ))}
-              </AnimatePresence>
+          <div className="base-and-runes">
+            <RuneZone
+              runes={human.channeled}
+              paymentMode={
+                pendingResolvedAction
+                  ? {
+                      proposedEnergyIds: pendingPlay!.payment.energyRunes,
+                      proposedPowerIds: pendingPlay!.payment.powerRunes,
+                      isRuneEligibleForEnergy,
+                      isRuneEligibleForPower,
+                      onRuneLeftClick: toggleEnergyRune,
+                      onRuneRightClick: togglePowerRune,
+                    }
+                  : undefined
+              }
+            />
+            <div
+              className={`zone card-zone${dragOverZoneId === BASE_ZONE_ID ? " drag-over" : ""}${isBaseZoneTarget ? " selectable" : ""}`}
+              data-dropzone-id={BASE_ZONE_ID}
+              onClick={isBaseZoneTarget ? handleBaseZoneClick : undefined}
+            >
+              <div className="zone-label">Your base</div>
+              <div className="card-row">
+                <AnimatePresence>
+                  {human.baseUnits.map((unit) => (
+                    <CardView
+                      key={unit.instanceId}
+                      card={unit}
+                      isSelectable={isHumanTurn && !unit.exhausted}
+                      isSelected={selectedUnitIds.has(unit.instanceId)}
+                      onClick={() => handleSelectUnit(unit)}
+                      onDrag={canDragUnit(unit) ? trackDragZone : undefined}
+                      onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
 
@@ -760,7 +780,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           points={human.points}
           legend={human.legend}
           champion={human.championZone}
-          runes={human.channeled}
           trashCount={human.trash.length}
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
@@ -774,18 +793,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           onChampionDragEnd={
             isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId)
               ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
-              : undefined
-          }
-          paymentMode={
-            pendingResolvedAction
-              ? {
-                  proposedEnergyIds: pendingPlay!.payment.energyRunes,
-                  proposedPowerIds: pendingPlay!.payment.powerRunes,
-                  isRuneEligibleForEnergy,
-                  isRuneEligibleForPower,
-                  onRuneLeftClick: toggleEnergyRune,
-                  onRuneRightClick: togglePowerRune,
-                }
               : undefined
           }
         />
