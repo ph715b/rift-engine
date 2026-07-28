@@ -85,7 +85,18 @@ export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onD
       layout
       className={classes.join(" ")}
       style={isDragging ? { pointerEvents: "none" } : undefined}
-      onClick={isSelectable ? onClick : undefined}
+      onClick={
+        isSelectable
+          ? (e) => {
+              // A card's own click always wins over whatever zone it sits
+              // inside (a battlefield/base zone with its own onClick for
+              // moving/placing there) — without this, clicking a unit could
+              // silently double-fire both handlers on the same click.
+              e.stopPropagation();
+              onClick?.();
+            }
+          : undefined
+      }
       onMouseEnter={() => setHovered({ card, def })}
       onMouseLeave={() => setHovered(null)}
       initial={{ opacity: 0, scale: 0.8 }}
