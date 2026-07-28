@@ -122,6 +122,11 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* Without this, a flex item's default min-width:auto lets its content's
+     intrinsic size (e.g. many rune tiles) override its flex-basis share,
+     growing past its fair split with a row sibling (see .base-and-runes)
+     instead of being capped so its own overlap-fitting logic can kick in. */
+  min-width: 0;
 }
 
 /* The 3 card-holding zones (AI base / your base / your hand) share
@@ -521,7 +526,11 @@ button:disabled {
 
 .rune-row {
   display: flex;
-  gap: 0.4rem;
+  /* No CSS gap — RuneZone.tsx's computed marginLeft (including its
+     DEFAULT_TILE_GAP_PX fallback when tiles aren't overlapping) is the
+     only spacing between tiles. A flex `gap` here would add on top of
+     that margin for every adjacent pair, throwing off the exact-fit math
+     by (tileCount - 1) * gap and spilling tiles past the zone's border. */
   /* Never wrap to a second row — RuneZone.tsx measures the available width
      itself and fans/overlaps the tiles (negative margin) so any channeled
      count (up to all 12 in the rune deck) fits in one row without ever

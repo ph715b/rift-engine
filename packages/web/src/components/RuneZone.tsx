@@ -44,11 +44,6 @@ interface RuneZoneProps {
 }
 
 const DEFAULT_TILE_GAP_PX = 6;
-/** Never compress past this fraction of a tile's own width — even in an
- *  extreme count (up to all 12 rune-deck cards channeled at once) this
- *  keeps a visible sliver of every tile's border/domain color, rather than
- *  letting tiles fully vanish behind their neighbor. */
-const MAX_OVERLAP_FRACTION = 0.85;
 
 /**
  * A player's channeled-rune pool as its own board zone, sitting next to
@@ -96,8 +91,15 @@ export function RuneZone({ runes, mode }: RuneZoneProps) {
         return;
       }
 
+      // No floor on how negative this gets — an earlier version clamped
+      // overlap at 85% of a tile's width to always keep a visible sliver,
+      // but since this row has no overflow:hidden, hitting that floor at
+      // an extreme count/narrow width meant the total row width exceeded
+      // the container and the excess spilled out past the zone's border
+      // (a real breach the user caught visually). Fitting exactly, however
+      // much overlap that takes, is what actually guarantees no breach.
       const fitOffset = (containerWidth - n * tileWidth) / (n - 1);
-      setTileOffsetPx(Math.max(fitOffset, -tileWidth * MAX_OVERLAP_FRACTION));
+      setTileOffsetPx(fitOffset);
     }
 
     recompute();
