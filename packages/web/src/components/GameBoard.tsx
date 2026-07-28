@@ -1,19 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
+  beginFirstTurn,
   chooseAction,
   computeAutoPayment,
+  dealOpeningHands,
   effectForCard,
+  executeMulligan,
   legalActions,
   requiresTarget,
-  startGame,
   submit,
   type CardInstance,
   type DeckList,
+  type GameState,
   type PlayCardAction,
   type PlayerAction,
   type RuneCard,
   type RunePayment,
+  type SubmitResult,
   type UnitInstance,
 } from "@rift-engine/engine";
 import { createNewGame, type MatchConfig } from "../game-setup.js";
@@ -21,6 +25,7 @@ import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
+import { MulliganScreen } from "./MulliganScreen.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -67,7 +72,15 @@ interface GameBoardProps {
 
 export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
-  const [{ state, result }, setGame] = useState(() => startGame(createNewGame(config, Date.now())));
+  // Pregame: hands are dealt but the human hasn't confirmed a mulligan yet.
+  // Non-null exactly while the mulligan screen should render instead of the
+  // real board. Mirrors the real rule's own pregame sequence (deal hands ->
+  // mulligan -> begin first turn) — see execute-mulligan.ts.
+  const [pregameState, setPregameState] = useState<GameState | null>(() =>
+    dealOpeningHands(createNewGame(config, Date.now())),
+  );
+  const [game, setGame] = useState<{ state: GameState; result: SubmitResult } | null>(null);
+  const { state, result } = game ?? { state: pregameState!, result: { type: "Ok" } };
   // Every unit id currently selected for a group Move/Recall — plain click
   // toggles membership (click again to deselect; click a DIFFERENT unit adds
   // to the selection instead of replacing it), so several units can be moved
@@ -115,7 +128,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
 
   function applyAction(action: PlayerAction) {
-    setGame((prev) => submit(prev.state, action));
+    setGame(submit(state, action));
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
@@ -533,10 +546,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   /** Starts a brand-new match (rematch or quick-swap) — a fresh seed always,
-   *  so "same decks" still reshuffles rather than replaying identically. */
+   *  so "same decks" still reshuffles rather than replaying identically.
+   *  Goes through the mulligan screen again, same as the very first match. */
   function startNewMatch(newConfig: MatchConfig) {
     setConfig(newConfig);
-    setGame(startGame(createNewGame(newConfig, Date.now())));
+    setGame(null);
+    setPregameState(dealOpeningHands(createNewGame(newConfig, Date.now())));
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
@@ -544,6 +559,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
   function handleQuickSwap(deck: DeckList) {
     startNewMatch({ ...config, humanDeck: deck });
+  }
+
+  /** Applies the human's mulligan choice (the AI never mulligans — see
+   *  execute-mulligan.ts's doc comment), then begins the first turn and
+   *  switches from the pregame mulligan screen to the real board. */
+  function handleMulliganConfirm(humanSetAsideIds: string[]) {
+    const resolved =
+      humanSetAsideIds.length > 0
+        ? executeMulligan(pregameState!, { type: "Mulligan", playerIndex: HUMAN_INDEX, setAsideInstanceIds: humanSetAsideIds })
+        : pregameState!;
+    setGame(beginFirstTurn(resolved));
+    setPregameState(null);
   }
 
   // Computed once per render for the header hint and the rune-payment UI —
@@ -555,6 +582,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       (pendingResolvedAction.payment.energyRunes.length > pendingPlay.payment.energyRunes.length ||
         pendingResolvedAction.payment.powerRunes.length > pendingPlay.payment.powerRunes.length),
   );
+
+  if (pregameState) {
+    return <MulliganScreen hand={pregameState.players[HUMAN_INDEX].hand} onConfirm={handleMulliganConfirm} />;
+  }
 
   return (
     <div className="board">

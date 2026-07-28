@@ -652,3 +652,25 @@ button:disabled {
   background: var(--color-bg-elevated);
   flex: 0 0 auto;
 }
+
+.mulligan-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem;
+  /* .board is a fixed-height (100dvh), overflow:hidden flex column — this
+     has to grow to fill whatever's left under the header and center its
+     content within that, not push content down with a fixed top margin
+     (which clipped the cards out of the visible/interactive area entirely). */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mulligan-screen .card-row {
+  justify-content: center;
+}

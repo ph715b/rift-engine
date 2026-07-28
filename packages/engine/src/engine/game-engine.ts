@@ -34,10 +34,21 @@ function withWinnerCheck(state: GameState): { state: GameState; result: SubmitRe
   return { state, result: { type: "GameOver", winnerId: state.players[w].id } };
 }
 
-/** Deals opening hands and runs the first Start-of-Turn sequence. Mirrors
- *  GameEngine.start()/beginFirstTurn() (engine/GameEngine.java:123-131). */
+/** Runs the first Start-of-Turn sequence on an already-hands-dealt state.
+ *  Split out from `startGame` so callers can deal hands, run a pregame
+ *  Mulligan for both players (see actions/execute-mulligan.ts), and only
+ *  then begin the first turn — mirrors GameEngine.beginFirstTurn()
+ *  (engine/GameEngine.java:123-131), which the real client calls only after
+ *  its own mulligan screens finish (ui/RiftboundApp.java:135-139). */
+export function beginFirstTurn(state: GameState): { state: GameState; result: SubmitResult } {
+  return withWinnerCheck(runStartOfTurn(state));
+}
+
+/** Deals opening hands and runs the first Start-of-Turn sequence, with no
+ *  mulligan step in between — used directly wherever a match doesn't need
+ *  one (e.g. engine tests exercising turn machinery in isolation). */
 export function startGame(state: GameState): { state: GameState; result: SubmitResult } {
-  return withWinnerCheck(runStartOfTurn(dealOpeningHands(state)));
+  return beginFirstTurn(dealOpeningHands(state));
 }
 
 /**

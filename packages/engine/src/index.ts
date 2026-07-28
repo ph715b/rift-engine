@@ -11,6 +11,9 @@ export * from "./cards/card-registry.js";
 
 export * from "./actions/validation-result.js";
 export * from "./actions/player-action.js";
+export * from "./actions/mulligan-action.js";
+export * from "./actions/validate-mulligan.js";
+export * from "./actions/execute-mulligan.js";
 export * from "./actions/validate-play-card.js";
 export * from "./actions/execute-play-card.js";
 export * from "./actions/validate-pass.js";
