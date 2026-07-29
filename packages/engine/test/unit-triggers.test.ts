@@ -71,7 +71,8 @@ describe("First Mate: ready another unit", () => {
   });
 
   it("requires a unit-kind target", () => {
-    expect(targetingForUnitTrigger("OGN-132")).toEqual({ kind: "unit" });
+    // "Ready another unit" names no battlefield, so base units are in scope.
+    expect(targetingForUnitTrigger("OGN-132")).toEqual({ kind: "unit", scope: "anywhere" });
   });
 });
 

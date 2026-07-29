@@ -1,5 +1,6 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { WIN_THRESHOLD_1V1 } from "./constants.js";
+import { dispatchLegendOnConquer } from "./legend-abilities.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -46,6 +47,14 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
       ? p.conqueredBattlefieldsThisTurn
       : [...p.conqueredBattlefieldsThisTurn, battlefieldId],
   }));
+
+  // The conqueror's Legend fires on the conquest itself, independently of
+  // whether the POINT below is awarded or withheld by the final-point rule —
+  // "when you conquer" is about taking the battlefield, not about scoring
+  // (Garen - Might of Demacia; ScoringSystem.java dispatches from this same
+  // spot). Placed before the withheld-point branch so the trigger can't be
+  // skipped by an early return.
+  next = dispatchLegendOnConquer(next, playerIndex, battlefieldId);
 
   const player = next.players[playerIndex];
   if (player.points === WIN_THRESHOLD_1V1 - 1) {

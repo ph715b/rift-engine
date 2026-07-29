@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
+import { legendMightBonus } from "./legend-abilities.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -68,6 +69,13 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const aloneHere = (bf?.units[ownerId]?.length ?? 0) === 1;
     if (aloneHere) bonus += 2;
   }
+
+  // The owner's LEGEND can grant a continuous bonus too (Master Yi - Wuju
+  // Bladesman's defend-alone +2). Kept in its own registry rather than
+  // another branch here because a Legend is one card per deck that's always
+  // in play — nothing about it is conditional on finding it on the board
+  // first, which is what every check above spends its work on.
+  bonus += legendMightBonus(state, unit, ownerIndex, ctx);
 
   return bonus;
 }

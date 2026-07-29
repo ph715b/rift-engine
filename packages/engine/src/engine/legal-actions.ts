@@ -11,8 +11,9 @@ import type {
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
+import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardHasOptionalExhaustCost } from "./card-effects.js";
+import { cardHasOptionalExhaustCost, cardPlacesTokens } from "./card-effects.js";
 import { hasActivatableAbility } from "../actions/validate-activate-ability.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
@@ -149,16 +150,13 @@ export function legalActions(state: GameState): PlayerAction[] {
     // legal target (or a single empty variant for "none"/unregistered).
     const effectVariants: Partial<PlayCardAction>[] = [];
     if (targeting.kind === "unit") {
-      for (const bf of state.battlefields) {
-        for (const [ownerId, targets] of Object.entries(bf.units)) {
-          const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
-          if (targeting.owner === "friendly" && ownerIndex !== playerIndex) continue;
-          if (targeting.owner === "enemy" && ownerIndex === playerIndex) continue;
-          for (const target of targets) {
-            if (targeting.maxMight !== undefined && target.might + target.bonus > targeting.maxMight) continue;
-            effectVariants.push({ targetUnitInstanceId: target.instanceId });
-          }
-        }
+      // eligibleTargets applies the owner constraint AND the spec's scope —
+      // "a unit" (Final Spark) includes both bases, "a unit at a battlefield"
+      // (Incinerate) does not. Enumerating it here by hand is what let the
+      // two gates drift apart in the first place.
+      for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
+        if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
+        effectVariants.push({ targetUnitInstanceId: target.instanceId });
       }
     } else if (targeting.kind === "battlefield") {
       for (const bf of state.battlefields) effectVariants.push({ targetBattlefieldId: bf.id });
@@ -168,17 +166,10 @@ export function legalActions(state: GameState): PlayerAction[] {
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
       }
     } else if (targeting.kind === "unitPair") {
-      // Gentlemen's Duel — cross product of every matching-owner unit at
-      // any battlefield (the two targets need not share a battlefield; the
-      // card's text has no such restriction).
-      const matching = (owner: "friendly" | "enemy") =>
-        state.battlefields.flatMap((bf) =>
-          Object.entries(bf.units).flatMap(([ownerId, units]) => {
-            const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
-            const isMatch = owner === "friendly" ? ownerIndex === playerIndex : ownerIndex !== playerIndex;
-            return isMatch ? units : [];
-          }),
-        );
+      // Gentlemen's Duel — cross product of every matching-owner unit in
+      // scope (the two targets need not share a location; the card's text
+      // has no such restriction, and names no battlefield at all).
+      const matching = (owner: "friendly" | "enemy") => eligibleTargets(state, playerIndex, owner, targeting.scope);
       for (const first of matching(targeting.firstOwner)) {
         for (const second of matching(targeting.secondOwner)) {
           if (first.instanceId === second.instanceId) continue;
@@ -247,6 +238,17 @@ export function legalActions(state: GameState): PlayerAction[] {
           if (!hasPresence && !openPlacement) continue;
           const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id };
           actions.push(reinforce);
+        }
+      }
+
+      // A token-placing Spell (Recruit the Vanguard) fans out the same way,
+      // but over battlefields the actor CONTROLS rather than merely occupies
+      // — see validate-play-card.ts for why that's a genuinely narrower rule.
+      // The base variant is the plain candidate already pushed above.
+      if (card.kind === "Spell" && cardPlacesTokens(card.defId)) {
+        for (const bf of state.battlefields) {
+          if (bf.controllerId !== actor.id) continue;
+          actions.push({ type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id });
         }
       }
     }

@@ -15,7 +15,8 @@ import {
 } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { channelRunesForcedExhausted } from "./channel-cost.js";
-import { findUnitOnBattlefield } from "./target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
+import { placeRecruitToken, type TokenDestination } from "./token.js";
 
 /**
  * What a card's effect needs from the player before it can resolve — kept
@@ -24,12 +25,25 @@ import { findUnitOnBattlefield } from "./target-lookup.js";
  * PlayCardAction is ever submitted; `resolve` below only ever runs against
  * an already-fully-decided event.
  */
+/**
+ * Which units a "unit"-style target may be chosen from. Riftbound's card text
+ * draws this distinction deliberately and it matters: "Deal 8 to a unit"
+ * (Final Spark) can hit a unit standing in either player's BASE, while "Deal 2
+ * to a unit at a battlefield" (Incinerate) cannot. Base is not a safe parking
+ * spot against the former.
+ *
+ * Defaults to "battlefield" everywhere it's omitted, which is the majority of
+ * this pool — a card only opts into the wider scope when its printed text
+ * declines to name a battlefield.
+ */
+export type TargetScope = "battlefield" | "anywhere";
+
 export type TargetingSpec =
   | { kind: "none" }
-  | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number }
+  | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number; scope?: TargetScope }
   | { kind: "battlefield" }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
-  | { kind: "unitPair"; firstOwner: "friendly" | "enemy"; secondOwner: "friendly" | "enemy" };
+  | { kind: "unitPair"; firstOwner: "friendly" | "enemy"; secondOwner: "friendly" | "enemy"; scope?: TargetScope };
 
 /** Everything about the caster's choice(s) needed to resolve an effect —
  *  all optional since most effects only need a subset (or none). */
@@ -44,6 +58,11 @@ export interface ResolveEvent {
    *  ("you may exhaust a friendly unit... if you do, draw 2") — absent means
    *  the caster declined it. See cardHasOptionalExhaustCost below. */
   additionalCostUnitInstanceId?: string;
+  /** Where a token-creating Spell puts what it creates (Recruit the
+   *  Vanguard) — absent means base. Distinct from a "battlefield"-kind
+   *  TARGET: nothing is being targeted, the caster is choosing a deployment
+   *  zone. See cardPlacesTokens. */
+  destinationBattlefieldId?: string;
 }
 
 export interface EffectDefinition {
@@ -59,9 +78,21 @@ function battlefieldUnitIdsFor(state: GameState, playerId: string): string[] {
   return state.battlefields.flatMap((bf) => (bf.units[playerId] ?? []).map((u) => u.instanceId));
 }
 
-/** Every battlefield unit, either owner, same deterministic order. */
-function allBattlefieldUnitIds(state: GameState): string[] {
-  return state.battlefields.flatMap((bf) => Object.values(bf.units).flatMap((units) => units.map((u) => u.instanceId)));
+/** Every unit `playerId` controls ANYWHERE in play — base first, then
+ *  battlefields — for auto-selecting cards whose text names no battlefield
+ *  (Back to Back's "two friendly units"). */
+function unitIdsInPlayFor(state: GameState, playerIndex: 0 | 1): string[] {
+  const player = state.players[playerIndex];
+  return [...player.baseUnits.map((u) => u.instanceId), ...battlefieldUnitIdsFor(state, player.id)];
+}
+
+/** Every unit in play, either owner, same deterministic order (both bases
+ *  first, then battlefields) — Singularity's "up to two units". */
+function allUnitIdsInPlay(state: GameState): string[] {
+  return [
+    ...state.players.flatMap((p) => p.baseUnits.map((u) => u.instanceId)),
+    ...state.battlefields.flatMap((bf) => Object.values(bf.units).flatMap((units) => units.map((u) => u.instanceId))),
+  ];
 }
 
 /** Cards whose additional cost is an OPTIONAL friendly-unit exhaust
@@ -75,6 +106,22 @@ const OPTIONAL_EXHAUST_COST_DEF_IDS = new Set(["OGN-048"]); // Meditation
 
 export function cardHasOptionalExhaustCost(defId: string): boolean {
   return OPTIONAL_EXHAUST_COST_DEF_IDS.has(defId);
+}
+
+/** Spells that create units and let the caster pick where they land — "your
+ *  base or battlefields you control" (Recruit the Vanguard). Orthogonal to
+ *  TargetingSpec for the same reason the exhaust cost above is: it's a
+ *  DEPLOYMENT zone, not a target the effect acts on, and it rides on the
+ *  action's existing `destinationBattlefieldId` rather than a new field.
+ *
+ *  Note "control", not merely "have units at" — a strictly narrower rule than
+ *  the Unit direct-deploy check in validate-play-card.ts, and deliberately so:
+ *  the oracle flags the same distinction as a real difference rather than a
+ *  copy-paste (ActionValidator.java:1487-1504). */
+const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set(["OGS-015"]); // Recruit the Vanguard
+
+export function cardPlacesTokens(defId: string): boolean {
+  return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);
 }
 
 /**
@@ -107,8 +154,9 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) => dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 6),
   },
   "OGS-022": {
-    // Final Spark — Deal 8 to a unit.
-    targeting: { kind: "unit" },
+    // Final Spark — "Deal 8 to a unit." No battlefield named, so this reaches
+    // a unit in either player's base too.
+    targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, ctx, event) => dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 8),
   },
   "OGS-012": {
@@ -125,11 +173,21 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     // Disintegrate — Deal 3 to a unit at a battlefield. If this kills it, draw 1.
     targeting: { kind: "unit" },
     resolve: (state, ctx, event) => {
-      const location = findUnitOnBattlefield(state, event.targetUnitInstanceId!);
+      const targetId = event.targetUnitInstanceId!;
+      const location = findUnitOnBattlefield(state, targetId);
       if (!location) return state;
-      const isLethal = location.unit.might + location.unit.bonus - location.unit.damage - 3 <= 0;
-      const damaged = dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 3);
-      return isLethal ? drawCards(damaged, ctx.casterIndex, 1) : damaged;
+      const damaged = dealDamage(state, ctx.casterIndex, targetId, 3);
+      // "If this kills it" is answered by the BOARD, not by re-deriving the
+      // arithmetic. Doing the math here got it wrong in both directions:
+      // it ignored bonus damage (Annie - Fiery makes this deal 4, and she
+      // sits in the same precon as this card, so a 4-Might unit died with no
+      // draw), and it ignored continuous auras (a 3-Might unit standing with
+      // Garen - Commander survives at 4, and drew a card anyway). Checking
+      // the owner's trash also gets Highlander's ward right for free — a
+      // warded unit is recalled to base instead of dying, so it never lands
+      // in trash and correctly yields no draw.
+      const died = damaged.players[location.ownerIndex].trash.some((c) => c.instanceId === targetId);
+      return died ? drawCards(damaged, ctx.casterIndex, 1) : damaged;
     },
   },
   "OGS-002": {
@@ -157,43 +215,63 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     // interactive multi-select machinery this round.
     targeting: { kind: "none" },
     resolve: (state, ctx) => {
-      const ids = battlefieldUnitIdsFor(state, state.players[ctx.casterIndex].id).slice(0, 2);
+      // "Two friendly units" — no battlefield named, so units at home count.
+      const ids = unitIdsInPlayFor(state, ctx.casterIndex).slice(0, 2);
       let next = state;
       for (const id of ids) next = buffUnit(next, id, 2);
       return next;
     },
   },
   "OGN-095": {
-    // Stupefy — Give a unit -1 Might this turn, to a minimum of 1 Might. Draw 1.
-    targeting: { kind: "unit" },
+    // Stupefy — "Give a unit -1 Might this turn, to a minimum of 1 Might.
+    // Draw 1." No battlefield named — reaches base units, either player's.
+    targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, ctx, event) => {
-      const location = findUnitOnBattlefield(state, event.targetUnitInstanceId!);
-      const currentMight = location ? location.unit.might + location.unit.bonus : 0;
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId!);
+      // The floor is on the unit's REAL Might, so it routes through
+      // effectiveMight like every other Might question — a unit printed at 1
+      // but standing at 2 under an aura can still be debuffed by this.
+      const currentMight = location
+        ? effectiveMight(
+            state,
+            location.unit,
+            location.ownerIndex,
+            location.zone === "base"
+              ? { isCombat: false }
+              : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id },
+          )
+        : 0;
       const debuffed = currentMight > 1 ? buffUnit(state, event.targetUnitInstanceId!, -1) : state;
       return drawCards(debuffed, ctx.casterIndex, 1);
     },
   },
   "OGN-046": {
-    // En Garde — Give a friendly unit +1 Might this turn, then an
-    // additional +1 if it's the only unit the caster controls there.
-    targeting: { kind: "unit", owner: "friendly" },
+    // En Garde — "Give a friendly unit +1 Might this turn, then an additional
+    // +1 if it is the only unit you control there." Names no battlefield, so
+    // a unit in your own base is a legal target, and "there" then means the
+    // base: a lone unit at home gets the full +2, exactly as a lone unit at a
+    // battlefield does. (Project owner's rules call — base is a location.)
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, ctx, event) => {
-      const location = findUnitOnBattlefield(state, event.targetUnitInstanceId!);
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId!);
       const buffed = buffUnit(state, event.targetUnitInstanceId!, 1);
       if (!location) return buffed;
-      const bf = state.battlefields[location.battlefieldIndex]!;
-      const casterId = state.players[ctx.casterIndex].id;
-      const isOnlyUnit = (bf.units[casterId]?.length ?? 0) === 1;
-      return isOnlyUnit ? buffUnit(buffed, event.targetUnitInstanceId!, 1) : buffed;
+      const caster = state.players[ctx.casterIndex];
+      const unitsThere =
+        location.zone === "base"
+          ? caster.baseUnits.length
+          : (state.battlefields[location.zone.battlefieldIndex]!.units[caster.id]?.length ?? 0);
+      return unitsThere === 1 ? buffUnit(buffed, event.targetUnitInstanceId!, 1) : buffed;
     },
   },
   "OGN-105": {
-    // Singularity — Deal 6 to each of up to two units. Same auto-select
+    // Singularity — "Deal 6 to each of up to two units." Same auto-select
     // simplification as Back to Back (see that entry's comment) — first 2
-    // eligible battlefield units, either owner, deterministic order.
+    // eligible units, either owner, deterministic order. No battlefield is
+    // named, so the candidate pool includes both players' base units.
     targeting: { kind: "none" },
     resolve: (state, ctx) => {
-      const ids = allBattlefieldUnitIds(state).slice(0, 2);
+      const ids = allUnitIdsInPlay(state).slice(0, 2);
       let next = state;
       for (const id of ids) next = dealDamage(next, ctx.casterIndex, id, 6);
       return next;
@@ -231,13 +309,12 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) => returnCardFromTrash(state, ctx.casterIndex, event.trashCardInstanceId!),
   },
   "OGS-020": {
-    // Highlander — Choose a friendly unit. The next time it would die this
-    // turn, heal it, exhaust it, and recall it instead. Restricted to a
-    // battlefield-present friendly (same "unit" targeting shape as En
-    // Garde/Gust) since nothing in this engine can currently kill a
-    // base-zone unit anyway — dealDamage/destroyUnit both only ever
-    // operate on battlefield units (findUnitOnBattlefield).
-    targeting: { kind: "unit", owner: "friendly" },
+    // Highlander — "Choose a friendly unit. The next time it would die this
+    // turn, heal it, exhaust it, and recall it instead." This used to be
+    // battlefield-only on the reasoning that nothing could kill a base unit
+    // anyway — no longer true now that dealDamage/destroyUnit reach base
+    // (Final Spark, Singularity), so warding a unit at home is a real play.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, _ctx, event) => ({
       ...state,
       deathWardedUnitInstanceIds: [...state.deathWardedUnitInstanceIds, event.targetUnitInstanceId!],
@@ -265,27 +342,49 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     // this exchange can affect the other's dealt amount — mirrors the Java
     // oracle's own resolution order (OriginEffects.java: buff, snapshot
     // both currentMight, then deal both damages).
-    targeting: { kind: "unitPair", firstOwner: "friendly", secondOwner: "enemy" },
+    // Neither target names a battlefield, so either duellist may be standing
+    // in its owner's base.
+    targeting: { kind: "unitPair", firstOwner: "friendly", secondOwner: "enemy", scope: "anywhere" },
     resolve: (state, ctx, event) => {
       const friendlyId = event.targetUnitInstanceId!;
       const enemyId = event.secondTargetUnitInstanceId!;
       const buffed = buffUnit(state, friendlyId, 3);
 
-      const friendlyLocation = findUnitOnBattlefield(buffed, friendlyId);
-      const enemyLocation = findUnitOnBattlefield(buffed, enemyId);
+      const friendlyLocation = findUnitAnywhere(buffed, friendlyId);
+      const enemyLocation = findUnitAnywhere(buffed, enemyId);
       if (!friendlyLocation || !enemyLocation) return buffed;
 
-      const friendlyMight = effectiveMight(buffed, friendlyLocation.unit, friendlyLocation.ownerIndex, {
-        isCombat: false,
-        battlefieldId: buffed.battlefields[friendlyLocation.battlefieldIndex]!.id,
-      });
-      const enemyMight = effectiveMight(buffed, enemyLocation.unit, enemyLocation.ownerIndex, {
-        isCombat: false,
-        battlefieldId: buffed.battlefields[enemyLocation.battlefieldIndex]!.id,
-      });
+      const mightCtx = (location: typeof friendlyLocation) =>
+        location.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: buffed.battlefields[location.zone.battlefieldIndex]!.id };
+      const friendlyMight = effectiveMight(buffed, friendlyLocation.unit, friendlyLocation.ownerIndex, mightCtx(friendlyLocation));
+      const enemyMight = effectiveMight(buffed, enemyLocation.unit, enemyLocation.ownerIndex, mightCtx(enemyLocation));
 
       const afterEnemyDamage = dealDamage(buffed, ctx.casterIndex, enemyId, friendlyMight);
       return dealDamage(afterEnemyDamage, ctx.casterIndex, friendlyId, enemyMight);
+    },
+  },
+  "OGS-015": {
+    // Recruit the Vanguard — "Play four 1-Might Recruit unit tokens. (They
+    // can be played to your base or to battlefields you control.)"
+    //
+    // All four go to ONE chosen destination, matching the oracle's own
+    // resolution (`for (int i = 0; i < 4; i++) ctx.createRecruitToken(
+    // ctx.chosenBattlefield())`, OriginEffects.java:672-674) — the card's
+    // parenthetical describes where tokens MAY go, not a promise of a
+    // per-token split. That destination rides on the action's own
+    // `destinationBattlefieldId` (absent = base), the same field a Unit
+    // already uses, rather than a new one; see cardPlacesTokens for how the
+    // "battlefields you CONTROL" restriction is enforced, which is
+    // deliberately stricter than the Unit deploy rule's mere presence check.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      let next = state;
+      for (let i = 0; i < 4; i++) next = placeRecruitToken(next, ctx.casterIndex, destination);
+      return next;
     },
   },
 };

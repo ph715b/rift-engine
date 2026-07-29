@@ -49,6 +49,7 @@ export * from "./engine/effect-helpers.js";
 export * from "./engine/target-lookup.js";
 export * from "./engine/card-effect-resolution.js";
 export * from "./engine/unit-triggers.js";
+export * from "./engine/legend-abilities.js";
 export * from "./engine/token.js";
 export * from "./engine/channel-cost.js";
 export * from "./engine/effective-might.js";

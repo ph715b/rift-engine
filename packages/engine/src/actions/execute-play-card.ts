@@ -253,6 +253,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
           ...(action.additionalCostUnitInstanceId !== undefined
             ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
             : {}),
+          // A Spell's destination is only ever a token-deployment zone
+          // (Recruit the Vanguard); it rides the chain so the choice made at
+          // cast time is what resolution sees.
+          ...(action.destinationBattlefieldId !== undefined
+            ? { destinationBattlefieldId: action.destinationBattlefieldId }
+            : {}),
         },
       ],
     };

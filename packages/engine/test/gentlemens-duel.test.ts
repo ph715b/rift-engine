@@ -8,7 +8,12 @@ import { makeState, makeUnit, spellInstance } from "./fixtures.js";
 
 describe("Gentlemen's Duel (OGS-008): +3 Might then mutual damage equal to Mights", () => {
   it("has unitPair targeting: first friendly, second enemy", () => {
-    expect(targetingForCard(spellInstance("OGS-008"))).toEqual({ kind: "unitPair", firstOwner: "friendly", secondOwner: "enemy" });
+    expect(targetingForCard(spellInstance("OGS-008"))).toEqual({
+      kind: "unitPair",
+      firstOwner: "friendly",
+      secondOwner: "enemy",
+      scope: "anywhere", // neither duellist's text names a battlefield
+    });
   });
 
   it("buffs the friendly +3, then deals each unit's (post-buff) Might to the other", () => {

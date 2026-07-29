@@ -22,6 +22,9 @@ export interface ChainEntry {
   /** Only meaningful for a card with an optional exhaust-cost (Meditation)
    *  — see card-effects.ts's cardHasOptionalExhaustCost. */
   additionalCostUnitInstanceId?: string;
+  /** Where a token-creating Spell deploys what it creates (Recruit the
+   *  Vanguard); absent means base — see card-effects.ts's cardPlacesTokens. */
+  destinationBattlefieldId?: string;
 }
 
 /**

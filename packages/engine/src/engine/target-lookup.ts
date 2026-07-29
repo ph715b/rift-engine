@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { TargetingSpec } from "./card-effects.js";
+import { effectiveMight } from "./effective-might.js";
 
 export interface BattlefieldUnitLocation {
   unit: UnitInstance;
@@ -9,18 +10,59 @@ export interface BattlefieldUnitLocation {
   battlefieldIndex: number;
 }
 
+/** Where a unit found by findUnitAnywhere actually sits. `"base"` carries no
+ *  battlefield index because a base unit isn't at one — callers that need a
+ *  battlefield id must branch on this rather than assume. */
+export type UnitZone = "base" | { battlefieldIndex: number };
+
+export interface AnyUnitLocation {
+  unit: UnitInstance;
+  ownerId: string;
+  ownerIndex: 0 | 1;
+  zone: UnitZone;
+}
+
 /**
- * Finds a unit by instanceId among units currently sitting at any
- * battlefield, across both players. Deliberately does NOT search
- * `PlayerState.baseUnits` — every card that needs targeting in this round's
- * effect slice (card-effects.ts) restricts itself to "a unit at a
- * battlefield," so a base-unit search isn't needed or testable yet. Add a
- * separate/generalized lookup when a card that can target base units is
- * implemented, rather than widening this one speculatively.
+ * Finds a unit by instanceId ANYWHERE in play — either player's base or any
+ * battlefield. The counterpart to findUnitOnBattlefield below, which stays
+ * for the many cards whose text really does say "a unit at a battlefield".
+ *
+ * Riftbound's card text draws this distinction deliberately: "Deal 8 to a
+ * unit" (Final Spark) reaches a unit sitting at home, "Deal 2 to a unit at a
+ * battlefield" (Incinerate) does not. Which lookup a card uses is therefore
+ * a per-card property — see TargetingSpec's `scope`.
  */
-/** Every unit at any battlefield that satisfies a `"unit"`-style owner
- *  constraint relative to `playerIndex` — the same scan legal-actions.ts's
- *  own fan-out performs. */
+export function findUnitAnywhere(state: GameState, instanceId: string): AnyUnitLocation | undefined {
+  for (const ownerIndex of [0, 1] as const) {
+    const player = state.players[ownerIndex];
+    const unit = player.baseUnits.find((u) => u.instanceId === instanceId);
+    if (unit) return { unit, ownerId: player.id, ownerIndex, zone: "base" };
+  }
+  const atBattlefield = findUnitOnBattlefield(state, instanceId);
+  if (!atBattlefield) return undefined;
+  const { unit, ownerId, ownerIndex, battlefieldIndex } = atBattlefield;
+  return { unit, ownerId, ownerIndex, zone: { battlefieldIndex } };
+}
+
+/** Every unit satisfying a `"unit"`-style owner constraint relative to
+ *  `playerIndex` — the same scan legal-actions.ts's own fan-out performs.
+ *  `scope: "anywhere"` additionally includes both players' base units. */
+export function eligibleTargets(
+  state: GameState,
+  playerIndex: 0 | 1,
+  owner?: "friendly" | "enemy",
+  scope: "battlefield" | "anywhere" = "battlefield",
+): UnitInstance[] {
+  const ownerMatches = (ownerIndex: 0 | 1) =>
+    !(owner === "friendly" && ownerIndex !== playerIndex) && !(owner === "enemy" && ownerIndex === playerIndex);
+
+  const inBase =
+    scope === "anywhere"
+      ? ([0, 1] as const).flatMap((ownerIndex) => (ownerMatches(ownerIndex) ? state.players[ownerIndex].baseUnits : []))
+      : [];
+  return [...inBase, ...eligibleBattlefieldUnits(state, playerIndex, owner)];
+}
+
 function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: "friendly" | "enemy"): UnitInstance[] {
   return state.battlefields.flatMap((bf) =>
     Object.entries(bf.units).flatMap(([ownerId, units]) => {
@@ -30,6 +72,28 @@ function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: 
       return units;
     }),
   );
+}
+
+/**
+ * Does this unit satisfy a `maxMight` restriction (Gust's "3 Might or less")?
+ * Routes through effectiveMight rather than `might + bonus`, so a unit
+ * standing under a continuous aura is judged at the Might it actually has —
+ * three separate call sites used to inline the raw sum and would happily let
+ * you Gust a 3-Might unit that Garen - Commander had made a 4. Non-combat
+ * context, matching dealDamage: auras count, [Shield]/[Assault] don't.
+ */
+export function unitWithinMaxMight(state: GameState, unit: UnitInstance, maxMight: number | undefined): boolean {
+  if (maxMight === undefined) return true;
+  // findUnitAnywhere, not findUnitOnBattlefield: this used to return `true`
+  // for anything it couldn't find at a battlefield, so once base units became
+  // targetable a base unit would have skipped the Might restriction entirely.
+  const location = findUnitAnywhere(state, unit.instanceId);
+  if (!location) return true;
+  const ctx =
+    location.zone === "base"
+      ? { isCombat: false }
+      : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+  return effectiveMight(state, unit, location.ownerIndex, ctx) <= maxMight;
 }
 
 /**
@@ -52,12 +116,12 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
     case "battlefield":
       return state.battlefields.length > 0;
     case "unit":
-      return eligibleBattlefieldUnits(state, playerIndex, targeting.owner).some(
-        (u) => targeting.maxMight === undefined || u.might + u.bonus <= targeting.maxMight,
+      return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some((u) =>
+        unitWithinMaxMight(state, u, targeting.maxMight),
       );
     case "unitPair": {
-      const first = eligibleBattlefieldUnits(state, playerIndex, targeting.firstOwner);
-      const second = eligibleBattlefieldUnits(state, playerIndex, targeting.secondOwner);
+      const first = eligibleTargets(state, playerIndex, targeting.firstOwner, targeting.scope);
+      const second = eligibleTargets(state, playerIndex, targeting.secondOwner, targeting.scope);
       // The pair must be two DISTINCT units — mirrors the fan-out's own
       // `first.instanceId === second.instanceId` skip.
       return first.some((a) => second.some((b) => a.instanceId !== b.instanceId));

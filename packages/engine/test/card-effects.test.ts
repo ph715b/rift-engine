@@ -15,7 +15,9 @@ describe("card-effects registry", () => {
   it("has an effect registered, with the right targeting shape, for the 5 launch cards", () => {
     expect(targetingForCard(spellInstance("OGS-003"))).toEqual({ kind: "unit" }); // Incinerate
     expect(targetingForCard(spellInstance("OGN-085"))).toEqual({ kind: "unit" }); // Falling Comet
-    expect(targetingForCard(spellInstance("OGS-022"))).toEqual({ kind: "unit" }); // Final Spark
+    // Final Spark reads "Deal 8 to a unit" — no battlefield named, so unlike
+    // its neighbours here it reaches units in base too.
+    expect(targetingForCard(spellInstance("OGS-022"))).toEqual({ kind: "unit", scope: "anywhere" });
     expect(targetingForCard(spellInstance("OGS-012"))).toEqual({ kind: "unit" }); // Blast of Power
     expect(targetingForCard(spellInstance("OGS-024"))).toEqual({ kind: "none" }); // Decisive Strike
   });

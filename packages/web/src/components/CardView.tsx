@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { defaultCardRegistry, type CardInstance } from "@rift-engine/engine";
+import { defaultCardRegistry, loadTokenArt, type CardInstance } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { useCardHover } from "../hover-preview.js";
 import { useDragGhost } from "../drag-ghost.js";
@@ -9,6 +9,11 @@ export interface DragPoint {
   x: number;
   y: number;
 }
+
+/** Parsed once at module load, not per card: a created token (Recruit) has no
+ *  CardDefinition to look art up from, since Token-supertype entries are
+ *  filtered out of the playable pool — see loadTokenArt. */
+const TOKEN_ART = loadTokenArt();
 
 /** Framer Motion's own PanInfo.point coordinate space is ambiguous across
  *  versions/input types; reading clientX/Y straight off the raw event is
@@ -104,6 +109,7 @@ export function CardView({
   const [isDragging, setIsDragging] = useState(false);
 
   const def = useMemo(() => defaultCardRegistry().tryGet(card.defId), [card.defId]);
+  const artUrl = def?.imageUrl || (card.isToken ? TOKEN_ART[card.defId] : undefined);
   const setHovered = useCardHover();
   const setDragGhost = useDragGhost();
 
@@ -181,12 +187,12 @@ export function CardView({
           : undefined
       }
     >
-      {def?.imageUrl ? (
+      {artUrl ? (
         // The real card art already prints name/cost/might as part of its own
         // design — showing our own text overlay on top of it would just
         // duplicate that info. The overlay below is the fallback for the
         // (rare/never, in the current OGN+OGS pool) case where art is missing.
-        <img className="card-art" src={def.imageUrl} alt={card.name} draggable={false} loading="lazy" />
+        <img className="card-art" src={artUrl} alt={card.name} draggable={false} loading="lazy" />
       ) : (
         <div className="card-info card-info-fallback">
           <div className="card-name">{card.name}</div>

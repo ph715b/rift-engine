@@ -1,5 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { scoreHolds } from "./scoring.js";
+import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -143,9 +144,16 @@ export function runEnd(state: GameState): GameState {
     throw new Error(`runEnd requires Action phase, currently: ${state.phase}`);
   }
 
+  // The ending player's Legend fires FIRST, while it's still their turn and
+  // before any of the resets below — Annie - Dark Child's "at the end of your
+  // turn, ready up to 2 runes" has to see (and leave) a rune pool that the
+  // opponent's upcoming turn will not touch. Deliberately not folded into the
+  // map below: it's an ability firing, not a field reset.
+  const afterLegend = dispatchLegendEndOfTurn(state, state.activePlayerIndex);
+
   const expireBonuses = <T extends { damage: number; bonus: number }>(u: T): T => ({ ...u, bonus: 0 });
 
-  const players = state.players.map((p) => ({
+  const players = afterLegend.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireBonuses),
     floatingEnergy: 0,
@@ -155,7 +163,7 @@ export function runEnd(state: GameState): GameState {
     restrictedSpellEnergy: 0,
   })) as [PlayerState, PlayerState];
 
-  const battlefields = state.battlefields.map((bf) => {
+  const battlefields = afterLegend.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
       units[playerId] = list.map(expireBonuses);
@@ -167,7 +175,7 @@ export function runEnd(state: GameState): GameState {
   const turnNumber = nextIndex === 0 ? state.turnNumber + 1 : state.turnNumber;
 
   return {
-    ...state,
+    ...afterLegend,
     players,
     battlefields,
     activePlayerIndex: nextIndex,

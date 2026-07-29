@@ -4,6 +4,7 @@ import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
   cardNeedsTarget,
+  cardPlacesTokens,
   chooseAction,
   computeAutoPayment,
   computeEffectiveCost,
@@ -207,13 +208,23 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return playCardActionsFor(cardInstanceId).length > 0;
   }
 
-  /** True for a Unit with more than one distinct legal destination (base
-   *  plus one or more "reinforce" battlefields it already occupies) — keyed
+  /** Does this card get to choose WHERE it lands — a Unit picking between
+   *  base and a "reinforce" battlefield, or a token-placing Spell picking
+   *  where its Recruits deploy (Recruit the Vanguard)? Everything else has
+   *  no destination at all, and must not be offered one: an ordinary Spell's
+   *  candidates all carry an absent destination, which normalizes to base
+   *  and would otherwise read as a real choice. */
+  function cardHasDestination(card: CardInstance): boolean {
+    return card.kind === "Unit" || (card.kind === "Spell" && cardPlacesTokens(card.defId));
+  }
+
+  /** True for a card with more than one distinct legal destination — keyed
    *  off distinct destinations, not a raw action count, so a future
    *  same-destination cost variant (e.g. Accelerate) can never falsely
-   *  trigger arming for a Unit that only has one real place to go. */
+   *  trigger arming for a card that only has one real place to go. */
   function unitNeedsPlacement(actions: PlayCardAction[]): boolean {
-    if (actions[0]?.card.kind !== "Unit") return false;
+    const card = actions[0]?.card;
+    if (!card || !cardHasDestination(card)) return false;
     const destinations = new Set(actions.map((a) => a.destinationBattlefieldId ?? BASE_ZONE_ID));
     return destinations.size > 1;
   }
@@ -452,12 +463,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   /** The armed Unit's PlayCardAction for a specific destination — `"base"`
    *  for the base-play candidate, a battlefield id for a reinforce
    *  candidate — or undefined if that destination isn't actually legal for
-   *  the currently-armed card. Unit-only: a Spell has no placement at all,
-   *  and letting it match here would light up the base zone as a drop target
-   *  for something that can never be placed (harmless before, actively
-   *  confusing now that a Spell can be mid-way through its own choices). */
+   *  the currently-armed card. Gated on the card actually HAVING a
+   *  destination: letting an ordinary Spell match here would light up the
+   *  base zone as a drop target for something that can never be placed. */
   function placementActionAt(destination: string): PlayCardAction | undefined {
-    if (pendingPlay?.card.kind !== "Unit") return undefined;
+    if (!pendingPlay || !cardHasDestination(pendingPlay.card)) return undefined;
     return pendingCandidates().find((a) => (a.destinationBattlefieldId ?? BASE_ZONE_ID) === destination);
   }
 
@@ -890,8 +900,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const [first] = actions;
     if (!first) return;
 
-    const placement =
-      first.card.kind === "Unit" ? actions.find((a) => (a.destinationBattlefieldId ?? BASE_ZONE_ID) === zone) : undefined;
+    // Token-placing Spells (Recruit the Vanguard) drop like Units do — the
+    // zone you release over IS the answer to "where do these go".
+    const placement = cardHasDestination(first.card)
+      ? actions.find((a) => (a.destinationBattlefieldId ?? BASE_ZONE_ID) === zone)
+      : undefined;
 
     if (!placement) {
       handleHandCardClick(cardInstanceId);
@@ -1142,7 +1155,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               <div className="card-row">
                 <AnimatePresence>
                   {ai.baseUnits.map((unit) => (
-                    <CardView key={unit.instanceId} card={unit} isEnemy />
+                    // Clickable ONLY as the answer to a pending target step —
+                    // there's nothing else you can ever do to an enemy unit at
+                    // home. Cards whose text names no battlefield ("Deal 8 to
+                    // a unit") reach here, so base is no longer a safe parking
+                    // spot and the board has to let you say so.
+                    <CardView
+                      key={unit.instanceId}
+                      card={unit}
+                      isEnemy
+                      isSelectable={isUnitLegalTarget(unit)}
+                      isTargetable={isUnitLegalTarget(unit)}
+                      isSelected={pendingChosenUnitIds().has(unit.instanceId)}
+                      onClick={() => handleUnitClick(unit)}
+                    />
                   ))}
                 </AnimatePresence>
               </div>

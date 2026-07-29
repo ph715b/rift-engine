@@ -221,6 +221,30 @@ export function loadRuneArt(): Partial<Record<Domain, string>> {
   return art;
 }
 
+/**
+ * Art for the runtime-only tokens this engine creates, keyed by the defId
+ * token.ts stamps on them. Token-supertype cards are filtered out of the
+ * loaded pool entirely (they're never playable cards, and the printed
+ * "Recruit (271) // Buff" entries are three near-identical copies), so a
+ * created token has no CardDefinition to look art up from and would otherwise
+ * render as a blank fallback frame. Same presentation-only side-lookup
+ * pattern as loadRuneArt above, and the same one CardLoader.java:677 uses for
+ * exactly this card's tokens.
+ */
+export function loadTokenArt(): Partial<Record<string, string>> {
+  const art: Partial<Record<string, string>> = {};
+  for (const raw of CARD_FILES) {
+    for (const item of extractCardItems(raw)) {
+      if (item.classification.supertype !== "Token") continue;
+      if (item.metadata.alternate_art) continue;
+      if (!/^Recruit\b/.test(item.name)) continue;
+      const imageUrl = item.media.image_url;
+      if (imageUrl && !art["TOKEN-RECRUIT"]) art["TOKEN-RECRUIT"] = imageUrl;
+    }
+  }
+  return art;
+}
+
 export interface BattlefieldDefinition {
   id: string;
   name: string;

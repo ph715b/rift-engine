@@ -10,9 +10,9 @@ import {
   recallUnitToBase,
   returnCardFromTrash,
 } from "./effect-helpers.js";
-import { createRecruitToken } from "./token.js";
+import { placeRecruitToken, type TokenDestination } from "./token.js";
 
-export type UnitPlayDestination = "base" | { battlefieldId: string };
+export type UnitPlayDestination = TokenDestination;
 
 /** Everything a Unit's on-play trigger might need, already fully decided
  *  before executePlayCard ever runs (this engine can't pause mid-
@@ -64,23 +64,10 @@ function applyVision(state: GameState, casterIndex: 0 | 1, recycle: boolean | un
   return { ...state, players };
 }
 
-function placeTokenAtDestination(state: GameState, casterIndex: 0 | 1, destination: UnitPlayDestination): GameState {
-  const token = createRecruitToken();
-  const casterId = state.players[casterIndex].id;
-
-  if (destination === "base") {
-    const players = [...state.players] as [PlayerState, PlayerState];
-    players[casterIndex] = { ...players[casterIndex], baseUnits: [...players[casterIndex].baseUnits, token] };
-    return { ...state, players };
-  }
-
-  const bfIndex = state.battlefields.findIndex((bf) => bf.id === destination.battlefieldId);
-  if (bfIndex === -1) return state;
-  const bf = state.battlefields[bfIndex]!;
-  const battlefields = [...state.battlefields];
-  battlefields[bfIndex] = { ...bf, units: { ...bf.units, [casterId]: [...(bf.units[casterId] ?? []), token] } };
-  return { ...state, battlefields };
-}
+/** Token placement moved to token.ts once a Spell (Recruit the Vanguard)
+ *  needed it too — see placeRecruitToken's own doc comment for why it can't
+ *  live in either caller. */
+const placeTokenAtDestination = placeRecruitToken;
 
 /**
  * On-play-unit triggers — the biggest gap this phase closes:
@@ -113,7 +100,9 @@ const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
     // a Unit is playable with its trigger's target OMITTED when the board
     // offered no legal one (validate-play-card.ts's targetOmissionAllowed),
     // so these resolvers really do run with nothing to act on.
-    targeting: { kind: "unit" },
+    // "Ready another unit" names no battlefield, so a unit in base — the
+    // likeliest thing you have exhausted — is a legal target.
+    targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, _unitId, event) =>
       event.targetUnitInstanceId ? readyUnit(state, event.targetUnitInstanceId) : state,
   },
@@ -257,13 +246,15 @@ export function dispatchOnMove(state: GameState, unit: UnitInstance, casterIndex
  *  Spell (execute-pass-focus.ts's chain resolution), scanning only the
  *  caster's own units (base + battlefields) for a registered listener —
  *  never the opponent's, matching the printed "you" in both cards' text. */
-const ON_SPELL_CAST_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, spellEnergyCost: number) => GameState> = {
+const ON_SPELL_CAST_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, spellTotalCost: number) => GameState> = {
   "OGN-103": (state, ctx, unit) => buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 1), // Ravenbloom Student
-  "OGS-006": (state, ctx, unit, spellEnergyCost) =>
-    spellEnergyCost >= 5 ? buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 3) : state, // Lux - Illuminated
+  // Lux - Illuminated — "costs 5 or more" is Energy PLUS Power (see the call
+  // site in execute-pass-focus.ts; this used to be handed energyCost alone).
+  "OGS-006": (state, ctx, unit, spellTotalCost) =>
+    spellTotalCost >= 5 ? buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 3) : state,
 };
 
-export function dispatchOnSpellCast(state: GameState, casterIndex: 0 | 1, spellEnergyCost: number): GameState {
+export function dispatchOnSpellCast(state: GameState, casterIndex: 0 | 1, spellTotalCost: number): GameState {
   const actor = state.players[casterIndex];
   const ownUnits: UnitInstance[] = [
     ...actor.baseUnits,
@@ -274,7 +265,7 @@ export function dispatchOnSpellCast(state: GameState, casterIndex: 0 | 1, spellE
   for (const unit of ownUnits) {
     const trigger = ON_SPELL_CAST_TRIGGERS[unit.defId];
     if (!trigger) continue;
-    next = trigger(next, ctx, unit, spellEnergyCost);
+    next = trigger(next, ctx, unit, spellTotalCost);
   }
   return next;
 }

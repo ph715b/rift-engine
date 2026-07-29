@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import { resolveShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import { dispatchOnSpellCast } from "../engine/unit-triggers.js";
+import { dispatchLegendOnSpellCast } from "../engine/legend-abilities.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
 
@@ -50,7 +51,16 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // On-spell-cast listeners (Ravenbloom Student, Lux-Illuminated) fire once
   // the Spell's own effect has resolved — every ChainEntry is a Spell by
   // construction (ChainEntry.card: SpellInstance), so this always applies.
-  const resolved = dispatchOnSpellCast(resolvedEffect, poppedEntry.playerIndex, poppedEntry.card.energyCost);
+  //
+  // "Costs 5 or more" means the WHOLE printed cost, Energy plus Power — this
+  // used to pass energyCost alone, so a 4-Energy/1-Power spell (a real shape
+  // in this pool) silently failed to trigger Lux - Illuminated. Both Lux
+  // cards read the combined figure in the oracle (UnitAbilities.java:66 and
+  // LegendAbilities.java:47 are the same `energyCost + powerCost >= 5`).
+  const totalCost = poppedEntry.card.energyCost + poppedEntry.card.powerCost;
+  const afterUnits = dispatchOnSpellCast(resolvedEffect, poppedEntry.playerIndex, totalCost);
+  // The caster's Legend listens at the same moment (Lux - Lady of Luminosity).
+  const resolved = dispatchLegendOnSpellCast(afterUnits, poppedEntry.playerIndex, totalCost);
   const spellChain = resolved.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
   if (spellChain.length === 0) {
     return { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };

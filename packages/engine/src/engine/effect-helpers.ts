@@ -3,12 +3,59 @@ import type { UnitInstance } from "../model/card.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { findUnitOnBattlefield } from "./target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
   players[index] = update(players[index]);
   return { ...state, players };
+}
+
+/**
+ * Applies `change` to one unit wherever it is in play — base or battlefield.
+ * The single place base-vs-battlefield branching lives: five helpers below
+ * (damage, buff, ready, destroy, return-to-hand) all act on "a unit," and
+ * Riftbound's text only sometimes restricts that to a battlefield, so each of
+ * them would otherwise carry its own copy of this fork. No-ops if the unit
+ * isn't in play at all, same convention as every other "target vanished" path.
+ */
+function updateUnitAnywhere(state: GameState, targetInstanceId: string, change: (unit: UnitInstance) => UnitInstance): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location) return state;
+  const { ownerId, ownerIndex, zone } = location;
+  const replace = (u: UnitInstance) => (u.instanceId === targetInstanceId ? change(u) : u);
+
+  if (zone === "base") {
+    return updatePlayer(state, ownerIndex, (p) => ({ ...p, baseUnits: p.baseUnits.map(replace) }));
+  }
+  const bf = state.battlefields[zone.battlefieldIndex]!;
+  const battlefields = [...state.battlefields];
+  battlefields[zone.battlefieldIndex] = { ...bf, units: { ...bf.units, [ownerId]: bf.units[ownerId]!.map(replace) } };
+  return { ...state, battlefields };
+}
+
+/** Removes a unit from play (base or battlefield) WITHOUT deciding where it
+ *  goes next — callers add it to trash/hand/base themselves, since that
+ *  differs per effect (a kill trashes, Gust returns to hand, a death ward
+ *  recalls). Counterpart to updateUnitAnywhere above. */
+function removeUnitAnywhere(state: GameState, targetInstanceId: string): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location) return state;
+  const { ownerId, ownerIndex, zone } = location;
+
+  if (zone === "base") {
+    return updatePlayer(state, ownerIndex, (p) => ({
+      ...p,
+      baseUnits: p.baseUnits.filter((u) => u.instanceId !== targetInstanceId),
+    }));
+  }
+  const bf = state.battlefields[zone.battlefieldIndex]!;
+  const battlefields = [...state.battlefields];
+  battlefields[zone.battlefieldIndex] = {
+    ...bf,
+    units: { ...bf.units, [ownerId]: bf.units[ownerId]!.filter((u) => u.instanceId !== targetInstanceId) },
+  };
+  return { ...state, battlefields };
 }
 
 /**
@@ -25,65 +72,41 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
  * a Shielded unit dies to lethal direct damage the same as an unshielded one.
  */
 export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceId: string, amount: number): GameState {
-  const location = findUnitOnBattlefield(state, targetInstanceId);
+  const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
-  const { ownerId, ownerIndex, battlefieldIndex, unit } = location;
-  const bfId = state.battlefields[battlefieldIndex]!.id;
+  const { ownerIndex, zone, unit } = location;
   const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount);
 
   const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + modifiedAmount };
-  const isLethal = effectiveMight(state, unit, ownerIndex, { isCombat: false, battlefieldId: bfId }) - damagedUnit.damage <= 0;
-
-  const bf = state.battlefields[battlefieldIndex]!;
-  const battlefields = [...state.battlefields];
+  // A base unit has no battlefield id — continuous auras keyed on location
+  // (Garen - Commander) resolve it as "base" from the omitted field.
+  const mightCtx = zone === "base" ? { isCombat: false } : { isCombat: false, battlefieldId: state.battlefields[zone.battlefieldIndex]!.id };
+  const isLethal = effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
 
   if (isLethal) {
-    battlefields[battlefieldIndex] = {
-      ...bf,
-      units: { ...bf.units, [ownerId]: bf.units[ownerId]!.filter((u) => u.instanceId !== targetInstanceId) },
-    };
-    const stateAfterRemoval = { ...state, battlefields };
+    const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
     if (isDeathWarded(state, targetInstanceId)) {
       return reviveWithDeathWard(stateAfterRemoval, damagedUnit, ownerIndex);
     }
-    const players = [...state.players] as [PlayerState, PlayerState];
-    players[ownerIndex] = { ...players[ownerIndex], trash: [...players[ownerIndex].trash, damagedUnit] };
-    return { ...stateAfterRemoval, players };
+    return updatePlayer(stateAfterRemoval, ownerIndex, (p) => ({ ...p, trash: [...p.trash, damagedUnit] }));
   }
 
-  battlefields[battlefieldIndex] = {
-    ...bf,
-    units: {
-      ...bf.units,
-      [ownerId]: bf.units[ownerId]!.map((u) => (u.instanceId === targetInstanceId ? damagedUnit : u)),
-    },
-  };
-  return { ...state, battlefields };
+  return updateUnitAnywhere(state, targetInstanceId, () => damagedUnit);
 }
 
 /** Unconditionally removes a unit at a battlefield to its owner's trash —
  *  no damage/lethal math at all, unlike dealDamage — but still a "death,"
  *  so still honors Highlander's ward the same way dealDamage does. */
 export function destroyUnit(state: GameState, targetInstanceId: string): GameState {
-  const location = findUnitOnBattlefield(state, targetInstanceId);
+  const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
-  const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
+  const { unit, ownerIndex } = location;
 
-  const bf = state.battlefields[battlefieldIndex]!;
-  const battlefields = [...state.battlefields];
-  battlefields[battlefieldIndex] = {
-    ...bf,
-    units: { ...bf.units, [ownerId]: bf.units[ownerId]!.filter((u) => u.instanceId !== targetInstanceId) },
-  };
-  const stateAfterRemoval = { ...state, battlefields };
-
+  const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
   if (isDeathWarded(state, targetInstanceId)) {
     return reviveWithDeathWard(stateAfterRemoval, unit, ownerIndex);
   }
-
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...players[ownerIndex], trash: [...players[ownerIndex].trash, unit] };
-  return { ...stateAfterRemoval, players };
+  return updatePlayer(stateAfterRemoval, ownerIndex, (p) => ({ ...p, trash: [...p.trash, unit] }));
 }
 
 /** Adds `amount` to `.bonus` on every unit the caster controls (base +
@@ -107,23 +130,11 @@ export function buffAllFriendlies(state: GameState, casterIndex: 0 | 1, amount: 
 }
 
 /** Adds `amount` to a single unit's `.bonus` (a "this turn" buff/debuff,
- *  same expiry as buffAllFriendlies — negative amount is a debuff). No-ops
- *  if the target isn't found at any battlefield. */
+ *  same expiry as buffAllFriendlies — negative amount is a debuff). Works on
+ *  a unit anywhere in play: En Garde and Stupefy say "a unit," not "a unit at
+ *  a battlefield". No-ops if the target isn't in play. */
 export function buffUnit(state: GameState, targetInstanceId: string, amount: number): GameState {
-  const location = findUnitOnBattlefield(state, targetInstanceId);
-  if (!location) return state;
-  const { ownerId, battlefieldIndex, unit } = location;
-
-  const bf = state.battlefields[battlefieldIndex]!;
-  const battlefields = [...state.battlefields];
-  battlefields[battlefieldIndex] = {
-    ...bf,
-    units: {
-      ...bf.units,
-      [ownerId]: bf.units[ownerId]!.map((u) => (u.instanceId === targetInstanceId ? { ...u, bonus: unit.bonus + amount } : u)),
-    },
-  };
-  return { ...state, battlefields };
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, bonus: u.bonus + amount }));
 }
 
 /** Draws up to `count` cards for `playerIndex`, stopping early (not
@@ -144,21 +155,13 @@ export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): 
  *  it's leaving play entirely and may be replayed fresh, unlike
  *  recallUnitToBase (which keeps a unit "in play," just relocated). */
 export function returnUnitToHand(state: GameState, targetInstanceId: string): GameState {
-  const location = findUnitOnBattlefield(state, targetInstanceId);
+  const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
-  const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
-
-  const bf = state.battlefields[battlefieldIndex]!;
-  const battlefields = [...state.battlefields];
-  battlefields[battlefieldIndex] = {
-    ...bf,
-    units: { ...bf.units, [ownerId]: bf.units[ownerId]!.filter((u) => u.instanceId !== targetInstanceId) },
-  };
+  const { unit, ownerIndex } = location;
 
   const returned: UnitInstance = { ...unit, damage: 0, bonus: 0, exhausted: false };
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...players[ownerIndex], hand: [...players[ownerIndex].hand, returned] };
-  return { ...state, battlefields, players };
+  const removed = removeUnitAnywhere(state, targetInstanceId);
+  return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: [...p.hand, returned] }));
 }
 
 /** Moves a unit from its battlefield to its OWNER's base, exhausted —
@@ -186,21 +189,11 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
 }
 
 /** Sets a unit's `exhausted` to false regardless of its current state —
- *  First Mate's "ready another unit." No-ops if not found at a battlefield
- *  (base-zone units aren't a target here since none of this round's cards
- *  need it — widen findUnitOnBattlefield's search the day one does). */
+ *  First Mate's "ready another unit," which names no battlefield and so
+ *  reaches a unit in base too (this comment used to say base units "aren't a
+ *  target here... widen the search the day one does" — this is that day). */
 export function readyUnit(state: GameState, targetInstanceId: string): GameState {
-  const location = findUnitOnBattlefield(state, targetInstanceId);
-  if (!location) return state;
-  const { ownerId, battlefieldIndex } = location;
-
-  const bf = state.battlefields[battlefieldIndex]!;
-  const battlefields = [...state.battlefields];
-  battlefields[battlefieldIndex] = {
-    ...bf,
-    units: { ...bf.units, [ownerId]: bf.units[ownerId]!.map((u) => (u.instanceId === targetInstanceId ? { ...u, exhausted: false } : u)) },
-  };
-  return { ...state, battlefields };
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
 }
 
 /** Deals `amount` damage to every enemy (relative to `casterIndex`) unit at

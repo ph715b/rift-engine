@@ -1,9 +1,11 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
-import { findUnitOnBattlefield, hasAnyLegalEffectChoice } from "../engine/target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield, hasAnyLegalEffectChoice, unitWithinMaxMight } from "../engine/target-lookup.js";
+import type { TargetScope } from "../engine/card-effects.js";
+import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardHasOptionalExhaustCost } from "../engine/card-effects.js";
+import { cardHasOptionalExhaustCost, cardPlacesTokens } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -33,6 +35,22 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * returning something. Cards with no registered effect, or a "none"-kind
  * one, skip this entirely.
  */
+/** Resolves a target under the spec's own scope, so validation looks in
+ *  exactly the places legal-actions.ts enumerated from. Returns the fields
+ *  both callers need (owner + the unit itself), flattening the two location
+ *  shapes. */
+function findUnitInScope(
+  state: GameState,
+  instanceId: string,
+  scope: TargetScope | undefined,
+): { unit: UnitInstance; ownerIndex: 0 | 1 } | undefined {
+  return scope === "anywhere" ? findUnitAnywhere(state, instanceId) : findUnitOnBattlefield(state, instanceId);
+}
+
+function scopeDescription(scope: TargetScope | undefined): string {
+  return scope === "anywhere" ? "in play" : "at a battlefield";
+}
+
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
     return fail(`It is not player ${action.playerIndex}'s turn`);
@@ -93,9 +111,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (!action.targetUnitInstanceId) {
       return fail(`${card.name} requires a target unit`);
     }
-    const location = findUnitOnBattlefield(state, action.targetUnitInstanceId);
+    // Which lookup depends on the card's own text: "a unit" reaches base,
+    // "a unit at a battlefield" does not. Must match legal-actions.ts's
+    // enumeration exactly, or the UI offers clicks this then rejects.
+    const location = findUnitInScope(state, action.targetUnitInstanceId, targeting.scope);
     if (!location) {
-      return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
+      return fail(`No unit with id ${action.targetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
     }
     if (targeting.owner === "friendly" && location.ownerIndex !== action.playerIndex) {
       return fail(`${card.name} can only target a friendly unit`);
@@ -103,7 +124,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (targeting.owner === "enemy" && location.ownerIndex === action.playerIndex) {
       return fail(`${card.name} can only target an enemy unit`);
     }
-    if (targeting.maxMight !== undefined && location.unit.might + location.unit.bonus > targeting.maxMight) {
+    if (!unitWithinMaxMight(state, location.unit, targeting.maxMight)) {
       return fail(`${card.name} can only target a unit with ${targeting.maxMight} Might or less`);
     }
   } else if (targeting.kind === "battlefield") {
@@ -128,10 +149,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (!action.targetUnitInstanceId || !action.secondTargetUnitInstanceId) {
       return fail(`${card.name} requires two target units`);
     }
-    const first = findUnitOnBattlefield(state, action.targetUnitInstanceId);
-    const second = findUnitOnBattlefield(state, action.secondTargetUnitInstanceId);
-    if (!first) return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
-    if (!second) return fail(`No unit with id ${action.secondTargetUnitInstanceId} found at a battlefield`);
+    const first = findUnitInScope(state, action.targetUnitInstanceId, targeting.scope);
+    const second = findUnitInScope(state, action.secondTargetUnitInstanceId, targeting.scope);
+    if (!first) return fail(`No unit with id ${action.targetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
+    if (!second) return fail(`No unit with id ${action.secondTargetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
     const isFriendly = (ownerIndex: 0 | 1, owner: "friendly" | "enemy") =>
       owner === "friendly" ? ownerIndex === action.playerIndex : ownerIndex !== action.playerIndex;
     if (!isFriendly(first.ownerIndex, targeting.firstOwner)) {
@@ -179,6 +200,22 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;
     if (!hasPresence && !canPlayToOpenBattlefield(card.defId)) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
+    }
+  }
+
+  // A Spell carrying a destination is deploying tokens there (Recruit the
+  // Vanguard). "Battlefields you CONTROL" — deliberately stricter than the
+  // Unit rule above, which accepts mere presence even at a contested
+  // battlefield; the card says control and the oracle treats that as a real
+  // difference rather than a copy-paste (ActionValidator.java:1487-1504).
+  if (card.kind === "Spell" && action.destinationBattlefieldId !== undefined) {
+    if (!cardPlacesTokens(card.defId)) {
+      return fail(`${card.name} cannot be played directly to a battlefield`);
+    }
+    const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
+    if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
+    if (destination.controllerId !== actor.id) {
+      return fail(`${card.name} can only place tokens at a battlefield you control`);
     }
   }
 
