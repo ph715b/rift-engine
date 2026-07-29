@@ -1,6 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
+import { healAllUnits } from "./effect-helpers.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -129,15 +130,17 @@ export function runStartOfTurn(state: GameState): GameState {
  * since none of those fields exist on our GameState/PlayerState (see this
  * file's own top doc comment).
  *
- * DELIBERATE DIVERGENCE from the Java oracle: damage is NOT healed here.
- * TurnManager.java:277-286 clears `damage` alongside `bonus` for every unit
- * on both sides at end of turn, which makes any damage dealt outside combat
- * (a Spell, an on-play trigger) evaporate before it can ever matter — soften
- * a blocker on your turn and it's whole again before your opponent attacks.
- * Per the real rules, marked damage is removed when a SHOWDOWN ends, not when
- * a turn does; combat.ts's own `heal` (applied to the survivors of a resolved
- * Showdown) is the only place that clears it. `bonus` still expires here —
- * that one genuinely is an "until end of turn" effect.
+ * Damage heals here, for every unit on BOTH sides — units heal at the end of
+ * every combat Showdown AND at the end of a player's turn (project owner's
+ * rules call), so this is one of the two places that clears it; combat.ts's
+ * own `heal` on the survivors of a resolved Showdown is the other. Matches
+ * TurnManager.java:277-286.
+ *
+ * A previous round briefly removed this on the reading that marked damage
+ * should survive until a Showdown ended. It shouldn't: both events heal. The
+ * consequence worth knowing is that damage dealt outside combat on your own
+ * turn (a Spell, an on-play trigger) is gone by the time your opponent acts,
+ * so softening a blocker only pays off within the same turn you did it.
  */
 export function runEnd(state: GameState): GameState {
   if (state.phase !== "Action") {
@@ -174,7 +177,9 @@ export function runEnd(state: GameState): GameState {
   const nextIndex = ((state.activePlayerIndex + 1) % 2) as 0 | 1;
   const turnNumber = nextIndex === 0 ? state.turnNumber + 1 : state.turnNumber;
 
-  return {
+  // Global damage heal — the same one combat cleanup performs, expressed once
+  // in effect-helpers.ts rather than inlined per unit here.
+  return healAllUnits({
     ...afterLegend,
     players,
     battlefields,
@@ -184,5 +189,5 @@ export function runEnd(state: GameState): GameState {
     // Highlander's ward only lasts "this turn" — cleared here same as every
     // other "this turn" field above (TurnManager.java:335's own reset).
     deathWardedUnitInstanceIds: [],
-  };
+  });
 }

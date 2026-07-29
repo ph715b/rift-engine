@@ -109,6 +109,34 @@ export function destroyUnit(state: GameState, targetInstanceId: string): GameSta
   return updatePlayer(stateAfterRemoval, ownerIndex, (p) => ({ ...p, trash: [...p.trash, unit] }));
 }
 
+/**
+ * Removes all marked damage from every unit in play — both players, base and
+ * every battlefield.
+ *
+ * The rules heal at TWO moments and both are global: combat cleanup
+ * (rule 461.1.a, "immediately after the combat damage has been dealt") and
+ * the end of a player's turn. Crucially, combat cleanup "clears all marked
+ * damage from every unit on the board, including units that were not involved
+ * in the combat" (RiftJudge FAQ 7750/8993) — so a unit softened by a Spell at
+ * some OTHER battlefield, or sitting in base, heals when an unrelated fight
+ * finishes. Healing does NOT happen after a non-combat (uncontested) showdown
+ * (FAQ 9016), which is why combat.ts only reaches this after a real exchange.
+ *
+ * Shared by turn-manager.ts's runEnd and combat.ts's cleanup so the two can't
+ * drift on what "heal" covers.
+ */
+export function healAllUnits(state: GameState): GameState {
+  const clear = (u: UnitInstance): UnitInstance => (u.damage === 0 ? u : { ...u, damage: 0 });
+
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(clear) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(clear);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
+
 /** Adds `amount` to `.bonus` on every unit the caster controls (base +
  *  every battlefield) — a "this turn" buff, expiring for free via
  *  turn-manager.ts's runEnd, which already resets `.bonus` to 0 every End

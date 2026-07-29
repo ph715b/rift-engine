@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
+import { healAllUnits } from "./effect-helpers.js";
 
 /**
  * Combat resolution (a "Showdown" in the core rules), ported from
@@ -86,9 +87,6 @@ function removeDefeated(
   return units.filter((u) => remainingMight(state, u, ownerIndex, battlefieldId, isAttackingSide) > 0);
 }
 
-function heal(units: readonly UnitInstance[]): UnitInstance[] {
-  return units.map((u) => (u.damage === 0 ? u : { ...u, damage: 0 }));
-}
 
 /** A defeated unit is a "death" too — checked against Highlander's ward
  *  (death-ward.ts) the same way dealDamage/destroyUnit are (effect-helpers.ts),
@@ -142,8 +140,8 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     ...bf,
     units: {
       ...bf.units,
-      [attacker.id]: heal(survivingAttackers),
-      [defender.id]: heal(survivingDefenders),
+      [attacker.id]: survivingAttackers,
+      [defender.id]: survivingDefenders,
     },
   };
 
@@ -163,7 +161,13 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // A tie (both sides have survivors) — no control change. Mirrors updateControl's
   // `else` branch (engine/ShowdownResolver.java:442-456), minus Symbol of the Solari.
 
-  return next;
+  // Combat cleanup (rule 461.1.a): heal EVERY unit on the board, not just the
+  // two lists that just fought. This used to heal only the survivors here, so
+  // a unit softened by a Spell at another battlefield — or standing in base —
+  // kept its damage through an unrelated fight. Only reached after a real
+  // exchange: the uncontested early-return above never heals, matching the
+  // rule that a non-combat showdown performs no cleanup.
+  return healAllUnits(next);
 }
 
 function setController(state: GameState, bfIndex: number, controllerId: string | null): GameState {
