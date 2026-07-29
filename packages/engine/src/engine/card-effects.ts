@@ -38,12 +38,35 @@ import { placeRecruitToken, type TokenDestination } from "./token.js";
  */
 export type TargetScope = "battlefield" | "anywhere";
 
+/** Who may fill one slot of a multi-target spell. `"any"` means either
+ *  player's — Singularity's "up to two units" doesn't care whose. */
+export type UnitSlotRole = "any" | "friendly" | "enemy";
+
 export type TargetingSpec =
   | { kind: "none" }
   | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number; scope?: TargetScope }
   | { kind: "battlefield" }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
-  | { kind: "unitPair"; firstOwner: "friendly" | "enemy"; secondOwner: "friendly" | "enemy"; scope?: TargetScope };
+  /**
+   * Two ordered target slots with a MINIMUM number that must be filled —
+   * the shape the Java oracle uses for every multi-target spell
+   * (`TargetSpec(int min, List<Role> slotRoles, ...)`, EffectRegistry.java).
+   * It subsumes what used to be a fixed `unitPair`:
+   *   - Gentlemen's Duel: `min: 2, slots: ["friendly", "enemy"]`
+   *   - Singularity:      `min: 0, slots: ["any", "any"]`      ("up to two")
+   * `min: 0` is what makes "up to" real, and is why this isn't called
+   * `unitPair` any more — a pair whose minimum is zero would be a lie.
+   * The two chosen units must always be DISTINCT (no card in this pool lets
+   * one unit fill both slots; the oracle's own `allowsDuplicateTargets` flag
+   * exists for cards like Falling Star that do, none of which are here).
+   */
+  | { kind: "unitSlots"; slots: readonly [UnitSlotRole, UnitSlotRole]; min: number; scope?: TargetScope };
+
+/** A slot's role as `eligibleTargets`/validation express owner constraints —
+ *  `"any"` is the absence of a constraint, which is `undefined` there. */
+export function slotOwner(role: UnitSlotRole): "friendly" | "enemy" | undefined {
+  return role === "any" ? undefined : role;
+}
 
 /** Everything about the caster's choice(s) needed to resolve an effect —
  *  all optional since most effects only need a subset (or none). */
@@ -70,29 +93,11 @@ export interface EffectDefinition {
   resolve: (state: GameState, ctx: EffectContext, event: ResolveEvent) => GameState;
 }
 
-/** Every battlefield unit belonging to `playerId`, across every
- *  battlefield, in a fixed deterministic order (battlefield array order) —
- *  used by cards that auto-select multiple targets rather than offering a
- *  real player choice (see the doc comment on OGN-206 below for why). */
-function battlefieldUnitIdsFor(state: GameState, playerId: string): string[] {
-  return state.battlefields.flatMap((bf) => (bf.units[playerId] ?? []).map((u) => u.instanceId));
-}
-
-/** Every unit `playerId` controls ANYWHERE in play — base first, then
- *  battlefields — for auto-selecting cards whose text names no battlefield
- *  (Back to Back's "two friendly units"). */
-function unitIdsInPlayFor(state: GameState, playerIndex: 0 | 1): string[] {
-  const player = state.players[playerIndex];
-  return [...player.baseUnits.map((u) => u.instanceId), ...battlefieldUnitIdsFor(state, player.id)];
-}
-
-/** Every unit in play, either owner, same deterministic order (both bases
- *  first, then battlefields) — Singularity's "up to two units". */
-function allUnitIdsInPlay(state: GameState): string[] {
-  return [
-    ...state.players.flatMap((p) => p.baseUnits.map((u) => u.instanceId)),
-    ...state.battlefields.flatMap((bf) => Object.values(bf.units).flatMap((units) => units.map((u) => u.instanceId))),
-  ];
+/** The units a `unitSlots` effect was actually pointed at, in slot order,
+ *  skipping empty slots — 0, 1 or 2 ids. The three "up to two" cards all
+ *  apply the same thing to each chosen unit, so they just iterate this. */
+function chosenTargets(event: ResolveEvent): string[] {
+  return [event.targetUnitInstanceId, event.secondTargetUnitInstanceId].filter((id): id is string => id !== undefined);
 }
 
 /** Cards whose additional cost is an OPTIONAL friendly-unit exhaust
@@ -205,20 +210,20 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     },
   },
   "OGN-206": {
-    // Back to Back — Give two friendly units each +2 Might this turn.
-    // The Java oracle itself doesn't do real "choose 2" targeting for this
-    // card either (OriginEffects.java's own comment: "Full 'choose 2'
-    // targeting arrives with the Part 2 UI" — it auto-picks the first 2).
-    // Auto-selecting the first 2 eligible friendly battlefield units
-    // (deterministic order, not a real player choice) mirrors that exact,
-    // already-oracle-sanctioned simplification rather than building
-    // interactive multi-select machinery this round.
-    targeting: { kind: "none" },
-    resolve: (state, ctx) => {
-      // "Two friendly units" — no battlefield named, so units at home count.
-      const ids = unitIdsInPlayFor(state, ctx.casterIndex).slice(0, 2);
+    // Back to Back — "Give two friendly units each +2 Might this turn." No
+    // battlefield named, so units at home count.
+    //
+    // `min: 0`, not 2, even though the text says "two": with only one friendly
+    // unit the card still buffs that one rather than being uncastable. Same
+    // "do as much as you can rather than withhold the card" rule the on-play
+    // triggers follow (project owner's call). The oracle auto-picks here
+    // (`Math.min(2, friendlies.size())`, OriginEffects.java:343-346) — that's
+    // an oracle gap, not a rules statement: WHICH two units get +2 is a real
+    // decision, so it's the player's.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 0, scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
       let next = state;
-      for (const id of ids) next = buffUnit(next, id, 2);
+      for (const id of chosenTargets(event)) next = buffUnit(next, id, 2);
       return next;
     },
   },
@@ -265,26 +270,29 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     },
   },
   "OGN-105": {
-    // Singularity — "Deal 6 to each of up to two units." Same auto-select
-    // simplification as Back to Back (see that entry's comment) — first 2
-    // eligible units, either owner, deterministic order. No battlefield is
-    // named, so the candidate pool includes both players' base units.
-    targeting: { kind: "none" },
-    resolve: (state, ctx) => {
-      const ids = allUnitIdsInPlay(state).slice(0, 2);
+    // Singularity — "Deal 6 to each of up to two units." Either owner's, and
+    // no battlefield named so base counts.
+    //
+    // This used to auto-pick the first two units in play, which was not a
+    // simplification but a self-inflicted wound: that list started with the
+    // CASTER's own base units, so casting it with two units at home dealt 6
+    // to each of them. Now it only ever hits what the caster actually chose.
+    targeting: { kind: "unitSlots", slots: ["any", "any"], min: 0, scope: "anywhere" },
+    resolve: (state, ctx, event) => {
       let next = state;
-      for (const id of ids) next = dealDamage(next, ctx.casterIndex, id, 6);
+      for (const id of chosenTargets(event)) next = dealDamage(next, ctx.casterIndex, id, 6);
       return next;
     },
   },
   "OGS-011": {
-    // Flash — Move up to 2 friendly units to base. Same auto-select
-    // simplification (see OGN-206's comment).
-    targeting: { kind: "none" },
-    resolve: (state, ctx) => {
-      const ids = battlefieldUnitIdsFor(state, state.players[ctx.casterIndex].id).slice(0, 2);
+    // Flash — "Move up to 2 friendly units to base." Battlefield-scoped on
+    // purpose despite naming no battlefield: moving a unit that's already in
+    // base TO base is a no-op, so offering it as a target would be offering
+    // a choice that does nothing.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 0 },
+    resolve: (state, _ctx, event) => {
       let next = state;
-      for (const id of ids) next = recallUnitToBase(next, id);
+      for (const id of chosenTargets(event)) next = recallUnitToBase(next, id);
       return next;
     },
   },
@@ -343,8 +351,9 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     // oracle's own resolution order (OriginEffects.java: buff, snapshot
     // both currentMight, then deal both damages).
     // Neither target names a battlefield, so either duellist may be standing
-    // in its owner's base.
-    targeting: { kind: "unitPair", firstOwner: "friendly", secondOwner: "enemy", scope: "anywhere" },
+    // in its owner's base. `min: 2` — unlike the "up to two" cards, a duel
+    // needs both participants, so this stays uncastable without them.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
     resolve: (state, ctx, event) => {
       const friendlyId = event.targetUnitInstanceId!;
       const enemyId = event.secondTargetUnitInstanceId!;

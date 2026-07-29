@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import type { TargetingSpec } from "./card-effects.js";
+import { slotOwner, type TargetingSpec } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 
 export interface BattlefieldUnitLocation {
@@ -119,10 +119,14 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some((u) =>
         unitWithinMaxMight(state, u, targeting.maxMight),
       );
-    case "unitPair": {
-      const first = eligibleTargets(state, playerIndex, targeting.firstOwner, targeting.scope);
-      const second = eligibleTargets(state, playerIndex, targeting.secondOwner, targeting.scope);
-      // The pair must be two DISTINCT units — mirrors the fan-out's own
+    case "unitSlots": {
+      // Nothing is REQUIRED when min is 0, so nothing can be missing — the
+      // empty choice is itself legal ("up to two").
+      if (targeting.min === 0) return true;
+      const first = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[0]), targeting.scope);
+      if (targeting.min === 1) return first.length > 0;
+      const second = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[1]), targeting.scope);
+      // Two slots must be two DISTINCT units — mirrors the fan-out's own
       // `first.instanceId === second.instanceId` skip.
       return first.some((a) => second.some((b) => a.instanceId !== b.instanceId));
     }

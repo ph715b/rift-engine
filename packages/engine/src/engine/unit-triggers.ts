@@ -148,8 +148,20 @@ export function targetingForAnyCard(card: CardInstance): TargetingSpec {
  *  UI) that only need to know "does this require a choice," not the full
  *  spec. */
 export function cardNeedsTarget(card: CardInstance): boolean {
-  const kind = targetingForAnyCard(card).kind;
-  return kind === "unit" || kind === "battlefield" || kind === "ownTrashCard" || kind === "unitPair";
+  const targeting = targetingForAnyCard(card);
+  switch (targeting.kind) {
+    case "unit":
+    case "battlefield":
+    case "ownTrashCard":
+      return true;
+    // "Up to two" (min 0) still needs a choice from the player even though
+    // none of it is mandatory — the point of this pass is that WHICH units
+    // get hit is theirs to decide, so the card must arm rather than fire.
+    case "unitSlots":
+      return true;
+    default:
+      return false;
+  }
 }
 
 /** Fires `unit`'s registered on-play trigger, if any — no-ops for any Unit

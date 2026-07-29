@@ -65,22 +65,35 @@ describe("Confront: units played this turn enter ready; draw 1", () => {
   });
 });
 
-describe("Back to Back: auto-selects up to 2 friendly battlefield units, +2 Might each", () => {
-  it("buffs the first 2 friendly units found, not a 3rd or the opponent's", () => {
+describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
+  it("buffs exactly the two the caster picked, ignoring a third", () => {
+    // Used to auto-pick the first two friendly units found; which two get the
+    // buff is a real decision, so it's the player's now.
     const a = makeUnit({ might: 3 });
     const b = makeUnit({ might: 3 });
     const c = makeUnit({ might: 3 });
-    const enemy = makeUnit({ might: 3 });
     let state = makeState();
-    state.battlefields[0]!.units = { p1: [a, b], p2: [enemy] };
+    state.battlefields[0]!.units = { p1: [a, b] };
     state.battlefields[1]!.units = { p1: [c] };
 
-    state = resolve("OGN-206", 0, state);
+    state = resolve("OGN-206", 0, state, {
+      targetUnitInstanceId: a.instanceId,
+      secondTargetUnitInstanceId: c.instanceId, // the far one, not the adjacent b
+    });
+
+    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2); // a
+    expect(state.battlefields[0]!.units["p1"]![1]!.bonus).toBe(0); // b NOT chosen
+    expect(state.battlefields[1]!.units["p1"]![0]!.bonus).toBe(2); // c
+  });
+
+  it("buffs just one when that's all the caster picked", () => {
+    const only = makeUnit({ might: 3 });
+    let state = makeState();
+    state.battlefields[0]!.units = { p1: [only] };
+
+    state = resolve("OGN-206", 0, state, { targetUnitInstanceId: only.instanceId });
 
     expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2);
-    expect(state.battlefields[0]!.units["p1"]![1]!.bonus).toBe(2);
-    expect(state.battlefields[1]!.units["p1"]![0]!.bonus).toBe(0); // 3rd unit not reached
-    expect(state.battlefields[0]!.units["p2"]![0]!.bonus).toBe(0); // opponent untouched
   });
 });
 
@@ -133,37 +146,84 @@ describe("En Garde: +1 Might a friendly unit, +1 more if it's the caster's only 
   });
 });
 
-describe("Singularity: Deal 6 to each of up to two units (auto-selected, either owner)", () => {
-  it("damages the first 2 battlefield units found, not a 3rd", () => {
-    const a = makeUnit({ might: 10 });
-    const b = makeUnit({ might: 10 });
-    const c = makeUnit({ might: 10 });
+describe("Singularity: Deal 6 to each of up to two CHOSEN units", () => {
+  it("damages exactly the two picked, and MAY be pointed at your own units", () => {
+    // "Deal 6 to each of up to two units" names no owner, so your own units
+    // are legal targets — sometimes the right play (killing your own unit to
+    // deny a hold, say). What the card must never do is pick them FOR you.
+    const myChosen = makeUnit({ might: 10 });
+    const theirChosen = makeUnit({ might: 10 });
+    const myUnchosen = makeUnit({ might: 10 });
     let state = makeState();
-    state.battlefields[0]!.units = { p1: [a], p2: [b] };
-    state.battlefields[1]!.units = { p1: [c] };
+    state.battlefields[0]!.units = { p1: [myUnchosen], p2: [theirChosen] };
+    state.battlefields[1]!.units = { p1: [myChosen] };
 
-    state = resolve("OGN-105", 0, state);
+    state = resolve("OGN-105", 0, state, {
+      targetUnitInstanceId: theirChosen.instanceId,
+      secondTargetUnitInstanceId: myChosen.instanceId,
+    });
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.damage).toBe(6);
+    expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(6); // theirs, chosen
+    expect(state.battlefields[1]!.units["p1"]![0]!.damage).toBe(6); // MINE, chosen
+    expect(state.battlefields[0]!.units["p1"]![0]!.damage).toBe(0); // mine, not chosen
+  });
+
+  it("REGRESSION: does not hit the caster's own units unless chosen", () => {
+    // The auto-select built its list from players[0].baseUnits first — the
+    // caster's own — so casting this with units at home nuked your own board.
+    const ownA = makeUnit({ might: 10 });
+    const ownB = makeUnit({ might: 10 });
+    const enemy = makeUnit({ might: 10 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [ownA, ownB];
+    state.battlefields[0]!.units = { p2: [enemy] };
+
+    state = resolve("OGN-105", 0, state, { targetUnitInstanceId: enemy.instanceId });
+
+    expect(state.players[0]!.baseUnits.every((u) => u.damage === 0)).toBe(true);
     expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(6);
-    expect(state.battlefields[1]!.units["p1"]![0]!.damage).toBe(0);
+  });
+
+  it("is legal with no targets at all ('up to two')", () => {
+    const untouched = makeUnit({ might: 10 });
+    let state = makeState();
+    state.battlefields[0]!.units = { p2: [untouched] };
+
+    state = resolve("OGN-105", 0, state, {});
+
+    expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(0);
   });
 });
 
-describe("Flash: Move up to 2 friendly units to base (auto-selected)", () => {
-  it("recalls the first 2 friendly battlefield units, exhausted, not the opponent's", () => {
+describe("Flash: Move up to 2 CHOSEN friendly units to base", () => {
+  it("recalls exactly the ones picked, exhausted, leaving the rest in place", () => {
     const a = makeUnit();
     const b = makeUnit();
     const enemy = makeUnit();
     let state = makeState();
     state.battlefields[0]!.units = { p1: [a, b], p2: [enemy] };
 
-    state = resolve("OGS-011", 0, state);
+    state = resolve("OGS-011", 0, state, { targetUnitInstanceId: a.instanceId });
+
+    expect(state.battlefields[0]!.units["p1"]!.map((u) => u.instanceId)).toEqual([b.instanceId]);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1); // enemy untouched
+    expect(state.players[0]!.baseUnits).toHaveLength(1);
+    expect(state.players[0]!.baseUnits[0]!.exhausted).toBe(true);
+  });
+
+  it("recalls both when both are picked", () => {
+    const a = makeUnit();
+    const b = makeUnit();
+    let state = makeState();
+    state.battlefields[0]!.units = { p1: [a, b] };
+
+    state = resolve("OGS-011", 0, state, {
+      targetUnitInstanceId: a.instanceId,
+      secondTargetUnitInstanceId: b.instanceId,
+    });
 
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(0);
-    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1); // enemy untouched
     expect(state.players[0]!.baseUnits).toHaveLength(2);
-    expect(state.players[0]!.baseUnits.every((u) => u.exhausted)).toBe(true);
   });
 });
 

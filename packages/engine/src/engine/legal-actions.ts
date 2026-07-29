@@ -13,7 +13,7 @@ import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardHasOptionalExhaustCost, cardPlacesTokens } from "./card-effects.js";
+import { cardHasOptionalExhaustCost, cardPlacesTokens, slotOwner } from "./card-effects.js";
 import { hasActivatableAbility } from "../actions/validate-activate-ability.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
@@ -165,14 +165,28 @@ export function legalActions(state: GameState): PlayerAction[] {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
       }
-    } else if (targeting.kind === "unitPair") {
-      // Gentlemen's Duel — cross product of every matching-owner unit in
-      // scope (the two targets need not share a location; the card's text
-      // has no such restriction, and names no battlefield at all).
-      const matching = (owner: "friendly" | "enemy") => eligibleTargets(state, playerIndex, owner, targeting.scope);
-      for (const first of matching(targeting.firstOwner)) {
-        for (const second of matching(targeting.secondOwner)) {
+    } else if (targeting.kind === "unitSlots") {
+      // Every legal FILLING of the two slots, down to `min`:
+      //   - min 0 -> the empty choice is legal ("up to two")
+      //   - one target -> fills slot 0, so it must satisfy slot 0's role
+      //   - two -> slot-0 x slot-1, distinct units
+      // The two targets need not share a location; no card here restricts that.
+      const forSlot = (slot: 0 | 1) => eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), targeting.scope);
+      const firstSlot = forSlot(0);
+      const secondSlot = forSlot(1);
+      // When both slots take the same role the pair is symmetric, so (A,B) and
+      // (B,A) are the SAME choice — enumerating both would double the AI's
+      // search space and offer the player a distinction that doesn't exist.
+      const symmetric = targeting.slots[0] === targeting.slots[1];
+
+      if (targeting.min === 0) effectVariants.push({});
+      if (targeting.min <= 1) {
+        for (const only of firstSlot) effectVariants.push({ targetUnitInstanceId: only.instanceId });
+      }
+      for (const [i, first] of firstSlot.entries()) {
+        for (const [j, second] of secondSlot.entries()) {
           if (first.instanceId === second.instanceId) continue;
+          if (symmetric && j < i) continue; // keep one ordering of each pair
           effectVariants.push({ targetUnitInstanceId: first.instanceId, secondTargetUnitInstanceId: second.instanceId });
         }
       }

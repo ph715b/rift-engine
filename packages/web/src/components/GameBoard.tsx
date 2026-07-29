@@ -81,6 +81,13 @@ interface PendingPlay {
    *  it's a required boolean, so undefined there unambiguously means
    *  unresolved. */
   additionalCostResolved?: boolean;
+  /** The player pressed Done on an "up to two" card (Singularity, Flash,
+   *  Back to Back), settling for however many targets they'd picked. Same
+   *  sentinel role as additionalCostResolved above: without it, "I'm happy
+   *  with one target" can't be told apart from "I haven't picked a second
+   *  one yet". Meaningless for a card whose targets are mandatory — those
+   *  simply have no way to stop early. */
+  optionalTargetsResolved?: boolean;
   destinationBattlefieldId?: string;
   payment: RunePayment;
 }
@@ -329,8 +336,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         const might = targeting.maxMight !== undefined ? `with ${targeting.maxMight} Might or less ` : "";
         return `${card.name} needs a ${who}unit ${might}at a battlefield to target — there isn't one.`;
       }
-      case "unitPair":
-        return `${card.name} needs both a friendly AND an enemy unit at a battlefield — the board doesn't have both.`;
+      case "unitSlots": {
+        // Only reachable for a mandatory-target card: a `min: 0` spec is
+        // always satisfiable (the empty choice is legal), so it never lands
+        // here — see hasAnyLegalEffectChoice.
+        const roles = targeting.slots.map((r) => (r === "any" ? "any" : r)).join(" + ");
+        return `${card.name} needs ${targeting.min} units to target (${roles}) — the board doesn't have them.`;
+      }
       case "battlefield":
         return `${card.name} needs a battlefield to target.`;
       case "ownTrashCard":
@@ -338,6 +350,23 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       default:
         return `${card.name} can't be played right now.`;
     }
+  }
+
+  /** Do this card's two target slots take the same role (Singularity's
+   *  "any + any", Back to Back's "friendly + friendly")? If so the fan-out
+   *  deduped (A,B) and (B,A) into a single candidate, so the SET of chosen
+   *  units identifies a candidate — not which slot each one landed in.
+   *  Without this the player has to guess the enumeration order: clicking the
+   *  two units "backwards" matched no candidate, so the UI silently refused
+   *  to offer a second target at all. */
+  function pendingSlotsAreSymmetric(card: CardInstance): boolean {
+    const targeting = targetingForAnyCard(card);
+    return targeting.kind === "unitSlots" && targeting.slots[0] === targeting.slots[1];
+  }
+
+  /** The units named by an action/pending-play, slot order discarded. */
+  function targetSetOf(source: { targetUnitInstanceId?: string; secondTargetUnitInstanceId?: string }): string[] {
+    return [source.targetUnitInstanceId, source.secondTargetUnitInstanceId].filter((id): id is string => id !== undefined);
   }
 
   /** Every `legal` candidate still consistent with the choices made on
@@ -349,10 +378,19 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function pendingCandidates(): PlayCardAction[] {
     const pending = pendingPlay;
     if (!pending) return [];
+    const symmetric = pendingSlotsAreSymmetric(pending.card);
     return playCardActionsFor(pending.card.instanceId).filter((a) => {
-      if (pending.targetUnitInstanceId !== undefined && a.targetUnitInstanceId !== pending.targetUnitInstanceId) return false;
-      if (pending.secondTargetUnitInstanceId !== undefined && a.secondTargetUnitInstanceId !== pending.secondTargetUnitInstanceId) {
-        return false;
+      if (symmetric) {
+        // Subset, not equality: with one unit chosen, both the single-target
+        // candidate and every pair containing it stay live — which is exactly
+        // what lets a second target still be offered.
+        const candidateTargets = targetSetOf(a);
+        if (!targetSetOf(pending).every((id) => candidateTargets.includes(id))) return false;
+      } else {
+        if (pending.targetUnitInstanceId !== undefined && a.targetUnitInstanceId !== pending.targetUnitInstanceId) return false;
+        if (pending.secondTargetUnitInstanceId !== undefined && a.secondTargetUnitInstanceId !== pending.secondTargetUnitInstanceId) {
+          return false;
+        }
       }
       if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
       if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
@@ -395,10 +433,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const candidates = pendingCandidates();
     const offers = (field: keyof PlayCardAction) => candidates.some((a) => a[field] !== undefined);
 
-    if ((targeting.kind === "unit" || targeting.kind === "unitPair") && pending.targetUnitInstanceId === undefined) {
+    // A `unitSlots` card whose targets are OPTIONAL (min 0 — "up to two")
+    // stops asking the moment the player presses Done; without that flag
+    // "chose to stop at one" would be indistinguishable from "hasn't picked a
+    // second yet", exactly the ambiguity additionalCostResolved solves for
+    // Meditation's cost.
+    const stillChoosing = !pending.optionalTargetsResolved;
+    if (
+      (targeting.kind === "unit" || targeting.kind === "unitSlots") &&
+      pending.targetUnitInstanceId === undefined &&
+      stillChoosing
+    ) {
       if (offers("targetUnitInstanceId")) return "firstTarget";
     }
-    if (targeting.kind === "unitPair" && pending.secondTargetUnitInstanceId === undefined) {
+    if (targeting.kind === "unitSlots" && pending.secondTargetUnitInstanceId === undefined && stillChoosing) {
       if (offers("secondTargetUnitInstanceId")) return "secondTarget";
     }
     if (targeting.kind === "battlefield" && pending.targetBattlefieldId === undefined) {
@@ -449,6 +497,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  same way throughout (with BASE_ZONE_ID standing in for "no
    *  destination," per PendingPlay's doc comment). */
   function matchesPending(a: PlayCardAction, pending: PendingPlay): boolean {
+    // Symmetric slots compare as an unordered set, and EXACTLY — unlike
+    // pendingCandidates' subset test, since by this point targeting is settled
+    // and a one-target choice must not resolve to a two-target candidate.
+    if (pendingSlotsAreSymmetric(pending.card)) {
+      const chosen = [...targetSetOf(pending)].sort();
+      const candidate = [...targetSetOf(a)].sort();
+      if (chosen.length !== candidate.length || chosen.some((id, i) => id !== candidate[i])) return false;
+      return (
+        (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
+        (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
+        (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
+        (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
+        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID)
+      );
+    }
     return (
       (a.targetUnitInstanceId ?? null) === (pending.targetUnitInstanceId ?? null) &&
       (a.secondTargetUnitInstanceId ?? null) === (pending.secondTargetUnitInstanceId ?? null) &&
@@ -589,6 +652,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function isUnitLegalTarget(unit: UnitInstance): boolean {
     const slot = pendingUnitSlot();
     if (!slot) return false;
+    // Symmetric slots: a unit qualifies if any live candidate names it at ALL,
+    // in either slot — the deduped fan-out may hold the pair in the opposite
+    // order, and requiring a slot-position match would leave the second click
+    // unhighlighted (and inert) exactly half the time.
+    if (pendingPlay && slot !== "additionalCostUnitInstanceId" && pendingSlotsAreSymmetric(pendingPlay.card)) {
+      const alreadyChosen = targetSetOf(pendingPlay);
+      if (alreadyChosen.includes(unit.instanceId)) return false;
+      return pendingCandidates().some((a) => targetSetOf(a).includes(unit.instanceId));
+    }
     return pendingCandidates().some((a) => a[slot] === unit.instanceId);
   }
 
@@ -669,6 +741,33 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function declineAdditionalCost() {
     if (!pendingPlay) return;
     setPendingPlay({ ...pendingPlay, additionalCostResolved: true });
+  }
+
+  /** How many targets this card MUST have — 0 for the "up to two" cards,
+   *  which is what makes stopping early legal at all. */
+  function pendingMinTargets(): number {
+    if (!pendingPlay) return 0;
+    const targeting = targetingForAnyCard(pendingPlay.card);
+    return targeting.kind === "unitSlots" ? targeting.min : targeting.kind === "unit" ? 1 : 0;
+  }
+
+  /** Can the player stop picking targets right now — i.e. has an "up to N"
+   *  card already got at least its minimum? Drives the Done button. */
+  function canFinishTargeting(): boolean {
+    const step = pendingStep();
+    if (step !== "firstTarget" && step !== "secondTarget") return false;
+    return pendingChosenTargetCount() >= pendingMinTargets();
+  }
+
+  function pendingChosenTargetCount(): number {
+    if (!pendingPlay) return 0;
+    return [pendingPlay.targetUnitInstanceId, pendingPlay.secondTargetUnitInstanceId].filter((id) => id !== undefined).length;
+  }
+
+  /** Settles for the targets picked so far — see optionalTargetsResolved. */
+  function finishTargeting() {
+    if (!pendingPlay) return;
+    setPendingPlay({ ...pendingPlay, optionalTargetsResolved: true });
   }
 
   /** Is this battlefield a legal answer to a "battlefield"-kind effect's own
@@ -992,11 +1091,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const name = pendingPlay.card.name;
     switch (currentStep) {
       case "firstTarget":
-        return targetingForAnyCard(pendingPlay.card).kind === "unitPair"
-          ? ` — choose a friendly unit for ${name}  [1/2]`
-          : ` — choose a target for ${name}`;
-      case "secondTarget":
-        return ` — choose an enemy unit for ${name}  [2/2]`;
+      case "secondTarget": {
+        const targeting = targetingForAnyCard(pendingPlay.card);
+        if (targeting.kind !== "unitSlots") return ` — choose a target for ${name}`;
+        const slot = currentStep === "firstTarget" ? 0 : 1;
+        const role = targeting.slots[slot];
+        const who = role === "any" ? "unit" : `${role} unit`;
+        // "up to" when the minimum isn't met by the slots themselves — that's
+        // the difference between Gentlemen's Duel (needs both) and Singularity
+        // (stop whenever you like, hence the Done button this mentions).
+        const optional = targeting.min <= slot;
+        const progress = `  [${slot + 1}/2]`;
+        return optional
+          ? ` — choose ${slot === 0 ? "up to 2 units" : `another ${who}`} for ${name}, or press Done${progress}`
+          : ` — choose ${slot === 0 ? "a" : "an"} ${who} for ${name}${progress}`;
+      }
       case "battlefieldTarget":
         return ` — choose a battlefield for ${name}`;
       case "placement":
@@ -1328,6 +1437,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           </button>
         )}
         {currentStep === "additionalCost" && <button onClick={declineAdditionalCost}>Decline</button>}
+        {canFinishTargeting() && (
+          <button onClick={finishTargeting}>
+            {pendingChosenTargetCount() === 0 ? "Choose no targets" : `Done (${pendingChosenTargetCount()})`}
+          </button>
+        )}
         {pendingStillOwesPayment && <button onClick={handleAutoPay}>Auto Pay</button>}
         {/* The explicit way out of an armed card, shown for as long as one IS
             armed. Backing out used to be folklore — click any unit and the

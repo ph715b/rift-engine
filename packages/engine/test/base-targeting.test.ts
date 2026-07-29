@@ -20,7 +20,7 @@ import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures
  * The scope isolation tests at the bottom are the important half: widening
  * this must not leak into the 15 cards whose text does name a battlefield.
  */
-function funded(state: ReturnType<typeof makeState>, card: { energyCost: number; powerCost: number }) {
+function funded(state: ReturnType<typeof makeState>, card: { energyCost: number; powerCost: number; powerDomain?: string | null }) {
   state.players[0]!.channeled = Array.from({ length: card.energyCost + card.powerCost }, (_, i) => ({
     id: `r${i}`,
     domain: (card.powerDomain ?? "Order") as "Order",
@@ -166,23 +166,29 @@ describe("the other widened cards", () => {
     expect(result.players[1]!.baseUnits[0]!.bonus).toBe(-1);
   });
 
-  it("Singularity's auto-select reaches base units when the board is empty", () => {
+  it("Singularity can be pointed at two enemy BASE units", () => {
     const a = makeUnit({ might: 2 });
     const b = makeUnit({ might: 2 });
     const state = makeState();
     state.players[1]!.baseUnits = [a, b];
 
-    const result = effectForCard(spellInstance("OGN-105"))!.resolve(state, contextFor(0), {});
+    const result = effectForCard(spellInstance("OGN-105"))!.resolve(state, contextFor(0), {
+      targetUnitInstanceId: a.instanceId,
+      secondTargetUnitInstanceId: b.instanceId,
+    });
     expect(result.players[1]!.baseUnits).toHaveLength(0); // both died
   });
 
-  it("Back to Back buffs friendly units at home", () => {
+  it("Back to Back buffs chosen friendly units at home", () => {
     const a = makeUnit();
     const b = makeUnit();
     const state = makeState();
     state.players[0]!.baseUnits = [a, b];
 
-    const result = effectForCard(spellInstance("OGN-206"))!.resolve(state, contextFor(0), {});
+    const result = effectForCard(spellInstance("OGN-206"))!.resolve(state, contextFor(0), {
+      targetUnitInstanceId: a.instanceId,
+      secondTargetUnitInstanceId: b.instanceId,
+    });
     expect(result.players[0]!.baseUnits.map((u) => u.bonus)).toEqual([2, 2]);
   });
 

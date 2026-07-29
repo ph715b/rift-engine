@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import { findUnitAnywhere, findUnitOnBattlefield, hasAnyLegalEffectChoice, unitWithinMaxMight } from "../engine/target-lookup.js";
-import type { TargetScope } from "../engine/card-effects.js";
+import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
@@ -145,21 +145,33 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
       return fail(`${card.name} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`);
     }
-  } else if (targeting.kind === "unitPair") {
-    if (!action.targetUnitInstanceId || !action.secondTargetUnitInstanceId) {
-      return fail(`${card.name} requires two target units`);
+  } else if (targeting.kind === "unitSlots") {
+    const chosen = [action.targetUnitInstanceId, action.secondTargetUnitInstanceId];
+    const filled = chosen.filter((id): id is string => id !== undefined);
+
+    if (filled.length < targeting.min) {
+      return fail(`${card.name} requires ${targeting.min} target unit${targeting.min === 1 ? "" : "s"}`);
     }
-    const first = findUnitInScope(state, action.targetUnitInstanceId, targeting.scope);
-    const second = findUnitInScope(state, action.secondTargetUnitInstanceId, targeting.scope);
-    if (!first) return fail(`No unit with id ${action.targetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
-    if (!second) return fail(`No unit with id ${action.secondTargetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
-    const isFriendly = (ownerIndex: 0 | 1, owner: "friendly" | "enemy") =>
-      owner === "friendly" ? ownerIndex === action.playerIndex : ownerIndex !== action.playerIndex;
-    if (!isFriendly(first.ownerIndex, targeting.firstOwner)) {
-      return fail(`${card.name}'s first target must be ${targeting.firstOwner}`);
+    // Slots fill in order, so a second target with no first would leave the
+    // slot-0 role unchecked — and legal-actions never enumerates that shape.
+    if (action.targetUnitInstanceId === undefined && action.secondTargetUnitInstanceId !== undefined) {
+      return fail(`${card.name}'s second target requires a first target`);
     }
-    if (!isFriendly(second.ownerIndex, targeting.secondOwner)) {
-      return fail(`${card.name}'s second target must be ${targeting.secondOwner}`);
+    if (filled.length === 2 && filled[0] === filled[1]) {
+      return fail(`${card.name} requires two different units`);
+    }
+
+    const roleHolds = (ownerIndex: 0 | 1, role: UnitSlotRole) =>
+      role === "any" ? true : role === "friendly" ? ownerIndex === action.playerIndex : ownerIndex !== action.playerIndex;
+
+    for (const [slot, id] of chosen.entries()) {
+      if (id === undefined) continue;
+      const location = findUnitInScope(state, id, targeting.scope);
+      if (!location) return fail(`No unit with id ${id} found ${scopeDescription(targeting.scope)}`);
+      const role = targeting.slots[slot]!;
+      if (!roleHolds(location.ownerIndex, role)) {
+        return fail(`${card.name}'s ${slot === 0 ? "first" : "second"} target must be ${role}`);
+      }
     }
   }
 
