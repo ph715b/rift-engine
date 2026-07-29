@@ -51,6 +51,11 @@ are `Unverified`, not `Conformant`.
 | Post-combat control | Whoever still has units here establishes control if they didn't already; nobody → Uncontrolled; establishing control is a Conquer if unscored this turn | 466.7 / 469.1 | `combat.establishControlAfterCombat` |
 | Units enter exhausted | Unless altered (Accelerate etc.) | 143.4.a | `execute-play-card` |
 | Move destinations | Chosen when the spell/ability goes on the chain | Patch 2025-10-24 | `execute-play-card` chain entry (Recruit the Vanguard) |
+| Chain resolution order | The **newest** finalized item resolves | 343 | `execute-pass-focus.resolveChainPass` pops LIFO |
+| Finalizing | Does not pass priority; items finalize in the order appended | 338 | no priority change on `PlayCard` |
+| Pass → Resolve | All players passing in sequence with nothing added → resolve | 340 | `chainPasses` reaching 2 (all players, in a 2-player game) |
+| Priority after a partial resolution | Chain still non-empty → controller of the **newest** item gains priority | 345 | `resolveChainPass`'s `newTop` branch |
+| Units/Gear finalize | Resolve immediately rather than waiting on the chain | 338 | Units/Gear deploy directly in `execute-play-card`, never entering `spellChain` |
 
 ## Divergent
 
@@ -59,19 +64,35 @@ are `Unverified`, not `Conformant`.
 | Combat "No Result" re-stage | If No Result and both players still have units, stage another Showdown + Combat there | Resolve once | 466.5.d | **Out of scope, unreachable in 2-player**: step 3d removes the attackers exactly when defenders remain, so both sides can never still be present. Exists for multiplayer, where a third player's units can be there |
 | Burn Out | Draw as many as possible → recycle trash into deck (randomised) → an opponent gains 1 point → finish the draw | Empty deck silently no-ops | 431 | Known gap, pre-dates this file |
 | Damage assignment | Mandatory assignment order, Tank ("assigned damage first") / Backline ("last"), and unfulfillable combinations | Even distribution, no ordering | 466.1.a | Known gap (`combat.ts` says so) |
-| Reaction-speed play | `[Reaction]` cards playable in Showdowns / onto the chain | Action-phase only; a Showdown is a Pass-Focus dead end | 349 / 463 | Known gap — the largest remaining one. Blocks Cannon Barrage and makes 7 precon spells' printed timing fiction |
+| Timing permissions | Three tiers, both keywords **pure permission**: no keyword → your turn + open state; `[Action]` → **+ showdowns, on any player's turn**; `[Reaction]` → + all of Action **+ closed states** | 806 / 813 | **The largest remaining gap.** `validate-play-card` rejects every cast during a Showdown or closed chain and requires `playerIndex === activePlayerIndex`, which must become "whoever holds priority/focus" since both keywords say *any player's turn*. Affects **18 of 21 precon spells** (8 Reaction, 10 Action) — not the 7 previously claimed here. Also blocks Cannon Barrage entirely |
+| Focus after a chain empties | During a Showdown, focus passes to the next player unless the chain was started by a triggered ability or a resource-adding ability | 344.1 | Unreachable today (nothing can be cast into a Showdown); **required** by the timing work above |
 | Cleanup loop | Cleanups repeat until one passes with nothing notable; Combat Cleanup is a Special Cleanup | Single pass | 318 / patch 2025-10-24 | Structural; immaterial for the current card pool |
+
+## Traps for the timing work
+
+Found while verifying the chain; each would be an easy, silent mistake:
+
+1. **`isAction` never reaches the runtime.** `card-loader` parses it onto
+   `SpellDefinition`, but `SpellInstance` carries only `isReaction` — and a
+   `PlayCardAction` holds the *instance*. Action-speed can't even be checked
+   until this is plumbed through.
+2. **Reaction implies Action** (813: "grants all abilities and permissions of
+   Action"), yet the loader sets `isAction: plain.includes("[Action]")`, so a
+   `[Reaction]`-only card has `isAction: false`. Any showdown-permission check
+   must read `isReaction || isAction`, or all 8 Reaction spells are wrongly
+   barred from showdowns.
+3. **`legal-actions`' Showdown branch already enumerates for
+   `state.focusHolder`**, not the active player. The "whoever may act right
+   now" concept exists — extend it rather than inventing one.
 
 ## Unverified (the honest bulk)
 
 Everything else, including all 93 oracle-mirrored behaviours. Highest-value
 targets for the next pass, by blast radius:
 
-1. **Showdown/Combat sequence** — the step order in rule 463, FEPR, and when
+1. **Showdown/Combat step order** — rule 463's steps, HOT FEPR, and when the
    Attacker/Defender designations attach. Two divergences already found here.
-2. **Chain and priority** — Focus passing, what may be added, resolution
-   order (rules 337 / 349). Prerequisite for reaction-speed casting.
-3. **Costs and payment** — floating resources, rune recycling, exhaust-vs-recycle
+2. **Costs and payment** — floating resources, rune recycling, exhaust-vs-recycle
    (rule 430 and neighbours).
 4. **Triggered abilities** — the patch notes changed Attack/Defend triggers to
    *once per combat, the first time* (a change from prior FAQ guidance). We
@@ -106,4 +127,5 @@ applicable, our card base is OGN + OGS.
 | Date | Event |
 |---|---|
 | 2026-07-29 | Core Rules 2026-07-16 added locally; this file created. Confirmed healing (both moments, global). Found and fixed the final-point rule counting conquests instead of scores, and conquests re-scoring the same battlefield. Filed combat steps 3d / 466.5 as open bugs. Corrected an earlier wrong claim that mutual-wipe control was divergent — rule 190.6 makes our end state right. |
+| 2026-07-29 | Audited the chain against rules 337-345: FEPR is conformant in every essential (LIFO resolution, finalize doesn't pass priority, all-passed → resolve, priority to the newest item's controller, Units/Gear resolving immediately) — no code changes needed. So reaction-speed is blocked by *permission checks*, not by chain machinery. Pinned the timing model (806/813) and corrected the affected-spell count from 7 to **18 of 21**. Filed three implementation traps. |
 | 2026-07-29 | Implemented cleanup step 3d (recall attackers when defenders remain) and rewrote post-combat control as rule 466.7's single "who remains" question, replacing a three-way survivor branch that had no answer for "both survived". Established that 466.5.d cannot occur in 2-player and closed it as out of scope rather than building an unreachable combat loop. Filed the card-recall exhaust question as Unverified. |
