@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   beginFirstTurn,
+  cardHasOptionalExhaustCost,
   cardNeedsTarget,
   chooseAction,
   computeAutoPayment,
@@ -10,6 +11,8 @@ import {
   legalActions,
   matchesPowerDomain,
   submit,
+  targetingForAnyCard,
+  unitTriggerHasVisionChoice,
   type CardInstance,
   type DeckList,
   type FloatRuneAction,
@@ -24,6 +27,7 @@ import {
 import { createNewGame, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
+import { ChoiceOverlay } from "./ChoiceOverlay.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
 import { RuneZone } from "./RuneZone.js";
@@ -35,28 +39,55 @@ const AI_MOVE_DELAY_MS = 650;
 const BASE_ZONE_ID = "base";
 
 /** A hand/champion card armed for play but not yet fully resolved — covers
- *  three composable phases in order (target/destination, THEN payment),
- *  matching the header hint text's own established mental model:
- *   1. `targetUnitInstanceId`/`destinationBattlefieldId` start undefined and
- *      get filled in by clicking a legal target unit / battlefield / base
- *      zone — `destinationBattlefieldId` uses BASE_ZONE_ID as an explicit
+ *  two composable phases in order (every choice the card needs, THEN
+ *  payment), matching the header hint text's own established mental model:
+ *   1. One field per choice below starts undefined and gets filled in by
+ *      clicking a legal unit / battlefield / base zone, or by picking from
+ *      the ChoiceOverlay modal — in the fixed order `pendingStep()` defines.
+ *      `destinationBattlefieldId` uses BASE_ZONE_ID as an explicit
  *      "resolved to base" sentinel, distinct from "not yet resolved"
  *      (plain `undefined`), so a Unit that can go to more than one place
  *      isn't silently treated as already-resolved-to-base before any click.
- *   2. Once resolved (or immediately, for a card needing neither), manual
- *      rune payment begins: `payment` starts empty and fills via rune-tile
- *      clicks or Auto Pay until it exactly matches the effective (floating-
- *      reduced) cost already known from the matching `legal` candidate —
- *      at which point an effect auto-submits and clears this.
+ *   2. Once every choice is made (or immediately, for a card needing none),
+ *      manual rune payment begins: `payment` starts empty and fills via
+ *      rune-tile clicks or Auto Pay until it exactly matches the effective
+ *      (floating-reduced) cost already known from the matching `legal`
+ *      candidate — at which point an effect auto-submits and clears this.
+ *  Every field here mirrors one PlayCardAction field of the same name (see
+ *  actions/player-action.ts), because the whole point of this object is to
+ *  converge on exactly one of `legal`'s own already-fanned-out candidates —
+ *  see matchesPending().
  *  Switching to a different hand card discards this whole object rather
  *  than swapping just `.card`, so a rune proposal built for one card can
  *  never leak into another's submission. */
 interface PendingPlay {
   card: CardInstance;
   targetUnitInstanceId?: string;
+  /** Gentlemen's Duel's second ("unitPair") target — always chosen after
+   *  `targetUnitInstanceId`, never before. */
+  secondTargetUnitInstanceId?: string;
+  targetBattlefieldId?: string;
+  trashCardInstanceId?: string;
+  visionRecycle?: boolean;
+  additionalCostUnitInstanceId?: string;
+  /** Meditation's additional cost is OPTIONAL, so an absent
+   *  `additionalCostUnitInstanceId` is ambiguous between "declined it" and
+   *  "hasn't chosen yet" — exactly the ambiguity BASE_ZONE_ID resolves for
+   *  placement. This flag is the resolution: true once the player has either
+   *  picked a unit or pressed Decline. `visionRecycle` needs no equivalent —
+   *  it's a required boolean, so undefined there unambiguously means
+   *  unresolved. */
+  additionalCostResolved?: boolean;
   destinationBattlefieldId?: string;
   payment: RunePayment;
 }
+
+/** The one choice `pendingPlay` is currently waiting on, in the fixed order
+ *  `pendingStep()` walks. Every board-click step comes before every modal
+ *  (ChoiceOverlay) step, so a modal can never cover a zone the player still
+ *  has to click — no card in the current pool combines the two, and this
+ *  ordering keeps that safe if one ever does. */
+type PendingStep = "firstTarget" | "secondTarget" | "battlefieldTarget" | "placement" | "additionalCost" | "trashCard" | "vision";
 
 /** Finds the drop zone (a battlefield id, or BASE_ZONE_ID) under a viewport
  *  point, via the `data-dropzone-id` attributes BattlefieldView/the base
@@ -183,61 +214,164 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return action.payment.energyRunes.length + action.payment.powerRunes.length > 0;
   }
 
+  /** Does this card need ANY choice from the player before it can resolve —
+   *  a target (unit/battlefield/trash card/unit pair, via the engine's own
+   *  cardNeedsTarget), a [Vision] recycle decision, or Meditation's optional
+   *  exhaust cost? The two non-targeting axes are deliberately separate
+   *  registries in the engine (they're orthogonal to TargetingSpec — see
+   *  unit-triggers.ts's VISION_UNIT_DEF_IDS and card-effects.ts's
+   *  OPTIONAL_EXHAUST_COST_DEF_IDS), and the `card.kind` guards here mirror
+   *  exactly how legal-actions.ts:196/208 gates its own fan-out for them. */
+  function cardNeedsChoice(card: CardInstance): boolean {
+    return (
+      cardNeedsTarget(card) ||
+      (card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId)) ||
+      (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId))
+    );
+  }
+
   /** The one action to submit immediately on click/drag — only when the
    *  card doesn't need any choice: not a targeted Spell (e.g. Incinerate),
-   *  not a Unit with more than one legal destination, and not a nonzero
-   *  rune payment. Any of those returns undefined here even though the card
-   *  IS interactable, since clicking it should arm it instead (see
-   *  handleHandCardClick). */
+   *  no [Vision]/additional-cost decision, not a Unit with more than one
+   *  legal destination, and not a nonzero rune payment. Any of those
+   *  returns undefined here even though the card IS interactable, since
+   *  clicking it should arm it instead (see handleHandCardClick). */
   function immediatePlayAction(cardInstanceId: string): PlayCardAction | undefined {
     const actions = playCardActionsFor(cardInstanceId);
     const [first] = actions;
     if (!first) return undefined;
-    if (cardNeedsTarget(first.card)) return undefined;
+    if (cardNeedsChoice(first.card)) return undefined;
     if (unitNeedsPlacement(actions)) return undefined;
     if (actionNeedsPayment(first)) return undefined;
     return first;
   }
 
+  /** Every `legal` candidate still consistent with the choices made on
+   *  `pendingPlay` so far — a choice not yet made is a wildcard, so this
+   *  narrows with each click. THE single source for "what can I click right
+   *  now": every highlight predicate and every click handler below reads it,
+   *  so the two can't drift (the same reason legal-actions.ts is shared
+   *  between the AI and this UI in the first place). */
+  function pendingCandidates(): PlayCardAction[] {
+    const pending = pendingPlay;
+    if (!pending) return [];
+    return playCardActionsFor(pending.card.instanceId).filter((a) => {
+      if (pending.targetUnitInstanceId !== undefined && a.targetUnitInstanceId !== pending.targetUnitInstanceId) return false;
+      if (pending.secondTargetUnitInstanceId !== undefined && a.secondTargetUnitInstanceId !== pending.secondTargetUnitInstanceId) {
+        return false;
+      }
+      if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
+      if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
+      if (pending.visionRecycle !== undefined && a.visionRecycle !== pending.visionRecycle) return false;
+      // Resolved-ness of the optional cost is the FLAG, not the id — see
+      // PendingPlay.additionalCostResolved's own doc comment.
+      if (pending.additionalCostResolved && (a.additionalCostUnitInstanceId ?? null) !== (pending.additionalCostUnitInstanceId ?? null)) {
+        return false;
+      }
+      if (
+        pending.destinationBattlefieldId !== undefined &&
+        (a.destinationBattlefieldId ?? BASE_ZONE_ID) !== pending.destinationBattlefieldId
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  /** The next choice `pendingPlay` is waiting on, or null once it's fully
+   *  resolved and only a rune payment (if any) is left. Board-click steps
+   *  come first, modal steps last — see PendingStep's own doc comment.
+   *
+   *  The `additionalCost` step is skipped outright when no candidate
+   *  actually carries an `additionalCostUnitInstanceId` (Meditation cast
+   *  with no ready friendly unit anywhere): legal-actions.ts:208-217 then
+   *  only ever fans out the "decline" variant, so there'd be nothing to
+   *  choose BETWEEN — prompting for a decision the player can only answer
+   *  one way would be a dead end, not a choice. */
+  function pendingStep(): PendingStep | null {
+    const pending = pendingPlay;
+    if (!pending) return null;
+    const targeting = targetingForAnyCard(pending.card);
+    const actions = playCardActionsFor(pending.card.instanceId);
+
+    if ((targeting.kind === "unit" || targeting.kind === "unitPair") && pending.targetUnitInstanceId === undefined) return "firstTarget";
+    if (targeting.kind === "unitPair" && pending.secondTargetUnitInstanceId === undefined) return "secondTarget";
+    if (targeting.kind === "battlefield" && pending.targetBattlefieldId === undefined) return "battlefieldTarget";
+    if (unitNeedsPlacement(actions) && pending.destinationBattlefieldId === undefined) return "placement";
+    if (
+      pending.card.kind === "Spell" &&
+      cardHasOptionalExhaustCost(pending.card.defId) &&
+      !pending.additionalCostResolved &&
+      actions.some((a) => a.additionalCostUnitInstanceId !== undefined)
+    ) {
+      return "additionalCost";
+    }
+    if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) return "trashCard";
+    if (pending.card.kind === "Unit" && unitTriggerHasVisionChoice(pending.card.defId) && pending.visionRecycle === undefined) {
+      return "vision";
+    }
+    return null;
+  }
+
+  /** Which PendingPlay field the CURRENT step fills by clicking a unit, or
+   *  null if this step isn't a unit click at all — what lets Gentlemen's
+   *  Duel's two clicks land in two different fields without either handler
+   *  needing to know about the other. */
+  function pendingUnitSlot(): "targetUnitInstanceId" | "secondTargetUnitInstanceId" | "additionalCostUnitInstanceId" | null {
+    switch (pendingStep()) {
+      case "firstTarget":
+        return "targetUnitInstanceId";
+      case "secondTarget":
+        return "secondTargetUnitInstanceId";
+      case "additionalCost":
+        return "additionalCostUnitInstanceId";
+      default:
+        return null;
+    }
+  }
+
+  /** Does this `legal` candidate carry exactly the same choices `pendingPlay`
+   *  has made? Compares EVERY field a PlayCardAction can be fanned out on,
+   *  not just a subset: `legal` holds several candidates per card that differ
+   *  only in a [Vision] boolean or a second target, so a partial comparison
+   *  would happily resolve to a DIFFERENT variant than the player chose —
+   *  and the auto-submit effect would then size its payment against one
+   *  action while submitting another. Absent-vs-undefined is normalized the
+   *  same way throughout (with BASE_ZONE_ID standing in for "no
+   *  destination," per PendingPlay's doc comment). */
+  function matchesPending(a: PlayCardAction, pending: PendingPlay): boolean {
+    return (
+      (a.targetUnitInstanceId ?? null) === (pending.targetUnitInstanceId ?? null) &&
+      (a.secondTargetUnitInstanceId ?? null) === (pending.secondTargetUnitInstanceId ?? null) &&
+      (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
+      (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
+      (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
+      (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
+      (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID)
+    );
+  }
+
   /** The armed Unit's PlayCardAction for a specific destination — `"base"`
    *  for the base-play candidate, a battlefield id for a reinforce
    *  candidate — or undefined if that destination isn't actually legal for
-   *  the currently-armed card. */
+   *  the currently-armed card. Unit-only: a Spell has no placement at all,
+   *  and letting it match here would light up the base zone as a drop target
+   *  for something that can never be placed (harmless before, actively
+   *  confusing now that a Spell can be mid-way through its own choices). */
   function placementActionAt(destination: string): PlayCardAction | undefined {
-    if (!pendingPlay) return undefined;
-    return legal.find(
-      (a): a is PlayCardAction =>
-        a.type === "PlayCard" &&
-        a.card.instanceId === pendingPlay.card.instanceId &&
-        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === destination,
-    );
-  }
-
-  function pendingNeedsTarget(): boolean {
-    return Boolean(pendingPlay) && cardNeedsTarget(pendingPlay!.card);
-  }
-
-  function pendingNeedsPlacement(): boolean {
-    if (!pendingPlay) return false;
-    return unitNeedsPlacement(playCardActionsFor(pendingPlay.card.instanceId));
+    if (pendingPlay?.card.kind !== "Unit") return undefined;
+    return pendingCandidates().find((a) => (a.destinationBattlefieldId ?? BASE_ZONE_ID) === destination);
   }
 
   /** The specific `legal` candidate `pendingPlay` currently resolves to —
-   *  undefined until its target/destination (whichever it needs, if any)
-   *  has actually been chosen. Once defined, its `payment` list lengths ARE
-   *  the effective (floating-reduced) counts still owed — the manual
-   *  payment step's completion target. */
+   *  undefined until every choice it needs has actually been made. Once
+   *  defined, its `payment` list lengths ARE the effective (floating-reduced)
+   *  counts still owed — the manual payment step's completion target. */
   function pendingLegalAction(): PlayCardAction | undefined {
-    if (!pendingPlay) return undefined;
-    if (pendingNeedsTarget() && pendingPlay.targetUnitInstanceId === undefined) return undefined;
-    if (pendingNeedsPlacement() && pendingPlay.destinationBattlefieldId === undefined) return undefined;
-    return legal.find(
-      (a): a is PlayCardAction =>
-        a.type === "PlayCard" &&
-        a.card.instanceId === pendingPlay.card.instanceId &&
-        (a.targetUnitInstanceId ?? null) === (pendingPlay.targetUnitInstanceId ?? null) &&
-        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pendingPlay.destinationBattlefieldId ?? BASE_ZONE_ID),
-    );
+    const pending = pendingPlay;
+    if (!pending) return undefined;
+    if (pendingStep() !== null) return undefined;
+    return playCardActionsFor(pending.card.instanceId).find((a) => matchesPending(a, pending));
   }
 
   /** Single-unit lookups — kept for drag (which resolves its own action from
@@ -338,29 +472,113 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     });
   }
 
+  /** Is clicking this unit right now a legal answer to the CURRENT step —
+   *  not merely "a target of this card in some variant"? The distinction is
+   *  what makes Gentlemen's Duel work: once its friendly first target is
+   *  locked in, only enemy units still light up, because `pendingCandidates`
+   *  has already narrowed to that first target's own candidates. */
   function isUnitLegalTarget(unit: UnitInstance): boolean {
-    if (!pendingPlay) return false;
-    return legal.some(
-      (a) => a.type === "PlayCard" && a.card.instanceId === pendingPlay.card.instanceId && a.targetUnitInstanceId === unit.instanceId,
-    );
+    const slot = pendingUnitSlot();
+    if (!slot) return false;
+    return pendingCandidates().some((a) => a[slot] === unit.instanceId);
   }
 
-  /** Unified click handler for any unit at a battlefield, friendly or enemy.
-   *  If a targeted spell is armed and this unit is a legal target, resolves
-   *  the target onto `pendingPlay` (which may still need a payment step
-   *  afterward, handled by the auto-submit effect below); otherwise falls
-   *  through to ordinary move-selection. */
-  function handleUnitClick(unit: UnitInstance) {
-    if (pendingPlay) {
-      const isTarget = legal.some(
-        (a) => a.type === "PlayCard" && a.card.instanceId === pendingPlay.card.instanceId && a.targetUnitInstanceId === unit.instanceId,
-      );
-      if (isTarget) {
-        setPendingPlay({ ...pendingPlay, targetUnitInstanceId: unit.instanceId });
-        return;
-      }
+  /** Should one of the human's own units render — and behave — as clickable
+   *  right now? While the armed card is still asking something, only a legal
+   *  answer qualifies: since handleUnitClick now ignores every other click,
+   *  showing the ordinary move-selection affordance would promise something
+   *  that no longer happens. Keeps this file's existing invariant that
+   *  anything rendering `.selectable` actually does something when clicked
+   *  (see isGroupMoveTarget's own doc comment). */
+  function isFriendlyUnitSelectable(unit: UnitInstance): boolean {
+    if (isUnitLegalTarget(unit)) return true;
+    if (pendingStep() !== null) return false;
+    return !unit.exhausted;
+  }
+
+  /** Already-chosen targets of the armed card — rendered with the same
+   *  `.selected` outline a move-selected unit gets, so a half-finished pair
+   *  (Gentlemen's Duel's friendly target, Meditation's exhaust victim) is
+   *  visible on the board rather than only in the header hint. The Java
+   *  client shows literal `#1`/`#2` ordinal badges for the same reason
+   *  (ui/BoardController.java:3227-3228). */
+  function pendingChosenUnitIds(): Set<string> {
+    const ids = new Set<string>();
+    if (!pendingPlay) return ids;
+    for (const id of [
+      pendingPlay.targetUnitInstanceId,
+      pendingPlay.secondTargetUnitInstanceId,
+      pendingPlay.additionalCostUnitInstanceId,
+    ]) {
+      if (id !== undefined) ids.add(id);
     }
+    return ids;
+  }
+
+  /** Unified click handler for any unit, friendly or enemy, at a battlefield
+   *  OR in the human's own base. If an armed card is currently waiting on a
+   *  unit click (a target, a pair's second target, or Meditation's optional
+   *  exhaust cost) and this unit is a legal answer, resolves that step onto
+   *  `pendingPlay` (which may still need further choices and/or a payment
+   *  step afterward); otherwise falls through to ordinary move-selection. */
+  function handleUnitClick(unit: UnitInstance) {
+    const slot = pendingUnitSlot();
+    if (pendingPlay && slot && isUnitLegalTarget(unit)) {
+      setPendingPlay({
+        ...pendingPlay,
+        [slot]: unit.instanceId,
+        // Picking a unit IS the answer to the optional-cost question, so the
+        // step is resolved by the same click — see additionalCostResolved.
+        ...(slot === "additionalCostUnitInstanceId" ? { additionalCostResolved: true } : {}),
+      });
+      return;
+    }
+    // While the armed card is still ASKING something, the board only accepts
+    // answers to that question — a click on anything else does nothing rather
+    // than falling through to move-selection (which clears pendingPlay). That
+    // fall-through was harmless when every targeted card resolved in one
+    // click, but Gentlemen's Duel and Meditation carry half-made choices, and
+    // silently discarding one on a misclick — no undo, no feedback — is the
+    // wrong default. Mirrors the Java client, whose own multi-target handler
+    // no-ops an illegal target click rather than cancelling
+    // (ui/BoardController.java:3567-3578's `if (!roleOk) { refresh(); return; }`).
+    // Backing out is the explicit Cancel button in the actions row (or
+    // re-clicking the armed card), never an accident.
+    if (pendingStep() !== null) return;
+    // Once only a rune payment is left there's no half-made choice to lose,
+    // and clicking a unit reads naturally as "I'm done with this card" — so
+    // the original fall-through stays exactly as it was.
     handleSelectUnit(unit);
+  }
+
+  /** "You may exhaust a friendly unit... otherwise draw 1" — the explicit
+   *  no. The Java client's equivalent gesture is a base click ("click your
+   *  base to confirm with 0 targets", ui/BoardController.java:2770-2772),
+   *  but a base click here is already overloaded three ways (recall a
+   *  selection, place a Unit, select a base unit), so this gets its own
+   *  button next to Auto Pay instead of a fourth hidden meaning. */
+  function declineAdditionalCost() {
+    if (!pendingPlay) return;
+    setPendingPlay({ ...pendingPlay, additionalCostResolved: true });
+  }
+
+  /** Is this battlefield a legal answer to a "battlefield"-kind effect's own
+   *  target step (Firestorm's "all enemy units AT A BATTLEFIELD")? Entirely
+   *  separate from `placementActionAt`'s "where should this Unit be played"
+   *  question, which happens to use the same click. */
+  function isBattlefieldLegalTarget(battlefieldId: string): boolean {
+    if (pendingStep() !== "battlefieldTarget") return false;
+    return pendingCandidates().some((a) => a.targetBattlefieldId === battlefieldId);
+  }
+
+  /** The eligible own-trash cards for an "ownTrashCard" step, resolved from
+   *  the candidate set rather than re-deriving TargetingSpec.cardKind here —
+   *  so Annie-Stubborn offers only Spells and Morbid Return only Units
+   *  without this UI knowing either rule. */
+  function pendingTrashOptions(): CardInstance[] {
+    if (pendingStep() !== "trashCard") return [];
+    const eligible = new Set(pendingCandidates().map((a) => a.trashCardInstanceId));
+    return human.trash.filter((c) => eligible.has(c.instanceId));
   }
 
   /** True if this rune could legally be added to the Energy list right now
@@ -457,9 +675,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // Auto-submits the moment a fully-resolved pendingPlay's proposed payment
   // exactly matches the effective size `legal` already expects — covers
   // both the manual/Auto-Pay-built payment case and the "nothing to pay"
-  // case (a card only needing a target/placement choice resolves and
-  // submits the instant that choice is made, same as before payment arming
-  // existed).
+  // case (a card only needing choices resolves and submits the instant the
+  // last one is made, same as before payment arming existed).
   useEffect(() => {
     if (!pendingPlay) return;
     const resolved = pendingLegalAction();
@@ -470,12 +687,26 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     ) {
       return;
     }
+    // Every optional field is spread in only when actually set: the engine
+    // distinguishes absent from present for several of them (an absent
+    // additionalCostUnitInstanceId means "declined the cost," an absent
+    // destinationBattlefieldId means "base"), so writing them unconditionally
+    // as undefined would not be equivalent.
     const action: PlayCardAction = {
       type: "PlayCard",
       playerIndex: HUMAN_INDEX,
       card: pendingPlay.card,
       payment: pendingPlay.payment,
       ...(pendingPlay.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: pendingPlay.targetUnitInstanceId } : {}),
+      ...(pendingPlay.secondTargetUnitInstanceId !== undefined
+        ? { secondTargetUnitInstanceId: pendingPlay.secondTargetUnitInstanceId }
+        : {}),
+      ...(pendingPlay.targetBattlefieldId !== undefined ? { targetBattlefieldId: pendingPlay.targetBattlefieldId } : {}),
+      ...(pendingPlay.trashCardInstanceId !== undefined ? { trashCardInstanceId: pendingPlay.trashCardInstanceId } : {}),
+      ...(pendingPlay.visionRecycle !== undefined ? { visionRecycle: pendingPlay.visionRecycle } : {}),
+      ...(pendingPlay.additionalCostUnitInstanceId !== undefined
+        ? { additionalCostUnitInstanceId: pendingPlay.additionalCostUnitInstanceId }
+        : {}),
       ...(pendingPlay.destinationBattlefieldId !== undefined && pendingPlay.destinationBattlefieldId !== BASE_ZONE_ID
         ? { destinationBattlefieldId: pendingPlay.destinationBattlefieldId }
         : {}),
@@ -494,6 +725,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       return;
     }
     if (!pendingPlay) return;
+    // A "battlefield"-kind EFFECT target (Firestorm) is checked before
+    // placement: the two never coexist on one card (only a Unit has a
+    // placement, and no Unit's on-play trigger targets a battlefield), and
+    // pendingStep() gates this branch anyway.
+    if (isBattlefieldLegalTarget(battlefieldId)) {
+      setPendingPlay({ ...pendingPlay, targetBattlefieldId: battlefieldId });
+      return;
+    }
     const placement = placementActionAt(battlefieldId);
     if (placement) setPendingPlay({ ...pendingPlay, destinationBattlefieldId: battlefieldId });
   }
@@ -559,7 +798,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       handleHandCardClick(cardInstanceId);
       return;
     }
-    if (!actionNeedsPayment(placement)) {
+    // Sai Scout is the case that makes this a two-part check: it can be
+    // dropped straight onto an open battlefield (resolving its placement),
+    // but its [Vision] recycle choice is still unanswered, so submitting
+    // `placement` here would be submitting an action the engine rejects.
+    // Arm instead and let the remaining steps run.
+    if (!actionNeedsPayment(placement) && !cardNeedsChoice(placement.card)) {
       applyAction(placement);
       return;
     }
@@ -619,6 +863,33 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // Computed once per render for the header hint and the rune-payment UI —
   // both need to know exactly which phase `pendingPlay` is currently in.
   const pendingResolvedAction = pendingLegalAction();
+  const currentStep = pendingStep();
+
+  /** The header's "what do I click next" line for the armed card, phrased
+   *  after the Java client's own prompts (ui/BoardController.java:2760-2779),
+   *  including its `[1/2]` progress counter for a multi-target spell. The
+   *  two modal steps get no line here — the overlay's own title says it,
+   *  right where the player is already looking. */
+  function pendingHintText(): string | null {
+    if (!pendingPlay) return null;
+    const name = pendingPlay.card.name;
+    switch (currentStep) {
+      case "firstTarget":
+        return targetingForAnyCard(pendingPlay.card).kind === "unitPair"
+          ? ` — choose a friendly unit for ${name}  [1/2]`
+          : ` — choose a target for ${name}`;
+      case "secondTarget":
+        return ` — choose an enemy unit for ${name}  [2/2]`;
+      case "battlefieldTarget":
+        return ` — choose a battlefield for ${name}`;
+      case "placement":
+        return ` — choose where to play ${name}`;
+      case "additionalCost":
+        return ` — exhaust a ready friendly unit to boost ${name}, or Decline`;
+      default:
+        return null;
+    }
+  }
   const pendingStillOwesPayment = Boolean(
     pendingResolvedAction &&
       pendingPlay &&
@@ -669,8 +940,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               : isHumanTurn
                 ? "Your turn"
                 : "AI's turn"}
-          {pendingPlay && !pendingResolvedAction && pendingNeedsTarget() && ` — choose a target for ${pendingPlay.card.name}`}
-          {pendingPlay && !pendingResolvedAction && pendingNeedsPlacement() && ` — choose where to play ${pendingPlay.card.name}`}
+          {pendingHintText()}
           {pendingStillOwesPayment &&
             ` — pay for ${pendingPlay!.card.name}: left-click a rune for Energy, right-click for Power (or Auto Pay)`}
         </span>
@@ -683,6 +953,46 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           onQuickSwap={handleQuickSwap}
           onMainMenu={onMainMenu}
         />
+      )}
+
+      {currentStep === "trashCard" && pendingPlay && (
+        <ChoiceOverlay title={`${pendingPlay.card.name} — choose a card from your trash`} onCancel={() => setPendingPlay(null)}>
+          <div className="choice-overlay-cards">
+            {pendingTrashOptions().map((card) => (
+              <CardView
+                key={card.instanceId}
+                card={card}
+                isSelectable
+                onClick={() => setPendingPlay({ ...pendingPlay, trashCardInstanceId: card.instanceId })}
+              />
+            ))}
+          </div>
+        </ChoiceOverlay>
+      )}
+
+      {currentStep === "vision" && pendingPlay && (
+        // [Vision] is literally "look at the top card of your Main Deck. You
+        // may recycle it" — so this shows the actual card being decided about
+        // (human.deck[0]), not a bare yes/no. Recycling sends it to the
+        // BOTTOM of the deck (see applyVision, engine/unit-triggers.ts:57-65),
+        // which is what the button says rather than the jargon "recycle."
+        <ChoiceOverlay
+          title={`${pendingPlay.card.name} — [Vision]`}
+          subtitle={
+            human.deck.length > 0
+              ? "The top card of your deck. Keep it there, or send it to the bottom?"
+              : "Your deck is empty — there's nothing to look at, but the choice is still yours to make."
+          }
+          onCancel={() => setPendingPlay(null)}
+        >
+          <div className="choice-overlay-cards">
+            {human.deck[0] && <CardView card={human.deck[0]} />}
+          </div>
+          <div className="choice-overlay-actions">
+            <button onClick={() => setPendingPlay({ ...pendingPlay, visionRecycle: false })}>Keep on top</button>
+            <button onClick={() => setPendingPlay({ ...pendingPlay, visionRecycle: true })}>Recycle to bottom</button>
+          </div>
+        </ChoiceOverlay>
       )}
 
       <div className="board-main">
@@ -727,9 +1037,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 isMoveTarget={
                   isHumanTurn && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
                 }
+                isTargetable={isHumanTurn && isBattlefieldLegalTarget(bf.id)}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
                 isUnitTargetable={isUnitLegalTarget}
+                isFriendlySelectable={isFriendlyUnitSelectable}
+                chosenUnitIds={pendingChosenUnitIds()}
                 onUnitClick={handleUnitClick}
                 onMoveHere={() => handleBattlefieldClick(bf.id)}
                 canDragUnit={canDragUnit}
@@ -776,9 +1089,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     <CardView
                       key={unit.instanceId}
                       card={unit}
-                      isSelectable={isHumanTurn && !unit.exhausted}
-                      isSelected={selectedUnitIds.has(unit.instanceId)}
-                      onClick={() => handleSelectUnit(unit)}
+                      // Routed through handleUnitClick, not handleSelectUnit:
+                      // Meditation's optional exhaust cost accepts a friendly
+                      // unit in BASE as well as at a battlefield (unlike every
+                      // battlefield-only "unit" target — see
+                      // validate-play-card.ts:136-148), so a base unit has to
+                      // be able to answer a pending step too.
+                      isSelectable={isHumanTurn && isFriendlyUnitSelectable(unit)}
+                      isSelected={selectedUnitIds.has(unit.instanceId) || pendingChosenUnitIds().has(unit.instanceId)}
+                      onClick={() => handleUnitClick(unit)}
                       onDrag={canDragUnit(unit) ? trackDragZone : undefined}
                       onDragEnd={canDragUnit(unit) ? () => handleUnitDragEnd(unit) : undefined}
                     />
@@ -843,7 +1162,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             Pass
           </button>
         )}
+        {currentStep === "additionalCost" && <button onClick={declineAdditionalCost}>Decline</button>}
         {pendingStillOwesPayment && <button onClick={handleAutoPay}>Auto Pay</button>}
+        {/* The explicit way out of an armed card, shown for as long as one IS
+            armed. Backing out used to be folklore — click any unit and the
+            fall-through in handleUnitClick would quietly clear it — which is
+            exactly the accident-prone behavior that handler no longer has.
+            An always-visible button is what makes ignoring stray clicks safe
+            rather than trapping. Nothing has been submitted at this point
+            (pendingPlay is a purely local proposal), so this can't strand
+            anything mid-resolution. */}
+        {pendingPlay && <button onClick={() => setPendingPlay(null)}>Cancel {pendingPlay.card.name}</button>}
       </div>
     </div>
   );

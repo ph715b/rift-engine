@@ -171,6 +171,16 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
       return dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, "base", {
         ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
+        // Annie-Stubborn's "return a spell from your trash" is the only
+        // on-play trigger reading this today. It was silently dropped here
+        // (both call sites) while UnitTriggerEvent, dispatchOnPlayUnit's
+        // `extra`, legal-actions.ts's fan-out and validate-play-card.ts all
+        // carried it — so the trigger validated, cost runes, deployed the
+        // unit, and then no-op'd inside returnCardFromTrash on an undefined
+        // id. Only caught by playing the card in the real UI: the existing
+        // test calls dispatchOnPlayUnit directly, which bypasses exactly
+        // this hop (see card-effects-phase3.test.ts:76).
+        ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
       });
     }
 
@@ -189,6 +199,9 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: action.destinationBattlefieldId }, {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
       ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
+      // Same dropped-field fix as the base branch above — a reinforce play
+      // fires the same trigger.
+      ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
     });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;

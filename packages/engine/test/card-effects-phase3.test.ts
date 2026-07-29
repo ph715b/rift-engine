@@ -3,6 +3,7 @@ import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
+import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
@@ -77,5 +78,47 @@ describe("Annie - Stubborn: on-play, return a spell from your trash to your hand
 
     expect(state.players[0]!.trash).toHaveLength(0);
     expect(state.players[0]!.hand.map((c) => c.instanceId)).toContain(trashedSpell.instanceId);
+  });
+
+  // REGRESSION: the test above dispatches the trigger DIRECTLY, which is
+  // exactly the hop that was broken — executePlayCard forwarded
+  // targetUnitInstanceId and visionRecycle into dispatchOnPlayUnit but
+  // silently dropped trashCardInstanceId, so a real submitted PlayCard paid
+  // the runes, deployed Annie, and then no-op'd inside returnCardFromTrash
+  // on an undefined id. Nothing between the action and the trigger complained
+  // (validate-play-card.ts checks the field, legal-actions.ts fans it out) —
+  // it only surfaced by playing the card in the actual UI. So this one goes
+  // through the real submit path end to end.
+  it("returns the chosen spell when the card is actually PLAYED (not just dispatched)", () => {
+    const annieStubborn = realUnitInstance("OGS-010");
+    const trashedSpell = spellInstance("OGS-003");
+    const state = makeState();
+    state.players[0]!.championZone = annieStubborn;
+    state.players[0]!.trash = [trashedSpell];
+    state.players[0]!.channeled = [
+      ...Array.from({ length: annieStubborn.energyCost }, (_, i) => ({
+        id: `e${i}`,
+        domain: "Chaos" as const,
+        state: "Ready" as const,
+      })),
+      { id: "p0", domain: annieStubborn.powerDomain ?? ("Chaos" as const), state: "Ready" as const },
+    ];
+
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: annieStubborn,
+      payment: {
+        energyRunes: Array.from({ length: annieStubborn.energyCost }, (_, i) => `e${i}`),
+        powerRunes: ["p0"],
+      },
+      trashCardInstanceId: trashedSpell.instanceId,
+    };
+    expect(validatePlayCard(state, action).ok).toBe(true);
+
+    const next = executePlayCard(state, action);
+
+    expect(next.players[0]!.trash).toHaveLength(0);
+    expect(next.players[0]!.hand.map((c) => c.instanceId)).toContain(trashedSpell.instanceId);
   });
 });
