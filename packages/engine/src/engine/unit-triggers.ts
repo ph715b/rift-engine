@@ -109,8 +109,13 @@ const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
     // First Mate — ready another unit. (Its own instanceId can't be a
     // legal target: legal-actions.ts enumerates candidates while this card
     // is still in hand, before it exists anywhere on the board.)
+    // The `?:` guards here and below are load-bearing, not defensive noise:
+    // a Unit is playable with its trigger's target OMITTED when the board
+    // offered no legal one (validate-play-card.ts's targetOmissionAllowed),
+    // so these resolvers really do run with nothing to act on.
     targeting: { kind: "unit" },
-    resolve: (state, _ctx, _unitId, event) => readyUnit(state, event.targetUnitInstanceId!),
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? readyUnit(state, event.targetUnitInstanceId) : state,
   },
   "OGN-211": {
     // Faithful Manufactor — play a 1-Might Recruit unit token here (its own destination).
@@ -120,12 +125,14 @@ const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
   "OGN-191": {
     // Maddened Marauder — move a unit from a battlefield to its base (either owner).
     targeting: { kind: "unit" },
-    resolve: (state, _ctx, _unitId, event) => recallUnitToBase(state, event.targetUnitInstanceId!),
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? recallUnitToBase(state, event.targetUnitInstanceId) : state,
   },
   "OGS-010": {
     // Annie - Stubborn — return a spell from your own trash to your hand.
     targeting: { kind: "ownTrashCard", cardKind: "Spell" },
-    resolve: (state, ctx, _unitId, event) => returnCardFromTrash(state, ctx.casterIndex, event.trashCardInstanceId!),
+    resolve: (state, ctx, _unitId, event) =>
+      event.trashCardInstanceId ? returnCardFromTrash(state, ctx.casterIndex, event.trashCardInstanceId) : state,
   },
 };
 

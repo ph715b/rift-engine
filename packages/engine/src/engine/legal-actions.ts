@@ -189,6 +189,19 @@ export function legalActions(state: GameState): PlayerAction[] {
       effectVariants.push({});
     }
 
+    // A UNIT's targeting comes from its on-play TRIGGER, and a trigger with
+    // no legal choice simply does nothing — it never makes the unit itself
+    // unplayable. Without this, Annie-Stubborn was uncastable with an empty
+    // trash, First Mate uncastable as your first unit, and Maddened Marauder
+    // uncastable with an empty board — in every case a body you paid for,
+    // withheld because a bonus couldn't happen. Mirrors the Java oracle,
+    // whose UnitAbilities call sites check `candidates.isEmpty()` before
+    // opening a choice at all rather than gating the play (see
+    // ui/BoardController.java:2143-2151's note on that convention).
+    // Spells are deliberately NOT given this treatment: their targeting IS
+    // the effect, so "no legal target" really does mean "can't cast."
+    if (card.kind === "Unit" && effectVariants.length === 0) effectVariants.push({});
+
     // [Vision] choice fan-out: every effect variant above also needs a
     // recycle-true and recycle-false copy, since the choice must already be
     // decided in the submitted action (this engine can't pause mid-resolution

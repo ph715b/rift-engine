@@ -1,6 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
-import { findUnitOnBattlefield } from "../engine/target-lookup.js";
+import { findUnitOnBattlefield, hasAnyLegalEffectChoice } from "../engine/target-lookup.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import { cardHasOptionalExhaustCost } from "../engine/card-effects.js";
@@ -71,7 +71,25 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
   const targeting = targetingForAnyCard(card);
 
-  if (targeting.kind === "unit") {
+  // A Unit's targeting belongs to its on-play TRIGGER, which does as much as
+  // it can and no more: with nothing legal to point at, the unit is still
+  // played and the trigger simply doesn't fire (Annie-Stubborn with an empty
+  // trash, First Mate as your first unit, Maddened Marauder on an empty
+  // board). Only ever permitted when the board really offers no choice —
+  // otherwise a caster could dodge a mandatory trigger by omitting the field.
+  // A Spell's targeting is its whole effect, so this never applies there.
+  const targetOmissionAllowed = card.kind === "Unit" && !hasAnyLegalEffectChoice(state, action.playerIndex, targeting);
+  // Nothing was chosen AND nothing could have been — skip the targeting
+  // checks only (never the payment/destination/Vision ones below).
+  const omitted =
+    targetOmissionAllowed &&
+    action.targetUnitInstanceId === undefined &&
+    action.secondTargetUnitInstanceId === undefined &&
+    action.trashCardInstanceId === undefined;
+
+  if (omitted) {
+    // fall through to the cost/destination checks below
+  } else if (targeting.kind === "unit") {
     if (!action.targetUnitInstanceId) {
       return fail(`${card.name} requires a target unit`);
     }
