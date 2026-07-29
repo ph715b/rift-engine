@@ -1,4 +1,38 @@
+# Dependencies and build output
 node_modules/
 dist/
-*.log
+*.tsbuildinfo
+
+# Caches (vite writes into node_modules/.vite, but a root one can appear too)
+.vite/
+coverage/
+
+# Local rules reference material — the official Riftbound Core Rules,
+# per-set patch notes and errata PDFs live in docs/ for citation while
+# working, but are Riot's content and large (the Core Rules alone is ~39MB),
+# so they stay local. Cite RULE NUMBERS in code and in
+# docs/rules-conformance.md rather than copying text in.
+# Deliberately committing one? `git add -f <file>`.
+*.pdf
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Test artifacts (no committed Playwright config yet — see
+# docs/rules-conformance.md; the live driver writes to a scratchpad instead)
+test-results/
+playwright-report/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
 .DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
