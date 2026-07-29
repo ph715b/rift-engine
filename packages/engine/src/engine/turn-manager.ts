@@ -120,24 +120,34 @@ export function runStartOfTurn(state: GameState): GameState {
 }
 
 /**
- * Ends the active player's turn: heals damage, clears turn-scoped bonuses,
- * empties floating Energy/Power, resets cardsPlayedThisTurn, and rotates to
- * the next player (incrementing turnNumber when play wraps back to player
- * 0). Mirrors the general-purpose parts of TurnManager.runEnd
- * (engine/TurnManager.java:224-360) — the ~40 per-card "this turn" field
- * resets there have no equivalent yet since none of those fields exist on
- * our GameState/PlayerState (see this file's own top doc comment).
+ * Ends the active player's turn: clears turn-scoped bonuses, empties floating
+ * Energy/Power, resets cardsPlayedThisTurn, and rotates to the next player
+ * (incrementing turnNumber when play wraps back to player 0). Mirrors the
+ * general-purpose parts of TurnManager.runEnd (engine/TurnManager.java:224-360)
+ * — the ~40 per-card "this turn" field resets there have no equivalent yet
+ * since none of those fields exist on our GameState/PlayerState (see this
+ * file's own top doc comment).
+ *
+ * DELIBERATE DIVERGENCE from the Java oracle: damage is NOT healed here.
+ * TurnManager.java:277-286 clears `damage` alongside `bonus` for every unit
+ * on both sides at end of turn, which makes any damage dealt outside combat
+ * (a Spell, an on-play trigger) evaporate before it can ever matter — soften
+ * a blocker on your turn and it's whole again before your opponent attacks.
+ * Per the real rules, marked damage is removed when a SHOWDOWN ends, not when
+ * a turn does; combat.ts's own `heal` (applied to the survivors of a resolved
+ * Showdown) is the only place that clears it. `bonus` still expires here —
+ * that one genuinely is an "until end of turn" effect.
  */
 export function runEnd(state: GameState): GameState {
   if (state.phase !== "Action") {
     throw new Error(`runEnd requires Action phase, currently: ${state.phase}`);
   }
 
-  const healUnit = <T extends { damage: number; bonus: number }>(u: T): T => ({ ...u, damage: 0, bonus: 0 });
+  const expireBonuses = <T extends { damage: number; bonus: number }>(u: T): T => ({ ...u, bonus: 0 });
 
   const players = state.players.map((p) => ({
     ...p,
-    baseUnits: p.baseUnits.map(healUnit),
+    baseUnits: p.baseUnits.map(expireBonuses),
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
@@ -148,7 +158,7 @@ export function runEnd(state: GameState): GameState {
   const battlefields = state.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
-      units[playerId] = list.map(healUnit);
+      units[playerId] = list.map(expireBonuses);
     }
     return { ...bf, units };
   });
