@@ -44,8 +44,16 @@ export * from "./engine/scoring.js";
 export * from "./engine/legal-actions.js";
 export * from "./engine/rune-payment.js";
 export * from "./engine/card-effects.js";
+export * from "./engine/effect-context.js";
+export * from "./engine/effect-helpers.js";
 export * from "./engine/target-lookup.js";
 export * from "./engine/card-effect-resolution.js";
+export * from "./engine/unit-triggers.js";
+export * from "./engine/token.js";
+export * from "./engine/channel-cost.js";
+export * from "./engine/effective-might.js";
+export * from "./engine/damage-modifiers.js";
+export * from "./engine/cost-modifiers.js";
 
 export * from "./ai/heuristic-ai.js";
 

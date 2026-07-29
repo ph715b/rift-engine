@@ -141,6 +141,8 @@ export function runEnd(state: GameState): GameState {
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
+    unitsEnterReadyThisTurn: false,
+    restrictedSpellEnergy: 0,
   })) as [PlayerState, PlayerState];
 
   const battlefields = state.battlefields.map((bf) => {
@@ -161,5 +163,8 @@ export function runEnd(state: GameState): GameState {
     activePlayerIndex: nextIndex,
     turnNumber,
     phase: "Awaken",
+    // Highlander's ward only lasts "this turn" — cleared here same as every
+    // other "this turn" field above (TurnManager.java:335's own reset).
+    deathWardedUnitInstanceIds: [],
   };
 }

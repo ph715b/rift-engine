@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import { resolveShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
+import { dispatchOnSpellCast } from "../engine/unit-triggers.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
 
@@ -45,7 +46,11 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   }
 
   const poppedEntry = state.spellChain[state.spellChain.length - 1]!;
-  const resolved = resolveCardEffect(state, poppedEntry);
+  const resolvedEffect = resolveCardEffect(state, poppedEntry);
+  // On-spell-cast listeners (Ravenbloom Student, Lux-Illuminated) fire once
+  // the Spell's own effect has resolved — every ChainEntry is a Spell by
+  // construction (ChainEntry.card: SpellInstance), so this always applies.
+  const resolved = dispatchOnSpellCast(resolvedEffect, poppedEntry.playerIndex, poppedEntry.card.energyCost);
   const spellChain = resolved.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
   if (spellChain.length === 0) {
     return { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };

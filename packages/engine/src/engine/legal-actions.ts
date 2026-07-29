@@ -1,5 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type {
+  ActivateAbilityAction,
   FloatRuneAction,
   MoveUnitAction,
   PassAction,
@@ -9,7 +10,10 @@ import type {
   RecallUnitAction,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
-import { effectForCard, requiresTarget } from "./card-effects.js";
+import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
+import { modifiedEnergyCost } from "./cost-modifiers.js";
+import { cardHasOptionalExhaustCost } from "./card-effects.js";
+import { hasActivatableAbility } from "../actions/validate-activate-ability.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
  *  per Ready rune, one Power-mode (recycle) candidate per rune regardless
@@ -26,6 +30,18 @@ function floatRuneCandidates(actor: PlayerState, playerIndex: 0 | 1): FloatRuneA
     actions.push({ type: "FloatRune", playerIndex, runeId: rune.id, forPower: true });
   }
   return actions;
+}
+
+/** Every legal ActivateAbility candidate for `actor` — one per Ready unit
+ *  (base or any battlefield) they control with an activated ability
+ *  (currently just Lux-Crownguard). Included in all three branches below,
+ *  same permissiveness as floatRuneCandidates — see
+ *  validate-activate-ability.ts's own doc comment for why. */
+function activateAbilityCandidates(state: GameState, actor: PlayerState, playerIndex: 0 | 1): ActivateAbilityAction[] {
+  const ownUnits = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
+  return ownUnits
+    .filter((u) => !u.exhausted && hasActivatableAbility(u.defId))
+    .map((u) => ({ type: "ActivateAbility", playerIndex, unitInstanceId: u.instanceId }));
 }
 
 /**
@@ -81,12 +97,20 @@ export function legalActions(state: GameState): PlayerAction[] {
 
   if (state.turnState === "Showdown") {
     const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.focusHolder };
-    return [passFocus, ...floatRuneCandidates(state.players[state.focusHolder], state.focusHolder)];
+    return [
+      passFocus,
+      ...floatRuneCandidates(state.players[state.focusHolder], state.focusHolder),
+      ...activateAbilityCandidates(state, state.players[state.focusHolder], state.focusHolder),
+    ];
   }
 
   if (!state.chainOpen) {
     const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.chainPriority };
-    return [passFocus, ...floatRuneCandidates(state.players[state.chainPriority], state.chainPriority)];
+    return [
+      passFocus,
+      ...floatRuneCandidates(state.players[state.chainPriority], state.chainPriority),
+      ...activateAbilityCandidates(state, state.players[state.chainPriority], state.chainPriority),
+    ];
   }
 
   const playerIndex = state.activePlayerIndex;
@@ -96,6 +120,7 @@ export function legalActions(state: GameState): PlayerAction[] {
   const pass: PassAction = { type: "Pass", playerIndex };
   actions.push(pass);
   actions.push(...floatRuneCandidates(actor, playerIndex));
+  actions.push(...activateAbilityCandidates(state, actor, playerIndex));
 
   const playableSources = actor.championZone ? [...actor.hand, actor.championZone] : actor.hand;
   for (const card of playableSources) {
@@ -103,10 +128,11 @@ export function legalActions(state: GameState): PlayerAction[] {
     const effectiveCost = computeEffectiveCost(
       actor.floatingEnergy,
       actor.floatingPower,
-      card.energyCost,
+      modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost),
       card.powerCost,
       card.powerDomain,
       card.powerDomainAlt,
+      card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
     );
     const payment = computeAutoPayment(
       actor.channeled,
@@ -117,30 +143,98 @@ export function legalActions(state: GameState): PlayerAction[] {
     );
     if (!payment) continue; // can't afford it — not a legal move
 
-    if (requiresTarget(effectForCard(card))) {
+    const targeting = targetingForAnyCard(card);
+
+    // Base "effect choice" fan-out: one partial-action-fields variant per
+    // legal target (or a single empty variant for "none"/unregistered).
+    const effectVariants: Partial<PlayCardAction>[] = [];
+    if (targeting.kind === "unit") {
       for (const bf of state.battlefields) {
-        for (const targets of Object.values(bf.units)) {
+        for (const [ownerId, targets] of Object.entries(bf.units)) {
+          const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
+          if (targeting.owner === "friendly" && ownerIndex !== playerIndex) continue;
+          if (targeting.owner === "enemy" && ownerIndex === playerIndex) continue;
           for (const target of targets) {
-            const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, targetUnitInstanceId: target.instanceId };
-            actions.push(play);
+            if (targeting.maxMight !== undefined && target.might + target.bonus > targeting.maxMight) continue;
+            effectVariants.push({ targetUnitInstanceId: target.instanceId });
           }
         }
       }
-      continue;
+    } else if (targeting.kind === "battlefield") {
+      for (const bf of state.battlefields) effectVariants.push({ targetBattlefieldId: bf.id });
+    } else if (targeting.kind === "ownTrashCard") {
+      for (const trashCard of actor.trash) {
+        if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
+        effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
+      }
+    } else if (targeting.kind === "unitPair") {
+      // Gentlemen's Duel — cross product of every matching-owner unit at
+      // any battlefield (the two targets need not share a battlefield; the
+      // card's text has no such restriction).
+      const matching = (owner: "friendly" | "enemy") =>
+        state.battlefields.flatMap((bf) =>
+          Object.entries(bf.units).flatMap(([ownerId, units]) => {
+            const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
+            const isMatch = owner === "friendly" ? ownerIndex === playerIndex : ownerIndex !== playerIndex;
+            return isMatch ? units : [];
+          }),
+        );
+      for (const first of matching(targeting.firstOwner)) {
+        for (const second of matching(targeting.secondOwner)) {
+          if (first.instanceId === second.instanceId) continue;
+          effectVariants.push({ targetUnitInstanceId: first.instanceId, secondTargetUnitInstanceId: second.instanceId });
+        }
+      }
+    } else {
+      effectVariants.push({});
     }
 
-    const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment };
-    actions.push(play);
+    // [Vision] choice fan-out: every effect variant above also needs a
+    // recycle-true and recycle-false copy, since the choice must already be
+    // decided in the submitted action (this engine can't pause mid-resolution
+    // to ask).
+    const hasVision = card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId);
+    const afterVision: Partial<PlayCardAction>[] = hasVision
+      ? effectVariants.flatMap((v) => [
+          { ...v, visionRecycle: true },
+          { ...v, visionRecycle: false },
+        ])
+      : effectVariants;
 
-    // A Unit may ALSO be played directly to any battlefield where the actor
-    // already has a unit of their own — "reinforce" — alongside the
-    // unconditional base-play candidate just pushed above, never replacing
-    // it. Mirrors validate-play-card.ts's presence rule exactly.
-    if (card.kind === "Unit") {
-      for (const bf of state.battlefields) {
-        if ((bf.units[actor.id]?.length ?? 0) === 0) continue;
-        const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, destinationBattlefieldId: bf.id };
-        actions.push(reinforce);
+    // Meditation's optional additional cost: a "decline" copy of every
+    // variant above, plus one copy per ready friendly unit (base or
+    // battlefield) the caster could exhaust instead — same "the choice must
+    // already be decided" reasoning as Vision above.
+    const hasOptionalExhaustCost = card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId);
+    const variants: Partial<PlayCardAction>[] = hasOptionalExhaustCost
+      ? afterVision.flatMap((v) => {
+          const readyFriendlyUnits = [
+            ...actor.baseUnits.filter((u) => !u.exhausted),
+            ...state.battlefields.flatMap((bf) => (bf.units[actor.id] ?? []).filter((u) => !u.exhausted)),
+          ];
+          return [v, ...readyFriendlyUnits.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }))];
+        })
+      : afterVision;
+
+    for (const variant of variants) {
+      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant };
+      actions.push(play);
+
+      // A Unit may ALSO be played directly to a battlefield where the actor
+      // already has a unit of their own — "reinforce" — alongside the
+      // unconditional base-play candidate just pushed above, never replacing
+      // it. Mirrors validate-play-card.ts's presence rule exactly, including
+      // the small open-battlefield-placement exception (Sneaky Deckhand, Sai
+      // Scout) — those additionally get every OTHER battlefield too, not
+      // just ones they already occupy.
+      if (card.kind === "Unit") {
+        const openPlacement = canPlayToOpenBattlefield(card.defId);
+        for (const bf of state.battlefields) {
+          const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
+          if (!hasPresence && !openPlacement) continue;
+          const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id };
+          actions.push(reinforce);
+        }
       }
     }
   }

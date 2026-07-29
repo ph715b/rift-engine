@@ -15,14 +15,36 @@ export interface PlayCardAction {
   card: CardInstance;
   payment: RunePayment;
   /** The unit instance this card's effect targets, if it has one (e.g. a
-   *  damage/destroy Spell). Only meaningful when the card's registered
-   *  effect requires a target — see engine/card-effects.ts. */
+   *  damage/destroy Spell), OR — for a Unit card — the target its own
+   *  on-play trigger needs (e.g. First Mate's "ready another unit"). Only
+   *  meaningful when the card's registered effect/trigger has a "unit"-kind
+   *  TargetingSpec — see engine/card-effects.ts / engine/unit-triggers.ts. */
   targetUnitInstanceId?: string;
+  /** The second target of a "unitPair"-kind effect (Gentlemen's Duel only)
+   *  — targetUnitInstanceId above is the pair's first target. */
+  secondTargetUnitInstanceId?: string;
+  /** The battlefield a "battlefield"-kind targeted effect applies to (e.g.
+   *  Firestorm's "all enemy units at a battlefield"). */
+  targetBattlefieldId?: string;
+  /** The caster's own trash card an "ownTrashCard"-kind effect returns
+   *  (Morbid Return, Annie-Stubborn's on-play trigger). */
+  trashCardInstanceId?: string;
+  /** The friendly unit (base or battlefield) exhausted as an optional
+   *  additional cost (Meditation only) — absent means the caster declined
+   *  it. See card-effects.ts's cardHasOptionalExhaustCost. */
+  additionalCostUnitInstanceId?: string;
   /** For a Unit card only: deploy directly to this battlefield instead of
    *  base. Legal only when the acting player already has a unit of their
    *  own there — mirrors ActionValidator.validateUnitDirectToBattlefield's
    *  universal (exception-free) rule, `Battlefield.hasUnitsFor(actor)`. */
   destinationBattlefieldId?: string;
+  /** Only meaningful for a Unit with the Vision on-play trigger (Mystic
+   *  Poro, Sai Scout): whether the caster chose to recycle the revealed
+   *  top card (send it to the bottom of the deck) rather than keep it on
+   *  top. Fanned into two distinct legal actions by legal-actions.ts, since
+   *  this engine can't pause mid-resolution to ask — the choice must
+   *  already be decided in the submitted action. */
+  visionRecycle?: boolean;
 }
 
 export interface PassAction {
@@ -86,6 +108,21 @@ export interface FloatRuneAction {
 }
 
 /**
+ * Activates a unit's own printed activated ability — narrowly scoped to
+ * Lux-Crownguard's "Exhaust: Add 2 restricted Energy" for now (the only
+ * activated ability in this card pool), mirroring engine/PlayerAction.java's
+ * `ActivateUnit(Card.Unit unit, Card.Unit target, RunePayment payment,
+ * String viaAbility)` shape, minus the target/payment fields no in-scope
+ * ability needs yet (add them the day a card that does is implemented,
+ * rather than speculatively).
+ */
+export interface ActivateAbilityAction {
+  type: "ActivateAbility";
+  playerIndex: 0 | 1;
+  unitInstanceId: string;
+}
+
+/**
  * The player-submittable actions implemented so far. Mirrors a subset of
  * engine/PlayerAction.java's 17-variant sealed interface (PlayCard, MoveUnit,
  * RecallUnit, ActivateGear, ActivateUnit, FloatRune, PassFocus, Pass,
@@ -95,4 +132,11 @@ export interface FloatRuneAction {
  * validate/execute pair is actually implemented (M1's turn/priority
  * skeleton), not stubbed out ahead of that logic.
  */
-export type PlayerAction = PlayCardAction | PassAction | MoveUnitAction | RecallUnitAction | PassFocusAction | FloatRuneAction;
+export type PlayerAction =
+  | PlayCardAction
+  | PassAction
+  | MoveUnitAction
+  | RecallUnitAction
+  | PassFocusAction
+  | FloatRuneAction
+  | ActivateAbilityAction;

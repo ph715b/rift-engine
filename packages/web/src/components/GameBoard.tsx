@@ -2,14 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   beginFirstTurn,
+  cardNeedsTarget,
   chooseAction,
   computeAutoPayment,
   dealOpeningHands,
-  effectForCard,
   executeMulligan,
   legalActions,
   matchesPowerDomain,
-  requiresTarget,
   submit,
   type CardInstance,
   type DeckList,
@@ -194,7 +193,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const actions = playCardActionsFor(cardInstanceId);
     const [first] = actions;
     if (!first) return undefined;
-    if (requiresTarget(effectForCard(first.card))) return undefined;
+    if (cardNeedsTarget(first.card)) return undefined;
     if (unitNeedsPlacement(actions)) return undefined;
     if (actionNeedsPayment(first)) return undefined;
     return first;
@@ -215,7 +214,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   function pendingNeedsTarget(): boolean {
-    return Boolean(pendingPlay) && requiresTarget(effectForCard(pendingPlay!.card));
+    return Boolean(pendingPlay) && cardNeedsTarget(pendingPlay!.card);
   }
 
   function pendingNeedsPlacement(): boolean {

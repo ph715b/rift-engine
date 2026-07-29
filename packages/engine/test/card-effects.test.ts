@@ -1,134 +1,44 @@
 import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { createCardInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
-import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
-import { effectForCard, requiresTarget } from "../src/engine/card-effects.js";
-import {
-  applyDirectDamageAndCheckLethal,
-  buffAllFriendlies,
-  destroyUnitDirectly,
-} from "../src/engine/card-effect-resolution.js";
+import { createCardInstance, type SpellInstance } from "../src/model/card.js";
+import { effectForCard, targetingForCard } from "../src/engine/card-effects.js";
+import { buffAllFriendlies, dealDamage, destroyUnit } from "../src/engine/effect-helpers.js";
 import { runEnd } from "../src/engine/turn-manager.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-
-function spellInstance(defId: string): SpellInstance {
-  return createCardInstance(defaultCardRegistry().get(defId)) as SpellInstance;
-}
-
-let unitCounter = 0;
-function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
-  unitCounter += 1;
-  return {
-    instanceId: `unit-${unitCounter}`,
-    defId: "TEST-000",
-    name: overrides.name ?? `Test Unit ${unitCounter}`,
-    domains: [],
-    exhausted: false,
-    isToken: false,
-    kind: "Unit",
-    energyCost: 0,
-    powerCost: 0,
-    powerDomain: null,
-    might: 3,
-    isChampion: false,
-    keywords: {},
-    isReaction: false,
-    tags: [],
-    damage: 0,
-    bonus: 0,
-    ...overrides,
-  };
-}
-
-function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerState {
-  return {
-    id,
-    name: id,
-    legend: {
-      instanceId: `${id}-legend`,
-      defId: "TEST-LEGEND",
-      name: "Test Legend",
-      domains: [],
-      exhausted: false,
-      isToken: false,
-      kind: "Legend",
-      championTag: "TEST",
-    },
-    championZone: null,
-    deck: [],
-    hand: [],
-    trash: [],
-    banished: [],
-    activeGear: [],
-    runeDeck: [],
-    channeled: [],
-    baseUnits: [],
-    points: 0,
-    floatingEnergy: 0,
-    floatingPower: {},
-    cardsPlayedThisTurn: 0,
-    conqueredBattlefieldsThisTurn: [],
-    ...overrides,
-  };
-}
-
-function makeState(overrides: Partial<GameState> = {}): GameState {
-  const p1 = makePlayer("p1");
-  const p2 = makePlayer("p2");
-  const battlefields: BattlefieldState[] = [
-    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {} },
-    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {} },
-  ];
-  return {
-    players: [p1, p2],
-    battlefields,
-    activePlayerIndex: 0,
-    turnNumber: 1,
-    phase: "Action",
-    turnState: "Neutral",
-    focusHolder: 0,
-    showdownBattlefieldId: null,
-    consecutiveFocusPasses: 0,
-    chainOpen: true,
-    chainPriority: 0,
-    chainPasses: 0,
-    spellChain: [],
-    ...overrides,
-  };
-}
+import { makeState, makeUnit, spellInstance } from "./fixtures.js";
 
 describe("card-effects registry", () => {
-  it("resolves the 5 registered cards to the right effect shape", () => {
-    expect(effectForCard(spellInstance("OGS-003"))).toEqual({ kind: "DealDamage", amount: 2 }); // Incinerate
-    expect(effectForCard(spellInstance("OGN-085"))).toEqual({ kind: "DealDamage", amount: 6 }); // Falling Comet
-    expect(effectForCard(spellInstance("OGS-022"))).toEqual({ kind: "DealDamage", amount: 8 }); // Final Spark
-    expect(effectForCard(spellInstance("OGS-012"))).toEqual({ kind: "DestroyUnit" }); // Blast of Power
-    expect(effectForCard(spellInstance("OGS-024"))).toEqual({ kind: "BuffAllFriendlies", amount: 2 }); // Decisive Strike
+  it("has an effect registered, with the right targeting shape, for the 5 launch cards", () => {
+    expect(targetingForCard(spellInstance("OGS-003"))).toEqual({ kind: "unit" }); // Incinerate
+    expect(targetingForCard(spellInstance("OGN-085"))).toEqual({ kind: "unit" }); // Falling Comet
+    expect(targetingForCard(spellInstance("OGS-022"))).toEqual({ kind: "unit" }); // Final Spark
+    expect(targetingForCard(spellInstance("OGS-012"))).toEqual({ kind: "unit" }); // Blast of Power
+    expect(targetingForCard(spellInstance("OGS-024"))).toEqual({ kind: "none" }); // Decisive Strike
   });
 
   it("returns undefined for an unregistered card", () => {
-    expect(effectForCard(spellInstance("OGN-134"))).toBeUndefined(); // Mobilize — no registered effect
+    // Cannon Barrage — deliberately unregistered (see card-effects.ts's own
+    // doc comment: its effect only has real targets during an open
+    // Showdown, which can't be cast into yet).
+    expect(effectForCard(spellInstance("OGN-127"))).toBeUndefined();
   });
 
-  it("requiresTarget is true only for DealDamage/DestroyUnit", () => {
-    expect(requiresTarget({ kind: "DealDamage", amount: 2 })).toBe(true);
-    expect(requiresTarget({ kind: "DestroyUnit" })).toBe(true);
-    expect(requiresTarget({ kind: "BuffAllFriendlies", amount: 2 })).toBe(false);
-    expect(requiresTarget(undefined)).toBe(false);
+  it("targetingForCard defaults to 'none' for an unregistered card", () => {
+    expect(targetingForCard(spellInstance("OGN-127"))).toEqual({ kind: "none" });
   });
 });
 
-describe("applyDirectDamageAndCheckLethal", () => {
+describe("dealDamage", () => {
   it("below-lethal damage adds to .damage; the unit survives at its battlefield", () => {
     const target = makeUnit({ might: 5 });
     let state = makeState();
     state.battlefields[0]!.units = { p2: [target] };
 
-    state = applyDirectDamageAndCheckLethal(state, target.instanceId, 3);
+    state = dealDamage(state, 0, target.instanceId, 3);
 
     expect(state.battlefields[0]!.units["p2"]).toHaveLength(1);
     expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(3);
@@ -140,7 +50,7 @@ describe("applyDirectDamageAndCheckLethal", () => {
     let state = makeState({ activePlayerIndex: 0 }); // p1 is the caster
     state.battlefields[0]!.units = { p2: [target] }; // p2 owns the target
 
-    state = applyDirectDamageAndCheckLethal(state, target.instanceId, 3);
+    state = dealDamage(state, 0, target.instanceId, 3);
 
     expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
     expect(state.players[1]!.trash).toHaveLength(1); // owner's (p2's) trash
@@ -153,7 +63,7 @@ describe("applyDirectDamageAndCheckLethal", () => {
     let state = makeState();
     state.battlefields[0]!.units = { p2: [target] };
 
-    state = applyDirectDamageAndCheckLethal(state, target.instanceId, 3);
+    state = dealDamage(state, 0, target.instanceId, 3);
 
     expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
     expect(state.players[1]!.trash).toHaveLength(1);
@@ -161,17 +71,17 @@ describe("applyDirectDamageAndCheckLethal", () => {
 
   it("no-ops if the target isn't found on any battlefield", () => {
     const state = makeState();
-    expect(applyDirectDamageAndCheckLethal(state, "nonexistent", 5)).toBe(state);
+    expect(dealDamage(state, 0, "nonexistent", 5)).toBe(state);
   });
 });
 
-describe("destroyUnitDirectly", () => {
+describe("destroyUnit", () => {
   it("unconditionally trashes the unit regardless of remaining Might/Shield, no damage applied first", () => {
     const target = makeUnit({ might: 20, keywords: { Shield: 10 } });
     let state = makeState();
     state.battlefields[0]!.units = { p2: [target] };
 
-    state = destroyUnitDirectly(state, target.instanceId);
+    state = destroyUnit(state, target.instanceId);
 
     expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
     expect(state.players[1]!.trash).toHaveLength(1);

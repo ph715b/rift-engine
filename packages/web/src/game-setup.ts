@@ -42,5 +42,6 @@ export function createNewGame(config: MatchConfig, seed: number): GameState {
     chainPriority: 0,
     chainPasses: 0,
     spellChain: [],
+    deathWardedUnitInstanceIds: [],
   };
 }

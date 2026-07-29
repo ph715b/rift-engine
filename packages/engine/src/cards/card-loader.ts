@@ -89,6 +89,18 @@ function parseKeywords(text: string): Partial<Record<Keyword, number>> {
   return result;
 }
 
+/**
+ * Cards whose printed text grants "enters ready" as plain prose ("I enter
+ * ready.") rather than the bracketed `[Quick]` keyword tag `parseKeywords`
+ * looks for — confirmed by direct inspection of both cards' raw text
+ * (Vanguard Attendant: "I enter ready."; Master Yi - Honed: "[Ganking] I
+ * enter ready."). Mechanically identical to Quick (execute-play-card.ts's
+ * `exhausted: !("Quick" in card.keywords)`), so reuse that existing,
+ * already-correct mechanism rather than adding a redundant on-play
+ * un-exhaust effect for the same outcome.
+ */
+const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009"]); // Vanguard Attendant, Master Yi - Honed
+
 function isGenuinelyHidden(plain: string, name: string): boolean {
   return plain.includes("[Hidden]") && !HIDDEN_KEYWORD_FALSE_POSITIVES.has(name);
 }
@@ -129,7 +141,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerCost,
         might: card.attributes.might ?? 0,
         isChampion: card.classification.supertype === "Champion",
-        keywords: parseKeywords(plain),
+        keywords: { ...parseKeywords(plain), ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}) },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
         hidden: isGenuinelyHidden(plain, name),
         isReaction: plain.includes("[Reaction]"),

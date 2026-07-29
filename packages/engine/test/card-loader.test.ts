@@ -86,3 +86,20 @@ describe("loadBattlefieldDefinitions", () => {
     expect(altar?.text).toContain("Recruit unit token");
   });
 });
+
+describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not just [bracket] tags", () => {
+  it("Vanguard Attendant (OGS-016) gets Quick despite no [Quick] bracket in its text", () => {
+    const def = defaultCardRegistry().get("OGS-016");
+    if (def.type !== "Unit") throw new Error("unreachable");
+    expect(def.name).toBe("Vanguard Attendant");
+    expect(def.text).not.toContain("[Quick]");
+    expect(def.keywords.Quick).toBe(1);
+  });
+
+  it("Master Yi - Honed (OGS-009) keeps its real [Ganking] tag AND gets Quick from plain text", () => {
+    const def = defaultCardRegistry().get("OGS-009");
+    if (def.type !== "Unit") throw new Error("unreachable");
+    expect(def.keywords.Ganking).toBe(1);
+    expect(def.keywords.Quick).toBe(1);
+  });
+});

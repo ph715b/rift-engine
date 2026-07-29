@@ -30,6 +30,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
+    unitsEnterReadyThisTurn: false,
+    restrictedSpellEnergy: 0,
   };
 }
 
@@ -70,6 +72,7 @@ function buildFixture() {
     chainPriority: 0,
     chainPasses: 0,
     spellChain: [],
+    deathWardedUnitInstanceIds: [],
   };
 
   return { state, poro };
@@ -514,6 +517,7 @@ describe("PlayCard: Tibbers' hybrid Fury/Chaos Power cost (OGS-018)", () => {
       chainPriority: 0,
       chainPasses: 0,
       spellChain: [],
+      deathWardedUnitInstanceIds: [],
     };
 
     return { state, tibbers, energyRuneIds };
@@ -589,5 +593,79 @@ describe("PlayCard: Tibbers' hybrid Fury/Chaos Power cost (OGS-018)", () => {
 
     const next = executePlayCard(state, action);
     expect(next.players[0]!.floatingPower).toEqual({ Chaos: 0 });
+  });
+});
+
+describe("Confront's unitsEnterReadyThisTurn flag: units played this turn enter ready", () => {
+  it("a unit with no [Quick] still enters ready when the flag is set", () => {
+    const { state, poro } = buildFixture();
+    state.players[0]!.unitsEnterReadyThisTurn = true;
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: poro,
+      payment: { energyRunes: ["rune-1", "rune-2"], powerRunes: [] },
+    };
+
+    const next = executePlayCard(state, action);
+    expect(next.players[0]!.baseUnits[0]!.exhausted).toBe(false);
+  });
+});
+
+describe("Open-battlefield placement carve-out (Sneaky Deckhand, Sai Scout)", () => {
+  function buildOpenPlacementFixture(defId: string) {
+    const registry = defaultCardRegistry();
+    const garenLegendDef = registry.get("OGS-023");
+    const legend = createCardInstance(garenLegendDef) as LegendInstance;
+    const unit = createCardInstance(registry.get(defId)) as UnitInstance;
+
+    const player: PlayerState = emptyPlayer("p1", "Alice", legend);
+    player.hand = [unit];
+    player.channeled = Array.from({ length: unit.energyCost + unit.powerCost }, (_, i) => readyRune(`rune-${i}`, unit.powerDomain ?? "Order"));
+
+    const opponentLegendDef = registry.get("OGS-021");
+    const opponent: PlayerState = emptyPlayer("p2", "Bob", createCardInstance(opponentLegendDef) as LegendInstance);
+
+    const state: GameState = {
+      players: [player, opponent],
+      battlefields: [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {} }],
+      activePlayerIndex: 0,
+      turnNumber: 1,
+      phase: "Action",
+      turnState: "Neutral",
+      focusHolder: 0,
+      showdownBattlefieldId: null,
+      consecutiveFocusPasses: 0,
+      chainOpen: true,
+      chainPriority: 0,
+      chainPasses: 0,
+      spellChain: [],
+      deathWardedUnitInstanceIds: [],
+    };
+    return { state, unit };
+  }
+
+  it("Sneaky Deckhand can deploy directly to an empty battlefield (no presence required)", () => {
+    const { state, unit } = buildOpenPlacementFixture("OGN-176");
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: unit,
+      payment: { energyRunes: state.players[0]!.channeled.map((r) => r.id), powerRunes: [] },
+      destinationBattlefieldId: "bf1",
+    };
+    expect(validatePlayCard(state, action)).toEqual({ ok: true });
+  });
+
+  it("an ordinary unit (Daring Poro) is still rejected for the same empty-battlefield placement", () => {
+    const { state, unit } = buildOpenPlacementFixture("OGN-210");
+    const action: PlayCardAction = {
+      type: "PlayCard",
+      playerIndex: 0,
+      card: unit,
+      payment: { energyRunes: state.players[0]!.channeled.map((r) => r.id), powerRunes: [] },
+      destinationBattlefieldId: "bf1",
+    };
+    expect(validatePlayCard(state, action).ok).toBe(false);
   });
 });

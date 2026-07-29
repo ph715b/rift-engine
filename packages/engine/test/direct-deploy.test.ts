@@ -59,6 +59,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
+    unitsEnterReadyThisTurn: false,
+    restrictedSpellEnergy: 0,
     ...overrides,
   };
 }
@@ -84,6 +86,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     chainPriority: 0,
     chainPasses: 0,
     spellChain: [],
+    deathWardedUnitInstanceIds: [],
     ...overrides,
   };
 }

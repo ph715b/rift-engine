@@ -84,5 +84,7 @@ export function buildPlayerFromDeckList(
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
+    unitsEnterReadyThisTurn: false,
+    restrictedSpellEnergy: 0,
   };
 }

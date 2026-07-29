@@ -60,7 +60,17 @@ export function powerAfterFloat(
 /** Single source of truth for "what does this cost after floating resources
  *  are applied" — used identically by legal-actions, validate-play-card, and
  *  (re-derived independently from raw cost) execute-play-card, so the three
- *  can never drift out of sync with each other. */
+ *  can never drift out of sync with each other.
+ *
+ *  `restrictedSpellEnergy` (Lux-Crownguard's activated ability, Spells
+ *  only — callers pass 0 for a Unit/Gear) is drained AFTER floating Energy,
+ *  never before — mirrors ActionExecutor.java:644's own order (`afterFloat`
+ *  computed first, `afterRestricted` second). The two pools' final combined
+ *  total is order-independent (both are simple floor-at-0 subtractions), but
+ *  the ORDER matters for which pool execute-play-card.ts actually drains —
+ *  floating (fungible for anything) is spent before restricted (Spells
+ *  only), so this parameter stays a distinct, later step rather than being
+ *  folded into `energyCost` before this function ever sees it. */
 export function computeEffectiveCost(
   floatingEnergy: number,
   floatingPower: Partial<Record<Domain, number>>,
@@ -68,9 +78,11 @@ export function computeEffectiveCost(
   powerCost: number,
   powerDomain: Domain | null,
   powerDomainAlt?: Domain,
+  restrictedSpellEnergy = 0,
 ): { energyCost: number; powerCost: number } {
+  const afterFloat = energyAfterFloat(floatingEnergy, energyCost);
   return {
-    energyCost: energyAfterFloat(floatingEnergy, energyCost),
+    energyCost: Math.max(0, afterFloat - restrictedSpellEnergy),
     powerCost: powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt),
   };
 }

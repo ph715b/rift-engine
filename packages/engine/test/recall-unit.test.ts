@@ -58,6 +58,8 @@ function makePlayer(id: string): PlayerState {
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
+    unitsEnterReadyThisTurn: false,
+    restrictedSpellEnergy: 0,
   };
 }
 
@@ -76,6 +78,7 @@ function makeState(): GameState {
     chainPriority: 0,
     chainPasses: 0,
     spellChain: [],
+    deathWardedUnitInstanceIds: [],
   };
 }
 

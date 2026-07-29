@@ -37,6 +37,7 @@ function buildInitialGameState(): GameState {
     chainPriority: 0,
     chainPasses: 0,
     spellChain: [],
+    deathWardedUnitInstanceIds: [],
   };
 }
 

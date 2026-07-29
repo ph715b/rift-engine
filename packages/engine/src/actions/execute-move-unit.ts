@@ -1,6 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { claimBattlefieldControl } from "../engine/combat.js";
+import { dispatchOnAttack, dispatchOnMove } from "../engine/unit-triggers.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
 
@@ -52,9 +53,16 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   if (!validation.ok) throw new Error(validation.error);
 
   let next = state;
+  const movedUnits: UnitInstance[] = [];
   for (const unitId of action.unitInstanceIds) {
     const { state: afterRemove, unit } = removeFromOrigin(next, action.playerIndex, unitId);
-    next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, { ...unit, exhausted: true });
+    const moved = { ...unit, exhausted: true };
+    movedUnits.push(moved);
+    next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, moved);
+    // On-move fires for every completed move, contested or not (Traveling
+    // Merchant, Noxian Drummer) — on-attack (below) only if it turns out to
+    // be contested, so it must wait until every unit has actually landed.
+    next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId);
   }
 
   const bf = next.battlefields.find((b) => b.id === action.destinationBattlefieldId)!;
@@ -64,6 +72,15 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
 
   if (!opponentPresent) {
     return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+  }
+
+  // Landing on a contested battlefield is "attacking," same as a Unit
+  // played directly there (execute-play-card.ts) — fires once per moved
+  // unit, before the Showdown window opens (on-attack effects aren't a
+  // priority window in this engine, same synchronous-resolution ordering
+  // on-play/on-move triggers already use).
+  for (const moved of movedUnits) {
+    next = dispatchOnAttack(next, moved, action.playerIndex, action.destinationBattlefieldId);
   }
 
   return {

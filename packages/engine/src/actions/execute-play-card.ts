@@ -1,6 +1,8 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { claimBattlefieldControl } from "../engine/combat.js";
+import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
+import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 
@@ -41,8 +43,12 @@ import { validatePlayCard } from "./validate-play-card.js";
  * Per-kind zone transition, post-payment:
  *   - Unit, no destination: hand.remove(card) or championZone.set(null) if
  *     played from there (:327-333); baseUnits.add(unit), entering play
- *     EXHAUSTED unless it has [Quick] (:376-384's full condition also
- *     excludes Accelerate/per-card exceptions, none modeled yet).
+ *     EXHAUSTED unless it has [Quick] OR the caster's unitsEnterReadyThisTurn
+ *     flag is set (Confront) (:376-384's full condition also excludes
+ *     Accelerate/per-card exceptions, none modeled yet). Once placed,
+ *     dispatchOnPlayUnit (engine/unit-triggers.ts) fires the unit's
+ *     registered on-play trigger, if any — this is the ONE place a Unit's
+ *     printed ability ever runs; a Spell's runs later, off the chain.
  *   - Unit, with destinationBattlefieldId ("reinforce" — see
  *     validate-play-card.ts's presence rule): added to that battlefield's
  *     units instead of base, exhaustion rule unchanged (destination-agnostic
@@ -102,7 +108,9 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   }
 
   // Floating Energy/Power is deducted independently here, re-derived fresh
-  // from the RAW printed cost rather than trusting validatePlayCard's
+  // from the RAW printed cost (after per-card Energy modifiers like Eager
+  // Apprentice's discount, still re-derived rather than trusted from
+  // validatePlayCard) rather than trusting validatePlayCard's full
   // effective-cost math — mirrors ActionExecutor's deductFloat, which never
   // trusts an earlier-computed value at mutation time. Energy floats freely;
   // Power floats only within its matching domain(s) (card.powerDomain is
@@ -114,7 +122,15 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // reaching into the alt domain's pool for the shortfall. For every other
   // card, altAvailable is always 0, making this identical to the old
   // single-domain formula.
-  const floatingEnergySpent = Math.min(actor.floatingEnergy, card.energyCost);
+  const modifiedEnergy = modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost);
+  const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
+  // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
+  // drains AFTER floating Energy, for whatever floating didn't cover —
+  // mirrors rune-payment.ts's computeEffectiveCost's own ordering exactly
+  // (see that function's doc comment for why the order matters here even
+  // though the combined *total* doesn't).
+  const remainingAfterFloat = modifiedEnergy - floatingEnergySpent;
+  const restrictedSpent = card.kind === "Spell" ? Math.min(actor.restrictedSpellEnergy, remainingAfterFloat) : 0;
   const primaryAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
   const altAvailable = card.powerDomainAlt !== undefined ? (actor.floatingPower[card.powerDomainAlt] ?? 0) : 0;
   const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, card.powerCost);
@@ -127,6 +143,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     channeled: remainingChanneled,
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
+    restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
     floatingPower:
       floatingPowerSpent > 0
         ? {
@@ -139,7 +156,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   };
 
   if (card.kind === "Unit") {
-    const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) };
+    const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) && !actor.unitsEnterReadyThisTurn };
     const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
     const updatedActor: PlayerState = {
       ...actor,
@@ -150,7 +167,11 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     if (action.destinationBattlefieldId === undefined) {
       const players = [...state.players] as [PlayerState, PlayerState];
       players[action.playerIndex] = { ...updatedActor, baseUnits: [...actor.baseUnits, deployedUnit] };
-      return { ...state, players };
+      const next: GameState = { ...state, players };
+      return dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, "base", {
+        ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+        ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
+      });
     }
 
     const players = [...state.players] as [PlayerState, PlayerState];
@@ -164,15 +185,25 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
       units: { ...bf.units, [actor.id]: [...(bf.units[actor.id] ?? []), deployedUnit] },
     };
 
-    const next: GameState = { ...state, players, battlefields };
+    let next: GameState = { ...state, players, battlefields };
+    next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: action.destinationBattlefieldId }, {
+      ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+      ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
+    });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
     const opponent = next.players[opponentIndex];
-    const opponentPresent = (bf.units[opponent.id]?.length ?? 0) > 0;
+    const bfAfterTrigger = next.battlefields[bfIndex]!;
+    const opponentPresent = (bfAfterTrigger.units[opponent.id]?.length ?? 0) > 0;
 
     if (!opponentPresent) {
       return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
     }
+
+    // A Unit played directly onto a contested battlefield is "attacking,"
+    // same as MoveUnit's contested case (execute-move-unit.ts) — same
+    // shared dispatchOnAttack, same before-the-Showdown-opens ordering.
+    next = dispatchOnAttack(next, deployedUnit, action.playerIndex, action.destinationBattlefieldId);
 
     return {
       ...next,
@@ -203,6 +234,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
           playerIndex: action.playerIndex,
           card,
           ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+          ...(action.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId } : {}),
+          ...(action.targetBattlefieldId !== undefined ? { targetBattlefieldId: action.targetBattlefieldId } : {}),
+          ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+          ...(action.additionalCostUnitInstanceId !== undefined
+            ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+            : {}),
         },
       ],
     };

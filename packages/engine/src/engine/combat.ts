@@ -1,6 +1,8 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
+import { effectiveMight } from "./effective-might.js";
+import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
 
 /**
  * Combat resolution (a "Showdown" in the core rules), ported from
@@ -20,19 +22,20 @@ import { recordConquest } from "./scoring.js";
 
 /** Damage a unit DEALS. Shield is purely defensive and never contributes here —
  *  only [Assault] (attacker-only) does. Mirrors ShowdownResolver.outgoingMight
- *  (engine/ShowdownResolver.java:106-147), minus every named-card exception. */
-function outgoingMight(unit: UnitInstance, isAttackingSide: boolean): number {
-  const assault = isAttackingSide ? (unit.keywords.Assault ?? 0) : 0;
-  return Math.max(0, unit.might + unit.bonus + assault);
+ *  (engine/ShowdownResolver.java:106-147), minus every named-card exception.
+ *  Routes through effectiveMight (engine/effective-might.ts) for the
+ *  keyword math AND any continuous aura (Garen - Commander, etc.) — this is
+ *  "outgoing," not "remaining," so damage is never subtracted here. */
+function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId: string, isAttackingSide: boolean): number {
+  return effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "outgoing", battlefieldId });
 }
 
 /** How much MORE damage a unit can absorb before dying. Mirrors
  *  ShowdownResolver.remainingMight (engine/ShowdownResolver.java:235-262),
  *  minus Fiora - Peerless's multiplier and Prevent (no printed card grants
  *  Prevent in this pool yet per Card.Unit.preventValue's own doc comment). */
-function remainingMight(unit: UnitInstance, isAttackingSide: boolean): number {
-  const kw = isAttackingSide ? (unit.keywords.Assault ?? 0) : (unit.keywords.Shield ?? 0);
-  return Math.max(0, unit.might + unit.bonus + kw - unit.damage);
+function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId: string, isAttackingSide: boolean): number {
+  return Math.max(0, effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "remaining", battlefieldId }) - unit.damage);
 }
 
 /**
@@ -42,12 +45,19 @@ function remainingMight(unit: UnitInstance, isAttackingSide: boolean): number {
  * minus Soraka/Backline/Tank reordering (assignedLast) and damage-assignment
  * choice (no interactive assignment modeled — natural unit-list order only).
  */
-function distribute(pool: number, order: readonly UnitInstance[], isAttackingSide: boolean): Map<string, number> {
+function distribute(
+  state: GameState,
+  pool: number,
+  order: readonly UnitInstance[],
+  ownerIndex: 0 | 1,
+  battlefieldId: string,
+  isAttackingSide: boolean,
+): Map<string, number> {
   const pending = new Map<string, number>();
   let remaining = pool;
   for (const target of order) {
     if (remaining <= 0) break;
-    const lethal = remainingMight(target, isAttackingSide);
+    const lethal = remainingMight(state, target, ownerIndex, battlefieldId, isAttackingSide);
     const hit = Math.min(remaining, lethal);
     pending.set(target.instanceId, (pending.get(target.instanceId) ?? 0) + hit);
     remaining -= hit;
@@ -66,12 +76,35 @@ function applyDamage(units: readonly UnitInstance[], pending: Map<string, number
   });
 }
 
-function removeDefeated(units: readonly UnitInstance[], isAttackingSide: boolean): UnitInstance[] {
-  return units.filter((u) => remainingMight(u, isAttackingSide) > 0);
+function removeDefeated(
+  state: GameState,
+  units: readonly UnitInstance[],
+  ownerIndex: 0 | 1,
+  battlefieldId: string,
+  isAttackingSide: boolean,
+): UnitInstance[] {
+  return units.filter((u) => remainingMight(state, u, ownerIndex, battlefieldId, isAttackingSide) > 0);
 }
 
 function heal(units: readonly UnitInstance[]): UnitInstance[] {
   return units.map((u) => (u.damage === 0 ? u : { ...u, damage: 0 }));
+}
+
+/** A defeated unit is a "death" too — checked against Highlander's ward
+ *  (death-ward.ts) the same way dealDamage/destroyUnit are (effect-helpers.ts),
+ *  reviving instead of trashing when warded. */
+function processDefeated(state: GameState, defeated: readonly UnitInstance[], ownerIndex: 0 | 1): GameState {
+  let next = state;
+  for (const unit of defeated) {
+    if (isDeathWarded(next, unit.instanceId)) {
+      next = reviveWithDeathWard(next, unit, ownerIndex);
+    } else {
+      const players = [...next.players] as [PlayerState, PlayerState];
+      players[ownerIndex] = { ...players[ownerIndex], trash: [...players[ownerIndex].trash, unit] };
+      next = { ...next, players };
+    }
+  }
+  return next;
 }
 
 /**
@@ -92,14 +125,14 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   const defenderUnits = bf.units[defender.id] ?? [];
   if (attackerUnits.length === 0 || defenderUnits.length === 0) return state;
 
-  const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(u, true), 0);
-  const defenderPool = defenderUnits.reduce((sum, u) => sum + outgoingMight(u, false), 0);
+  const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(state, u, attackerIndex, battlefieldId, true), 0);
+  const defenderPool = defenderUnits.reduce((sum, u) => sum + outgoingMight(state, u, defenderIndex, battlefieldId, false), 0);
 
-  const damageToDefenders = distribute(attackerPool, defenderUnits, false);
-  const damageToAttackers = distribute(defenderPool, attackerUnits, true);
+  const damageToDefenders = distribute(state, attackerPool, defenderUnits, defenderIndex, battlefieldId, false);
+  const damageToAttackers = distribute(state, defenderPool, attackerUnits, attackerIndex, battlefieldId, true);
 
-  const survivingAttackers = removeDefeated(applyDamage(attackerUnits, damageToAttackers), true);
-  const survivingDefenders = removeDefeated(applyDamage(defenderUnits, damageToDefenders), false);
+  const survivingAttackers = removeDefeated(state, applyDamage(attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
+  const survivingDefenders = removeDefeated(state, applyDamage(defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);
 
   const defeatedAttackers = attackerUnits.filter((u) => !survivingAttackers.some((s) => s.instanceId === u.instanceId));
   const defeatedDefenders = defenderUnits.filter((u) => !survivingDefenders.some((s) => s.instanceId === u.instanceId));
@@ -114,13 +147,9 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     },
   };
 
-  const nextPlayers = state.players.map((p): PlayerState => {
-    const defeatedHere = p.id === attacker.id ? defeatedAttackers : p.id === defender.id ? defeatedDefenders : [];
-    if (defeatedHere.length === 0) return p;
-    return { ...p, trash: [...p.trash, ...defeatedHere] };
-  }) as [PlayerState, PlayerState];
-
-  let next: GameState = { ...state, players: nextPlayers, battlefields: nextBattlefields };
+  let next: GameState = { ...state, battlefields: nextBattlefields };
+  next = processDefeated(next, defeatedAttackers, attackerIndex);
+  next = processDefeated(next, defeatedDefenders, defenderIndex);
 
   const attackerSurvived = survivingAttackers.length > 0;
   const defenderSurvived = survivingDefenders.length > 0;

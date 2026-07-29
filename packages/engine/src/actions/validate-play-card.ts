@@ -1,7 +1,9 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import { effectForCard, requiresTarget } from "../engine/card-effects.js";
+import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
+import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
+import { cardHasOptionalExhaustCost } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -25,11 +27,11 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * path. The turnState check below rejects this during an open Showdown
  * entirely (no card is castable there yet).
  *
- * Targeting is validated for the small set of registered card-effects.ts
- * effects that need one (DealDamage/DestroyUnit) — every such card in this
- * slice restricts to "a unit at a battlefield," so the check is just
- * findUnitOnBattlefield returning something. Cards with no registered
- * effect, or an untargeted one (BuffAllFriendlies), skip this entirely.
+ * Targeting is validated for registered card-effects.ts effects whose
+ * TargetingSpec.kind is "unit" — every such card in this slice restricts
+ * to "a unit at a battlefield," so the check is just findUnitOnBattlefield
+ * returning something. Cards with no registered effect, or a "none"-kind
+ * one, skip this entirely.
  */
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (action.playerIndex !== state.activePlayerIndex) {
@@ -67,26 +69,97 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     return fail("PlayCard is not implemented for Legend cards");
   }
 
-  if (requiresTarget(effectForCard(card))) {
+  const targeting = targetingForAnyCard(card);
+
+  if (targeting.kind === "unit") {
     if (!action.targetUnitInstanceId) {
       return fail(`${card.name} requires a target unit`);
     }
-    if (!findUnitOnBattlefield(state, action.targetUnitInstanceId)) {
+    const location = findUnitOnBattlefield(state, action.targetUnitInstanceId);
+    if (!location) {
       return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
+    }
+    if (targeting.owner === "friendly" && location.ownerIndex !== action.playerIndex) {
+      return fail(`${card.name} can only target a friendly unit`);
+    }
+    if (targeting.owner === "enemy" && location.ownerIndex === action.playerIndex) {
+      return fail(`${card.name} can only target an enemy unit`);
+    }
+    if (targeting.maxMight !== undefined && location.unit.might + location.unit.bonus > targeting.maxMight) {
+      return fail(`${card.name} can only target a unit with ${targeting.maxMight} Might or less`);
+    }
+  } else if (targeting.kind === "battlefield") {
+    if (!action.targetBattlefieldId) {
+      return fail(`${card.name} requires a target battlefield`);
+    }
+    if (!state.battlefields.some((bf) => bf.id === action.targetBattlefieldId)) {
+      return fail(`No battlefield with id ${action.targetBattlefieldId}`);
+    }
+  } else if (targeting.kind === "ownTrashCard") {
+    if (!action.trashCardInstanceId) {
+      return fail(`${card.name} requires a card from your trash`);
+    }
+    const trashCard = actor.trash.find((c) => c.instanceId === action.trashCardInstanceId);
+    if (!trashCard) {
+      return fail(`No card with id ${action.trashCardInstanceId} found in ${actor.name}'s trash`);
+    }
+    if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
+      return fail(`${card.name} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`);
+    }
+  } else if (targeting.kind === "unitPair") {
+    if (!action.targetUnitInstanceId || !action.secondTargetUnitInstanceId) {
+      return fail(`${card.name} requires two target units`);
+    }
+    const first = findUnitOnBattlefield(state, action.targetUnitInstanceId);
+    const second = findUnitOnBattlefield(state, action.secondTargetUnitInstanceId);
+    if (!first) return fail(`No unit with id ${action.targetUnitInstanceId} found at a battlefield`);
+    if (!second) return fail(`No unit with id ${action.secondTargetUnitInstanceId} found at a battlefield`);
+    const isFriendly = (ownerIndex: 0 | 1, owner: "friendly" | "enemy") =>
+      owner === "friendly" ? ownerIndex === action.playerIndex : ownerIndex !== action.playerIndex;
+    if (!isFriendly(first.ownerIndex, targeting.firstOwner)) {
+      return fail(`${card.name}'s first target must be ${targeting.firstOwner}`);
+    }
+    if (!isFriendly(second.ownerIndex, targeting.secondOwner)) {
+      return fail(`${card.name}'s second target must be ${targeting.secondOwner}`);
+    }
+  }
+
+  if (card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId) && action.visionRecycle === undefined) {
+    return fail(`${card.name}'s [Vision] requires a recycle choice (true or false)`);
+  }
+
+  // Meditation's optional additional cost: absent means the caster
+  // declined it (still legal — "otherwise draw 1"); if present, must be a
+  // READY unit the caster actually controls, base or battlefield (unlike
+  // most "unit" targeting above, not battlefield-only — see
+  // exhaustOwnUnitAnywhere's own doc comment).
+  if (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId) && action.additionalCostUnitInstanceId !== undefined) {
+    const id = action.additionalCostUnitInstanceId;
+    const inBase = actor.baseUnits.find((u) => u.instanceId === id);
+    const atBattlefield = inBase ? undefined : findUnitOnBattlefield(state, id);
+    const owned = inBase !== undefined || (atBattlefield !== undefined && atBattlefield.ownerIndex === action.playerIndex);
+    const unit = inBase ?? atBattlefield?.unit;
+    if (!unit || !owned) {
+      return fail(`${card.name}'s additional cost requires a friendly unit you control`);
+    }
+    if (unit.exhausted) {
+      return fail(`${card.name}'s additional cost requires a READY friendly unit`);
     }
   }
 
   // A Unit may be played directly to a battlefield only if the acting
   // player already has a unit of their own there — a pure "reinforce"
   // action. Mirrors ActionValidator.validateUnitDirectToBattlefield's
-  // universal rule (Battlefield.hasUnitsFor(actor)), minus every named-card
-  // exception that lets specific units deploy to an empty/enemy battlefield
-  // instead (Deadbloom Predator, Sneaky Deckhand, Rengar variants, etc.) —
-  // none of those cards have effects implemented yet.
+  // universal rule (Battlefield.hasUnitsFor(actor)) — minus the small,
+  // hardcoded exception for cards whose text explicitly grants open-
+  // battlefield placement (canPlayToOpenBattlefield: Sneaky Deckhand, Sai
+  // Scout), mirroring ActionValidator's own small named-card exception
+  // list (ActionValidator.java:1306-1319).
   if (card.kind === "Unit" && action.destinationBattlefieldId !== undefined) {
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
-    if ((destination.units[actor.id]?.length ?? 0) === 0) {
+    const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;
+    if (!hasPresence && !canPlayToOpenBattlefield(card.defId)) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }
@@ -99,10 +172,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   const effectiveCost = computeEffectiveCost(
     actor.floatingEnergy,
     actor.floatingPower,
-    card.energyCost,
+    modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost),
     card.powerCost,
     card.powerDomain,
     card.powerDomainAlt,
+    card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
   );
 
   if (payment.energyRunes.length !== effectiveCost.energyCost) {

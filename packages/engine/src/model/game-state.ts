@@ -9,9 +9,19 @@ import type { Phase, TurnState } from "./phase.js";
 export interface ChainEntry {
   playerIndex: 0 | 1;
   card: SpellInstance;
-  /** Only meaningful when the resolved card's registered effect requires a
-   *  target (see engine/card-effects.ts's requiresTarget). */
+  /** Only meaningful when the resolved card's registered effect has a
+   *  "unit"-kind TargetingSpec (see engine/card-effects.ts). */
   targetUnitInstanceId?: string;
+  /** Only meaningful for a "unitPair"-kind TargetingSpec (Gentlemen's
+   *  Duel) — targetUnitInstanceId above is the pair's first target. */
+  secondTargetUnitInstanceId?: string;
+  /** Only meaningful for a "battlefield"-kind TargetingSpec. */
+  targetBattlefieldId?: string;
+  /** Only meaningful for an "ownTrashCard"-kind TargetingSpec. */
+  trashCardInstanceId?: string;
+  /** Only meaningful for a card with an optional exhaust-cost (Meditation)
+   *  — see card-effects.ts's cardHasOptionalExhaustCost. */
+  additionalCostUnitInstanceId?: string;
 }
 
 /**
@@ -68,6 +78,16 @@ export interface PlayerState {
    * every Awaken (ScoringSystem.onTurnStart, engine/ScoringSystem.java:26-32).
    */
   conqueredBattlefieldsThisTurn: string[];
+  /** Confront's "Units you play this turn enter ready" — reset every
+   *  runEnd alongside the rest of this turn's transient state. */
+  unitsEnterReadyThisTurn: boolean;
+  /** Lux-Crownguard's activated ability ("Add 2 Energy. Use only to play
+   *  spells.") — a separate, more restricted pool from floatingEnergy
+   *  (that one can pay for anything; this one only Spells), drained first
+   *  when paying a Spell's Energy cost (cost-modifiers.ts). Persists until
+   *  spent, same as floatingEnergy, but still cleared at runEnd if unused
+   *  — mirrors Player.java:74/TurnManager.java:335. */
+  restrictedSpellEnergy: number;
 }
 
 /**
@@ -146,4 +166,13 @@ export interface GameState {
    *  implemented yet) — this is the correct general shape, not speculative:
    *  it needs no restructuring the moment reaction casting is added. */
   spellChain: ChainEntry[];
+  /** Highlander's "the next time it would die this turn, heal it, exhaust
+   *  it, and recall it instead" — a flat list of warded unit instanceIds
+   *  (not per-player: instanceIds are globally unique), consumed at every
+   *  point a unit would actually die (dealDamage's lethal branch in
+   *  effect-helpers.ts, combat.ts's Showdown resolution) instead of
+   *  trashing it, then cleared for that unit. Reset every runEnd, same
+   *  "this turn" lifetime as GameState.java's own set
+   *  (TurnManager.java:287-290). */
+  deathWardedUnitInstanceIds: string[];
 }
