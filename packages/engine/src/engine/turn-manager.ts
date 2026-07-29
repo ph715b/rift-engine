@@ -52,7 +52,7 @@ export function runAwaken(state: GameState): GameState {
     activeGear: p.activeGear.map((g) => ({ ...g, exhausted: false })),
     legend: { ...p.legend, exhausted: false },
     channeled: p.channeled.map((r) => (r.state === "Exhausted" ? { ...r, state: "Ready" as const } : r)),
-    conqueredBattlefieldsThisTurn: [],
+    scoredBattlefieldsThisTurn: [],
   }));
 
   return { ...next, phase: "Beginning" };

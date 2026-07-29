@@ -17,35 +17,61 @@ function isHeldBy(bf: BattlefieldState, playerId: string): boolean {
 }
 
 /**
- * Awards 1 point per battlefield the player currently holds solely. Hold
- * points always apply, including as a winning point — no sweep requirement
- * (unlike recordConquest below). Mirrors ScoringSystem.scoreHolds
- * (engine/ScoringSystem.java:38-77), minus every named-card scoring-block
- * (Tianna Crownguard, Forgotten Monument) and hold-trigger dispatch (no
- * cards with onHold effects exist yet).
+ * Beginning-Phase Hold scoring: "The Turn Player Holds all Battlefields they
+ * Control" (rule 315.2.b.3), where Hold means "maintains Control of a
+ * Battlefield they did not yet Score this turn" (rule 471.1.a).
+ *
+ * Records each scored battlefield, which it previously did not — the
+ * final-point rule asks whether every battlefield has been SCORED this turn
+ * (rule 474), and holds are half of scoring. Without this, holding one
+ * battlefield and conquering the other looked like an incomplete sweep and
+ * the winning point was wrongly withheld.
+ *
+ * Hold points always apply, including as a winning point — the sweep
+ * requirement in rule 473 is specific to gaining a point through a CONQUER.
+ * Mirrors ScoringSystem.scoreHolds (engine/ScoringSystem.java:38-77), minus
+ * every named-card scoring-block (Tianna Crownguard, Forgotten Monument) and
+ * hold-trigger dispatch (no cards with onHold effects exist yet).
  */
 export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   const player = state.players[playerIndex];
-  const heldCount = state.battlefields.filter((bf) => isHeldBy(bf, player.id)).length;
-  if (heldCount === 0) return state;
-  return updatePlayer(state, playerIndex, (p) => ({ ...p, points: p.points + heldCount }));
+  const held = state.battlefields
+    .filter((bf) => isHeldBy(bf, player.id))
+    // "did not yet Score this turn" — one score per battlefield per turn from
+    // either method (rule 471.1.b).
+    .filter((bf) => !player.scoredBattlefieldsThisTurn.includes(bf.id))
+    .map((bf) => bf.id);
+  if (held.length === 0) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    points: p.points + held.length,
+    scoredBattlefieldsThisTurn: [...p.scoredBattlefieldsThisTurn, ...held],
+  }));
 }
 
 /**
- * Records a conquest (a battlefield changing to this player's control) and
- * awards the point, subject to the final-point rule: if this would be the
- * player's WINNING point (points already at threshold - 1) and they haven't
- * conquered every battlefield this turn, the point is withheld and they
- * draw 1 compensation card instead (core rules §466.2). Mirrors
- * ScoringSystem.recordConquest (engine/ScoringSystem.java:136-195), minus
- * every named-card conquest-trigger dispatch and blocking check.
+ * A battlefield changing to this player's control. It SCORES only if they
+ * haven't already scored that battlefield this turn — "Conquer: A player gains
+ * Control of a Battlefield they did not yet Score this turn" (rule 471.1), and
+ * "A player may only Score, from either method, once per Battlefield per turn"
+ * (rule 471.1.b). Taking a battlefield back after losing it in the same turn
+ * therefore gains no second point; it used to.
+ *
+ * The point is further subject to the final-point rule: gaining a point
+ * through a Conquer while already 1 short of the Victory Score only awards it
+ * if the player has SCORED every battlefield this turn — holds count — and
+ * otherwise draws a card instead (rule 474; this comment previously cited
+ * §466.2, which in the current rules is Combat Cleanup, not scoring).
+ *
+ * Mirrors ScoringSystem.recordConquest (engine/ScoringSystem.java:136-195),
+ * minus every named-card conquest-trigger dispatch and blocking check.
  */
 export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefieldId: string): GameState {
+  const alreadyScored = state.players[playerIndex].scoredBattlefieldsThisTurn.includes(battlefieldId);
+
   let next = updatePlayer(state, playerIndex, (p) => ({
     ...p,
-    conqueredBattlefieldsThisTurn: p.conqueredBattlefieldsThisTurn.includes(battlefieldId)
-      ? p.conqueredBattlefieldsThisTurn
-      : [...p.conqueredBattlefieldsThisTurn, battlefieldId],
+    scoredBattlefieldsThisTurn: alreadyScored ? p.scoredBattlefieldsThisTurn : [...p.scoredBattlefieldsThisTurn, battlefieldId],
   }));
 
   // The conqueror's Legend fires on the conquest itself, independently of
@@ -56,11 +82,15 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   // skipped by an early return.
   next = dispatchLegendOnConquer(next, playerIndex, battlefieldId);
 
+  // Already scored here this turn — the battlefield changed hands, and the
+  // Conquer trigger above still fired, but no second point.
+  if (alreadyScored) return next;
+
   const player = next.players[playerIndex];
   if (player.points === WIN_THRESHOLD_1V1 - 1) {
     const allBattlefieldIds = next.battlefields.map((bf) => bf.id);
-    const conqueredAll = allBattlefieldIds.every((id) => player.conqueredBattlefieldsThisTurn.includes(id));
-    if (!conqueredAll) {
+    const scoredAll = allBattlefieldIds.every((id) => player.scoredBattlefieldsThisTurn.includes(id));
+    if (!scoredAll) {
       return updatePlayer(next, playerIndex, (p) => {
         const [drawnCard, ...rest] = p.deck;
         return drawnCard ? { ...p, deck: rest, hand: [...p.hand, drawnCard] } : p;

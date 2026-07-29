@@ -80,7 +80,13 @@ export interface PlayerState {
    * rules-vs-engine gap the Core-Rules-Audit found and fixed) and is reset
    * every Awaken (ScoringSystem.onTurnStart, engine/ScoringSystem.java:26-32).
    */
-  conqueredBattlefieldsThisTurn: string[];
+  /** Battlefields this player has SCORED this turn, by either method — Hold
+   *  (Beginning Phase) or Conquer. The rules cap it at one score per
+   *  battlefield per turn (rule 471.1.b), and the final-point rule asks
+   *  whether every battlefield has been SCORED, not merely conquered
+   *  (rule 474) — so holds must land in this list too. Cleared by runAwaken.
+   *  Was `conqueredBattlefieldsThisTurn`, which tracked only half of it. */
+  scoredBattlefieldsThisTurn: string[];
   /** Confront's "Units you play this turn enter ready" — reset every
    *  runEnd alongside the rest of this turn's transient state. */
   unitsEnterReadyThisTurn: boolean;

@@ -65,7 +65,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
-    conqueredBattlefieldsThisTurn: [],
+    scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     ...overrides,
@@ -115,24 +115,31 @@ describe("combat resolution (resolveShowdown)", () => {
     expect(state.players[0].points).toBe(1); // conquest awarded (not previously controlled)
   });
 
-  it("a tie (both sides survive) leaves control unchanged", () => {
+  it("both sides surviving sends the ATTACKER home (cleanup step 3d)", () => {
     // Attacker: 3 Might + Assault 2 = 5 outgoing, and (Assault also boosts its
     // own toughness while attacking) 5 toughness. Defender: 3 Might + Shield 3
     // = 3 outgoing (Shield never boosts outgoing), 6 toughness. Attacker's 5
     // dmg < defender's 6 toughness, and defender's 3 dmg < attacker's 5
-    // toughness — both sides survive.
+    // toughness — both sides survive the damage step.
+    //
+    // This test used to assert both units stayed put and called it a tie. Rule
+    // 466 step 3d says otherwise: "Recall Attackers present at the Battlefield
+    // if Defenders are still present." Failing to clear a defended battlefield
+    // costs you the position.
     const attacker = makeUnit({ might: 3, keywords: { Assault: 2 } });
     const defender = makeUnit({ might: 3, keywords: { Shield: 3 } });
     let state = makeState();
     state.battlefields[0]!.units = { p1: [attacker], p2: [defender] };
-    state.battlefields[0]!.controllerId = null;
+    state.battlefields[0]!.controllerId = "p2"; // the defender held it
 
     state = resolveShowdown(state, "bf1", 0);
 
-    expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
-    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1);
-    expect(state.battlefields[0]!.controllerId).toBeNull();
+    expect(state.battlefields[0]!.units["p1"] ?? []).toHaveLength(0); // recalled
+    expect(state.players[0]!.baseUnits.map((u) => u.instanceId)).toEqual([attacker.instanceId]);
+    expect(state.battlefields[0]!.units["p2"]).toHaveLength(1); // defender holds
+    expect(state.battlefields[0]!.controllerId).toBe("p2"); // no change of hands
     expect(state.players[0].points).toBe(0);
+    expect(state.players[1].points).toBe(0); // the defender scores nothing either
   });
 
   it("[Assault] boosts the attacker's outgoing damage; [Shield] absorbs damage for the defender", () => {
@@ -334,13 +341,13 @@ describe("scoring: the final-point conquest-sweep rule (core rules §466.2)", ()
 
     expect(state.players[0]!.points).toBe(7); // withheld, not awarded
     expect(state.players[0]!.hand).toHaveLength(1); // compensation draw instead
-    expect(state.players[0]!.conqueredBattlefieldsThisTurn).toContain("bf1");
+    expect(state.players[0]!.scoredBattlefieldsThisTurn).toContain("bf1");
   });
 
   it("awards the winning point once all battlefields are conquered in the same turn", () => {
     let state = makeState();
     state.players[0]!.points = 7;
-    state.players[0]!.conqueredBattlefieldsThisTurn = ["bf1", "bf2"];
+    state.players[0]!.scoredBattlefieldsThisTurn = ["bf1", "bf2"];
 
     state = recordConquest(state, 0, "bf3"); // the 3rd and final battlefield
 
@@ -367,7 +374,7 @@ describe("win condition via combat + scoring, end to end", () => {
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
     // Already conquered the other 2 battlefields this turn, so this conquest is the sweep's last piece.
-    state.players[0]!.conqueredBattlefieldsThisTurn = ["bf2", "bf3"];
+    state.players[0]!.scoredBattlefieldsThisTurn = ["bf2", "bf3"];
 
     state = executeMoveUnit(state, {
       type: "MoveUnit",
@@ -529,7 +536,7 @@ describe("Focus/Showdown priority window", () => {
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
     state.players[0]!.points = 7;
-    state.players[0]!.conqueredBattlefieldsThisTurn = ["bf2", "bf3"];
+    state.players[0]!.scoredBattlefieldsThisTurn = ["bf2", "bf3"];
     state = executeMoveUnit(state, {
       type: "MoveUnit",
       playerIndex: 0,

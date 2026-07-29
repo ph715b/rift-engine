@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { healAllUnits } from "./effect-helpers.js";
+import { healAllUnits, relocateToBaseUnchanged } from "./effect-helpers.js";
 
 /**
  * Combat resolution (a "Showdown" in the core rules), ported from
@@ -149,25 +149,53 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   next = processDefeated(next, defeatedAttackers, attackerIndex);
   next = processDefeated(next, defeatedDefenders, defenderIndex);
 
-  const attackerSurvived = survivingAttackers.length > 0;
-  const defenderSurvived = survivingDefenders.length > 0;
-  if (attackerSurvived && !defenderSurvived) {
-    next = updateControl(next, bfIndex, attackerIndex);
-  } else if (defenderSurvived && !attackerSurvived) {
-    next = updateControl(next, bfIndex, defenderIndex);
-  } else if (!attackerSurvived && !defenderSurvived) {
-    next = setController(next, bfIndex, null);
-  }
-  // A tie (both sides have survivors) — no control change. Mirrors updateControl's
-  // `else` branch (engine/ShowdownResolver.java:442-456), minus Symbol of the Solari.
+  // ── Combat Cleanup, rule 466 Step 3 ────────────────────────────────────
+  // 3c. "Heal all Units" — GLOBAL, not just the units that fought here: a
+  // unit softened by a Spell at another battlefield, or standing in base,
+  // heals too. Only reached after a real exchange; the uncontested
+  // early-return above performs no cleanup and so heals nothing (352).
+  next = healAllUnits(next);
 
-  // Combat cleanup (rule 461.1.a): heal EVERY unit on the board, not just the
-  // two lists that just fought. This used to heal only the survivors here, so
-  // a unit softened by a Spell at another battlefield — or standing in base —
-  // kept its damage through an unrelated fight. Only reached after a real
-  // exchange: the uncontested early-return above never heals, matching the
-  // rule that a non-combat showdown performs no cleanup.
-  return healAllUnits(next);
+  // 3d. "Recall Attackers present at the Battlefield if Defenders are still
+  // present." Failing to clear a defended battlefield sends your attackers
+  // home — without this they sat there contesting it forever, since a
+  // showdown only resolves once per move. Ordered after 3c, so they arrive
+  // healed. A Recall is not a Move (454): no move triggers fire, which is why
+  // this calls relocateToBaseUnchanged and NOT dispatchOnMove — Traveling
+  // Merchant must not discard/draw and Noxian Drummer must not make a token.
+  const defendersRemain = survivingDefenders.length > 0;
+  if (defendersRemain && survivingAttackers.length > 0) {
+    for (const unit of survivingAttackers) next = relocateToBaseUnchanged(next, unit.instanceId);
+  }
+
+  // Rule 466.5.d ("if No Result and both players have units remaining, stage a
+  // Showdown and a Combat here") is unreachable in a 2-player game: 3d removes
+  // the attackers exactly when defenders remain, so both sides can never still
+  // be present afterward. It exists for multiplayer, where a third player's
+  // units can be at the battlefield. Deliberately not implemented.
+
+  // ── Establish control, rule 466.7 ──────────────────────────────────────
+  // The rules ask one question, not three: whoever still has units here takes
+  // control if they didn't already, and if nobody does the battlefield becomes
+  // Uncontrolled. Establishing control is a Conquer when that battlefield
+  // hasn't been scored this turn (469.1) — recordConquest owns that check.
+  return establishControlAfterCombat(next, bfIndex);
+}
+
+/** Rule 466.7: the player with units remaining here Establishes Control if
+ *  they didn't already have it; with no units left from anyone, the
+ *  battlefield becomes Uncontrolled. Replaces a three-way branch on who
+ *  survived, which had no answer for "both survived" — that case is now
+ *  resolved by step 3d having already sent the attackers home. */
+function establishControlAfterCombat(state: GameState, bfIndex: number): GameState {
+  const bf = state.battlefields[bfIndex]!;
+  const playersPresent = ([0, 1] as const).filter((index) => (bf.units[state.players[index].id]?.length ?? 0) > 0);
+
+  if (playersPresent.length === 0) return setController(state, bfIndex, null);
+  if (playersPresent.length === 1) return updateControl(state, bfIndex, playersPresent[0]!);
+  // Both present — only possible in a shape 3d rules out (see above). Leave
+  // control alone rather than inventing an outcome.
+  return state;
 }
 
 function setController(state: GameState, bfIndex: number, controllerId: string | null): GameState {

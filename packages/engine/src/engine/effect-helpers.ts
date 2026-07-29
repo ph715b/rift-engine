@@ -192,13 +192,43 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
   return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: [...p.hand, returned] }));
 }
 
+/**
+ * A true Recall in the rules' sense: relocate a unit to its owner's base
+ * WITHOUT touching its state. "A Recall is when a Permanent is relocated from
+ * anywhere to its Base without it being a Move... Damage and statuses of a
+ * permanent will all remain unaffected by a Recall" (rule 454).
+ *
+ * Two things this deliberately does NOT do, both load-bearing:
+ *   - It does not exhaust. Highlander reads "heal it, exhaust it, and recall
+ *     it" precisely because a bare recall leaves readiness alone; the exhaust
+ *     comes from the card, not from the recall.
+ *   - It fires no move triggers. Recalls are explicitly not Moves (454), so
+ *     Traveling Merchant's "when I move, discard 1, then draw 1" and Noxian
+ *     Drummer's token must not fire. Do not add a dispatchOnMove call here.
+ *
+ * Used by combat cleanup step 3d. Distinct from recallUnitToBase below, which
+ * force-exhausts for the player-initiated retreat.
+ */
+export function relocateToBaseUnchanged(state: GameState, targetInstanceId: string): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location) return state;
+  const { unit, ownerIndex } = location;
+  const removed = removeUnitAnywhere(state, targetInstanceId);
+  return updatePlayer(removed, ownerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, unit] }));
+}
+
 /** Moves a unit from its battlefield to its OWNER's base, exhausted —
  *  "retreating costs your readiness," the same rule execute-recall-unit.ts
  *  already applies for the player-initiated RecallUnit action. Unlike that
  *  action (self-only, validated against the acting player), this works on
  *  either owner's units, since some card effects (Flash: friendly-only:
  *  Maddened Marauder: either owner) need to move a unit that isn't
- *  necessarily the caster's own. */
+ *  necessarily the caster's own.
+ *
+ *  NOTE: whether those two card effects should exhaust at all is an open
+ *  question — rule 454 says a Recall leaves statuses untouched, and both cards
+ *  say "move"/"to its base" without mentioning exhaustion. Filed as Unverified
+ *  in docs/rules-conformance.md rather than changed on a guess. */
 export function recallUnitToBase(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitOnBattlefield(state, targetInstanceId);
   if (!location) return state;

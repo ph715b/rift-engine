@@ -70,7 +70,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
-    conqueredBattlefieldsThisTurn: [],
+    scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     ...overrides,
