@@ -9,6 +9,11 @@ interface PlayerSideColumnProps {
   legend: LegendInstance;
   champion: UnitInstance | null;
   trashCount: number;
+  /** Opens this player's trash for browsing. Wired for BOTH players — a
+   *  trash pile is public information in Riftbound, so hiding the
+   *  opponent's would be withholding something they could just ask to see
+   *  across a real table. */
+  onViewTrash?: () => void;
   banishedCount: number;
   runeDeckCount: number;
   activeGear: GearInstance[];
@@ -19,7 +24,15 @@ interface PlayerSideColumnProps {
    *  note. */
   legendAtBottom?: boolean;
   isChampionSelectable?: boolean;
+  /** The champion can't be played right now (on the viewer's own turn) —
+   *  dimmed, matching how the hand renders its own unplayable cards. */
+  isChampionUnplayable?: boolean;
   onChampionClick?: () => void;
+  /** Clicking the champion while it ISN'T playable — explains why rather
+   *  than doing nothing (see GameBoard's unplayableReason). */
+  onChampionUnavailableClick?: () => void;
+  /** The same explanation, surfaced on hover via the card preview. */
+  championUnavailableNote?: () => string;
   onChampionDrag?: (point: DragPoint) => void;
   onChampionDragEnd?: (point: DragPoint) => void;
 }
@@ -42,13 +55,17 @@ export function PlayerSideColumn({
   legend,
   champion,
   trashCount,
+  onViewTrash,
   banishedCount,
   runeDeckCount,
   activeGear,
   isEnemy,
   legendAtBottom,
   isChampionSelectable,
+  isChampionUnplayable,
   onChampionClick,
+  onChampionUnavailableClick,
+  championUnavailableNote,
   onChampionDrag,
   onChampionDragEnd,
 }: PlayerSideColumnProps) {
@@ -60,7 +77,10 @@ export function PlayerSideColumn({
           card={champion}
           isEnemy={isEnemy}
           isSelectable={isChampionSelectable}
+          isUnplayable={isChampionUnplayable}
           onClick={onChampionClick}
+          onUnavailableClick={onChampionUnavailableClick}
+          unavailableNote={championUnavailableNote}
           onDrag={onChampionDrag}
           onDragEnd={onChampionDragEnd}
         />
@@ -82,7 +102,13 @@ export function PlayerSideColumn({
 
       <div className="side-column-meta">
         <span title="Rune deck remaining">Rune deck: {runeDeckCount}</span>
-        <span title="Trash">Trash: {trashCount}</span>
+        {onViewTrash && trashCount > 0 ? (
+          <button className="side-column-link" title="View this trash pile (public information)" onClick={onViewTrash}>
+            Trash: {trashCount}
+          </button>
+        ) : (
+          <span title="Trash">Trash: {trashCount}</span>
+        )}
         <span title="Banished">Banished: {banishedCount}</span>
         <span title="Gear in play, unattached">Gear: {activeGear.length}</span>
       </div>

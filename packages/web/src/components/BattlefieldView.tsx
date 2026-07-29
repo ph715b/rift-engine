@@ -66,6 +66,9 @@ export function BattlefieldView({
   const isClickable = isMoveTarget || isTargetable;
   const classes = ["battlefield"];
   if (isClickable) classes.push("selectable");
+  // The battlefield ITSELF is the answer being asked for (Firestorm) — same
+  // louder treatment a targetable card gets, for the same reason.
+  if (isTargetable) classes.push("targetable");
   if (isDragOver) classes.push("drag-over");
   if (isShowdownActive) classes.push("showdown");
 
@@ -82,6 +85,7 @@ export function BattlefieldView({
             card={unit}
             isEnemy
             isSelectable={isUnitTargetable(unit)}
+            isTargetable={isUnitTargetable(unit)}
             isSelected={chosenUnitIds.has(unit.instanceId)}
             onClick={() => onUnitClick(unit)}
           />
@@ -93,6 +97,7 @@ export function BattlefieldView({
             key={unit.instanceId}
             card={unit}
             isSelectable={isFriendlySelectable(unit)}
+            isTargetable={isUnitTargetable(unit)}
             isSelected={selectedUnitIds.has(unit.instanceId) || chosenUnitIds.has(unit.instanceId)}
             onClick={() => onUnitClick(unit)}
             onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}

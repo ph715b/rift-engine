@@ -6,10 +6,12 @@ import {
   cardNeedsTarget,
   chooseAction,
   computeAutoPayment,
+  computeEffectiveCost,
   dealOpeningHands,
   executeMulligan,
   legalActions,
   matchesPowerDomain,
+  modifiedEnergyCost,
   submit,
   targetingForAnyCard,
   unitTriggerHasVisionChoice,
@@ -126,6 +128,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // plays instantly on click, unchanged from before any of this existed.
   const [pendingPlay, setPendingPlay] = useState<PendingPlay | null>(null);
   const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
+  // Why the last-clicked unplayable card can't be played, shown in the header
+  // until the next action. Before this, an unplayable card had NO onClick at
+  // all and `.selectable` styling was a bare `cursor: pointer` — so "I can't
+  // cast this and nothing tells me why" was the single most confusing thing
+  // about the board (reported from live play for power-cost cards, whose
+  // blocker is usually a missing domain rune rather than anything visible).
+  const [unplayableNotice, setUnplayableNotice] = useState<string | null>(null);
+  // A trash pile being browsed (either player's — it's public information).
+  // Purely a viewer: it never feeds a pending play, which is why it's its own
+  // state rather than another PendingStep.
+  const [viewingTrash, setViewingTrash] = useState<{ label: string; cards: CardInstance[] } | null>(null);
   // Tracks the last drop zone seen during the drag (from onDrag, updated on
   // every pointer move) — read at drop time instead of recomputing there.
   // onDragEnd fires as Framer Motion is already reverting the dragged
@@ -165,6 +178,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
+    setUnplayableNotice(null);
   }
 
   // The AI's turn plays itself, one action at a time, with a short delay for feel.
@@ -246,6 +260,75 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return first;
   }
 
+  /** Why is this hand/champion card not playable right now? Re-derives the
+   *  engine's own gates in the engine's own order (timing, then cost, then
+   *  targets) using the same exported helpers `legal-actions.ts` uses, so the
+   *  explanation can't claim something different from the rule that actually
+   *  rejected it. Only ever called for a card `legal` has no candidate for,
+   *  so it always has a real answer to give.
+   *
+   *  The cost branch distinguishes a missing DOMAIN from a plain shortage,
+   *  because they're the two genuinely different problems and the fix differs:
+   *  a domain miss can't be solved by waiting a turn if the rune deck has
+   *  already dealt you the wrong colours, whereas a shortage just needs more
+   *  channeled runes. */
+  function unplayableReason(card: CardInstance): string {
+    if (!isHumanTurn) return "It's not your turn.";
+    if (state.phase !== "Action") return `Cards can only be played during the Action phase — it's currently ${state.phase}.`;
+    if (state.turnState === "Showdown") return "Cards can't be played while a Showdown is open — reaction-speed casting isn't implemented yet.";
+    if (!state.chainOpen) return "A spell is waiting to resolve — pass priority first.";
+    if (card.kind === "Legend") return "Legend cards can't be played.";
+
+    const effective = computeEffectiveCost(
+      human.floatingEnergy,
+      human.floatingPower,
+      modifiedEnergyCost(state, HUMAN_INDEX, card.kind, card.energyCost),
+      card.powerCost,
+      card.powerDomain,
+      card.powerDomainAlt,
+      card.kind === "Spell" ? human.restrictedSpellEnergy : 0,
+    );
+    const payment = computeAutoPayment(
+      human.channeled,
+      effective.energyCost,
+      effective.powerCost,
+      card.powerDomain,
+      card.powerDomainAlt,
+    );
+    if (!payment) {
+      const matching = human.channeled.filter((r) => matchesPowerDomain(r, card.powerDomain, card.powerDomainAlt));
+      if (effective.powerCost > matching.length) {
+        const domain = card.powerDomainAlt !== undefined ? `${card.powerDomain} or ${card.powerDomainAlt}` : `${card.powerDomain}`;
+        return `${card.name} needs ${effective.powerCost} ${domain} Power, but you have ${matching.length} ${domain} rune${matching.length === 1 ? "" : "s"} channeled.`;
+      }
+      const ready = human.channeled.filter((r) => r.state === "Ready").length;
+      const pool =
+        ready === human.channeled.length
+          ? `you only have ${ready} channeled rune${ready === 1 ? "" : "s"}`
+          : `only ${ready} of your ${human.channeled.length} channeled runes ${ready === 1 ? "is" : "are"} ready`;
+      return `${card.name} costs ${effective.energyCost} Energy, but ${pool}.`;
+    }
+
+    // Affordable, so the blocker is the effect's own targeting — the card
+    // simply has nothing legal to point at yet.
+    const targeting = targetingForAnyCard(card);
+    switch (targeting.kind) {
+      case "unit": {
+        const who = targeting.owner === "friendly" ? "friendly " : targeting.owner === "enemy" ? "enemy " : "";
+        const might = targeting.maxMight !== undefined ? `with ${targeting.maxMight} Might or less ` : "";
+        return `${card.name} needs a ${who}unit ${might}at a battlefield to target — there isn't one.`;
+      }
+      case "unitPair":
+        return `${card.name} needs both a friendly AND an enemy unit at a battlefield — the board doesn't have both.`;
+      case "battlefield":
+        return `${card.name} needs a battlefield to target.`;
+      case "ownTrashCard":
+        return `${card.name} needs a ${targeting.cardKind ?? "card"} in your trash — you have none there.`;
+      default:
+        return `${card.name} can't be played right now.`;
+    }
+  }
+
   /** Every `legal` candidate still consistent with the choices made on
    *  `pendingPlay` so far — a choice not yet made is a wildcard, so this
    *  narrows with each click. THE single source for "what can I click right
@@ -282,31 +365,46 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  resolved and only a rune payment (if any) is left. Board-click steps
    *  come first, modal steps last — see PendingStep's own doc comment.
    *
-   *  The `additionalCost` step is skipped outright when no candidate
-   *  actually carries an `additionalCostUnitInstanceId` (Meditation cast
-   *  with no ready friendly unit anywhere): legal-actions.ts:208-217 then
-   *  only ever fans out the "decline" variant, so there'd be nothing to
-   *  choose BETWEEN — prompting for a decision the player can only answer
-   *  one way would be a dead end, not a choice. */
+   *  A step is only ever asked when the candidate set actually OFFERS that
+   *  choice (`offers` below) — a question the player can only answer one way,
+   *  or can't answer at all, is a dead end rather than a decision. Two real
+   *  cases: Meditation with no ready friendly unit (legal-actions.ts fans out
+   *  only the "decline" variant), and a Unit whose on-play trigger has
+   *  nothing to point at — Annie-Stubborn on an empty trash, First Mate as
+   *  your first unit — which the engine now plays with the trigger simply not
+   *  firing (see validate-play-card.ts's targetOmissionAllowed). Without this,
+   *  the UI would open an empty trash chooser over a card the engine was
+   *  perfectly happy to play. */
   function pendingStep(): PendingStep | null {
     const pending = pendingPlay;
     if (!pending) return null;
     const targeting = targetingForAnyCard(pending.card);
-    const actions = playCardActionsFor(pending.card.instanceId);
+    // Narrowed by the choices already made, so e.g. a pair's second slot is
+    // judged against the first target's own candidates.
+    const candidates = pendingCandidates();
+    const offers = (field: keyof PlayCardAction) => candidates.some((a) => a[field] !== undefined);
 
-    if ((targeting.kind === "unit" || targeting.kind === "unitPair") && pending.targetUnitInstanceId === undefined) return "firstTarget";
-    if (targeting.kind === "unitPair" && pending.secondTargetUnitInstanceId === undefined) return "secondTarget";
-    if (targeting.kind === "battlefield" && pending.targetBattlefieldId === undefined) return "battlefieldTarget";
-    if (unitNeedsPlacement(actions) && pending.destinationBattlefieldId === undefined) return "placement";
+    if ((targeting.kind === "unit" || targeting.kind === "unitPair") && pending.targetUnitInstanceId === undefined) {
+      if (offers("targetUnitInstanceId")) return "firstTarget";
+    }
+    if (targeting.kind === "unitPair" && pending.secondTargetUnitInstanceId === undefined) {
+      if (offers("secondTargetUnitInstanceId")) return "secondTarget";
+    }
+    if (targeting.kind === "battlefield" && pending.targetBattlefieldId === undefined) {
+      if (offers("targetBattlefieldId")) return "battlefieldTarget";
+    }
+    if (unitNeedsPlacement(candidates) && pending.destinationBattlefieldId === undefined) return "placement";
     if (
       pending.card.kind === "Spell" &&
       cardHasOptionalExhaustCost(pending.card.defId) &&
       !pending.additionalCostResolved &&
-      actions.some((a) => a.additionalCostUnitInstanceId !== undefined)
+      offers("additionalCostUnitInstanceId")
     ) {
       return "additionalCost";
     }
-    if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) return "trashCard";
+    if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) {
+      if (offers("trashCardInstanceId")) return "trashCard";
+    }
     if (pending.card.kind === "Unit" && unitTriggerHasVisionChoice(pending.card.defId) && pending.visionRecycle === undefined) {
       return "vision";
     }
@@ -457,6 +555,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // stale unit selection could silently shadow this card's placement the
     // next time a battlefield/base-zone is clicked.
     setSelectedUnitIds(new Set());
+    setUnplayableNotice(null);
     setPendingPlay((prev) =>
       prev?.card.instanceId === first.card.instanceId ? null : { card: first.card, payment: { energyRunes: [], powerRunes: [] } },
     );
@@ -864,6 +963,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // both need to know exactly which phase `pendingPlay` is currently in.
   const pendingResolvedAction = pendingLegalAction();
   const currentStep = pendingStep();
+  // A ChoiceOverlay is up. Its backdrop deliberately swallows board clicks,
+  // which also puts the actions row out of reach — so the row's own Cancel
+  // hides rather than sitting there visibly unpressable (the overlay carries
+  // its own Cancel for exactly this window).
+  const modalStepActive = currentStep === "trashCard" || currentStep === "vision";
 
   /** The header's "what do I click next" line for the armed card, phrased
    *  after the Java client's own prompts (ui/BoardController.java:2760-2779),
@@ -944,6 +1048,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           {pendingStillOwesPayment &&
             ` — pay for ${pendingPlay!.card.name}: left-click a rune for Energy, right-click for Power (or Auto Pay)`}
         </span>
+        {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
       </div>
 
       {isGameOver && (
@@ -955,6 +1060,24 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         />
       )}
 
+      {viewingTrash && (
+        // Read-only browser, ordered oldest-first exactly as the pile is
+        // stacked in state — cards are hoverable for their full text like any
+        // other CardView, which is the whole point of being able to look.
+        <ChoiceOverlay
+          title={`${viewingTrash.label} (${viewingTrash.cards.length})`}
+          subtitle="Trash piles are public information — either player can look at any time."
+          cancelLabel="Close"
+          onCancel={() => setViewingTrash(null)}
+        >
+          <div className="choice-overlay-cards">
+            {viewingTrash.cards.map((card) => (
+              <CardView key={card.instanceId} card={card} inPile />
+            ))}
+          </div>
+        </ChoiceOverlay>
+      )}
+
       {currentStep === "trashCard" && pendingPlay && (
         <ChoiceOverlay title={`${pendingPlay.card.name} — choose a card from your trash`} onCancel={() => setPendingPlay(null)}>
           <div className="choice-overlay-cards">
@@ -963,6 +1086,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 key={card.instanceId}
                 card={card}
                 isSelectable
+                isTargetable
+                inPile
                 onClick={() => setPendingPlay({ ...pendingPlay, trashCardInstanceId: card.instanceId })}
               />
             ))}
@@ -1003,6 +1128,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           legend={ai.legend}
           champion={ai.championZone}
           trashCount={ai.trash.length}
+          onViewTrash={() => setViewingTrash({ label: "AI Opponent's trash", cards: ai.trash })}
           banishedCount={ai.banished.length}
           runeDeckCount={ai.runeDeck.length}
           activeGear={ai.activeGear}
@@ -1096,6 +1222,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       // validate-play-card.ts:136-148), so a base unit has to
                       // be able to answer a pending step too.
                       isSelectable={isHumanTurn && isFriendlyUnitSelectable(unit)}
+                      isTargetable={isUnitLegalTarget(unit)}
                       isSelected={selectedUnitIds.has(unit.instanceId) || pendingChosenUnitIds().has(unit.instanceId)}
                       onClick={() => handleUnitClick(unit)}
                       onDrag={canDragUnit(unit) ? trackDragZone : undefined}
@@ -1116,8 +1243,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     key={card.instanceId}
                     card={card}
                     isSelectable={isHumanTurn && isCardInteractable(card.instanceId)}
+                    isUnplayable={isHumanTurn && !isCardInteractable(card.instanceId)}
                     isSelected={pendingPlay?.card.instanceId === card.instanceId}
                     onClick={() => handleHandCardClick(card.instanceId)}
+                    onUnavailableClick={() => setUnplayableNotice(unplayableReason(card))}
+                    unavailableNote={() => unplayableReason(card)}
                     onDrag={isHumanTurn && isCardInteractable(card.instanceId) ? trackDragZone : undefined}
                     onDragEnd={
                       isHumanTurn && isCardInteractable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
@@ -1135,12 +1265,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           legend={human.legend}
           champion={human.championZone}
           trashCount={human.trash.length}
+          onViewTrash={() => setViewingTrash({ label: "Your trash", cards: human.trash })}
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
           activeGear={human.activeGear}
           legendAtBottom
           isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
+          // Gated on isHumanTurn exactly like the hand above — without it the
+          // champion was the one card that dimmed during the AI's turn, when
+          // NOTHING is playable and singling it out says nothing useful.
+          isChampionUnplayable={isHumanTurn && Boolean(human.championZone && !isCardInteractable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
+          onChampionUnavailableClick={() =>
+            human.championZone && setUnplayableNotice(unplayableReason(human.championZone))
+          }
+          championUnavailableNote={() => (human.championZone ? unplayableReason(human.championZone) : "")}
           onChampionDrag={
             isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId) ? trackDragZone : undefined
           }
@@ -1172,7 +1311,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             rather than trapping. Nothing has been submitted at this point
             (pendingPlay is a purely local proposal), so this can't strand
             anything mid-resolution. */}
-        {pendingPlay && <button onClick={() => setPendingPlay(null)}>Cancel {pendingPlay.card.name}</button>}
+        {pendingPlay && !modalStepActive && <button onClick={() => setPendingPlay(null)}>Cancel {pendingPlay.card.name}</button>}
       </div>
     </div>
   );

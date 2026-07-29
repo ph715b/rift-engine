@@ -4,6 +4,10 @@ import type { CardDefinition, CardInstance } from "@rift-engine/engine";
 interface HoveredCard {
   card: CardInstance;
   def: CardDefinition | undefined;
+  /** Why this card can't be played right now, when it can't be — shown in
+   *  the preview so the answer arrives where the eye already is, rather than
+   *  requiring the player to guess that clicking a dimmed card explains it. */
+  note?: string;
 }
 
 const HoverContext = createContext<((hovered: HoveredCard | null) => void) | null>(null);
@@ -31,7 +35,7 @@ export function HoverPreviewProvider({ children }: { children: ReactNode }) {
 }
 
 function CardPreviewOverlay({ hovered }: { hovered: HoveredCard }) {
-  const { card, def } = hovered;
+  const { card, def, note } = hovered;
   const text = def && "text" in def ? def.text : undefined;
 
   return (
@@ -47,6 +51,7 @@ function CardPreviewOverlay({ hovered }: { hovered: HoveredCard }) {
           </div>
         )}
         {text && <p className="card-preview-text">{text}</p>}
+        {note && <p className="card-preview-note">{note}</p>}
       </div>
     </div>
   );

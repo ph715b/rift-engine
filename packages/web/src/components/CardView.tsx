@@ -24,7 +24,31 @@ interface CardViewProps {
   isEnemy?: boolean;
   isSelectable?: boolean;
   isSelected?: boolean;
+  /** This card is a legal ANSWER to the question the currently-armed card is
+   *  asking (a target, a pair's second target, an additional cost, a trash
+   *  pick). Rendered far louder than plain `isSelectable`, which is true for
+   *  most cards most of the time and so can only ever be a whisper: when the
+   *  board is asking "which one?", exactly the valid ones must be obvious. */
+  isTargetable?: boolean;
+  /** A hand/champion card that CAN'T be played right now — dimmed, so the
+   *  hand reads at a glance, and still clickable via `onUnavailableClick` to
+   *  say why. */
+  isUnplayable?: boolean;
   onClick?: () => void;
+  /** Fired instead of `onClick` when the card isn't selectable — the only
+   *  way an unplayable card can explain itself, since `onClick` is
+   *  deliberately not wired in that state. */
+  onUnavailableClick?: () => void;
+  /** Why this card is unplayable, as a thunk so the reason is only computed
+   *  for the one card actually being hovered rather than for every card in
+   *  hand on every render. Surfaces in the hover preview. */
+  unavailableNote?: () => string;
+  /** This card is being shown as part of a PILE (a trash browser, a chooser)
+   *  rather than as a card in play, so its exhausted state — a fact about
+   *  units on the board — isn't rendered. A unit that happened to die
+   *  exhausted would otherwise lie on its side in the trash, implying a
+   *  tapped state that means nothing there. */
+  inPile?: boolean;
   /** When set, the card can be dragged; drop-zone detection is the caller's
    *  job (see App.tsx's `dropZoneAt`) since it needs the full board layout,
    *  not just this one card. */
@@ -53,7 +77,20 @@ interface CardViewProps {
  * `defId` via the shared registry. Keeps the engine's runtime type lean;
  * this is purely a presentation concern.
  */
-export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onDragEnd, onDrag }: CardViewProps) {
+export function CardView({
+  card,
+  isEnemy,
+  isSelectable,
+  isSelected,
+  isTargetable,
+  isUnplayable,
+  onClick,
+  onUnavailableClick,
+  unavailableNote,
+  inPile,
+  onDragEnd,
+  onDrag,
+}: CardViewProps) {
   // Real React state, not whileDrag: Framer Motion's whileDrag animation
   // object silently drops `pointerEvents` (confirmed via computed style —
   // it never reaches the DOM), so it has to be a genuine style prop instead.
@@ -73,8 +110,11 @@ export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onD
   const classes = ["card"];
   if (isEnemy) classes.push("enemy");
   if (isSelectable) classes.push("selectable");
+  if (isTargetable) classes.push("targetable");
+  if (isUnplayable) classes.push("unplayable");
   if (isSelected) classes.push("selected");
-  if (card.exhausted) classes.push("exhausted");
+  const showExhausted = Boolean(card.exhausted) && !inPile;
+  if (showExhausted) classes.push("exhausted");
   if (onDragEnd) classes.push("draggable");
 
   const powerDomainColor = def && "powerDomain" in def && def.powerDomain ? DOMAIN_COLORS[def.powerDomain] : undefined;
@@ -86,21 +126,22 @@ export function CardView({ card, isEnemy, isSelectable, isSelected, onClick, onD
       className={classes.join(" ")}
       style={isDragging ? { pointerEvents: "none" } : undefined}
       onClick={
-        isSelectable
+        isSelectable || onUnavailableClick
           ? (e) => {
               // A card's own click always wins over whatever zone it sits
               // inside (a battlefield/base zone with its own onClick for
               // moving/placing there) — without this, clicking a unit could
               // silently double-fire both handlers on the same click.
               e.stopPropagation();
-              onClick?.();
+              if (isSelectable) onClick?.();
+              else onUnavailableClick?.();
             }
           : undefined
       }
-      onMouseEnter={() => setHovered({ card, def })}
+      onMouseEnter={() => setHovered({ card, def, ...(isUnplayable && unavailableNote ? { note: unavailableNote() } : {}) })}
       onMouseLeave={() => setHovered(null)}
       initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1, rotate: card.exhausted ? 90 : 0 }}
+      animate={{ opacity: 1, scale: 1, rotate: showExhausted ? 90 : 0 }}
       exit={{ opacity: 0, scale: 0.8 }}
       transition={{ type: "spring", stiffness: 400, damping: 32 }}
       drag={Boolean(onDragEnd)}

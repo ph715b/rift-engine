@@ -83,12 +83,23 @@ button:disabled {
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--color-border);
   font-size: 1.1rem;
   flex: 0 0 auto;
+}
+
+/* Why the card you just clicked can't be played. Takes its own full-width
+   line (hence the header's flex-wrap) rather than competing with the
+   turn/phase text for the same row — it's a sentence, not a label. */
+.header-notice {
+  flex: 1 0 100%;
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+  color: var(--color-danger);
 }
 
 .header h1 {
@@ -303,6 +314,62 @@ button:disabled {
 
 .card.selectable {
   cursor: pointer;
+}
+
+/* Hovering an actionable card lifts it slightly — the affordance for "this
+   does something" that used to be nothing but a cursor change. Deliberately
+   quiet: on a normal turn most cards in hand and every ready unit is
+   selectable, so this has to read as texture, not as an alarm. */
+.card.selectable:hover {
+  border-color: var(--color-accent-dim);
+  transform: translateY(-4px);
+}
+
+/* A legal ANSWER to the question an armed card is asking. This is the loud
+   one, and it has to be: when the header says "choose a target", the whole
+   interaction depends on the player being able to see WHICH cards qualify —
+   previously indistinguishable from every other card on the board, which
+   made Maddened Marauder (its only legal target being one enemy unit)
+   effectively uncastable by a human even though every click worked. */
+.card.targetable {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 16px 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  animation: targetable-pulse 1.4s ease-in-out infinite;
+}
+
+.battlefield.targetable {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-elevated));
+  animation: targetable-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes targetable-pulse {
+  50% {
+    box-shadow: 0 0 22px 6px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+}
+
+/* A hand/champion card that can't be played right now: dimmed so the hand
+   reads at a glance. Still clickable — it explains itself in the header
+   rather than silently ignoring the click (see unplayableReason). */
+.card.unplayable {
+  opacity: 0.45;
+  cursor: help;
+}
+
+.card.unplayable:hover {
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.targetable,
+  .battlefield.targetable {
+    animation: none;
+  }
+  .card.selectable:hover {
+    transform: none;
+  }
 }
 
 .card.selected {
@@ -890,6 +957,16 @@ button:disabled {
   white-space: pre-line;
 }
 
+/* "Here's why you can't play this" — the payoff for the dimmed card and its
+   help cursor, delivered on hover rather than only on click. */
+.card-preview-note {
+  margin: 0.6rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.85rem;
+  color: var(--color-danger);
+}
+
 .rematch-panel {
   display: flex;
   flex-direction: column;
@@ -987,6 +1064,23 @@ button:disabled {
      --card-w can't inherit a locally-overridden --card-h. */
   --card-h: clamp(140px, 34dvh, 320px);
   --card-w: calc(var(--card-h) * 0.716);
+}
+
+/* A count in the side rail that's also a way in (the trash pile) — reads as
+   the surrounding meta text, not as a chunky button competing with Pass. */
+.side-column-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.side-column-link:hover {
+  color: var(--color-accent);
 }
 
 .choice-overlay-actions {

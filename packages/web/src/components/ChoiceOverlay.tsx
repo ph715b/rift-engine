@@ -6,6 +6,9 @@ interface ChoiceOverlayProps {
    *  asking, when that's clearer than the title alone. */
   subtitle?: string;
   onCancel: () => void;
+  /** Defaults to "Cancel" — read-only uses (browsing a trash pile) say
+   *  "Close" instead, since there's nothing being backed out of. */
+  cancelLabel?: string;
   children: ReactNode;
 }
 
@@ -31,7 +34,7 @@ interface ChoiceOverlayProps {
  * still shows its full art and rules text — the whole point of the panel is
  * choosing between cards, which is hard to do from a thumbnail alone.
  */
-export function ChoiceOverlay({ title, subtitle, onCancel, children }: ChoiceOverlayProps) {
+export function ChoiceOverlay({ title, subtitle, onCancel, cancelLabel = "Cancel", children }: ChoiceOverlayProps) {
   return (
     <div className="choice-overlay-backdrop">
       <div className="choice-overlay-panel">
@@ -39,7 +42,7 @@ export function ChoiceOverlay({ title, subtitle, onCancel, children }: ChoiceOve
         {subtitle && <div className="choice-overlay-subtitle">{subtitle}</div>}
         {children}
         <div className="choice-overlay-actions">
-          <button onClick={onCancel}>Cancel</button>
+          <button onClick={onCancel}>{cancelLabel}</button>
         </div>
       </div>
     </div>
