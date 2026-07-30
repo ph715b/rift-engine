@@ -221,12 +221,38 @@ const LEE_SIN: PresetDeck = {
   ),
 };
 
-// Viktor's starter deck is deliberately absent: the list supplied for it was a
-// verbatim duplicate of Lee Sin's (same Legend, champion, 17 entries,
-// battlefields and rune split), so there is nothing to add yet. Its Legend
-// (OGN-265 Viktor - Herald of the Arcane) and champions are already in the pool,
-// so it only needs the real list.
-const ALL_PRESETS: PresetDeck[] = [ANNIE, GAREN, LUX, MASTER_YI, JINX, LEE_SIN];
+/** Origins starter deck — see JINX above for the sourcing note. The third and
+ *  last of them; an earlier attempt to add this was blocked because the list
+ *  supplied was a verbatim duplicate of Lee Sin's. */
+const VIKTOR: PresetDeck = {
+  name: "Viktor: Mind + Order",
+  legendId: "OGN-265",
+  championId: "OGN-117",
+  battlefieldNames: ["Altar to Unity", "The Grand Plaza", "Trifarian War Camp"],
+  deckCardIds: deck(
+    [3, "OGN-084"], // Eager Apprentice
+    [3, "OGN-103"], // Ravenbloom Student
+    [3, "OGN-208"], // Cruel Patron
+    [3, "OGN-209"], // Cull the Weak
+    [3, "OGN-216"], // Soaring Scout
+    [3, "OGN-222"], // Noxian Drummer
+    [2, "OGN-083"], // Consult the Past
+    [2, "OGN-086"], // Jeweled Colossus
+    [2, "OGN-090"], // Orb of Regret
+    [2, "OGN-093"], // Smoke Screen
+    [2, "OGN-094"], // Sprite Call
+    [2, "OGN-095"], // Stupefy
+    [2, "OGN-101"], // Mushroom Pouch
+    [2, "OGN-206"], // Back to Back
+    [2, "OGN-213"], // Hidden Blade
+    [1, "OGN-118"], // Wraith of Echoes
+    [1, "OGN-233"], // Grand Strategem
+    [1, "OGN-111"], // Heimerdinger - Inventor
+    [1, "OGN-117"], // Viktor - Innovator (the champion's own copy)
+  ),
+};
+
+const ALL_PRESETS: PresetDeck[] = [ANNIE, GAREN, LUX, MASTER_YI, JINX, LEE_SIN, VIKTOR];
 
 const BY_LEGEND = new Map(ALL_PRESETS.map((d) => [d.legendId, d]));
 

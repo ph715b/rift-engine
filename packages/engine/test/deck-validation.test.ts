@@ -59,10 +59,12 @@ describe("preset decks are all valid", () => {
     });
   }
 
-  it("includes the Origins starter decks, not just the Proving Grounds four", () => {
+  it("includes all three Origins starter decks, not just the Proving Grounds four", () => {
     const names = allPresetDecks().map((p) => p.name);
     expect(names).toContain("Jinx: Fury + Chaos");
     expect(names).toContain("Lee Sin: Calm + Body");
+    expect(names).toContain("Viktor: Mind + Order");
+    expect(allPresetDecks()).toHaveLength(7);
   });
 
   it("gives the starter decks their own battlefields rather than the legacy trio", () => {
