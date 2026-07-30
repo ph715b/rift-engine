@@ -9,6 +9,10 @@
   --color-danger: #c0455a;
   --color-friendly-zone: #232042;
   --color-enemy-zone: #2a1f26;
+  /* The chain's own colour, deliberately neither the gold accent ("you can
+     click this") nor the danger red (combat) — a cast-but-unresolved spell is
+     a third thing, and the Java client uses a purple for the same zone. */
+  --color-chain: #9b8cdf;
 
   --font-body: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -123,6 +127,14 @@ button:disabled {
   gap: 0.5rem;
   min-height: 0;
   min-width: 0;
+  /* Containing block for .chain-rail, which overlays this column rather than
+     taking a row in it — .board is a fixed-height (100dvh) overflow:hidden
+     flex column, so another competing zone is exactly the shape of change that
+     has clipped content here before. position:relative alone (z-index stays
+     auto) changes no layout and creates no stacking context, so the rail's own
+     z-index still resolves against the root — which is what keeps it under
+     .card-preview and the modal backdrop. */
+  position: relative;
 }
 
 .zone {
@@ -375,6 +387,26 @@ button:disabled {
 .card.selected {
   outline: 3px solid var(--color-accent);
   outline-offset: 1px;
+}
+
+/* Something on the chain points at this card. A THIRD state, distinct from
+   .targetable (solid gold, pulsing — "you can click this") and .selected
+   (solid gold — "you already picked this"): dashed and purple, because it
+   means "something is about to happen to this" at a moment when the board
+   isn't interactive at all. Dashed vs solid is the load-bearing difference —
+   it survives the gold/purple distinction being invisible to a colourblind
+   player, and it's how a chain highlight reads as "watch" rather than
+   "click". */
+.card.chain-targeted {
+  outline: 3px dashed var(--color-chain);
+  outline-offset: 2px;
+  box-shadow: 0 0 14px 2px color-mix(in srgb, var(--color-chain) 45%, transparent);
+}
+
+.battlefield.chain-targeted {
+  border-color: var(--color-chain);
+  background: color-mix(in srgb, var(--color-chain) 10%, var(--color-bg-elevated));
+  box-shadow: inset 0 0 0 1px var(--color-chain);
 }
 
 .card.exhausted {
@@ -967,6 +999,123 @@ button:disabled {
   color: var(--color-danger);
 }
 
+/* ── Match format (Lobby) and Best-of-3 series ──────────────────────────── */
+
+.format-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+/* A radio group in everything but markup — the two options carry real
+   consequences (battlefields are rolled in one mode and chosen in the other), so
+   each states them rather than being a bare label. */
+.format-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  flex: 1 1 16rem;
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-elevated);
+}
+
+.format-option.selected {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
+}
+
+.format-option-title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.format-option-mode {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+}
+
+.format-option-detail {
+  font-size: 0.82rem;
+  color: var(--color-text-dim);
+  white-space: normal;
+}
+
+/* Who goes first, on the mulligan screen — newly variable per game (rule
+   117.x), and it changes the mulligan decision, so it sits where the decision
+   is being made rather than only in the board header. */
+.turn-order-note {
+  font-size: 0.9rem;
+  color: var(--color-text-dim);
+  text-align: center;
+  max-width: 44rem;
+}
+
+.battlefield-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.battlefield-select-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: 13rem;
+  padding: 0.8rem 1rem;
+  text-align: left;
+  border: 1px solid var(--color-accent-dim);
+  border-radius: 10px;
+  background: var(--color-bg-elevated);
+}
+
+/* Already presented in a decided game, so out for the rest of the match (rule
+   487.3). Shown struck out rather than hidden, so the pool narrowing over the
+   match reads as the rule doing its job — by game 3 there may be only one
+   choice left, which should not look like a broken screen. */
+.battlefield-select-option.used {
+  border-color: var(--color-border);
+  border-style: dashed;
+  opacity: 0.5;
+}
+
+.battlefield-select-option.used .battlefield-select-name {
+  text-decoration: line-through;
+}
+
+.battlefield-select-name {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.battlefield-select-note {
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
+}
+
+.header-series {
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+  color: var(--color-accent);
+}
+
+.series-score {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.series-note {
+  font-size: 0.88rem;
+  color: var(--color-text-dim);
+}
+
 .rematch-panel {
   display: flex;
   flex-direction: column;
@@ -1087,4 +1236,176 @@ button:disabled {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
+}
+
+/* ── The chain (ChainView.tsx) ────────────────────────────────────────────
+   An overlay on the centre column, NOT a row in it: .board is a fixed-height
+   100dvh overflow:hidden flex column, and adding a fourth competing band is
+   the change that has clipped this board's content before. Absolute
+   positioning keeps it out of the flex layout entirely, and stretching
+   top-to-bottom with centred content puts it over the battlefields band (which
+   carries flex:1.4, so the column's vertical midpoint is inside it) without
+   measuring anything.
+
+   Left-anchored on purpose: .card-preview is fixed at the top RIGHT, so
+   hovering a chain item for its full rules text never puts the preview behind
+   this panel. z-index sits below .card-preview's 100 for that same reason, and
+   below .choice-overlay-backdrop's 90 so an open modal covers it — if the
+   player is mid-choice, the choice is what matters. */
+.chain-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Off on the rail, back on for each item (below): the empty space around the
+     panel must never swallow a board click. */
+  pointer-events: none;
+}
+
+.chain-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: min(300px, 30vw);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-chain);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-chain) 8%, var(--color-bg-elevated));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.chain-heading {
+  color: var(--color-chain);
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  flex: 0 0 auto;
+}
+
+.chain-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-chain) 40%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  pointer-events: auto;
+  /* Card thumbnails in here are being READ (which spell is this, what does it
+     say) but only need to be recognisable, not full size — the hover preview
+     is a mouse-move away. Both custom properties have to be redeclared
+     together: a var() reference resolves in the scope where THAT property is
+     defined, so the root --card-w stays locked to the root --card-h unless
+     it's redeclared with the local one (same note as .mulligan-screen and
+     .choice-overlay-cards). */
+  --card-h: clamp(56px, 9dvh, 104px);
+  --card-w: calc(var(--card-h) * 0.716);
+}
+
+/* The one that resolves next (rule 343 — newest first). Brighter, so the
+   resolution ORDER is visible in the column rather than something the player
+   has to know the rule to infer. */
+.chain-item-next {
+  border-color: var(--color-chain);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-chain) 50%, transparent);
+}
+
+/* A just-resolved entry, still on screen for a beat while its effect lands.
+   Gold rather than purple: it isn't pending any more, it's happening. */
+.chain-item.resolving {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 18px 2px color-mix(in srgb, var(--color-accent) 40%, transparent);
+  /* Non-interactive: it's a departing ghost with nothing to hover for, and it
+     briefly outlives the closed chain — i.e. it can still be on screen once
+     dragging is legal again, where an interactive panel could shadow a drop
+     zone's hit-test. */
+  pointer-events: none;
+}
+
+.chain-item-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-chain);
+}
+
+.chain-item.resolving .chain-item-badge {
+  color: var(--color-accent);
+}
+
+.chain-item-body {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.chain-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.chain-item-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.chain-item-owner {
+  font-size: 0.75rem;
+  color: var(--color-text-dim);
+}
+
+.chain-item-target {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.chain-item-target-line {
+  display: block;
+  color: var(--color-text);
+}
+
+.chain-item-target-where {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+}
+
+/* "Is the game waiting on me, or on them?" — the question the old one-line
+   header answered worst. */
+.chain-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.78rem;
+  color: var(--color-text-dim);
+  flex: 0 0 auto;
+}
+
+.chain-status-yours {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.chain-passes {
+  font-size: 0.72rem;
+  color: var(--color-text-dim);
+  font-weight: 400;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chain-item.resolving {
+    box-shadow: none;
+  }
 }

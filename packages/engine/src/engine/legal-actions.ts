@@ -15,6 +15,7 @@ import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
 import { cardHasOptionalExhaustCost, cardPlacesTokens, slotOwner } from "./card-effects.js";
 import { hasActivatableAbility } from "../actions/validate-activate-ability.js";
+import { actingPlayerIndex, mayPlayCardNow, mayPlayUnitToBattlefield } from "./timing.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
  *  per Ready rune, one Power-mode (recycle) candidate per rune regardless
@@ -63,10 +64,10 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
  * minimal valid payment rather than exploring every possible rune
  * selection — which specific rune covers a domain-agnostic Energy cost
  * never changes the outcome, and for Power there's exactly one eligible
- * domain-matching pool to draw from anyway. Every Spell in hand is a legal
- * PlayCard candidate regardless of its isAction/isReaction tags — those
- * only gate Showdown/reaction-speed timing (not modeled here), never a
- * normal-turn cast. A Spell whose registered effect (card-effects.ts)
+ * domain-matching pool to draw from anyway. Which cards are candidates in which
+ * state is decided per card by `timing.mayPlayCardNow`, reading the printed
+ * [Action]/[Reaction] keywords — the same predicate validate-play-card uses.
+ * A Spell whose registered effect (card-effects.ts)
  * requires a target fans out into one PlayCardAction per legal target —
  * every unit at any battlefield, either owner, per this slice's
  * un-restricted targeting rule. A Unit ALSO fans out into one additional
@@ -76,56 +77,62 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
  * replacing it — mirroring the MoveUnit double-loop below it in this same
  * function.
  *
- * While a Showdown is open, almost none of the above are legal (mirrors
- * ActionValidator.validateShowdownOpen's hard rejection of MoveUnit/Pass,
- * plus the fact that no Spell/Reaction-speed card is castable there yet) —
- * the only OTHER candidate is PassFocus, for whoever currently holds Focus.
- * Likewise while the chain is closed (a Spell is pending resolution) — no
- * reaction-speed cards can be played onto an already-closed chain yet, so
- * the only other candidate is PassFocus, for whoever holds chain priority.
- * FloatRune is the one exception to all of this: the real rule lets a
- * player float a rune essentially any time during the Action phase,
- * regardless of turnState/chainOpen, so it's included in every branch
- * below for whoever currently holds priority in that branch — see
- * validate-float-rune.ts's own doc comment for the full permissiveness
- * this mirrors (and the one deliberate scope cut: this engine still only
- * ever enumerates for the CURRENT priority-holder, not "either player
- * regardless of priority," since neither this function's per-call shape
- * nor the UI has ever supported acting outside that).
+ * Enumerated FOR whoever may act right now — `timing.actingPlayerIndex`: the
+ * chain-priority holder while a chain is closed (313), the Focus holder during a
+ * Showdown (348), the Turn Player otherwise. That is how "[Action] on any
+ * player's turn" (806) needs no special case here: during a Showdown the acting
+ * player alternates between both players as Focus passes.
+ *
+ * Outside a Neutral Open state, MoveUnit/RecallUnit/Pass drop out (their
+ * validators reject there, and Action/Reaction are card-play permissions that
+ * grant nothing for moving), leaving PassFocus, FloatRune, ActivateAbility, and
+ * whichever cards their timing permits. FloatRune is deliberately offered in
+ * every state — the real rule lets a player float essentially any time during
+ * the Action phase, see validate-float-rune.ts. One scope cut remains: this only
+ * ever enumerates for the CURRENT acting player, not "either player regardless
+ * of priority."
  */
 export function legalActions(state: GameState): PlayerAction[] {
   if (state.phase !== "Action") return [];
 
-  if (state.turnState === "Showdown") {
-    const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.focusHolder };
-    return [
-      passFocus,
-      ...floatRuneCandidates(state.players[state.focusHolder], state.focusHolder),
-      ...activateAbilityCandidates(state, state.players[state.focusHolder], state.focusHolder),
-    ];
-  }
-
-  if (!state.chainOpen) {
-    const passFocus: PassFocusAction = { type: "PassFocus", playerIndex: state.chainPriority };
-    return [
-      passFocus,
-      ...floatRuneCandidates(state.players[state.chainPriority], state.chainPriority),
-      ...activateAbilityCandidates(state, state.players[state.chainPriority], state.chainPriority),
-    ];
-  }
-
-  const playerIndex = state.activePlayerIndex;
+  // ONE enumeration path for every state, rather than the three it used to be
+  // (a Showdown branch, a closed-chain branch, and the real one). The old shape
+  // hard-coded "only PassFocus/FloatRune/ActivateAbility exist outside a Neutral
+  // Open state", which is exactly the assumption [Action]/[Reaction] break — and
+  // it tested `turnState === "Showdown"` BEFORE `!chainOpen`, so a spell cast
+  // into a Showdown would have enumerated for the Focus holder when the rules
+  // give priority to the chain (313). `actingPlayerIndex` has that precedence in
+  // one place now.
+  const playerIndex = actingPlayerIndex(state);
   const actor = state.players[playerIndex];
   const actions: PlayerAction[] = [];
 
-  const pass: PassAction = { type: "Pass", playerIndex };
-  actions.push(pass);
+  // "Neutral Open" in rule 310's sense: no Showdown or Combat in progress AND no
+  // chain. It's what separates the actions that end a turn or reposition units
+  // from the ones a Showdown window allows.
+  const isNeutralOpen = state.chainOpen && state.turnState === "Neutral";
+
+  if (isNeutralOpen) {
+    const pass: PassAction = { type: "Pass", playerIndex };
+    actions.push(pass);
+  } else {
+    // Passing Focus is the "I decline to respond" move that advances a Showdown
+    // (349) or a chain (340).
+    const passFocus: PassFocusAction = { type: "PassFocus", playerIndex };
+    actions.push(passFocus);
+  }
   actions.push(...floatRuneCandidates(actor, playerIndex));
   actions.push(...activateAbilityCandidates(state, actor, playerIndex));
 
   const playableSources = actor.championZone ? [...actor.hand, actor.championZone] : actor.hand;
   for (const card of playableSources) {
     if (card.kind === "Legend") continue;
+    // The per-card timing gate, and the whole reason this loop now runs in every
+    // state: a Default-tier card is only offered in a Neutral Open state, an
+    // [Action] card additionally during Showdowns, a [Reaction] card also onto a
+    // closed chain. Same predicate validate-play-card uses, so enumeration and
+    // validation can't disagree about what's castable.
+    if (!mayPlayCardNow(state, playerIndex, card)) continue;
     const effectiveCost = computeEffectiveCost(
       actor.floatingEnergy,
       actor.floatingPower,
@@ -250,6 +257,13 @@ export function legalActions(state: GameState): PlayerAction[] {
         for (const bf of state.battlefields) {
           const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
           if (!hasPresence && !openPlacement) continue;
+          // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
+          // your base or a battlefield you control. Checked here as well as in the
+          // validator, via the same shared predicate: without it, enumeration
+          // offered a [Reaction] Unit a reinforce destination the validator then
+          // refused, and the AI (which trusts legalActions and calls the executor
+          // directly) threw on it mid-game.
+          if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id)) continue;
           const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id };
           actions.push(reinforce);
         }
@@ -267,6 +281,14 @@ export function legalActions(state: GameState): PlayerAction[] {
       }
     }
   }
+
+  // Moving and recalling are Neutral-Open-only. [Action]/[Reaction] are card-play
+  // permissions and grant nothing here — validateMoveUnit/validateRecallUnit
+  // reject outside a Neutral Open state, so enumerating them would offer actions
+  // the validator refuses. (It's also why a Reaction Unit can't open a second
+  // Showdown inside one: rule 813 confines it to your base or a battlefield you
+  // already control.)
+  if (!isNeutralOpen) return actions;
 
   for (const unit of actor.baseUnits) {
     if (unit.exhausted) continue;

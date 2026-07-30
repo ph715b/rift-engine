@@ -81,18 +81,20 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
   const p1 = makePlayer("p1");
   const p2 = makePlayer("p2");
   const battlefields: BattlefieldState[] = [
-    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {} },
-    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {} },
+    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {}, contestedByIndex: null },
   ];
   return {
     players: [p1, p2],
     battlefields,
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,

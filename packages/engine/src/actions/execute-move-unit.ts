@@ -1,6 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import { claimBattlefieldControl } from "../engine/combat.js";
+import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnMove } from "../engine/unit-triggers.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
@@ -40,13 +40,18 @@ function addToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: s
  * `unit.exhaust()` runs for every move regardless of destination,
  * ActionExecutor.java:849).
  *
- * If the destination becomes contested (both players present), this OPENS a
- * Showdown (turnState/focusHolder/showdownBattlefieldId) instead of
- * resolving combat immediately — mirrors GameEngine.enterShowdown
- * (engine/GameEngine.java:829-858). Combat only actually resolves once two
- * consecutive PassFocus actions close the window (execute-pass-focus.ts).
- * Otherwise this is a walk-in: the mover claims sole control immediately,
- * recording a conquest if it changed hands.
+ * The destination becomes **Contested** if the mover doesn't already control it
+ * (rule 458) — whether or not an opponent is standing there. That is the only
+ * thing this does about Showdowns: the window itself is staged by the following
+ * Cleanup (316.9 / 341, see cleanup.stageShowdowns), which also decides whether
+ * it's a Combat Showdown (opposing units present) or a Non-Combat one.
+ *
+ * This replaced two different inline behaviours, and the second is the reason
+ * for the change: a contested destination used to open a Showdown here, while an
+ * UNCONTESTED one claimed control on the spot and scored instantly — skipping
+ * the window entirely. Rules 458/317.1 give the empty-battlefield case its own
+ * Showdown too, and 352.1 is where its control (and Conquer) is established, at
+ * the point the window closes.
  */
 export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameState {
   const validation = validateMoveUnit(state, action);
@@ -70,24 +75,17 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   const opponent = next.players[opponentIndex];
   const opponentPresent = (bf.units[opponent.id]?.length ?? 0) > 0;
 
-  if (!opponentPresent) {
-    return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+  if (opponentPresent) {
+    // Landing on a battlefield the opponent holds is "attacking," same as a Unit
+    // played directly there (execute-play-card.ts) — fires once per moved unit,
+    // before the Showdown window opens (on-attack effects aren't a priority
+    // window in this engine, same synchronous-resolution ordering on-play/on-move
+    // triggers already use). Only the Combat case has attackers, so this stays
+    // gated on the opponent actually being present rather than on Contested.
+    for (const moved of movedUnits) {
+      next = dispatchOnAttack(next, moved, action.playerIndex, action.destinationBattlefieldId);
+    }
   }
 
-  // Landing on a contested battlefield is "attacking," same as a Unit
-  // played directly there (execute-play-card.ts) — fires once per moved
-  // unit, before the Showdown window opens (on-attack effects aren't a
-  // priority window in this engine, same synchronous-resolution ordering
-  // on-play/on-move triggers already use).
-  for (const moved of movedUnits) {
-    next = dispatchOnAttack(next, moved, action.playerIndex, action.destinationBattlefieldId);
-  }
-
-  return {
-    ...next,
-    turnState: "Showdown",
-    focusHolder: next.activePlayerIndex,
-    showdownBattlefieldId: action.destinationBattlefieldId,
-    consecutiveFocusPasses: 0,
-  };
+  return applyContested(next, action.destinationBattlefieldId, action.playerIndex);
 }

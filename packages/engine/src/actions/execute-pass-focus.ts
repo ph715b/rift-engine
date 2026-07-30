@@ -1,5 +1,5 @@
 import type { GameState } from "../model/game-state.js";
-import { resolveShowdown } from "../engine/combat.js";
+import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import { dispatchOnSpellCast } from "../engine/unit-triggers.js";
 import { dispatchLegendOnSpellCast } from "../engine/legend-abilities.js";
@@ -31,13 +31,10 @@ export function executePassFocus(state: GameState, action: PassFocusAction): Gam
  * safe no-op-if-unregistered-effect behavior
  * (ActionExecutor.resolveChainEntry only dispatches `if (EffectRegistry.has(...))`).
  *
- * Deliberately NOT handling the case where the chain closes while a Showdown
- * is also open (Java's handleChainPass hands Focus back to the opponent and
- * resets consecutiveFocusPasses there, GameEngine.java:754-757) — that
- * combination can't occur in this engine yet, since validatePlayCard rejects
- * all PlayCard while turnState isn't "Neutral", so a chain can never close
- * during an open Showdown. Add that branch back if Showdown-window
- * spell-casting is supported later.
+ * A chain closing while a Showdown is ALSO open now happens routinely — that's
+ * what Action-speed casting into a Showdown produces — and rule 346 says Focus
+ * passes when it does. See the branch below (Java does the same at
+ * GameEngine.java:754-757).
  */
 function resolveChainPass(state: GameState, action: PassFocusAction): GameState {
   const chainPasses = state.chainPasses + 1;
@@ -63,14 +60,32 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   const resolved = dispatchLegendOnSpellCast(afterUnits, poppedEntry.playerIndex, totalCost);
   const spellChain = resolved.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
   if (spellChain.length === 0) {
-    return { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };
+    const reopened = { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };
+    if (reopened.turnState !== "Showdown") return reopened;
+    // Rule 346: "When the last item on the chain resolves and the turn returns to
+    // an Open State during a Showdown, Focus passes, and the next Player gains
+    // both Focus and Priority." Rule 348 is the reason it matters — playing a
+    // card during a Showdown starts a Chain, and "when that Chain closes, Focus
+    // passes to the next Player in Turn Order", so casting is a turn-taking move
+    // inside the window rather than a free action.
+    //
+    // The pass count resets because the all-passed sequence (349) was broken by
+    // someone actually doing something; without that, one earlier pass plus this
+    // cast would let the very next pass close the window.
+    //
+    // 347's exception — Focus does NOT pass if the chain was opened by a
+    // triggered ability or an Add ability — is unreachable here: nothing in this
+    // engine puts anything but a played Spell on the chain. Left as a comment
+    // rather than a branch that could never be exercised or tested.
+    const nextFocus: 0 | 1 = reopened.focusHolder === 0 ? 1 : 0;
+    return { ...reopened, focusHolder: nextFocus, chainPriority: nextFocus, consecutiveFocusPasses: 0 };
   }
   // The player who owns the next link to resolve gets priority first for a
-  // fresh round of passes on it — mirrors GameEngine.java:758-767. Currently
-  // unreachable via any public action (nothing can push a 2nd chain entry
-  // before the 1st resolves, since reaction-speed casting isn't supported
-  // yet) but kept correct and covered by a white-box test, not speculative:
-  // it needs no restructuring the moment reaction casting is added.
+  // fresh round of passes on it — mirrors GameEngine.java:758-767, and rule 345
+  // ("the controller of the newest item on the chain gains Priority"). Reachable
+  // through public actions now that [Reaction] can add to a closed chain; it was
+  // written against a white-box fixture before that, and needed no restructuring
+  // when the real path arrived.
   const newTop = spellChain[spellChain.length - 1]!;
   return { ...resolved, spellChain, chainPriority: newTop.playerIndex, chainPasses: 0 };
 }
@@ -78,17 +93,13 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
 /**
  * Mirrors GameEngine.handleFocusPassOpenShowdown (engine/GameEngine.java:396-409):
  * a single pass just flips Focus to the opponent and increments the
- * consecutive-pass counter; two consecutive passes close the window and
- * resolve combat.
+ * consecutive-pass counter; two consecutive passes close the window.
  *
- * `state.activePlayerIndex` is used as the attacker for `resolveShowdown`
- * rather than a dedicated `showdownAttackerIndex` field: it's frozen for the
- * Showdown's entire lifetime (Pass, the only action that changes it, is
- * illegal while turnState is "Showdown"), and is always the player who moved
- * the triggering unit in (validateMoveUnit requires the mover to be the
- * active player). Java's `showdownAttacker` field only needs to differ from
- * `activePlayer()` for Charm-style effects that let a caster move an
- * *enemy's* unit — nothing like that is implemented here.
+ * Rule 349: "If all Players have passed once in sequence, the Showdown ends."
+ * What happens then depends on which kind of Showdown it was, which is
+ * `closeShowdown`'s job — a Combat Showdown runs the remaining steps of Combat
+ * (351.1), a Non-Combat one just establishes Control (352.1). This used to call
+ * `resolveShowdown` directly, on the assumption that every Showdown was a fight.
  */
 function resolveShowdownFocusPass(state: GameState, action: PassFocusAction): GameState {
   const consecutiveFocusPasses = state.consecutiveFocusPasses + 1;
@@ -97,11 +108,12 @@ function resolveShowdownFocusPass(state: GameState, action: PassFocusAction): Ga
     return { ...state, focusHolder: opponent, consecutiveFocusPasses };
   }
 
-  const resolved = resolveShowdown(state, state.showdownBattlefieldId!, state.activePlayerIndex);
+  const resolved = closeShowdown(state);
   return {
     ...resolved,
     turnState: "Neutral",
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
   };
 }

@@ -4,6 +4,7 @@ import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
 import { healAllUnits, relocateToBaseUnchanged } from "./effect-helpers.js";
+import { clearContested } from "./cleanup.js";
 
 /**
  * Combat resolution (a "Showdown" in the core rules), ported from
@@ -40,11 +41,48 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
 }
 
 /**
+ * The order damage is assigned in: `[Tank]` units first, everything else after,
+ * stable within each group.
+ *
+ * Rule (Tank keyword): "I must be assigned lethal damage before any other unit
+ * with the same controller as me that does not have [Tank] during the Combat
+ * Damage step." Since `distribute` below fills each target to lethal before
+ * moving on, putting Tanks at the front of the list IS that rule — a Tank
+ * soaks a full lethal allocation before anything behind it takes a point.
+ *
+ * Three precon units have it (Maddened Marauder, Lecturing Yordle, Stormclaw
+ * Ursine), so this was affecting real games: the keyword parsed into the model
+ * and then changed nothing.
+ *
+ * `[Backline]` is the mirror ("assigned last") and is deliberately absent — it's
+ * an UNL-set keyword with no card in this pool, and the keyword model's own doc
+ * comment defers that set. It slots in here as a second sort tier when it lands.
+ *
+ * The rules let the ASSIGNING player choose freely within these constraints;
+ * this engine has no interactive assignment, so within a tier the natural
+ * unit-list order stands in for that choice.
+ */
+function assignmentOrder(units: readonly UnitInstance[]): readonly UnitInstance[] {
+  const tanks = units.filter((u) => "Tank" in u.keywords);
+  if (tanks.length === 0 || tanks.length === units.length) return units; // nothing to reorder
+  return [...tanks, ...units.filter((u) => !("Tank" in u.keywords))];
+}
+
+/**
  * Assigns `pool` damage across `order` in list order, each target taking up
  * to its own lethal need; any leftover pool dumps onto the last target
- * (overkill). Mirrors ShowdownResolver.distribute (engine/ShowdownResolver.java:349-364),
- * minus Soraka/Backline/Tank reordering (assignedLast) and damage-assignment
- * choice (no interactive assignment modeled — natural unit-list order only).
+ * (overkill).
+ *
+ * This is rule 465.2.c's assignment model, not an approximation of it: "Units
+ * must have lethal damage assigned to them in full before damage is assigned to
+ * a different Unit" (so `min(remaining, lethal)` then move on, never spreading),
+ * "Units cannot have more damage assigned to them than the minimum required to
+ * constitute lethal damage unless no further units remain" (hence the cap, and
+ * the overkill dump only onto the last), and lethal counts damage already marked
+ * (`remainingMight` subtracts `unit.damage`). Mirrors
+ * ShowdownResolver.distribute (engine/ShowdownResolver.java:349-364).
+ *
+ * Callers pass an `assignmentOrder`-sorted list, which is where Tank applies.
  */
 function distribute(
   state: GameState,
@@ -106,6 +144,50 @@ function processDefeated(state: GameState, defeated: readonly UnitInstance[], ow
 }
 
 /**
+ * Closes the open Showdown — the single exit point for "all players passed in
+ * sequence" (349), dispatching on which kind of Showdown it was.
+ *
+ * A Showdown is a window, not a fight. Rule 351.1: "If it is a Combat Showdown,
+ * proceed with the remaining steps of Combat to resolve the phase." Rule 352.1:
+ * "If it is a Non-Combat Showdown... If only one player's Units remain at the
+ * Battlefield, and if that player does not already Control the Battlefield, that
+ * player establishes Control over the Battlefield" — which "results in a Conquer
+ * if that player has not yet scored that Battlefield this turn".
+ *
+ * The Non-Combat outcome is what `executeMoveUnit` used to do inline and
+ * instantly, skipping the window; `claimBattlefieldControl` is reused so the
+ * Conquer bookkeeping (recordConquest, including the final-point rule) is
+ * literally the same code as before.
+ *
+ * Contested clears here rather than when the window merely ends, because 190.6.a
+ * ties it to Control being "established or re-established".
+ */
+export function closeShowdown(state: GameState): GameState {
+  const battlefieldId = state.showdownBattlefieldId;
+  if (battlefieldId === null) return state;
+
+  const resolved =
+    state.showdownKind === "Combat"
+      ? resolveShowdown(state, battlefieldId, state.activePlayerIndex)
+      : resolveNonCombatShowdown(state, battlefieldId);
+
+  return clearContested(resolved, battlefieldId);
+}
+
+/** Rule 352.1 — the Non-Combat Showdown's only outcome. "Only one player's
+ *  Units remain" is the whole test: nobody there leaves control alone (the
+ *  cleanup's own lapse step handles an emptied battlefield), and both players
+ *  there can't happen, since that would have been promoted to a Combat Showdown
+ *  in a Cleanup (317.2) before it could close. */
+function resolveNonCombatShowdown(state: GameState, battlefieldId: string): GameState {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return state;
+  const present = ([0, 1] as const).filter((index) => (bf.units[state.players[index].id]?.length ?? 0) > 0);
+  if (present.length !== 1) return state;
+  return claimBattlefieldControl(state, battlefieldId, present[0]!);
+}
+
+/**
  * Resolves combat at `battlefieldId` between `attackerIndex` (whoever just
  * moved a unit in) and the other player. Mirrors
  * ShowdownResolver.resolveWithAssignments (engine/ShowdownResolver.java:24-90).
@@ -126,8 +208,10 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(state, u, attackerIndex, battlefieldId, true), 0);
   const defenderPool = defenderUnits.reduce((sum, u) => sum + outgoingMight(state, u, defenderIndex, battlefieldId, false), 0);
 
-  const damageToDefenders = distribute(state, attackerPool, defenderUnits, defenderIndex, battlefieldId, false);
-  const damageToAttackers = distribute(state, defenderPool, attackerUnits, attackerIndex, battlefieldId, true);
+  // Tank-first on BOTH sides — the keyword is about a unit's own controller's
+  // assignment order, so it applies whichever side is being assigned damage.
+  const damageToDefenders = distribute(state, attackerPool, assignmentOrder(defenderUnits), defenderIndex, battlefieldId, false);
+  const damageToAttackers = distribute(state, defenderPool, assignmentOrder(attackerUnits), attackerIndex, battlefieldId, true);
 
   const survivingAttackers = removeDefeated(state, applyDamage(attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
   const survivingDefenders = removeDefeated(state, applyDamage(defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);

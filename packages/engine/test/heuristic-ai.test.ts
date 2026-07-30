@@ -25,17 +25,20 @@ function buildInitialGameState(): GameState {
     name,
     controllerId: null,
     units: {},
+    contestedByIndex: null,
   }));
 
   return {
     players: [p1, p2],
     battlefields,
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Awaken",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -243,6 +246,257 @@ describe("heuristic AI", () => {
       state = result.state;
       if (result.result.type === "GameOver") break;
     }
+  });
+
+  // ── deferred resolution in the lookahead ────────────────────────────────
+  // Both of this engine's payoffs land behind PassFocus (combat two
+  // focus-passes after the move; a Spell two chain-passes after the cast), so
+  // scoring the state produced by applying ONE action rated a winning attack
+  // at ~0 and a Spell at exactly 0 — and ties go to Pass, which legal-actions
+  // pushes first. Measured before the fix: 0 Spell casts in 40 self-play games,
+  // and in 139 states offering an attack it would win, it passed in 53.
+  // See settleDeferredResolution in heuristic-ai.ts.
+  //
+  // Each of these builds ONE battlefield on purpose: with a second, empty one
+  // in play, walking onto it is an uncontested Conquer worth an immediate
+  // point, which correctly outscores everything else and would decide the test
+  // for the wrong reason.
+  function duelState(mine: Partial<UnitInstance>, theirs: Partial<UnitInstance>): GameState {
+    const { state } = startGame(buildInitialGameState());
+    const mkUnit = (overrides: Partial<UnitInstance>): UnitInstance => ({
+      ...(createCardInstance(defaultCardRegistry().get("OGN-002")) as UnitInstance),
+      exhausted: false,
+      damage: 0,
+      bonus: 0,
+      ...overrides,
+    });
+    const attacker = mkUnit({ instanceId: "mine-1", ...mine });
+    const defender = mkUnit({ instanceId: "theirs-1", ...theirs });
+    const bf: BattlefieldState = {
+      id: "bf-only",
+      name: "The Only Battlefield",
+      controllerId: state.players[1]!.id,
+      contestedByIndex: null,
+      units: { [state.players[1]!.id]: [defender] },
+    };
+    return {
+      ...state,
+      battlefields: [bf],
+      activePlayerIndex: 0,
+      firstPlayerIndex: 0,
+      players: [
+        // Empty hand and no runes, so PlayCard can never be the candidate that
+        // wins — the choice under test is strictly attack-vs-pass.
+        { ...state.players[0]!, hand: [], channeled: [], baseUnits: [attacker] },
+        { ...state.players[1]!, hand: [], channeled: [], baseUnits: [] },
+      ],
+    };
+  }
+
+  it("takes an attack it will WIN, which scoring the pre-combat state could never justify", () => {
+    const action = chooseAction(duelState({ might: 7 }, { might: 2 }));
+    expect(action).toEqual({
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: ["mine-1"],
+      destinationBattlefieldId: "bf-only",
+    });
+  });
+
+  it("declines an attack it would LOSE — the same lookahead, cutting the other way", () => {
+    // The point of settling isn't aggression, it's judgement: this attack is
+    // indistinguishable from the winning one until combat is actually resolved.
+    // (Note this one passes with or without the fix — unsettled it's a tie that
+    // falls through to Pass, settled it's a loss. It's a guard against
+    // over-correcting into recklessness, not evidence for the fix; the test
+    // below is the one that discriminates in both directions.)
+    const action = chooseAction(duelState({ might: 2 }, { might: 7 }));
+    expect(action.type).toBe("Pass");
+  });
+
+  it("picks the fight it can win over the one it can't, when both are on offer", () => {
+    const { state } = startGame(buildInitialGameState());
+    const mkUnit = (instanceId: string, might: number): UnitInstance => ({
+      ...(createCardInstance(defaultCardRegistry().get("OGN-002")) as UnitInstance),
+      instanceId,
+      might,
+      exhausted: false,
+      damage: 0,
+      bonus: 0,
+    });
+    const theirId = state.players[1]!.id;
+    // Both battlefields contested, so there's no uncontested walk-in to
+    // outscore either attack, and the two moves are indistinguishable until
+    // combat resolves.
+    const winnable: BattlefieldState = {
+      id: "bf-weak",
+      name: "Lightly Held",
+      controllerId: theirId,
+      units: { [theirId]: [mkUnit("theirs-weak", 2)] }, contestedByIndex: null,
+    };
+    const unwinnable: BattlefieldState = {
+      id: "bf-strong",
+      name: "Heavily Held",
+      controllerId: theirId,
+      units: { [theirId]: [mkUnit("theirs-strong", 9)] }, contestedByIndex: null,
+    };
+    const choice: GameState = {
+      ...state,
+      battlefields: [winnable, unwinnable],
+      activePlayerIndex: 0,
+      firstPlayerIndex: 0,
+      players: [
+        { ...state.players[0]!, hand: [], championZone: null, channeled: [], baseUnits: [mkUnit("mine-1", 7)] },
+        { ...state.players[1]!, hand: [], channeled: [], baseUnits: [] },
+      ],
+    };
+
+    const action = chooseAction(choice);
+    expect(action.type).toBe("MoveUnit");
+    if (action.type !== "MoveUnit") return;
+    expect(action.destinationBattlefieldId).toBe("bf-weak");
+  });
+
+  it("casts a Spell whose resolved effect improves the board (Incinerate, 2 Energy)", () => {
+    const { state } = startGame(buildInitialGameState());
+    const registry = defaultCardRegistry();
+    const incinerate = createCardInstance(registry.get("OGS-003")); // Deal 2 to a unit at a battlefield
+    const victim: UnitInstance = {
+      ...(createCardInstance(registry.get("OGN-002")) as UnitInstance),
+      instanceId: "victim-1",
+      might: 2,
+      exhausted: false,
+      damage: 0,
+      bonus: 0,
+    };
+    const bf: BattlefieldState = {
+      id: "bf-only",
+      name: "The Only Battlefield",
+      controllerId: state.players[1]!.id,
+      contestedByIndex: null,
+      units: { [state.players[1]!.id]: [victim] },
+    };
+    const castable: GameState = {
+      ...state,
+      battlefields: [bf],
+      activePlayerIndex: 0,
+      firstPlayerIndex: 0,
+      players: [
+        {
+          ...state.players[0]!,
+          hand: [incinerate],
+          championZone: null,
+          // No units of its own, so MoveUnit/RecallUnit can't be the winner —
+          // the choice under test is strictly cast-vs-pass.
+          baseUnits: [],
+          channeled: [
+            { id: "r1", domain: "Fury", state: "Ready" },
+            { id: "r2", domain: "Fury", state: "Ready" },
+          ],
+        },
+        { ...state.players[1]!, hand: [], channeled: [], baseUnits: [] },
+      ],
+    };
+
+    const action = chooseAction(castable);
+    expect(action.type).toBe("PlayCard");
+    if (action.type !== "PlayCard") return;
+    expect(action.card.instanceId).toBe(incinerate.instanceId);
+    // ...and it aims at the unit its resolved effect actually kills, which is
+    // only visible once the chain is settled.
+    expect(action.targetUnitInstanceId).toBe("victim-1");
+  });
+
+  // ── damage as a tie-breaker ──────────────────────────────────────────────
+  // effectiveMight ignores marked damage, so the evaluator could only ever see
+  // damage that KILLED. Every non-lethal hit scored 0, which made each target
+  // choice for a damage spell a tie — and ties fall to enumeration order, which
+  // lists base units before battlefield ones. Observed in a real game: the AI
+  // aimed Singularity ("Deal 6 to each of up to two units") at its OWN base unit
+  // while an enemy stood at a battlefield. See DAMAGE_WEIGHT in heuristic-ai.ts.
+  describe("aiming a damage spell", () => {
+    const SINGULARITY = "OGN-105"; // Deal 6 to each of up to two units, either owner's
+
+    /** The AI (player 0 here, to reuse the fixture's active player) holds
+     *  Singularity and enough Mind runes; `ownMight`/`enemyMight` decide whether
+     *  6 damage is lethal on each side. The enemy stands at a battlefield and the
+     *  AI's unit is in base — the ordering that produced the misfire. */
+    function singularityState(ownMight: number, enemyMight: number): GameState {
+      const { state } = startGame(buildInitialGameState());
+      const registry = defaultCardRegistry();
+      const mkUnit = (instanceId: string, might: number): UnitInstance => ({
+        ...(createCardInstance(registry.get("OGN-002")) as UnitInstance),
+        instanceId,
+        might,
+        exhausted: false,
+        damage: 0,
+        bonus: 0,
+      });
+      const own = mkUnit("own-1", ownMight);
+      const enemy = mkUnit("enemy-1", enemyMight);
+      const bf: BattlefieldState = {
+        id: "bf-only",
+        name: "The Only Battlefield",
+        controllerId: state.players[1]!.id,
+        contestedByIndex: null,
+        units: { [state.players[1]!.id]: [enemy] },
+      };
+      return {
+        ...state,
+        battlefields: [bf],
+        activePlayerIndex: 0,
+        players: [
+          {
+            ...state.players[0]!,
+            hand: [createCardInstance(registry.get(SINGULARITY))],
+            championZone: null,
+            baseUnits: [own],
+            channeled: Array.from({ length: 10 }, (_, i) => ({ id: `m${i}`, domain: "Mind" as const, state: "Ready" as const })),
+          },
+          { ...state.players[1]!, hand: [], channeled: [], baseUnits: [] },
+        ],
+      };
+    }
+
+    it("aims non-lethal damage at the ENEMY, not at its own unit", () => {
+      // Both 8 Might, so 6 damage kills neither: before the fix all four target
+      // choices scored exactly 0 and enumeration order picked the AI's own unit.
+      const action = chooseAction(singularityState(8, 8));
+      expect(action.type).toBe("PlayCard");
+      if (action.type !== "PlayCard") return;
+      expect(action.card.name).toBe("Singularity");
+      const targets = [action.targetUnitInstanceId, action.secondTargetUnitInstanceId].filter(Boolean);
+      expect(targets).toContain("enemy-1");
+      expect(targets).not.toContain("own-1");
+    });
+
+    it("never damages its own unit just to add a second target", () => {
+      // "Up to two" means a pair is legal, so the AI must decline the second slot
+      // rather than fill it with its own unit — which the min-0 fan-out offers.
+      const action = chooseAction(singularityState(8, 4));
+      if (action.type !== "PlayCard") return; // a better line existed; fine
+      const targets = [action.targetUnitInstanceId, action.secondTargetUnitInstanceId].filter(Boolean);
+      expect(targets).not.toContain("own-1");
+    });
+
+    it("still values a KILL above a bigger chip — damage can't outbid removal", () => {
+      // The reason DAMAGE_WEIGHT is under 1. Chipping 6 onto an 8-Might unit must
+      // not beat killing a 4-Might one; at full weight it would (+6 vs +4), and
+      // chip damage heals at end of turn while a kill is permanent.
+      const state = singularityState(8, 4);
+      const enemyKill = chooseAction(state);
+      if (enemyKill.type === "PlayCard") {
+        const targets = [enemyKill.targetUnitInstanceId, enemyKill.secondTargetUnitInstanceId].filter(Boolean);
+        expect(targets).toContain("enemy-1");
+      }
+      // And a damaged unit really is worth less than an undamaged one, which is
+      // what makes the tie break at all.
+      const damaged: GameState = {
+        ...state,
+        players: [{ ...state.players[0]!, baseUnits: [{ ...state.players[0]!.baseUnits[0]!, damage: 4 }] }, state.players[1]!],
+      };
+      expect(chooseAction(damaged)).toBeDefined(); // no throw on damaged input
+    });
   });
 
   it("returns the sole legal PassFocus action during an open Showdown", () => {

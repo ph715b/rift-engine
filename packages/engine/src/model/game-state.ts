@@ -110,6 +110,21 @@ export interface BattlefieldState {
   name: string;
   controllerId: string | null;
   units: Record<string, UnitInstance[]>;
+  /**
+   * Who applied Contested status here, or null if the battlefield isn't
+   * Contested. Rule 458: "The Destination becomes Contested if it is an
+   * Uncontested Battlefield not controlled by the controller of the Unit or
+   * Units that moved" — so entering a battlefield you already control applies
+   * nothing, and an already-Contested one isn't re-applied.
+   *
+   * This exists as real state because the rules separate the two halves in
+   * time: a Move applies Contested, and the Showdown is only *staged* in the
+   * following Cleanup (316.9 / 341), by which point the applier must still be
+   * known — they gain Focus as the Showdown begins (345). Cleared once Control
+   * is established or re-established (190.6.a), which is what ends the
+   * Contested status rather than the Showdown merely closing.
+   */
+  contestedByIndex: 0 | 1 | null;
 }
 
 /**
@@ -130,16 +145,65 @@ export interface GameState {
   players: [PlayerState, PlayerState];
   battlefields: BattlefieldState[];
   activePlayerIndex: 0 | 1;
+  /**
+   * Who took the very first turn of this game — fixed for its whole lifetime.
+   * Rule 117.x determines turn order by "any fair random method", so this is
+   * genuinely either player and is NOT derivable from `activePlayerIndex`
+   * (which rotates) or from the seat a player occupies.
+   *
+   * Two steps depend on it, and both were previously written against the
+   * literal indices on the assumption that player 0 always started:
+   *   - the going-second Channel bonus (rules 486.1 / 487.4) must land on
+   *     `active !== firstPlayerIndex`, or the compensation for going first
+   *     goes to the player who went first;
+   *   - `turnNumber` advances when play wraps back to the First Player
+   *     (rule 118's looping queue "starting with the First Player"), not when
+   *     it reaches index 0.
+   *
+   * Equivalent to TurnManager.java's `startingPlayerIndex` instance field,
+   * lifted onto GameState because this engine's turn steps are pure functions
+   * with no instance to hang it off.
+   */
+  firstPlayerIndex: 0 | 1;
   turnNumber: number;
   phase: Phase;
   turnState: TurnState;
   /** Who currently acts during an open Showdown; meaningless while
    *  turnState is "Neutral". Mirrors GameState.java's focusHolder. */
   focusHolder: 0 | 1;
-  /** Which battlefield is contested; null whenever turnState is "Neutral".
+  /** Where the open Showdown is; null whenever turnState is "Neutral".
    *  Mirrors GameState.java's showdownBf (id only, not the object, since our
-   *  BattlefieldState lives in the `battlefields` array). */
+   *  BattlefieldState lives in the `battlefields` array).
+   *
+   *  One at a time, deliberately. The rules allow several Showdowns to be
+   *  Staged at once (323's cleanup step 6 marks one per Contested battlefield);
+   *  our Cleanup opens one and leaves any other battlefield Contested for the
+   *  next Cleanup. Only reachable via an effect that contests two battlefields
+   *  in a single action, of which this card pool has none — a divergence
+   *  recorded in docs/rules-conformance.md rather than built. */
   showdownBattlefieldId: string | null;
+  /**
+   * Which kind of Showdown is open, or null when none is. Non-null exactly when
+   * `turnState === "Showdown"` and `showdownBattlefieldId !== null`.
+   *
+   * A Showdown is NOT combat — rule 341 makes it a window in which players may
+   * play cards in an alternating fashion, and only *some* Showdowns are part of
+   * a Combat:
+   *   - `"Combat"` — opened with units of different players present, so it
+   *     "will be opened as the first step of Combat" (341). Closing it runs the
+   *     remaining steps of Combat (351.1 / 463).
+   *   - `"NonCombat"` — opened by moving onto a battlefield you don't control
+   *     that has no opposing units. A stand-alone phase that "does not create a
+   *     Combat" (317.1). Closing it just establishes Control (352.1).
+   *
+   * Stored rather than derived from the board, because it is a status that
+   * *transitions*: a NonCombat Showdown becomes a Combat Showdown in the
+   * following Cleanup if another player's units arrive (317.2). Board shape
+   * can't stand in for it either — Combat step 3d recalls the attackers, so
+   * "units of different players present" is false by the time a Combat
+   * Showdown finishes.
+   */
+  showdownKind: "Combat" | "NonCombat" | null;
   /** Consecutive PassFocus count while a Showdown is open; 2 resolves
    *  combat and closes it. Mirrors GameState.java's consecutiveFocusPasses.
    *  No separate showdownAttackerIndex field is needed the way Java's

@@ -66,13 +66,15 @@ function makePlayer(id: string): PlayerState {
 function makeState(): GameState {
   return {
     players: [makePlayer("p1"), makePlayer("p2")],
-    battlefields: [{ id: "bf1", name: "Test Battlefield", controllerId: "p1", units: {} }],
+    battlefields: [{ id: "bf1", name: "Test Battlefield", controllerId: "p1", units: {}, contestedByIndex: null }],
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -144,7 +146,7 @@ describe("RecallUnit: battlefield -> base", () => {
     const unitA = makeUnit();
     const unitB = makeUnit();
     let state = makeState();
-    state.battlefields.push({ id: "bf2", name: "Test Battlefield 2", controllerId: "p1", units: {} });
+    state.battlefields.push({ id: "bf2", name: "Test Battlefield 2", controllerId: "p1", units: {}, contestedByIndex: null });
     state.battlefields[0]!.units = { p1: [unitA] };
     state.battlefields[1]!.units = { p1: [unitB] };
 

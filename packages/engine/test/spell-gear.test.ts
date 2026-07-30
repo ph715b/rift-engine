@@ -71,11 +71,13 @@ function buildSpellFixture() {
     players: [player, opponent],
     battlefields: [],
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -106,11 +108,13 @@ function buildGearFixture() {
     players: [player, opponent],
     battlefields: [],
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -261,7 +265,7 @@ describe("chain gating: no other action is legal while a spell is pending resolu
     const state = closedChainState();
     const unit = createCardInstance(defaultCardRegistry().get("OGN-210")) as UnitInstance;
     state.players[0]!.baseUnits = [unit];
-    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {} }];
+    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null }];
 
     expect(
       validateMoveUnit(state, {
@@ -276,7 +280,7 @@ describe("chain gating: no other action is legal while a spell is pending resolu
   it("validateRecallUnit rejects recalling units", () => {
     const state = closedChainState();
     const unit = createCardInstance(defaultCardRegistry().get("OGN-210")) as UnitInstance;
-    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: "p1", units: { p1: [unit] } }];
+    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: "p1", units: { p1: [unit] }, contestedByIndex: null }];
 
     expect(
       validateRecallUnit(state, { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [unit.instanceId] }).ok,
@@ -386,11 +390,13 @@ describe("legalActions: Spell and Gear candidates", () => {
       players: [player, opponent],
       battlefields: [],
       activePlayerIndex: 0,
+      firstPlayerIndex: 0,
       turnNumber: 1,
       phase: "Action",
       turnState: "Neutral",
       focusHolder: 0,
       showdownBattlefieldId: null,
+      showdownKind: null,
       consecutiveFocusPasses: 0,
       chainOpen: true,
       chainPriority: 0,

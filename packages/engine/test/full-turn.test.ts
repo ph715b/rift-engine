@@ -21,17 +21,20 @@ function buildInitialGameState(): GameState {
     name,
     controllerId: null,
     units: {},
+    contestedByIndex: null,
   }));
 
   return {
     players: [p1, p2],
     battlefields,
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Awaken",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,

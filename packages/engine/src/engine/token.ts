@@ -1,5 +1,6 @@
 import type { UnitInstance } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { applyContested } from "./cleanup.js";
 
 /** Where a created token is put — "base", or a specific battlefield. */
 export type TokenDestination = "base" | { battlefieldId: string };
@@ -66,5 +67,11 @@ export function placeRecruitToken(state: GameState, casterIndex: 0 | 1, destinat
   const bf = state.battlefields[bfIndex]!;
   const battlefields = [...state.battlefields];
   battlefields[bfIndex] = { ...bf, units: { ...bf.units, [casterId]: [...(bf.units[casterId] ?? []), token] } };
-  return { ...state, battlefields };
+  // Rule 190.4 applies Contested when a unit "Moves **or otherwise becomes
+  // present**" at a battlefield its controller doesn't control — a created token
+  // becoming present counts, and this path previously opened no Showdown at all.
+  // It's also how a Non-Combat Showdown gets promoted to a Combat one (317.2):
+  // token-making Spells are exactly what an opponent holding Focus can cast into
+  // someone else's window now that Action speed exists.
+  return applyContested({ ...state, battlefields }, destination.battlefieldId, casterIndex);
 }

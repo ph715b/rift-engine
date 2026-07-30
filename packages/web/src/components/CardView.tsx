@@ -35,6 +35,13 @@ interface CardViewProps {
    *  most cards most of the time and so can only ever be a whisper: when the
    *  board is asking "which one?", exactly the valid ones must be obvious. */
   isTargetable?: boolean;
+  /** This card is named as a target by something currently ON THE CHAIN — a
+   *  spell that has been cast but hasn't resolved yet. Deliberately a
+   *  different visual from `isTargetable` (see `.chain-targeted` in
+   *  styles.css): that one means "you can click this", this one means
+   *  "something is about to happen to this", and confusing the two would make
+   *  the board look interactive during a window where it isn't. */
+  isChainTargeted?: boolean;
   /** A hand/champion card that CAN'T be played right now — dimmed, so the
    *  hand reads at a glance, and still clickable via `onUnavailableClick` to
    *  say why. */
@@ -54,6 +61,17 @@ interface CardViewProps {
    *  exhausted would otherwise lie on its side in the trash, implying a
    *  tapped state that means nothing there. */
   inPile?: boolean;
+  /** Overrides the Framer Motion `layoutId`, which defaults to
+   *  `card.instanceId` so the same card re-appearing elsewhere animates
+   *  between the two positions. Needed wherever ONE card instance can be
+   *  mounted TWICE at the same time, since a duplicated layoutId makes Framer
+   *  Motion try to animate an element to itself: a cast Spell is put in the
+   *  caster's trash immediately (execute-play-card.ts) while it's still on the
+   *  chain, so the chain viewer and an open trash browser can render the same
+   *  instance simultaneously. The chain passes a prefixed key; the cost is
+   *  only that a card doesn't visually fly from hand INTO the chain (its own
+   *  enter/exit spring still plays). */
+  layoutKey?: string;
   /** When set, the card can be dragged; drop-zone detection is the caller's
    *  job (see App.tsx's `dropZoneAt`) since it needs the full board layout,
    *  not just this one card. */
@@ -88,11 +106,13 @@ export function CardView({
   isSelectable,
   isSelected,
   isTargetable,
+  isChainTargeted,
   isUnplayable,
   onClick,
   onUnavailableClick,
   unavailableNote,
   inPile,
+  layoutKey,
   onDragEnd,
   onDrag,
 }: CardViewProps) {
@@ -117,6 +137,7 @@ export function CardView({
   if (isEnemy) classes.push("enemy");
   if (isSelectable) classes.push("selectable");
   if (isTargetable) classes.push("targetable");
+  if (isChainTargeted) classes.push("chain-targeted");
   if (isUnplayable) classes.push("unplayable");
   if (isSelected) classes.push("selected");
   const showExhausted = Boolean(card.exhausted) && !inPile;
@@ -127,7 +148,7 @@ export function CardView({
 
   return (
     <motion.div
-      layoutId={card.instanceId}
+      layoutId={layoutKey ?? card.instanceId}
       layout
       className={classes.join(" ")}
       style={isDragging ? { pointerEvents: "none" } : undefined}

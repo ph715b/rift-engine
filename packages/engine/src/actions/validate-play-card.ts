@@ -8,6 +8,7 @@ import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import { cardHasOptionalExhaustCost, cardPlacesTokens } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
+import { mayPlayUnitToBattlefield, timingRejection } from "../engine/timing.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
@@ -17,17 +18,13 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  * (engine/ActionExecutor.java:1492-1513) plus energyAfterFloat/
  * powerAfterFloat for the floating-resource reduction.
  *
- * Not yet implemented: Legend plays, Accelerate/additional costs,
- * trash-play, and reaction-speed plays (the chain only ever OPENS via a
- * normal cast — nothing can be played onto an already-closed chain yet, see
- * the chainOpen check below — matches ActionValidator's Neutral/chain-open
- * branch, engine/ActionValidator.java:77-103). `isAction`/`isReaction` on
- * SpellDefinition deliberately aren't consulted here — they only gate
- * Showdown/reaction-speed timing (ActionValidator.validateShowdownOpen),
- * which is out of scope; a normal-turn cast is legal for ANY Spell
- * regardless of those tags, matching Java's actual plain validatePlayCard
- * path. The turnState check below rejects this during an open Showdown
- * entirely (no card is castable there yet).
+ * Not yet implemented: Legend plays, Accelerate/additional costs, trash-play.
+ *
+ * Timing (which states each card may be played in) is delegated wholesale to
+ * engine/timing.ts, which reads the printed [Action]/[Reaction] keywords —
+ * mirroring ActionValidator.validateShowdownOpen alongside the plain path
+ * rather than, as before, rejecting every Showdown and closed-chain play
+ * outright.
  *
  * Targeting is validated for registered card-effects.ts effects whose
  * TargetingSpec.kind is "unit" — every such card in this slice restricts
@@ -52,23 +49,32 @@ function scopeDescription(scope: TargetScope | undefined): string {
 }
 
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
-  if (action.playerIndex !== state.activePlayerIndex) {
-    return fail(`It is not player ${action.playerIndex}'s turn`);
-  }
   if (state.phase !== "Action") {
     return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
   }
-  if (state.turnState !== "Neutral") {
-    return fail("Cannot play cards while a Showdown is open — the fight is already engaged");
-  }
-  if (!state.chainOpen) {
-    return fail("Cannot play cards while a spell is pending resolution — no reaction-speed cards are supported yet");
-  }
+  // Three separate hard gates used to live here — "must be the active player",
+  // "turnState must be Neutral" and "chain must be open" — which together barred
+  // every Showdown and reaction-speed play. All three are really one question,
+  // asked per card because the answer depends on its printed timing: see
+  // engine/timing.ts for the tiers and the rules behind them.
+  const rejection = timingRejection(state, action.playerIndex, action.card);
+  if (rejection !== null) return fail(rejection);
 
   const actor: PlayerState | undefined = state.players[action.playerIndex];
   if (!actor) return fail(`No player at index ${action.playerIndex}`);
 
   const { card, payment } = action;
+
+  // Rule 813's destination restriction for a Unit played outside a Neutral Open
+  // state — shared with legal-actions so enumeration can't offer a destination
+  // this then refuses (see mayPlayUnitToBattlefield).
+  if (
+    card.kind === "Unit" &&
+    action.destinationBattlefieldId !== undefined &&
+    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId)
+  ) {
+    return fail(`${card.name} can only be played to your base or a battlefield you control while a Showdown is open`);
+  }
 
   // A card is playable from hand OR from the Champion Zone (the one
   // champion copy set aside at deck-build time) — mirrors

@@ -14,12 +14,20 @@ interface BattlefieldViewProps {
    *  `onMoveHere`, since GameBoard already knows which of the two a click
    *  means from its own pending-play step. */
   isTargetable: boolean;
+  /** Is this battlefield ITSELF named by something on the chain (Firestorm's
+   *  "at a battlefield", or a token-placing Spell's destination)? Distinct
+   *  from `isTargetable` in both meaning and appearance — see CardView's
+   *  `isChainTargeted`. */
+  isChainTargeted: boolean;
   isDragOver: boolean;
   isShowdownActive: boolean;
   /** Is this unit a legal target for the currently-armed spell (if any)?
    *  Independent of whose unit it is — a targeted spell in this engine can
    *  affect either player's units at a battlefield. */
   isUnitTargetable: (unit: UnitInstance) => boolean;
+  /** Is this unit named as a target by something on the chain? Owner-agnostic
+   *  like `isUnitTargetable`, and applied to both sides here. */
+  isUnitChainTargeted: (unit: UnitInstance) => boolean;
   /** Should one of the viewer's OWN units here be clickable — ordinarily any
    *  ready unit (move-selection), but only a legal answer while an armed card
    *  is still asking for one. GameBoard owns that rule; this just renders it
@@ -47,9 +55,11 @@ export function BattlefieldView({
   selectedUnitIds,
   isMoveTarget,
   isTargetable,
+  isChainTargeted,
   isDragOver,
   isShowdownActive,
   isUnitTargetable,
+  isUnitChainTargeted,
   isFriendlySelectable,
   chosenUnitIds,
   onUnitClick,
@@ -69,6 +79,7 @@ export function BattlefieldView({
   // The battlefield ITSELF is the answer being asked for (Firestorm) — same
   // louder treatment a targetable card gets, for the same reason.
   if (isTargetable) classes.push("targetable");
+  if (isChainTargeted) classes.push("chain-targeted");
   if (isDragOver) classes.push("drag-over");
   if (isShowdownActive) classes.push("showdown");
 
@@ -86,6 +97,7 @@ export function BattlefieldView({
             isEnemy
             isSelectable={isUnitTargetable(unit)}
             isTargetable={isUnitTargetable(unit)}
+            isChainTargeted={isUnitChainTargeted(unit)}
             isSelected={chosenUnitIds.has(unit.instanceId)}
             onClick={() => onUnitClick(unit)}
           />
@@ -98,6 +110,7 @@ export function BattlefieldView({
             card={unit}
             isSelectable={isFriendlySelectable(unit)}
             isTargetable={isUnitTargetable(unit)}
+            isChainTargeted={isUnitChainTargeted(unit)}
             isSelected={selectedUnitIds.has(unit.instanceId) || chosenUnitIds.has(unit.instanceId)}
             onClick={() => onUnitClick(unit)}
             onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}

@@ -4,7 +4,7 @@ import { getProfileDecks, removeProfileDeck } from "../profile.js";
 import { downloadTextFile } from "../download-file.js";
 import { DeckImport } from "./DeckImport.js";
 import { DecklistTextImport } from "./DecklistTextImport.js";
-import type { MatchConfig } from "../game-setup.js";
+import type { MatchConfig, MatchFormat } from "../game-setup.js";
 
 const PRESET_DECK_LISTS = allPresetDecks().map(presetDeckList);
 
@@ -70,6 +70,9 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
   const [profileDecks, setProfileDecks] = useState(getProfileDecks);
   const [humanDeck, setHumanDeck] = useState<DeckList | null>(null);
   const [aiDeck, setAiDeck] = useState<DeckList | null>(PRESET_DECK_LISTS[0] ?? null);
+  // Best of 1 is the default because it's the shorter commitment, and because
+  // it's what every match up to now has implicitly been.
+  const [format, setFormat] = useState<MatchFormat>("bo1");
 
   function refreshProfile() {
     setProfileDecks(getProfileDecks());
@@ -118,11 +121,48 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
         />
       </div>
 
+      {/* The two sanctioned 1v1 modes (rules 485.3-487.4). Labelled by game
+          count first, since that's what a player is actually choosing, with the
+          rules' own mode name and the consequences underneath — the battlefield
+          rule genuinely differs between them, so it isn't just match length. */}
+      <div className="zone">
+        <div className="zone-label">Match format</div>
+        <div className="format-picker">
+          {(
+            [
+              {
+                value: "bo1" as const,
+                title: "Best of 1",
+                mode: "1v1 Duel",
+                detail: "One game decides it. Battlefields are rolled at random.",
+              },
+              {
+                value: "bo3" as const,
+                title: "Best of 3",
+                mode: "1v1 Match",
+                detail: "First to 2 game wins. You pick your battlefield each game, and used ones are out for the rest of the match.",
+              },
+            ] satisfies { value: MatchFormat; title: string; mode: string; detail: string }[]
+          ).map((option) => (
+            <button
+              key={option.value}
+              className={`format-option${format === option.value ? " selected" : ""}`}
+              aria-pressed={format === option.value}
+              onClick={() => setFormat(option.value)}
+            >
+              <span className="format-option-title">{option.title}</span>
+              <span className="format-option-mode">{option.mode}</span>
+              <span className="format-option-detail">{option.detail}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="actions">
         <button
           className="menu-primary-button"
           disabled={!humanDeck || !aiDeck}
-          onClick={() => humanDeck && aiDeck && onStartMatch({ humanDeck, aiDeck })}
+          onClick={() => humanDeck && aiDeck && onStartMatch({ humanDeck, aiDeck, format })}
         >
           Start Match
         </button>

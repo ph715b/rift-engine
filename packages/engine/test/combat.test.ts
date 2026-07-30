@@ -76,19 +76,21 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
   const p1 = makePlayer("p1");
   const p2 = makePlayer("p2");
   const battlefields: BattlefieldState[] = [
-    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {} },
-    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {} },
-    { id: "bf3", name: "Battlefield 3", controllerId: null, units: {} },
+    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf3", name: "Battlefield 3", controllerId: null, units: {}, contestedByIndex: null },
   ];
   return {
     players: [p1, p2],
     battlefields,
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -165,35 +167,93 @@ describe("combat resolution (resolveShowdown)", () => {
   });
 });
 
-describe("MoveUnit: walk-in vs. contested", () => {
-  it("an uncontested move claims control without combat", () => {
+describe("MoveUnit: Contested, and which kind of Showdown it stages", () => {
+  /** Moves through the real pipeline. `submit` is what runs the Cleanup, and the
+   *  Cleanup is what stages the Showdown (316.9 / 341) — calling
+   *  `executeMoveUnit` bare only ever applies Contested, which is the point of
+   *  the split. */
+  function move(state: GameState, unitIds: string[], destinationBattlefieldId: string) {
+    return submit(state, { type: "MoveUnit", playerIndex: 0, unitInstanceIds: unitIds, destinationBattlefieldId });
+  }
+
+  it("applies Contested but stages nothing until the Cleanup runs", () => {
+    const unit = makeUnit();
+    const state = makeState();
+    state.players[0]!.baseUnits = [unit];
+
+    const moved = executeMoveUnit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [unit.instanceId],
+      destinationBattlefieldId: "bf1",
+    });
+
+    expect(moved.battlefields[0]!.contestedByIndex).toBe(0);
+    expect(moved.turnState).toBe("Neutral"); // the Cleanup opens it, not the Move
+    expect(moved.showdownKind).toBeNull();
+  });
+
+  it("walking onto an EMPTY battlefield opens a Non-Combat Showdown and scores nothing yet (458 / 317.1)", () => {
+    // The behaviour this whole change is about: it used to claim control and
+    // score a point on the spot, skipping the window entirely.
     const unit = makeUnit();
     let state = makeState();
     state.players[0]!.baseUnits = [unit];
 
-    const validation = validateMoveUnit(state, {
-      type: "MoveUnit",
-      playerIndex: 0,
-      unitInstanceIds: [unit.instanceId],
-      destinationBattlefieldId: "bf1",
-    });
-    expect(validation).toEqual({ ok: true });
+    expect(
+      validateMoveUnit(state, { type: "MoveUnit", playerIndex: 0, unitInstanceIds: [unit.instanceId], destinationBattlefieldId: "bf1" }),
+    ).toEqual({ ok: true });
 
-    state = executeMoveUnit(state, {
-      type: "MoveUnit",
-      playerIndex: 0,
-      unitInstanceIds: [unit.instanceId],
-      destinationBattlefieldId: "bf1",
-    });
+    state = move(state, [unit.instanceId], "bf1").state;
 
     expect(state.players[0]!.baseUnits).toHaveLength(0);
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
     expect(state.battlefields[0]!.units["p1"]![0]!.exhausted).toBe(true); // moving always exhausts
-    expect(state.battlefields[0]!.controllerId).toBe("p1");
-    expect(state.players[0]!.points).toBe(1); // first-time conquest of a neutral battlefield
+    expect(state.turnState).toBe("Showdown");
+    expect(state.showdownKind).toBe("NonCombat");
+    expect(state.showdownBattlefieldId).toBe("bf1");
+    expect(state.focusHolder).toBe(0); // whoever applied Contested (345)
+    // Control and the Conquer wait for the window to close (352.1).
+    expect(state.battlefields[0]!.controllerId).toBeNull();
+    expect(state.players[0]!.points).toBe(0);
   });
 
-  it("moving into an enemy-occupied battlefield opens a Showdown instead of resolving combat immediately", () => {
+  it("...and closing that window is what establishes control and scores (352.1)", () => {
+    const unit = makeUnit();
+    let state = makeState();
+    state.players[0]!.baseUnits = [unit];
+    state = move(state, [unit.instanceId], "bf1").state;
+
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+    state = submit(state, { type: "PassFocus", playerIndex: 1 }).state;
+
+    expect(state.turnState).toBe("Neutral");
+    expect(state.showdownKind).toBeNull();
+    expect(state.battlefields[0]!.controllerId).toBe("p1");
+    expect(state.players[0]!.points).toBe(1);
+    // Contested ends when Control is established (190.6.a), not merely when the
+    // window ends — otherwise the next Cleanup would restage a Showdown here.
+    expect(state.battlefields[0]!.contestedByIndex).toBeNull();
+  });
+
+  it("moving onto a battlefield you ALREADY control applies no Contested at all (458)", () => {
+    // Reinforcing shouldn't open a window; 458 only contests a destination "not
+    // controlled by the controller of the Unit or Units that moved".
+    const held = makeUnit();
+    const reinforcement = makeUnit();
+    let state = makeState();
+    state.players[0]!.baseUnits = [reinforcement];
+    state.battlefields[0]!.units = { p1: [held] };
+    state.battlefields[0]!.controllerId = "p1";
+
+    state = move(state, [reinforcement.instanceId], "bf1").state;
+
+    expect(state.battlefields[0]!.units["p1"]).toHaveLength(2);
+    expect(state.battlefields[0]!.contestedByIndex).toBeNull();
+    expect(state.turnState).toBe("Neutral");
+  });
+
+  it("moving into an enemy-occupied battlefield opens a COMBAT Showdown, not resolving combat immediately", () => {
     const mover = makeUnit({ might: 5 });
     const defender = makeUnit({ might: 1 });
     let state = makeState();
@@ -201,12 +261,7 @@ describe("MoveUnit: walk-in vs. contested", () => {
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
 
-    state = executeMoveUnit(state, {
-      type: "MoveUnit",
-      playerIndex: 0,
-      unitInstanceIds: [mover.instanceId],
-      destinationBattlefieldId: "bf1",
-    });
+    state = move(state, [mover.instanceId], "bf1").state;
 
     // Combat hasn't run yet: both units still present, no trash, control unchanged.
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
@@ -215,8 +270,10 @@ describe("MoveUnit: walk-in vs. contested", () => {
     expect(state.players[1]!.trash).toHaveLength(0);
     expect(state.players[0]!.points).toBe(0);
 
-    // A Showdown window is open instead, held by the mover (the active player).
+    // A Showdown window is open instead, held by the mover, and it's the Combat
+    // kind because units of different players are present (341).
     expect(state.turnState).toBe("Showdown");
+    expect(state.showdownKind).toBe("Combat");
     expect(state.focusHolder).toBe(0);
     expect(state.showdownBattlefieldId).toBe("bf1");
     expect(state.consecutiveFocusPasses).toBe(0);
@@ -266,7 +323,7 @@ describe("MoveUnit: walk-in vs. contested", () => {
 
     expect(validateMoveUnit(state, action)).toEqual({ ok: true });
 
-    state = executeMoveUnit(state, action);
+    state = submit(state, action).state;
 
     // Both units land at the shared destination together, in one action.
     expect(state.players[0]!.baseUnits).toHaveLength(0);
@@ -274,9 +331,12 @@ describe("MoveUnit: walk-in vs. contested", () => {
     expect(state.battlefields[2]!.units["p1"]).toHaveLength(2); // bf3
     expect(state.battlefields[2]!.units["p1"]!.every((u) => u.exhausted)).toBe(true);
 
-    // Uncontested landing claims control once, not once per unit.
-    expect(state.battlefields[2]!.controllerId).toBe("p1");
-    expect(state.players[0]!.points).toBe(1);
+    // One Contested application for the whole group, so one Non-Combat Showdown
+    // — not one per unit. Control follows when it closes.
+    expect(state.battlefields[2]!.contestedByIndex).toBe(0);
+    expect(state.showdownBattlefieldId).toBe("bf3");
+    expect(state.showdownKind).toBe("NonCombat");
+    expect(state.battlefields[2]!.controllerId).toBeNull();
   });
 
   it("opens exactly one Showdown when a multi-unit move lands on a contested battlefield", () => {
@@ -288,12 +348,12 @@ describe("MoveUnit: walk-in vs. contested", () => {
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
 
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [moverA.instanceId, moverB.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     // Both attackers landed; combat hasn't resolved yet.
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(2);
@@ -302,6 +362,7 @@ describe("MoveUnit: walk-in vs. contested", () => {
 
     // Exactly one Showdown window opened for the whole group, not one per unit.
     expect(state.turnState).toBe("Showdown");
+    expect(state.showdownKind).toBe("Combat");
     expect(state.focusHolder).toBe(0);
     expect(state.showdownBattlefieldId).toBe("bf1");
   });
@@ -376,15 +437,17 @@ describe("win condition via combat + scoring, end to end", () => {
     // Already conquered the other 2 battlefields this turn, so this conquest is the sweep's last piece.
     state.players[0]!.scoredBattlefieldsThisTurn = ["bf2", "bf3"];
 
-    state = executeMoveUnit(state, {
+    // Through submit, because the Cleanup is what stages the Showdown (341).
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [attacker.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     // Moving in opens a Showdown — the win-condition point isn't awarded yet.
     expect(state.turnState).toBe("Showdown");
+    expect(state.showdownKind).toBe("Combat");
     expect(state.players[0]!.points).toBe(7);
 
     // First PassFocus (the mover, player 0) just flips Focus to player 1.
@@ -400,7 +463,7 @@ describe("win condition via combat + scoring, end to end", () => {
 });
 
 describe("Focus/Showdown priority window", () => {
-  it("legalActions during an open Showdown offers exactly PassFocus, for whoever holds Focus", () => {
+  it("legalActions during an open Showdown enumerates for whoever holds Focus", () => {
     const mover = makeUnit({ might: 5 });
     const defender = makeUnit({ might: 1 });
     let state = makeState();
@@ -408,12 +471,12 @@ describe("Focus/Showdown priority window", () => {
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
 
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     expect(legalActions(state)).toEqual([{ type: "PassFocus", playerIndex: 0 }]);
   });
@@ -431,12 +494,12 @@ describe("Focus/Showdown priority window", () => {
     state.players[0]!.baseUnits = [mover];
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     // Focus is held by player 0 (the mover) right after opening.
     const result = validatePassFocus(state, { type: "PassFocus", playerIndex: 1 });
@@ -450,12 +513,12 @@ describe("Focus/Showdown priority window", () => {
     state.players[0]!.baseUnits = [mover];
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     state = executePassFocus(state, { type: "PassFocus", playerIndex: 0 });
 
@@ -474,12 +537,12 @@ describe("Focus/Showdown priority window", () => {
     state.players[0]!.baseUnits = [mover];
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     state = executePassFocus(state, { type: "PassFocus", playerIndex: 0 });
     state = executePassFocus(state, { type: "PassFocus", playerIndex: 1 });
@@ -505,12 +568,12 @@ describe("Focus/Showdown priority window", () => {
     state.players[0]!.baseUnits = [mover, bystander];
     state.battlefields[0]!.units = { p2: [defender] };
     state.battlefields[0]!.controllerId = "p2";
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     expect(
       validateMoveUnit(state, {
@@ -537,12 +600,12 @@ describe("Focus/Showdown priority window", () => {
     state.battlefields[0]!.controllerId = "p2";
     state.players[0]!.points = 7;
     state.players[0]!.scoredBattlefieldsThisTurn = ["bf2", "bf3"];
-    state = executeMoveUnit(state, {
+    state = submit(state, {
       type: "MoveUnit",
       playerIndex: 0,
       unitInstanceIds: [mover.instanceId],
       destinationBattlefieldId: "bf1",
-    });
+    }).state;
 
     const wrongPlayer = submit(state, { type: "PassFocus", playerIndex: 1 });
     expect(wrongPlayer.result.type).toBe("Invalid");

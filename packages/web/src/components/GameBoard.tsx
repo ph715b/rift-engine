@@ -8,15 +8,19 @@ import {
   chooseAction,
   computeAutoPayment,
   computeEffectiveCost,
+  actingPlayerIndex,
   dealOpeningHands,
+  describeChain,
   executeMulligan,
   legalActions,
   matchesPowerDomain,
   modifiedEnergyCost,
   submit,
   targetingForAnyCard,
+  timingRejection,
   unitTriggerHasVisionChoice,
   type CardInstance,
+  type ChainItemDescription,
   type DeckList,
   type FloatRuneAction,
   type GameState,
@@ -27,7 +31,7 @@ import {
   type SubmitResult,
   type UnitInstance,
 } from "@rift-engine/engine";
-import { createNewGame, type MatchConfig } from "../game-setup.js";
+import { createNewGame, rollAiBattlefield, winsNeeded, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { ChoiceOverlay } from "./ChoiceOverlay.js";
@@ -35,11 +39,20 @@ import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
 import { RuneZone } from "./RuneZone.js";
 import { MulliganScreen } from "./MulliganScreen.js";
+import { ChainView } from "./ChainView.js";
+import { BattlefieldSelect } from "./BattlefieldSelect.js";
+import { SeriesPanel } from "./SeriesPanel.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
 const AI_MOVE_DELAY_MS = 650;
 const BASE_ZONE_ID = "base";
+/** How long a just-resolved chain entry stays on screen after it's gone from
+ *  `state.spellChain`. Purely a UI beat — it doesn't delay, gate, or reorder
+ *  anything in the engine, it just keeps the cause visible while its effect
+ *  lands on the board, so a spell no longer resolves as an unexplained board
+ *  change. Roughly matches AI_MOVE_DELAY_MS so the two read as one rhythm. */
+const CHAIN_RESOLVE_BEAT_MS = 800;
 
 /** A hand/champion card armed for play but not yet fully resolved — covers
  *  two composable phases in order (every choice the card needs, THEN
@@ -108,6 +121,29 @@ function dropZoneAt(point: DragPoint): string | null {
   return el?.closest("[data-dropzone-id]")?.getAttribute("data-dropzone-id") ?? null;
 }
 
+/** Where the pregame currently is. `selectBattlefield` only ever occurs in a
+ *  Best of 3 (rule 487.2's per-game selection); a Best of 1 rolls instead
+ *  (485.5) and so starts at `mulligan`, exactly as before this existed. */
+type PregameStep = "selectBattlefield" | "mulligan" | "playing";
+
+/** Match-level state, above any single game. All of it is Best-of-3 only; a
+ *  Best of 1 leaves it untouched. */
+interface SeriesState {
+  humanGameWins: number;
+  aiGameWins: number;
+  /** 1-based, for "Game 2 of 3". */
+  gameNumber: number;
+  /** Battlefields each side has already presented in a DECIDED game — removed
+   *  from selection for the rest of the match (rule 487.3). Tracked per side
+   *  because each player's pool is their own. */
+  humanUsedBattlefields: string[];
+  aiUsedBattlefields: string[];
+}
+
+function freshSeries(): SeriesState {
+  return { humanGameWins: 0, aiGameWins: 0, gameNumber: 1, humanUsedBattlefields: [], aiUsedBattlefields: [] };
+}
+
 interface GameBoardProps {
   initialConfig: MatchConfig;
   onMainMenu: () => void;
@@ -115,12 +151,30 @@ interface GameBoardProps {
 
 export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
-  // Pregame: hands are dealt but the human hasn't confirmed a mulligan yet.
-  // Non-null exactly while the mulligan screen should render instead of the
-  // real board. Mirrors the real rule's own pregame sequence (deal hands ->
-  // mulligan -> begin first turn) — see execute-mulligan.ts.
+  // Match-level state, above any single game. A Best of 1 leaves it at zeroes
+  // and never reads it; a Best of 3 needs all of it — the score to know when
+  // the MATCH is over (rule 487.4's two game wins) and the used-battlefield
+  // lists to honour 487.3's elimination on the next game's selection.
+  const [series, setSeries] = useState<SeriesState>(() => freshSeries());
+  // Which pregame step is showing, or "playing" once the board is live. Best
+  // of 3 adds a battlefield selection ahead of the mulligan — rule 487.2 puts
+  // that selection in Setup, so it runs before EVERY game, not only between
+  // them.
+  const [pregame, setPregame] = useState<PregameStep>(initialConfig.format === "bo3" ? "selectBattlefield" : "mulligan");
+  // The seed for the CURRENT game, held rather than re-derived so a Best of 3's
+  // battlefield choice can rebuild this game's state (with the chosen
+  // battlefields) off the same shuffle the roll used.
+  const [gameSeed, setGameSeed] = useState(() => Date.now());
+  // Hands are dealt but the human hasn't confirmed a mulligan yet. Deliberately
+  // kept NON-NULL for the whole pregame, including the battlefield step: every
+  // derivation below this line reads `state`, so a null here would have to
+  // ripple through all of them. During the battlefield step this holds a
+  // throwaway state built with rolled battlefields that no screen renders —
+  // selecting replaces it with the real one. Mirrors the real rule's own
+  // pregame sequence (deal hands -> mulligan -> begin first turn), see
+  // execute-mulligan.ts.
   const [pregameState, setPregameState] = useState<GameState | null>(() =>
-    dealOpeningHands(createNewGame(config, Date.now())),
+    dealOpeningHands(createNewGame(initialConfig, Date.now())),
   );
   const [game, setGame] = useState<{ state: GameState; result: SubmitResult } | null>(null);
   const { state, result } = game ?? { state: pregameState!, result: { type: "Ok" } };
@@ -155,19 +209,27 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // recomputing document.elementFromPoint at that exact moment is a race;
   // the continuously-updated ref isn't.
   const lastDragZoneRef = useRef<string | null>(null);
+  // A just-resolved chain entry, held on screen for CHAIN_RESOLVE_BEAT_MS —
+  // see the resolution-beat effect below.
+  const [resolvingChainItem, setResolvingChainItem] = useState<ChainItemDescription | null>(null);
+  const beatTimerRef = useRef<number | null>(null);
+  // Has the current game's result already been added to the series score? See
+  // the banking effect below.
+  const bankedGameRef = useRef(false);
+  // Which chain item the pointer is over, so the board's co-highlight can
+  // narrow from "everything the chain points at" to "what THIS item points
+  // at". Only meaningful with a chain deeper than one item, which is
+  // unreachable until reaction-speed casting lands — harmless and correct
+  // until then, since a 1-deep chain highlights the same set either way.
+  const [hoveredChainIndex, setHoveredChainIndex] = useState<number | null>(null);
 
-  // The "acting player" — normally the active player, but during an open
-  // Showdown it's whoever holds Focus, and while the chain is closed (a
-  // spell pending resolution) it's whoever holds chain priority instead —
-  // either can be either player regardless of whose turn it nominally is
-  // (mirrors GameState.java's actingPlayer() precedence: chain closed ->
-  // chainPriority, Showdown -> focusHolder, else -> activePlayerIndex).
-  const actingPlayerIndex = !state.chainOpen
-    ? state.chainPriority
-    : state.turnState === "Showdown"
-      ? state.focusHolder
-      : state.activePlayerIndex;
-  const isHumanTurn = actingPlayerIndex === HUMAN_INDEX;
+  // Who may act right now — the engine owns this precedence (chain closed ->
+  // chainPriority, Showdown -> focusHolder, else -> activePlayerIndex). It used
+  // to be written out here as well as in the AI and implicitly in legal-actions;
+  // now that a card can legally be played in all three states, one definition is
+  // the only way those can't drift.
+  const actingIndex = actingPlayerIndex(state);
+  const isHumanTurn = actingIndex === HUMAN_INDEX;
   const isGameOver = result.type === "GameOver";
   const isShowdownOpen = state.turnState === "Showdown";
   const showdownBattlefield = isShowdownOpen
@@ -178,6 +240,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // same underlying mechanism, distinguished only by which state is closed).
   const isChainPending = !state.chainOpen;
   const showPassFocus = isShowdownOpen || isChainPending;
+
+  // The chain, newest first — i.e. in resolution order (rule 343). Rendered by
+  // ChainView; before this existed, `state.spellChain` reached the UI nowhere
+  // at all.
+  const chainItems = useMemo(() => describeChain(state), [state]);
 
   const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
 
@@ -198,6 +265,68 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     }, AI_MOVE_DELAY_MS);
     return () => clearTimeout(timer);
   }, [state, isHumanTurn, isGameOver]);
+
+  // The resolution beat. A chain entry vanishes from `state.spellChain` in the
+  // same tick its effect is applied, so without this a spell resolved as an
+  // unexplained board change — the thing that was about to happen simply
+  // stopped being on screen at the exact moment it happened. This keeps the
+  // entry visible (as its pre-resolution description, so a target that just
+  // died is still named) for a beat afterwards.
+  //
+  // Both refs are read-then-overwritten every run: the previous top is what
+  // just resolved, and the length comparison is what says a resolution
+  // happened at all. The timer lives in a ref rather than an effect cleanup on
+  // purpose — this effect re-runs on EVERY state change, so a cleanup-based
+  // timeout would be cancelled by any unrelated action mid-beat and strand the
+  // ghost on screen permanently.
+  const prevChainLengthRef = useRef(state.spellChain.length);
+  const prevChainTopRef = useRef<ChainItemDescription | null>(chainItems[0] ?? null);
+  useEffect(() => {
+    const previousLength = prevChainLengthRef.current;
+    const previousTop = prevChainTopRef.current;
+    prevChainLengthRef.current = state.spellChain.length;
+    prevChainTopRef.current = chainItems[0] ?? null;
+
+    if (state.spellChain.length > previousLength) {
+      // Something new was just cast — a stale ghost underneath it would read as
+      // a second, phantom chain entry.
+      clearResolutionBeat();
+      setResolvingChainItem(null);
+      return;
+    }
+    if (state.spellChain.length === previousLength || !previousTop) return;
+
+    setResolvingChainItem(previousTop);
+    clearResolutionBeat();
+    beatTimerRef.current = window.setTimeout(() => {
+      beatTimerRef.current = null;
+      setResolvingChainItem(null);
+    }, CHAIN_RESOLVE_BEAT_MS);
+  }, [state.spellChain, chainItems]);
+
+  useEffect(() => clearResolutionBeat, []);
+
+  // Bank a finished game into the series exactly once. A ref rather than
+  // deriving it from `result`, because `result` stays GameOver for every render
+  // until the next game starts — without the guard the score would climb on
+  // each one. Reset in resetForNewGame, which is the only way out of this state.
+  useEffect(() => {
+    if (result.type !== "GameOver" || bankedGameRef.current) return;
+    bankedGameRef.current = true;
+    const humanWon = result.winnerId === state.players[HUMAN_INDEX].id;
+    setSeries((prev) => ({
+      ...prev,
+      humanGameWins: prev.humanGameWins + (humanWon ? 1 : 0),
+      aiGameWins: prev.aiGameWins + (humanWon ? 0 : 1),
+    }));
+  }, [result, state]);
+
+  function clearResolutionBeat() {
+    if (beatTimerRef.current !== null) {
+      clearTimeout(beatTimerRef.current);
+      beatTimerRef.current = null;
+    }
+  }
 
   const human = state.players[HUMAN_INDEX];
   const ai = state.players[AI_INDEX];
@@ -291,11 +420,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  already dealt you the wrong colours, whereas a shortage just needs more
    *  channeled runes. */
   function unplayableReason(card: CardInstance): string {
-    if (!isHumanTurn) return "It's not your turn.";
     if (state.phase !== "Action") return `Cards can only be played during the Action phase — it's currently ${state.phase}.`;
-    if (state.turnState === "Showdown") return "Cards can't be played while a Showdown is open — reaction-speed casting isn't implemented yet.";
-    if (!state.chainOpen) return "A spell is waiting to resolve — pass priority first.";
     if (card.kind === "Legend") return "Legend cards can't be played.";
+    // Timing first, and from the engine, so the board's explanation is the same
+    // rule the validator applies. This replaced three flat claims, two of which
+    // are now false — a Showdown and a pending spell are both castable windows
+    // for a card with the right printed keyword.
+    const timing = timingRejection(state, HUMAN_INDEX, card);
+    if (timing !== null) return timing;
 
     const effective = computeEffectiveCost(
       human.floatingEnergy,
@@ -696,6 +828,39 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return ids;
   }
 
+  /** Everything the chain currently points at, as ids the board can match —
+   *  read off the raw ChainEntry rather than off `describeChain`'s output,
+   *  which resolves ids to display names on purpose and so can't be matched
+   *  back against a unit. Narrowed to a single item while one is hovered in
+   *  ChainView, so a deep chain can be read one item at a time.
+   *
+   *  This is how a chain item points at its target: no arrows. The Java client
+   *  draws real arrows and its own comment records why that was fragile —
+   *  nodes added in the same layout pulse measured stale/zero bounds, "and
+   *  that mismatch, not a logic bug, was why the arrow only sometimes
+   *  appeared" (ui/BoardController.java's drawChainArrows, which needed both a
+   *  deferred pulse and a forced applyCss()/layout()). Framer Motion owns
+   *  every card's transform here, so co-highlighting the target instead says
+   *  the same thing with nothing measured. */
+  function chainHighlight(): { units: Set<string>; battlefields: Set<string> } {
+    const source = hoveredChainIndex !== null ? chainItems.slice(hoveredChainIndex, hoveredChainIndex + 1) : chainItems;
+    const units = new Set<string>();
+    const battlefields = new Set<string>();
+    for (const item of source) {
+      for (const id of [
+        item.entry.targetUnitInstanceId,
+        item.entry.secondTargetUnitInstanceId,
+        item.entry.additionalCostUnitInstanceId,
+      ]) {
+        if (id !== undefined) units.add(id);
+      }
+      for (const id of [item.entry.targetBattlefieldId, item.entry.destinationBattlefieldId]) {
+        if (id !== undefined) battlefields.add(id);
+      }
+    }
+    return { units, battlefields };
+  }
+
   /** Unified click handler for any unit, friendly or enemy, at a battlefield
    *  OR in the human's own base. If an armed card is currently waiting on a
    *  unit click (a target, a pair's second target, or Meditation's optional
@@ -1043,20 +1208,51 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (action) applyAction(action);
   }
 
-  /** Starts a brand-new match (rematch or quick-swap) — a fresh seed always,
-   *  so "same decks" still reshuffles rather than replaying identically.
-   *  Goes through the mulligan screen again, same as the very first match. */
-  function startNewMatch(newConfig: MatchConfig) {
-    setConfig(newConfig);
+  /** Clears everything scoped to one GAME, so the next one starts clean. Split
+   *  out because a Best of 3's "next game" needs exactly this and must NOT
+   *  touch the series, while starting a whole new match needs this plus a
+   *  series reset. */
+  function resetForNewGame(newConfig: MatchConfig, seed: number) {
     setGame(null);
-    setPregameState(dealOpeningHands(createNewGame(newConfig, Date.now())));
+    setGameSeed(seed);
+    bankedGameRef.current = false;
+    setPregameState(dealOpeningHands(createNewGame(newConfig, seed)));
+    setPregame(newConfig.format === "bo3" ? "selectBattlefield" : "mulligan");
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setDragOverZoneId(null);
+    setUnplayableNotice(null);
+    setViewingTrash(null);
+    // A resolution beat left running from the finished game would otherwise
+    // show a chain entry over the next one's opening board.
+    clearResolutionBeat();
+    setResolvingChainItem(null);
+    setHoveredChainIndex(null);
+  }
+
+  /** Starts a brand-new match (rematch or quick-swap) — a fresh seed always,
+   *  so "same decks" still reshuffles rather than replaying identically, and a
+   *  fresh series, since a rematch is a new match rather than a continuation of
+   *  the one that just ended. */
+  function startNewMatch(newConfig: MatchConfig) {
+    setConfig(newConfig);
+    setSeries(freshSeries());
+    resetForNewGame(newConfig, Date.now());
   }
 
   function handleQuickSwap(deck: DeckList) {
     startNewMatch({ ...config, humanDeck: deck });
+  }
+
+  /** Rule 487.2: the human presents one of their three battlefields, and the
+   *  AI presents one of its own at the same time (rolled — see
+   *  rollAiBattlefield). Rebuilds this game's state with both choices in place,
+   *  replacing the throwaway rolled-battlefield state the chooser sat in front
+   *  of, then moves on to the mulligan. */
+  function handleBattlefieldSelect(humanName: string) {
+    const aiName = rollAiBattlefield(config, gameSeed, series.aiUsedBattlefields);
+    setPregameState(dealOpeningHands(createNewGame(config, gameSeed, { humanName, aiName })));
+    setPregame("mulligan");
   }
 
   /** Applies the human's mulligan choice (the AI never mulligans — see
@@ -1068,13 +1264,31 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         ? executeMulligan(pregameState!, { type: "Mulligan", playerIndex: HUMAN_INDEX, setAsideInstanceIds: humanSetAsideIds })
         : pregameState!;
     setGame(beginFirstTurn(resolved));
-    setPregameState(null);
+    setPregame("playing");
+  }
+
+  /** Rule 487.4's between-games reset: bank the game win, retire the
+   *  battlefields that were just played (487.3), and set up the next game.
+   *  Reads the battlefields off the state that just ended rather than
+   *  remembering what was chosen, so it can't drift from what was actually in
+   *  play. */
+  function handleNextGame() {
+    const humanBattlefield = state.battlefields[0]?.name;
+    const aiBattlefield = state.battlefields[1]?.name;
+    setSeries((prev) => ({
+      ...prev,
+      gameNumber: prev.gameNumber + 1,
+      humanUsedBattlefields: humanBattlefield ? [...prev.humanUsedBattlefields, humanBattlefield] : prev.humanUsedBattlefields,
+      aiUsedBattlefields: aiBattlefield ? [...prev.aiUsedBattlefields, aiBattlefield] : prev.aiUsedBattlefields,
+    }));
+    resetForNewGame(config, Date.now());
   }
 
   // Computed once per render for the header hint and the rune-payment UI —
   // both need to know exactly which phase `pendingPlay` is currently in.
   const pendingResolvedAction = pendingLegalAction();
   const currentStep = pendingStep();
+  const chainTargets = chainHighlight();
   // A ChoiceOverlay is up. Its backdrop deliberately swallows board clicks,
   // which also puts the actions row out of reach — so the row's own Cancel
   // hides rather than sitting there visibly unpressable (the overlay carries
@@ -1149,8 +1363,37 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (action) applyAction(action);
   }
 
-  if (pregameState) {
-    return <MulliganScreen hand={pregameState.players[HUMAN_INDEX].hand} onConfirm={handleMulliganConfirm} />;
+  // Series bookkeeping shared by the pregame screens, the header and the
+  // end-of-game panel.
+  const isBo3 = config.format === "bo3";
+  const targetWins = winsNeeded(config.format);
+  const seriesNote = isBo3
+    ? `Game ${series.gameNumber} of 3 · ${series.humanGameWins}–${series.aiGameWins}`
+    : undefined;
+  // In a Best of 3 the MATCH is only over once someone has the needed game
+  // wins; every earlier game end goes to SeriesPanel instead.
+  const isMatchOver = !isBo3 || series.humanGameWins >= targetWins || series.aiGameWins >= targetWins;
+
+  if (pregame === "selectBattlefield") {
+    return (
+      <BattlefieldSelect
+        names={config.humanDeck.battlefieldNames}
+        used={series.humanUsedBattlefields}
+        seriesNote={seriesNote ?? ""}
+        onSelect={handleBattlefieldSelect}
+      />
+    );
+  }
+
+  if (pregame === "mulligan") {
+    return (
+      <MulliganScreen
+        hand={pregameState!.players[HUMAN_INDEX].hand}
+        humanGoesFirst={pregameState!.firstPlayerIndex === HUMAN_INDEX}
+        {...(seriesNote ? { seriesNote } : {})}
+        onConfirm={handleMulliganConfirm}
+      />
+    );
   }
 
   return (
@@ -1159,8 +1402,22 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         <h1>Rift-Engine</h1>
         <span>
           Turn {state.turnNumber} · {state.phase} ·{" "}
+          {/* Showdown and chain are ORTHOGONAL now that Action-speed casting
+              exists (rule 310's four states), so the header composes them
+              instead of picking one. It used to test the Showdown first and stop
+              — which meant a spell on the chain inside a Showdown was never
+              announced, and the line claimed "your Focus" when what the player
+              actually held was chain priority. Whoever holds what is the single
+              thing this line has to get right. */}
           {isShowdownOpen
-            ? `Showdown at ${showdownBattlefield?.name ?? "?"} — ${isHumanTurn ? "your" : "AI's"} Focus`
+            ? // A Showdown is a window, not necessarily a fight — naming which
+              // kind is the difference between "you're about to lose units" and
+              // "someone is walking onto an empty battlefield" (317.1).
+              `${state.showdownKind === "Combat" ? "Combat" : "Non-Combat"} Showdown at ${showdownBattlefield?.name ?? "?"}${
+                isChainPending
+                  ? ` · spell pending — ${isHumanTurn ? "your" : "AI's"} priority`
+                  : ` — ${isHumanTurn ? "your" : "AI's"} Focus`
+              }`
             : isChainPending
               ? `Spell pending resolution — ${isHumanTurn ? "your" : "AI's"} priority`
               : isHumanTurn
@@ -1170,17 +1427,34 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           {pendingStillOwesPayment &&
             ` — pay for ${pendingPlay!.card.name}: left-click a rune for Energy, right-click for Power (or Auto Pay)`}
         </span>
+        {/* Appended as its own element rather than folded into the line above:
+            the existing turn/phase text is matched verbatim by the throwaway
+            Playwright drivers, and there's no reason to move it. */}
+        {seriesNote && <span className="header-series">{seriesNote}</span>}
         {unplayableNotice && <span className="header-notice">{unplayableNotice}</span>}
       </div>
 
-      {isGameOver && (
-        <RematchPanel
-          didHumanWin={result.type === "GameOver" && result.winnerId === human.id}
-          onRematch={() => startNewMatch(config)}
-          onQuickSwap={handleQuickSwap}
-          onMainMenu={onMainMenu}
-        />
-      )}
+      {isGameOver &&
+        (isMatchOver ? (
+          <RematchPanel
+            didHumanWin={result.type === "GameOver" && result.winnerId === human.id}
+            // Only a Best of 3 has a series score to report; in a Best of 1 the
+            // game result already IS the match result.
+            {...(isBo3 ? { seriesScore: `${series.humanGameWins}–${series.aiGameWins}` } : {})}
+            onRematch={() => startNewMatch(config)}
+            onQuickSwap={handleQuickSwap}
+            onMainMenu={onMainMenu}
+          />
+        ) : (
+          <SeriesPanel
+            didHumanWinGame={result.type === "GameOver" && result.winnerId === human.id}
+            humanGameWins={series.humanGameWins}
+            aiGameWins={series.aiGameWins}
+            winsNeeded={targetWins}
+            onNextGame={handleNextGame}
+            onMainMenu={onMainMenu}
+          />
+        ))}
 
       {viewingTrash && (
         // Read-only browser, ordered oldest-first exactly as the pile is
@@ -1258,6 +1532,23 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         />
 
         <div className="board-center">
+          {/* Absolutely positioned inside this column and mounted only while
+              there's something to show, so it adds no row and can't push the
+              fixed-height board into overflow. Nothing on the board is
+              draggable while the chain is closed (legalActions offers only
+              PassFocus/FloatRune/ActivateAbility there), so this can't shadow
+              a drop zone's hit-test either. */}
+          {(chainItems.length > 0 || resolvingChainItem) && (
+            <ChainView
+              items={chainItems}
+              resolving={resolvingChainItem}
+              humanIndex={HUMAN_INDEX}
+              chainPasses={state.chainPasses}
+              isHumanResponse={isChainPending && isHumanTurn}
+              onHoverItem={setHoveredChainIndex}
+            />
+          )}
+
           <div className="base-and-runes">
             <div className="zone card-zone">
               <div className="zone-label">AI base</div>
@@ -1275,6 +1566,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       isEnemy
                       isSelectable={isUnitLegalTarget(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
+                      isChainTargeted={chainTargets.units.has(unit.instanceId)}
                       isSelected={pendingChosenUnitIds().has(unit.instanceId)}
                       onClick={() => handleUnitClick(unit)}
                     />
@@ -1299,9 +1591,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                   isHumanTurn && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
                 }
                 isTargetable={isHumanTurn && isBattlefieldLegalTarget(bf.id)}
+                isChainTargeted={chainTargets.battlefields.has(bf.id)}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
                 isUnitTargetable={isUnitLegalTarget}
+                isUnitChainTargeted={(unit) => chainTargets.units.has(unit.instanceId)}
                 isFriendlySelectable={isFriendlyUnitSelectable}
                 chosenUnitIds={pendingChosenUnitIds()}
                 onUnitClick={handleUnitClick}
@@ -1358,6 +1652,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       // be able to answer a pending step too.
                       isSelectable={isHumanTurn && isFriendlyUnitSelectable(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
+                      isChainTargeted={chainTargets.units.has(unit.instanceId)}
                       isSelected={selectedUnitIds.has(unit.instanceId) || pendingChosenUnitIds().has(unit.instanceId)}
                       onClick={() => handleUnitClick(unit)}
                       onDrag={canDragUnit(unit) ? trackDragZone : undefined}

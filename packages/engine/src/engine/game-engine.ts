@@ -15,6 +15,7 @@ import { validateActivateAbility } from "../actions/validate-activate-ability.js
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
+import { runCleanup } from "./cleanup.js";
 import type { SubmitResult } from "./submit-result.js";
 
 /**
@@ -32,10 +33,19 @@ export function dealOpeningHands(state: GameState): GameState {
   return { ...state, players };
 }
 
-function withWinnerCheck(state: GameState): { state: GameState; result: SubmitResult } {
-  const w = winner(state);
-  if (w === null) return { state, result: { type: "Ok" } };
-  return { state, result: { type: "GameOver", winnerId: state.players[w].id } };
+/**
+ * Every resolved action ends the same way: run the Cleanup, then check whether
+ * anyone has won. That order is the rules' own — rule 323's Cleanup performs its
+ * state-based actions (including control lapsing, step 4) and the victory check
+ * is a cleanup-time question (194.4 / 198.1). Cleanup can't create or destroy
+ * points, so it can't change who wins this instant; running it first is about
+ * never leaving a caller holding a state the rules wouldn't allow.
+ */
+function withCleanupAndWinnerCheck(state: GameState): { state: GameState; result: SubmitResult } {
+  const cleaned = runCleanup(state);
+  const w = winner(cleaned);
+  if (w === null) return { state: cleaned, result: { type: "Ok" } };
+  return { state: cleaned, result: { type: "GameOver", winnerId: cleaned.players[w].id } };
 }
 
 /** Runs the first Start-of-Turn sequence on an already-hands-dealt state.
@@ -45,7 +55,7 @@ function withWinnerCheck(state: GameState): { state: GameState; result: SubmitRe
  *  (engine/GameEngine.java:123-131), which the real client calls only after
  *  its own mulligan screens finish (ui/RiftboundApp.java:135-139). */
 export function beginFirstTurn(state: GameState): { state: GameState; result: SubmitResult } {
-  return withWinnerCheck(runStartOfTurn(state));
+  return withCleanupAndWinnerCheck(runStartOfTurn(state));
 }
 
 /** Deals opening hands and runs the first Start-of-Turn sequence, with no
@@ -72,37 +82,37 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
     case "PlayCard": {
       const validation = validatePlayCard(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executePlayCard(state, action));
+      return withCleanupAndWinnerCheck(executePlayCard(state, action));
     }
     case "Pass": {
       const validation = validatePass(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(runStartOfTurn(runEnd(state)));
+      return withCleanupAndWinnerCheck(runStartOfTurn(runEnd(state)));
     }
     case "MoveUnit": {
       const validation = validateMoveUnit(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executeMoveUnit(state, action));
+      return withCleanupAndWinnerCheck(executeMoveUnit(state, action));
     }
     case "RecallUnit": {
       const validation = validateRecallUnit(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executeRecallUnit(state, action));
+      return withCleanupAndWinnerCheck(executeRecallUnit(state, action));
     }
     case "PassFocus": {
       const validation = validatePassFocus(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executePassFocus(state, action));
+      return withCleanupAndWinnerCheck(executePassFocus(state, action));
     }
     case "FloatRune": {
       const validation = validateFloatRune(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executeFloatRune(state, action));
+      return withCleanupAndWinnerCheck(executeFloatRune(state, action));
     }
     case "ActivateAbility": {
       const validation = validateActivateAbility(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
-      return withWinnerCheck(executeActivateAbility(state, action));
+      return withCleanupAndWinnerCheck(executeActivateAbility(state, action));
     }
   }
 }

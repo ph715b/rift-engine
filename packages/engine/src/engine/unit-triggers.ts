@@ -4,7 +4,9 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 import { targetingForCard, type TargetingSpec } from "./card-effects.js";
 import {
   buffOwnUnitAnywhere,
+  channelRunesExhausted,
   dealDamage,
+  drawCards,
   dealDamageToAllUnitsAtAllBattlefields,
   readyUnit,
   recallUnitToBase,
@@ -122,6 +124,25 @@ const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "ownTrashCard", cardKind: "Spell" },
     resolve: (state, ctx, _unitId, event) =>
       event.trashCardInstanceId ? returnCardFromTrash(state, ctx.casterIndex, event.trashCardInstanceId) : state,
+  },
+  "OGN-087": {
+    // Lecturing Yordle — "When you play me, draw 1." Its [Tank] keyword is a
+    // combat-damage-ordering property (combat.ts), not part of this trigger.
+    //
+    // Was silently doing nothing despite being in a precon deck: the card is a
+    // 3-of in Lux's list, so a real game drew one fewer card than it should
+    // roughly every third game. Found by simulating the play and watching the
+    // deck size not move, not by reading the code.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "OGN-137": {
+    // Stormclaw Ursine — "When you play me, channel 1 rune exhausted." Also
+    // [Tank]. Exhausted, so it can pay a Power cost this turn (a Power payment
+    // recycles the rune regardless of state) but not an Energy one until Awaken
+    // readies it — see channelRunesExhausted.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1),
   },
 };
 

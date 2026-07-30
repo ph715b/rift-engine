@@ -1,6 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
-import { claimBattlefieldControl } from "../engine/combat.js";
+import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -52,14 +52,15 @@ import { validatePlayCard } from "./validate-play-card.js";
  *   - Unit, with destinationBattlefieldId ("reinforce" — see
  *     validate-play-card.ts's presence rule): added to that battlefield's
  *     units instead of base, exhaustion rule unchanged (destination-agnostic
- *     per ActionExecutor.java:376-384). Landing on a contested battlefield
- *     opens a Showdown via the identical mechanism MoveUnit's does — a
+ *     per ActionExecutor.java:376-384). Landing anywhere the player doesn't
+ *     already control applies Contested (rule 458) via the identical mechanism
+ *     MoveUnit's does, and the following Cleanup stages the Showdown — a
  *     confirmed real mechanic, not inferred (GameEngine.java:201-263's own
  *     "playtesting fix" comment: a unit played directly to a battlefield
  *     never opened a real Showdown even when landing on enemy-occupied
- *     territory). Landing uncontested claims control immediately
- *     (`claimBattlefieldControl`, same walk-in shape MoveUnit's uncontested
- *     case uses).
+ *     territory). Landing with no opposing units is a Non-Combat Showdown
+ *     rather than an instant claim (317.1); control is established when that
+ *     window closes (352.1).
  *   - Spell: hand.remove(card); trash.add(card) IMMEDIATELY — before it ever
  *     resolves, mirroring ActionExecutor.payAndQueueSpell's trash-add at
  *     cast time (:566-567), not after resolution; pushes a ChainEntry onto
@@ -209,22 +210,17 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     const bfAfterTrigger = next.battlefields[bfIndex]!;
     const opponentPresent = (bfAfterTrigger.units[opponent.id]?.length ?? 0) > 0;
 
-    if (!opponentPresent) {
-      return claimBattlefieldControl(next, action.destinationBattlefieldId, action.playerIndex);
+    if (opponentPresent) {
+      // A Unit played directly onto an opponent-held battlefield is "attacking,"
+      // same as MoveUnit's contested case (execute-move-unit.ts) — same
+      // shared dispatchOnAttack, same before-the-Showdown-opens ordering.
+      next = dispatchOnAttack(next, deployedUnit, action.playerIndex, action.destinationBattlefieldId);
     }
 
-    // A Unit played directly onto a contested battlefield is "attacking,"
-    // same as MoveUnit's contested case (execute-move-unit.ts) — same
-    // shared dispatchOnAttack, same before-the-Showdown-opens ordering.
-    next = dispatchOnAttack(next, deployedUnit, action.playerIndex, action.destinationBattlefieldId);
-
-    return {
-      ...next,
-      turnState: "Showdown",
-      focusHolder: action.playerIndex,
-      showdownBattlefieldId: action.destinationBattlefieldId,
-      consecutiveFocusPasses: 0,
-    };
+    // Contested now, Showdown staged by the following Cleanup — identical
+    // treatment to a Move (rule 190.4's "Moves or otherwise becomes present"),
+    // which is the point of routing both through applyContested.
+    return applyContested(next, action.destinationBattlefieldId, action.playerIndex);
   }
 
   let updatedActor: PlayerState;
@@ -241,6 +237,11 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
       chainOpen: false,
       chainPriority: action.playerIndex,
       chainPasses: 0,
+      // Rule 349 ends a Showdown only when "all Players have passed once in
+      // sequence" — casting breaks that sequence. Without this reset, a cast
+      // after the opponent had already passed once would let the very next pass
+      // close the window, cutting the caster's own response short.
+      consecutiveFocusPasses: 0,
       spellChain: [
         ...state.spellChain,
         {

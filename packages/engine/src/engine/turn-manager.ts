@@ -9,9 +9,15 @@ import { healAllUnits } from "./effect-helpers.js";
  * TurnManager instance — Java's `startingPlayerIndex`/`secondPlayerBonusGranted`
  * instance fields (TurnManager.java:178-180) are replaced by deriving the
  * same "does the second player get a 3rd Channel rune this game" condition
- * straight from `turnNumber`/`activePlayerIndex` (see runChannel below),
- * since our GameState always starts at `activePlayerIndex: 0` (there's no
- * separate "who went first" concept to capture).
+ * from `turnNumber` and `GameState.firstPlayerIndex` (see runChannel below).
+ *
+ * `firstPlayerIndex` is what Java's `startingPlayerIndex` is for, and it is
+ * load-bearing rather than bookkeeping: rule 117.x determines turn order by
+ * "any fair random method", so either player can go first, and BOTH steps that
+ * care (the going-second Channel bonus and the turn counter) used to test
+ * against the literal indices 1 and 0 on the assumption that the game always
+ * began with player 0. That assumption held only because the setup code
+ * hardcoded it.
  *
  * Only the general-purpose steps are ported — the long tail of per-card
  * triggers TurnManager.java's runBeginning/runEnd fire (temporary-unit kills,
@@ -71,18 +77,30 @@ export function runBeginning(state: GameState): GameState {
 
 /**
  * Reveals runes from the rune deck into the channeled pool: 2 normally, 3 on
- * the second-acting player's very first turn (core rules' going-second
- * compensation). Mirrors TurnManager.runChannel (engine/TurnManager.java:182-201).
- * "Second player's first turn" == `turnNumber === 1 && activePlayerIndex === 1`,
- * since turnNumber only advances when play wraps back to player 0
- * (see runEnd) and this engine always starts at `activePlayerIndex: 0`.
+ * the second-acting player's very first turn. That extra rune is the First
+ * Turn Process both sanctioned 1v1 modes share — "the player going second
+ * channels an extra Rune from their Rune Deck during their first Channel Phase
+ * of the game" (rules 486.1 for 1v1 Duel, 487.4 for 1v1 Match). Mirrors
+ * TurnManager.runChannel (engine/TurnManager.java:182-201).
+ *
+ * "Going second" is `active !== state.firstPlayerIndex`, NOT `active === 1`.
+ * The old literal-1 test silently gave the compensation to whoever sat at
+ * index 1 — correct only while setup hardcoded player 0 to start, and exactly
+ * backwards once turn order is randomized per rule 117.x. Combined with
+ * runEnd's matching change, the going-second player's first turn is always
+ * `turnNumber === 1` regardless of which seat they occupy.
+ *
+ * Note this is deliberately NOT the FFA3 First Turn Process, which also makes
+ * the player going FIRST skip their first draw (rule 488.1). That adjustment
+ * belongs to a 3-player mode; neither 1v1 mode has it.
  */
 export function runChannel(state: GameState): GameState {
   if (state.phase !== "Channel") {
     throw new Error(`runChannel requires Channel phase, currently: ${state.phase}`);
   }
   const active = state.activePlayerIndex;
-  const toChannel = state.turnNumber === 1 && active === 1 ? 3 : 2;
+  const goingSecond = active !== state.firstPlayerIndex;
+  const toChannel = state.turnNumber === 1 && goingSecond ? 3 : 2;
 
   const next = updatePlayer(state, active, (p) => {
     const runeDeck = [...p.runeDeck];
@@ -124,7 +142,11 @@ export function runStartOfTurn(state: GameState): GameState {
 /**
  * Ends the active player's turn: clears turn-scoped bonuses, empties floating
  * Energy/Power, resets cardsPlayedThisTurn, and rotates to the next player
- * (incrementing turnNumber when play wraps back to player 0). Mirrors the
+ * (incrementing turnNumber when play wraps back to the FIRST player — rule
+ * 118's turn order is "a looping queue of turns, starting with the First
+ * Player", so a round is complete when it returns to them, whichever seat that
+ * is; testing against the literal index 0 was only right while setup hardcoded
+ * player 0 to start). Mirrors the
  * general-purpose parts of TurnManager.runEnd (engine/TurnManager.java:224-360)
  * — the ~40 per-card "this turn" field resets there have no equivalent yet
  * since none of those fields exist on our GameState/PlayerState (see this
@@ -175,7 +197,7 @@ export function runEnd(state: GameState): GameState {
   });
 
   const nextIndex = ((state.activePlayerIndex + 1) % 2) as 0 | 1;
-  const turnNumber = nextIndex === 0 ? state.turnNumber + 1 : state.turnNumber;
+  const turnNumber = nextIndex === state.firstPlayerIndex ? state.turnNumber + 1 : state.turnNumber;
 
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.

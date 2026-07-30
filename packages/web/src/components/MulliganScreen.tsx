@@ -4,6 +4,16 @@ import { CardView } from "./CardView.js";
 
 interface MulliganScreenProps {
   hand: CardInstance[];
+  /** Does the human take the first turn? Turn order is rolled per game (rule
+   *  117.x), so this is genuinely unknown until now — and it belongs on THIS
+   *  screen rather than only in the board header, because it's information the
+   *  mulligan decision depends on: the player going second channels an extra
+   *  rune on their first turn (486.1), so going second can afford a slightly
+   *  greedier hand. */
+  humanGoesFirst: boolean;
+  /** Match context ("Game 2 of 3 — you lead 1–0"), shown only in a Best of 3;
+   *  absent in a single game, where there's nothing to say. */
+  seriesNote?: string;
   onConfirm: (setAsideInstanceIds: string[]) => void;
 }
 
@@ -13,7 +23,7 @@ interface MulliganScreenProps {
  *  execute-mulligan.ts). Clicking past 2 silently no-ops rather than
  *  erroring, matching the "cap, don't error" feel of this app's other
  *  toggle-based selection UIs (e.g. the manual rune-payment feature). */
-export function MulliganScreen({ hand, onConfirm }: MulliganScreenProps) {
+export function MulliganScreen({ hand, humanGoesFirst, seriesNote, onConfirm }: MulliganScreenProps) {
   const [setAside, setAside_] = useState<Set<string>>(new Set());
 
   function toggle(instanceId: string) {
@@ -29,11 +39,16 @@ export function MulliganScreen({ hand, onConfirm }: MulliganScreenProps) {
     <div className="board">
       <div className="header">
         <h1>Rift-Engine</h1>
-        <span>Mulligan</span>
+        <span>Mulligan{seriesNote ? ` · ${seriesNote}` : ""}</span>
       </div>
 
       <div className="mulligan-screen">
         <div className="banner">Choose up to 2 cards to set aside and replace</div>
+        <div className="turn-order-note">
+          {humanGoesFirst
+            ? "You go first."
+            : "The AI goes first — you channel an extra rune on your first turn to compensate."}
+        </div>
         <div className="card-row">
           {hand.map((card) => (
             <CardView

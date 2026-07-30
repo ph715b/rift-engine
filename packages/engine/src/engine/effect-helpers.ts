@@ -178,6 +178,28 @@ export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): 
   });
 }
 
+/**
+ * Channels `count` runes from a player's rune deck into their channeled pool
+ * **exhausted** — Stormclaw Ursine's "channel 1 rune exhausted".
+ *
+ * Distinct from `turn-manager.runChannel`, which is the Channel *Phase* and
+ * always reveals runes Ready. An exhausted rune still counts for Power (a Power
+ * cost recycles the rune regardless of its state, see execute-play-card) but
+ * cannot pay Energy until it readies at the next Awaken — which is exactly what
+ * makes "channel 1 exhausted" weaker than a free rune rather than equivalent.
+ *
+ * An empty rune deck channels as many as it can and no more, matching
+ * runChannel's own "as many as possible if fewer remain" behaviour (rule
+ * 315.4.b) rather than throwing.
+ */
+export function channelRunesExhausted(state: GameState, playerIndex: 0 | 1, count: number): GameState {
+  return updatePlayer(state, playerIndex, (p) => {
+    if (count <= 0 || p.runeDeck.length === 0) return p;
+    const taken = p.runeDeck.slice(0, count).map((r) => ({ ...r, state: "Exhausted" as const }));
+    return { ...p, runeDeck: p.runeDeck.slice(taken.length), channeled: [...p.channeled, ...taken] };
+  });
+}
+
 /** Removes a unit from its battlefield and adds it to its OWNER's hand
  *  (not necessarily the caster's) — resets damage/bonus/exhausted since
  *  it's leaving play entirely and may be replayed fresh, unlike

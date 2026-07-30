@@ -5,6 +5,7 @@ import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
+import { submit } from "../src/engine/game-engine.js";
 
 let unitCounter = 0;
 function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
@@ -69,18 +70,20 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
   const p1 = makePlayer("p1");
   const p2 = makePlayer("p2");
   const battlefields: BattlefieldState[] = [
-    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {} },
-    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {} },
+    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {}, contestedByIndex: null },
   ];
   return {
     players: [p1, p2],
     battlefields,
     activePlayerIndex: 0,
+    firstPlayerIndex: 0,
     turnNumber: 1,
     phase: "Action",
     turnState: "Neutral",
     focusHolder: 0,
     showdownBattlefieldId: null,
+    showdownKind: null,
     consecutiveFocusPasses: 0,
     chainOpen: true,
     chainPriority: 0,
@@ -168,9 +171,12 @@ describe("PlayCard: direct-to-battlefield Unit deploy (reinforce)", () => {
 
     expect(validatePlayCard(state, action)).toEqual({ ok: true });
 
-    state = executePlayCard(state, action);
+    // Through submit: playing the unit applies Contested (190.4's "Moves or
+    // otherwise becomes present"), and the following Cleanup stages the window.
+    state = submit(state, action).state;
 
     expect(state.turnState).toBe("Showdown");
+    expect(state.showdownKind).toBe("Combat"); // opposing units present
     expect(state.focusHolder).toBe(0);
     expect(state.showdownBattlefieldId).toBe("bf1");
     expect(state.consecutiveFocusPasses).toBe(0);

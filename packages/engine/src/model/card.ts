@@ -60,6 +60,12 @@ export interface SpellInstance extends CardInstanceBase {
   powerDomain: Domain | null;
   powerDomainAlt?: Domain;
   isReaction: boolean;
+  /** The printed `[Action]` keyword. Read it through `timing.timingTierOf`, not
+   *  directly: `[Reaction]` grants all of Action's permissions (rule 813) but
+   *  the loader only sets this from the literal printed text, so a
+   *  Reaction-only card such as Gust has `isReaction: true, isAction: false`.
+   *  Testing this flag alone would bar all 8 Reaction spells from Showdowns. */
+  isAction: boolean;
 }
 
 export interface GearInstance extends CardInstanceBase {
@@ -120,6 +126,10 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         powerDomain: def.powerDomain,
         ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         isReaction: def.isReaction,
+        // Was silently dropped here, which is why printed [Action] could never
+        // be checked at runtime: the definition carried it, a PlayCardAction
+        // carries the INSTANCE, and the instance didn't have it.
+        isAction: def.isAction,
       };
     case "Gear":
       return {
