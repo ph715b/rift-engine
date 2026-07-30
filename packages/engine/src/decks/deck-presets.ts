@@ -1,17 +1,38 @@
 import { LEGACY_BATTLEFIELDS, type DeckList } from "./deck-list.js";
 
 /**
- * The four preconstructed Origins: Proving Grounds decks — reused directly
- * from registry/DeckPresets.java rather than re-sourced, per PRD decision
- * (these are also, per the resolved open-question #1, Origins' "starter
- * decks" — there is no separate starter-deck list). Decklists originally
- * sourced from riftmana.com, cross-referenced with riftDecks.com.
+ * The preconstructed Origins decks.
+ *
+ * The first four (Annie/Garen/Lux/Master Yi) are the Proving Grounds precons,
+ * reused directly from registry/DeckPresets.java rather than re-sourced, per PRD
+ * decision. Decklists originally sourced from riftmana.com, cross-referenced
+ * with riftDecks.com.
+ *
+ * **Correction:** this comment used to assert that those four were also Origins'
+ * "starter decks" and that "there is no separate starter-deck list". That was
+ * wrong — Origins has its own Jinx / Lee Sin / Viktor starter decks, whose
+ * Legends (OGN-251 / OGN-257 / OGN-265) and champions have been in the card pool
+ * all along. The Java oracle simply never carried those lists, which is why the
+ * claim went unchallenged. Jinx and Lee Sin are below; Viktor is still missing
+ * its list.
  */
 export interface PresetDeck {
   name: string;
   legendId: string;
   championId: string;
   deckCardIds: string[];
+  /**
+   * The deck's own three battlefields, when it has a verified trio.
+   *
+   * Absent for the Proving Grounds four, which fall back to LEGACY_BATTLEFIELDS
+   * because they have "no verified real battlefield trio of their own to draw
+   * from" (registry/CustomDeckRegistry.java:16-18). The Origins starter decks DO
+   * specify theirs, and it matters now that battlefield choice is a real
+   * mechanic: Best-of-3 has you present one per game and eliminates it
+   * afterwards (rule 487.2/487.3), so a deck presenting the wrong trio plays
+   * differently.
+   */
+  battlefieldNames?: string[];
 }
 
 /**
@@ -30,7 +51,7 @@ export function presetDeckList(preset: PresetDeck): DeckList {
     cardIds: preset.deckCardIds,
     runeDomainACount: 6,
     runeDomainBCount: 6,
-    battlefieldNames: LEGACY_BATTLEFIELDS,
+    battlefieldNames: preset.battlefieldNames ?? LEGACY_BATTLEFIELDS,
     sideboardCardIds: [],
   };
 }
@@ -135,7 +156,77 @@ const MASTER_YI: PresetDeck = {
   ),
 };
 
-const ALL_PRESETS: PresetDeck[] = [ANNIE, GAREN, LUX, MASTER_YI];
+/**
+ * Origins starter deck. Unlike the Proving Grounds four this one carries its own
+ * battlefield trio, and the champion's copy is counted inside the 40 (rule: the
+ * one set-aside champion comes out of the main deck, see player-setup.ts).
+ *
+ * Every name in the supplied list resolved against the registry with zero
+ * unresolved entries, and `validateDeckList` passes — checked by running the
+ * list through the app's own `parseDecklistText` rather than transcribing ids by
+ * hand.
+ */
+const JINX: PresetDeck = {
+  name: "Jinx: Fury + Chaos",
+  legendId: "OGN-251",
+  championId: "OGN-030",
+  battlefieldNames: ["Reaver's Row", "Targon's Peak", "Zaun Warrens"],
+  deckCardIds: deck(
+    [3, "OGN-002"], // Brazen Buccaneer
+    [3, "OGN-003"], // Chemtech Enforcer
+    [3, "OGN-006"], // Flame Chompers
+    [3, "OGN-019"], // Raging Soul
+    [3, "OGN-168"], // Fight or Flight
+    [3, "OGN-169"], // Gust
+    [3, "OGN-182"], // Scrapheap
+    [3, "OGN-185"], // Traveling Merchant
+    [2, "OGN-001"], // Blazing Scorcher
+    [2, "OGN-008"], // Get Excited!
+    [2, "OGN-024"], // Void Seeker
+    [2, "OGN-165"], // Cemetery Attendant
+    [2, "OGN-178"], // Undercover Agent
+    [2, "OGN-180"], // Fading Memories
+    [1, "OGN-011"], // Magma Wurm
+    [1, "OGN-195"], // Rhasa the Sunderer
+    [1, "OGN-036"], // Vi - Destructive
+    [1, "OGN-030"], // Jinx - Demolitionist (the champion's own copy)
+  ),
+};
+
+/** Origins starter deck — see JINX above for the sourcing note. */
+const LEE_SIN: PresetDeck = {
+  name: "Lee Sin: Calm + Body",
+  legendId: "OGN-257",
+  championId: "OGN-151",
+  battlefieldNames: ["Grove of the God-Willow", "Monastery of Hirana", "Targon's Peak"],
+  deckCardIds: deck(
+    [3, "OGN-052"], // Stalwart Poro
+    [3, "OGN-055"], // Wielder of Water
+    [3, "OGN-058"], // Discipline
+    [3, "OGN-065"], // Wizened Elder
+    [3, "OGN-128"], // Challenge
+    [3, "OGN-132"], // First Mate
+    [3, "OGN-136"], // Pit Rookie
+    [3, "OGN-147"], // Wildclaw Shaman
+    [2, "OGN-043"], // Charm
+    [2, "OGN-053"], // Stand United
+    [2, "OGN-125"], // Bilgewater Bully
+    [2, "OGN-135"], // Pakaa Cub
+    [2, "OGN-137"], // Stormclaw Ursine
+    [2, "OGN-142"], // Mountain Drake
+    [1, "OGN-060"], // Mask of Foresight
+    [1, "OGN-152"], // Mistfall
+    [1, "OGN-157"], // Udyr - Wildman
+    [1, "OGN-151"], // Lee Sin - Centered (the champion's own copy)
+  ),
+};
+
+// Viktor's starter deck is deliberately absent: the list supplied for it was a
+// verbatim duplicate of Lee Sin's (same Legend, champion, 17 entries,
+// battlefields and rune split), so there is nothing to add yet. Its Legend
+// (OGN-265 Viktor - Herald of the Arcane) and champions are already in the pool,
+// so it only needs the real list.
+const ALL_PRESETS: PresetDeck[] = [ANNIE, GAREN, LUX, MASTER_YI, JINX, LEE_SIN];
 
 const BY_LEGEND = new Map(ALL_PRESETS.map((d) => [d.legendId, d]));
 
