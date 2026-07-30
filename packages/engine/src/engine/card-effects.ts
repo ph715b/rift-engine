@@ -1,4 +1,5 @@
 import type { CardInstance } from "../model/card.js";
+import { domainCardEffects, mergeRegistries } from "./effects/index.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { EffectContext } from "./effect-context.js";
 import {
@@ -137,15 +138,10 @@ export function cardPlacesTokens(defId: string): boolean {
  * a name-keyed registry of resolver closures, just keyed by defId instead
  * of printed name.
  *
- * Deliberately NOT registered, and why: Cannon Barrage (OGN-127, "Deal 2 to
- * all enemy units in combat") has an effect that only ever has real targets
- * while a Showdown is open — but this engine's reaction-speed timing is
- * still deferred (validate-play-card.ts rejects any PlayCard while a
- * Showdown is open), so this card can only ever be cast when there's
- * nothing "in combat" to hit. Implementing it now would mean writing code
- * that can never actually do anything — left as an honest no-op like any
- * other unregistered card, revisit once reaction-speed/mid-Showdown casting
- * exists.
+ * Cannon Barrage (OGN-127) used to be listed here as deliberately unregistered,
+ * because it could only be cast when there was nothing "in combat" to hit. That
+ * blocker was reaction-speed timing, which now exists — the card is implemented
+ * in effects/body.ts.
  */
 const CARD_EFFECTS: Record<string, EffectDefinition> = {
   "OGS-003": {
@@ -399,6 +395,44 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
 };
 
 /**
+ * Every Spell/Gear effect: the ones written inline above, plus everything the
+ * per-domain files under `effects/` contribute. Merged with duplicate detection,
+ * so a defId registered in two places throws at import rather than one
+ * implementation silently shadowing the other — see effects/index.ts.
+ *
+ * NEW cards belong in `effects/<domain>.ts`, not in the record above. One file
+ * per owning domain is what lets the rest of the card pool be worked on in
+ * parallel without two editors ever touching the same file. The inline entries
+ * stay where they are because they're already done and tested — file ownership
+ * only matters for work in flight, and moving them would be churn.
+ */
+/**
+ * Composed LAZILY, on first lookup, rather than at module load — and that is
+ * load-bearing.
+ *
+ * This module sits in an import cycle that predates the domain files:
+ * card-effects -> effect-helpers -> target-lookup -> card-effects (target-lookup
+ * needs `slotOwner` at runtime). The cycle was harmless because nothing here ran
+ * at import time; the CARD_EFFECTS literal only *stores* closures. Merging at
+ * module scope broke that — it reads an imported binding from a module that is
+ * still in flight, which surfaced as `Object.entries(undefined)` and took the
+ * whole engine down at import.
+ *
+ * Deferring to first use means every module is fully initialised by the time this
+ * runs, so import order stops mattering. Duplicate detection still throws
+ * loudly, just on first lookup instead of at load.
+ */
+let composedCardEffects: Record<string, EffectDefinition> | null = null;
+
+function allCardEffects(): Record<string, EffectDefinition> {
+  composedCardEffects ??= mergeRegistries("card effect", [
+    { name: "engine/card-effects.ts", entries: CARD_EFFECTS },
+    { name: "engine/effects/*", entries: domainCardEffects },
+  ]);
+  return composedCardEffects;
+}
+
+/**
  * Keyed by defId (e.g. "OGS-003"), the stable id every CardInstance/
  * CardDefinition shares (card-loader.ts's deriveId). Hardcoded rather than
  * derived from card text — precise and safe for a handful of cards; not
@@ -406,7 +440,15 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
  * justify one.
  */
 export function effectForCard(card: CardInstance): EffectDefinition | undefined {
-  return CARD_EFFECTS[card.defId];
+  return allCardEffects()[card.defId];
+}
+
+/** Every defId with a registered Spell/Gear effect. Exported for the coverage
+ *  query (engine/coverage.ts) that tells the UI which cards actually do
+ *  something — a silently-inert card is otherwise indistinguishable from a
+ *  working one. */
+export function cardEffectDefIds(): string[] {
+  return Object.keys(allCardEffects());
 }
 
 export function targetingForCard(card: CardInstance): TargetingSpec {

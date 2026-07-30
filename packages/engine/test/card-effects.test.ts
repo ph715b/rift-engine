@@ -22,15 +22,28 @@ describe("card-effects registry", () => {
     expect(targetingForCard(spellInstance("OGS-024"))).toEqual({ kind: "none" }); // Decisive Strike
   });
 
+  /** An instance whose defId no registry will ever contain.
+   *
+   *  These two tests used to point at Cannon Barrage (OGN-127), which was
+   *  deliberately unregistered because it could only be cast when there was
+   *  nothing "in combat" to hit. Reaction-speed timing removed that blocker and
+   *  the card is now implemented in effects/body.ts, which broke them — so they
+   *  now assert the CONTRACT ("unregistered defId -> undefined") rather than
+   *  naming a real card that might get implemented next. */
+  const unregistered = () => ({ ...spellInstance("OGS-003"), defId: "OGN-000" });
+
   it("returns undefined for an unregistered card", () => {
-    // Cannon Barrage — deliberately unregistered (see card-effects.ts's own
-    // doc comment: its effect only has real targets during an open
-    // Showdown, which can't be cast into yet).
-    expect(effectForCard(spellInstance("OGN-127"))).toBeUndefined();
+    expect(effectForCard(unregistered())).toBeUndefined();
   });
 
   it("targetingForCard defaults to 'none' for an unregistered card", () => {
-    expect(targetingForCard(spellInstance("OGN-127"))).toEqual({ kind: "none" });
+    expect(targetingForCard(unregistered())).toEqual({ kind: "none" });
+  });
+
+  it("resolves a card registered in a per-domain effects file", () => {
+    // Cannon Barrage lives only in effects/body.ts, so this covers the
+    // composition path as well as the card.
+    expect(effectForCard(spellInstance("OGN-127"))).toBeDefined();
   });
 });
 

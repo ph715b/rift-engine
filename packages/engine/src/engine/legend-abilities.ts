@@ -113,6 +113,12 @@ function abilitiesFor(state: GameState, ownerIndex: 0 | 1): LegendAbilityDefinit
 
 /** Fires the ending player's Legend end-of-turn ability, if any. Called from
  *  runEnd BEFORE the active player rotates, so "your turn" means theirs. */
+/** Every Legend defId with a registered ability — see engine/coverage.ts, which
+ *  uses it to tell implemented cards from silently-inert ones. */
+export function legendAbilityDefIds(): string[] {
+  return Object.keys(LEGEND_ABILITIES);
+}
+
 export function dispatchLegendEndOfTurn(state: GameState, ownerIndex: 0 | 1): GameState {
   return abilitiesFor(state, ownerIndex)?.onEndOfTurn?.(state, ownerIndex) ?? state;
 }

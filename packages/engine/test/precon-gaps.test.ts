@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveShowdown } from "../src/engine/combat.js";
+import { submit } from "../src/engine/game-engine.js";
+import { effectForCard } from "../src/engine/card-effects.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance } from "../src/model/card.js";
@@ -91,6 +93,80 @@ describe("precon on-play triggers that were silently doing nothing", () => {
     state.players[0]!.hand = [ursine];
     state.players[0]!.runeDeck = [];
     expect(() => playToBase(state, ursine)).not.toThrow();
+  });
+});
+
+/**
+ * Cannon Barrage — "[Reaction] Deal 2 to all enemy units in combat."
+ *
+ * A sixth precon gap, and the one an earlier coverage audit MISSED: the audit
+ * searched the effect registries for the defId, and `OGN-127` appeared in
+ * card-effects.ts — inside a comment explaining why the card was deliberately
+ * left unimplemented. Matching prose as if it were code is why the audit reported
+ * this card as handled.
+ *
+ * The stated blocker was real: validate-play-card rejected every cast while a
+ * Showdown was open, so the card could only ever be played when there was nothing
+ * "in combat" to hit. [Action]/[Reaction] timing removed it.
+ */
+describe("Cannon Barrage, unblocked by reaction-speed timing", () => {
+  it("deals 2 to enemy units in combat and leaves the caster's own alone", () => {
+    const registryLocal = defaultCardRegistry();
+    const barrage = createCardInstance(registryLocal.get("OGN-127")); // 2 Energy + 1 Body
+    const runes = Array.from({ length: 6 }, (_, i) => ({ id: `b${i}`, domain: "Body" as const, state: "Ready" as const }));
+    const attacker = makeUnit({ name: "Attacker", might: 3 });
+    const mine = makeUnit({ name: "Mine", might: 5 });
+
+    // Player 1 holds Barrage and is being attacked, so a Combat Showdown opens.
+    let state: GameState = makeState({
+      players: [makePlayer("p1", { baseUnits: [attacker] }), makePlayer("p2", { hand: [barrage], channeled: runes })],
+      phase: "Action",
+    });
+    state.battlefields[0]!.controllerId = "p2";
+    state.battlefields[0]!.units = { p2: [mine] };
+
+    state = submit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [attacker.instanceId],
+      destinationBattlefieldId: "bf1",
+    }).state;
+    expect(state.showdownKind).toBe("Combat");
+
+    // Focus starts with the attacker; pass so the Barrage holder may respond.
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+    expect(state.focusHolder).toBe(1);
+
+    const cast = submit(state, {
+      type: "PlayCard",
+      playerIndex: 1,
+      card: barrage,
+      payment: { energyRunes: [runes[0]!.id, runes[1]!.id], powerRunes: [runes[2]!.id] },
+    });
+    expect(cast.result.type).toBe("Ok");
+    state = cast.state;
+    expect(state.spellChain).toHaveLength(1);
+    expect(state.turnState).toBe("Showdown"); // the window stays open under the chain
+
+    state = submit(state, { type: "PassFocus", playerIndex: 1 }).state;
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+
+    // "Enemy" is relative to the CASTER: the attacker took 2, the caster's own
+    // unit took nothing.
+    expect(state.battlefields[0]!.units["p1"]![0]!.damage).toBe(2);
+    expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(0);
+  });
+
+  it("does nothing when cast with no Showdown open", () => {
+    // "in combat" has no referent outside a Showdown, so the effect is a no-op
+    // rather than hitting the whole board.
+    const barrage = createCardInstance(defaultCardRegistry().get("OGN-127"));
+    const theirs = makeUnit({ name: "Theirs", might: 4 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p2: [theirs] };
+    const effect = effectForCard(barrage)!;
+    const after = effect.resolve(state, { casterIndex: 0 } as never, {});
+    expect(after.battlefields[0]!.units["p2"]![0]!.damage).toBe(0);
   });
 });
 

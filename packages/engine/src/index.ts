@@ -42,6 +42,7 @@ export * from "./engine/game-engine.js";
 export * from "./engine/combat.js";
 export * from "./engine/cleanup.js";
 export * from "./engine/timing.js";
+export * from "./engine/coverage.js";
 export * from "./engine/scoring.js";
 export * from "./engine/legal-actions.js";
 export * from "./engine/rune-payment.js";

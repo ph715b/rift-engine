@@ -13,6 +13,7 @@ import {
   returnCardFromTrash,
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
+import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -146,12 +147,35 @@ const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
   },
 };
 
+/**
+ * Every Unit on-play trigger: the ones written inline above plus whatever the
+ * per-domain files under `effects/` contribute, merged with duplicate detection.
+ * NEW units belong in `effects/<domain>.ts` — see the note on ALL_CARD_EFFECTS in
+ * card-effects.ts for why the inline entries stay put.
+ */
+/** Composed lazily for the same import-cycle reason as ALL_CARD_EFFECTS in
+ *  card-effects.ts — see that comment. */
+let composedUnitTriggers: Record<string, UnitTriggerDefinition> | null = null;
+
+function allUnitTriggers(): Record<string, UnitTriggerDefinition> {
+  composedUnitTriggers ??= mergeRegistries("unit trigger", [
+    { name: "engine/unit-triggers.ts", entries: UNIT_TRIGGERS },
+    { name: "engine/effects/*", entries: domainUnitTriggers },
+  ]);
+  return composedUnitTriggers;
+}
+
 export function unitTriggerForCard(defId: string): UnitTriggerDefinition | undefined {
-  return UNIT_TRIGGERS[defId];
+  return allUnitTriggers()[defId];
 }
 
 export function targetingForUnitTrigger(defId: string): TargetingSpec {
-  return UNIT_TRIGGERS[defId]?.targeting ?? { kind: "none" };
+  return allUnitTriggers()[defId]?.targeting ?? { kind: "none" };
+}
+
+/** Every defId with a registered on-play trigger — see cardEffectDefIds. */
+export function unitTriggerDefIds(): string[] {
+  return Object.keys(allUnitTriggers());
 }
 
 /** A Unit's targeting comes from its own on-play trigger (this module); a
