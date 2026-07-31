@@ -8,6 +8,7 @@ import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
 import { abilityBanksResource, findActivatable } from "../engine/activated-abilities.js";
+import { maskHiddenCards } from "../engine/hidden.js";
 import { effectiveMight } from "../engine/effective-might.js";
 import { runCleanup } from "../engine/cleanup.js";
 import { actingPlayerIndex } from "../engine/timing.js";
@@ -65,6 +66,12 @@ function applyBare(state: GameState, action: PlayerAction): GameState {
       return executeRecallUnit(state, action);
     case "PassFocus":
       return executePassFocus(state, action);
+    case "HideCard":
+      // Never reached — chooseAction filters it out below, same reasoning as
+      // FloatRune: hiding spends Power and a card now to buy a free play on a
+      // LATER turn, and a 1-ply board evaluator cannot see that far. Scoring it
+      // would only ever produce a meaningless tie with Pass.
+      return state;
     case "FloatRune":
       // Never reached — chooseAction filters FloatRune (and
       // ActivateAbility, same reasoning) out of its own candidate pool
@@ -202,8 +209,8 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
  *  "for activePlayerIndex" would be wrong whenever Focus/chain priority
  *  sits with the other player — this is that exact fix.
  *
- *  FloatRune is filtered out of the candidate pool entirely, and so are the
- *  ActivateAbility candidates that only BANK a resource: `evaluate` scores
+ *  FloatRune and HideCard are filtered out of the candidate pool entirely, and
+ *  so are the ActivateAbility candidates that only BANK a resource: `evaluate` scores
  *  board state (points/Might), which can't value something stored for a
  *  future play this 1-ply lookahead never sees — scoring those would only
  *  ever produce a meaningless tie with Pass/PassFocus. Matches this
@@ -215,11 +222,21 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
  *  ability and wrong once a Gear ability could change a unit's Might — that
  *  IS board state, so the evaluator prices it correctly and the AI should
  *  use it. `abilityBanksResource` is the line between the two. */
-export function chooseAction(state: GameState): PlayerAction {
-  const forIndex = actingPlayerIndex(state);
+export function chooseAction(rawState: GameState): PlayerAction {
+  const forIndex = actingPlayerIndex(rawState);
+  // The AI may see THAT a facedown card is at a battlefield — it changes whether
+  // attacking there is wise, and it is public information — but not WHICH card it
+  // is (rule 811: "the property is granted to the card in its facedown state, and
+  // is not publicly known"). Without this the AI reads the same GameState the
+  // engine holds and can play around a card it cannot legally know, which would
+  // look like the AI being sharp rather than the bug it is.
+  //
+  // Its OWN facedown cards are untouched, so it can still play them.
+  const state = maskHiddenCards(rawState, forIndex);
   const candidates = legalActions(state).filter(
     (a) =>
       a.type !== "FloatRune" &&
+      a.type !== "HideCard" &&
       !(a.type === "ActivateAbility" && abilityBanksResource(findActivatable(state, a.playerIndex, a.permanentInstanceId)?.card.defId ?? "")),
   );
 

@@ -13,6 +13,8 @@ import { validateFloatRune } from "../actions/validate-float-rune.js";
 import { executeFloatRune } from "../actions/execute-float-rune.js";
 import { validateActivateAbility } from "../actions/validate-activate-ability.js";
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
+import { validateHideCard } from "../actions/validate-hide-card.js";
+import { executeHideCard } from "../actions/execute-hide-card.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
 import { runCleanup } from "./cleanup.js";
@@ -83,6 +85,11 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
       const validation = validatePlayCard(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
       return withCleanupAndWinnerCheck(executePlayCard(state, action));
+    }
+    case "HideCard": {
+      const validation = validateHideCard(state, action);
+      if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
+      return withCleanupAndWinnerCheck(executeHideCard(state, action));
     }
     case "Pass": {
       const validation = validatePass(state, action);

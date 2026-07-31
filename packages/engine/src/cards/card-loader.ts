@@ -102,6 +102,28 @@ function parseKeywords(text: string): Partial<Record<Keyword, number>> {
 const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009"]); // Vanguard Attendant, Master Yi - Honed
 
 /**
+ * Cards whose bracketed keywords are CONDITIONAL, so parsing them as printed
+ * keywords makes the card strictly better than it reads.
+ *
+ * "While I'm buffed, I have [Ganking]" and "If you've discarded a card this
+ * turn, I have [Assault] and [Ganking]" both put a real keyword inside a
+ * condition, and the parser can only see the brackets. All three of these were
+ * shipping with their keywords permanently on — Bilgewater Bully could move
+ * battlefield-to-battlefield with no buff, Raging Soul attacked at +1 having
+ * discarded nothing.
+ *
+ * The keywords are granted at runtime instead, under the real condition, by
+ * engine/granted-keywords.ts. A named per-card set rather than a parser that
+ * tries to understand conditions — the same choice, for the same reason, as
+ * HIDDEN_KEYWORD_FALSE_POSITIVES above.
+ */
+const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
+  "OGN-019", // Raging Soul — [Assault] and [Ganking] only once you've discarded
+  "OGN-125", // Bilgewater Bully — [Ganking] only while buffed
+  "OGN-232", // Fiora - Victorious — [Deflect]/[Ganking]/[Shield] only while Mighty
+]);
+
+/**
  * The cards whose printed text the LOADER implements, by turning it into a
  * keyword the rules engine already honors.
  *
@@ -155,7 +177,10 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerCost,
         might: card.attributes.might ?? 0,
         isChampion: card.classification.supertype === "Champion",
-        keywords: { ...parseKeywords(plain), ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}) },
+        keywords: {
+          ...(CONDITIONAL_KEYWORD_DEF_IDS.has(id) ? {} : parseKeywords(plain)),
+          ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}),
+        },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
         hidden: isGenuinelyHidden(plain, name),
         isReaction: plain.includes("[Reaction]"),
@@ -190,7 +215,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         imageUrl,
         energyCost,
         powerCost,
-        keywords: parseKeywords(plain),
+        keywords: CONDITIONAL_KEYWORD_DEF_IDS.has(id) ? {} : parseKeywords(plain),
         isReaction: plain.includes("[Reaction]"),
         hidden: isGenuinelyHidden(plain, name),
         text: plain,

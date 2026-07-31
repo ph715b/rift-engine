@@ -37,6 +37,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

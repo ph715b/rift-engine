@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 import { targetingForCard, type TargetingSpec } from "./card-effects.js";
@@ -62,6 +62,38 @@ const OPEN_PLACEMENT_UNIT_DEF_IDS = new Set(["OGN-176", "OGN-174"]); // Sneaky D
 
 export function canPlayToOpenBattlefield(defId: string): boolean {
   return OPEN_PLACEMENT_UNIT_DEF_IDS.has(defId);
+}
+
+/**
+ * Is this battlefield **open**? Rule 170.11.c defines it exactly: "Battlefields
+ * can be 'open.' This means they are **unoccupied and uncontrolled**."
+ *
+ * Both halves, and neither is redundant: a battlefield can be uncontrolled with
+ * units standing on it (mid-Showdown, or after a control lapse), and a
+ * controlled one can be momentarily empty before the Cleanup lapses it.
+ */
+export function isOpenBattlefield(battlefield: BattlefieldState): boolean {
+  const occupied = Object.values(battlefield.units).some((units) => units.length > 0);
+  return !occupied && battlefield.controllerId === null;
+}
+
+/**
+ * May `defId` be played straight to `battlefield` on the strength of an
+ * open-battlefield grant?
+ *
+ * One predicate rather than the two-part conjunction written out at each call
+ * site, because the two sites are the validator and the enumerator and they must
+ * never disagree — that specific drift has bitten this codebase before.
+ *
+ * **This used to be `canPlayToOpenBattlefield` alone**, which asked only whether
+ * the CARD had the grant and never whether the battlefield was open. So Sai
+ * Scout and Sneaky Deckhand could be played anywhere at all: onto a battlefield
+ * you already controlled (reported from playtesting), and — worse — onto one the
+ * OPPONENT held, which applies Contested and opens a Showdown, turning "play me
+ * to an open battlefield" into a free 5-Might attack.
+ */
+export function mayPlaceOnOpenBattlefield(defId: string, battlefield: BattlefieldState): boolean {
+  return canPlayToOpenBattlefield(defId) && isOpenBattlefield(battlefield);
 }
 
 function applyVision(state: GameState, casterIndex: 0 | 1, recycle: boolean | undefined): GameState {

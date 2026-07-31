@@ -1,4 +1,6 @@
 import type { GameState } from "../model/game-state.js";
+import type { Domain } from "../model/domain.js";
+import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
 
 /**
@@ -77,10 +79,19 @@ export function timingTierOf(card: CardInstance): TimingTier {
  * Does NOT check cost, targets, phase, or a Unit's destination restrictions —
  * validate-play-card owns those. This is only the timing gate.
  */
-export function mayPlayCardNow(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+export function mayPlayCardNow(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: CardInstance,
+  /** True when the card is being played FROM a facedown state. Rule 811: a
+   *  hidden card "gains [Reaction] while facedown or played from facedown, and
+   *  may be played any time a card with Reaction may be played as a result" —
+   *  whatever its printed timing says. */
+  fromHidden = false,
+): boolean {
   if (playerIndex !== actingPlayerIndex(state)) return false;
 
-  switch (timingTierOf(card)) {
+  switch (fromHidden ? "Reaction" : timingTierOf(card)) {
     case "Reaction":
       // Every window, including a closed Chain — the new item resolves before
       // what's already there (161.1.a), which the LIFO chain gives for free.
@@ -119,8 +130,13 @@ export function mayPlayUnitToBattlefield(state: GameState, playerIndex: 0 | 1, b
  *  Shared with the UI so the board's explanation and the validator's rejection
  *  can't drift apart (the same reason unplayableReason re-derives the engine's
  *  own gates rather than inventing messages). */
-export function timingRejection(state: GameState, playerIndex: 0 | 1, card: CardInstance): string | null {
-  if (mayPlayCardNow(state, playerIndex, card)) return null;
+export function timingRejection(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: CardInstance,
+  fromHidden = false,
+): string | null {
+  if (mayPlayCardNow(state, playerIndex, card, fromHidden)) return null;
 
   if (playerIndex !== actingPlayerIndex(state)) {
     if (!state.chainOpen) return "A spell is resolving and your opponent holds priority.";
@@ -136,4 +152,35 @@ export function timingRejection(state: GameState, playerIndex: 0 | 1, card: Card
   return tier === "Default"
     ? `${card.name} needs [Action] or [Reaction] to be played during a Showdown.`
     : `${card.name} can't be played right now.`;
+}
+
+/**
+ * `[Accelerate]`'s additional cost — rule 805: "you may pay [1][C] as an
+ * additional cost. If you do, I enter ready."
+ *
+ * The Power half is domain-restricted to the UNIT's own domain, not to its
+ * printed Power pip: "if the unit has one or more domains, the Power portion of
+ * the Accelerate cost can be paid only with a Power that matches one of the
+ * domains of the unit" (805). That distinction is load-bearing for Lee Sin -
+ * Centered, whose printed Power cost is 0 — so `powerDomain` is null there and
+ * reading it would have made his Accelerate rainbow.
+ *
+ * **Simplification, named:** a card whose own Power pip is one domain while
+ * Accelerate demands another would need two separate domain pools in a single
+ * payment. Neither Accelerate card in this pool is like that (Jinx's pip and
+ * domain are both Fury; Lee Sin has no pip), so the two are merged into one
+ * domain here. Recorded in docs/rules-conformance.md.
+ */
+export const ACCELERATE_ENERGY = 1;
+export const ACCELERATE_POWER = 1;
+
+export function hasAccelerate(card: CardInstance): boolean {
+  return card.kind === "Unit" && "Accelerate" in card.keywords;
+}
+
+/** The Power domain `[Accelerate]` must be paid in, or null for a unit with no
+ *  domain at all (805: then it is rainbow). */
+export function acceleratePowerDomain(card: CardInstance): Domain | null {
+  const domains = card.domains ?? [];
+  return domains.length > 0 ? lowestOrdinalDomain(domains) : null;
 }

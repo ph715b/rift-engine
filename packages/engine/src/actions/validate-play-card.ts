@@ -1,5 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
+import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import { findUnitAnywhere, findUnitOnBattlefield, hasAnyLegalEffectChoice, unitWithinMaxMight } from "../engine/target-lookup.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
@@ -8,7 +8,15 @@ import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import { cardPlacesTokens, optionalUnitCostOf } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
-import { mayPlayUnitToBattlefield, timingRejection } from "../engine/timing.js";
+import {
+  ACCELERATE_ENERGY,
+  ACCELERATE_POWER,
+  acceleratePowerDomain,
+  hasAccelerate,
+  mayPlayUnitToBattlefield,
+  timingRejection,
+} from "../engine/timing.js";
+import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
@@ -48,6 +56,44 @@ function scopeDescription(scope: TargetScope | undefined): string {
   return scope === "anywhere" ? "in play" : "at a battlefield";
 }
 
+/**
+ * The checks that only apply to a card played FROM facedown (rule 811).
+ *
+ * Origin is the first of them and it replaces the ordinary hand/Champion-Zone
+ * check entirely: the card is at a battlefield, not in either of those zones, so
+ * the normal origin test below would reject every from-hidden play.
+ */
+function hiddenPlayRejection(state: GameState, action: PlayCardAction): string | null {
+  const hidden = hiddenCardAt(state, action.fromHiddenBattlefieldId!, action.playerIndex);
+  if (!hidden || hidden.card.instanceId !== action.card.instanceId) {
+    return `${action.card.name} is not hidden at that battlefield`;
+  }
+  // "Beginning on the NEXT turn" — 811. Hiding and playing in one turn would
+  // make the keyword a pure discount rather than a commitment.
+  if (!hiddenCardIsPlayable(state, hidden)) {
+    return `${action.card.name} was hidden this turn and can only be played from the next turn onward`;
+  }
+  // Every target must come from that battlefield, PER TARGET (811). Checked
+  // against the same predicate legal-actions enumerates from, so a from-hidden
+  // play can never be offered and then refused.
+  for (const targetId of [action.targetUnitInstanceId, action.secondTargetUnitInstanceId]) {
+    if (targetId === undefined) continue;
+    if (!isAtBattlefield(state, targetId, action.fromHiddenBattlefieldId!)) {
+      return `${action.card.name} was played from hidden, so its targets must be at that battlefield`;
+    }
+  }
+  if (action.targetBattlefieldId !== undefined && action.targetBattlefieldId !== action.fromHiddenBattlefieldId) {
+    return `${action.card.name} was played from hidden, so it must target that battlefield`;
+  }
+  return null;
+}
+
+/** Is this unit standing at that specific battlefield? */
+function isAtBattlefield(state: GameState, unitInstanceId: string, battlefieldId: string): boolean {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return Object.values(bf?.units ?? {}).some((list) => list.some((u) => u.instanceId === unitInstanceId));
+}
+
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (state.phase !== "Action") {
     return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
@@ -57,8 +103,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // every Showdown and reaction-speed play. All three are really one question,
   // asked per card because the answer depends on its printed timing: see
   // engine/timing.ts for the tiers and the rules behind them.
-  const rejection = timingRejection(state, action.playerIndex, action.card);
+  const fromHidden = action.fromHiddenBattlefieldId !== undefined;
+  const rejection = timingRejection(state, action.playerIndex, action.card, fromHidden);
   if (rejection !== null) return fail(rejection);
+
+  if (fromHidden) {
+    const hiddenRejection = hiddenPlayRejection(state, action);
+    if (hiddenRejection !== null) return fail(hiddenRejection);
+  }
 
   const actor: PlayerState | undefined = state.players[action.playerIndex];
   if (!actor) return fail(`No player at index ${action.playerIndex}`);
@@ -85,7 +137,9 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // typed UnitInstance | null, so a Spell/Gear instanceId can never match it.
   const inHand = actor.hand.some((c) => c.instanceId === card.instanceId);
   const isChampion = actor.championZone?.instanceId === card.instanceId;
-  if (!inHand && !isChampion) {
+  // A from-hidden card is in neither zone — it's facedown at a battlefield, and
+  // hiddenPlayRejection above has already confirmed it's really there.
+  if (!fromHidden && !inHand && !isChampion) {
     return fail(`${card.name} is not in ${actor.name}'s hand or Champion Zone`);
   }
 
@@ -193,6 +247,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Units as well as Spells — see card-effects.ts's OPTIONAL_UNIT_COSTS for why
   // the `card.kind === "Spell"` gate that used to be here was wrong.
   const optionalCost = optionalUnitCostOf(card.defId);
+  // A MANDATORY additional cost has to be named. Rule 355.11 keeps it a cost
+  // rather than a target, but unlike an optional one there is no declining it —
+  // Cruel Patron with nothing of yours to kill is simply unplayable.
+  if (optionalCost?.mandatory && action.additionalCostUnitInstanceId === undefined) {
+    return fail(`${card.name} requires a friendly unit as an additional cost`);
+  }
   if (optionalCost !== undefined && action.additionalCostUnitInstanceId !== undefined) {
     const id = action.additionalCostUnitInstanceId;
     const inBase = actor.baseUnits.find((u) => u.instanceId === id);
@@ -207,10 +267,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // What makes the unit ELIGIBLE differs, and conflating the two was a real
     // bug waiting: this check was exhaust-only, so a buff-spend cost would have
     // rejected an exhausted-but-buffed unit that the rules allow perfectly well.
-    if (optionalCost === "exhaustReadyFriendly" && unit.exhausted) {
+    if (optionalCost.kind === "exhaustReadyFriendly" && unit.exhausted) {
       return fail(`${card.name}'s additional cost requires a READY friendly unit`);
     }
-    if (optionalCost === "spendBuffFriendly" && !unit.buffed) {
+    if (optionalCost.kind === "spendBuffFriendly" && !unit.buffed) {
       return fail(`${card.name}'s additional cost requires a BUFFED friendly unit (rule 705)`);
     }
   }
@@ -227,7 +287,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
     const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;
-    if (!hasPresence && !canPlayToOpenBattlefield(card.defId)) {
+    if (!hasPresence && !mayPlaceOnOpenBattlefield(card.defId, destination)) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }
@@ -253,15 +313,26 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Power only for the matching domain. Mirrors ActionExecutor's
   // energyAfterFloat/powerAfterFloat, the same functions legal-actions.ts
   // uses to build its auto-payment candidates, so the two can't drift.
-  const effectiveCost = computeEffectiveCost(
-    actor.floatingEnergy,
-    actor.floatingPower,
-    modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId),
-    card.powerCost,
-    card.powerDomain,
-    card.powerDomainAlt,
-    card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-  );
+  // Rule 811: a card played from Hidden is played "ignoring its base cost" — not
+  // discounted, IGNORED. Floating resources, cost modifiers and the printed cost
+  // all drop out, so the payment must be empty rather than merely small.
+  if (action.acceleratePaid && !hasAccelerate(card)) {
+    return fail(`${card.name} does not have [Accelerate]`);
+  }
+  const accelerateEnergy = action.acceleratePaid ? ACCELERATE_ENERGY : 0;
+  const acceleratePower = action.acceleratePaid ? ACCELERATE_POWER : 0;
+
+  const effectiveCost = fromHidden
+    ? { energyCost: 0, powerCost: 0 }
+    : computeEffectiveCost(
+        actor.floatingEnergy,
+        actor.floatingPower,
+        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) + accelerateEnergy,
+        card.powerCost + acceleratePower,
+        action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
+        card.powerDomainAlt,
+        card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+      );
 
   if (payment.energyRunes.length !== effectiveCost.energyCost) {
     return fail(`${card.name} costs ${effectiveCost.energyCost} energy after floating Energy, payment supplied ${payment.energyRunes.length}`);

@@ -1,7 +1,8 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
-import { placeRecruitToken } from "../token.js";
+import { drawCards } from "../effect-helpers.js";
+import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import { giveMightThisTurn } from "../effect-helpers.js";
 
 /**
@@ -31,7 +32,41 @@ import { giveMightThisTurn } from "../effect-helpers.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
+/** Sprite Call's token: 3 Might, enters ready, and dies at the start of its
+ *  controller's next Beginning Phase (rule 816). */
+const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-083": {
+    // Consult the Past — "[Hidden][Reaction] Draw 2."
+    // The simplest card in the pool, and the one that shows what Hidden is worth
+    // on its own: hidden for 1 Power, played later for 0 instead of 4 Energy.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 2),
+  },
+  "OGN-094": {
+    // Sprite Call — "[Hidden][Action] Play a ready 3 Might Sprite unit token
+    // with [Temporary]."
+    //
+    // Three things the Recruit token could not express, which is why token.ts
+    // grew a spec: a Might other than 1, entering READY rather than exhausted
+    // (143.4.a's default, overridden by the card's own "ready"), and carrying a
+    // keyword. [Temporary] then works with no further wiring — rule 816's
+    // Beginning-Phase kill already runs before scoring, which is what stops this
+    // token holding a battlefield for a free point.
+    //
+    // Destination is the caster's base by default; played from Hidden, 811 makes
+    // it that battlefield instead, which legal-actions supplies as the
+    // destination rather than this resolver guessing.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) =>
+      placeToken(
+        state,
+        ctx.casterIndex,
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base",
+        SPRITE_TOKEN,
+      ),
+  },
   "OGN-093": {
     // Smoke Screen — "[Reaction] Give a unit -4 Might this turn, to a minimum
     // of 1 Might."

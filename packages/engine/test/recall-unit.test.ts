@@ -59,6 +59,8 @@ function makePlayer(id: string): PlayerState {
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
@@ -68,7 +70,7 @@ function makePlayer(id: string): PlayerState {
 function makeState(): GameState {
   return {
     players: [makePlayer("p1"), makePlayer("p2")],
-    battlefields: [{ id: "bf1", name: "Test Battlefield", controllerId: "p1", units: {}, contestedByIndex: null }],
+    battlefields: [{ id: "bf1", name: "Test Battlefield", controllerId: "p1", units: {}, contestedByIndex: null, hiddenCards: [] }],
     activePlayerIndex: 0,
     firstPlayerIndex: 0,
     turnNumber: 1,
@@ -148,7 +150,7 @@ describe("RecallUnit: battlefield -> base", () => {
     const unitA = makeUnit();
     const unitB = makeUnit();
     let state = makeState();
-    state.battlefields.push({ id: "bf2", name: "Test Battlefield 2", controllerId: "p1", units: {}, contestedByIndex: null });
+    state.battlefields.push({ id: "bf2", name: "Test Battlefield 2", controllerId: "p1", units: {}, contestedByIndex: null, hiddenCards: [] });
     state.battlefields[0]!.units = { p1: [unitA] };
     state.battlefields[1]!.units = { p1: [unitB] };
 

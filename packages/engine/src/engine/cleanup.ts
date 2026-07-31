@@ -1,14 +1,16 @@
 import type { BattlefieldState, GameState } from "../model/game-state.js";
+import { removeUnheldHiddenCards } from "./hidden.js";
 
 /**
  * The Cleanup, run after every resolved action.
  *
  * Rule 323 lists the Cleanup's steps in order; the ones implemented here are
- * **step 4** (control lapsing) and **step 6** (staging Showdowns at Contested
- * battlefields), in that order. The rest are either already handled where they
- * happen (lethal damage is applied at the point damage is dealt, see
- * effect-helpers.dealDamage) or belong to mechanics this engine doesn't model
- * yet (Deathknell triggers, unattached Gear/Rune recall, Hidden cards). Add each
+ * **step 4** (control lapsing), **step 5** (removing facedown cards from
+ * battlefields their owner no longer controls) and **step 6** (staging Showdowns
+ * at Contested battlefields), in that order. The rest are either already handled
+ * where they happen (lethal damage at the point damage is dealt, see
+ * effect-helpers.dealDamage; Deathknell in effect-helpers.killUnit) or belong to
+ * mechanics this engine doesn't model yet (unattached Gear/Rune recall). Add each
  * here as its mechanic lands, rather than building an empty framework for all
  * of them.
  *
@@ -22,7 +24,11 @@ import type { BattlefieldState, GameState } from "../model/game-state.js";
  * docs/rules-conformance.md.
  */
 export function runCleanup(state: GameState): GameState {
-  return stageShowdowns(lapseUnoccupiedControl(state));
+  // Step 5 sits between them, and the ordering is forced: control must lapse
+  // (step 4) before facedown cards are checked against who controls their
+  // battlefield, or a card would survive one extra Cleanup at a battlefield its
+  // owner had already lost.
+  return stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state)));
 }
 
 /**

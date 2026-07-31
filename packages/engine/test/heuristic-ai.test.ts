@@ -26,6 +26,7 @@ function buildInitialGameState(): GameState {
     controllerId: null,
     units: {},
     contestedByIndex: null,
+    hiddenCards: [],
   }));
 
   return {
@@ -277,7 +278,7 @@ describe("heuristic AI", () => {
       id: "bf-only",
       name: "The Only Battlefield",
       controllerId: state.players[1]!.id,
-      contestedByIndex: null,
+      contestedByIndex: null, hiddenCards: [],
       units: { [state.players[1]!.id]: [defender] },
     };
     return {
@@ -334,13 +335,13 @@ describe("heuristic AI", () => {
       id: "bf-weak",
       name: "Lightly Held",
       controllerId: theirId,
-      units: { [theirId]: [mkUnit("theirs-weak", 2)] }, contestedByIndex: null,
+      units: { [theirId]: [mkUnit("theirs-weak", 2)] }, contestedByIndex: null, hiddenCards: [],
     };
     const unwinnable: BattlefieldState = {
       id: "bf-strong",
       name: "Heavily Held",
       controllerId: theirId,
-      units: { [theirId]: [mkUnit("theirs-strong", 9)] }, contestedByIndex: null,
+      units: { [theirId]: [mkUnit("theirs-strong", 9)] }, contestedByIndex: null, hiddenCards: [],
     };
     const choice: GameState = {
       ...state,
@@ -376,7 +377,7 @@ describe("heuristic AI", () => {
       id: "bf-only",
       name: "The Only Battlefield",
       controllerId: state.players[1]!.id,
-      contestedByIndex: null,
+      contestedByIndex: null, hiddenCards: [],
       units: { [state.players[1]!.id]: [victim] },
     };
     const castable: GameState = {
@@ -442,7 +443,7 @@ describe("heuristic AI", () => {
         id: "bf-only",
         name: "The Only Battlefield",
         controllerId: state.players[1]!.id,
-        contestedByIndex: null,
+        contestedByIndex: null, hiddenCards: [],
         units: { [state.players[1]!.id]: [enemy] },
       };
       return {

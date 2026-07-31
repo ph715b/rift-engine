@@ -109,7 +109,16 @@ function chosenTargets(event: ResolveEvent): string[] {
  * Both name a friendly unit, but a READY one and a BUFFED one are different
  * sets, so the shape has to be recorded rather than assumed.
  */
-export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly";
+export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly" | "killFriendly";
+
+/** Whether the cost may be declined. Rule 805 calls Accelerate an "Optional
+ *  Additional Cost"; Cruel Patron's "As an additional cost to play me, kill a
+ *  friendly unit" carries no "you may" and so is mandatory — which also makes
+ *  the card unplayable with no friendly unit to kill. */
+export interface UnitCostSpec {
+  kind: OptionalUnitCost;
+  mandatory?: true;
+}
 
 /**
  * Cards with an optional friendly-unit cost. The choice must already be decided
@@ -125,13 +134,17 @@ export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly";
  * where every friendly unit was already buffed — turning "you may" into "you
  * must". The decline variant is now always offered.
  */
-const OPTIONAL_UNIT_COSTS: Record<string, OptionalUnitCost> = {
-  "OGN-048": "exhaustReadyFriendly", // Meditation
-  "OGN-147": "spendBuffFriendly", // Wildclaw Shaman
+const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
+  "OGN-048": { kind: "exhaustReadyFriendly" }, // Meditation
+  "OGN-147": { kind: "spendBuffFriendly" }, // Wildclaw Shaman
+  // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
+  // No "you may", so there is no decline variant and the card simply cannot be
+  // played with nothing of yours to kill.
+  "OGN-208": { kind: "killFriendly", mandatory: true },
 };
 
-/** Which optional cost this card asks for, or undefined if it has none. */
-export function optionalUnitCostOf(defId: string): OptionalUnitCost | undefined {
+/** Which additional cost this card asks for, or undefined if it has none. */
+export function optionalUnitCostOf(defId: string): UnitCostSpec | undefined {
   return OPTIONAL_UNIT_COSTS[defId];
 }
 
@@ -149,7 +162,7 @@ export function cardHasOptionalExhaustCost(defId: string): boolean {
  *  the Unit direct-deploy check in validate-play-card.ts, and deliberately so:
  *  the oracle flags the same distinction as a real difference rather than a
  *  copy-paste (ActionValidator.java:1487-1504). */
-const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set(["OGS-015"]); // Recruit the Vanguard
+const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set(["OGS-015", "OGN-094"]); // Recruit the Vanguard, Sprite Call
 
 export function cardPlacesTokens(defId: string): boolean {
   return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);

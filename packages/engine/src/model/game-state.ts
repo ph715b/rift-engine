@@ -110,6 +110,25 @@ export interface PlayerState {
    * for them and disarms it again afterwards.
    */
   firstFriendlyDeathUsedThisTurn: boolean;
+  /**
+   * Extra Might each Buff is worth to THIS player's units for the rest of the
+   * turn — Stand United's "Buffs give an additional +1 Might to friendly units
+   * this turn".
+   *
+   * A modifier on the buff's VALUE, not a buff itself and not a flat Might
+   * bonus: it scales with how many of your units are buffed, applies to units
+   * buffed later in the same turn, and is worth nothing on an unbuffed unit.
+   * Cleared by runEnd alongside the other this-turn state.
+   */
+  extraMightPerBuffThisTurn: number;
+  /**
+   * Has this player discarded a card this turn? Raging Soul's "if you've
+   * discarded a card this turn, I have [Assault] and [Ganking]" is the only
+   * card that asks, and it asks about the PLAYER, not about any particular
+   * discard — so a flag rather than a count. Set by `discardCards`, cleared by
+   * runEnd.
+   */
+  discardedThisTurn: boolean;
 }
 
 /**
@@ -138,6 +157,35 @@ export interface BattlefieldState {
    * Contested status rather than the Showdown merely closing.
    */
   contestedByIndex: 0 | 1 | null;
+  /**
+   * Cards hidden facedown here by the `[Hidden]` keyword (rule 811).
+   *
+   * A list rather than a single slot even though rule 811 allows at most one
+   * ("a battlefield you control that doesn't already have a facedown card
+   * hidden there") — because control can change, and the rules resolve that in
+   * the Cleanup (323 step 5) rather than preventing it. Between a control
+   * change and the next Cleanup two players' cards can briefly coexist here,
+   * and a single slot would have to silently drop one.
+   */
+  hiddenCards: HiddenCard[];
+}
+
+/**
+ * One facedown card at a battlefield.
+ *
+ * `hiddenOnTurn` is what makes "beginning on the next turn, this gains
+ * [Reaction] and you may play this, ignoring its base cost" (811) checkable —
+ * it is NOT the same as "not during this Action phase", since a turn can end
+ * and return. Compared against `GameState.turnNumber`.
+ *
+ * `ownerIndex` rather than a controller: rule 323 step 5 sends a lost facedown
+ * card to its OWNER's trash, and 811 ties the card's life to whether that same
+ * player still controls the battlefield.
+ */
+export interface HiddenCard {
+  ownerIndex: 0 | 1;
+  card: CardInstance;
+  hiddenOnTurn: number;
 }
 
 /**

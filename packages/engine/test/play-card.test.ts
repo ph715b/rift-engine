@@ -30,6 +30,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
@@ -390,7 +392,14 @@ describe("PlayCard: floating Energy/Power as a spendable resource", () => {
 
   it("floating Power only reduces the matching domain's cost, and is domain-isolated in the resulting state", () => {
     const registry = defaultCardRegistry();
-    const jinxDef = registry.get("OGN-030"); // 3 Energy + 1 Power(Fury)
+    // Immortal Phoenix, not Jinx - Demolitionist. This test wants any 3 Energy +
+    // 1 Fury Power unit to bank a float from; Jinx has since gained her printed
+    // "when you play me, discard 2", which discarded the very Daring Poro the
+    // second half of this test then tries to play. The engine was right and the
+    // fixture was stale — a card picked for its COST acquiring an EFFECT is a
+    // standing hazard for fixtures like this one, so the replacement is chosen
+    // for having no on-play trigger at all.
+    const jinxDef = registry.get("OGN-037"); // Immortal Phoenix — 3 Energy + 1 Power(Fury), no on-play trigger
     const jinx = createCardInstance(jinxDef) as UnitInstance;
     const { state } = buildFixture();
     state.players[0]!.hand = [jinx];
@@ -413,7 +422,14 @@ describe("PlayCard: floating Energy/Power as a spendable resource", () => {
 
   it("end-to-end: banking floating Energy from one cast reduces the runes required for a second cast the same turn", () => {
     const registry = defaultCardRegistry();
-    const jinxDef = registry.get("OGN-030"); // 3 Energy + 1 Power(Fury)
+    // Immortal Phoenix, not Jinx - Demolitionist. This test wants any 3 Energy +
+    // 1 Fury Power unit to bank a float from; Jinx has since gained her printed
+    // "when you play me, discard 2", which discarded the very Daring Poro the
+    // second half of this test then tries to play. The engine was right and the
+    // fixture was stale — a card picked for its COST acquiring an EFFECT is a
+    // standing hazard for fixtures like this one, so the replacement is chosen
+    // for having no on-play trigger at all.
+    const jinxDef = registry.get("OGN-037"); // Immortal Phoenix — 3 Energy + 1 Power(Fury), no on-play trigger
     const jinx = createCardInstance(jinxDef) as UnitInstance;
     const { state, poro } = buildFixture(); // Daring Poro: 2 Energy, 0 Power
     state.players[0]!.hand = [jinx, poro];
@@ -633,7 +649,7 @@ describe("Open-battlefield placement carve-out (Sneaky Deckhand, Sai Scout)", ()
 
     const state: GameState = {
       players: [player, opponent],
-      battlefields: [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null }],
+      battlefields: [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] }],
       activePlayerIndex: 0,
       firstPlayerIndex: 0,
       turnNumber: 1,

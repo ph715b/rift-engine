@@ -67,6 +67,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
@@ -78,9 +80,9 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
   const p1 = makePlayer("p1");
   const p2 = makePlayer("p2");
   const battlefields: BattlefieldState[] = [
-    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null },
-    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {}, contestedByIndex: null },
-    { id: "bf3", name: "Battlefield 3", controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
+    { id: "bf2", name: "Battlefield 2", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
+    { id: "bf3", name: "Battlefield 3", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
   ];
   return {
     players: [p1, p2],

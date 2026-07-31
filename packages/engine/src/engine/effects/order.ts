@@ -1,7 +1,8 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
-import { channelRunesExhausted, giveMightThisTurnToAllFriendlies } from "../effect-helpers.js";
+import { channelRunesExhausted, destroyUnit, drawCards, giveMightThisTurnToAllFriendlies } from "../effect-helpers.js";
+import { findUnitAnywhere } from "../target-lookup.js";
 
 /**
  * Card implementations for **Order** — one file, one owner.
@@ -31,6 +32,27 @@ import { channelRunesExhausted, giveMightThisTurnToAllFriendlies } from "../effe
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-213": {
+    // Hidden Blade — "[Hidden][Action] Kill a unit at a battlefield. Its
+    // controller draws 2."
+    //
+    // The draw goes to the VICTIM's controller, not the caster — that's the
+    // card's whole balance, and reading "its" as the caster would turn a
+    // drawback into a bonus. The owner has to be read BEFORE the kill, since
+    // afterwards the unit is in a trash and no longer at a battlefield.
+    //
+    // destroyUnit, not dealDamage: "kill" is a Kill Instruction, so Might and
+    // marked damage are irrelevant and it goes through the same funnel that
+    // fires [Deathknell] (808) and honours a death ward (809.1.b.1).
+    targeting: { kind: "unit" },
+    resolve: (state, _ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId);
+      if (!location) return state;
+      const victimIndex = location.ownerIndex;
+      return drawCards(destroyUnit(state, event.targetUnitInstanceId), victimIndex, 2);
+    },
+  },
   "OGN-233": {
     // Grand Strategem — "[Action] Give friendly units +5 Might this turn."
     //
@@ -60,7 +82,27 @@ export const cardEffects: Record<string, EffectDefinition> = {
   },
 };
 
-export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-208": {
+    // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
+    //
+    // The card has no other text: the kill IS the whole entry, and it is a COST,
+    // not an effect. That distinction is why it rides on
+    // `additionalCostUnitInstanceId` (rule 355.11 — a cost is not a target) and
+    // why `targeting` is "none". Enumeration offers no decline variant for it,
+    // so a Cruel Patron with nothing of yours to kill is never playable.
+    //
+    // It is paid here, on play, rather than at resolution — a Unit's trigger
+    // fires the moment it enters play, which is when a cost is due.
+    //
+    // destroyUnit, not a bespoke removal: paying a cost with a unit is still a
+    // death, so [Deathknell] fires (808) and a death ward can replace it
+    // (809.1.b.1). Being a cost does not make it a quieter kill.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
+};
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */

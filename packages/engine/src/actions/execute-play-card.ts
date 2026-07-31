@@ -97,14 +97,56 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   return dispatchEvent(played, { kind: "cardPlayed", casterIndex: action.playerIndex });
 }
 
-function executePlayCardInner(state: GameState, action: PlayCardAction): GameState {
-  const validation = validatePlayCard(state, action);
+/** Takes a from-hidden card off its battlefield. A no-op for an ordinary play. */
+function removeFromHiddenZone(state: GameState, action: PlayCardAction): GameState {
+  if (action.fromHiddenBattlefieldId === undefined) return state;
+  return {
+    ...state,
+    battlefields: state.battlefields.map((bf) =>
+      bf.id === action.fromHiddenBattlefieldId
+        ? { ...bf, hiddenCards: bf.hiddenCards.filter((h) => h.card.instanceId !== action.card.instanceId) }
+        : bf,
+    ),
+  };
+}
+
+/**
+ * Magma Wurm (OGN-011): "Other friendly units enter ready."
+ *
+ * A continuous property of a unit already in play, not a flag set when it was
+ * played — so it applies to everything you play for as long as the Wurm is
+ * there, and stops the moment it dies. `excludeInstanceId` is the card being
+ * played, so a Wurm never readies itself.
+ */
+const MAGMA_WURM = "OGN-011";
+
+function otherFriendlyUnitsEnterReady(state: GameState, playerIndex: 0 | 1, excludeInstanceId: string): boolean {
+  const actor = state.players[playerIndex];
+  const own = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
+  return own.some((u) => u.defId === MAGMA_WURM && u.instanceId !== excludeInstanceId);
+}
+
+/** For coverage.ts — this file implements Magma Wurm's whole printed text. */
+export function playCardDefIds(): string[] {
+  return [MAGMA_WURM];
+}
+
+function executePlayCardInner(rawState: GameState, action: PlayCardAction): GameState {
+  // Validate BEFORE the card leaves the hidden zone. Taking it out first made
+  // `hiddenPlayRejection` unable to find it, so every from-hidden play threw
+  // "is not hidden at that battlefield" — the validator's own precondition,
+  // destroyed by the line meant to satisfy it.
+  const validation = validatePlayCard(rawState, action);
   if (!validation.ok) throw new Error(validation.error);
+  const state = removeFromHiddenZone(rawState, action);
 
   const actor = state.players[action.playerIndex];
   const card = action.card;
   if (card.kind === "Legend") throw new Error("executePlayCard: Legend cards are not implemented");
 
+  // Rule 811: played from Hidden means "ignoring its base cost", and the
+  // validator has already required an empty payment — so these sets are empty
+  // and the loop below leaves the rune pool untouched, with no branch needed.
   const paidEnergyIds = new Set(action.payment.energyRunes);
   const paidPowerIds = new Set(action.payment.powerRunes);
 
@@ -157,6 +199,8 @@ function executePlayCardInner(state: GameState, action: PlayCardAction): GameSta
   const primarySpent = Math.min(primaryAvailable, floatingPowerSpent);
   const altSpent = floatingPowerSpent - primarySpent;
 
+  // A from-hidden card was never in hand; it comes off the battlefield instead,
+  // which happens on `battlefields` further down.
   const handAfterRemoval = actor.hand.filter((c) => c.instanceId !== card.instanceId);
   const sharedUpdates = {
     hand: handAfterRemoval,
@@ -176,7 +220,20 @@ function executePlayCardInner(state: GameState, action: PlayCardAction): GameSta
   };
 
   if (card.kind === "Unit") {
-    const deployedUnit = { ...card, exhausted: !("Quick" in card.keywords) && !actor.unitsEnterReadyThisTurn };
+    // Three separate reasons a unit can enter READY, and they are genuinely
+    // different things: the printed [Quick] keyword, Confront's this-turn flag,
+    // and a Magma Wurm already on the board making it true continuously for
+    // everything ELSE you play. The last one is a property of the board, so it is
+    // asked fresh rather than stored — and it excludes the Wurm itself ("OTHER
+    // friendly units"), which matters because a second Wurm shouldn't ready the
+    // first one's copy on the way in.
+    const entersReady =
+      "Quick" in card.keywords ||
+      // [Accelerate] paid as an additional cost (805): "if you do, I enter ready".
+      action.acceleratePaid === true ||
+      actor.unitsEnterReadyThisTurn ||
+      otherFriendlyUnitsEnterReady(state, action.playerIndex, card.instanceId);
+    const deployedUnit = { ...card, exhausted: !entersReady };
     const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
     const updatedActor: PlayerState = {
       ...actor,

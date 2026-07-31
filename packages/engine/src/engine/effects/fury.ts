@@ -71,6 +71,14 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-030": {
+    // Jinx - Demolitionist — "When you play me, discard 2."
+    // Her [Accelerate] and [Assault 2] are keywords the engine handles (rule 805
+    // in engine/timing.ts, Assault in effective-might.ts); only the discard is a
+    // trigger. Unchosen, per discardCards' documented convention.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => discardCards(state, ctx.casterIndex, 2),
+  },
   "OGN-003": {
     // Chemtech Enforcer — "[Assault 2] (+2 Might while I'm an attacker.) When
     // you play me, discard 1."

@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
+import { effectiveKeywords } from "./granted-keywords.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -44,6 +45,9 @@ const MASTER_YI_MEDITATIVE = "OGS-004";
 const WIELDER_OF_WATER = "OGN-055";
 /** Wizened Elder: "While I'm buffed, I have an additional +1 Might." */
 const WIZENED_ELDER = "OGN-065";
+/** Lee Sin - Centered: "Other buffed friendly units at my battlefield have +2
+ *  Might." Positional like Garen - Commander, but conditional on the BUFF too. */
+const LEE_SIN_CENTERED = "OGN-151";
 
 /**
  * The cards whose printed text this module implements. Exported for
@@ -56,7 +60,7 @@ const WIZENED_ELDER = "OGN-065";
  * disagree — a parallel list of ids would drift the first time one changed.
  */
 export function effectiveMightDefIds(): string[] {
-  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER];
+  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER, LEE_SIN_CENTERED];
 }
 
 /**
@@ -91,6 +95,21 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     bonus += 1;
   }
 
+  // Lee Sin - Centered: three conditions, and all three are printed. "OTHER"
+  // excludes himself even though he can be buffed; "buffed" makes it worth
+  // nothing to an unbuffed neighbour; "at my battlefield" makes it positional,
+  // so it reaches nothing while he sits in base.
+  const leeSinLocation = ownUnitLocation(state, ownerIndex, LEE_SIN_CENTERED);
+  if (
+    leeSinLocation !== undefined &&
+    leeSinLocation !== "base" &&
+    leeSinLocation === ownLocation &&
+    unit.defId !== LEE_SIN_CENTERED &&
+    unit.buffed
+  ) {
+    bonus += 2;
+  }
+
   if (unit.defId === WIELDER_OF_WATER && ctx.isCombat && ctx.battlefieldId !== undefined) {
     const bf = state.battlefields.find((b) => b.id === ctx.battlefieldId);
     const ownerId = state.players[ownerIndex].id;
@@ -120,12 +139,21 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
   // A Buff is worth +1 Might (rule 710) and is a separate game object from
   // mightThisTurn: it survives end of turn, caps at one per unit, and can be
   // spent. Both land here so no caller has to remember either.
-  let m = unit.might + unit.mightThisTurn + (unit.buffed ? 1 : 0);
+  //
+  // Its VALUE can be raised for a turn (Stand United), which is why this reads
+  // a per-player modifier rather than the literal 1 — and why the modifier
+  // belongs to the unit's OWNER, not to whoever is asking.
+  const buffValue = unit.buffed ? 1 + state.players[ownerIndex].extraMightPerBuffThisTurn : 0;
+  let m = unit.might + unit.mightThisTurn + buffValue;
   if (ctx.isCombat) {
+    // Granted keywords count: Raging Soul's [Assault] arrives from its own text
+    // rather than from the card frame, and combat must not be able to tell the
+    // difference.
+    const keywords = effectiveKeywords(state, unit, ownerIndex);
     if (ctx.combatRole === "outgoing") {
-      m += ctx.isAttackingSide ? (unit.keywords.Assault ?? 0) : 0;
+      m += ctx.isAttackingSide ? (keywords.Assault ?? 0) : 0;
     } else if (ctx.combatRole === "remaining") {
-      m += ctx.isAttackingSide ? (unit.keywords.Assault ?? 0) : (unit.keywords.Shield ?? 0);
+      m += ctx.isAttackingSide ? (keywords.Assault ?? 0) : (keywords.Shield ?? 0);
     }
   }
   m += continuousAuraBonus(state, unit, ownerIndex, ctx);

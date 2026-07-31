@@ -8,38 +8,60 @@ export type TokenDestination = "base" | { battlefieldId: string };
 let tokenCounter = 0;
 
 /**
- * Builds a runtime-only "Recruit" token unit — a raw UnitInstance object
- * literal, deliberately NOT going through createCardInstance/CardRegistry,
- * since no CardDefinition exists for it (Token-supertype entries are
- * filtered out of the loaded card pool entirely, card-loader.ts's
- * shouldSkip). Mirrors the Java oracle's EffectContext.createRecruitToken
- * (constructs Card.Unit directly, isToken=true, bypassing the registry).
- * Every Recruit token in this round's cards is identical (1 Might, no
- * cost, no keywords, colorless) — a real per-card TokenSpec parameter can
- * be added the day a different token type is needed, not before.
+ * What a token is. Kept as a spec because the pool now has two shapes and the
+ * old comment here promised exactly this: "a real per-card TokenSpec parameter
+ * can be added the day a different token type is needed, not before". Sprite
+ * Call is that day — a 3-Might Sprite that enters READY and carries
+ * `[Temporary]`, where every Recruit is a 1-Might token that enters exhausted.
  */
-export function createRecruitToken(): UnitInstance {
+export interface TokenSpec {
+  name: string;
+  might: number;
+  /** Tokens normally enter exhausted like any other unit (143.4.a); a card that
+   *  says "play a READY ... token" overrides that on its own authority. */
+  entersReady?: boolean;
+  keywords?: UnitInstance["keywords"];
+  /** Tag line, e.g. "Recruit" or "Sprite" — the printed subtype. */
+  tag: string;
+}
+
+export const RECRUIT_TOKEN: TokenSpec = { name: "Recruit", might: 1, tag: "Recruit" };
+
+/**
+ * Builds a runtime-only token unit — a raw UnitInstance object literal,
+ * deliberately NOT going through createCardInstance/CardRegistry, since no
+ * CardDefinition exists for it (Token-supertype entries are filtered out of the
+ * loaded card pool entirely, card-loader.ts's shouldSkip). Mirrors the Java
+ * oracle's EffectContext.createRecruitToken (constructs Card.Unit directly,
+ * isToken=true, bypassing the registry).
+ */
+export function createToken(spec: TokenSpec): UnitInstance {
   tokenCounter += 1;
   return {
-    instanceId: `token-recruit-${tokenCounter}`,
-    defId: "TOKEN-RECRUIT",
-    name: "Recruit",
+    instanceId: `token-${spec.tag.toLowerCase()}-${tokenCounter}`,
+    defId: `TOKEN-${spec.tag.toUpperCase()}`,
+    name: spec.name,
     domains: [],
-    exhausted: true,
+    exhausted: spec.entersReady !== true,
     isToken: true,
     kind: "Unit",
     energyCost: 0,
     powerCost: 0,
     powerDomain: null,
-    might: 1,
+    might: spec.might,
     isChampion: false,
-    keywords: {},
+    keywords: spec.keywords ?? {},
     isReaction: false,
-    tags: [],
+    tags: [spec.tag],
     damage: 0,
     mightThisTurn: 0,
     buffed: false,
   };
+}
+
+/** The 1-Might Recruit every existing caller wanted. */
+export function createRecruitToken(): UnitInstance {
+  return createToken(RECRUIT_TOKEN);
 }
 
 /**
@@ -54,7 +76,18 @@ export function createRecruitToken(): UnitInstance {
  * matching every other "target vanished" path in this engine.
  */
 export function placeRecruitToken(state: GameState, casterIndex: 0 | 1, destination: TokenDestination): GameState {
-  const token = createRecruitToken();
+  return placeToken(state, casterIndex, destination, RECRUIT_TOKEN);
+}
+
+/** Creates a token of any spec and puts it at `destination` — the general form
+ *  placeRecruitToken now delegates to. */
+export function placeToken(
+  state: GameState,
+  casterIndex: 0 | 1,
+  destination: TokenDestination,
+  spec: TokenSpec,
+): GameState {
+  const token = createToken(spec);
   const casterId = state.players[casterIndex].id;
 
   if (destination === "base") {

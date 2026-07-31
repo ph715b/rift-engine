@@ -317,6 +317,10 @@ export function discardCards(
     ...p,
     hand: p.hand.filter((c) => !discardedIds.has(c.instanceId)),
     trash: [...p.trash, ...chosen],
+    // Raging Soul asks whether you have discarded THIS TURN, so the fact has to
+    // outlive the discard itself. Set here rather than at each call site, since
+    // this is the one funnel every discard goes through.
+    discardedThisTurn: true,
   }));
 }
 

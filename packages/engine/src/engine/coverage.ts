@@ -1,10 +1,12 @@
 import type { CardDefinition } from "../model/card-definition.js";
 import { activatedAbilityDefIds } from "./activated-abilities.js";
 import { loaderHandledDefIds } from "../cards/card-loader.js";
+import { playCardDefIds } from "../actions/execute-play-card.js";
 import { cardEffectDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
+import { grantedKeywordDefIds } from "./granted-keywords.js";
 import { deathTriggerDefIds, eventTriggerDefIds } from "./triggers.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
@@ -92,6 +94,8 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "death triggers", defIds: deathTriggerDefIds },
   { label: "event triggers", defIds: eventTriggerDefIds },
   { label: "effective-might", defIds: effectiveMightDefIds },
+  { label: "granted keywords", defIds: grantedKeywordDefIds },
+  { label: "play-card rules", defIds: playCardDefIds },
   { label: "damage-modifiers", defIds: damageModifierDefIds },
   { label: "cost-modifiers", defIds: costModifierDefIds },
   { label: "activated abilities", defIds: activatedAbilityDefIds },

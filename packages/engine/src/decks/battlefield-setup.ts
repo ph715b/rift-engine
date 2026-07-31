@@ -22,8 +22,8 @@ import type { DeckList } from "./deck-list.js";
  */
 export function battlefieldPair(humanName: string, aiName: string): [BattlefieldState, BattlefieldState] {
   return [
-    { id: "bf-0", name: humanName, controllerId: null, units: {}, contestedByIndex: null },
-    { id: "bf-1", name: aiName, controllerId: null, units: {}, contestedByIndex: null },
+    { id: "bf-0", name: humanName, controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
+    { id: "bf-1", name: aiName, controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
   ];
 }
 

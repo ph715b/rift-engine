@@ -45,6 +45,37 @@ export interface PlayCardAction {
    *  this engine can't pause mid-resolution to ask — the choice must
    *  already be decided in the submitted action. */
   visionRecycle?: boolean;
+  /**
+   * Set when this card is being played FROM a facedown state at that
+   * battlefield (rule 811). Three things follow, none of which are true of an
+   * ordinary play: the base cost is ignored entirely, the card counts as
+   * `[Reaction]` however it is printed, and every target must be chosen from
+   * among options at THAT battlefield.
+   */
+  fromHiddenBattlefieldId?: string;
+  /**
+   * `[Accelerate]` (rule 805): the caster chose to pay the optional additional
+   * cost, so this unit enters READY. A boolean choice decided in the action
+   * rather than asked mid-resolution, exactly like `visionRecycle` — and like
+   * that one, enumerated as two distinct candidates.
+   *
+   * When set, `payment` covers the card's own cost PLUS 1 Energy and 1 Power.
+   */
+  acceleratePaid?: true;
+}
+
+/**
+ * Hide a card facedown at a battlefield you control — rule 811's Discretionary
+ * Action, NOT a play. It opens no chain and does not pay the card's own cost;
+ * the price is a flat 1 rainbow Power (`payment`, whose energyRunes are always
+ * empty) plus the fact that losing the battlefield loses the card.
+ */
+export interface HideCardAction {
+  type: "HideCard";
+  playerIndex: 0 | 1;
+  card: CardInstance;
+  battlefieldId: string;
+  payment: RunePayment;
 }
 
 export interface PassAction {
@@ -142,6 +173,7 @@ export interface ActivateAbilityAction {
  */
 export type PlayerAction =
   | PlayCardAction
+  | HideCardAction
   | PassAction
   | MoveUnitAction
   | RecallUnitAction

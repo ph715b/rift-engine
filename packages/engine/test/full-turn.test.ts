@@ -22,6 +22,7 @@ function buildInitialGameState(): GameState {
     controllerId: null,
     units: {},
     contestedByIndex: null,
+    hiddenCards: [],
   }));
 
   return {

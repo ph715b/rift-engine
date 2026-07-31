@@ -42,6 +42,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
@@ -266,7 +268,7 @@ describe("chain gating: no other action is legal while a spell is pending resolu
     const state = closedChainState();
     const unit = createCardInstance(defaultCardRegistry().get("OGN-210")) as UnitInstance;
     state.players[0]!.baseUnits = [unit];
-    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null }];
+    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] }];
 
     expect(
       validateMoveUnit(state, {
@@ -281,7 +283,7 @@ describe("chain gating: no other action is legal while a spell is pending resolu
   it("validateRecallUnit rejects recalling units", () => {
     const state = closedChainState();
     const unit = createCardInstance(defaultCardRegistry().get("OGN-210")) as UnitInstance;
-    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: "p1", units: { p1: [unit] }, contestedByIndex: null }];
+    state.battlefields = [{ id: "bf1", name: "Battlefield 1", controllerId: "p1", units: { p1: [unit] }, contestedByIndex: null, hiddenCards: [] }];
 
     expect(
       validateRecallUnit(state, { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [unit.instanceId] }).ok,

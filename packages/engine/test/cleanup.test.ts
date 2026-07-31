@@ -15,6 +15,7 @@ function withBattlefields(
     controllerId: b.controllerId,
     units: b.units ?? {},
     contestedByIndex: null,
+    hiddenCards: [],
   }));
   return makeState({ battlefields, ...overrides });
 }

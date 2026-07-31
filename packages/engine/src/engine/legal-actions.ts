@@ -2,6 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type {
   ActivateAbilityAction,
   FloatRuneAction,
+  HideCardAction,
   MoveUnitAction,
   PassAction,
   PassFocusAction,
@@ -10,12 +11,24 @@ import type {
   RecallUnitAction,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
-import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
+import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
 import { cardPlacesTokens, optionalUnitCostOf, slotOwner } from "./card-effects.js";
 import { activatedAbilityTargeting, canPayActivationCost, hasActivatableAbility } from "./activated-abilities.js";
-import { actingPlayerIndex, mayPlayCardNow, mayPlayUnitToBattlefield } from "./timing.js";
+import {
+  ACCELERATE_ENERGY,
+  ACCELERATE_POWER,
+  acceleratePowerDomain,
+  actingPlayerIndex,
+  hasAccelerate,
+  mayPlayCardNow,
+  mayPlayUnitToBattlefield,
+} from "./timing.js";
+import { HIDE_POWER_COST, RAINBOW, hiddenCardIsPlayable, isHiddenCard } from "./hidden.js";
+import { hasKeyword } from "./granted-keywords.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
+import type { CardInstance } from "../model/card.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
  *  per Ready rune, one Power-mode (recycle) candidate per rune regardless
@@ -80,6 +93,53 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
     }
   }
   return out;
+}
+
+/**
+ * Rule 811's targeting restriction, as a predicate: when a card is played FROM a
+ * facedown state, every target must be chosen "from among options at that
+ * Battlefield". Always true for an ordinary play.
+ *
+ * Applied during ENUMERATION rather than only in validation, because 811 says a
+ * card "cannot be played from Hidden if it is a spell with no valid targets
+ * under these restrictions" — a card with no legal target there must not be
+ * offered at all, which a validation-only check could not express.
+ *
+ * The restriction is per target, so this filters each candidate list rather than
+ * the finished combination.
+ */
+function atHiddenBattlefield(state: GameState, unitInstanceId: string, fromHiddenBattlefieldId: string | undefined): boolean {
+  if (fromHiddenBattlefieldId === undefined) return true;
+  const bf = state.battlefields.find((b) => b.id === fromHiddenBattlefieldId);
+  return Object.values(bf?.units ?? {}).some((list) => list.some((u) => u.instanceId === unitInstanceId));
+}
+
+/**
+ * Every legal Hide — rule 811's Discretionary Action.
+ *
+ * One per (hidden card in hand or Champion Zone) x (battlefield you control with
+ * no facedown card there). Only in a Neutral Open state on your own turn, since
+ * hiding needs Priority and is not a play; the card's own `[Action]`/`[Reaction]`
+ * keyword is irrelevant to hiding and is deliberately not consulted.
+ */
+function hideCardCandidates(state: GameState, actor: PlayerState, playerIndex: 0 | 1): HideCardAction[] {
+  if (state.activePlayerIndex !== playerIndex || !state.chainOpen || state.turnState !== "Neutral") return [];
+
+  const registry = defaultCardRegistry();
+  const hideable = [...actor.hand, ...(actor.championZone ? [actor.championZone as CardInstance] : [])].filter((c) =>
+    isHiddenCard(registry.tryGet(c.defId)),
+  );
+  if (hideable.length === 0) return [];
+
+  // A flat 1 Power in ANY domain — RAINBOW is null, which computeAutoPayment
+  // already understands as "any rune matches".
+  const payment = computeAutoPayment(actor.channeled, 0, HIDE_POWER_COST, RAINBOW);
+  if (!payment) return [];
+
+  const destinations = state.battlefields.filter((bf) => bf.controllerId === actor.id && bf.hiddenCards.length === 0);
+  return hideable.flatMap((card) =>
+    destinations.map((bf): HideCardAction => ({ type: "HideCard", playerIndex, card, battlefieldId: bf.id, payment })),
+  );
 }
 
 /**
@@ -160,24 +220,44 @@ export function legalActions(state: GameState): PlayerAction[] {
   actions.push(...floatRuneCandidates(actor, playerIndex));
   actions.push(...activateAbilityCandidates(state, actor, playerIndex));
 
-  const playableSources = actor.championZone ? [...actor.hand, actor.championZone] : actor.hand;
-  for (const card of playableSources) {
+  actions.push(...hideCardCandidates(state, actor, playerIndex));
+
+  /**
+   * Everything playable, and where from. A facedown card is a real source: rule
+   * 811 lets it be played for 0 at Reaction speed from the turn after it was
+   * hidden, with its targets restricted to that battlefield.
+   */
+  const playableSources: { card: CardInstance; fromHiddenBattlefieldId?: string }[] = [
+    ...actor.hand.map((card) => ({ card })),
+    ...(actor.championZone ? [{ card: actor.championZone as CardInstance }] : []),
+    ...state.battlefields.flatMap((bf) =>
+      bf.hiddenCards
+        .filter((h) => h.ownerIndex === playerIndex && hiddenCardIsPlayable(state, h))
+        .map((h) => ({ card: h.card, fromHiddenBattlefieldId: bf.id })),
+    ),
+  ];
+
+  for (const { card, fromHiddenBattlefieldId } of playableSources) {
     if (card.kind === "Legend") continue;
+    const fromHidden = fromHiddenBattlefieldId !== undefined;
     // The per-card timing gate, and the whole reason this loop now runs in every
     // state: a Default-tier card is only offered in a Neutral Open state, an
     // [Action] card additionally during Showdowns, a [Reaction] card also onto a
     // closed chain. Same predicate validate-play-card uses, so enumeration and
     // validation can't disagree about what's castable.
-    if (!mayPlayCardNow(state, playerIndex, card)) continue;
-    const effectiveCost = computeEffectiveCost(
-      actor.floatingEnergy,
-      actor.floatingPower,
-      modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId),
-      card.powerCost,
-      card.powerDomain,
-      card.powerDomainAlt,
-      card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-    );
+    if (!mayPlayCardNow(state, playerIndex, card, fromHidden)) continue;
+    // 811: "ignoring its base cost" — not reduced, ignored.
+    const effectiveCost = fromHidden
+      ? { energyCost: 0, powerCost: 0 }
+      : computeEffectiveCost(
+        actor.floatingEnergy,
+        actor.floatingPower,
+        modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId),
+        card.powerCost,
+        card.powerDomain,
+        card.powerDomainAlt,
+        card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+      );
     const payment = computeAutoPayment(
       actor.channeled,
       effectiveCost.energyCost,
@@ -186,6 +266,22 @@ export function legalActions(state: GameState): PlayerAction[] {
       card.powerDomainAlt,
     );
     if (!payment) continue; // can't afford it — not a legal move
+
+    // [Accelerate] (805) is an OPTIONAL additional cost, so it is a second
+    // candidate rather than a replacement — declining must stay available even
+    // when you could afford it. Only offered when the bigger payment is actually
+    // payable; a card you can afford plainly but not accelerated simply has no
+    // accelerated variant.
+    const accelerated =
+      hasAccelerate(card) && !fromHidden
+        ? computeAutoPayment(
+            actor.channeled,
+            effectiveCost.energyCost + ACCELERATE_ENERGY,
+            effectiveCost.powerCost + ACCELERATE_POWER,
+            acceleratePowerDomain(card),
+            card.powerDomainAlt,
+          )
+        : null;
 
     const targeting = targetingForAnyCard(card);
 
@@ -199,22 +295,31 @@ export function legalActions(state: GameState): PlayerAction[] {
       // two gates drift apart in the first place.
       for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
         if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
+        if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetUnitInstanceId: target.instanceId });
       }
     } else if (targeting.kind === "battlefield") {
-      for (const bf of state.battlefields) effectVariants.push({ targetBattlefieldId: bf.id });
+      for (const bf of state.battlefields) {
+        if (fromHidden && bf.id !== fromHiddenBattlefieldId) continue;
+        effectVariants.push({ targetBattlefieldId: bf.id });
+      }
     } else if (targeting.kind === "ownTrashCard") {
       for (const trashCard of actor.trash) {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
       }
     } else if (targeting.kind === "unitSlots") {
+      // Rule 811's restriction is PER TARGET, so it filters the candidate pool
+      // both slots draw from rather than the pair as a whole.
       // Every legal FILLING of the two slots, down to `min`:
       //   - min 0 -> the empty choice is legal ("up to two")
       //   - one target -> fills slot 0, so it must satisfy slot 0's role
       //   - two -> slot-0 x slot-1, distinct units
       // The two targets need not share a location; no card here restricts that.
-      const forSlot = (slot: 0 | 1) => eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), targeting.scope);
+      const forSlot = (slot: 0 | 1) =>
+        eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), targeting.scope).filter((u) =>
+          atHiddenBattlefield(state, u.instanceId, fromHiddenBattlefieldId),
+        );
       const firstSlot = forSlot(0);
       const secondSlot = forSlot(1);
       // When both slots take the same role the pair is symmetric, so (A,B) and
@@ -277,16 +382,37 @@ export function legalActions(state: GameState): PlayerAction[] {
           // A READY unit and a BUFFED unit are different sets; the registry says
           // which this card wants rather than this loop guessing.
           const eligible =
-            optionalCost === "exhaustReadyFriendly" ? own.filter((u) => !u.exhausted) : own.filter((u) => u.buffed);
-          // `v` first: the decline is ALWAYS offered, which is what makes "you
-          // may" mean may.
-          return [v, ...eligible.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }))];
+            optionalCost.kind === "exhaustReadyFriendly"
+              ? own.filter((u) => !u.exhausted)
+              : optionalCost.kind === "spendBuffFriendly"
+                ? own.filter((u) => u.buffed)
+                : own; // killFriendly — any unit you control can be the price
+          const paid = eligible.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }));
+          // The decline variant leads, and is what makes "you may" mean may —
+          // but ONLY for an optional cost. A mandatory one has no decline, so a
+          // card whose cost cannot be paid is not offered at all.
+          return optionalCost.mandatory ? paid : [v, ...paid];
         })
       : afterVision;
 
     for (const variant of variants) {
-      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant };
-      actions.push(play);
+      // fromHiddenBattlefieldId rides on EVERY variant this card produces — it is
+      // what tells the validator to ignore the base cost, use Reaction timing and
+      // look for the card at a battlefield rather than in hand.
+      const hiddenFields = fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {};
+      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, ...hiddenFields };
+      if (accelerated) {
+        actions.push({ type: "PlayCard", playerIndex, card, payment: accelerated, ...variant, ...hiddenFields, acceleratePaid: true });
+      }
+      // The default candidate puts a token-placing Spell's tokens in BASE. Rule
+      // 811 forbids that for a from-hidden play: "if a hidden spell ... causes
+      // you to play a unit, you must choose to play that unit at that
+      // battlefield." So the base variant is skipped and only the
+      // that-battlefield one below is offered — without this the player was
+      // handed a choice the rules don't give them, and the UI stalled waiting
+      // for a placement decision that should never have been asked.
+      const baseVariantForbidden = fromHidden && card.kind === "Spell" && cardPlacesTokens(card.defId);
+      if (!baseVariantForbidden) actions.push(play);
 
       // A Unit may ALSO be played directly to a battlefield where the actor
       // already has a unit of their own — "reinforce" — alongside the
@@ -296,10 +422,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       // Scout) — those additionally get every OTHER battlefield too, not
       // just ones they already occupy.
       if (card.kind === "Unit") {
-        const openPlacement = canPlayToOpenBattlefield(card.defId);
         for (const bf of state.battlefields) {
           const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
-          if (!hasPresence && !openPlacement) continue;
+          // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
+          // this is asked per battlefield rather than once per card. Same shared
+          // predicate the validator uses.
+          if (!hasPresence && !mayPlaceOnOpenBattlefield(card.defId, bf)) continue;
           // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
           // your base or a battlefield you control. Checked here as well as in the
           // validator, via the same shared predicate: without it, enumeration
@@ -307,7 +435,15 @@ export function legalActions(state: GameState): PlayerAction[] {
           // refused, and the AI (which trusts legalActions and calls the executor
           // directly) threw on it mid-game.
           if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id)) continue;
-          const reinforce: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id };
+          const reinforce: PlayCardAction = {
+            type: "PlayCard",
+            playerIndex,
+            card,
+            payment,
+            ...variant,
+            ...hiddenFields,
+            destinationBattlefieldId: bf.id,
+          };
           actions.push(reinforce);
         }
       }
@@ -319,7 +455,19 @@ export function legalActions(state: GameState): PlayerAction[] {
       if (card.kind === "Spell" && cardPlacesTokens(card.defId)) {
         for (const bf of state.battlefields) {
           if (bf.controllerId !== actor.id) continue;
-          actions.push({ type: "PlayCard", playerIndex, card, payment, ...variant, destinationBattlefieldId: bf.id });
+          // Rule 811 again: "if a hidden spell ... causes you to play a unit, you
+          // must CHOOSE to play that unit at that battlefield" — so a from-hidden
+          // Sprite Call has exactly one destination, not a choice of them.
+          if (fromHidden && bf.id !== fromHiddenBattlefieldId) continue;
+          actions.push({
+            type: "PlayCard",
+            playerIndex,
+            card,
+            payment,
+            ...variant,
+            destinationBattlefieldId: bf.id,
+            ...(fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {}),
+          });
         }
       }
     }
@@ -354,7 +502,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       const recall: RecallUnitAction = { type: "RecallUnit", playerIndex, unitInstanceIds: [unit.instanceId] };
       actions.push(recall);
 
-      if (!("Ganking" in unit.keywords)) continue;
+      // Same grant layer the validator uses, so a conditionally-Ganking unit is
+      // never offered a move the validator would then refuse (or vice versa).
+      if (!hasKeyword(state, unit, playerIndex, "Ganking")) continue;
       for (const dest of state.battlefields) {
         if (dest.id === bf.id) continue;
         const move: MoveUnitAction = {

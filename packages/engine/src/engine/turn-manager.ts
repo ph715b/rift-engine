@@ -224,6 +224,8 @@ export function runEnd(state: GameState): GameState {
     floatingPower: {},
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
+    extraMightPerBuffThisTurn: 0,
+    discardedThisTurn: false,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
   })) as [PlayerState, PlayerState];

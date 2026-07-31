@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
-import { discardCards, drawCards, returnCardFromTrash } from "../effect-helpers.js";
+import { discardCards, drawCards, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -30,7 +30,25 @@ import { discardCards, drawCards, returnCardFromTrash } from "../effect-helpers.
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
-export const cardEffects: Record<string, EffectDefinition> = {};
+export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-168": {
+    // Fight or Flight — "[Hidden][Action] Move a unit from a battlefield to its
+    // base." Either player's: the text names no owner, so this is removal as
+    // often as it is rescue.
+    //
+    // recallUnitToBase, not relocateToBaseUnchanged: "move ... to its base" is a
+    // Move, so the unit arrives exhausted and move triggers see it. Rule 454's
+    // distinction — a Recall is NOT a Move — is why the two helpers exist, and
+    // picking the wrong one here would silently make this card better than
+    // printed.
+    //
+    // Scope is battlefield-only ("from a battlefield"), which also means that
+    // played from Hidden the only legal targets are the ones standing at that
+    // battlefield — enforced by legal-actions, not here.
+    targeting: { kind: "unit" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? recallUnitToBase(state, event.targetUnitInstanceId) : state,
+  },};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-165": {

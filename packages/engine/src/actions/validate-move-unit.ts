@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
+import { hasKeyword } from "../engine/granted-keywords.js";
 
 /**
  * Validates a MoveUnit action. Mirrors ActionValidator.validateMoveUnit
@@ -52,7 +53,10 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
       if (originBattlefield.id === destination.id) {
         return fail(`${unit.name} is already at the destination battlefield`);
       }
-      if (!("Ganking" in unit.keywords)) {
+      // effectiveKeywords, not unit.keywords: Raging Soul and Bilgewater Bully
+      // GAIN Ganking conditionally, and a granted keyword has to behave exactly
+      // like a printed one.
+      if (!hasKeyword(state, unit, action.playerIndex, "Ganking")) {
         return fail(`${unit.name} needs Ganking to move battlefield-to-battlefield`);
       }
     }

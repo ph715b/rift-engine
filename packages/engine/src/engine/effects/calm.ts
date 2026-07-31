@@ -1,6 +1,8 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import type { PlayerState } from "../../model/game-state.js";
+import { addBuff } from "../effect-helpers.js";
 import { drawCards, giveMightThisTurn } from "../effect-helpers.js";
 
 /**
@@ -31,6 +33,30 @@ import { drawCards, giveMightThisTurn } from "../effect-helpers.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-053": {
+    // Stand United — "[Hidden][Action] Buff a friendly unit. Buffs give an
+    // additional +1 Might to friendly units this turn."
+    //
+    // The rules use THIS card as their worked example for rule 811's targeting
+    // restriction: played from Hidden, the buff must choose a unit at that
+    // battlefield, while the second half "affects all friendly units with buffs,
+    // no matter where they are". So the restriction rides on the TARGET (handled
+    // by legal-actions) and the board-wide half is written here with no location
+    // check at all — which is what makes those two sentences behave differently.
+    //
+    // The second half is a modifier on what a Buff is WORTH, not a buff and not
+    // a flat Might bonus: it scales with how many of your units are buffed, it
+    // reaches units buffed later this turn, and it does nothing for an unbuffed
+    // one. effectiveMight reads it; runEnd clears it.
+    targeting: { kind: "unit", owner: "friendly" },
+    resolve: (state, ctx, event) => {
+      const buffed = event.targetUnitInstanceId ? addBuff(state, event.targetUnitInstanceId) : state;
+      const players = [...buffed.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, extraMightPerBuffThisTurn: actor.extraMightPerBuffThisTurn + 1 };
+      return { ...buffed, players };
+    },
+  },
   "OGN-058": {
     // Discipline — "[Reaction] Give a unit +2 Might this turn. Draw 1."
     //

@@ -118,8 +118,8 @@ describe("battlefield selection", () => {
 
   it("battlefieldPair puts the human's choice at bf-0 and the opponent's at bf-1", () => {
     expect(battlefieldPair("Mine", "Theirs")).toEqual([
-      { id: "bf-0", name: "Mine", controllerId: null, units: {}, contestedByIndex: null },
-      { id: "bf-1", name: "Theirs", controllerId: null, units: {}, contestedByIndex: null },
+      { id: "bf-0", name: "Mine", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
+      { id: "bf-1", name: "Theirs", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
     ]);
   });
 
