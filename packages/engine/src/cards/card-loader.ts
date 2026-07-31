@@ -162,6 +162,9 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerDomain: null,
         imageUrl,
         championTag: name.split(/\s+/)[0]!.toUpperCase(),
+        // Was omitted, which made every Legend's printed ability invisible to
+        // coverage.ts — see CardDefinitionBase.text.
+        text: plain,
       };
     case "Unit": {
       const legionMatch = LEGION_DISCOUNT_PATTERN.exec(plain);

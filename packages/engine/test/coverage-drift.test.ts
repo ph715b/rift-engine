@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { implementingModule } from "../src/engine/coverage.js";
+import { implementableText, implementingModule, needsImplementation } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 
 /**
@@ -155,5 +155,46 @@ describe("coverage.ts knows about every place a card can be implemented", () => 
       if (module === undefined) continue;
       expect(registry.tryGet(defId), `${module} claims ${defId} (referenced in ${file}) but it is not a real card`).toBeDefined();
     }
+  });
+});
+
+/**
+ * Coverage can only be trusted if every card TYPE reaches it.
+ *
+ * `implementableText` reads `def.text`, and `text` used to be declared
+ * separately on Unit, Spell and Gear and simply omitted from Legend — so every
+ * Legend in the pool looked textless, `needsImplementation` said no, and all 7
+ * preset legends reported as implemented. Three of them (Jinx - Loose Cannon,
+ * Lee Sin - Blind Monk, Viktor - Herald of the Arcane) did nothing at all.
+ *
+ * That is the opposite direction from the drift the rest of this file guards —
+ * this one reported working cards as inert, that one reported inert cards as
+ * working — and over-reporting is the worse half, because nothing looks wrong.
+ */
+describe("every card type reaches the coverage measure", () => {
+  const registry = defaultCardRegistry();
+
+  it("gives every type a text field, so none can be invisible to it", () => {
+    const byType = new Map<string, number>();
+    for (const def of registry.all()) {
+      if (typeof def.text !== "string") byType.set(def.type, (byType.get(def.type) ?? 0) + 1);
+    }
+    expect([...byType.entries()], "these card types carry no printed text at all").toEqual([]);
+  });
+
+  it("sees a LEGEND's printed ability", () => {
+    // Named because it is the case that was wrong, and a generic assertion over
+    // the pool would pass again the moment Legends were the only textless type.
+    const leeSin = registry.get("OGN-257"); // "1 Energy, exhaust: Buff a friendly unit."
+    expect(leeSin.type).toBe("Legend");
+    expect(implementableText(leeSin)).toContain("Buff a friendly unit");
+    expect(needsImplementation(leeSin)).toBe(true);
+  });
+
+  it("still treats a text-free card as needing nothing", () => {
+    // The guard must not have become "everything needs an implementation".
+    const vanilla = registry.all().find((d) => d.text === "");
+    expect(vanilla, "the pool has no text-free card — this test needs a new subject").toBeDefined();
+    expect(needsImplementation(vanilla!)).toBe(false);
   });
 });

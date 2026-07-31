@@ -30,6 +30,19 @@ export interface CardDefinitionBase {
    *  POWER_DOMAIN_ALT_OVERRIDES. */
   powerDomainAlt?: Domain;
   imageUrl: string;
+  /**
+   * The card's printed rules text, reminder text and all.
+   *
+   * On the BASE, not on each variant. It was declared separately on Unit, Spell
+   * and Gear and simply omitted from Legend — so every Legend in the pool had an
+   * empty text as far as the rest of the engine was concerned, and coverage.ts's
+   * `needsImplementation` (which asks whether there is any text to implement)
+   * answered "no" for all of them. Three preset legends whose entire printed
+   * ability did nothing reported as fully implemented.
+   *
+   * Here, a new card type cannot forget it.
+   */
+  text: string;
 }
 
 export interface LegendDefinition extends CardDefinitionBase {
@@ -49,7 +62,6 @@ export interface UnitDefinition extends CardDefinitionBase {
   hidden: boolean;
   isReaction: boolean;
   tags: string[];
-  text: string;
 }
 
 export interface SpellDefinition extends CardDefinitionBase {
@@ -59,7 +71,6 @@ export interface SpellDefinition extends CardDefinitionBase {
   isReaction: boolean;
   isAction: boolean;
   hidden: boolean;
-  text: string;
 }
 
 export interface GearDefinition extends CardDefinitionBase {
@@ -69,7 +80,6 @@ export interface GearDefinition extends CardDefinitionBase {
   keywords: Partial<Record<Keyword, number>>;
   isReaction: boolean;
   hidden: boolean;
-  text: string;
 }
 
 export type CardDefinition = LegendDefinition | UnitDefinition | SpellDefinition | GearDefinition;
