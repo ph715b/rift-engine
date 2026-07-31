@@ -36,12 +36,35 @@ function ownUnitLocation(state: GameState, ownerIndex: 0 | 1, defId: string): st
   return undefined;
 }
 
+/** Garen - Commander: "Other friendly units have +1 Might here." */
+const GAREN_COMMANDER = "OGS-013";
+/** Master Yi - Meditative: "While you have 8+ runes, I have +4 Might." */
+const MASTER_YI_MEDITATIVE = "OGS-004";
+/** Wielder of Water: "While I'm attacking or defending alone, I have +2 Might." */
+const WIELDER_OF_WATER = "OGN-055";
+/** Wizened Elder: "While I'm buffed, I have an additional +1 Might." */
+const WIZENED_ELDER = "OGN-065";
+
+/**
+ * The cards whose printed text this module implements. Exported for
+ * coverage.ts, which would otherwise report them all as unimplemented: they
+ * live here as continuous modifiers rather than in an effect registry, and a
+ * card reported inert while it works is exactly the wrong direction for a
+ * measurement whose whole point is trust.
+ *
+ * Built from the same constants the logic below branches on, so the two cannot
+ * disagree — a parallel list of ids would drift the first time one changed.
+ */
+export function effectiveMightDefIds(): string[] {
+  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER];
+}
+
 /**
  * Continuous, always-on Might modifiers — deliberately NOT a general aura
- * system, just the 3 confirmed cards that need one, hardcoded by defId
+ * system, just the handful of confirmed cards that need one, hardcoded by defId
  * (matches this codebase's existing POWER_DOMAIN_ALT_OVERRIDES/
  * HIDDEN_KEYWORD_FALSE_POSITIVES precedent for "a small, precise, non-
- * speculative table" over a generic engine). Unlike `.bonus` (a "this
+ * speculative table" over a generic engine). Unlike `.mightThisTurn` (a "this
  * turn" value turn-manager.ts's runEnd resets unconditionally), these are
  * recomputed fresh every time effectiveMight runs — nothing ever writes
  * them into state, so there's nothing to reset.
@@ -50,20 +73,25 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   let bonus = 0;
   const ownLocation = ctx.battlefieldId ?? "base";
 
-  // Garen - Commander (OGS-013): "Other friendly units have +1 Might here."
-  const garenCommanderLocation = ownUnitLocation(state, ownerIndex, "OGS-013");
+  const garenCommanderLocation = ownUnitLocation(state, ownerIndex, GAREN_COMMANDER);
   if (garenCommanderLocation !== undefined && garenCommanderLocation === ownLocation) {
-    const isGarenCommanderItself = unit.defId === "OGS-013";
+    const isGarenCommanderItself = unit.defId === GAREN_COMMANDER;
     if (!isGarenCommanderItself) bonus += 1;
   }
 
-  // Master Yi - Meditative (OGS-004): "While you have 8+ runes, I have +4 Might."
-  if (unit.defId === "OGS-004" && state.players[ownerIndex].channeled.length >= 8) {
+  if (unit.defId === MASTER_YI_MEDITATIVE && state.players[ownerIndex].channeled.length >= 8) {
     bonus += 4;
   }
 
-  // Wielder of Water (OGN-055): "While I'm attacking or defending alone, I have +2 Might."
-  if (unit.defId === "OGN-055" && ctx.isCombat && ctx.battlefieldId !== undefined) {
+  // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),
+  // so a buffed Wizened Elder is +2 over its printed Might, not +1. Lives here
+  // rather than in the buff helper because it's a continuous property of one
+  // card, recomputed on read — nothing to write into state or reset.
+  if (unit.defId === WIZENED_ELDER && unit.buffed) {
+    bonus += 1;
+  }
+
+  if (unit.defId === WIELDER_OF_WATER && ctx.isCombat && ctx.battlefieldId !== undefined) {
     const bf = state.battlefields.find((b) => b.id === ctx.battlefieldId);
     const ownerId = state.players[ownerIndex].id;
     const aloneHere = (bf?.units[ownerId]?.length ?? 0) === 1;
@@ -82,14 +110,17 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
 
 /**
  * The single choke point for a unit's effective Might — consolidates what
- * used to be 4+ independently-inlined `unit.might + unit.bonus (+keyword)`
+ * used to be 4+ independently-inlined `unit.might + unit.mightThisTurn (+keyword)`
  * computations (combat.ts's outgoingMight/remainingMight, effect-helpers.ts's
  * dealDamage lethal check, heuristic-ai.ts's board-Might sums), each of
  * which had subtly different extra terms. Combat-only terms ([Assault]/
  * [Shield]) only apply when `ctx.isCombat`; continuous auras always apply.
  */
 export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ctx: MightContext): number {
-  let m = unit.might + unit.bonus;
+  // A Buff is worth +1 Might (rule 710) and is a separate game object from
+  // mightThisTurn: it survives end of turn, caps at one per unit, and can be
+  // spent. Both land here so no caller has to remember either.
+  let m = unit.might + unit.mightThisTurn + (unit.buffed ? 1 : 0);
   if (ctx.isCombat) {
     if (ctx.combatRole === "outgoing") {
       m += ctx.isAttackingSide ? (unit.keywords.Assault ?? 0) : 0;

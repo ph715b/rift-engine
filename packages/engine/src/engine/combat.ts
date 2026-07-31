@@ -2,8 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
-import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { healAllUnits, relocateToBaseUnchanged } from "./effect-helpers.js";
+import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
 
 /**
@@ -126,19 +125,29 @@ function removeDefeated(
 }
 
 
-/** A defeated unit is a "death" too — checked against Highlander's ward
- *  (death-ward.ts) the same way dealDamage/destroyUnit are (effect-helpers.ts),
- *  reviving instead of trashing when warded. */
-function processDefeated(state: GameState, defeated: readonly UnitInstance[], ownerIndex: 0 | 1): GameState {
+/**
+ * A defeated unit is a "death" too, so it goes through the same funnel as
+ * dealDamage and destroyUnit — killUnit (effect-helpers.ts), which handles the
+ * ward, strips the Buff, trashes, and fires [Deathknell].
+ *
+ * This used to inline the ward-or-trash choice itself, which was fine while
+ * dying had no consequences beyond changing zones. It stopped being fine with
+ * rule 808: a unit killed in combat has to fire its Deathknell exactly like one
+ * killed by a spell, and the surest way to get that wrong is to have two places
+ * that decide what dying means.
+ *
+ * `removeDefeated` has already taken these units off the battlefield, so
+ * killUnit's contract ("already removed from wherever it was") holds.
+ */
+function processDefeated(
+  state: GameState,
+  defeated: readonly UnitInstance[],
+  ownerIndex: 0 | 1,
+  battlefieldId: string,
+): GameState {
   let next = state;
   for (const unit of defeated) {
-    if (isDeathWarded(next, unit.instanceId)) {
-      next = reviveWithDeathWard(next, unit, ownerIndex);
-    } else {
-      const players = [...next.players] as [PlayerState, PlayerState];
-      players[ownerIndex] = { ...players[ownerIndex], trash: [...players[ownerIndex].trash, unit] };
-      next = { ...next, players };
-    }
+    next = killUnit(next, unit, ownerIndex, battlefieldId);
   }
   return next;
 }
@@ -230,8 +239,8 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   };
 
   let next: GameState = { ...state, battlefields: nextBattlefields };
-  next = processDefeated(next, defeatedAttackers, attackerIndex);
-  next = processDefeated(next, defeatedDefenders, defenderIndex);
+  next = processDefeated(next, defeatedAttackers, attackerIndex, battlefieldId);
+  next = processDefeated(next, defeatedDefenders, defenderIndex, battlefieldId);
 
   // ── Combat Cleanup, rule 466 Step 3 ────────────────────────────────────
   // 3c. "Heal all Units" — GLOBAL, not just the units that fought here: a

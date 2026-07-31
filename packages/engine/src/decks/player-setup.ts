@@ -83,6 +83,7 @@ export function buildPlayerFromDeckList(
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
+    firstFriendlyDeathUsedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

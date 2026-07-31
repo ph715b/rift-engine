@@ -1,5 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
 import * as chaos from "./chaos.js";
@@ -62,3 +63,23 @@ export const domainUnitTriggers: Record<string, UnitTriggerDefinition> = mergeRe
   "unit trigger",
   EFFECT_SOURCES.map((s) => ({ name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`, entries: s.module.unitTriggers })),
 );
+
+/** [Deathknell] effects contributed by the per-domain files, as mergeRegistries
+ *  SOURCES rather than an already-merged record — triggers.ts composes them
+ *  lazily to stay clear of the card-effects import cycle, so it needs the
+ *  un-merged list. */
+export function domainDeathTriggers(): { name: string; entries: Record<string, DeathknellEffect> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.deathTriggers,
+  }));
+}
+
+/** Event listeners contributed by the per-domain files, as mergeRegistries
+ *  SOURCES — triggers.ts composes them lazily, same as domainDeathTriggers. */
+export function domainEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.eventTriggers,
+  }));
+}

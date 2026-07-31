@@ -31,7 +31,7 @@ describe("Dune Drake: on-attack, +2 Might this turn if a ready enemy unit is her
 
     state = dispatchOnAttack(state, drake, 0, "bf1");
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
   });
 
   it("does not buff when the only enemy unit here is exhausted", () => {
@@ -42,7 +42,7 @@ describe("Dune Drake: on-attack, +2 Might this turn if a ready enemy unit is her
 
     state = dispatchOnAttack(state, drake, 0, "bf1");
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(0);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
 });
 
@@ -103,7 +103,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
 
     state = dispatchOnSpellCast(state, 0, 3);
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(1);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(1);
   });
 
   it("does NOT buff when the OPPONENT casts a spell", () => {
@@ -113,7 +113,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
 
     state = dispatchOnSpellCast(state, 1, 3); // opponent (index 1) casts
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(0);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
 
   it("works for a listener sitting in base too", () => {
@@ -123,7 +123,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
 
     state = dispatchOnSpellCast(state, 0, 3);
 
-    expect(state.players[0]!.baseUnits[0]!.bonus).toBe(1);
+    expect(state.players[0]!.baseUnits[0]!.mightThisTurn).toBe(1);
   });
 });
 
@@ -135,7 +135,7 @@ describe("Lux - Illuminated: on-spell-cast, +3 Might if the spell costs 5+ Energ
 
     state = dispatchOnSpellCast(state, 0, 5);
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(3);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(3);
   });
 
   it("does not buff for a cheaper spell", () => {
@@ -145,6 +145,6 @@ describe("Lux - Illuminated: on-spell-cast, +3 Might if the spell costs 5+ Energ
 
     state = dispatchOnSpellCast(state, 0, 4);
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(0);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
 });

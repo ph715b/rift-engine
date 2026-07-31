@@ -25,7 +25,8 @@ function makeCard(overrides: Partial<UnitInstance> = {}): UnitInstance {
     isReaction: false,
     tags: [],
     damage: 0,
-    bonus: 0,
+    mightThisTurn: 0,
+    buffed: false,
     ...overrides,
   };
 }
@@ -57,6 +58,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
+    firstFriendlyDeathUsedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

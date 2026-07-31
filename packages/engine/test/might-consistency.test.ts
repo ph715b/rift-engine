@@ -141,7 +141,7 @@ describe("Stupefy's 'to a minimum of 1 Might' also judges real Might", () => {
 
     const result = effectForCard(stupefy)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
-    expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.bonus).toBe(-1);
+    expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.mightThisTurn).toBe(-1);
   });
 
   it("leaves a genuinely 1-Might unit alone", () => {
@@ -153,7 +153,7 @@ describe("Stupefy's 'to a minimum of 1 Might' also judges real Might", () => {
 
     const result = effectForCard(stupefy)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
-    expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.bonus).toBe(0);
+    expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.mightThisTurn).toBe(0);
     expect(result.players[0]!.hand).toHaveLength(1); // draw happens either way
   });
 });

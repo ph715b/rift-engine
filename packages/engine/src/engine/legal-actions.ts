@@ -13,8 +13,8 @@ import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { canPlayToOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardHasOptionalExhaustCost, cardPlacesTokens, slotOwner } from "./card-effects.js";
-import { hasActivatableAbility } from "../actions/validate-activate-ability.js";
+import { cardPlacesTokens, optionalUnitCostOf, slotOwner } from "./card-effects.js";
+import { activatedAbilityTargeting, canPayActivationCost, hasActivatableAbility } from "./activated-abilities.js";
 import { actingPlayerIndex, mayPlayCardNow, mayPlayUnitToBattlefield } from "./timing.js";
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
@@ -34,16 +34,52 @@ function floatRuneCandidates(actor: PlayerState, playerIndex: 0 | 1): FloatRuneA
   return actions;
 }
 
-/** Every legal ActivateAbility candidate for `actor` — one per Ready unit
- *  (base or any battlefield) they control with an activated ability
- *  (currently just Lux-Crownguard). Included in all three branches below,
- *  same permissiveness as floatRuneCandidates — see
- *  validate-activate-ability.ts's own doc comment for why. */
+/**
+ * Every legal ActivateAbility candidate for `actor` — one per Ready permanent
+ * they control that has an activated ability, fanned out per legal target where
+ * the ability targets.
+ *
+ * `activeGear` is in the scan now, not just units: the ":rb_exhaust::" cost is on
+ * 20 of the 30 Gear in this pool, and while this only looked at base and
+ * battlefield units none of them could ever be activated.
+ *
+ * Included in all three branches below, same permissiveness as
+ * floatRuneCandidates — see validate-activate-ability.ts's own doc comment.
+ */
 function activateAbilityCandidates(state: GameState, actor: PlayerState, playerIndex: 0 | 1): ActivateAbilityAction[] {
-  const ownUnits = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
-  return ownUnits
-    .filter((u) => !u.exhausted && hasActivatableAbility(u.defId))
-    .map((u) => ({ type: "ActivateAbility", playerIndex, unitInstanceId: u.instanceId }));
+  const owned: { instanceId: string; defId: string; exhausted: boolean }[] = [
+    ...actor.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
+    ...actor.activeGear,
+  ];
+
+  const out: ActivateAbilityAction[] = [];
+  for (const permanent of owned) {
+    if (!hasActivatableAbility(permanent.defId)) continue;
+    // Asks the same payability question the validator does — an exhaust cost and
+    // a Recycle cost fail for different reasons, and only the registry knows which
+    // this card has.
+    if (!canPayActivationCost(state, playerIndex, permanent)) continue;
+    const targeting = activatedAbilityTargeting(permanent.defId);
+    if (targeting.kind !== "unit") {
+      out.push({ type: "ActivateAbility", playerIndex, permanentInstanceId: permanent.instanceId });
+      continue;
+    }
+    // Fan out one action per legal target, exactly as the PlayCard path does for
+    // a targeted Spell — the choice has to be in the submitted action. An ability
+    // with no legal target is simply not offered, since exhausting for nothing is
+    // never what the player meant.
+    for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
+      if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
+      out.push({
+        type: "ActivateAbility",
+        playerIndex,
+        permanentInstanceId: permanent.instanceId,
+        targetUnitInstanceId: target.instanceId,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -136,7 +172,7 @@ export function legalActions(state: GameState): PlayerAction[] {
     const effectiveCost = computeEffectiveCost(
       actor.floatingEnergy,
       actor.floatingPower,
-      modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost),
+      modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId),
       card.powerCost,
       card.powerDomain,
       card.powerDomainAlt,
@@ -230,14 +266,21 @@ export function legalActions(state: GameState): PlayerAction[] {
     // variant above, plus one copy per ready friendly unit (base or
     // battlefield) the caster could exhaust instead — same "the choice must
     // already be decided" reasoning as Vision above.
-    const hasOptionalExhaustCost = card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId);
-    const variants: Partial<PlayCardAction>[] = hasOptionalExhaustCost
+    // NOT gated on `card.kind === "Spell"` any more: a Unit's on-play trigger can
+    // carry an optional cost too (Wildclaw Shaman), and while this only looked at
+    // Spells that card had to smuggle the choice onto its target field — which
+    // silently lost the decline whenever every friendly unit was already buffed.
+    const optionalCost = optionalUnitCostOf(card.defId);
+    const variants: Partial<PlayCardAction>[] = optionalCost
       ? afterVision.flatMap((v) => {
-          const readyFriendlyUnits = [
-            ...actor.baseUnits.filter((u) => !u.exhausted),
-            ...state.battlefields.flatMap((bf) => (bf.units[actor.id] ?? []).filter((u) => !u.exhausted)),
-          ];
-          return [v, ...readyFriendlyUnits.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }))];
+          const own = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
+          // A READY unit and a BUFFED unit are different sets; the registry says
+          // which this card wants rather than this loop guessing.
+          const eligible =
+            optionalCost === "exhaustReadyFriendly" ? own.filter((u) => !u.exhausted) : own.filter((u) => u.buffed);
+          // `v` first: the decline is ALWAYS offered, which is what makes "you
+          // may" mean may.
+          return [v, ...eligible.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }))];
         })
       : afterVision;
 

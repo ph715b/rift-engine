@@ -1,5 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import { drawCards, giveMightThisTurn } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -28,6 +30,47 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
-export const cardEffects: Record<string, EffectDefinition> = {};
+export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-058": {
+    // Discipline — "[Reaction] Give a unit +2 Might this turn. Draw 1."
+    //
+    // scope: "anywhere", deliberately. The card says "a unit", NOT "a unit at a
+    // battlefield", and rule 355.9.b settles what the bare noun means: unit
+    // refers to objects on the Board unless the text says otherwise, and the
+    // targeting section's own list of Public zones names Bases right alongside
+    // Battlefield Zones. So a unit standing at home is a legal target — and so
+    // is the OPPONENT's, since the text carries no owner restriction either
+    // (pumping an enemy unit is a bad play, not an illegal one, and `owner` is
+    // left unset rather than guessing "friendly"). Same reading Final Spark and
+    // Stupefy already got; base is not a safe parking spot from this card.
+    //
+    // giveMightThisTurn, NOT addBuff. The two are not interchangeable: this
+    // expires in the Expiration Step ("all 'this turn' effects expire
+    // simultaneously", rule 317), which turn-manager.ts's runEnd gets for free
+    // by zeroing every unit's mightThisTurn, whereas a Buff (rule 710) is a
+    // persistent game object that would survive the turn and only come off when
+    // the unit leaves play (rule 709).
+    //
+    // [Reaction] is rule 813 and is NOT implemented here — engine/timing.ts owns
+    // when this may be played, including onto an already-closed chain. The
+    // resolver is identical whenever it runs, so there is nothing timing-shaped
+    // for this entry to do.
+    //
+    // Printed order: Might first, then the draw. Drawing on an empty deck takes
+    // nothing rather than throwing — drawCards' documented Burn Out gap, not a
+    // decision made here.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      drawCards(giveMightThisTurn(state, event.targetUnitInstanceId!, 2), ctx.casterIndex, 1),
+  },
+};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+
+/** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
+ *  card's defId. Same one-file-one-owner rule as the registries above. */
+export const deathTriggers: Record<string, DeathknellEffect> = {};
+
+/** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
+ *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+export const eventTriggers: Record<string, EventTriggerDefinition> = {};

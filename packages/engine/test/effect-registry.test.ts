@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { EFFECT_SOURCES, mergeRegistries } from "../src/engine/effects/index.js";
 import { cardEffectDefIds, effectForCard } from "../src/engine/card-effects.js";
-import { unitTriggerDefIds } from "../src/engine/unit-triggers.js";
+import { dispatchOnPlayUnit, unitTriggerDefIds } from "../src/engine/unit-triggers.js";
 import { implementableText, isCardImplemented, needsImplementation } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { createCardInstance } from "../src/model/card.js";
+import { createCardInstance, type UnitInstance } from "../src/model/card.js";
+import { makeState, makeUnit } from "./fixtures.js";
 
 const registry = defaultCardRegistry();
 
@@ -72,6 +73,25 @@ describe("cards registered in a domain file are actually reachable", () => {
     expect(cardEffectDefIds()).toContain("OGS-003"); // Incinerate, inline
     expect(unitTriggerDefIds()).toContain("OGN-087"); // Lecturing Yordle, inline
   });
+
+  it("FIRES a Unit trigger registered in a domain file, not merely reports it", () => {
+    // Being listed in the registry and actually running are two different things,
+    // and they came apart: dispatchOnPlayUnit read the inline UNIT_TRIGGERS table
+    // directly instead of the composed one, so a Unit registered in a per-domain
+    // file passed validation, cost its runes, deployed — and its ability never
+    // ran. No test caught it because Pit Rookie was the first Unit any domain file
+    // had registered, which is precisely when a parallel per-card pass would have
+    // walked into it and blamed their own card.
+    const pitRookie = createCardInstance(registry.get("OGN-136")) as UnitInstance;
+    const ally = makeUnit({ might: 2 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [ally, pitRookie];
+
+    const after = dispatchOnPlayUnit(state, pitRookie, 0, "base", { targetUnitInstanceId: ally.instanceId });
+
+    expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
+    expect(after).not.toBe(state); // an unregistered defId returns the state unchanged
+  });
 });
 
 /**
@@ -88,6 +108,26 @@ describe("coverage: telling implemented cards from silently-inert ones", () => {
     expect(implementableText(daringPoro)).toBe("");
     expect(needsImplementation(daringPoro)).toBe(false);
     expect(isCardImplemented(daringPoro)).toBe(true);
+  });
+
+  it("treats leftover punctuation between two keywords as no text at all", () => {
+    // Garen - Rugged is "[Assault 2], [Shield 2] (+2 Might while I'm an attacker
+    // or defender.)" — every ability a keyword, all of them working through the
+    // keyword machinery. Stripping the brackets and the reminder left a bare ","
+    // behind, which counted as text needing implementation and greyed the card
+    // out in the deck builder.
+    const garenRugged = registry.get("OGS-007");
+    expect(implementableText(garenRugged)).toBe("");
+    expect(needsImplementation(garenRugged)).toBe(false);
+    expect(isCardImplemented(garenRugged)).toBe(true);
+  });
+
+  it("still sees text that happens to contain punctuation", () => {
+    // The guard asks whether anything alphanumeric survives, so an ability
+    // ending in a full stop is not mistaken for a leftover separator.
+    const voidSeeker = registry.get("OGN-024"); // "Deal 4 to a unit at a battlefield. Draw 1."
+    expect(implementableText(voidSeeker)).toContain("Draw 1.");
+    expect(needsImplementation(voidSeeker)).toBe(true);
   });
 
   it("sees real text alongside a keyword", () => {

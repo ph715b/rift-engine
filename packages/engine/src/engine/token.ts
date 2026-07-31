@@ -37,7 +37,8 @@ export function createRecruitToken(): UnitInstance {
     isReaction: false,
     tags: [],
     damage: 0,
-    bonus: 0,
+    mightThisTurn: 0,
+    buffed: false,
   };
 }
 

@@ -50,7 +50,30 @@ export interface UnitInstance extends CardInstanceBase {
   isReaction: boolean;
   tags: string[];
   damage: number;
-  bonus: number;
+  /**
+   * Might granted or removed for the current turn only — turn-manager.ts's
+   * runEnd resets it to 0 unconditionally, for every unit, both players.
+   * "Give a unit +2 Might this turn" and "give a unit -4 Might this turn" both
+   * land here.
+   *
+   * Was called `bonus`, which made it indistinguishable from a Buff. They are
+   * different game objects: this expires at end of turn and stacks freely, a
+   * Buff does neither. Renaming it is what let `buffed` exist below without
+   * one silently overwriting the other.
+   */
+  mightThisTurn: number;
+  /**
+   * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
+   * (rule 710), which persists across turns until it is spent or the unit
+   * leaves play (rule 709).
+   *
+   * A boolean rather than a count because rule 707 is explicit: "There can only
+   * be one Buff on a Unit at a time", and 708 says a second one "is not placed
+   * instead". Eight cards in the pool read the buffed state back ("While I'm
+   * buffed…", "spend a buff…", "Other buffed friendly units…"), which is why it
+   * has to be real state rather than folded into mightThisTurn.
+   */
+  buffed: boolean;
 }
 
 export interface SpellInstance extends CardInstanceBase {
@@ -115,7 +138,8 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         isReaction: def.isReaction,
         tags: def.tags,
         damage: 0,
-        bonus: 0,
+        mightThisTurn: 0,
+        buffed: false,
       };
     case "Spell":
       return {

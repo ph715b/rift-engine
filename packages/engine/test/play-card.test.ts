@@ -29,6 +29,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
+    firstFriendlyDeathUsedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

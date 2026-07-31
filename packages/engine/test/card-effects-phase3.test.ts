@@ -11,7 +11,7 @@ import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures
 describe("Morbid Return: return a unit from your trash to your hand", () => {
   it("moves the trashed unit to hand, reset", () => {
     const morbidReturn = effectForCard(spellInstance("OGN-170"))!;
-    const trashedUnit = makeUnit({ damage: 2, bonus: 1, exhausted: true });
+    const trashedUnit = makeUnit({ damage: 2, mightThisTurn: 1, exhausted: true });
     const state = makeState();
     state.players[0]!.trash = [trashedUnit];
 
@@ -21,7 +21,7 @@ describe("Morbid Return: return a unit from your trash to your hand", () => {
     expect(result.players[0]!.hand).toHaveLength(1);
     const returned = result.players[0]!.hand[0]!;
     expect(returned.kind === "Unit" && returned.damage).toBe(0);
-    expect(returned.kind === "Unit" && returned.bonus).toBe(0);
+    expect(returned.kind === "Unit" && returned.mightThisTurn).toBe(0);
     expect(returned.exhausted).toBe(false);
   });
 

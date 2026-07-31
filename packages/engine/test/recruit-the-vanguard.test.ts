@@ -109,7 +109,7 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
 
     const next = dispatchOnSpellCast(state, 0, 4 + 1);
 
-    expect(next.players[0]!.baseUnits[0]!.bonus).toBe(3);
+    expect(next.players[0]!.baseUnits[0]!.mightThisTurn).toBe(3);
   });
 
   it("...and not on a 4-total-cost spell", () => {
@@ -117,6 +117,6 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [lux];
 
-    expect(dispatchOnSpellCast(state, 0, 4).players[0]!.baseUnits[0]!.bonus).toBe(0);
+    expect(dispatchOnSpellCast(state, 0, 4).players[0]!.baseUnits[0]!.mightThisTurn).toBe(0);
   });
 });

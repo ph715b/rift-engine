@@ -8,11 +8,19 @@ import type { GameState } from "../model/game-state.js";
  * general modifier-stacking system — add the next one here the same way,
  * not preemptively.
  */
+/** Annie - Fiery: "Your spells and abilities deal 1 Bonus Damage." */
+const ANNIE_FIERY = "OGS-001";
+
+/** The cards this module implements — see effective-might.ts's
+ *  effectiveMightDefIds for why coverage.ts needs to be told. */
+export function damageModifierDefIds(): string[] {
+  return [ANNIE_FIERY];
+}
+
 export function modifiedDamageAmount(state: GameState, casterIndex: 0 | 1, baseAmount: number): number {
   const caster = state.players[casterIndex];
   const hasAnnieFiery =
-    caster.baseUnits.some((u) => u.defId === "OGS-001") ||
-    state.battlefields.some((bf) => (bf.units[caster.id] ?? []).some((u) => u.defId === "OGS-001"));
-  // Annie - Fiery: "Your spells and abilities deal 1 Bonus Damage."
+    caster.baseUnits.some((u) => u.defId === ANNIE_FIERY) ||
+    state.battlefields.some((bf) => (bf.units[caster.id] ?? []).some((u) => u.defId === ANNIE_FIERY));
   return hasAnnieFiery ? baseAmount + 1 : baseAmount;
 }

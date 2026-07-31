@@ -1,5 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import { dealDamage, discardCards, drawCards } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -28,6 +30,80 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
-export const cardEffects: Record<string, EffectDefinition> = {};
+export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-024": {
+    // Void Seeker — "[Action] (Play on your turn or in showdowns.) Deal 4 to a
+    // unit at a battlefield. Draw 1."
+    //
+    // [Action] is not implemented here: printed timing is read off the card by
+    // timing.timingTierOf (card-loader sets `isAction` from the printed
+    // keyword), so this entry only owns the two instructions.
+    //
+    // Targeting is the DEFAULT battlefield scope — `{ kind: "unit" }` with no
+    // `scope` — because the printed complement names a battlefield. That is this
+    // card's own reading, not an inference by analogy: the rules' Instructions
+    // section (135.2) uses Void Seeker as its worked example, taking "deal 4" as
+    // the game action and "a unit at a battlefield" as its complement. So a unit
+    // standing in either player's BASE is not a legal target, unlike Final
+    // Spark's bare "Deal 8 to a unit" (OGS-022, which opts into
+    // `scope: "anywhere"` precisely because it names no battlefield).
+    //
+    // Damage first, THEN the draw — rule 359.3.e.5, "execute the game effect of
+    // the spell, from top to bottom of the rules text of the card." The order is
+    // observable rather than cosmetic: a lethal 4 kills mid-resolution and can
+    // fire the dying unit's [Deathknell] (rule 808), and this pool has a
+    // Deathknell that discards and draws, so drawing first would take a
+    // different card off the deck than the card says you get.
+    //
+    // Two "impossible instruction" paths are already handled by the helpers and
+    // deliberately not special-cased here, matching rule 359.3.e's handling of
+    // illegal and impossible instructions ("instructions that can be partially
+    // followed are followed as much as possible"): a target that left play
+    // between casting and resolution makes dealDamage a no-op and the draw still
+    // happens, and an empty deck makes drawCards a no-op without disturbing the
+    // damage (the documented Burn Out gap, rule 431 — see drawCards).
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) => {
+      const damaged = dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 4);
+      return drawCards(damaged, ctx.casterIndex, 1);
+    },
+  },
+};
 
-export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-003": {
+    // Chemtech Enforcer — "[Assault 2] (+2 Might while I'm an attacker.) When
+    // you play me, discard 1."
+    //
+    // Only the discard lives here. [Assault 2] is a keyword and belongs to the
+    // keyword machinery in effective-might.ts, which applies it in the combat
+    // context only — writing it again here would double it.
+    //
+    // "Discard 1" with no other player named is the CASTER's own hand: rule 422
+    // (Discard) is a move from a player's hand directly into *their* trash, so
+    // ctx.casterIndex is both the discarder and the recipient of the cards.
+    //
+    // Unchosen, so discardCards takes the front of hand. That is a real
+    // simplification and rule 422 is explicit against it — the player performing
+    // the discard chooses which cards go to their trash. It stands because an
+    // on-play trigger has nowhere to carry the choice: UnitTriggerEvent has no
+    // discard slot, and this engine cannot pause mid-resolution to ask (see
+    // card-effects.ts's TargetingSpec doc comment). Same constraint, and the
+    // same front-of-hand answer, as Traveling Merchant's on-move discard;
+    // recorded in docs/rules-conformance.md rather than invented here.
+    //
+    // An empty hand discards nothing and is not an error — rule 422 discards as
+    // many cards as possible and ignores the rest of the instruction, which is
+    // discardCards' own no-op-on-empty behaviour, so no guard is needed.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => discardCards(state, ctx.casterIndex, 1),
+  },
+};
+
+/** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
+ *  card's defId. Same one-file-one-owner rule as the registries above. */
+export const deathTriggers: Record<string, DeathknellEffect> = {};
+
+/** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
+ *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+export const eventTriggers: Record<string, EventTriggerDefinition> = {};

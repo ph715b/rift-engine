@@ -2,6 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
+import { dispatchEvent } from "../engine/triggers.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -78,7 +79,25 @@ import { validatePlayCard } from "./validate-play-card.js";
  * ever execute actions already known to be legal, matching the
  * Validator/Executor split in the Java oracle.
  */
+/**
+ * Plays a card, then fires the `cardPlayed` event exactly once.
+ *
+ * A wrapper rather than a dispatch at each `return`, because the body below has
+ * THREE exit paths (unit to base, unit to a battlefield, spell/gear) and this
+ * codebase has already shipped a bug of exactly that shape — `trashCardInstanceId`
+ * was forwarded on two hops and dropped on a third, so a card paid its cost and
+ * did nothing. One choke point cannot be half-wired.
+ *
+ * Fired AFTER the play has fully resolved, so a listener sees the finished board:
+ * Viktor - Innovator's "when you play a card on an opponent's turn" wants the
+ * state where the card is already in play.
+ */
 export function executePlayCard(state: GameState, action: PlayCardAction): GameState {
+  const played = executePlayCardInner(state, action);
+  return dispatchEvent(played, { kind: "cardPlayed", casterIndex: action.playerIndex });
+}
+
+function executePlayCardInner(state: GameState, action: PlayCardAction): GameState {
   const validation = validatePlayCard(state, action);
   if (!validation.ok) throw new Error(validation.error);
 
@@ -123,7 +142,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // reaching into the alt domain's pool for the shortfall. For every other
   // card, altAvailable is always 0, making this identical to the old
   // single-domain formula.
-  const modifiedEnergy = modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost);
+  const modifiedEnergy = modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId);
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —
@@ -182,6 +201,16 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
         // test calls dispatchOnPlayUnit directly, which bypasses exactly
         // this hop (see card-effects-phase3.test.ts:76).
         ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+      ...(action.additionalCostUnitInstanceId !== undefined
+        ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+        : {}),
+        // Forwarded for the same reason trashCardInstanceId is: a field that
+        // exists on the action, is validated, is enumerated — and is then
+        // dropped on this hop — leaves the card paying its cost and doing
+        // nothing. That exact bug has happened here once already.
+        ...(action.additionalCostUnitInstanceId !== undefined
+          ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+          : {}),
       });
     }
 
@@ -203,6 +232,9 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
       // Same dropped-field fix as the base branch above — a reinforce play
       // fires the same trigger.
       ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+      ...(action.additionalCostUnitInstanceId !== undefined
+        ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+        : {}),
     });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
@@ -251,6 +283,16 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
           ...(action.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId } : {}),
           ...(action.targetBattlefieldId !== undefined ? { targetBattlefieldId: action.targetBattlefieldId } : {}),
           ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+      ...(action.additionalCostUnitInstanceId !== undefined
+        ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+        : {}),
+        // Forwarded for the same reason trashCardInstanceId is: a field that
+        // exists on the action, is validated, is enumerated — and is then
+        // dropped on this hop — leaves the card paying its cost and doing
+        // nothing. That exact bug has happened here once already.
+        ...(action.additionalCostUnitInstanceId !== undefined
+          ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+          : {}),
           ...(action.additionalCostUnitInstanceId !== undefined
             ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
             : {}),

@@ -5,7 +5,7 @@ import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardHasOptionalExhaustCost, cardPlacesTokens } from "../engine/card-effects.js";
+import { cardPlacesTokens, optionalUnitCostOf } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import { mayPlayUnitToBattlefield, timingRejection } from "../engine/timing.js";
@@ -190,17 +190,28 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // READY unit the caster actually controls, base or battlefield (unlike
   // most "unit" targeting above, not battlefield-only — see
   // exhaustOwnUnitAnywhere's own doc comment).
-  if (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId) && action.additionalCostUnitInstanceId !== undefined) {
+  // Units as well as Spells — see card-effects.ts's OPTIONAL_UNIT_COSTS for why
+  // the `card.kind === "Spell"` gate that used to be here was wrong.
+  const optionalCost = optionalUnitCostOf(card.defId);
+  if (optionalCost !== undefined && action.additionalCostUnitInstanceId !== undefined) {
     const id = action.additionalCostUnitInstanceId;
     const inBase = actor.baseUnits.find((u) => u.instanceId === id);
     const atBattlefield = inBase ? undefined : findUnitOnBattlefield(state, id);
     const owned = inBase !== undefined || (atBattlefield !== undefined && atBattlefield.ownerIndex === action.playerIndex);
     const unit = inBase ?? atBattlefield?.unit;
+    // Ownership is common to both cost shapes — rule 705.1 for spending a buff,
+    // and you can't exhaust someone else's unit either.
     if (!unit || !owned) {
       return fail(`${card.name}'s additional cost requires a friendly unit you control`);
     }
-    if (unit.exhausted) {
+    // What makes the unit ELIGIBLE differs, and conflating the two was a real
+    // bug waiting: this check was exhaust-only, so a buff-spend cost would have
+    // rejected an exhausted-but-buffed unit that the rules allow perfectly well.
+    if (optionalCost === "exhaustReadyFriendly" && unit.exhausted) {
       return fail(`${card.name}'s additional cost requires a READY friendly unit`);
+    }
+    if (optionalCost === "spendBuffFriendly" && !unit.buffed) {
+      return fail(`${card.name}'s additional cost requires a BUFFED friendly unit (rule 705)`);
     }
   }
 
@@ -245,7 +256,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   const effectiveCost = computeEffectiveCost(
     actor.floatingEnergy,
     actor.floatingPower,
-    modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost),
+    modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId),
     card.powerCost,
     card.powerDomain,
     card.powerDomainAlt,

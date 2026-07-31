@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
+import { dispatchOnUnitDied } from "./triggers.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
@@ -59,6 +60,44 @@ function removeUnitAnywhere(state: GameState, targetInstanceId: string): GameSta
 }
 
 /**
+ * The single place a unit dies.
+ *
+ * There were three: dealDamage's lethal branch, destroyUnit, and combat.ts's
+ * processDefeated, each re-checking the death ward independently. Deathknell is
+ * why that had to become one — rule 808 fires on ANY death, so three sites means
+ * three chances to forget, and a forgotten one is invisible (the unit still dies,
+ * its ability just never happens).
+ *
+ * `unit` must ALREADY be removed from wherever it was; `death` carries the
+ * location and attributes it had at that moment, which rule 809.1.b.3 requires
+ * be captured before the card reaches the trash.
+ *
+ * Order, and why:
+ *  1. Death ward first. A warded death is *replaced*, not a death — so the
+ *     Deathknell must not fire, which rule 809.1.b.1 states outright. Returning
+ *     early here is that rule, not an optimisation.
+ *  2. The Buff comes off (rule 709, "if a Unit leaves play, remove all Buffs
+ *     from it") before the card lands in the trash, so a returned-from-trash copy
+ *     can't smuggle a buff back into play.
+ *  3. Trash, then triggers — the trigger has to see a board where the unit is
+ *     already gone, or "all units at my battlefield" would include the corpse.
+ */
+export function killUnit(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId?: string): GameState {
+  if (isDeathWarded(state, unit.instanceId)) {
+    return reviveWithDeathWard(state, unit, ownerIndex);
+  }
+
+  const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
+  const inTrash = updatePlayer(state, ownerIndex, (p) => ({ ...p, trash: [...p.trash, trashed] }));
+
+  return dispatchOnUnitDied(inTrash, {
+    unit,
+    ownerIndex,
+    ...(battlefieldId !== undefined ? { battlefieldId } : {}),
+  });
+}
+
+/**
  * Deals direct (non-combat) damage to a unit at a battlefield and removes it
  * to its owner's trash if lethal. `casterIndex` feeds damage-modifiers.ts's
  * modifiedDamageAmount (Annie - Fiery's +1-to-all-damage) — the single
@@ -85,10 +124,14 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
 
   if (isLethal) {
     const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
-    if (isDeathWarded(state, targetInstanceId)) {
-      return reviveWithDeathWard(stateAfterRemoval, damagedUnit, ownerIndex);
-    }
-    return updatePlayer(stateAfterRemoval, ownerIndex, (p) => ({ ...p, trash: [...p.trash, damagedUnit] }));
+    // The damaged copy, not `unit` — a Deathknell reading "my" attributes
+    // (rule 809.1.b.3) must see the state the unit died in.
+    return killUnit(
+      stateAfterRemoval,
+      damagedUnit,
+      ownerIndex,
+      ...(zone === "base" ? [] : [state.battlefields[zone.battlefieldIndex]!.id]),
+    );
   }
 
   return updateUnitAnywhere(state, targetInstanceId, () => damagedUnit);
@@ -100,13 +143,15 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
 export function destroyUnit(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
-  const { unit, ownerIndex } = location;
+  const { unit, ownerIndex, zone } = location;
 
   const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
-  if (isDeathWarded(state, targetInstanceId)) {
-    return reviveWithDeathWard(stateAfterRemoval, unit, ownerIndex);
-  }
-  return updatePlayer(stateAfterRemoval, ownerIndex, (p) => ({ ...p, trash: [...p.trash, unit] }));
+  return killUnit(
+    stateAfterRemoval,
+    unit,
+    ownerIndex,
+    ...(zone === "base" ? [] : [state.battlefields[zone.battlefieldIndex]!.id]),
+  );
 }
 
 /**
@@ -137,32 +182,172 @@ export function healAllUnits(state: GameState): GameState {
   return { ...state, players, battlefields };
 }
 
-/** Adds `amount` to `.bonus` on every unit the caster controls (base +
- *  every battlefield) — a "this turn" buff, expiring for free via
- *  turn-manager.ts's runEnd, which already resets `.bonus` to 0 every End
- *  of Turn for every unit, both players, unconditionally. */
-export function buffAllFriendlies(state: GameState, casterIndex: 0 | 1, amount: number): GameState {
+/**
+ * "Give friendly units +N Might this turn" (Grand Strategem, Decisive Strike) —
+ * every unit the caster controls, base and every battlefield.
+ *
+ * A this-turn modifier, expiring for free via turn-manager.ts's runEnd, which
+ * resets `.mightThisTurn` to 0 every End of Turn for every unit, both players,
+ * unconditionally. This is NOT buffing: see addBuff below for the game object
+ * that persists.
+ */
+export function giveMightThisTurnToAllFriendlies(state: GameState, casterIndex: 0 | 1, amount: number): GameState {
   const caster = state.players[casterIndex];
-  const buff = (u: UnitInstance): UnitInstance => ({ ...u, bonus: u.bonus + amount });
+  const grant = (u: UnitInstance): UnitInstance => ({ ...u, mightThisTurn: u.mightThisTurn + amount });
 
   const players = [...state.players] as [PlayerState, PlayerState];
-  players[casterIndex] = { ...caster, baseUnits: caster.baseUnits.map(buff) };
+  players[casterIndex] = { ...caster, baseUnits: caster.baseUnits.map(grant) };
 
   const battlefields = state.battlefields.map((bf) => {
     const units = bf.units[caster.id];
     if (!units) return bf;
-    return { ...bf, units: { ...bf.units, [caster.id]: units.map(buff) } };
+    return { ...bf, units: { ...bf.units, [caster.id]: units.map(grant) } };
   });
 
   return { ...state, players, battlefields };
 }
 
-/** Adds `amount` to a single unit's `.bonus` (a "this turn" buff/debuff,
- *  same expiry as buffAllFriendlies — negative amount is a debuff). Works on
- *  a unit anywhere in play: En Garde and Stupefy say "a unit," not "a unit at
- *  a battlefield". No-ops if the target isn't in play. */
-export function buffUnit(state: GameState, targetInstanceId: string, amount: number): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, bonus: u.bonus + amount }));
+/**
+ * "Give a unit +N Might this turn" — negative `amount` is a debuff (Smoke
+ * Screen, Orb of Regret). Works on a unit anywhere in play: En Garde and Stupefy
+ * say "a unit," not "a unit at a battlefield". No-ops if the target isn't in
+ * play.
+ *
+ * `floor` implements the "to a minimum of 1 Might" clause several debuffs carry.
+ * It is applied against the unit's printed Might plus its accumulated this-turn
+ * modifier, so a second -4 on an already-floored unit takes nothing further off
+ * rather than digging a hole that a later buff would have to climb out of. Buffs
+ * and continuous auras are deliberately NOT counted: they can appear and vanish
+ * after this resolves, and the floor is fixed at resolution time.
+ */
+export function giveMightThisTurn(
+  state: GameState,
+  targetInstanceId: string,
+  amount: number,
+  floor?: number,
+): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) => {
+    if (floor === undefined) return { ...u, mightThisTurn: u.mightThisTurn + amount };
+    const lowest = floor - u.might;
+    return { ...u, mightThisTurn: Math.max(lowest, u.mightThisTurn + amount) };
+  });
+}
+
+/** Does this unit carry a Buff? The read half of rule 707's one-buff-at-a-time
+ *  rule, and what "While I'm buffed" / "Other buffed friendly units" ask. */
+export function isBuffed(unit: UnitInstance): boolean {
+  return unit.buffed;
+}
+
+/**
+ * Buffs a unit — rule 702.3.a, "a player chooses a Unit and then places a buff
+ * on it".
+ *
+ * Rule 708 makes this idempotent rather than cumulative: "If a Buff is added, or
+ * instructed to be added, on a Unit that already has a Buff, it is not placed
+ * instead." That is exactly why several cards read "buff me. (If I don't have a
+ * buff, I get a +1 Might buff.)" — the reminder text is describing the no-op.
+ * Returns the state unchanged when the unit is already buffed or isn't in play.
+ */
+export function addBuff(state: GameState, targetInstanceId: string): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) => (u.buffed ? u : { ...u, buffed: true }));
+}
+
+/**
+ * Spends a unit's Buff — rule 704.1, "Spending a Buff removes a single Buff
+ * counter from a Unit".
+ *
+ * Returns undefined rather than an unchanged state when the spend is illegal, so
+ * callers can't silently get the effect without paying: rule 705 forbids spending
+ * from an unbuffed unit and 705.1 restricts it to units you control, and both are
+ * costs for cards that give you something in return (Wildclaw Shaman, Udyr -
+ * Wildman). A no-op state would hand over the payoff for free.
+ */
+export function spendBuff(state: GameState, playerIndex: 0 | 1, targetInstanceId: string): GameState | undefined {
+  const owner = state.players[playerIndex];
+  const ownsIt =
+    owner.baseUnits.some((u) => u.instanceId === targetInstanceId) ||
+    state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some((u) => u.instanceId === targetInstanceId));
+  if (!ownsIt) return undefined;
+
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location?.unit.buffed) return undefined;
+
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: false }));
+}
+
+/**
+ * Discards cards from `playerIndex`'s hand to their trash.
+ *
+ * Nine cards in the presets discard, and they split into two shapes that this
+ * one function has to serve:
+ *
+ *  - **A chosen discard**, where the player picks. Pass `chosenInstanceIds`. The
+ *    engine cannot pause mid-resolution to ask (see card-effects.ts's
+ *    TargetingSpec doc comment), so the choice arrives already decided in the
+ *    submitted action, the same way `visionRecycle` does.
+ *  - **An unchosen discard**, where nobody gets to pick — every [Deathknell] and
+ *    every on-move trigger, since there is no action to carry a choice on. Omit
+ *    `chosenInstanceIds` and the front of hand is taken.
+ *
+ * Taking the front of hand is a real simplification and worth naming: the rules
+ * give the discarding player the choice in both cases. It follows the precedent
+ * Traveling Merchant's on-move trigger already set rather than inventing a second
+ * convention, and it is recorded in docs/rules-conformance.md. Discarding fewer
+ * than `count` when the hand is short is correct, not a shortcut — "discard 2"
+ * with one card in hand discards that one.
+ */
+export function discardCards(
+  state: GameState,
+  playerIndex: 0 | 1,
+  count: number,
+  chosenInstanceIds?: readonly string[],
+): GameState {
+  if (count <= 0) return state;
+  const actor = state.players[playerIndex];
+
+  const chosen =
+    chosenInstanceIds === undefined
+      ? actor.hand.slice(0, count)
+      : actor.hand.filter((c) => chosenInstanceIds.includes(c.instanceId)).slice(0, count);
+  if (chosen.length === 0) return state;
+
+  const discardedIds = new Set(chosen.map((c) => c.instanceId));
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    hand: p.hand.filter((c) => !discardedIds.has(c.instanceId)),
+    trash: [...p.trash, ...chosen],
+  }));
+}
+
+/**
+ * Recycles `count` cards from `playerIndex`'s own trash — rule 416: "takes one
+ * or more cards from a specific zone and then puts it on the **bottom** of the
+ * corresponding deck", and "each player Recycles cards to their own Main Deck
+ * … regardless of which player is instructed to perform the Recycle action".
+ *
+ * Returns `undefined` when the trash holds fewer than `count`, because rule 416.3
+ * makes this a payability question, not a do-as-much-as-you-can one: "When
+ * Recycling is listed as a Cost, the action must be able to be completed for the
+ * cost to be paid." Same contract as `spendBuff` — an unpayable cost must not
+ * hand over the payoff, and a no-op state would.
+ *
+ * Which cards go back is not offered as a choice: taking the front of the trash
+ * (the oldest cards) matches `discardCards`' convention, and the alternative —
+ * fanning out every subset of a trash that can hold forty cards — is not
+ * bounded. Recorded in docs/rules-conformance.md rather than hidden.
+ */
+export function recycleFromTrash(state: GameState, playerIndex: 0 | 1, count: number): GameState | undefined {
+  if (count <= 0) return state;
+  const actor = state.players[playerIndex];
+  if (actor.trash.length < count) return undefined;
+
+  const recycled = actor.trash.slice(0, count);
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    trash: p.trash.slice(count),
+    deck: [...p.deck, ...recycled], // bottom of the deck, per 416
+  }));
 }
 
 /** Draws up to `count` cards for `playerIndex`, stopping early (not
@@ -201,7 +386,9 @@ export function channelRunesExhausted(state: GameState, playerIndex: 0 | 1, coun
 }
 
 /** Removes a unit from its battlefield and adds it to its OWNER's hand
- *  (not necessarily the caster's) — resets damage/bonus/exhausted since
+ *  (not necessarily the caster's) — resets damage/this-turn Might/exhausted
+ *  and removes any Buff (rule 709, "if a Unit leaves play, remove all Buffs
+ *  from it") since
  *  it's leaving play entirely and may be replayed fresh, unlike
  *  recallUnitToBase (which keeps a unit "in play," just relocated). */
 export function returnUnitToHand(state: GameState, targetInstanceId: string): GameState {
@@ -209,7 +396,7 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
   if (!location) return state;
   const { unit, ownerIndex } = location;
 
-  const returned: UnitInstance = { ...unit, damage: 0, bonus: 0, exhausted: false };
+  const returned: UnitInstance = { ...unit, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false };
   const removed = removeUnitAnywhere(state, targetInstanceId);
   return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: [...p.hand, returned] }));
 }
@@ -311,16 +498,16 @@ export function dealDamageToAllUnitsAtAllBattlefields(state: GameState, casterIn
 
 /** Moves a card from `playerIndex`'s own trash to their own hand — Morbid
  *  Return ("a unit from your trash") and Annie-Stubborn's on-play trigger
- *  ("a spell from your trash"). Resets a returned Unit's damage/bonus/
- *  exhausted (same "leaving play, may be replayed fresh" reasoning as
- *  returnUnitToHand) — a Spell has no such fields to reset. No-ops if the
- *  card isn't in that player's trash. */
+ *  ("a spell from your trash"). Resets a returned Unit's damage / this-turn
+ *  Might / Buff / exhausted (same "leaving play, may be replayed fresh"
+ *  reasoning as returnUnitToHand) — a Spell has no such fields to reset.
+ *  No-ops if the card isn't in that player's trash. */
 export function returnCardFromTrash(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): GameState {
   const actor = state.players[playerIndex];
   const card = actor.trash.find((c) => c.instanceId === cardInstanceId);
   if (!card) return state;
 
-  const returned = card.kind === "Unit" ? { ...card, damage: 0, bonus: 0, exhausted: false } : card;
+  const returned = card.kind === "Unit" ? { ...card, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false } : card;
   const players = [...state.players] as [PlayerState, PlayerState];
   players[playerIndex] = {
     ...actor,
@@ -330,25 +517,18 @@ export function returnCardFromTrash(state: GameState, playerIndex: 0 | 1, cardIn
   return { ...state, players };
 }
 
-/** Adds `amount` to a unit's `.bonus` regardless of whether it's in base or
- *  at a battlefield — needed for on-spell-cast listeners (Ravenbloom
- *  Student, Lux-Illuminated), which can legitimately sit in either zone,
- *  unlike buffUnit above (battlefield-only, matching this round's
- *  deliberate simplification for player-targeted buffs — see En Garde's
- *  registry entry). No-ops if `unitInstanceId` isn't found in either zone
- *  of `playerIndex`'s own units. */
-export function buffOwnUnitAnywhere(state: GameState, playerIndex: 0 | 1, unitInstanceId: string, amount: number): GameState {
+/** "Give ME +N Might this turn" for a unit that might be in base OR at a
+ *  battlefield — the shape self-buffing listeners need (Ravenbloom Student,
+ *  Lux - Illuminated, Dune Drake), which can legitimately sit in either zone.
+ *  The only thing this adds over giveMightThisTurn is the ownership check: it
+ *  refuses to move an opponent's unit, since every caller's printed text says
+ *  "me" or "a friendly unit". */
+export function giveMightThisTurnToOwnUnit(state: GameState, playerIndex: 0 | 1, unitInstanceId: string, amount: number): GameState {
   const actor = state.players[playerIndex];
-  const inBase = actor.baseUnits.some((u) => u.instanceId === unitInstanceId);
-  if (inBase) {
-    const players = [...state.players] as [PlayerState, PlayerState];
-    players[playerIndex] = {
-      ...actor,
-      baseUnits: actor.baseUnits.map((u) => (u.instanceId === unitInstanceId ? { ...u, bonus: u.bonus + amount } : u)),
-    };
-    return { ...state, players };
-  }
-  return buffUnit(state, unitInstanceId, amount);
+  const owned =
+    actor.baseUnits.some((u) => u.instanceId === unitInstanceId) ||
+    state.battlefields.some((bf) => (bf.units[actor.id] ?? []).some((u) => u.instanceId === unitInstanceId));
+  return owned ? giveMightThisTurn(state, unitInstanceId, amount) : state;
 }
 
 /** Exhausts a unit `playerIndex` owns, wherever it is (base or a

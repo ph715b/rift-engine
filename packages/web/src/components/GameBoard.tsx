@@ -189,6 +189,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // nonzero (post-floating) rune payment. A card needing none of those still
   // plays instantly on click, unchanged from before any of this existed.
   const [pendingPlay, setPendingPlay] = useState<PendingPlay | null>(null);
+  // A Gear or Unit whose exhaust-cost ability has been clicked and which is now
+  // waiting for a target. Deliberately NOT folded into `pendingPlay`: that state
+  // machine narrows PlayCard candidates through up to seven ordered steps
+  // (targets, placement, additional cost, trash, vision, payment), and an
+  // activated ability has exactly one possible question — "which unit?" — with no
+  // cost to pay beyond the exhaust. An ability needing no target never sets this
+  // at all; it fires on the click.
+  const [pendingAbility, setPendingAbility] = useState<string | null>(null);
   const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
   // Why the last-clicked unplayable card can't be played, shown in the header
   // until the next action. Before this, an unplayable card had NO onClick at
@@ -252,6 +260,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setGame(submit(state, action));
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
+    setPendingAbility(null);
     setDragOverZoneId(null);
     setUnplayableNotice(null);
   }
@@ -432,7 +441,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const effective = computeEffectiveCost(
       human.floatingEnergy,
       human.floatingPower,
-      modifiedEnergyCost(state, HUMAN_INDEX, card.kind, card.energyCost),
+      modifiedEnergyCost(state, HUMAN_INDEX, card.kind, card.energyCost, card.defId),
       card.powerCost,
       card.powerDomain,
       card.powerDomainAlt,
@@ -782,6 +791,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  locked in, only enemy units still light up, because `pendingCandidates`
    *  has already narrowed to that first target's own candidates. */
   function isUnitLegalTarget(unit: UnitInstance): boolean {
+    // An armed activated ability lights up its own targets through the same
+    // predicate, so every board zone that already highlights card targets picks
+    // ability targets up with no further wiring.
+    if (pendingAbility !== null) return isAbilityTarget(unit);
     const slot = pendingUnitSlot();
     if (!slot) return false;
     // Symmetric slots: a unit qualifies if any live candidate names it at ALL,
@@ -796,6 +809,79 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return pendingCandidates().some((a) => a[slot] === unit.instanceId);
   }
 
+  /**
+   * Every ActivateAbility the human could submit for one permanent right now.
+   * One entry when the ability targets nothing, one per legal target when it
+   * does — legal-actions already fans it out that way, so the UI never has to
+   * know what any particular ability targets.
+   */
+  function abilityCandidates(permanentInstanceId: string) {
+    return legal.filter((a) => a.type === "ActivateAbility" && a.permanentInstanceId === permanentInstanceId);
+  }
+
+  /** Does this permanent have an exhaust-cost ability the human can use right
+   *  now? Asked of `legal` rather than of the registry, so "Ready", "you control
+   *  it", "the Action phase" and "a legal target exists" are all answered by the
+   *  engine's own enumeration instead of being re-derived here. */
+  function canActivate(permanentInstanceId: string): boolean {
+    return abilityCandidates(permanentInstanceId).length > 0;
+  }
+
+  /** Is `unit` a legal target for the ability currently waiting on one? */
+  function isAbilityTarget(unit: UnitInstance): boolean {
+    if (pendingAbility === null) return false;
+    return abilityCandidates(pendingAbility).some(
+      (a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === unit.instanceId,
+    );
+  }
+
+  /**
+   * Clicking a permanent with an activated ability. Fires immediately when the
+   * ability asks nothing, otherwise arms it and waits for a target click — the
+   * same two-shape flow a hand card already has, minus every step that only a
+   * PlayCard can need.
+   *
+   * Re-clicking an armed permanent disarms it, matching how the armed hand card
+   * cancels itself.
+   */
+  function handleActivateClick(permanentInstanceId: string) {
+    if (pendingAbility === permanentInstanceId) {
+      setPendingAbility(null);
+      return;
+    }
+    const candidates = abilityCandidates(permanentInstanceId);
+    if (candidates.length === 0) return;
+    const untargeted = candidates.find((a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === undefined);
+    if (untargeted) {
+      applyAction(untargeted);
+      return;
+    }
+    setPendingPlay(null); // arming an ability abandons a half-made card play
+    setPendingAbility(permanentInstanceId);
+  }
+
+  /** The single selected unit whose ability the human could activate right now,
+   *  if there is exactly one. Exactly one, because "Activate" has to name what
+   *  it will do, and a multi-unit selection is a move selection. */
+  function activatableSelectedUnit(): UnitInstance | undefined {
+    if (selectedUnitIds.size !== 1) return undefined;
+    const [id] = [...selectedUnitIds];
+    if (!id || !canActivate(id)) return undefined;
+    const everywhere = [...human.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[human.id] ?? [])];
+    return everywhere.find((u) => u.instanceId === id);
+  }
+
+  /** What the armed ability belongs to, for the Cancel button's label. */
+  function activatingPermanentName(): string {
+    if (pendingAbility === null) return "";
+    const everywhere = [
+      ...human.activeGear,
+      ...human.baseUnits,
+      ...state.battlefields.flatMap((bf) => bf.units[human.id] ?? []),
+    ];
+    return everywhere.find((c) => c.instanceId === pendingAbility)?.name ?? "ability";
+  }
+
   /** Should one of the human's own units render — and behave — as clickable
    *  right now? While the armed card is still asking something, only a legal
    *  answer qualifies: since handleUnitClick now ignores every other click,
@@ -805,6 +891,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  (see isGroupMoveTarget's own doc comment). */
   function isFriendlyUnitSelectable(unit: UnitInstance): boolean {
     if (isUnitLegalTarget(unit)) return true;
+    if (pendingAbility !== null) return false;
     if (pendingStep() !== null) return false;
     return !unit.exhausted;
   }
@@ -868,6 +955,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  `pendingPlay` (which may still need further choices and/or a payment
    *  step afterward); otherwise falls through to ordinary move-selection. */
   function handleUnitClick(unit: UnitInstance) {
+    // An armed ability is asking exactly one question, so answering it submits
+    // straight away — there is no payment or later step to collect first.
+    if (pendingAbility !== null) {
+      const chosen = abilityCandidates(pendingAbility).find(
+        (a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === unit.instanceId,
+      );
+      if (chosen) applyAction(chosen);
+      // Any other click while an ability is armed does nothing, same rule the
+      // armed-card path below follows: backing out is the explicit re-click.
+      return;
+    }
     const slot = pendingUnitSlot();
     if (pendingPlay && slot && isUnitLegalTarget(unit)) {
       setPendingPlay({
@@ -1220,6 +1318,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPregame(newConfig.format === "bo3" ? "selectBattlefield" : "mulligan");
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
+    setPendingAbility(null);
     setDragOverZoneId(null);
     setUnplayableNotice(null);
     setViewingTrash(null);
@@ -1301,6 +1400,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  two modal steps get no line here — the overlay's own title says it,
    *  right where the player is already looking. */
   function pendingHintText(): string | null {
+    // An armed ability asks one question and asks it here, for the same reason
+    // the armed card does: an ability that silently waits for a click is
+    // indistinguishable from one that did nothing.
+    if (pendingAbility !== null) return ` — choose a target for ${activatingPermanentName()}'s ability`;
     if (!pendingPlay) return null;
     const name = pendingPlay.card.name;
     switch (currentStep) {
@@ -1554,6 +1657,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               <div className="zone-label">AI base</div>
               <div className="card-row">
                 <AnimatePresence>
+                  {/* Gear sits in its controller's base and is public information —
+                      it was previously only a count in the side rail, which made
+                      the opponent's board state partly invisible. Not clickable:
+                      you can never activate an opponent's ability. */}
+                  {ai.activeGear.map((gear) => (
+                    <CardView key={gear.instanceId} card={gear} isEnemy />
+                  ))}
                   {ai.baseUnits.map((unit) => (
                     // Clickable ONLY as the answer to a pending target step —
                     // there's nothing else you can ever do to an enemy unit at
@@ -1640,6 +1750,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               <div className="zone-label">Your base</div>
               <div className="card-row">
                 <AnimatePresence>
+                  {/* Gear renders here rather than in a zone of its own: it lives
+                      in your base by the rules, and `.board` is a fixed-height
+                      100dvh column where a new row costs something real. */}
+                  {human.activeGear.map((gear) => (
+                    <CardView
+                      key={gear.instanceId}
+                      card={gear}
+                      isSelectable={canActivate(gear.instanceId)}
+                      isSelected={pendingAbility === gear.instanceId}
+                      onClick={canActivate(gear.instanceId) ? () => handleActivateClick(gear.instanceId) : undefined}
+                    />
+                  ))}
                   {human.baseUnits.map((unit) => (
                     <CardView
                       key={unit.instanceId}
@@ -1747,6 +1869,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             (pendingPlay is a purely local proposal), so this can't strand
             anything mid-resolution. */}
         {pendingPlay && !modalStepActive && <button onClick={() => setPendingPlay(null)}>Cancel {pendingPlay.card.name}</button>}
+        {/* A UNIT with an exhaust-cost ability reaches it from here rather than
+            by clicking the card, because clicking a friendly unit already means
+            "select it to move" and overloading that would make one of the two
+            unreachable. Gear has no such conflict — it can't move — so gear is
+            clicked directly in the base zone. Appears only when exactly one unit
+            is selected and the engine is currently offering its ability. */}
+        {activatableSelectedUnit() && (
+          <button onClick={() => handleActivateClick(activatableSelectedUnit()!.instanceId)}>
+            Activate {activatableSelectedUnit()!.name}
+          </button>
+        )}
+        {pendingAbility !== null && (
+          <button onClick={() => setPendingAbility(null)}>Cancel {activatingPermanentName()}</button>
+        )}
       </div>
     </div>
   );

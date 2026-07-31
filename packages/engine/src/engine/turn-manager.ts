@@ -1,7 +1,8 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
-import { healAllUnits } from "./effect-helpers.js";
+import { destroyUnit, healAllUnits } from "./effect-helpers.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -20,9 +21,8 @@ import { healAllUnits } from "./effect-helpers.js";
  * hardcoded it.
  *
  * Only the general-purpose steps are ported — the long tail of per-card
- * triggers TurnManager.java's runBeginning/runEnd fire (temporary-unit kills,
- * ~40 "this turn" field resets, legend/unit/battlefield ability hooks) isn't
- * modeled yet, since none of those cards/mechanics are implemented. Add them
+ * triggers TurnManager.java's runBeginning/runEnd fire (~40 "this turn" field
+ * resets, legend/unit/battlefield ability hooks) isn't modeled yet, since none of those cards/mechanics are implemented. Add them
  * here alongside each mechanic, the same deferral discipline as everywhere
  * else in this port.
  */
@@ -64,15 +64,50 @@ export function runAwaken(state: GameState): GameState {
   return { ...next, phase: "Beginning" };
 }
 
-/** Scores holds for the active player. Mirrors TurnManager.runBeginning
- *  (engine/TurnManager.java:86-98), minus killTemporaryUnits (no card
- *  grants [Temporary] yet) and every Beginning-Phase ability hook (no
- *  cards with onBeginningPhase effects modeled). */
+/**
+ * Kills the active player's [Temporary] permanents — rule 816: "At the start of
+ * this permanent's controller's Beginning Phase, before scoring, kill this."
+ *
+ * "Before scoring" is the whole point of the keyword and the only reason it needs
+ * its own step rather than folding into Awaken: a Temporary unit standing alone
+ * at a battlefield must NOT hold it for a point. Ordering this after scoreHolds
+ * would make every Temporary token a free point, quietly inverting the card.
+ *
+ * "This permanent's controller's" — only the ACTIVE player's Temporary things
+ * die here. The opponent's survive until their own Beginning Phase, which is what
+ * makes giving an enemy unit [Temporary] (Fading Memories) a delayed removal
+ * rather than an instant one.
+ *
+ * Multiple instances are redundant (817.1.a), which is free here: the keyword is
+ * a presence check, not a count.
+ */
+function killTemporaryPermanents(state: GameState): GameState {
+  const controller = state.activePlayerIndex;
+  const owner = state.players[controller];
+
+  const isTemporary = (u: UnitInstance) => "Temporary" in u.keywords;
+  const doomed = [
+    ...owner.baseUnits.filter(isTemporary),
+    ...state.battlefields.flatMap((bf) => (bf.units[owner.id] ?? []).filter(isTemporary)),
+  ].map((u) => u.instanceId);
+
+  // Route through destroyUnit, not a hand-rolled removal: a Temporary unit that
+  // also has a [Deathknell] must still fire it (rule 808 fires on any death), and
+  // destroyUnit is what carries that whole funnel. Ids rather than units, because
+  // each kill rebuilds the board and a captured unit object would go stale.
+  return doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), state);
+}
+
+/** Kills [Temporary] permanents, then scores holds for the active player. Mirrors
+ *  TurnManager.runBeginning (engine/TurnManager.java:86-98), minus every
+ *  Beginning-Phase ability hook (Mushroom Pouch is the only card in this pool
+ *  that wants one and it isn't implemented yet). */
 export function runBeginning(state: GameState): GameState {
   if (state.phase !== "Beginning") {
     throw new Error(`runBeginning requires Beginning phase, currently: ${state.phase}`);
   }
-  return { ...scoreHolds(state, state.activePlayerIndex), phase: "Channel" };
+  const afterTemporary = killTemporaryPermanents(state);
+  return { ...scoreHolds(afterTemporary, afterTemporary.activePlayerIndex), phase: "Channel" };
 }
 
 /**
@@ -176,14 +211,19 @@ export function runEnd(state: GameState): GameState {
   // map below: it's an ability firing, not a field reset.
   const afterLegend = dispatchLegendEndOfTurn(state, state.activePlayerIndex);
 
-  const expireBonuses = <T extends { damage: number; bonus: number }>(u: T): T => ({ ...u, bonus: 0 });
+  // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
+  // only when its unit leaves play, so "buff a friendly unit" is a lasting
+  // +1 Might that carries into later turns — which is what makes the eight
+  // cards reading "while I'm buffed" worth anything.
+  const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number }>(u: T): T => ({ ...u, mightThisTurn: 0 });
 
   const players = afterLegend.players.map((p) => ({
     ...p,
-    baseUnits: p.baseUnits.map(expireBonuses),
+    baseUnits: p.baseUnits.map(expireMightThisTurn),
     floatingEnergy: 0,
     floatingPower: {},
     cardsPlayedThisTurn: 0,
+    firstFriendlyDeathUsedThisTurn: false,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
   })) as [PlayerState, PlayerState];
@@ -191,7 +231,7 @@ export function runEnd(state: GameState): GameState {
   const battlefields = afterLegend.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
-      units[playerId] = list.map(expireBonuses);
+      units[playerId] = list.map(expireMightThisTurn);
     }
     return { ...bf, units };
   });

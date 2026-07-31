@@ -233,23 +233,32 @@ export function CardView({
           )}
         </div>
       )}
-      {card.kind === "Unit" && (card.damage > 0 || card.bonus !== 0) && (
+      {card.kind === "Unit" && (card.damage > 0 || card.mightThisTurn !== 0 || card.buffed) && (
         // Rendered regardless of real-art-vs-fallback — real card art never
-        // prints marked damage or a buff/debuff, since those are runtime
-        // state, not part of the card's design.
+        // prints marked damage, a Buff, or a this-turn modifier, since those are
+        // runtime state, not part of the card's design.
         <div className="card-status-badges">
           {card.damage > 0 && (
             <span className="status-badge status-damage" title={`${card.damage} damage marked`}>
               −{card.damage}
             </span>
           )}
-          {card.bonus !== 0 && (
+          {card.mightThisTurn !== 0 && (
             <span
-              className={`status-badge ${card.bonus > 0 ? "status-buff" : "status-debuff"}`}
-              title={`${card.bonus > 0 ? "+" : ""}${card.bonus} Might this turn`}
+              className={`status-badge ${card.mightThisTurn > 0 ? "status-buff" : "status-debuff"}`}
+              title={`${card.mightThisTurn > 0 ? "+" : ""}${card.mightThisTurn} Might this turn`}
             >
-              {card.bonus > 0 ? "+" : ""}
-              {card.bonus}
+              {card.mightThisTurn > 0 ? "+" : ""}
+              {card.mightThisTurn}
+            </span>
+          )}
+          {/* A Buff is its own badge, not folded into the number above: it's
+              worth +1 Might but it PERSISTS past this turn and several cards
+              read it back ("while I'm buffed"), so "does this unit have a buff"
+              is a question the board has to be able to answer at a glance. */}
+          {card.buffed && (
+            <span className="status-badge status-buff" title="Buffed — +1 Might, until spent or this unit leaves play">
+              ★
             </span>
           )}
         </div>

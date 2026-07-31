@@ -1,5 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -25,3 +26,11 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 export const cardEffects: Record<string, EffectDefinition> = {};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+
+/** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
+ *  card's defId. Same one-file-one-owner rule as the registries above. */
+export const deathTriggers: Record<string, DeathknellEffect> = {};
+
+/** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
+ *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+export const eventTriggers: Record<string, EventTriggerDefinition> = {};

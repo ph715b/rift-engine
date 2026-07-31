@@ -101,6 +101,20 @@ function parseKeywords(text: string): Partial<Record<Keyword, number>> {
  */
 const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009"]); // Vanguard Attendant, Master Yi - Honed
 
+/**
+ * The cards whose printed text the LOADER implements, by turning it into a
+ * keyword the rules engine already honors.
+ *
+ * These are genuinely implemented — "I enter ready." is fully handled — but the
+ * implementation is a parse-time keyword rather than a registered effect, so
+ * coverage.ts has no other way to know. POWER_DOMAIN_ALT_OVERRIDES is
+ * deliberately NOT included: a split Power pip is card data, not rules text, so
+ * it never made the card look inert in the first place.
+ */
+export function loaderHandledDefIds(): string[] {
+  return [...QUICK_TEXT_OVERRIDES];
+}
+
 function isGenuinelyHidden(plain: string, name: string): boolean {
   return plain.includes("[Hidden]") && !HIDDEN_KEYWORD_FALSE_POSITIVES.has(name);
 }

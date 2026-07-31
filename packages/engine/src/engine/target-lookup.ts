@@ -76,7 +76,7 @@ function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: 
 
 /**
  * Does this unit satisfy a `maxMight` restriction (Gust's "3 Might or less")?
- * Routes through effectiveMight rather than `might + bonus`, so a unit
+ * Routes through effectiveMight rather than `might + mightThisTurn`, so a unit
  * standing under a continuous aura is judged at the Might it actually has —
  * three separate call sites used to inline the raw sum and would happily let
  * you Gust a 3-Might unit that Garen - Commander had made a 4. Non-combat

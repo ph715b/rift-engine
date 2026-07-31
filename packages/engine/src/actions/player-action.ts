@@ -119,7 +119,15 @@ export interface FloatRuneAction {
 export interface ActivateAbilityAction {
   type: "ActivateAbility";
   playerIndex: 0 | 1;
-  unitInstanceId: string;
+  /** The permanent being activated. Named `permanentInstanceId`, not
+   *  `unitInstanceId`, because Gear activates the same way and through the same
+   *  action — 20 of the 30 Gear in this pool are "exhaust: do one thing", and
+   *  while the field said "unit" they were unreachable. */
+  permanentInstanceId: string;
+  /** Chosen before submitting, like every other target in this engine — see
+   *  card-effects.ts's TargetingSpec doc comment. Absent for abilities whose
+   *  targeting is "none". */
+  targetUnitInstanceId?: string;
 }
 
 /**

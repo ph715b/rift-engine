@@ -3,8 +3,8 @@ import { domainCardEffects, mergeRegistries } from "./effects/index.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { EffectContext } from "./effect-context.js";
 import {
-  buffAllFriendlies,
-  buffUnit,
+  giveMightThisTurn,
+  giveMightThisTurnToAllFriendlies,
   dealDamage,
   dealDamageToEnemyUnitsAtBattlefield,
   destroyUnit,
@@ -101,17 +101,42 @@ function chosenTargets(event: ResolveEvent): string[] {
   return [event.targetUnitInstanceId, event.secondTargetUnitInstanceId].filter((id): id is string => id !== undefined);
 }
 
-/** Cards whose additional cost is an OPTIONAL friendly-unit exhaust
- *  (Meditation: "you may exhaust a friendly unit... if you do, draw 2") —
- *  the choice must already be decided in the submitted action (fanned into
- *  a "decline" variant plus one variant per ready friendly unit by
- *  legal-actions.ts), same reasoning as every other targeting choice in
- *  this file, just orthogonal to TargetingSpec since it's a COST, not a
- *  target the effect acts on. */
-const OPTIONAL_EXHAUST_COST_DEF_IDS = new Set(["OGN-048"]); // Meditation
+/**
+ * What a card's OPTIONAL additional cost asks the caster to pick, which decides
+ * the candidate list legal-actions.ts fans out:
+ *   - `exhaustReadyFriendly` — Meditation, "you may exhaust a friendly unit".
+ *   - `spendBuffFriendly`    — Wildclaw Shaman, "you may spend a buff".
+ * Both name a friendly unit, but a READY one and a BUFFED one are different
+ * sets, so the shape has to be recorded rather than assumed.
+ */
+export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly";
+
+/**
+ * Cards with an optional friendly-unit cost. The choice must already be decided
+ * in the submitted action — legal-actions.ts fans out a "decline" variant plus
+ * one variant per eligible unit — same reasoning as every other choice in this
+ * file, just orthogonal to TargetingSpec because it is a COST, not a target the
+ * effect acts on.
+ *
+ * Units belong here as well as Spells. This was a `Set` gated on
+ * `card.kind === "Spell"` at both call sites, which meant a Unit trigger could
+ * not express "you may" at all: Wildclaw Shaman had to smuggle the choice onto
+ * its ordinary target field, and the decline then vanished in the corner case
+ * where every friendly unit was already buffed — turning "you may" into "you
+ * must". The decline variant is now always offered.
+ */
+const OPTIONAL_UNIT_COSTS: Record<string, OptionalUnitCost> = {
+  "OGN-048": "exhaustReadyFriendly", // Meditation
+  "OGN-147": "spendBuffFriendly", // Wildclaw Shaman
+};
+
+/** Which optional cost this card asks for, or undefined if it has none. */
+export function optionalUnitCostOf(defId: string): OptionalUnitCost | undefined {
+  return OPTIONAL_UNIT_COSTS[defId];
+}
 
 export function cardHasOptionalExhaustCost(defId: string): boolean {
-  return OPTIONAL_EXHAUST_COST_DEF_IDS.has(defId);
+  return OPTIONAL_UNIT_COSTS[defId] !== undefined;
 }
 
 /** Spells that create units and let the caster pick where they land — "your
@@ -168,7 +193,7 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
   "OGS-024": {
     // Decisive Strike — Give friendly units +2 Might this turn.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => buffAllFriendlies(state, ctx.casterIndex, 2),
+    resolve: (state, ctx) => giveMightThisTurnToAllFriendlies(state, ctx.casterIndex, 2),
   },
   "OGN-005": {
     // Disintegrate — Deal 3 to a unit at a battlefield. If this kills it, draw 1.
@@ -219,7 +244,7 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 0, scope: "anywhere" },
     resolve: (state, _ctx, event) => {
       let next = state;
-      for (const id of chosenTargets(event)) next = buffUnit(next, id, 2);
+      for (const id of chosenTargets(event)) next = giveMightThisTurn(next, id, 2);
       return next;
     },
   },
@@ -242,7 +267,7 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
               : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id },
           )
         : 0;
-      const debuffed = currentMight > 1 ? buffUnit(state, event.targetUnitInstanceId!, -1) : state;
+      const debuffed = currentMight > 1 ? giveMightThisTurn(state, event.targetUnitInstanceId!, -1) : state;
       return drawCards(debuffed, ctx.casterIndex, 1);
     },
   },
@@ -255,14 +280,14 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, ctx, event) => {
       const location = findUnitAnywhere(state, event.targetUnitInstanceId!);
-      const buffed = buffUnit(state, event.targetUnitInstanceId!, 1);
-      if (!location) return buffed;
+      const boosted = giveMightThisTurn(state, event.targetUnitInstanceId!, 1);
+      if (!location) return boosted;
       const caster = state.players[ctx.casterIndex];
       const unitsThere =
         location.zone === "base"
           ? caster.baseUnits.length
           : (state.battlefields[location.zone.battlefieldIndex]!.units[caster.id]?.length ?? 0);
-      return unitsThere === 1 ? buffUnit(buffed, event.targetUnitInstanceId!, 1) : buffed;
+      return unitsThere === 1 ? giveMightThisTurn(boosted, event.targetUnitInstanceId!, 1) : boosted;
     },
   },
   "OGN-105": {
@@ -353,20 +378,20 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) => {
       const friendlyId = event.targetUnitInstanceId!;
       const enemyId = event.secondTargetUnitInstanceId!;
-      const buffed = buffUnit(state, friendlyId, 3);
+      const boosted = giveMightThisTurn(state, friendlyId, 3);
 
-      const friendlyLocation = findUnitAnywhere(buffed, friendlyId);
-      const enemyLocation = findUnitAnywhere(buffed, enemyId);
-      if (!friendlyLocation || !enemyLocation) return buffed;
+      const friendlyLocation = findUnitAnywhere(boosted, friendlyId);
+      const enemyLocation = findUnitAnywhere(boosted, enemyId);
+      if (!friendlyLocation || !enemyLocation) return boosted;
 
       const mightCtx = (location: typeof friendlyLocation) =>
         location.zone === "base"
           ? { isCombat: false }
-          : { isCombat: false, battlefieldId: buffed.battlefields[location.zone.battlefieldIndex]!.id };
-      const friendlyMight = effectiveMight(buffed, friendlyLocation.unit, friendlyLocation.ownerIndex, mightCtx(friendlyLocation));
-      const enemyMight = effectiveMight(buffed, enemyLocation.unit, enemyLocation.ownerIndex, mightCtx(enemyLocation));
+          : { isCombat: false, battlefieldId: boosted.battlefields[location.zone.battlefieldIndex]!.id };
+      const friendlyMight = effectiveMight(boosted, friendlyLocation.unit, friendlyLocation.ownerIndex, mightCtx(friendlyLocation));
+      const enemyMight = effectiveMight(boosted, enemyLocation.unit, enemyLocation.ownerIndex, mightCtx(enemyLocation));
 
-      const afterEnemyDamage = dealDamage(buffed, ctx.casterIndex, enemyId, friendlyMight);
+      const afterEnemyDamage = dealDamage(boosted, ctx.casterIndex, enemyId, friendlyMight);
       return dealDamage(afterEnemyDamage, ctx.casterIndex, friendlyId, enemyMight);
     },
   },

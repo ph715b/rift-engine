@@ -97,6 +97,19 @@ export interface PlayerState {
    *  spent, same as floatingEnergy, but still cleared at runEnd if unused
    *  — mirrors Player.java:74/TurnManager.java:335. */
   restrictedSpellEnergy: number;
+  /**
+   * Has this player's "first time a friendly unit dies each turn" already
+   * fired? Wraith of Echoes is the only card that asks, and the Java oracle
+   * carries a field of the same shape and nearly the same name
+   * (`wraithOfEchoesUsedThisTurn`) — this file's own note about those ~10 narrow
+   * per-card fields says to add each one when the card that needs it is
+   * implemented, which is now.
+   *
+   * "Each turn", not "each of your turns": reset by runEnd, which fires at the
+   * end of EVERY turn, so a unit of yours dying on the opponent's turn arms it
+   * for them and disarms it again afterwards.
+   */
+  firstFriendlyDeathUsedThisTurn: boolean;
 }
 
 /**

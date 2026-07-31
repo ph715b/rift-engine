@@ -3,9 +3,10 @@ import type { CardInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 import { targetingForCard, type TargetingSpec } from "./card-effects.js";
 import {
-  buffOwnUnitAnywhere,
+  giveMightThisTurnToOwnUnit,
   channelRunesExhausted,
   dealDamage,
+  discardCards,
   drawCards,
   dealDamageToAllUnitsAtAllBattlefields,
   readyUnit,
@@ -26,6 +27,12 @@ export interface UnitTriggerEvent {
   targetUnitInstanceId?: string;
   visionRecycle?: boolean;
   trashCardInstanceId?: string;
+  /** The friendly unit named for this card's OPTIONAL additional cost, or
+   *  undefined when the caster declined it — the same field a Spell already
+   *  carries (see card-effects.ts's OPTIONAL_UNIT_COSTS). Absent here until
+   *  Wildclaw Shaman needed it, which forced its "you may" onto the ordinary
+   *  target field and lost the decline whenever every friendly unit was buffed. */
+  additionalCostUnitInstanceId?: string;
 }
 
 export interface UnitTriggerDefinition {
@@ -175,7 +182,19 @@ export function targetingForUnitTrigger(defId: string): TargetingSpec {
 
 /** Every defId with a registered on-play trigger — see cardEffectDefIds. */
 export function unitTriggerDefIds(): string[] {
-  return Object.keys(allUnitTriggers());
+  return [
+    ...Object.keys(allUnitTriggers()),
+    // The on-attack / on-move / on-spell-cast registries below are separate
+    // dispatch tables with their own event, and reporting only the on-play one
+    // marked seven working cards as inert — Crackshot Corsair, Dune Drake,
+    // Traveling Merchant, Noxian Drummer, Ravenbloom Student, Lux - Illuminated
+    // and Sneaky Deckhand. They're declared here rather than in coverage.ts so
+    // a new event table in this file is one edit, not two.
+    ...Object.keys(ON_ATTACK_TRIGGERS),
+    ...Object.keys(ON_MOVE_TRIGGERS),
+    ...Object.keys(ON_SPELL_CAST_TRIGGERS),
+    ...OPEN_PLACEMENT_UNIT_DEF_IDS,
+  ];
 }
 
 /** A Unit's targeting comes from its own on-play trigger (this module); a
@@ -217,15 +236,28 @@ export function dispatchOnPlayUnit(
   unit: UnitInstance,
   casterIndex: 0 | 1,
   destination: UnitPlayDestination,
-  extra?: { targetUnitInstanceId?: string; visionRecycle?: boolean; trashCardInstanceId?: string },
+  extra?: {
+    targetUnitInstanceId?: string;
+    visionRecycle?: boolean;
+    trashCardInstanceId?: string;
+    additionalCostUnitInstanceId?: string;
+  },
 ): GameState {
-  const trigger = UNIT_TRIGGERS[unit.defId];
+  // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
+  // straight to the inline one, so a Unit registered in a per-domain effects
+  // file validated, cost runes, deployed — and then its ability silently never
+  // ran. Nothing caught it because no per-domain file had registered a Unit yet,
+  // which is exactly when a per-card implementation pass would have hit it.
+  const trigger = allUnitTriggers()[unit.defId];
   if (!trigger) return state;
   return trigger.resolve(state, contextFor(casterIndex), unit.instanceId, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.visionRecycle !== undefined ? { visionRecycle: extra.visionRecycle } : {}),
     ...(extra?.trashCardInstanceId !== undefined ? { trashCardInstanceId: extra.trashCardInstanceId } : {}),
+    ...(extra?.additionalCostUnitInstanceId !== undefined
+      ? { additionalCostUnitInstanceId: extra.additionalCostUnitInstanceId }
+      : {}),
   });
 }
 
@@ -256,7 +288,7 @@ const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, 
     const hasReadyEnemy = Object.entries(bf.units).some(
       ([ownerId, units]) => ownerId !== casterId && units.some((u) => !u.exhausted),
     );
-    return hasReadyEnemy ? buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 2) : state;
+    return hasReadyEnemy ? giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 2) : state;
   },
 };
 
@@ -270,27 +302,19 @@ export function dispatchOnAttack(state: GameState, unit: UnitInstance, casterInd
  *  (execute-move-unit.ts), independent of on-attack above. */
 const ON_MOVE_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
   "OGN-185": (state, ctx) => {
-    // Traveling Merchant — When I move, discard 1, then draw 1.
-    const actor = state.players[ctx.casterIndex];
-    if (actor.hand.length === 0) return drawCardsAfterDiscard(state, ctx.casterIndex);
-    const players = [...state.players] as [PlayerState, PlayerState];
-    players[ctx.casterIndex] = { ...actor, hand: actor.hand.slice(1), trash: [...actor.trash, actor.hand[0]!] };
-    return drawCardsAfterDiscard({ ...state, players }, ctx.casterIndex);
+    // Traveling Merchant — "When I move, discard 1, then draw 1."
+    //
+    // This is where the front-of-hand discard convention started, inlined here.
+    // It now routes through the shared discardCards, so the Deathknell discards
+    // and this one can't drift apart on what "discard" means, and "then" keeps
+    // the freshly drawn card out of the discard.
+    return drawCards(discardCards(state, ctx.casterIndex, 1), ctx.casterIndex, 1);
   },
   "OGN-222": (state, ctx, unit, battlefieldId) => {
     // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit token here.
     return placeTokenAtDestination(state, ctx.casterIndex, { battlefieldId });
   },
 };
-
-function drawCardsAfterDiscard(state: GameState, casterIndex: 0 | 1): GameState {
-  const actor = state.players[casterIndex];
-  if (actor.deck.length === 0) return state;
-  const [drawn, ...rest] = actor.deck;
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[casterIndex] = { ...actor, deck: rest, hand: [...actor.hand, drawn!] };
-  return { ...state, players };
-}
 
 export function dispatchOnMove(state: GameState, unit: UnitInstance, casterIndex: 0 | 1, battlefieldId: string): GameState {
   const trigger = ON_MOVE_TRIGGERS[unit.defId];
@@ -304,11 +328,11 @@ export function dispatchOnMove(state: GameState, unit: UnitInstance, casterIndex
  *  caster's own units (base + battlefields) for a registered listener —
  *  never the opponent's, matching the printed "you" in both cards' text. */
 const ON_SPELL_CAST_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, spellTotalCost: number) => GameState> = {
-  "OGN-103": (state, ctx, unit) => buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 1), // Ravenbloom Student
+  "OGN-103": (state, ctx, unit) => giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 1), // Ravenbloom Student
   // Lux - Illuminated — "costs 5 or more" is Energy PLUS Power (see the call
   // site in execute-pass-focus.ts; this used to be handed energyCost alone).
   "OGS-006": (state, ctx, unit, spellTotalCost) =>
-    spellTotalCost >= 5 ? buffOwnUnitAnywhere(state, ctx.casterIndex, unit.instanceId, 3) : state,
+    spellTotalCost >= 5 ? giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 3) : state,
 };
 
 export function dispatchOnSpellCast(state: GameState, casterIndex: 0 | 1, spellTotalCost: number): GameState {

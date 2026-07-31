@@ -81,9 +81,9 @@ describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
       secondTargetUnitInstanceId: c.instanceId, // the far one, not the adjacent b
     });
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2); // a
-    expect(state.battlefields[0]!.units["p1"]![1]!.bonus).toBe(0); // b NOT chosen
-    expect(state.battlefields[1]!.units["p1"]![0]!.bonus).toBe(2); // c
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2); // a
+    expect(state.battlefields[0]!.units["p1"]![1]!.mightThisTurn).toBe(0); // b NOT chosen
+    expect(state.battlefields[1]!.units["p1"]![0]!.mightThisTurn).toBe(2); // c
   });
 
   it("buffs just one when that's all the caster picked", () => {
@@ -93,7 +93,7 @@ describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
 
     state = resolve("OGN-206", 0, state, { targetUnitInstanceId: only.instanceId });
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
   });
 });
 
@@ -106,7 +106,7 @@ describe("Stupefy: -1 Might (min 1) to a unit; draw 1 regardless", () => {
 
     state = resolve("OGN-095", 0, state, { targetUnitInstanceId: target.instanceId });
 
-    expect(state.battlefields[0]!.units["p2"]![0]!.bonus).toBe(-1);
+    expect(state.battlefields[0]!.units["p2"]![0]!.mightThisTurn).toBe(-1);
     expect(state.players[0]!.hand).toHaveLength(1);
   });
 
@@ -118,7 +118,7 @@ describe("Stupefy: -1 Might (min 1) to a unit; draw 1 regardless", () => {
 
     state = resolve("OGN-095", 0, state, { targetUnitInstanceId: target.instanceId });
 
-    expect(state.battlefields[0]!.units["p2"]![0]!.bonus).toBe(0);
+    expect(state.battlefields[0]!.units["p2"]![0]!.mightThisTurn).toBe(0);
     expect(state.players[0]!.hand).toHaveLength(1);
   });
 });
@@ -132,7 +132,7 @@ describe("En Garde: +1 Might a friendly unit, +1 more if it's the caster's only 
 
     state = resolve("OGN-046", 0, state, { targetUnitInstanceId: target.instanceId });
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(1);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(1);
   });
 
   it("gives +2 total when the target is the caster's only unit there", () => {
@@ -142,7 +142,7 @@ describe("En Garde: +1 Might a friendly unit, +1 more if it's the caster's only 
 
     state = resolve("OGN-046", 0, state, { targetUnitInstanceId: target.instanceId });
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
   });
 });
 
@@ -229,7 +229,7 @@ describe("Flash: Move up to 2 CHOSEN friendly units to base", () => {
 
 describe("Gust: Return a unit at a battlefield with 3 Might or less to its owner's hand", () => {
   it("returns the unit to its owner's hand, reset", () => {
-    const target = makeUnit({ might: 3, damage: 1, bonus: 1, exhausted: true });
+    const target = makeUnit({ might: 3, damage: 1, mightThisTurn: 1, exhausted: true });
     let state = makeState();
     state.battlefields[0]!.units = { p2: [target] };
 
@@ -239,7 +239,7 @@ describe("Gust: Return a unit at a battlefield with 3 Might or less to its owner
     expect(state.players[1]!.hand).toHaveLength(1);
     const returned = state.players[1]!.hand[0]!;
     expect(returned.kind === "Unit" && returned.damage).toBe(0);
-    expect(returned.kind === "Unit" && returned.bonus).toBe(0);
+    expect(returned.kind === "Unit" && returned.mightThisTurn).toBe(0);
     expect(returned.exhausted).toBe(false);
   });
 });
@@ -326,7 +326,7 @@ describe("targeting validation: maxMight filter (Gust requires 3 Might or less)"
 
   it("accepts a unit with exactly 3 effective Might", () => {
     const gust = spellInstance("OGN-169");
-    const target = makeUnit({ might: 2, bonus: 1 }); // effective 3
+    const target = makeUnit({ might: 2, mightThisTurn: 1 }); // effective 3
     const state = makeState();
     state.players[0]!.hand = [gust];
     state.players[0]!.channeled = [{ id: "r1", domain: "Order", state: "Ready" }];

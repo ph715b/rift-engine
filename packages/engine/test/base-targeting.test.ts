@@ -4,7 +4,7 @@ import { targetingForUnitTrigger, dispatchOnPlayUnit } from "../src/engine/unit-
 import { contextFor } from "../src/engine/effect-context.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { dealDamage, destroyUnit, readyUnit, buffUnit, returnUnitToHand } from "../src/engine/effect-helpers.js";
+import { dealDamage, destroyUnit, readyUnit, giveMightThisTurn, returnUnitToHand } from "../src/engine/effect-helpers.js";
 import { hasAnyLegalEffectChoice, unitWithinMaxMight, findUnitAnywhere } from "../src/engine/target-lookup.js";
 import { targetingForCard } from "../src/engine/card-effects.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
@@ -75,13 +75,13 @@ describe("effect helpers reach units in base", () => {
     expect(result.players[1]!.baseUnits).toHaveLength(1);
   });
 
-  it("destroyUnit, readyUnit, buffUnit and returnUnitToHand all work in base", () => {
+  it("destroyUnit, readyUnit, giveMightThisTurn and returnUnitToHand all work in base", () => {
     const unit = makeUnit({ might: 3, exhausted: true });
     const state = makeState();
     state.players[0]!.baseUnits = [unit];
 
     expect(readyUnit(state, unit.instanceId).players[0]!.baseUnits[0]!.exhausted).toBe(false);
-    expect(buffUnit(state, unit.instanceId, 2).players[0]!.baseUnits[0]!.bonus).toBe(2);
+    expect(giveMightThisTurn(state, unit.instanceId, 2).players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
     expect(destroyUnit(state, unit.instanceId).players[0]!.trash.map((c) => c.instanceId)).toContain(unit.instanceId);
     expect(returnUnitToHand(state, unit.instanceId).players[0]!.hand.map((c) => c.instanceId)).toContain(unit.instanceId);
   });
@@ -128,7 +128,7 @@ describe("En Garde treats base as a location for 'the only unit you control ther
 
     const result = effectForCard(spellInstance("OGN-046"))!.resolve(state, contextFor(0), { targetUnitInstanceId: lone.instanceId });
 
-    expect(result.players[0]!.baseUnits[0]!.bonus).toBe(2);
+    expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
   });
 
   it("...but only +1 with a second unit at home", () => {
@@ -138,7 +138,7 @@ describe("En Garde treats base as a location for 'the only unit you control ther
 
     const result = effectForCard(spellInstance("OGN-046"))!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
-    expect(result.players[0]!.baseUnits[0]!.bonus).toBe(1);
+    expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(1);
   });
 });
 
@@ -163,7 +163,7 @@ describe("the other widened cards", () => {
     state.players[1]!.baseUnits = [target];
 
     const result = effectForCard(spellInstance("OGN-095"))!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
-    expect(result.players[1]!.baseUnits[0]!.bonus).toBe(-1);
+    expect(result.players[1]!.baseUnits[0]!.mightThisTurn).toBe(-1);
   });
 
   it("Singularity can be pointed at two enemy BASE units", () => {
@@ -189,7 +189,7 @@ describe("the other widened cards", () => {
       targetUnitInstanceId: a.instanceId,
       secondTargetUnitInstanceId: b.instanceId,
     });
-    expect(result.players[0]!.baseUnits.map((u) => u.bonus)).toEqual([2, 2]);
+    expect(result.players[0]!.baseUnits.map((u) => u.mightThisTurn)).toEqual([2, 2]);
   });
 
   it("Highlander can ward a unit at home", () => {

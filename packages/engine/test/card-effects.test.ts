@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type SpellInstance } from "../src/model/card.js";
 import { effectForCard, targetingForCard } from "../src/engine/card-effects.js";
-import { buffAllFriendlies, dealDamage, destroyUnit } from "../src/engine/effect-helpers.js";
+import { dealDamage, destroyUnit, giveMightThisTurnToAllFriendlies } from "../src/engine/effect-helpers.js";
 import { runEnd } from "../src/engine/turn-manager.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
@@ -105,7 +105,7 @@ describe("destroyUnit", () => {
   });
 });
 
-describe("buffAllFriendlies", () => {
+describe("giveMightThisTurnToAllFriendlies", () => {
   it("buffs every base and battlefield unit the caster controls, not the opponent's", () => {
     const casterBaseUnit = makeUnit({ might: 3 });
     const casterBfUnit = makeUnit({ might: 4 });
@@ -114,23 +114,23 @@ describe("buffAllFriendlies", () => {
     state.players[0]!.baseUnits = [casterBaseUnit];
     state.battlefields[0]!.units = { p1: [casterBfUnit], p2: [opponentUnit] };
 
-    state = buffAllFriendlies(state, 0, 2);
+    state = giveMightThisTurnToAllFriendlies(state, 0, 2);
 
-    expect(state.players[0]!.baseUnits[0]!.bonus).toBe(2);
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(2);
-    expect(state.battlefields[0]!.units["p2"]![0]!.bonus).toBe(0); // opponent's untouched
+    expect(state.players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
+    expect(state.battlefields[0]!.units["p2"]![0]!.mightThisTurn).toBe(0); // opponent's untouched
   });
 
-  it("the buff expires at the caster's next End of Turn (runEnd already resets .bonus)", () => {
+  it("the this-turn Might expires at the caster's next End of Turn (runEnd resets .mightThisTurn)", () => {
     const unit = makeUnit({ might: 3 });
     let state = makeState();
     state.players[0]!.baseUnits = [unit];
 
-    state = buffAllFriendlies(state, 0, 2);
-    expect(state.players[0]!.baseUnits[0]!.bonus).toBe(2);
+    state = giveMightThisTurnToAllFriendlies(state, 0, 2);
+    expect(state.players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
 
     state = runEnd(state);
-    expect(state.players[0]!.baseUnits[0]!.bonus).toBe(0);
+    expect(state.players[0]!.baseUnits[0]!.mightThisTurn).toBe(0);
   });
 });
 

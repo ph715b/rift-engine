@@ -267,7 +267,8 @@ describe("heuristic AI", () => {
       ...(createCardInstance(defaultCardRegistry().get("OGN-002")) as UnitInstance),
       exhausted: false,
       damage: 0,
-      bonus: 0,
+      mightThisTurn: 0,
+      buffed: false,
       ...overrides,
     });
     const attacker = mkUnit({ instanceId: "mine-1", ...mine });
@@ -322,7 +323,8 @@ describe("heuristic AI", () => {
       might,
       exhausted: false,
       damage: 0,
-      bonus: 0,
+      mightThisTurn: 0,
+      buffed: false,
     });
     const theirId = state.players[1]!.id;
     // Both battlefields contested, so there's no uncontested walk-in to
@@ -367,7 +369,8 @@ describe("heuristic AI", () => {
       might: 2,
       exhausted: false,
       damage: 0,
-      bonus: 0,
+      mightThisTurn: 0,
+      buffed: false,
     };
     const bf: BattlefieldState = {
       id: "bf-only",
@@ -430,7 +433,8 @@ describe("heuristic AI", () => {
         might,
         exhausted: false,
         damage: 0,
-        bonus: 0,
+        mightThisTurn: 0,
+        buffed: false,
       });
       const own = mkUnit("own-1", ownMight);
       const enemy = mkUnit("enemy-1", enemyMight);

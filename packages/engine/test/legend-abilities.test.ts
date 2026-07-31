@@ -164,6 +164,6 @@ describe("Master Yi - Wuju Bladesman (OGS-019): a friendly unit defending ALONE 
     state.battlefields[0]!.units = { p1: [lone] };
 
     effectiveMight(state, lone, 0, defending);
-    expect(state.battlefields[0]!.units["p1"]![0]!.bonus).toBe(0);
+    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
 });

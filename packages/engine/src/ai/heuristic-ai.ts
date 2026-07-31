@@ -6,6 +6,8 @@ import { executePlayCard } from "../actions/execute-play-card.js";
 import { executeMoveUnit } from "../actions/execute-move-unit.js";
 import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
+import { executeActivateAbility } from "../actions/execute-activate-ability.js";
+import { abilityBanksResource, findActivatable } from "../engine/activated-abilities.js";
 import { effectiveMight } from "../engine/effective-might.js";
 import { runCleanup } from "../engine/cleanup.js";
 import { actingPlayerIndex } from "../engine/timing.js";
@@ -70,10 +72,12 @@ function applyBare(state: GameState, action: PlayerAction): GameState {
       // PlayerAction.
       return state;
     case "ActivateAbility":
-      // Never reached — see the FloatRune case above; banking restricted
-      // Energy for a future Spell is exactly the same "no evaluative basis
-      // in a 1-ply lookahead" case.
-      return state;
+      // Reachable now. It used to be filtered out wholesale on the same
+      // "no evaluative basis" grounds as FloatRune, which held while the only
+      // activated ability in the pool banked Energy. Gear abilities move Might,
+      // and `evaluate` scores Might — so the ones it can price are played, and
+      // only the resource-bankers are still skipped (see chooseAction).
+      return executeActivateAbility(state, action);
   }
 }
 
@@ -198,16 +202,26 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
  *  "for activePlayerIndex" would be wrong whenever Focus/chain priority
  *  sits with the other player — this is that exact fix.
  *
- *  FloatRune AND ActivateAbility are both filtered out of the candidate
- *  pool entirely: `evaluate` only scores board state (points/Might), which
- *  can't meaningfully value a resource banked for a future play this 1-ply
- *  lookahead never sees — scoring either would only ever produce a
- *  meaningless tie with Pass/PassFocus. Matches this project's "no
- *  speculative heuristic without a real evaluative basis" precedent (e.g.
- *  the AI never mulligans either, for the same reason). */
+ *  FloatRune is filtered out of the candidate pool entirely, and so are the
+ *  ActivateAbility candidates that only BANK a resource: `evaluate` scores
+ *  board state (points/Might), which can't value something stored for a
+ *  future play this 1-ply lookahead never sees — scoring those would only
+ *  ever produce a meaningless tie with Pass/PassFocus. Matches this
+ *  project's "no speculative heuristic without a real evaluative basis"
+ *  precedent (e.g. the AI never mulligans either, for the same reason).
+ *
+ *  ActivateAbility used to be excluded wholesale under that same reasoning,
+ *  which was right when Lux - Crownguard's Energy-banking was the only such
+ *  ability and wrong once a Gear ability could change a unit's Might — that
+ *  IS board state, so the evaluator prices it correctly and the AI should
+ *  use it. `abilityBanksResource` is the line between the two. */
 export function chooseAction(state: GameState): PlayerAction {
   const forIndex = actingPlayerIndex(state);
-  const candidates = legalActions(state).filter((a) => a.type !== "FloatRune" && a.type !== "ActivateAbility");
+  const candidates = legalActions(state).filter(
+    (a) =>
+      a.type !== "FloatRune" &&
+      !(a.type === "ActivateAbility" && abilityBanksResource(findActivatable(state, a.playerIndex, a.permanentInstanceId)?.card.defId ?? "")),
+  );
 
   let best: PlayerAction = { type: "Pass", playerIndex: forIndex };
   let bestScore = -Infinity;

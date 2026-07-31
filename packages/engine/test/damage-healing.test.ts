@@ -47,13 +47,13 @@ describe("end of turn heals every unit, both sides", () => {
   });
 
   it("still expires 'this turn' bonuses at the same moment", () => {
-    const buffed = makeUnit({ might: 3, bonus: 2, damage: 1 });
+    const buffed = makeUnit({ might: 3, mightThisTurn: 2, damage: 1 });
     let state = makeState();
     state.battlefields[0]!.units = { p1: [buffed] };
 
     state = runEnd(state);
     const after = state.battlefields[0]!.units["p1"]![0]!;
-    expect(after.bonus).toBe(0);
+    expect(after.mightThisTurn).toBe(0);
     expect(after.damage).toBe(0);
   });
 
