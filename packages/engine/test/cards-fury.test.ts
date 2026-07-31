@@ -3,7 +3,7 @@ import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { eligibleTargets } from "../src/engine/target-lookup.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, pickCard, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /** Fury cards implemented in src/engine/effects/fury.ts. Everything here goes
  *  through the COMPOSED registries (effectForCard / dispatchOnPlayUnit) rather
@@ -99,7 +99,7 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     state.players[0]!.hand = [...mine];
     state.players[1]!.hand = [...theirs];
 
-    const after = dispatchOnPlayUnit(state, enforcer, 0, "base");
+    const after = answerDecisions(dispatchOnPlayUnit(state, enforcer, 0, "base"));
 
     expect(after.players[0]!.hand).toHaveLength(1);
     expect(after.players[0]!.trash.map((c) => c.instanceId)).toEqual([mine[0]!.instanceId]);
@@ -107,17 +107,25 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     expect(after.players[1]!.trash).toHaveLength(0);
   });
 
-  it("takes the front of hand, the documented unchosen-discard convention", () => {
+  it("lets the CASTER pick which card goes", () => {
+    // This test used to assert the front of hand and cite it as the documented
+    // convention. The convention is gone: the discard asks, and either card is a
+    // legal answer — which is the whole difference.
     const enforcer = realUnitInstance("OGN-003");
     const first = makeUnit({ name: "First" });
     const second = makeUnit({ name: "Second" });
     const state = makeState();
     state.players[0]!.hand = [first, second];
 
-    const after = dispatchOnPlayUnit(state, enforcer, 0, "base");
+    const asked = dispatchOnPlayUnit(state, enforcer, 0, "base");
+    expect(asked.pendingDecisions[0]!.playerIndex).toBe(0);
 
-    expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Second"]);
-    expect(after.players[0]!.trash.map((c) => c.name)).toEqual(["First"]);
+    const keptFirst = answerDecisions(asked, pickCard(second.instanceId));
+    expect(keptFirst.players[0]!.hand.map((c) => c.name)).toEqual(["First"]);
+    expect(keptFirst.players[0]!.trash.map((c) => c.name)).toEqual(["Second"]);
+
+    const keptSecond = answerDecisions(asked, pickCard(first.instanceId));
+    expect(keptSecond.players[0]!.hand.map((c) => c.name)).toEqual(["Second"]);
   });
 
   it("does nothing with an empty hand instead of failing", () => {
@@ -137,7 +145,10 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     state.players[0]!.hand = [makeUnit()];
     state.players[1]!.hand = [makeUnit(), makeUnit()];
 
-    const after = dispatchOnPlayUnit(state, enforcer, 1, "base");
+    const asked = dispatchOnPlayUnit(state, enforcer, 1, "base");
+    // The question is asked of player 1, not of whoever's turn it is.
+    expect(asked.pendingDecisions[0]!.playerIndex).toBe(1);
+    const after = answerDecisions(asked);
 
     expect(after.players[1]!.hand).toHaveLength(1);
     expect(after.players[1]!.trash).toHaveLength(1);

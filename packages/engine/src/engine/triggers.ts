@@ -183,7 +183,13 @@ export type GameEvent =
    *  the same reason `[Temporary]`'s kill runs there: a Beginning-Phase ability
    *  that changes the board has to do so while there is still a scoring step
    *  left to be affected by it. */
-  | { kind: "beginningPhase"; playerIndex: 0 | 1 };
+  | { kind: "beginningPhase"; playerIndex: 0 | 1 }
+  /** A Buff was PLACED on a unit (Mistfall). `ownerIndex` is whose unit it is,
+   *  which is what "a FRIENDLY unit" is measured against — not who caused it, so
+   *  buffing an enemy unit does not offer their gear its trigger. Fired only when
+   *  a buff was really placed: rule 708 makes a second one on an already-buffed
+   *  unit a no-op, and a no-op is not a buffing. */
+  | { kind: "unitBuffed"; ownerIndex: 0 | 1; unitInstanceId: string };
 
 /** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;

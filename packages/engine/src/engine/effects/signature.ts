@@ -1,6 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DecisionDefinition } from "../decisions.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -39,3 +40,9 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {};
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+
+/** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
+ *  a `kind` string rather than a defId, since one card can ask more than one
+ *  kind of question; the one-file-one-owner rule still applies, and the key is
+ *  prefixed with the card's defId so ownership stays readable. */
+export const decisions: Record<string, DecisionDefinition> = {};

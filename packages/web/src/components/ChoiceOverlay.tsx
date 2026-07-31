@@ -5,7 +5,8 @@ interface ChoiceOverlayProps {
   /** Secondary line under the title — the card's own printed reason for
    *  asking, when that's clearer than the title alone. */
   subtitle?: string;
-  onCancel: () => void;
+  /** Omitted for a MANDATORY choice — see the note on cancellability below. */
+  onCancel?: () => void;
   /** Defaults to "Cancel" — read-only uses (browsing a trash pile) say
    *  "Close" instead, since there's nothing being backed out of. */
   cancelLabel?: string;
@@ -24,10 +25,17 @@ interface ChoiceOverlayProps {
  * (ui/BoardController.java:2015-2111) and showPendingChoiceDialog (:2133+,
  * whose doc comment names "Vision's 'may recycle'" as one of its cases).
  *
- * Always cancellable, unlike Java's mandatory variants: nothing has been
- * submitted at this point (the whole PlayCardAction is still a local
- * `pendingPlay` proposal), so backing out is free and can't strand the game
- * mid-resolution the way closing Java's engine-side pendingChoice could.
+ * Cancellable for the uses above, because nothing has been submitted at that
+ * point (the whole PlayCardAction is still a local `pendingPlay` proposal), so
+ * backing out is free.
+ *
+ * **Omit `onCancel` when it isn't.** A pending decision (engine/decisions.ts) is
+ * the case this comment used to describe as Java's problem and ours to avoid:
+ * the action HAS been submitted, the engine is halfway through resolving an
+ * effect, and rule 323.2.b means nothing else can happen until an answer comes
+ * back. There is no state to return to, so offering a Cancel button would either
+ * lie or strand the game. Without `onCancel` the panel renders no dismissal at
+ * all and the only way out is to answer.
  *
  * The backdrop deliberately sits BELOW the hover card-preview's own z-index
  * (see .choice-overlay-backdrop in styles.css) so hovering a card in here
@@ -41,9 +49,11 @@ export function ChoiceOverlay({ title, subtitle, onCancel, cancelLabel = "Cancel
         <div className="choice-overlay-title">{title}</div>
         {subtitle && <div className="choice-overlay-subtitle">{subtitle}</div>}
         {children}
-        <div className="choice-overlay-actions">
-          <button onClick={onCancel}>{cancelLabel}</button>
-        </div>
+        {onCancel && (
+          <div className="choice-overlay-actions">
+            <button onClick={onCancel}>{cancelLabel}</button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -10,7 +10,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit } from "./fixtures.js";
 
 /**
  * Additional costs paid AS YOU PLAY a card — rule 805's `[Accelerate]` and the
@@ -166,7 +166,9 @@ describe("the two Accelerate cards' other printed text", () => {
     const state = caster(jinx, "Fury", 10);
     state.players[0]!.hand = [jinx, makeUnit(), makeUnit(), makeUnit()];
 
-    const after = executePlayCard(state, playsOf(state, jinx)[0]! as never);
+    // Three cards left and "discard 2" — a real choice, so the play stops to ask
+    // twice. Which two go is now up to the player; that it is two is not.
+    const after = answerDecisions(executePlayCard(state, playsOf(state, jinx)[0]! as never));
 
     expect(after.players[0]!.hand).toHaveLength(1); // 4 - jinx - 2 discarded
     expect(after.players[0]!.trash).toHaveLength(2);

@@ -100,8 +100,8 @@ export interface ResolveEvent {
    *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
    *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
    *  by 2"). Singular because no card in this pool lets the caster CHOOSE more
-   *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
-   *  go through discardCards' front-of-hand convention instead. */
+   *  than one; the multi-discards nobody names up front (Jinx, Undercover Agent's
+   *  Deathknell) go through discardCards, which asks the player instead. */
   discardCardInstanceId?: string;
   /** The unit OR gear chosen by a `unitOrGear`-kind spec. Deliberately not
    *  `targetUnitInstanceId`: every reader of that field assumes a unit. */

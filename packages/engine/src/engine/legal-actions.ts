@@ -27,6 +27,7 @@ import {
 } from "./timing.js";
 import { HIDE_POWER_COST, RAINBOW, hiddenCardIsPlayable, isHiddenCard } from "./hidden.js";
 import { hasKeyword } from "./granted-keywords.js";
+import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
 
@@ -189,6 +190,23 @@ function hideCardCandidates(state: GameState, actor: PlayerState, playerIndex: 0
  * of priority."
  */
 export function legalActions(state: GameState): PlayerAction[] {
+  // A pending question is the only thing on offer, for exactly one player.
+  //
+  // Checked BEFORE the phase guard, and that ordering is load-bearing: a
+  // [Deathknell] discard can be parked during the Beginning Phase (a Temporary
+  // unit dies, Undercover Agent's trigger fires, the discard stops to ask). With
+  // the phase check first this would return nothing at all and the game would
+  // hang with a question nobody could answer.
+  const pending = pendingDecision(state);
+  if (pending) {
+    return optionsFor(state, pending).map((option) => ({
+      type: "AnswerDecision",
+      playerIndex: pending.playerIndex,
+      decisionId: pending.id,
+      optionId: option.id,
+    }));
+  }
+
   if (state.phase !== "Action") return [];
 
   // ONE enumeration path for every state, rather than the three it used to be

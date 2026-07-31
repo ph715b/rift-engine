@@ -1,6 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DecisionDefinition } from "../decisions.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
 import * as chaos from "./chaos.js";
@@ -89,5 +90,14 @@ export function domainSelfTriggers(): { name: string; entries: Record<string, Se
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.selfTriggers,
+  }));
+}
+
+/** Pending-decision handlers contributed by the per-domain files. Lazy, like the
+ *  trigger sources — decisions.ts and the effect files import each other. */
+export function domainDecisions(): { name: string; entries: Record<string, DecisionDefinition> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.decisions,
   }));
 }

@@ -87,6 +87,7 @@ function buildSpellFixture() {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
   };
 
   return { state, spell };
@@ -124,6 +125,7 @@ function buildGearFixture() {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
   };
 
   return { state, gear };
@@ -406,6 +408,7 @@ describe("legalActions: Spell and Gear candidates", () => {
       chainPasses: 0,
       spellChain: [],
       deathWardedUnitInstanceIds: [],
+      pendingDecisions: [],
     };
 
     const actions = legalActions(state);

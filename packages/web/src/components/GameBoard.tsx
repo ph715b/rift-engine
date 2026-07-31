@@ -14,6 +14,7 @@ import {
   executeMulligan,
   legalActions,
   matchesPowerDomain,
+  pendingDecision,
   modifiedEnergyCost,
   submit,
   targetingForAnyCard,
@@ -35,6 +36,7 @@ import { createNewGame, rollAiBattlefield, winsNeeded, type MatchConfig } from "
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
 import { ChoiceOverlay } from "./ChoiceOverlay.js";
+import { DecisionPrompt } from "./DecisionPrompt.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
 import { RuneZone } from "./RuneZone.js";
@@ -260,6 +262,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const chainItems = useMemo(() => describeChain(state), [state]);
 
   const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
+
+  // A question the engine has stopped to ask, and it is yours to answer. It
+  // outranks everything else on screen: while one is open, `legalActions` offers
+  // nothing but its answers, so every other affordance on the board is already
+  // dead and the panel is the only thing that can move the game on.
+  //
+  // `isHumanTurn` covers the ownership check on its own, because actingPlayerIndex
+  // now yields whoever was ASKED — which for Cull the Weak is the player whose
+  // turn it isn't.
+  const awaitingHuman = isHumanTurn && !isGameOver ? pendingDecision(state) : undefined;
 
   function applyAction(action: PlayerAction) {
     setGame(submit(state, action));
@@ -1628,6 +1640,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             onMainMenu={onMainMenu}
           />
         ))}
+
+      {awaitingHuman && (
+        <DecisionPrompt
+          state={state}
+          decision={awaitingHuman}
+          onAnswer={(optionId) =>
+            applyAction({ type: "AnswerDecision", playerIndex: HUMAN_INDEX, decisionId: awaitingHuman.id, optionId })
+          }
+        />
+      )}
 
       {viewingTrash && (
         // Read-only browser, ordered oldest-first exactly as the pile is

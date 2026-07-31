@@ -1,5 +1,7 @@
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
+import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
+import type { PendingDecision } from "../src/model/game-state.js";
 import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
 
 /** Shared test builders for engine tests that need a minimal GameState —
@@ -105,6 +107,37 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
     ...overrides,
   };
+}
+
+/**
+ * Answers every pending question, standing in for a player at the board.
+ *
+ * `pick` chooses among the options on offer; omitted, it takes the first, which
+ * for a discard is the front of hand — deliberately the same card the engine
+ * used to take on its own. That means a test that does not care WHICH card goes
+ * reads exactly as it did before this mechanism existed, and only the tests
+ * about the choice itself have to say anything about it.
+ */
+export function answerDecisions(
+  state: GameState,
+  pick: (options: DecisionOption[], decision: PendingDecision) => string = (options) => options[0]!.id,
+): GameState {
+  let current = state;
+  for (let guard = 0; guard < 32; guard += 1) {
+    const decision = pendingDecision(current);
+    if (!decision) return current;
+    const answered = answerDecision(current, decision.id, pick(optionsFor(current, decision), decision));
+    if (!answered) throw new Error(`answerDecisions: the chosen option was refused for ${decision.kind}`);
+    current = answered;
+  }
+  throw new Error("answerDecisions: the queue never emptied");
+}
+
+/** Picks the named card when it is on offer, and the first option otherwise —
+ *  for the tests whose whole point is that the choice is real. */
+export function pickCard(instanceId: string) {
+  return (options: DecisionOption[]) => options.find((o) => o.instanceId === instanceId)?.id ?? options[0]!.id;
 }

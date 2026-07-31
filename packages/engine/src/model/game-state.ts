@@ -200,6 +200,48 @@ export interface HiddenCard {
 }
 
 /**
+ * One question the engine has stopped to ask a player, mid-resolution.
+ *
+ * Everything else in this engine decides its choices BEFORE an action is
+ * submitted, fanned out as candidates by legal-actions.ts. That only works when
+ * there is an action to hang the choice on, which a trigger does not have —
+ * hence this. While one of these is pending the game is genuinely paused: no
+ * Cleanup runs (323.2.b, "while Chain Items are Resolving, a Cleanup cannot
+ * occur") and no other action is legal.
+ *
+ * `kind` is a registry key, and that is the whole trick: the CONTINUATION IS
+ * DATA. The Java oracle resumes through closures — `beginDiscard(player, count,
+ * () -> ...)` — which is unusable here, because states are immutable snapshots
+ * the AI clones and rescores and a lambda cannot survive that.
+ *
+ * The available options are deliberately NOT stored. engine/decisions.ts
+ * recomputes them from live state when the decision reaches the front of the
+ * queue, so a decision parked behind another can never offer a unit the earlier
+ * answer has since killed.
+ */
+export interface PendingDecision {
+  /** Unique per decision. The answering action names it, so an answer aimed at
+   *  a decision that has already been resolved cannot apply to its successor. */
+  id: string;
+  /** Which DecisionDefinition resolves this — see engine/decisions.ts. */
+  kind: string;
+  /** Who must answer. Not necessarily the turn player: Cull the Weak asks both. */
+  playerIndex: 0 | 1;
+  /** The card that asked, when the handler needs it back (Flame Chompers in the
+   *  trash, Mistfall in play). */
+  cardInstanceId?: string;
+  /** How many more times this repeats — "discard 2" answers once and re-parks
+   *  with one fewer, rather than needing a multi-select. */
+  count?: number;
+  /** What the question is ABOUT, when that is a different thing from the card
+   *  asking it — Mistfall asks about its gear (`cardInstanceId`) and the unit
+   *  that was just buffed (this). Captured when the question is raised, because
+   *  "it" means the unit that was buffed, not whatever is buffed by the time the
+   *  answer comes in. */
+  targetInstanceId?: string;
+}
+
+/**
  * The full state of one Riftbound game. Mirrors model/GameState.java's
  * core shape (FR3): players, battlefields, turn/phase/priority, scoring
  * (on each PlayerState.points, matching Java — GameState itself has no
@@ -320,4 +362,17 @@ export interface GameState {
    *  "this turn" lifetime as GameState.java's own set
    *  (TurnManager.java:287-290). */
   deathWardedUnitInstanceIds: string[];
+  /**
+   * Questions the engine has stopped to ask, oldest first.
+   *
+   * Empty in every settled state — a non-empty queue means a resolution is
+   * halfway through, which is why `submit` suppresses the Cleanup while it is
+   * (323.2.b) and `legalActions` offers nothing but answers to its head.
+   *
+   * A queue rather than a single slot because one effect can ask more than one
+   * question: Cull the Weak asks both players, and "discard 2" asks twice.
+   * Resolved strictly front-to-back, so the order questions are asked in is the
+   * order they were raised in — which for Cull the Weak is APNAP.
+   */
+  pendingDecisions: PendingDecision[];
 }

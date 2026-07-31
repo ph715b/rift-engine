@@ -7,6 +7,7 @@ import {
   channelRunesExhausted,
   dealDamage,
   discardCards,
+  discardThenDraw,
   drawCards,
   dealDamageToAllUnitsAtAllBattlefields,
   readyUnit,
@@ -37,8 +38,8 @@ export interface UnitTriggerEvent {
    *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
    *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
    *  by 2"). Singular because no card in this pool lets the caster CHOOSE more
-   *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
-   *  go through discardCards' front-of-hand convention instead. */
+   *  than one; the multi-discards nobody names up front (Jinx, Undercover Agent's
+   *  Deathknell) go through discardCards, which asks the player instead. */
   discardCardInstanceId?: string;
 }
 
@@ -345,11 +346,12 @@ const ON_MOVE_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, un
   "OGN-185": (state, ctx) => {
     // Traveling Merchant — "When I move, discard 1, then draw 1."
     //
-    // This is where the front-of-hand discard convention started, inlined here.
-    // It now routes through the shared discardCards, so the Deathknell discards
-    // and this one can't drift apart on what "discard" means, and "then" keeps
-    // the freshly drawn card out of the discard.
-    return drawCards(discardCards(state, ctx.casterIndex, 1), ctx.casterIndex, 1);
+    // This is where the front-of-hand discard convention started, inlined here,
+    // and it is where it ends: the player picks now. "Then" is still the whole
+    // point, and is now what `discardThenDraw` exists to protect — with the
+    // discard able to stop and ask, the draw has to be queued behind the
+    // question rather than wrapped around it.
+    return discardThenDraw(state, ctx.casterIndex, 1, 1);
   },
   "OGN-222": (state, ctx, unit, battlefieldId) => {
     // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit token here.

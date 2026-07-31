@@ -8,7 +8,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type GearInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fixtures.js";
 
 /**
  * Scrapheap (OGN-182) — "When this is played, discarded, or killed, draw 1."
@@ -92,9 +92,11 @@ describe("discarded", () => {
   it("draws nothing when a different card is discarded", () => {
     const scrap = gear(SCRAPHEAP);
     const other = createCardInstance(registry.get(ORB_OF_REGRET));
-    const state = holder([other, scrap]); // discardCards takes the FRONT of hand
+    const state = holder([other, scrap]);
 
-    const after = discardCards(state, 0, 1);
+    // Two cards and "discard 1" is a real choice now, so name the card: the
+    // point is that discarding something ELSE leaves Scrapheap unfired.
+    const after = answerDecisions(discardCards(state, 0, 1), pickCard(other.instanceId));
 
     expect(after.players[0]!.trash.map((c) => c.defId)).toEqual([ORB_OF_REGRET]);
     expect(after.players[0]!.deck).toHaveLength(5);

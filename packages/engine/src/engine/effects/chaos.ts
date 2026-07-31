@@ -1,7 +1,8 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
-import { discardCards, drawCards, grantTemporary, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
+import type { DecisionDefinition } from "../decisions.js";
+import { discardCards, discardThenDraw, drawCards, grantTemporary, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -111,10 +112,11 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // hand before the two draws arrive, so a card just drawn can never be one of
   // the cards discarded. Doing it in one step would let that happen.
   //
-  // Nobody picks the discards. A Deathknell has no action to carry a choice on,
-  // so discardCards takes the front of hand — see its doc comment for why that
-  // simplification is named rather than hidden.
-  "OGN-178": (state, ctx) => drawCards(discardCards(state, ctx.casterIndex, 2), ctx.casterIndex, 2),
+  // A Deathknell has no action to carry the choice on, so the discard stops and
+  // asks — which is exactly why "then" needs `discardThenDraw` rather than
+  // wrapping drawCards around it: the draw has to queue behind the questions, or
+  // the cards it adds join the pool being discarded from.
+  "OGN-178": (state, ctx) => discardThenDraw(state, ctx.casterIndex, 2, 2),
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -141,3 +143,9 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
     resolve: (state, event) => drawCards(state, event.ownerIndex, 1),
   },
 };
+
+/** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
+ *  a `kind` string rather than a defId, since one card can ask more than one
+ *  kind of question; the one-file-one-owner rule still applies, and the key is
+ *  prefixed with the card's defId so ownership stays readable. */
+export const decisions: Record<string, DecisionDefinition> = {};

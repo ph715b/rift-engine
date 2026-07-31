@@ -15,6 +15,8 @@ import { validateActivateAbility } from "../actions/validate-activate-ability.js
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
 import { validateHideCard } from "../actions/validate-hide-card.js";
 import { executeHideCard } from "../actions/execute-hide-card.js";
+import { validateAnswerDecision } from "../actions/validate-answer-decision.js";
+import { executeAnswerDecision } from "../actions/execute-answer-decision.js";
 import { runEnd, runStartOfTurn } from "./turn-manager.js";
 import { winner } from "./win-condition.js";
 import { runCleanup } from "./cleanup.js";
@@ -44,6 +46,21 @@ export function dealOpeningHands(state: GameState): GameState {
  * never leaving a caller holding a state the rules wouldn't allow.
  */
 function withCleanupAndWinnerCheck(state: GameState): { state: GameState; result: SubmitResult } {
+  // ...unless the action stopped halfway through to ask someone a question.
+  //
+  // Rule 323.2.b: "while Chain Items are Resolving, a Cleanup cannot occur", and
+  // 323.2.c makes a Cleanup that becomes due during a resolution an Outstanding
+  // Task instead. A pending decision IS a resolution in progress, so running the
+  // Cleanup here would apply state-based actions to a half-finished effect —
+  // lapsing control of a battlefield whose units are about to arrive, or killing
+  // a unit the rest of the effect was going to heal.
+  //
+  // Nothing is lost by deferring: the Cleanup runs when the last answer comes
+  // in, and 323.4 says a Cleanup repeats until the state stops changing, so one
+  // at the end does the work of the ones skipped. Skipping the winner check with
+  // it is the same reasoning — a game cannot be over in the middle of an effect.
+  if (state.pendingDecisions.length > 0) return { state, result: { type: "Ok" } };
+
   const cleaned = runCleanup(state);
   const w = winner(cleaned);
   if (w === null) return { state: cleaned, result: { type: "Ok" } };
@@ -80,7 +97,21 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
     return { state, result: { type: "Invalid", error: "Game is already over" } };
   }
 
+  // One central gate rather than the same guard bolted onto eight validators.
+  // While the engine is waiting on an answer the game is paused mid-resolution,
+  // so nothing else is legal for either player — not a play, not a Pass, not
+  // even passing Focus, since 323.2.a says Priority and Focus "are not passed or
+  // awarded" while resolution is suspended.
+  if (state.pendingDecisions.length > 0 && action.type !== "AnswerDecision") {
+    return { state, result: { type: "Invalid", error: "A decision is pending — answer it first" } };
+  }
+
   switch (action.type) {
+    case "AnswerDecision": {
+      const validation = validateAnswerDecision(state, action);
+      if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };
+      return withCleanupAndWinnerCheck(executeAnswerDecision(state, action));
+    }
     case "PlayCard": {
       const validation = validatePlayCard(state, action);
       if (!validation.ok) return { state, result: { type: "Invalid", error: validation.error } };

@@ -1,7 +1,10 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
-import { addBuff, dealDamage, dealDamageToEnemyUnitsAtBattlefield, readyUnit, spendBuff } from "../effect-helpers.js";
+import type { DecisionDefinition } from "../decisions.js";
+import { addBuff, dealDamage, dealDamageToEnemyUnitsAtBattlefield, payPowerFromChanneled, readyUnit, spendBuff } from "../effect-helpers.js";
+import { parkDecision, type DecisionOption } from "../decisions.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 
@@ -169,9 +172,82 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-152": {
+    // Mistfall — "When you buff a friendly unit, you may pay [Body] and exhaust
+    // this to ready it."
+    //
+    // Reachable at all only because addBuff is a single funnel: every card that
+    // buffs anything goes through it, so this hears all of them without any of
+    // them knowing it exists.
+    //
+    // "You MAY" is why this parks a question rather than just doing it. Readying
+    // a unit is not always wanted (a ready unit can be forced into a Showdown),
+    // the Power is real, and exhausting Mistfall spends its own turn — so the
+    // decline has to be a genuine option, which it is by being one of the two
+    // answers rather than an inference.
+    on: "unitBuffed",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitBuffed") return state;
+      // "A FRIENDLY unit" is measured against Mistfall's controller, not against
+      // whoever caused the buff — buffing an enemy unit must not offer their
+      // gear this trigger.
+      if (event.ownerIndex !== listener.ownerIndex) return state;
+      if (listener.card.exhausted) return state; // it exhausts itself to pay
+      return parkDecision(state, {
+        kind: "OGN-152-ready",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        // The unit to ready rides here rather than being re-derived: by the time
+        // the question is answered the board may have moved on, and "it" means
+        // the unit that was buffed.
+        targetInstanceId: event.unitInstanceId,
+      });
+    },
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+
+/** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
+ *  a `kind` string rather than a defId, since one card can ask more than one
+ *  kind of question; the one-file-one-owner rule still applies, and the key is
+ *  prefixed with the card's defId so ownership stays readable. */
+export const decisions: Record<string, DecisionDefinition> = {
+  "OGN-152-ready": {
+    prompt: () => "Mistfall: pay 1 Body Power and exhaust it to ready the buffed unit?",
+    options: (state, d) => {
+      // Declining is always available — "you may". Listed first so that a player
+      // (or the AI's tie-breaking) defaults to doing nothing rather than paying.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // The offer is only real if BOTH halves of the cost can still be paid and
+      // there is still something to ready. 416.3's shape: a cost that cannot be
+      // completed is not a cost you may choose to pay.
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === d.cardInstanceId);
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      if (gear && !gear.exhausted && unit?.unit.exhausted && payPowerFromChanneled(state, d.playerIndex, "Body", 1)) {
+        options.push({ id: "pay", label: "Pay 1 Body Power and exhaust Mistfall", instanceId: gear.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay") return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Body", 1);
+      if (!paid) return state;
+      return readyUnit(exhaustGear(paid, d.playerIndex, d.cardInstanceId!), d.targetInstanceId!);
+    },
+  },
+};
+
+/** Exhausts a gear its controller owns — Mistfall pays with itself. */
+function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: string): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...players[playerIndex],
+    activeGear: players[playerIndex].activeGear.map((g) => (g.instanceId === gearInstanceId ? { ...g, exhausted: true } : g)),
+  };
+  return { ...state, players };
+}

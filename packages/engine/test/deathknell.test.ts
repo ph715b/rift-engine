@@ -6,7 +6,8 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fixtures.js";
+import { optionsFor } from "../src/engine/decisions.js";
 
 /**
  * [Deathknell] — rule 808, "functionally short for 'When I die, [Effect]'."
@@ -115,7 +116,11 @@ describe("Undercover Agent's Deathknell (OGN-178)", () => {
     const originalHandIds = state.players[0]!.hand.map((c) => c.instanceId);
     const deckIds = state.players[0]!.deck.map((c) => c.instanceId);
 
-    const after = destroyUnit(state, agent.instanceId);
+    // The discard stops to ask now, so the draw is queued behind the two
+    // questions rather than wrapped around them. Answering them is what proves
+    // the "then" survived that: if the draw had run first, the cards on offer to
+    // discard would have included the ones just drawn.
+    const after = answerDecisions(destroyUnit(state, agent.instanceId));
     const handIds = after.players[0]!.hand.map((c) => c.instanceId);
 
     // 3 - 2 discarded + 2 drawn = 3.
@@ -135,8 +140,11 @@ describe("Undercover Agent's Deathknell (OGN-178)", () => {
     const state = stockedState(agent);
     state.players[0]!.hand = [card("OGN-002")];
 
+    // One card in hand and "discard 2" is not a choice, so nothing is asked —
+    // the whole hand goes and the draw follows immediately.
     const after = destroyUnit(state, agent.instanceId);
 
+    expect(after.pendingDecisions).toHaveLength(0);
     expect(after.players[0]!.hand).toHaveLength(2); // 1 - 1 + 2 drawn
   });
 
@@ -228,12 +236,37 @@ describe("coverage counts the Deathknell cards as implemented", () => {
 });
 
 describe("discardCards", () => {
-  it("takes the front of hand when nobody chooses", () => {
+  it("ASKS when nobody chose and there is a choice to make", () => {
+    // This used to take the front of hand and the test used to assert it. The
+    // rules always gave the discarding player that choice; the engine simply had
+    // no way to ask until pending decisions existed.
     const state = stockedState(makeUnit());
     const handIds = state.players[0]!.hand.map((c) => c.instanceId);
+
+    const asked = discardCards(state, 0, 2);
+
+    expect(asked.pendingDecisions).toHaveLength(1);
+    expect(asked.players[0]!.trash).toHaveLength(0); // nothing has moved yet
+    // Every card in hand is on offer, and the answer is honoured.
+    expect(optionsFor(asked, asked.pendingDecisions[0]!).map((o) => o.instanceId)).toEqual(handIds);
+
+    const after = answerDecisions(asked, pickCard(handIds[2]!));
+    expect(after.players[0]!.trash.map((c) => c.instanceId)).toContain(handIds[2]);
+    expect(after.players[0]!.hand).toHaveLength(1);
+  });
+
+  it("does not ask when there is no choice — hand no bigger than the count", () => {
+    // "Discard 2" holding exactly two cards is not a decision, and a modal to
+    // confirm it would be theatre. Also how "discard 2" with one card in hand
+    // still discards that one (422).
+    const state = stockedState(makeUnit());
+    state.players[0]!.hand = state.players[0]!.hand.slice(0, 2);
+
     const after = discardCards(state, 0, 2);
-    expect(after.players[0]!.hand.map((c) => c.instanceId)).toEqual([handIds[2]]);
-    expect(after.players[0]!.trash.map((c) => c.instanceId)).toEqual([handIds[0], handIds[1]]);
+
+    expect(after.pendingDecisions).toHaveLength(0);
+    expect(after.players[0]!.hand).toHaveLength(0);
+    expect(after.players[0]!.trash).toHaveLength(2);
   });
 
   it("honours an explicit choice", () => {

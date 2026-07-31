@@ -1,9 +1,11 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
+import type { Domain } from "../model/domain.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
+import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
+import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
@@ -276,6 +278,42 @@ export function isBuffed(unit: UnitInstance): boolean {
 }
 
 /**
+ * Pays `count` Power of `domain` out of channeled runes, for the costs that are
+ * NOT part of a PlayCardAction — Flame Chompers' "you may pay [Fury] to play me"
+ * and Mistfall's "you may pay [Body] and exhaust this".
+ *
+ * Returns undefined when it cannot be paid, the same contract `spendBuff` and
+ * `recycleFromTrash` use (416.3's "the action must be able to be completed for
+ * the cost to be paid"), so the option is simply never offered rather than
+ * handing over the payoff for free.
+ *
+ * Paying Power RECYCLES the rune — 416's "puts it on the bottom of the
+ * corresponding deck", not an exhaust — and a rune that was still Ready when it
+ * went had Energy-paying potential that recycling wastes, so it banks 1 floating
+ * Energy. Both halves mirror executeFloatRune's Power mode exactly; they are the
+ * same act, and two versions of it would drift.
+ */
+export function payPowerFromChanneled(
+  state: GameState,
+  playerIndex: 0 | 1,
+  domain: Domain,
+  count: number,
+): GameState | undefined {
+  const actor = state.players[playerIndex];
+  const spend = actor.channeled.filter((r) => r.domain === domain).slice(0, count);
+  if (spend.length < count) return undefined;
+
+  const spentIds = new Set(spend.map((r) => r.id));
+  const readyCredit = spend.filter((r) => r.state === "Ready").length;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    channeled: p.channeled.filter((r) => !spentIds.has(r.id)),
+    runeDeck: [...p.runeDeck, ...spend.map((r) => ({ ...r, state: "Ready" as const }))],
+    floatingEnergy: p.floatingEnergy + readyCredit,
+  }));
+}
+
+/**
  * Buffs a unit — rule 702.3.a, "a player chooses a Unit and then places a buff
  * on it".
  *
@@ -286,7 +324,16 @@ export function isBuffed(unit: UnitInstance): boolean {
  * Returns the state unchanged when the unit is already buffed or isn't in play.
  */
 export function addBuff(state: GameState, targetInstanceId: string): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => (u.buffed ? u : { ...u, buffed: true }));
+  const location = findUnitAnywhere(state, targetInstanceId);
+  // "When you BUFF a friendly unit" (Mistfall) is about a buff actually being
+  // placed. 708 makes a second one on an already-buffed unit a no-op, and the
+  // event has to agree — otherwise re-buffing a buffed unit would offer the
+  // ready-me trigger over and over for nothing. Checked before the update, since
+  // updateUnitAnywhere rebuilds the state either way.
+  if (!location || location.unit.buffed) return updateUnitAnywhere(state, targetInstanceId, (u) => u);
+
+  const buffed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
+  return dispatchEvent(buffed, { kind: "unitBuffed", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
 }
 
 /**
@@ -318,20 +365,18 @@ export function spendBuff(state: GameState, playerIndex: 0 | 1, targetInstanceId
  * Nine cards in the presets discard, and they split into two shapes that this
  * one function has to serve:
  *
- *  - **A chosen discard**, where the player picks. Pass `chosenInstanceIds`. The
- *    engine cannot pause mid-resolution to ask (see card-effects.ts's
- *    TargetingSpec doc comment), so the choice arrives already decided in the
- *    submitted action, the same way `visionRecycle` does.
- *  - **An unchosen discard**, where nobody gets to pick — every [Deathknell] and
- *    every on-move trigger, since there is no action to carry a choice on. Omit
- *    `chosenInstanceIds` and the front of hand is taken.
+ *  - **Already decided**, when the choice rode in on the submitted action (Get
+ *    Excited!, Brazen Buccaneer). Pass `chosenInstanceIds`.
+ *  - **Not yet decided**, which is every [Deathknell] and every on-move trigger,
+ *    because a trigger has no action to carry a choice on. Omit
+ *    `chosenInstanceIds` and this STOPS AND ASKS (engine/decisions.ts).
  *
- * Taking the front of hand is a real simplification and worth naming: the rules
- * give the discarding player the choice in both cases. It follows the precedent
- * Traveling Merchant's on-move trigger already set rather than inventing a second
- * convention, and it is recorded in docs/rules-conformance.md. Discarding fewer
- * than `count` when the hand is short is correct, not a shortcut — "discard 2"
- * with one card in hand discards that one.
+ * Asking replaces a documented front-of-hand simplification: the rules give the
+ * discarding player the choice in both cases, and the engine simply had no way
+ * to ask until pending decisions existed. Discarding fewer than `count` when the
+ * hand is short is correct, not a shortcut — "discard 2" with one card in hand
+ * discards that one (422), and a hand no bigger than `count` is not a choice at
+ * all, so it goes without a prompt.
  */
 export function discardCards(
   state: GameState,
@@ -341,6 +386,19 @@ export function discardCards(
 ): GameState {
   if (count <= 0) return state;
   const actor = state.players[playerIndex];
+
+  // Nobody named a card, and there is more than one to choose from — so ask.
+  // This used to take the front of hand and say so apologetically; the rules
+  // give the discarding player the choice, and now the engine can stop to ask
+  // (engine/decisions.ts).
+  //
+  // Only when there is a real choice: "discard 2" holding exactly two cards is
+  // not a decision, and opening a prompt to confirm it would be theatre. The
+  // fall-through below still takes the whole hand in that case, which is also
+  // what makes "discard 2" with one card in hand discard that one (422).
+  if (chosenInstanceIds === undefined && actor.hand.length > count) {
+    return parkDecision(state, { kind: "discard", playerIndex, count });
+  }
 
   const chosen =
     chosenInstanceIds === undefined
@@ -364,6 +422,26 @@ export function discardCards(
   // found by walking the board. Fired after the move, so the trigger sees the
   // finished zones.
   return chosen.reduce((next, c) => dispatchSelfEvent(next, "discarded", c, playerIndex), moved);
+}
+
+/**
+ * "Discard N, **then** draw M" — Undercover Agent's Deathknell and Traveling
+ * Merchant's on-move trigger.
+ *
+ * Its own function because the "then" is load-bearing and became fragile the
+ * moment discarding could stop to ask. Written the obvious way,
+ * `drawCards(discardCards(state, i, 2), i, 2)`, the draw now happens while the
+ * discard is still a pending question — so the cards just drawn join the hand
+ * the player is about to choose discards from, and "a card just drawn can never
+ * be one of the cards discarded" silently inverts.
+ *
+ * The draw is therefore queued BEHIND the questions. It needs no special
+ * machinery to do that: a draw is a decision with exactly one option, so
+ * `parkDecision` executes it immediately when nothing is being asked and lines
+ * it up after the questions when something is.
+ */
+export function discardThenDraw(state: GameState, playerIndex: 0 | 1, discardCount: number, drawCount: number): GameState {
+  return parkDecision(discardCards(state, playerIndex, discardCount), { kind: "draw", playerIndex, count: drawCount });
 }
 
 /**

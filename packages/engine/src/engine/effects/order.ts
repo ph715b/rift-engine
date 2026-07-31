@@ -1,8 +1,11 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DecisionDefinition } from "../decisions.js";
 import { channelRunesExhausted, destroyUnit, drawCards, giveMightThisTurnToAllFriendlies } from "../effect-helpers.js";
 import { findUnitAnywhere } from "../target-lookup.js";
+import { parkDecision } from "../decisions.js";
+import type { GameState } from "../../model/game-state.js";
 
 /**
  * Card implementations for **Order** — one file, one owner.
@@ -32,6 +35,31 @@ import { findUnitAnywhere } from "../target-lookup.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-209": {
+    // Cull the Weak — "Each player kills one of their units."
+    //
+    // No targeting spec, and that is the point: this is not the caster choosing
+    // two victims. Each player chooses their OWN, which the caster has no say
+    // over — so both choices are made at resolution, by the player they belong
+    // to, through engine/decisions.ts.
+    //
+    // Deliberately NOT fanned out onto the action the way every other choice in
+    // this engine is. A fan-out commits the caster's victim at cast time, and the
+    // opponent may respond on the chain in between — killing the unit that was
+    // going to be chosen, or adding a better one. "One of their units" means the
+    // ones alive when this resolves.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      // APNAP: the active player answers first, and the queue is FIFO, so
+      // parking in that order is the whole implementation of the ordering.
+      const first = state.activePlayerIndex;
+      const second = (1 - first) as 0 | 1;
+      return [first, second].reduce(
+        (next, playerIndex) => parkDecision(next, { kind: "OGN-209-kill", playerIndex }),
+        state,
+      );
+    },
+  },
   "OGN-213": {
     // Hidden Blade — "[Hidden][Action] Kill a unit at a battlefield. Its
     // controller draws 2."
@@ -124,3 +152,33 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {};
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+
+/** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
+ *  a `kind` string rather than a defId, since one card can ask more than one
+ *  kind of question; the one-file-one-owner rule still applies, and the key is
+ *  prefixed with the card's defId so ownership stays readable. */
+export const decisions: Record<string, DecisionDefinition> = {
+  // Cull the Weak's half of the work: one player picking which of their own
+  // units dies. Asked of BOTH players, so it is written from the answering
+  // player's point of view rather than the caster's.
+  "OGN-209-kill": {
+    prompt: () => "Cull the Weak: kill one of your units",
+    // "One of their units" names no battlefield, so a unit in base is as
+    // eligible as one at a battlefield — 355.9.b, the bare noun "unit" means
+    // objects on the Board, and Bases are Public.
+    //
+    // No options at all when the player has no units: rule 422's "do as much as
+    // you can" shape, and advanceDecisions drops a question with no answers
+    // rather than deadlocking on it. Exactly one unit is likewise not a choice,
+    // and is killed without a prompt.
+    options: (state, d) =>
+      ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => destroyUnit(state, optionId),
+  },
+};
+
+/** Every unit a player has in play, base and battlefields alike. */
+function ownUnits(state: GameState, playerIndex: 0 | 1) {
+  const actor = state.players[playerIndex];
+  return [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
+}

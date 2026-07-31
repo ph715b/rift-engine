@@ -17,6 +17,17 @@ import type { CardInstance } from "../model/card.js";
  * Mirrors GameState.java's `actingPlayer()`.
  */
 export function actingPlayerIndex(state: GameState): 0 | 1 {
+  // A pending decision outranks all three. It sits INSIDE a resolution, where
+  // 323.2.a says Priority and Focus "are not passed or awarded" — so whoever
+  // holds either of them is not the person the game is waiting on. Cull the Weak
+  // asks the non-turn player a question on the turn player's turn, and without
+  // this line the board and the AI would both look at the wrong player.
+  //
+  // One line here rather than three, because this function is already the single
+  // definition legal-actions, GameBoard and heuristic-ai all call.
+  const pending = state.pendingDecisions[0];
+  if (pending) return pending.playerIndex;
+
   if (!state.chainOpen) return state.chainPriority;
   if (state.turnState === "Showdown") return state.focusHolder;
   return state.activePlayerIndex;

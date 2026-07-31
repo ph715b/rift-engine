@@ -3,6 +3,7 @@ import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { dispatchEvent, dispatchSelfEvent } from "../engine/triggers.js";
+import { unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -115,27 +116,6 @@ function removeFromHiddenZone(state: GameState, action: PlayCardAction): GameSta
   };
 }
 
-/**
- * Magma Wurm (OGN-011): "Other friendly units enter ready."
- *
- * A continuous property of a unit already in play, not a flag set when it was
- * played — so it applies to everything you play for as long as the Wurm is
- * there, and stops the moment it dies. `excludeInstanceId` is the card being
- * played, so a Wurm never readies itself.
- */
-const MAGMA_WURM = "OGN-011";
-
-function otherFriendlyUnitsEnterReady(state: GameState, playerIndex: 0 | 1, excludeInstanceId: string): boolean {
-  const actor = state.players[playerIndex];
-  const own = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
-  return own.some((u) => u.defId === MAGMA_WURM && u.instanceId !== excludeInstanceId);
-}
-
-/** For coverage.ts — this file implements Magma Wurm's whole printed text. */
-export function playCardDefIds(): string[] {
-  return [MAGMA_WURM];
-}
-
 function executePlayCardInner(rawState: GameState, action: PlayCardAction): GameState {
   // Validate BEFORE the card leaves the hidden zone. Taking it out first made
   // `hiddenPlayRejection` unable to find it, so every from-hidden play threw
@@ -189,7 +169,19 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // reaching into the alt domain's pool for the shortfall. For every other
   // card, altAvailable is always 0, making this identical to the old
   // single-domain formula.
-  const modifiedEnergy = modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId);
+  //
+  // "Ignoring its base cost" (811) has to be honoured HERE as well, not only in
+  // the validator. The validator already prices a from-hidden play at
+  // `{ energyCost: 0, powerCost: 0 }` and requires an empty payment; this half
+  // went on deducting floating resources against the PRINTED cost, so playing
+  // Consult the Past (4 Energy) from Hidden with 3 floating Energy banked
+  // silently burned all three for a card that was supposed to be free. Ignored
+  // is ignored — no runes, no float, no cost modifiers.
+  const ignoresBaseCost = action.fromHiddenBattlefieldId !== undefined;
+  const modifiedEnergy = ignoresBaseCost
+    ? 0
+    : modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId);
+  const powerToPay = ignoresBaseCost ? 0 : card.powerCost;
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —
@@ -200,7 +192,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   const restrictedSpent = card.kind === "Spell" ? Math.min(actor.restrictedSpellEnergy, remainingAfterFloat) : 0;
   const primaryAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
   const altAvailable = card.powerDomainAlt !== undefined ? (actor.floatingPower[card.powerDomainAlt] ?? 0) : 0;
-  const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, card.powerCost);
+  const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, powerToPay);
   const primarySpent = Math.min(primaryAvailable, floatingPowerSpent);
   const altSpent = floatingPowerSpent - primarySpent;
 
@@ -225,20 +217,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   };
 
   if (card.kind === "Unit") {
-    // Three separate reasons a unit can enter READY, and they are genuinely
-    // different things: the printed [Quick] keyword, Confront's this-turn flag,
-    // and a Magma Wurm already on the board making it true continuously for
-    // everything ELSE you play. The last one is a property of the board, so it is
-    // asked fresh rather than stored — and it excludes the Wurm itself ("OTHER
-    // friendly units"), which matters because a second Wurm shouldn't ready the
-    // first one's copy on the way in.
-    const entersReady =
-      "Quick" in card.keywords ||
-      // [Accelerate] paid as an additional cost (805): "if you do, I enter ready".
-      action.acceleratePaid === true ||
-      actor.unitsEnterReadyThisTurn ||
-      otherFriendlyUnitsEnterReady(state, action.playerIndex, card.instanceId);
-    const deployedUnit = { ...card, exhausted: !entersReady };
+    // Ready-or-exhausted lives in engine/deploy.ts now, shared with the effects
+    // that play a unit without a PlayCardAction to carry the question.
+    const deployedUnit = { ...card, exhausted: !unitEntersReady(state, action.playerIndex, card, action.acceleratePaid) };
     const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
     const updatedActor: PlayerState = {
       ...actor,

@@ -9,6 +9,8 @@ import { createCardInstance } from "../src/model/card.js";
 import { LEGACY_BATTLEFIELDS } from "../src/decks/deck-list.js";
 import { startGame, submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
+import { parkDecision } from "../src/engine/decisions.js";
+import { makePlayer, makeState, makeUnit } from "./fixtures.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { chooseAction } from "../src/ai/heuristic-ai.js";
 
@@ -46,6 +48,7 @@ function buildInitialGameState(): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
   };
 }
 
@@ -516,5 +519,44 @@ describe("heuristic AI", () => {
 
     const action = chooseAction(showdownState);
     expect(action).toEqual({ type: "PassFocus", playerIndex: 1 });
+  });
+});
+
+/**
+ * Answering a pending question is an ordinary action, so the AI needs no special
+ * case to make one — but it does need not to hang on one, and it needs to answer
+ * in the interest of whoever was asked.
+ *
+ * The second half is the one worth testing: Cull the Weak asks the OPPONENT to
+ * kill one of their own units. An AI that answered in the caster's interest would
+ * hand over its best unit, and — worse — `settleDeferredResolution` scoring the
+ * question that way would make the AI wildly overrate casting the card.
+ */
+describe("the AI answers pending questions", () => {
+  function askedToCull(): GameState {
+    const state = makeState({
+      phase: "Action",
+      players: [makePlayer("p1"), makePlayer("p2")],
+    });
+    state.players[1]!.baseUnits = [makeUnit({ name: "Weak", might: 1 }), makeUnit({ name: "Strong", might: 7 })];
+    return parkDecision(state, { kind: "OGN-209-kill", playerIndex: 1 });
+  }
+
+  it("produces an answer the engine accepts, rather than stalling", () => {
+    const asked = askedToCull();
+    const action = chooseAction(asked);
+
+    expect(action.type).toBe("AnswerDecision");
+    const result = submit(asked, action);
+    expect(result.result.type).not.toBe("Invalid");
+    expect(result.state.pendingDecisions).toHaveLength(0);
+  });
+
+  it("keeps its BEST unit when asked to kill one of its own", () => {
+    // One state, not two calls to the builder — a decision id from a different
+    // state is stale by construction, and the answer would simply be refused.
+    const asked = askedToCull();
+    const after = submit(asked, chooseAction(asked)).state;
+    expect(after.players[1]!.baseUnits.map((u) => u.name)).toEqual(["Strong"]);
   });
 });

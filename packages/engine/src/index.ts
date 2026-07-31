@@ -42,6 +42,9 @@ export * from "./engine/game-engine.js";
 export * from "./engine/combat.js";
 export * from "./engine/cleanup.js";
 export * from "./engine/timing.js";
+// The board renders and answers pending decisions, so the query side of that
+// registry is public — see engine/decisions.ts.
+export { optionsFor, pendingDecision, promptFor, type DecisionOption } from "./engine/decisions.js";
 export * from "./engine/coverage.js";
 export * from "./engine/scoring.js";
 export * from "./engine/legal-actions.js";

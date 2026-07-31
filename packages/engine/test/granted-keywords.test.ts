@@ -11,7 +11,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { MoveUnitAction } from "../src/actions/player-action.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit } from "./fixtures.js";
 
 /**
  * Keywords a card grants ITSELF conditionally.
@@ -94,7 +94,10 @@ describe("Raging Soul (OGN-019): [Assault] and [Ganking] once you've discarded",
     const { state, soul } = soulState();
     expect(effectiveKeywords(state, soul, 0)).toEqual(soul.keywords);
 
-    const after = discardCards(state, 0, 1);
+    // The discard asks which card, so the condition only becomes true once the
+    // card has actually gone — "if you've discarded a card this turn" is about a
+    // completed discard, not an intended one.
+    const after = answerDecisions(discardCards(state, 0, 1));
 
     expect(after.players[0]!.discardedThisTurn).toBe(true);
     const onBoard = after.battlefields[0]!.units["p1"]![0]!;
@@ -110,7 +113,7 @@ describe("Raging Soul (OGN-019): [Assault] and [Ganking] once you've discarded",
     const combat = { isCombat: true, isAttackingSide: true, combatRole: "outgoing", battlefieldId: "bf1" } as const;
     const before = effectiveMight(state, state.battlefields[0]!.units["p1"]![0]!, 0, combat);
 
-    const after = discardCards(state, 0, 1);
+    const after = answerDecisions(discardCards(state, 0, 1));
 
     expect(effectiveMight(after, after.battlefields[0]!.units["p1"]![0]!, 0, combat)).toBe(before + 1);
     void soul;
@@ -118,7 +121,7 @@ describe("Raging Soul (OGN-019): [Assault] and [Ganking] once you've discarded",
 
   it("is a per-TURN condition — it lapses at end of turn", () => {
     const { state } = soulState();
-    const discarded = discardCards({ ...state, phase: "Action" }, 0, 1);
+    const discarded = answerDecisions(discardCards({ ...state, phase: "Action" }, 0, 1));
     expect(discarded.players[0]!.discardedThisTurn).toBe(true);
 
     const ended = runEnd(discarded);
@@ -129,7 +132,7 @@ describe("Raging Soul (OGN-019): [Assault] and [Ganking] once you've discarded",
   it("reads the OWNER's discard, not the opponent's", () => {
     const { state } = soulState();
     state.players[1]!.hand = [makeUnit()];
-    const theyDiscarded = discardCards(state, 1, 1);
+    const theyDiscarded = answerDecisions(discardCards(state, 1, 1));
     expect(hasKeyword(theyDiscarded, theyDiscarded.battlefields[0]!.units["p1"]![0]!, 0, "Ganking")).toBe(false);
   });
 });

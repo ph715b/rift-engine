@@ -101,6 +101,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
     ...overrides,
   };
 }

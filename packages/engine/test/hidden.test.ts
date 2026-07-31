@@ -171,6 +171,27 @@ describe("playing from Hidden (rule 811)", () => {
     expect(validatePlayCard(state, play as never).ok).toBe(true);
   });
 
+  it("does not touch FLOATING resources either — ignored means ignored", () => {
+    // The half that was wrong. `validatePlayCard` already priced a from-hidden
+    // play at { energyCost: 0, powerCost: 0 } and required an empty payment, but
+    // the EXECUTOR went on deducting floating Energy against the printed cost —
+    // so Consult the Past (4 Energy) played from Hidden with 3 floating Energy
+    // banked silently burned all three for a card that was supposed to be free.
+    // Rule 811 says the base cost is IGNORED, not discounted and not partly paid.
+    const consult = card(CONSULT_THE_PAST);
+    const state = hiddenSinceLastTurn(consult);
+    const withFloat = {
+      ...state,
+      players: [{ ...state.players[0]!, floatingEnergy: 3, floatingPower: { Mind: 2 as number } }, state.players[1]!],
+    } as GameState;
+
+    const play = fromHiddenPlays(withFloat, consult)[0]!;
+    const after = submit(withFloat, play).state;
+
+    expect(after.players[0]!.floatingEnergy).toBe(3);
+    expect(after.players[0]!.floatingPower["Mind"]).toBe(2);
+  });
+
   it("resolves, leaves the hidden zone, and does not touch the rune pool", () => {
     const consult = card(CONSULT_THE_PAST);
     const state = hiddenSinceLastTurn(consult);

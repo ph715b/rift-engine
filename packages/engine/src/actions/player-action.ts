@@ -173,6 +173,28 @@ export interface ActivateAbilityAction {
 }
 
 /**
+ * Answers the question the engine has stopped to ask — see engine/decisions.ts.
+ *
+ * ONE action type for every question, which is the difference between this and
+ * the Java oracle's four (ResolvePendingChoice, ChooseDiscard,
+ * ResolveVayneBounce, ResolveRepeatChoice, all listed below in the very comment
+ * describing what to port). Each of those needed its own validator branch, its
+ * own AI branch and its own "who acts now" case; one type needs one of each,
+ * forever.
+ *
+ * `decisionId` rather than "the current one": an answer aimed at a question that
+ * has already been resolved must not silently apply to whatever took its place.
+ */
+export interface AnswerDecisionAction {
+  type: "AnswerDecision";
+  playerIndex: 0 | 1;
+  decisionId: string;
+  /** Names one of `decisions.optionsFor(state, decision)`, which are rebuilt
+   *  from live state rather than stored — so this is checked, not trusted. */
+  optionId: string;
+}
+
+/**
  * The player-submittable actions implemented so far. Mirrors a subset of
  * engine/PlayerAction.java's 17-variant sealed interface (PlayCard, MoveUnit,
  * RecallUnit, ActivateGear, ActivateUnit, FloatRune, PassFocus, Pass,
@@ -190,4 +212,5 @@ export type PlayerAction =
   | RecallUnitAction
   | PassFocusAction
   | FloatRuneAction
-  | ActivateAbilityAction;
+  | ActivateAbilityAction
+  | AnswerDecisionAction;

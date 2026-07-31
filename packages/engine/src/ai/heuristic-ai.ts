@@ -7,6 +7,7 @@ import { executeMoveUnit } from "../actions/execute-move-unit.js";
 import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
+import { executeAnswerDecision } from "../actions/execute-answer-decision.js";
 import { abilityBanksResource, findActivatable } from "../engine/activated-abilities.js";
 import { maskHiddenCards } from "../engine/hidden.js";
 import { effectiveMight } from "../engine/effective-might.js";
@@ -51,7 +52,12 @@ import { actingPlayerIndex } from "../engine/timing.js";
  * Showdown that eventually scores it would never have opened.
  */
 function applyAction(state: GameState, action: PlayerAction): GameState {
-  return runCleanup(applyBare(state, action));
+  const applied = applyBare(state, action);
+  // Same suppression `submit` applies, and for the same rule (323.2.b): if the
+  // action stopped to ask a question, the resolution is not finished and a
+  // Cleanup must not run inside it. Skipping it here keeps the lookahead scoring
+  // states the real game actually passes through.
+  return applied.pendingDecisions.length > 0 ? applied : runCleanup(applied);
 }
 
 function applyBare(state: GameState, action: PlayerAction): GameState {
@@ -85,6 +91,8 @@ function applyBare(state: GameState, action: PlayerAction): GameState {
       // and `evaluate` scores Might — so the ones it can price are played, and
       // only the resource-bankers are still skipped (see chooseAction).
       return executeActivateAbility(state, action);
+    case "AnswerDecision":
+      return executeAnswerDecision(state, action);
   }
 }
 
@@ -131,6 +139,33 @@ const MAX_SETTLE_PASSES = 16;
 function settleDeferredResolution(state: GameState): GameState {
   let settled = state;
   for (let i = 0; i < MAX_SETTLE_PASSES; i++) {
+    // A pending question comes first — nothing else is legal until it is
+    // answered, so a settle that ignored it would spin on PassFocus actions the
+    // engine is refusing and score a half-resolved board.
+    //
+    // Answered with the option that scores best FOR THE PLAYER BEING ASKED,
+    // which is not always the AI: Cull the Weak asks the opponent to kill one of
+    // their own units, and assuming they hand over their best one would make the
+    // AI wildly overrate the card. Using each player's own interest is also what
+    // keeps the lookahead self-consistent — it is exactly what the AI will do
+    // when the question really reaches it.
+    const pending = settled.pendingDecisions[0];
+    if (pending) {
+      const answers = legalActions(settled);
+      if (answers.length === 0) return settled;
+      const current = settled;
+      let bestAnswer = answers[0]!;
+      let bestValue = -Infinity;
+      for (const answer of answers) {
+        const value = evaluate(applyBare(current, answer), pending.playerIndex);
+        if (value > bestValue) {
+          bestValue = value;
+          bestAnswer = answer;
+        }
+      }
+      settled = applyBare(current, bestAnswer);
+      continue;
+    }
     // A closed chain takes precedence over an open Showdown, mirroring
     // executePassFocus's own dispatch order (it checks `chainOpen` first).
     if (!settled.chainOpen) {

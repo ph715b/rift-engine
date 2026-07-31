@@ -85,6 +85,7 @@ function makeState(): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    pendingDecisions: [],
   };
 }
 

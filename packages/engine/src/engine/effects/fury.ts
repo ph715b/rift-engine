@@ -1,7 +1,11 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
-import { dealDamage, discardCards, drawCards } from "../effect-helpers.js";
+import type { DecisionDefinition } from "../decisions.js";
+import { dealDamage, discardCards, drawCards, payPowerFromChanneled } from "../effect-helpers.js";
+import { parkDecision, type DecisionOption } from "../decisions.js";
+import { playUnitToBase } from "../deploy.js";
+import type { PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -161,4 +165,64 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {};
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
-export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "OGN-006": {
+    // Flame Chompers — "When you discard me, you may pay [Fury] to play me."
+    //
+    // Keyed by its own defId because at the moment it fires the card is not in
+    // play for any listener walk to find — it is on its way from hand to trash.
+    //
+    // The offer is made from the TRASH, which is where `discardCards` has just
+    // put it. That is not a detail to route around: it is what makes the answer
+    // checkable later ("is it still there?"), and what a second copy discarded in
+    // the same breath would each be asked about separately.
+    on: ["discarded"],
+    resolve: (state, event) =>
+      parkDecision(state, {
+        kind: "OGN-006-play",
+        playerIndex: event.ownerIndex,
+        cardInstanceId: event.card.instanceId,
+      }),
+  },};
+
+/** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
+ *  a `kind` string rather than a defId, since one card can ask more than one
+ *  kind of question; the one-file-one-owner rule still applies, and the key is
+ *  prefixed with the card's defId so ownership stays readable. */
+export const decisions: Record<string, DecisionDefinition> = {
+  "OGN-006-play": {
+    prompt: () => "Flame Chompers: pay 1 Fury Power to play it from your trash?",
+    options: (state, d) => {
+      // "You may" — declining is always on offer, and first, so that doing
+      // nothing is what a mis-click and the AI's tie-break both land on.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const inTrash = state.players[d.playerIndex].trash.find((c) => c.instanceId === d.cardInstanceId);
+      if (inTrash && payPowerFromChanneled(state, d.playerIndex, "Fury", 1)) {
+        options.push({ id: "play", label: "Pay 1 Fury Power and play it", instanceId: inTrash.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "play") return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Fury", 1);
+      if (!paid) return state;
+
+      const card = paid.players[d.playerIndex].trash.find((c) => c.instanceId === d.cardInstanceId);
+      if (!card || card.kind !== "Unit") return state;
+
+      // Out of the trash, then into play through the shared deploy funnel — so
+      // it enters exhausted (143.4.a) unless something says otherwise, and both
+      // events a real play fires go off. "Play me" means play me.
+      //
+      // The printed 3 Energy is not paid and not discounted: the card's own text
+      // replaces its cost with the Fury Power already taken above.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== d.cardInstanceId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      return playUnitToBase({ ...paid, players }, d.playerIndex, card);
+    },
+  },
+};
