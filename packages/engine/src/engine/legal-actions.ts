@@ -12,9 +12,9 @@ import type {
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
-import { eligibleTargets, unitWithinMaxMight } from "./target-lookup.js";
+import { eligibleTargets, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardPlacesTokens, optionalUnitCostOf, slotOwner } from "./card-effects.js";
+import { cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner } from "./card-effects.js";
 import { activatedAbilityTargeting, canPayActivationCost, hasActivatableAbility } from "./activated-abilities.js";
 import {
   ACCELERATE_ENERGY,
@@ -246,7 +246,24 @@ export function legalActions(state: GameState): PlayerAction[] {
     // closed chain. Same predicate validate-play-card uses, so enumeration and
     // validation can't disagree about what's castable.
     if (!mayPlayCardNow(state, playerIndex, card, fromHidden)) continue;
+
+    // A discard choice is fanned out per card in hand, exactly like Vision's
+    // two-way choice: the engine cannot pause mid-resolution to ask, so which
+    // card is discarded has to be decided in the submitted action. The card
+    // being played is excluded — by the time it resolves it has already left
+    // hand. Bounded by hand size, so the fan-out stays small.
+    const discardChoice = discardChoiceOf(card.defId);
+    const discardable = discardChoice ? actor.hand.filter((c) => c.instanceId !== card.instanceId) : [];
+    if (discardChoice && !discardChoice.optional && discardable.length === 0) continue; // mandatory and unpayable
+
     // 811: "ignoring its base cost" — not reduced, ignored.
+    // A discard that BUYS a discount changes what the payment must cover, so the
+    // discounted cost is computed separately — but through computeEffectiveCost,
+    // exactly like the plain one. Subtracting the discount from the raw cost and
+    // stopping there skipped the floating-Energy reduction the plain path
+    // applies, so enumeration offered a 4-rune payment for a card validation
+    // priced at 3. Caught by a self-play probe, not by the suite, because no
+    // test had floating Energy banked at the time.
     const effectiveCost = fromHidden
       ? { energyCost: 0, powerCost: 0 }
       : computeEffectiveCost(
@@ -265,7 +282,33 @@ export function legalActions(state: GameState): PlayerAction[] {
       card.powerDomain,
       card.powerDomainAlt,
     );
-    if (!payment) continue; // can't afford it — not a legal move
+    // The DISCOUNTED payment is computed alongside the plain one, not inside the
+    // variant loop below, because a card can be affordable only WITH the
+    // discount — Brazen Buccaneer at 6 Energy with 4 runes is exactly that. An
+    // earlier version bailed out here on the plain payment alone and so never
+    // offered the discounted play at all, which is the whole point of the card.
+    const discountedEffective =
+      discardChoice?.energyDiscount !== undefined && !fromHidden
+        ? computeEffectiveCost(
+            actor.floatingEnergy,
+            actor.floatingPower,
+            Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) - discardChoice.energyDiscount),
+            card.powerCost,
+            card.powerDomain,
+            card.powerDomainAlt,
+            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+          )
+        : undefined;
+    const discountedPayment = discountedEffective
+      ? computeAutoPayment(
+          actor.channeled,
+          discountedEffective.energyCost,
+          discountedEffective.powerCost,
+          card.powerDomain,
+          card.powerDomainAlt,
+        )
+      : payment;
+    if (!payment && !discountedPayment) continue; // can't afford it either way
 
     // [Accelerate] (805) is an OPTIONAL additional cost, so it is a second
     // candidate rather than a replacement — declining must stay available even
@@ -302,6 +345,13 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const bf of state.battlefields) {
         if (fromHidden && bf.id !== fromHiddenBattlefieldId) continue;
         effectVariants.push({ targetBattlefieldId: bf.id });
+      }
+    } else if (targeting.kind === "unitOrGear") {
+      // One candidate per unit at a battlefield AND per gear in play, either
+      // player's — a single choice across two kinds of permanent.
+      for (const t of unitOrGearTargets(state)) {
+        if (!atHiddenBattlefield(state, t.instanceId, fromHiddenBattlefieldId)) continue;
+        effectVariants.push({ targetPermanentInstanceId: t.instanceId });
       }
     } else if (targeting.kind === "ownTrashCard") {
       for (const trashCard of actor.trash) {
@@ -400,6 +450,26 @@ export function legalActions(state: GameState): PlayerAction[] {
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.
       const hiddenFields = fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {};
+      // One candidate per discardable card, priced against the DISCOUNTED cost.
+      if (discardChoice && discountedPayment) {
+        for (const c of discardable) {
+          actions.push({
+            type: "PlayCard",
+            playerIndex,
+            card,
+            payment: discountedPayment,
+            ...variant,
+            ...hiddenFields,
+            discardCardInstanceId: c.instanceId,
+          });
+        }
+      }
+      // A MANDATORY discard has no undiscarded candidate — Get Excited! without a
+      // card to discard was skipped above, and its plain variant must not appear
+      // here either.
+      if (discardChoice && !discardChoice.optional) continue;
+      if (!payment) continue; // affordable only WITH the discount, already emitted
+
       const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, ...hiddenFields };
       if (accelerated) {
         actions.push({ type: "PlayCard", playerIndex, card, payment: accelerated, ...variant, ...hiddenFields, acceleratePaid: true });

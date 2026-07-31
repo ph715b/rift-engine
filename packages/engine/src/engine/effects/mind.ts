@@ -2,6 +2,7 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
 import { drawCards } from "../effect-helpers.js";
+import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import { giveMightThisTurn } from "../effect-helpers.js";
 
@@ -113,6 +114,25 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-101": {
+    // Mushroom Pouch — "At the start of your Beginning Phase, if you control a
+    // facedown card at a battlefield, draw 1."
+    //
+    // Only implementable now that [Hidden] exists: before facedown cards there
+    // was nothing for the condition to be true OF. `controlsAnyFacedownCard`
+    // asks it exactly — a facedown card of YOURS at a battlefield YOU control,
+    // which is the same pairing rule 811 ties the card's survival to.
+    //
+    // "YOUR Beginning Phase": the event carries whose it is, and a gear only
+    // reads its own controller's. Firing on both players' would double the draw
+    // rate of a card that is meant to reward holding a hidden card for a turn.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      if (!controlsAnyFacedownCard(state, listener.ownerIndex)) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
   "OGN-117": {
     // Viktor - Innovator — "When you play a card on an opponent's turn, play a
     // 1 Might Recruit unit token in your base."
@@ -127,6 +147,10 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Viktor must ignore the opponent's own plays on their own turn.
     on: "cardPlayed",
     resolve: (state, listener, event) => {
+      // Narrowing the union is not ceremony: `dispatchEvent` already filters by
+      // `on`, but the compiler cannot see that, and the check documents which
+      // event this listener is reading fields off.
+      if (event.kind !== "cardPlayed") return state;
       if (event.casterIndex !== listener.ownerIndex) return state; // not YOUR card
       if (state.activePlayerIndex === listener.ownerIndex) return state; // not an opponent's turn
       // "in your base" is stated, so the destination is fixed rather than chosen.

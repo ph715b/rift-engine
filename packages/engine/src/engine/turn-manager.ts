@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
 import { destroyUnit, healAllUnits } from "./effect-helpers.js";
+import { dispatchEvent } from "./triggers.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -95,19 +96,42 @@ function killTemporaryPermanents(state: GameState): GameState {
   // also has a [Deathknell] must still fire it (rule 808 fires on any death), and
   // destroyUnit is what carries that whole funnel. Ids rather than units, because
   // each kill rebuilds the board and a captured unit object would go stale.
-  return doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), state);
+  const afterUnits = doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), state);
+
+  // GEAR can be Temporary too — Fading Memories targets "a unit at a battlefield
+  // or a gear", and 816 says "kill THIS permanent", not "this unit". A gear has
+  // no death funnel of its own (nothing triggers on a gear dying yet), so it goes
+  // straight to its owner's trash; when gear deaths do get triggers, this is the
+  // site that has to route through them.
+  const gearOwner = afterUnits.players[controller];
+  const doomedGear = gearOwner.activeGear.filter((g) => "Temporary" in g.keywords);
+  if (doomedGear.length === 0) return afterUnits;
+
+  const players = [...afterUnits.players] as [PlayerState, PlayerState];
+  players[controller] = {
+    ...gearOwner,
+    activeGear: gearOwner.activeGear.filter((g) => !("Temporary" in g.keywords)),
+    trash: [...gearOwner.trash, ...doomedGear],
+  };
+  return { ...afterUnits, players };
 }
 
 /** Kills [Temporary] permanents, then scores holds for the active player. Mirrors
- *  TurnManager.runBeginning (engine/TurnManager.java:86-98), minus every
- *  Beginning-Phase ability hook (Mushroom Pouch is the only card in this pool
- *  that wants one and it isn't implemented yet). */
+ *  TurnManager.runBeginning (engine/TurnManager.java:86-98). */
 export function runBeginning(state: GameState): GameState {
   if (state.phase !== "Beginning") {
     throw new Error(`runBeginning requires Beginning phase, currently: ${state.phase}`);
   }
   const afterTemporary = killTemporaryPermanents(state);
-  return { ...scoreHolds(afterTemporary, afterTemporary.activePlayerIndex), phase: "Channel" };
+  // Beginning-Phase abilities fire after the [Temporary] kill and before holds
+  // score. Both orderings are load-bearing: a Temporary unit must not be around
+  // to be counted by anything, and rule 816's "before scoring" sets the frame
+  // that everything else in this phase sits inside.
+  const afterAbilities = dispatchEvent(afterTemporary, {
+    kind: "beginningPhase",
+    playerIndex: afterTemporary.activePlayerIndex,
+  });
+  return { ...scoreHolds(afterAbilities, afterAbilities.activePlayerIndex), phase: "Channel" };
 }
 
 /**

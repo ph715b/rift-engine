@@ -134,7 +134,34 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       const trash = state.players[playerIndex].trash;
       return trash.some((c) => targeting.cardKind === undefined || c.kind === targeting.cardKind);
     }
+    case "unitOrGear":
+      return unitOrGearTargets(state).length > 0;
   }
+}
+
+/**
+ * Everything a `unitOrGear`-kind spec can name: units at BATTLEFIELDS (the card
+ * says "a unit at a battlefield", so base is out) plus every gear in play,
+ * either player's.
+ *
+ * Gear is returned with its owner, because a gear lives in a player's
+ * `activeGear` rather than on the board and there is otherwise no way back to
+ * whose it is.
+ */
+export function unitOrGearTargets(state: GameState): { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] {
+  const out: { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] = [];
+  for (const bf of state.battlefields) {
+    for (const [ownerId, units] of Object.entries(bf.units)) {
+      const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
+      for (const u of units) out.push({ instanceId: u.instanceId, name: u.name, ownerIndex, isGear: false });
+    }
+  }
+  for (const index of [0, 1] as const) {
+    for (const g of state.players[index].activeGear) {
+      out.push({ instanceId: g.instanceId, name: g.name, ownerIndex: index, isGear: true });
+    }
+  }
+  return out;
 }
 
 export function findUnitOnBattlefield(state: GameState, instanceId: string): BattlefieldUnitLocation | undefined {

@@ -98,6 +98,14 @@ export interface GearInstance extends CardInstanceBase {
   powerDomain: Domain | null;
   powerDomainAlt?: Domain;
   attachedToInstanceId: string | null;
+  /**
+   * Keywords this gear carries. Present so a keyword can be GRANTED to it at
+   * runtime — Fading Memories gives "a unit at a battlefield **or a gear**"
+   * [Temporary], and without this the gear half of that card had nowhere to
+   * write the result. Gear in this pool prints no keywords of its own, so this
+   * starts empty for every one of them.
+   */
+  keywords: Partial<Record<Keyword, number>>;
 }
 
 export type CardInstance = LegendInstance | UnitInstance | SpellInstance | GearInstance;
@@ -164,6 +172,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         powerDomain: def.powerDomain,
         ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         attachedToInstanceId: null,
+        keywords: {},
       };
   }
 }

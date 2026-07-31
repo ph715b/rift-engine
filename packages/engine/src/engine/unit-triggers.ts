@@ -33,6 +33,13 @@ export interface UnitTriggerEvent {
    *  Wildclaw Shaman needed it, which forced its "you may" onto the ordinary
    *  target field and lost the decline whenever every friendly unit was buffed. */
   additionalCostUnitInstanceId?: string;
+  /** The card from hand this play discards — a MANDATORY part of the effect for
+   *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
+   *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
+   *  by 2"). Singular because no card in this pool lets the caster CHOOSE more
+   *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
+   *  go through discardCards' front-of-hand convention instead. */
+  discardCardInstanceId?: string;
 }
 
 export interface UnitTriggerDefinition {
@@ -273,6 +280,7 @@ export function dispatchOnPlayUnit(
     visionRecycle?: boolean;
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
+    discardCardInstanceId?: string;
   },
 ): GameState {
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
@@ -290,6 +298,7 @@ export function dispatchOnPlayUnit(
     ...(extra?.additionalCostUnitInstanceId !== undefined
       ? { additionalCostUnitInstanceId: extra.additionalCostUnitInstanceId }
       : {}),
+    ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
   });
 }
 

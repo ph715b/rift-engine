@@ -31,6 +31,32 @@ import { dealDamage, discardCards, drawCards } from "../effect-helpers.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-008": {
+    // Get Excited! — "[Action] Discard 1. Deal its Energy cost as damage to a
+    // unit at a battlefield. (Ignore its Power cost.)"
+    //
+    // The discard is part of the EFFECT, not a cost, and WHICH card is discarded
+    // decides the damage — so it is a real choice carried on the action
+    // (legal-actions fans out one candidate per card in hand) rather than the
+    // front-of-hand default every unchosen discard uses.
+    //
+    // Energy cost read BEFORE discarding: afterwards the card is in the trash,
+    // and "its Energy cost" is the discarded card's. The parenthetical is
+    // explicit that its Power cost contributes nothing.
+    //
+    // A card named at cast time can be gone by resolution (discarded by
+    // something else on the chain). Then there is no "it", so nothing is
+    // discarded and no damage is dealt — rather than dealing 0 to the target,
+    // which would still be an instance of damage and could trigger things.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) => {
+      const chosen = state.players[ctx.casterIndex].hand.find((c) => c.instanceId === event.discardCardInstanceId);
+      if (!chosen || !event.targetUnitInstanceId) return state;
+      const damage = "energyCost" in chosen ? chosen.energyCost : 0;
+      const discarded = discardCards(state, ctx.casterIndex, 1, [chosen.instanceId]);
+      return dealDamage(discarded, ctx.casterIndex, event.targetUnitInstanceId, damage);
+    },
+  },
   "OGN-024": {
     // Void Seeker — "[Action] (Play on your turn or in showdowns.) Deal 4 to a
     // unit at a battlefield. Draw 1."
@@ -71,6 +97,22 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-002": {
+    // Brazen Buccaneer — "As you play me, you may discard 1 as an additional
+    // cost. If you do, reduce my cost by 2 Energy."
+    //
+    // The discount lives in the COST math (validate-play-card and
+    // legal-actions, via card-effects' DiscardChoiceSpec), because it changes
+    // what the payment has to cover and must therefore be known before the card
+    // is paid for. All that is left for the card itself is performing the
+    // discard it was paid with — the same shape Cruel Patron's kill takes.
+    //
+    // Nothing happens when the caster declined: the discount was not applied
+    // either, so the two stay consistent.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.discardCardInstanceId ? discardCards(state, ctx.casterIndex, 1, [event.discardCardInstanceId]) : state,
+  },
   "OGN-030": {
     // Jinx - Demolitionist — "When you play me, discard 2."
     // Her [Accelerate] and [Assault 2] are keywords the engine handles (rule 805

@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
-import { discardCards, drawCards, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
+import { discardCards, drawCards, grantTemporary, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -31,6 +31,25 @@ import { discardCards, drawCards, recallUnitToBase, returnCardFromTrash } from "
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-180": {
+    // Fading Memories — "Give a unit at a battlefield or a gear [Temporary]."
+    //
+    // The only card in the pool that targets across two kinds of permanent, which
+    // is why `unitOrGear` exists as its own targeting kind and why the choice
+    // rides on `targetPermanentInstanceId`: handing a gear to anything that reads
+    // `targetUnitInstanceId` would be a type error waiting to be a runtime one.
+    //
+    // "A unit AT A BATTLEFIELD" — base units are out, unlike the many cards that
+    // just say "a unit". Gear has no such restriction; it lives in base by
+    // definition, and the clause plainly doesn't apply to it.
+    //
+    // Rule 816 does the rest: the thing dies at the start of ITS CONTROLLER's
+    // next Beginning Phase, before scoring. Aimed at an enemy that is delayed
+    // removal; aimed at your own it is a sacrifice you have a turn to use.
+    targeting: { kind: "unitOrGear" },
+    resolve: (state, _ctx, event) =>
+      event.targetPermanentInstanceId ? grantTemporary(state, event.targetPermanentInstanceId) : state,
+  },
   "OGN-168": {
     // Fight or Flight — "[Hidden][Action] Move a unit from a battlefield to its
     // base." Either player's: the text names no owner, so this is removal as

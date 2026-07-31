@@ -61,7 +61,16 @@ export type TargetingSpec =
    * one unit fill both slots; the oracle's own `allowsDuplicateTargets` flag
    * exists for cards like Falling Star that do, none of which are here).
    */
-  | { kind: "unitSlots"; slots: readonly [UnitSlotRole, UnitSlotRole]; min: number; scope?: TargetScope };
+  | { kind: "unitSlots"; slots: readonly [UnitSlotRole, UnitSlotRole]; min: number; scope?: TargetScope }
+  /**
+   * "A unit at a battlefield **or a gear**" — Fading Memories. One choice over
+   * two different kinds of permanent, which no other spec expresses: `unit`
+   * cannot name a gear, and a second field would let a caster name both.
+   *
+   * The chosen thing rides on `targetPermanentInstanceId` rather than
+   * `targetUnitInstanceId`, so nothing that assumes a unit can be handed a gear.
+   */
+  | { kind: "unitOrGear" };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
  *  `"any"` is the absence of a constraint, which is `undefined` there. */
@@ -87,6 +96,16 @@ export interface ResolveEvent {
    *  TARGET: nothing is being targeted, the caster is choosing a deployment
    *  zone. See cardPlacesTokens. */
   destinationBattlefieldId?: string;
+  /** The card from hand this play discards — a MANDATORY part of the effect for
+   *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
+   *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
+   *  by 2"). Singular because no card in this pool lets the caster CHOOSE more
+   *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
+   *  go through discardCards' front-of-hand convention instead. */
+  discardCardInstanceId?: string;
+  /** The unit OR gear chosen by a `unitOrGear`-kind spec. Deliberately not
+   *  `targetUnitInstanceId`: every reader of that field assumes a unit. */
+  targetPermanentInstanceId?: string;
 }
 
 export interface EffectDefinition {
@@ -142,6 +161,33 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // played with nothing of yours to kill.
   "OGN-208": { kind: "killFriendly", mandatory: true },
 };
+
+/**
+ * Cards that make the caster pick a card from hand to discard.
+ *
+ * Two different roles, one field, because both are "which card from hand":
+ *  - `optional: false` — the discard is part of the EFFECT. Get Excited! deals
+ *    damage equal to the discarded card's Energy cost, so which card is chosen
+ *    changes the outcome and there is no declining it.
+ *  - `optional: true` with an `energyDiscount` — the discard is an additional
+ *    COST. Brazen Buccaneer's "you may discard 1 ... reduce my cost by 2", so
+ *    declining is a real option and paying changes the price.
+ */
+export interface DiscardChoiceSpec {
+  optional: boolean;
+  /** Energy taken off the card's own cost when the discard is paid. */
+  energyDiscount?: number;
+}
+
+const DISCARD_CHOICE_CARDS: Record<string, DiscardChoiceSpec> = {
+  "OGN-008": { optional: false }, // Get Excited! — discard 1, damage = its Energy cost
+  "OGN-002": { optional: true, energyDiscount: 2 }, // Brazen Buccaneer — optional cost, -2 Energy
+};
+
+/** How this card uses a discard choice, or undefined if it doesn't. */
+export function discardChoiceOf(defId: string): DiscardChoiceSpec | undefined {
+  return DISCARD_CHOICE_CARDS[defId];
+}
 
 /** Which additional cost this card asks for, or undefined if it has none. */
 export function optionalUnitCostOf(defId: string): UnitCostSpec | undefined {

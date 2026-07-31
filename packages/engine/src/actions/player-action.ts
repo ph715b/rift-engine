@@ -61,6 +61,17 @@ export interface PlayCardAction {
    *
    * When set, `payment` covers the card's own cost PLUS 1 Energy and 1 Power.
    */
+  /** The card from hand this play discards — a MANDATORY part of the effect for
+   *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
+   *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
+   *  by 2"). Singular because no card in this pool lets the caster CHOOSE more
+   *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
+   *  go through discardCards' front-of-hand convention instead. */
+  discardCardInstanceId?: string;
+  /** The unit OR gear named by a `unitOrGear`-kind targeting spec (Fading
+   *  Memories). Separate from `targetUnitInstanceId` because a gear is not a
+   *  unit and must never reach a reader expecting one. */
+  targetPermanentInstanceId?: string;
   acceleratePaid?: true;
 }
 

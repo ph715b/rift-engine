@@ -233,6 +233,42 @@ export function giveMightThisTurn(
   });
 }
 
+/**
+ * Grants `[Temporary]` (rule 816) to a unit at a battlefield or to a gear —
+ * Fading Memories' "give a unit at a battlefield **or a gear** [Temporary]".
+ *
+ * One helper over both because the card makes one choice across both kinds, and
+ * the caller should not have to know which it got. Multiple instances are
+ * redundant (817.1.a), so re-granting is a harmless no-op.
+ *
+ * No-ops when the id names nothing in play — the usual "target vanished"
+ * convention.
+ */
+export function grantTemporary(state: GameState, permanentInstanceId: string): GameState {
+  const asUnit = findUnitAnywhere(state, permanentInstanceId);
+  if (asUnit) {
+    return updateUnitAnywhere(state, permanentInstanceId, (u) => ({
+      ...u,
+      keywords: { ...u.keywords, Temporary: 1 },
+    }));
+  }
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  let touched = false;
+  for (const index of [0, 1] as const) {
+    const owner = players[index];
+    if (!owner.activeGear.some((g) => g.instanceId === permanentInstanceId)) continue;
+    players[index] = {
+      ...owner,
+      activeGear: owner.activeGear.map((g) =>
+        g.instanceId === permanentInstanceId ? { ...g, keywords: { ...g.keywords, Temporary: 1 } } : g,
+      ),
+    };
+    touched = true;
+  }
+  return touched ? { ...state, players } : state;
+}
+
 /** Does this unit carry a Buff? The read half of rule 707's one-buff-at-a-time
  *  rule, and what "While I'm buffed" / "Other buffed friendly units" ask. */
 export function isBuffed(unit: UnitInstance): boolean {

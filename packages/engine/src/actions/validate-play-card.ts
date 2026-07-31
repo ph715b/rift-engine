@@ -1,11 +1,17 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
-import { findUnitAnywhere, findUnitOnBattlefield, hasAnyLegalEffectChoice, unitWithinMaxMight } from "../engine/target-lookup.js";
+import {
+  findUnitAnywhere,
+  findUnitOnBattlefield,
+  hasAnyLegalEffectChoice,
+  unitOrGearTargets,
+  unitWithinMaxMight,
+} from "../engine/target-lookup.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardPlacesTokens, optionalUnitCostOf } from "../engine/card-effects.js";
+import { cardPlacesTokens, discardChoiceOf, optionalUnitCostOf } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import {
@@ -194,6 +200,13 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (!state.battlefields.some((bf) => bf.id === action.targetBattlefieldId)) {
       return fail(`No battlefield with id ${action.targetBattlefieldId}`);
     }
+  } else if (targeting.kind === "unitOrGear") {
+    if (!action.targetPermanentInstanceId) {
+      return fail(`${card.name} requires a target unit or gear`);
+    }
+    if (!unitOrGearTargets(state).some((t) => t.instanceId === action.targetPermanentInstanceId)) {
+      return fail(`${action.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`);
+    }
   } else if (targeting.kind === "ownTrashCard") {
     if (!action.trashCardInstanceId) {
       return fail(`${card.name} requires a card from your trash`);
@@ -319,6 +332,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (action.acceleratePaid && !hasAccelerate(card)) {
     return fail(`${card.name} does not have [Accelerate]`);
   }
+  // A discard choice: legal only for a card that asks for one, only naming a
+  // card actually in hand, and never the card being played (by the time it
+  // resolves it has already left hand). A MANDATORY one must be present.
+  const discardChoice = discardChoiceOf(card.defId);
+  if (action.discardCardInstanceId !== undefined) {
+    if (!discardChoice) return fail(`${card.name} does not discard a card`);
+    if (action.discardCardInstanceId === card.instanceId) {
+      return fail(`${card.name} cannot discard itself`);
+    }
+    if (!actor.hand.some((c) => c.instanceId === action.discardCardInstanceId)) {
+      return fail(`${action.discardCardInstanceId} is not in your hand to discard`);
+    }
+  } else if (discardChoice && !discardChoice.optional) {
+    return fail(`${card.name} requires a card from your hand to discard`);
+  }
+  // The discount is bought BY the discard, so it applies only when one was made.
+  const discardDiscount = action.discardCardInstanceId !== undefined ? (discardChoice?.energyDiscount ?? 0) : 0;
+
   const accelerateEnergy = action.acceleratePaid ? ACCELERATE_ENERGY : 0;
   const acceleratePower = action.acceleratePaid ? ACCELERATE_POWER : 0;
 
@@ -327,7 +358,8 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
-        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) + accelerateEnergy,
+        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
+          accelerateEnergy,
         card.powerCost + acceleratePower,
         action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
         card.powerDomainAlt,

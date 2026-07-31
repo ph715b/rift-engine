@@ -261,6 +261,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
+      ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then
         // dropped on this hop — leaves the card paying its cost and doing
@@ -268,6 +269,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         ...(action.additionalCostUnitInstanceId !== undefined
           ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
           : {}),
+        ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
       });
     }
 
@@ -292,6 +294,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
+      ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
     });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
@@ -343,6 +346,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
+      ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then
         // dropped on this hop — leaves the card paying its cost and doing
@@ -350,6 +354,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         ...(action.additionalCostUnitInstanceId !== undefined
           ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
           : {}),
+        ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
           ...(action.additionalCostUnitInstanceId !== undefined
             ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
             : {}),
@@ -358,6 +363,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // cast time is what resolution sees.
           ...(action.destinationBattlefieldId !== undefined
             ? { destinationBattlefieldId: action.destinationBattlefieldId }
+            : {}),
+          ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
+          ...(action.targetPermanentInstanceId !== undefined
+            ? { targetPermanentInstanceId: action.targetPermanentInstanceId }
             : {}),
         },
       ],
