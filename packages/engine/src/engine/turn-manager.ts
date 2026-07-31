@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
 import { destroyUnit, healAllUnits } from "./effect-helpers.js";
-import { dispatchEvent } from "./triggers.js";
+import { dispatchEvent, killGear } from "./triggers.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -99,21 +99,12 @@ function killTemporaryPermanents(state: GameState): GameState {
   const afterUnits = doomed.reduce((next, instanceId) => destroyUnit(next, instanceId), state);
 
   // GEAR can be Temporary too — Fading Memories targets "a unit at a battlefield
-  // or a gear", and 816 says "kill THIS permanent", not "this unit". A gear has
-  // no death funnel of its own (nothing triggers on a gear dying yet), so it goes
-  // straight to its owner's trash; when gear deaths do get triggers, this is the
-  // site that has to route through them.
-  const gearOwner = afterUnits.players[controller];
-  const doomedGear = gearOwner.activeGear.filter((g) => "Temporary" in g.keywords);
-  if (doomedGear.length === 0) return afterUnits;
-
-  const players = [...afterUnits.players] as [PlayerState, PlayerState];
-  players[controller] = {
-    ...gearOwner,
-    activeGear: gearOwner.activeGear.filter((g) => !("Temporary" in g.keywords)),
-    trash: [...gearOwner.trash, ...doomedGear],
-  };
-  return { ...afterUnits, players };
+  // or a gear", and 816 says "kill THIS permanent", not "this unit". Routed
+  // through killGear so a gear that triggers on its own death (Scrapheap) fires,
+  // exactly as a unit's [Deathknell] does — this was the site the earlier comment
+  // here said would need to change once gear deaths had triggers.
+  const doomedGear = afterUnits.players[controller].activeGear.filter((g) => "Temporary" in g.keywords);
+  return doomedGear.reduce((next, gear) => killGear(next, gear, controller), afterUnits);
 }
 
 /** Kills [Temporary] permanents, then scores holds for the active player. Mirrors

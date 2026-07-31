@@ -1,12 +1,12 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import type { GearInstance, UnitInstance } from "../model/card.js";
+import type { CardInstance, GearInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 // effect-helpers imports dispatchOnUnitDied from here, so this is a cycle. It is
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
 import { drawCards } from "./effect-helpers.js";
-import { domainDeathTriggers, domainEventTriggers, mergeRegistries } from "./effects/index.js";
+import { domainDeathTriggers, domainEventTriggers, domainSelfTriggers, mergeRegistries } from "./effects/index.js";
 
 /**
  * Events other than "a card was played", and the one place that answers "which
@@ -230,4 +230,80 @@ export function dispatchEvent(state: GameState, event: GameEvent): GameState {
     next = trigger.resolve(next, listener, event);
   }
   return next;
+}
+
+/**
+ * Triggers a card fires about ITSELF, keyed by its own defId.
+ *
+ * Structurally different from `eventTriggers` above, and the difference is not
+ * cosmetic: those walk the permanents in play, but a card that triggers on being
+ * DISCARDED is in hand at that moment, and one that triggers on being KILLED is
+ * on its way to the trash. Neither is a listener the walk would ever reach.
+ * `[Deathknell]` already had this shape for units; Scrapheap needs the same for
+ * a Gear, across three moments at once.
+ */
+export type SelfEventKind = "played" | "discarded" | "killed";
+
+/** The card this fired for, and whose it is. */
+export interface SelfEvent {
+  kind: SelfEventKind;
+  card: CardInstance;
+  ownerIndex: 0 | 1;
+}
+
+export type SelfEventEffect = (state: GameState, event: SelfEvent) => GameState;
+
+export interface SelfTriggerDefinition {
+  /** Every moment this card cares about — Scrapheap wants all three. */
+  on: readonly SelfEventKind[];
+  resolve: SelfEventEffect;
+}
+
+let composedSelfTriggers: Record<string, SelfTriggerDefinition> | null = null;
+
+function allSelfTriggers(): Record<string, SelfTriggerDefinition> {
+  composedSelfTriggers ??= mergeRegistries<SelfTriggerDefinition>("self trigger", [
+    { name: "engine/triggers.ts", entries: {} },
+    ...domainSelfTriggers(),
+  ]);
+  return composedSelfTriggers;
+}
+
+/** For coverage.ts. */
+export function selfTriggerDefIds(): string[] {
+  return Object.keys(allSelfTriggers());
+}
+
+/** Fires `card`'s own trigger for this moment, if it has one for it. */
+export function dispatchSelfEvent(state: GameState, kind: SelfEventKind, card: CardInstance, ownerIndex: 0 | 1): GameState {
+  const trigger = allSelfTriggers()[card.defId];
+  if (!trigger || !trigger.on.includes(kind)) return state;
+  return trigger.resolve(state, { kind, card, ownerIndex });
+}
+
+/**
+ * Kills a Gear — the funnel gear did not have.
+ *
+ * Reachable since Fading Memories can grant a gear `[Temporary]`, and rule 816
+ * kills a Temporary PERMANENT rather than only a unit. Before this the gear went
+ * silently to the trash, which is the same invisible-omission shape that made
+ * `killUnit` necessary for units.
+ *
+ * Deliberately NOT routed through `killUnit`: a gear is not a unit, has no
+ * Might, no buff and no death ward, and pretending otherwise would mean teaching
+ * that funnel about a kind of card it should not have to know.
+ */
+export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1): GameState {
+  const owner = state.players[ownerIndex];
+  if (!owner.activeGear.some((g) => g.instanceId === gear.instanceId)) return state;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = {
+    ...owner,
+    activeGear: owner.activeGear.filter((g) => g.instanceId !== gear.instanceId),
+    trash: [...owner.trash, gear],
+  };
+  // Trash first, then trigger — the trigger has to see a board the gear has
+  // already left, the same ordering killUnit uses.
+  return dispatchSelfEvent({ ...state, players }, "killed", gear, ownerIndex);
 }

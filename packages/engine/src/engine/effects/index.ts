@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
 import * as chaos from "./chaos.js";
@@ -81,5 +81,13 @@ export function domainEventTriggers(): { name: string; entries: Record<string, E
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.eventTriggers,
+  }));
+}
+
+/** Self-triggers contributed by the per-domain files. */
+export function domainSelfTriggers(): { name: string; entries: Record<string, SelfTriggerDefinition> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.selfTriggers,
   }));
 }

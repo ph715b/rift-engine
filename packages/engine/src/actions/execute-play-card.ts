@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
-import { dispatchEvent } from "../engine/triggers.js";
+import { dispatchEvent, dispatchSelfEvent } from "../engine/triggers.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -94,7 +94,12 @@ import { validatePlayCard } from "./validate-play-card.js";
  */
 export function executePlayCard(state: GameState, action: PlayCardAction): GameState {
   const played = executePlayCardInner(state, action);
-  return dispatchEvent(played, { kind: "cardPlayed", casterIndex: action.playerIndex });
+  // Two dispatches, and they are not redundant. `cardPlayed` is for OTHER
+  // permanents watching (Viktor - Innovator); the self-trigger is for the card
+  // itself (Scrapheap's "when this is played"), which a listener walk would also
+  // reach but only by accident of it happening to be in play — a Spell wouldn't be.
+  const withSelf = dispatchSelfEvent(played, "played", action.card, action.playerIndex);
+  return dispatchEvent(withSelf, { kind: "cardPlayed", casterIndex: action.playerIndex });
 }
 
 /** Takes a from-hidden card off its battlefield. A no-op for an ordinary play. */

@@ -7,7 +7,7 @@ import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
 import { grantedKeywordDefIds } from "./granted-keywords.js";
-import { deathTriggerDefIds, eventTriggerDefIds } from "./triggers.js";
+import { deathTriggerDefIds, eventTriggerDefIds, selfTriggerDefIds } from "./triggers.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
 
@@ -93,6 +93,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "legend-abilities", defIds: legendAbilityDefIds },
   { label: "death triggers", defIds: deathTriggerDefIds },
   { label: "event triggers", defIds: eventTriggerDefIds },
+  { label: "self triggers", defIds: selfTriggerDefIds },
   { label: "effective-might", defIds: effectiveMightDefIds },
   { label: "granted keywords", defIds: grantedKeywordDefIds },
   { label: "play-card rules", defIds: playCardDefIds },

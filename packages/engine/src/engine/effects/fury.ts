@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import { dealDamage, discardCards, drawCards } from "../effect-helpers.js";
 
 /**
@@ -157,3 +157,8 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
 export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+
+/** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
+ *  by that card's own defId, because at those moments it may not be in play for
+ *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {};

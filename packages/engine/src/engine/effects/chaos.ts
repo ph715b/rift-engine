@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import { discardCards, drawCards, grantTemporary, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
 
 /**
@@ -120,3 +120,24 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
 export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+
+/** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
+ *  by that card's own defId, because at those moments it may not be in play for
+ *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  // Scrapheap � "When this is played, discarded, or killed, draw 1."
+  //
+  // The only card in the pool that watches its OWN three-way fate, and the
+  // reason self-triggers are keyed by defId rather than found by walking the
+  // board: on the discarded branch this Gear is in hand at the moment it fires
+  // (and in the trash immediately after), so no listener walk over permanents in
+  // play would ever reach it.
+  //
+  // Not "when this ENTERS play" � a discarded Scrapheap was never in play at
+  // all, and the printed text still pays. All three branches read the same, and
+  // the draw goes to the card's owner in every one of them.
+  "OGN-182": {
+    on: ["played", "discarded", "killed"],
+    resolve: (state, event) => drawCards(state, event.ownerIndex, 1),
+  },
+};

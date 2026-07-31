@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchOnUnitDied } from "./triggers.js";
+import { dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
@@ -349,7 +349,7 @@ export function discardCards(
   if (chosen.length === 0) return state;
 
   const discardedIds = new Set(chosen.map((c) => c.instanceId));
-  return updatePlayer(state, playerIndex, (p) => ({
+  const moved = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     hand: p.hand.filter((c) => !discardedIds.has(c.instanceId)),
     trash: [...p.trash, ...chosen],
@@ -358,6 +358,12 @@ export function discardCards(
     // this is the one funnel every discard goes through.
     discardedThisTurn: true,
   }));
+
+  // A card can trigger on being discarded (Scrapheap), and at that moment it is
+  // in the trash rather than in play — so it is dispatched by its own defId, not
+  // found by walking the board. Fired after the move, so the trigger sees the
+  // finished zones.
+  return chosen.reduce((next, c) => dispatchSelfEvent(next, "discarded", c, playerIndex), moved);
 }
 
 /**

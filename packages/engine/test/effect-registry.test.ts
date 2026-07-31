@@ -140,10 +140,14 @@ describe("coverage: telling implemented cards from silently-inert ones", () => {
   });
 
   it("reports a card with real text and no registration as unimplemented", () => {
-    // Scrapheap is in the Jinx starter deck and does nothing yet.
-    const scrapheap = registry.get("OGN-182");
-    expect(needsImplementation(scrapheap)).toBe(true);
-    expect(isCardImplemented(scrapheap)).toBe(false);
+    // Deliberately not a named card. This used to pin Scrapheap, and the day
+    // Scrapheap was implemented the test failed for the one reason a coverage
+    // test should never fail: the coverage got better. What is being pinned is
+    // the pairing — text that needs an implementation, and no registration for
+    // it — so the subject is whichever card currently fits.
+    const unimplemented = registry.all().filter((c) => needsImplementation(c) && !isCardImplemented(c));
+    expect(unimplemented.length, "the pool is fully implemented — retire this test").toBeGreaterThan(0);
+    expect(isCardImplemented(unimplemented[0]!)).toBe(false);
   });
 
   it("counts a Legend ability as an implementation", () => {

@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
@@ -158,3 +158,8 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     },
   },
 };
+
+/** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
+ *  by that card's own defId, because at those moments it may not be in play for
+ *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
