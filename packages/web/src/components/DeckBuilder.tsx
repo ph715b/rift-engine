@@ -7,6 +7,8 @@ import {
   RUNE_DECK_SIZE,
   SIDEBOARD_SIZE,
   defaultCardRegistry,
+  implementableText,
+  isCardImplemented,
   isCardLegalForLegend,
   isEligibleChampion,
   loadBattlefieldDefinitions,
@@ -89,9 +91,17 @@ interface CardBrowserTileProps {
 function CardBrowserTile({ def, count, isChampion, onIncrement, onDecrement, canIncrement, canDecrement }: CardBrowserTileProps) {
   const hasCost = def.type === "Unit" || def.type === "Spell" || def.type === "Gear";
   const powerDomainColor = def.powerDomain ? DOMAIN_COLORS[def.powerDomain] : undefined;
+  // Most of the card pool's printed text has no implementation yet, and an
+  // unimplemented card is invisible in play: it costs runes, goes to the trash
+  // and quietly does nothing. Marking it here is the difference between a
+  // playtest you can draw conclusions from and one you can't.
+  const notImplemented = !isCardImplemented(def);
 
   return (
-    <div className={`card-tile${count > 0 ? " in-deck" : ""}`}>
+    <div
+      className={`card-tile${count > 0 ? " in-deck" : ""}${notImplemented ? " not-implemented" : ""}`}
+      title={notImplemented ? `No effect implemented yet — this card's text does nothing:\n"${implementableText(def)}"` : undefined}
+    >
       {def.imageUrl ? (
         <img className="card-tile-art" src={def.imageUrl} alt={def.name} draggable={false} loading="lazy" />
       ) : (
@@ -223,6 +233,21 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
   const totalCount = cardIds.length;
   const sideboardTotal = sideboardCardIds.length;
   const runeTotal = runeDomainACount + runeDomainBCount;
+
+  /** How much of THIS deck is inert, in copies rather than distinct cards — the
+   *  figure that decides whether a playtest of this list tells you anything. A
+   *  3-of that does nothing is three dead draws, not one. */
+  const { inertCopies, inertNames } = useMemo(() => {
+    const names = new Set<string>();
+    let copies = 0;
+    for (const id of cardIds) {
+      const def = registry.tryGet(id);
+      if (!def || isCardImplemented(def)) continue;
+      copies += 1;
+      names.add(def.name);
+    }
+    return { inertCopies: copies, inertNames: [...names].sort() };
+  }, [cardIds, registry]);
 
   function selectLegend(id: string) {
     setLegendId(id);
@@ -445,6 +470,16 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
         <div className="zone-label">
           Main deck ({totalCount}/{DECK_SIZE})
         </div>
+        {/* The deck-level figure, which is the one that decides whether a
+            playtest of this list means anything. A per-card badge tells you a
+            card is inert; only the total tells you the deck is. Counts COPIES,
+            not distinct cards — three inert copies is three dead draws. */}
+        {inertCopies > 0 && (
+          <div className="deck-builder-inert-note">
+            {inertCopies} of {totalCount} cards in this deck have no effect implemented yet
+            {inertNames.length > 0 && <span className="deck-builder-inert-names"> — {inertNames.join(", ")}</span>}
+          </div>
+        )}
         {legendDef ? (
           <>
             <input
@@ -453,6 +488,12 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
               onChange={(e) => setSearchText(e.target.value)}
               placeholder="Search cards..."
             />
+            {browsableCards.some((def) => !isCardImplemented(def)) && (
+              <div className="card-browser-legend">
+                Greyed-out cards have no effect implemented yet — they can still be added to a deck, but their printed text does nothing
+                in play. Hover one to see what it should do.
+              </div>
+            )}
             <div className="card-browser-grid">
               {browsableCards.map((def) => {
                 const count = copyCounts.get(def.id) ?? 0;
