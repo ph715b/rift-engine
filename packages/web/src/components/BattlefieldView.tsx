@@ -20,6 +20,13 @@ interface BattlefieldViewProps {
    *  `isChainTargeted`. */
   isChainTargeted: boolean;
   isDragOver: boolean;
+  /** Which side of the board the viewer is, so their own facedown cards can be
+   *  shown face-up to them and the opponent's cannot. */
+  humanIndex: 0 | 1;
+  /** Facedown cards of the viewer's that can be played right now (rule 811's
+   *  "beginning on the next turn"), by instanceId. */
+  playableHiddenIds?: Set<string>;
+  onPlayHidden?: (cardInstanceId: string, battlefieldId: string) => void;
   isShowdownActive: boolean;
   /** Is this unit a legal target for the currently-armed spell (if any)?
    *  Independent of whose unit it is — a targeted spell in this engine can
@@ -57,6 +64,9 @@ export function BattlefieldView({
   isTargetable,
   isChainTargeted,
   isDragOver,
+  humanIndex,
+  playableHiddenIds,
+  onPlayHidden,
   isShowdownActive,
   isUnitTargetable,
   isUnitChainTargeted,
@@ -89,6 +99,37 @@ export function BattlefieldView({
         <span>{battlefield.name}</span>
         <span>{isShowdownActive ? "Showdown!" : controllerName}</span>
       </div>
+      {/* Facedown cards (rule 811). Presence is public and changes how the
+          battlefield reads — there is a trick waiting here — while identity is
+          not, so the opponent's shows only a back. The state GameBoard passes in
+          is already masked for anything that isn't the viewer's own, so this
+          component cannot leak what it was never given. */}
+      {battlefield.hiddenCards.length > 0 && (
+        <div className="battlefield-hidden-row">
+          {battlefield.hiddenCards.map((h) => {
+            const mine = h.ownerIndex === humanIndex;
+            const playable = mine && onPlayHidden !== undefined && playableHiddenIds?.has(h.card.instanceId);
+            return (
+              <button
+                key={h.card.instanceId}
+                type="button"
+                className={`facedown-card${mine ? " mine" : ""}${playable ? " selectable" : ""}`}
+                disabled={!playable}
+                title={
+                  mine
+                    ? playable
+                      ? `${h.card.name} — hidden here. Click to play it for free.`
+                      : `${h.card.name} — hidden here. Playable from your next turn.`
+                    : "A facedown card. You can see it is there, not what it is."
+                }
+                onClick={playable ? () => onPlayHidden!(h.card.instanceId, battlefield.id) : undefined}
+              >
+                {mine ? h.card.name : "Facedown"}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="battlefield-side">
         {aiUnits.map((unit) => (
           <CardView

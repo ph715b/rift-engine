@@ -102,6 +102,11 @@ interface PendingPlay {
    *  simply have no way to stop early. */
   optionalTargetsResolved?: boolean;
   destinationBattlefieldId?: string;
+  /** Set when this armed card is being played from facedown (rule 811). Carried
+   *  so `matchesPending` narrows to the from-hidden candidates rather than the
+   *  from-hand ones — the same card can legitimately be both, at different
+   *  costs and with different legal targets. */
+  fromHiddenBattlefieldId?: string;
   payment: RunePayment;
 }
 
@@ -350,7 +355,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  immediately on click) — unlike `immediatePlayAction`, this doesn't
    *  care which. */
   function isCardInteractable(cardInstanceId: string): boolean {
-    return playCardActionsFor(cardInstanceId).length > 0;
+    // Hideable counts. A [Hidden] card you cannot AFFORD is exactly the card
+    // worth hiding — that is what the keyword is for (1 rainbow Power now, free
+    // later) — and gating interactability on PlayCard candidates alone made
+    // every such card unclickable, so the Hide button could never appear for it.
+    return playCardActionsFor(cardInstanceId).length > 0 || hideActionsFor(cardInstanceId).length > 0;
+  }
+
+  /** Every legal Hide for one hand card. */
+  function hideActionsFor(cardInstanceId: string) {
+    return legal.filter(
+      (a): a is Extract<PlayerAction, { type: "HideCard" }> => a.type === "HideCard" && a.card.instanceId === cardInstanceId,
+    );
   }
 
   /** Does this card get to choose WHERE it lands — a Unit picking between
@@ -521,6 +537,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (!pending) return [];
     const symmetric = pendingSlotsAreSymmetric(pending.card);
     return playCardActionsFor(pending.card.instanceId).filter((a) => {
+      // Origin first. A card can be enumerated both from hand and from facedown
+      // at once — different cost, different legal targets (rule 811) — and
+      // mixing the two pools would let a target legal from hand be offered for a
+      // from-hidden play that must stay at its battlefield.
+      if ((a.fromHiddenBattlefieldId ?? null) !== (pending.fromHiddenBattlefieldId ?? null)) return false;
       if (symmetric) {
         // Subset, not equality: with one unit chosen, both the single-target
         // candidate and every pair containing it stay live — which is exactly
@@ -650,7 +671,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
         (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
-        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID)
+        (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
+        (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null)
       );
     }
     return (
@@ -660,7 +682,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
       (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
       (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
-      (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID)
+      (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
+      (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null)
     );
   }
 
@@ -761,7 +784,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       applyAction(immediate);
       return;
     }
-    const [first] = playCardActionsFor(cardInstanceId);
+    // A hideable-but-unplayable card still arms, so the Hide button can appear
+    // for it — its `card` comes from the Hide candidate instead.
+    const [firstPlay] = playCardActionsFor(cardInstanceId);
+    const first = firstPlay ?? hideActionsFor(cardInstanceId)[0];
     if (!first) return;
     // A card needing a choice (target, placement, and/or payment) — arm it
     // (toggle off if clicking the same one again). Clears the unit selection
@@ -880,6 +906,50 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ...state.battlefields.flatMap((bf) => bf.units[human.id] ?? []),
     ];
     return everywhere.find((c) => c.instanceId === pendingAbility)?.name ?? "ability";
+  }
+
+  /**
+   * The human's own facedown cards that `legalActions` is offering right now —
+   * i.e. hidden on an earlier turn AND with a legal target at that battlefield
+   * (rule 811 refuses the play outright when there is none). Read off `legal`
+   * rather than re-derived, so the board can never light up a card the engine
+   * would then refuse.
+   */
+  const playableHiddenIds = useMemo(
+    () =>
+      new Set(
+        legal
+          .filter((a) => a.type === "PlayCard" && a.fromHiddenBattlefieldId !== undefined)
+          .map((a) => (a.type === "PlayCard" ? a.card.instanceId : "")),
+      ),
+    [legal],
+  );
+
+  /** Every legal Hide for the currently-armed hand card — empty unless one is
+   *  armed, so the actions row only offers it once the player has said which
+   *  card they mean. */
+  function hideOptions() {
+    if (!pendingPlay || pendingPlay.fromHiddenBattlefieldId !== undefined) return [];
+    return hideActionsFor(pendingPlay.card.instanceId);
+  }
+
+  /** Play a facedown card. It goes through the ordinary armed-card path, because
+   *  a from-hidden play can still need a target chosen — legal-actions has
+   *  already narrowed those to that battlefield. */
+  function playHiddenCard(cardInstanceId: string, battlefieldId: string) {
+    const candidates = legal.filter(
+      (a) => a.type === "PlayCard" && a.card.instanceId === cardInstanceId && a.fromHiddenBattlefieldId === battlefieldId,
+    );
+    if (candidates.length === 0) return;
+    // Exactly one option and nothing left to choose: play it outright.
+    if (candidates.length === 1) {
+      applyAction(candidates[0]!);
+      return;
+    }
+    const first = candidates[0]!;
+    if (first.type !== "PlayCard") return;
+    setPendingAbility(null);
+    setPendingPlay({ card: first.card, payment: first.payment, fromHiddenBattlefieldId: battlefieldId });
   }
 
   /** Should one of the human's own units render — and behave — as clickable
@@ -1696,6 +1766,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 battlefield={bf}
                 human={human}
                 ai={ai}
+                humanIndex={HUMAN_INDEX}
+                playableHiddenIds={playableHiddenIds}
+                onPlayHidden={playHiddenCard}
                 selectedUnitIds={selectedUnitIds}
                 isMoveTarget={
                   isHumanTurn && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
@@ -1880,6 +1953,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             Activate {activatableSelectedUnit()!.name}
           </button>
         )}
+        {/* Hiding is a separate ACTION from playing (rule 811: "Hide is not a
+            subset of Play"), so it gets its own button rather than a mode on the
+            card click. Offered per battlefield, because which one you hide at
+            decides where the card can later be played from and what it may
+            target. */}
+        {hideOptions().map((hide) => (
+          <button key={hide.battlefieldId} onClick={() => applyAction(hide)}>
+            Hide {hide.card.name} at {state.battlefields.find((b) => b.id === hide.battlefieldId)?.name}
+          </button>
+        ))}
         {pendingAbility !== null && (
           <button onClick={() => setPendingAbility(null)}>Cancel {activatingPermanentName()}</button>
         )}
