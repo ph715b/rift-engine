@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
-import { dispatchLegendEndOfTurn } from "./legend-abilities.js";
+import { dispatchLegendBeginningPhase, dispatchLegendEndOfTurn } from "./legend-abilities.js";
 import { destroyUnit, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, killGear } from "./triggers.js";
 
@@ -122,7 +122,11 @@ export function runBeginning(state: GameState): GameState {
     kind: "beginningPhase",
     playerIndex: afterTemporary.activePlayerIndex,
   });
-  return { ...scoreHolds(afterAbilities, afterAbilities.activePlayerIndex), phase: "Channel" };
+  // The Legend's own Beginning-Phase ability (Jinx - Loose Cannon), in the same
+  // window as the permanents' — it is not a permanent on the board, so the
+  // listener walk the event bus does cannot reach it.
+  const afterLegend = dispatchLegendBeginningPhase(afterAbilities, afterAbilities.activePlayerIndex);
+  return { ...scoreHolds(afterLegend, afterLegend.activePlayerIndex), phase: "Channel" };
 }
 
 /**
@@ -230,7 +234,18 @@ export function runEnd(state: GameState): GameState {
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
   // +1 Might that carries into later turns — which is what makes the eight
   // cards reading "while I'm buffed" worth anything.
-  const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number }>(u: T): T => ({ ...u, mightThisTurn: 0 });
+  // Stun expires with it — rule 422: "Stunned Units lose the Stunned status
+  // during step 3d of the end of turn cleanup." Same sweep, since both are
+  // this-turn states on every unit in play, on both sides.
+  const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number; stunned?: boolean }>(u: T): T => ({
+    ...u,
+    mightThisTurn: 0,
+    ...(u.stunned ? { stunned: false } : {}),
+    // Udyr's this-turn [Ganking] and his record of which modes he has spent —
+    // both expire here for the same reason mightThisTurn does.
+    ...("keywordsThisTurn" in u ? { keywordsThisTurn: {} } : {}),
+    ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
+  });
 
   const players = afterLegend.players.map((p) => ({
     ...p,

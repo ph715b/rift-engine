@@ -29,6 +29,9 @@ function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
     damage: 0,
     mightThisTurn: 0,
     buffed: false,
+    stunned: false,
+    keywordsThisTurn: {},
+    abilityModesUsedThisTurn: [],
     ...overrides,
   };
 }

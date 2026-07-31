@@ -214,6 +214,17 @@ export function cardPlacesTokens(defId: string): boolean {
   return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);
 }
 
+/** Spells that MOVE their target and so need a destination as well as a target —
+ *  Charm's "Move an enemy unit." Rides on the same `destinationBattlefieldId`
+ *  the token-placing spells use, for the same reason: it is a place, not a
+ *  second target. Unlike those, it is mandatory — a move with nowhere to go is
+ *  not a move, so a card here is not offered without one. */
+const MOVE_TARGET_SPELL_DEF_IDS = new Set(["OGN-043"]); // Charm
+
+export function cardMovesTarget(defId: string): boolean {
+  return MOVE_TARGET_SPELL_DEF_IDS.has(defId);
+}
+
 /**
  * The first slice of card-effect resolution, growing one phase at a time
  * per the project's phased card-effects plan — every other Spell/Gear/Unit

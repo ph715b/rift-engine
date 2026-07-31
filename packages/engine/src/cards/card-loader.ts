@@ -121,6 +121,12 @@ const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
   "OGN-019", // Raging Soul — [Assault] and [Ganking] only once you've discarded
   "OGN-125", // Bilgewater Bully — [Ganking] only while buffed
   "OGN-232", // Fiora - Victorious — [Deflect]/[Ganking]/[Shield] only while Mighty
+  // Udyr - Wildman — a fourth of the same shape, and the widest yet: "[Ganking]"
+  // appears inside one of four MODES he has to spend a buff to choose, so he was
+  // shipping able to move battlefield-to-battlefield all game for free. He is
+  // the only one here whose grant is not a CONDITIONAL_GRANTS entry — his own
+  // ability writes it to `keywordsThisTurn` when that mode is taken.
+  "OGN-157",
 ]);
 
 /**

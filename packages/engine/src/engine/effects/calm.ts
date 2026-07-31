@@ -3,8 +3,7 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { PlayerState } from "../../model/game-state.js";
-import { addBuff } from "../effect-helpers.js";
-import { drawCards, giveMightThisTurn } from "../effect-helpers.js";
+import { addBuff, drawCards, forceMoveToBattlefield, giveMightThisTurn } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -34,6 +33,25 @@ import { drawCards, giveMightThisTurn } from "../effect-helpers.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-043": {
+    // Charm — "Move an enemy unit."
+    //
+    // Names no battlefield, so the unit can be taken from the enemy's base as
+    // well as from a battlefield (355.9.b — the bare noun "unit" means objects on
+    // the Board, and Bases are Public). Where it goes rides on
+    // `destinationBattlefieldId`, the field a token-placing spell already uses.
+    //
+    // The move itself is `forceMoveToBattlefield`, not the MoveUnit executor, and
+    // that is a rules distinction rather than plumbing — see its doc comment:
+    // 415.1.b makes the exhaust a cost of the Standard MOVE ACTION, so a charmed
+    // unit arrives ready, and 458 contests the destination for the moved unit's
+    // controller rather than the caster's.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId && event.destinationBattlefieldId
+        ? forceMoveToBattlefield(state, event.targetUnitInstanceId, event.destinationBattlefieldId)
+        : state,
+  },
   "OGN-053": {
     // Stand United — "[Hidden][Action] Buff a friendly unit. Buffs give an
     // additional +1 Might to friendly units this turn."
@@ -100,7 +118,31 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-060": {
+    // Mask of Foresight — "When a friendly unit attacks or defends alone, give it
+    // +1 Might this turn."
+    //
+    // An EVENT, not a continuous modifier, and the difference is the whole card:
+    // "+1 this turn" is granted once and keeps its value for the rest of the turn
+    // even after the unit stops being alone — a reinforcement arriving later does
+    // not take it back. Wielder of Water's superficially similar "while I'm
+    // attacking or defending alone" IS continuous and lives in effective-might.ts;
+    // the two must not be confused.
+    //
+    // "Attacks OR defends" — either side, so this asks only whether the
+    // controller's own presence at that battlefield is exactly one unit. Which
+    // side started it does not matter and is deliberately not consulted.
+    on: "combatBegan",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      const ownerId = state.players[listener.ownerIndex].id;
+      const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+      const mine = bf?.units[ownerId] ?? [];
+      return mine.length === 1 ? giveMightThisTurn(state, mine[0]!.instanceId, 1) : state;
+    },
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for

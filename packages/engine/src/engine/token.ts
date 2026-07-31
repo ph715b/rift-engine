@@ -56,6 +56,9 @@ export function createToken(spec: TokenSpec): UnitInstance {
     damage: 0,
     mightThisTurn: 0,
     buffed: false,
+    stunned: false,
+    keywordsThisTurn: {},
+    abilityModesUsedThisTurn: [],
   };
 }
 

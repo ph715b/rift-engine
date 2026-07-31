@@ -1,5 +1,6 @@
 import type { BattlefieldState, GameState } from "../model/game-state.js";
 import { removeUnheldHiddenCards } from "./hidden.js";
+import { dispatchEvent } from "./triggers.js";
 
 /**
  * The Cleanup, run after every resolved action.
@@ -118,7 +119,9 @@ function stageShowdowns(state: GameState): GameState {
   // at Action speed into the window.
   if (state.turnState === "Showdown" && state.showdownKind === "NonCombat") {
     const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
-    if (bf && unitsOfBothPlayers(state, bf)) return { ...state, showdownKind: "Combat" };
+    if (bf && unitsOfBothPlayers(state, bf)) {
+      return dispatchEvent({ ...state, showdownKind: "Combat" }, { kind: "combatBegan", battlefieldId: bf.id });
+    }
     return state;
   }
 
@@ -130,14 +133,19 @@ function stageShowdowns(state: GameState): GameState {
   const contested = state.battlefields.find((bf) => bf.contestedByIndex !== null);
   if (!contested) return state;
 
-  return {
+  const isCombat = unitsOfBothPlayers(state, contested);
+  const staged: GameState = {
     ...state,
     turnState: "Showdown",
     showdownBattlefieldId: contested.id,
-    showdownKind: unitsOfBothPlayers(state, contested) ? "Combat" : "NonCombat",
+    showdownKind: isCombat ? "Combat" : "NonCombat",
     focusHolder: contested.contestedByIndex!,
     consecutiveFocusPasses: 0,
   };
+  // Only a COMBAT Showdown has attackers and defenders — a Non-Combat one is a
+  // window with nobody to fight, so "attacks or defends alone" is not true of
+  // anyone in it. It fires later if 317.2 promotes it.
+  return isCombat ? dispatchEvent(staged, { kind: "combatBegan", battlefieldId: contested.id }) : staged;
 }
 
 /**

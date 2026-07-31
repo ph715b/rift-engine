@@ -1,5 +1,5 @@
 import type { CardDefinition } from "../model/card-definition.js";
-import { activatedAbilityDefIds } from "./activated-abilities.js";
+import { activatedAbilityDefIds, borrowedAbilityDefIds } from "./activated-abilities.js";
 import { loaderHandledDefIds } from "../cards/card-loader.js";
 import { playCardDefIds } from "./deploy.js";
 import { cardEffectDefIds } from "./card-effects.js";
@@ -102,6 +102,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "damage-modifiers", defIds: damageModifierDefIds },
   { label: "cost-modifiers", defIds: costModifierDefIds },
   { label: "activated abilities", defIds: activatedAbilityDefIds },
+  { label: "borrowed abilities", defIds: borrowedAbilityDefIds },
   { label: "card-loader keywords", defIds: loaderHandledDefIds },
 ];
 

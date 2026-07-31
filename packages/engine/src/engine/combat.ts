@@ -28,6 +28,13 @@ import { clearContested } from "./cleanup.js";
  *  keyword math AND any continuous aura (Garen - Commander, etc.) — this is
  *  "outgoing," not "remaining," so damage is never subtracted here. */
 function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId: string, isAttackingSide: boolean): number {
+  // Rule 422: "A Stunned Unit does not contribute its might to damage in the
+  // combat damage step." Only here — `remainingMight` below is deliberately
+  // untouched, because the same rule says a stunned unit "must still have damage
+  // applied to it equal to, or greater than, its full might value to be killed".
+  // It hits for nothing and is no easier to kill; the two functions exist
+  // precisely because those are different questions.
+  if (unit.stunned) return 0;
   return effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "outgoing", battlefieldId });
 }
 

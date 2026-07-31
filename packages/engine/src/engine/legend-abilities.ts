@@ -34,6 +34,9 @@ export interface LegendAbilityDefinition {
   /** "When you conquer..." — fires after the conquest is recorded, with the
    *  battlefield just taken. */
   onConquer?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
+  /** "At start of your Beginning Phase..." — fires on the same event Mushroom
+   *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
+  onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
   /** A continuous Might modifier for one of the owner's units, evaluated
    *  fresh per call — see effective-might.ts's own aura table. */
   mightBonus?: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ctx: LegendMightContext) => number;
@@ -91,6 +94,16 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
       return ownUnits.length >= 4 ? drawCards(state, ownerIndex, 2) : state;
     },
   },
+  "OGN-251": {
+    // Jinx - Loose Cannon — "At start of your Beginning Phase, draw 1 if you have
+    // one or fewer cards in your hand."
+    //
+    // The condition is checked when the ability resolves, not when the phase was
+    // entered, and "one or fewer" includes an empty hand — the case the card is
+    // really for, since Jinx's deck discards aggressively.
+    onBeginningPhase: (state, ownerIndex) =>
+      state.players[ownerIndex].hand.length <= 1 ? drawCards(state, ownerIndex, 1) : state,
+  },
   "OGS-019": {
     // Master Yi - Wuju Bladesman — "While a friendly unit defends alone, it
     // gets +2 Might." DEFENDS, not "attacks or defends": the Java oracle
@@ -144,4 +157,9 @@ export function legendMightBonus(
   ctx: LegendMightContext,
 ): number {
   return abilitiesFor(state, ownerIndex)?.mightBonus?.(state, unit, ownerIndex, ctx) ?? 0;
+}
+
+/** Fires the active player's Legend Beginning-Phase ability, if it has one. */
+export function dispatchLegendBeginningPhase(state: GameState, ownerIndex: 0 | 1): GameState {
+  return abilitiesFor(state, ownerIndex)?.onBeginningPhase?.(state, ownerIndex) ?? state;
 }

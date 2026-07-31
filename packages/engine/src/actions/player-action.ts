@@ -170,6 +170,32 @@ export interface ActivateAbilityAction {
    *  card-effects.ts's TargetingSpec doc comment. Absent for abilities whose
    *  targeting is "none". */
   targetUnitInstanceId?: string;
+  /**
+   * Which runes cover an Energy portion of the activation cost. Absent for the
+   * abilities that cost only an exhaust — which was every one of them until the
+   * preset Legends arrived reading ":rb_energy_1:, :rb_exhaust::".
+   *
+   * The Java shape quoted above already had it, for the same reason: an exhaust
+   * and a Recycle can be paid from state alone, but WHICH runes go is a choice
+   * and has to ride on the action.
+   */
+  payment?: RunePayment;
+  /**
+   * The defId of the ability being used, when it is not the source's own —
+   * Heimerdinger - Inventor "has all exhaust abilities of all friendly legends,
+   * units, and gear", so `permanentInstanceId` names HIM and this names whose
+   * ability he is using. Java calls the same field `viaAbility`.
+   *
+   * Absent for every ordinary activation, where the source and the ability are
+   * the same card.
+   */
+  viaAbilityDefId?: string;
+  /**
+   * Which option of a MODAL ability this activates — Udyr - Wildman's "Choose one
+   * you've not chosen this turn". Absent for every other ability, which has one
+   * unnamed mode, so an ordinary activation's action is unchanged.
+   */
+  modeId?: string;
 }
 
 /**

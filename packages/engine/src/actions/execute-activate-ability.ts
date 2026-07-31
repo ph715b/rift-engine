@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { ActivateAbilityAction } from "./player-action.js";
-import { findActivatable, payActivationCost } from "../engine/activated-abilities.js";
+import { payActivationCost, recordModeUsed, resolveActivation, resolveMode, tracksModeUse } from "../engine/activated-abilities.js";
 import { contextFor } from "../engine/effect-context.js";
 import { validateActivateAbility } from "./validate-activate-ability.js";
 
@@ -24,14 +24,25 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   const validation = validateActivateAbility(state, action);
   if (!validation.ok) throw new Error(validation.error);
 
-  const found = findActivatable(state, action.playerIndex, action.permanentInstanceId);
+  const found = resolveActivation(state, action.playerIndex, action.permanentInstanceId, action.viaAbilityDefId);
   if (!found) throw new Error(`No activatable permanent ${action.permanentInstanceId}`);
 
-  const paid = payActivationCost(state, action.playerIndex, action.permanentInstanceId, found.card.defId);
+  // The cost belongs to the ABILITY, the exhaust to the SOURCE (416.1) — which
+  // are the same card for everything except a borrowed ability.
+  const paid = payActivationCost(state, action.playerIndex, action.permanentInstanceId, found.abilityDefId, action.payment);
   if (paid === undefined) throw new Error(`${found.card.name}'s activation cost cannot be paid`);
 
-  return found.definition.resolve(
-    paid,
+  const mode = resolveMode(found.abilityDefId, found.card, action.modeId);
+  if (!mode) throw new Error(`${found.card.name} has no such mode available`);
+
+  // Record the mode BEFORE resolving, so "you've not chosen this turn" is true of
+  // a mode whose own effect ends up doing nothing — the choice was still spent.
+  const recorded = tracksModeUse(found.abilityDefId)
+    ? recordModeUsed(paid, action.playerIndex, action.permanentInstanceId, mode.id)
+    : paid;
+
+  return mode.resolve(
+    recorded,
     contextFor(action.playerIndex),
     { ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}) },
     action.permanentInstanceId,

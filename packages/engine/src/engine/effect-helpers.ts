@@ -1,12 +1,14 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
+import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
 import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
 import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
+import { applyContested } from "./cleanup.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -334,6 +336,80 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
 
   const buffed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
   return dispatchEvent(buffed, { kind: "unitBuffed", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
+}
+
+/**
+ * Moves a unit to a battlefield because an EFFECT said so — Charm's "Move an
+ * enemy unit."
+ *
+ * Deliberately not `executeMoveUnit`, and the difference is a rule rather than
+ * convenience. **415.1.b**: "a unit's Standard Move exhausts the unit **as a
+ * cost**" — the exhaust belongs to the Standard Move action, not to the act of
+ * moving, and **316.7.c** lists a move as possibly "the result of a Standard Move
+ * Intrinsic Ability, a **Spell**, or other Game Effect". So a unit charmed across
+ * the board arrives READY. Reusing the move executor would have exhausted it,
+ * silently making Charm a removal-and-tap rather than a reposition.
+ *
+ * Contested still applies, and applies for the MOVED unit's controller —
+ * **458**: "the Destination becomes Contested if it is an Uncontested Battlefield
+ * not controlled by the controller of the Unit or Units that moved". Charming an
+ * enemy onto neutral ground therefore contests it for THEM, which is the card's
+ * real use and not something a caster-indexed call would have got right.
+ *
+ * On-move triggers deliberately do NOT fire: they read "when I move" on cards
+ * whose controller chose to move them, and no card in this pool has one that
+ * could be reached this way. Named here rather than left to be discovered.
+ */
+export function forceMoveToBattlefield(state: GameState, targetInstanceId: string, destinationBattlefieldId: string): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location) return state;
+  const { unit, ownerId, ownerIndex } = location;
+  const destinationIndex = state.battlefields.findIndex((bf) => bf.id === destinationBattlefieldId);
+  if (destinationIndex < 0) return state;
+  // Already there: nothing moved, so nothing is contested by it either.
+  if (location.zone !== "base" && state.battlefields[location.zone.battlefieldIndex]!.id === destinationBattlefieldId) {
+    return state;
+  }
+
+  const removed = removeUnitAnywhere(state, targetInstanceId);
+  const battlefields = [...removed.battlefields];
+  const destination = battlefields[destinationIndex]!;
+  battlefields[destinationIndex] = {
+    ...destination,
+    units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), unit] },
+  };
+
+  return applyContested({ ...removed, battlefields }, destinationBattlefieldId, ownerIndex);
+}
+
+/**
+ * Grants a keyword to a unit for the rest of the turn — Udyr's "Give me
+ * [Ganking] this turn".
+ *
+ * Lands on `keywordsThisTurn` rather than `keywords`, so it expires at runEnd
+ * with the rest of this turn's state and cannot be smuggled into a later turn by
+ * a card that reads the printed set.
+ */
+export function grantKeywordThisTurn(state: GameState, targetInstanceId: string, keyword: Keyword): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({
+    ...u,
+    keywordsThisTurn: { ...u.keywordsThisTurn, [keyword]: Math.max(u.keywordsThisTurn[keyword] ?? 0, 1) },
+  }));
+}
+
+/**
+ * Stuns a unit — rule 422's Stun section.
+ *
+ * A no-op on an already-stunned unit, because "a Stunned Unit can not be Stunned
+ * again" — and that is a real distinction, not tidiness: the rules' own example
+ * is Eclipse Herald, which triggers "when you stun an enemy unit" and does NOT
+ * trigger when the chosen unit was already stunned. Returning the state
+ * unchanged is what will make that card correct when it lands.
+ */
+export function stunUnit(state: GameState, targetInstanceId: string): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location || location.unit.stunned) return state;
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, stunned: true }));
 }
 
 /**

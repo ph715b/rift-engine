@@ -74,6 +74,46 @@ export interface UnitInstance extends CardInstanceBase {
    * has to be real state rather than folded into mightThisTurn.
    */
   buffed: boolean;
+  /**
+   * Stunned — rule 422's Stun section.
+   *
+   * A binary state, deliberately, because the rules say so outright: "Stunned is
+   * a binary state. A Unit is Stunned or it isn't", and "a Stunned Unit can not
+   * be Stunned again". A counter would let a card that checks "is it stunned"
+   * (Solari Shrine, Solari Chief) disagree with one that stuns it.
+   *
+   * What it does is narrower than it sounds, and the two halves are separate:
+   * a stunned unit "does not contribute its might to damage in the combat damage
+   * step", but "must still have damage applied to it equal to, or greater than,
+   * its full might value to be killed" — so it hits for nothing and is no easier
+   * to kill. Lost during end-of-turn cleanup step 3d.
+   */
+  stunned: boolean;
+  /**
+   * Keywords granted to this unit for the current turn only — Udyr's "Give me
+   * [Ganking] this turn". Cleared by runEnd alongside `mightThisTurn`, which is
+   * the same idea one level up: a this-turn ADDITION rather than a change to
+   * what the card prints.
+   *
+   * Separate from `keywords` because those are printed and permanent, and from
+   * granted-keywords.ts's conditional grants because those are re-derived from
+   * board state every time they are asked — this one is a fact that happened,
+   * and stays true for the turn even if the condition that caused it is gone.
+   *
+   * The Java oracle carries a field of the same shape on Card.Unit
+   * (`temporaryKeywordBonus`), which model/card.ts's own note said to add when
+   * the mechanic that needs it lands.
+   */
+  keywordsThisTurn: Partial<Record<Keyword, number>>;
+  /**
+   * Which modes of this unit's own activated ability it has already used this
+   * turn — Udyr's "Choose one you've not chosen this turn".
+   *
+   * On the UNIT, not the player: two Udyrs each get their own four choices,
+   * which a per-player list would silently merge. Java tracks it the same way
+   * and under nearly the same name (`udyrOptionsChosenThisTurn`).
+   */
+  abilityModesUsedThisTurn: string[];
 }
 
 export interface SpellInstance extends CardInstanceBase {
@@ -148,6 +188,9 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         damage: 0,
         mightThisTurn: 0,
         buffed: false,
+        stunned: false,
+        keywordsThisTurn: {},
+        abilityModesUsedThisTurn: [],
       };
     case "Spell":
       return {

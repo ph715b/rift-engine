@@ -90,10 +90,19 @@ export function effectiveKeywords(
   ownerIndex: 0 | 1,
 ): Partial<Record<Keyword, number>> {
   const grant = CONDITIONAL_GRANTS[unit.defId];
-  if (!grant || !grant.when(state, unit, ownerIndex)) return unit.keywords;
+  const hasThisTurn = Object.keys(unit.keywordsThisTurn).length > 0;
+  if (!hasThisTurn && (!grant || !grant.when(state, unit, ownerIndex))) return unit.keywords;
 
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
-  for (const kw of grant.keywords) out[kw] = Math.max(out[kw] ?? 0, 1);
+  // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
+  // holds for the turn; a conditional grant is re-asked every time. Both end up
+  // in the same answer, because every reader wants "does it have this NOW".
+  for (const [kw, n] of Object.entries(unit.keywordsThisTurn)) {
+    out[kw as Keyword] = Math.max(out[kw as Keyword] ?? 0, n ?? 1);
+  }
+  if (grant && grant.when(state, unit, ownerIndex)) {
+    for (const kw of grant.keywords) out[kw] = Math.max(out[kw] ?? 0, 1);
+  }
   return out;
 }
 

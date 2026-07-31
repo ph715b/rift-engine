@@ -189,7 +189,13 @@ export type GameEvent =
    *  buffing an enemy unit does not offer their gear its trigger. Fired only when
    *  a buff was really placed: rule 708 makes a second one on an already-buffed
    *  unit a no-op, and a no-op is not a buffing. */
-  | { kind: "unitBuffed"; ownerIndex: 0 | 1; unitInstanceId: string };
+  | { kind: "unitBuffed"; ownerIndex: 0 | 1; unitInstanceId: string }
+  /** A Combat Showdown has just opened at `battlefieldId` — the moment units
+   *  there become attackers and defenders (341/351.1). Fired for a freshly
+   *  staged Combat and for a Non-Combat one promoted by 317.2, since both are a
+   *  combat beginning as far as a card that says "when a unit attacks or
+   *  defends" is concerned. */
+  | { kind: "combatBegan"; battlefieldId: string };
 
 /** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;

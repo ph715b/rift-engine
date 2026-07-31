@@ -14,8 +14,14 @@ import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import { eligibleTargets, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner } from "./card-effects.js";
-import { activatedAbilityTargeting, canPayActivationCost, hasActivatableAbility } from "./activated-abilities.js";
+import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner } from "./card-effects.js";
+import {
+  abilitiesAvailableTo,
+  activationCostOf,
+  activationPayment,
+  availableModes,
+  canPayActivationCost,
+} from "./activated-abilities.js";
 import {
   ACCELERATE_ENERGY,
   ACCELERATE_POWER,
@@ -61,36 +67,59 @@ function floatRuneCandidates(actor: PlayerState, playerIndex: 0 | 1): FloatRuneA
  * floatRuneCandidates — see validate-activate-ability.ts's own doc comment.
  */
 function activateAbilityCandidates(state: GameState, actor: PlayerState, playerIndex: 0 | 1): ActivateAbilityAction[] {
-  const owned: { instanceId: string; defId: string; exhausted: boolean }[] = [
+  const owned: { instanceId: string; defId: string; exhausted: boolean; buffed?: boolean }[] = [
     ...actor.baseUnits,
     ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
     ...actor.activeGear,
+    // The legend zone, which is not on the board — two preset legends have an
+    // exhaust ability and were unreachable while this list held board zones only.
+    actor.legend,
   ];
 
   const out: ActivateAbilityAction[] = [];
   for (const permanent of owned) {
-    if (!hasActivatableAbility(permanent.defId)) continue;
-    // Asks the same payability question the validator does — an exhaust cost and
-    // a Recycle cost fail for different reasons, and only the registry knows which
-    // this card has.
-    if (!canPayActivationCost(state, playerIndex, permanent)) continue;
-    const targeting = activatedAbilityTargeting(permanent.defId);
-    if (targeting.kind !== "unit") {
-      out.push({ type: "ActivateAbility", playerIndex, permanentInstanceId: permanent.instanceId });
-      continue;
-    }
-    // Fan out one action per legal target, exactly as the PlayCard path does for
-    // a targeted Spell — the choice has to be in the submitted action. An ability
-    // with no legal target is simply not offered, since exhausting for nothing is
-    // never what the player meant.
-    for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
-      if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
-      out.push({
+    // A list, not a lookup: Heimerdinger offers every friendly permanent's
+    // ability with himself as the source, so one card can be several candidates.
+    for (const { abilityDefId } of abilitiesAvailableTo(state, playerIndex, permanent)) {
+      // Asks the same payability question the validator does — an exhaust, a
+      // Recycle, a spent Buff and an Energy cost fail for different reasons, and
+      // only the registry knows which this ability has.
+      if (!canPayActivationCost(state, playerIndex, permanent, abilityDefId)) continue;
+
+      const cost = activationCostOf(abilityDefId);
+      const payment =
+        cost.energy !== undefined ? activationPayment(state, playerIndex, cost.energy) : undefined;
+      if (cost.energy !== undefined && payment === undefined) continue;
+
+      const base: ActivateAbilityAction = {
         type: "ActivateAbility",
         playerIndex,
         permanentInstanceId: permanent.instanceId,
-        targetUnitInstanceId: target.instanceId,
-      });
+        // Named only when it is somebody else's ability, so an ordinary
+        // activation's action is byte-for-byte what it always was.
+        ...(abilityDefId !== permanent.defId ? { viaAbilityDefId: abilityDefId } : {}),
+        ...(payment !== undefined ? { payment } : {}),
+      };
+
+      // One candidate per MODE still available — Udyr's four are four separate
+      // choices, and one he has already taken this turn is not offered again.
+      for (const mode of availableModes(abilityDefId, permanent)) {
+        // `modeId` is omitted for a plain ability's single unnamed mode, so an
+        // ordinary activation's action is exactly what it always was.
+        const withMode = mode.id === "" ? base : { ...base, modeId: mode.id };
+        if (mode.targeting.kind !== "unit") {
+          out.push(withMode);
+          continue;
+        }
+        // Fan out one action per legal target, exactly as the PlayCard path does
+        // for a targeted Spell — the choice has to be in the submitted action. A
+        // mode with no legal target is simply not offered, since paying for
+        // nothing is never what the player meant.
+        for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope)) {
+          if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
+          out.push({ ...withMode, targetUnitInstanceId: target.instanceId });
+        }
+      }
     }
   }
   return out;
@@ -463,7 +492,19 @@ export function legalActions(state: GameState): PlayerAction[] {
         })
       : afterVision;
 
-    for (const variant of variants) {
+    // Charm needs a destination as well as a target, and unlike a token-placing
+    // spell's it is mandatory: "Move an enemy unit" with nowhere to go is not a
+    // move, so the card is simply not offered rather than offered and refused.
+    // A destination the unit is ALREADY at is skipped for the same reason.
+    const withDestinations: Partial<PlayCardAction>[] = cardMovesTarget(card.defId)
+      ? variants.flatMap((v) =>
+          state.battlefields
+            .filter((bf) => !(bf.units[state.players[1 - playerIndex]!.id] ?? []).some((u) => u.instanceId === v.targetUnitInstanceId))
+            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id })),
+        )
+      : variants;
+
+    for (const variant of withDestinations) {
       // fromHiddenBattlefieldId rides on EVERY variant this card produces — it is
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.

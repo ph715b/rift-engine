@@ -1,7 +1,20 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import type { GearInstance, UnitInstance } from "../model/card.js";
+import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
-import { giveMightThisTurn, giveMightThisTurnToOwnUnit, recycleFromTrash } from "./effect-helpers.js";
+import {
+  addBuff,
+  dealDamage,
+  giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
+  grantKeywordThisTurn,
+  readyUnit,
+  recycleFromTrash,
+  spendBuff,
+  stunUnit,
+} from "./effect-helpers.js";
+import { placeRecruitToken } from "./token.js";
+import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
+import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
 
 /**
@@ -21,7 +34,7 @@ import { type TargetingSpec } from "./card-effects.js";
 /** Where an activated ability lives. Gear and Units take the same action and pay
  *  the same exhaust cost; they differ only in which zone the permanent sits in,
  *  which is why one registry can serve both. */
-export type ActivatableKind = "Unit" | "Gear";
+export type ActivatableKind = "Unit" | "Gear" | "Legend";
 
 export interface ActivatedAbilityEvent {
   /** Chosen ahead of the action, same constraint as every other effect in this
@@ -40,10 +53,54 @@ export interface ActivationCost {
   exhaust?: true;
   /** Recycle this many cards from the controller's own trash (rule 416). */
   recycleFromTrash?: number;
+  /**
+   * Energy, paid from channeled runes and floating Energy exactly as a card's
+   * Energy cost is — both preset Legend abilities read ":rb_energy_1:,
+   * :rb_exhaust::", so the exhaust is only half the price.
+   *
+   * Unlike the other two, this one cannot be paid from state alone: which runes
+   * go is a choice, so it rides on the action as a `payment`, the same way
+   * PlayCardAction's does. The Java oracle's own action shape agrees —
+   * `ActivateUnit(unit, target, RunePayment payment, String viaAbility)`.
+   */
+  energy?: number;
+  /** Spend a Buff on the source (rule 704.1) — Udyr's whole cost. Like Vi's
+   *  Recycle, this is a cost with no exhaust, so the ability repeats as long as
+   *  buffs keep arriving. */
+  spendBuff?: true;
+}
+
+/**
+ * One option of a modal ability — Udyr's "Choose one you've not chosen this
+ * turn", whose four modes target differently from each other (two want a unit at
+ * a battlefield, two want nothing). That is why targeting lives per MODE and not
+ * on the ability: enumeration has to know what each option needs before the
+ * player has picked one.
+ */
+export interface AbilityMode {
+  id: string;
+  /** What the board's button says. */
+  label: string;
+  targeting: TargetingSpec;
+  resolve: (state: GameState, ctx: EffectContext, event: ActivatedAbilityEvent, sourceInstanceId: string) => GameState;
 }
 
 export interface ActivatedAbilityDefinition {
   kind: ActivatableKind;
+  /**
+   * The options, for a modal ability. Declare EITHER this or the
+   * `targeting`/`resolve` pair below — never both.
+   *
+   * Everything downstream works in modes regardless: `modesOf` turns a plain
+   * ability into a single unnamed one, so enumeration, validation and execution
+   * have one code path rather than a modal branch each. That is the difference
+   * between adding a mechanic and adding it three times.
+   */
+  modes?: readonly AbilityMode[];
+  /** "you've not chosen this turn" — each mode usable once per turn, tracked on
+   *  the SOURCE (`UnitInstance.abilityModesUsedThisTurn`) so two copies of the
+   *  card do not share one allowance. */
+  modesOncePerTurn?: true;
   /** Defaults to `{ exhaust: true }` when omitted — the common case. */
   cost?: ActivationCost;
   /**
@@ -63,10 +120,11 @@ export interface ActivatedAbilityDefinition {
   /** What the player must choose before submitting. Reuses card-effects.ts's
    *  TargetingSpec so legal-actions' existing fan-out and the web UI's existing
    *  target picker both apply unchanged. */
-  targeting: TargetingSpec;
+  targeting?: TargetingSpec;
   /** `sourceInstanceId` is the permanent being activated — needed by any ability
-   *  whose text says "me" rather than naming a target. */
-  resolve: (state: GameState, ctx: EffectContext, event: ActivatedAbilityEvent, sourceInstanceId: string) => GameState;
+   *  whose text says "me" rather than naming a target. Omitted for a modal
+   *  ability, whose modes each carry their own. */
+  resolve?: (state: GameState, ctx: EffectContext, event: ActivatedAbilityEvent, sourceInstanceId: string) => GameState;
 }
 
 /**
@@ -82,6 +140,9 @@ const LUX_CROWNGUARD = "OGS-014";
 /** Orb of Regret: "Exhaust: Give a unit -1 Might this turn, to a minimum of 1
  *  Might." The first Gear in this engine that does anything at all. */
 const ORB_OF_REGRET = "OGN-090";
+const VIKTOR_HERALD = "OGN-265";
+const LEE_SIN_BLIND_MONK = "OGN-257";
+const UDYR_WILDMAN = "OGN-157";
 
 /** Vi - Destructive: "Recycle 1 from your trash: Give me +1 Might this turn."
  *  The first ability whose cost is NOT an exhaust. */
@@ -110,6 +171,74 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, _event, sourceInstanceId) =>
       giveMightThisTurnToOwnUnit(state, ctx.casterIndex, sourceInstanceId, 1),
+  },
+  [VIKTOR_HERALD]: {
+    // Viktor - Herald of the Arcane — "1 Energy, exhaust: Play a 1-Might Recruit
+    // unit token."
+    //
+    // The first LEGEND ability in this registry. Nothing about the Legend zone
+    // needed inventing for it: Awaken already readies the legend
+    // (turn-manager's `legend: { ...p.legend, exhausted: false }`), so the
+    // ready/exhaust cycle that makes a once-per-turn ability once-per-turn was
+    // there all along and simply had nothing using it.
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeRecruitToken(state, ctx.casterIndex, "base"),
+  },
+  [LEE_SIN_BLIND_MONK]: {
+    // Lee Sin - Blind Monk — "1 Energy, exhaust: Buff a friendly unit."
+    //
+    // Routed through addBuff, which is where 708's "not placed instead" lives —
+    // so buffing an already-buffed unit spends the Energy and the exhaust for
+    // nothing, which is what the rules say and not a case to special-case away.
+    // It also means this and Mistfall compose with no knowledge of each other:
+    // addBuff fires `unitBuffed`, so buffing with the Legend can offer the gear
+    // its ready-it trigger.
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? addBuff(state, event.targetUnitInstanceId) : state),
+  },
+  [UDYR_WILDMAN]: {
+    // Udyr - Wildman — "Spend my buff: Choose one you've not chosen this turn —
+    // Deal 2 to a unit at a battlefield / Stun a unit at a battlefield / Ready me
+    // / Give me [Ganking] this turn."
+    //
+    // No exhaust anywhere in that cost line, so like Vi - Destructive he can go
+    // again — as often as buffs keep arriving, and up to four times a turn since
+    // each mode is spent separately. Assuming the exhaust would have capped him
+    // at once and quietly made the four-mode design pointless.
+    kind: "Unit",
+    cost: { spendBuff: true },
+    modesOncePerTurn: true,
+    modes: [
+      {
+        id: "damage",
+        label: "Deal 2 to a unit at a battlefield",
+        targeting: { kind: "unit" },
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, 2) : state,
+      },
+      {
+        id: "stun",
+        label: "Stun a unit at a battlefield",
+        targeting: { kind: "unit" },
+        resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? stunUnit(state, event.targetUnitInstanceId) : state),
+      },
+      {
+        id: "ready",
+        label: "Ready me",
+        targeting: { kind: "none" },
+        resolve: (state, _ctx, _event, sourceInstanceId) => readyUnit(state, sourceInstanceId),
+      },
+      {
+        id: "ganking",
+        label: "Give me [Ganking] this turn",
+        targeting: { kind: "none" },
+        resolve: (state, _ctx, _event, sourceInstanceId) => grantKeywordThisTurn(state, sourceInstanceId, "Ganking"),
+      },
+    ],
   },
   [ORB_OF_REGRET]: {
     kind: "Gear",
@@ -148,15 +277,48 @@ export function activationCostOf(defId: string): ActivationCost {
  * completed for the cost to be paid". Shared by the validator and the
  * enumerator so an ability is never offered and then refused.
  */
-export function canPayActivationCost(state: GameState, playerIndex: 0 | 1, card: { defId: string; exhausted: boolean }): boolean {
-  const cost = activationCostOf(card.defId);
+export function canPayActivationCost(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: { defId: string; exhausted: boolean; buffed?: boolean },
+  /** The ability being used, when it is not the source's own — Heimerdinger
+   *  pays somebody else's cost with his own exhaust. Defaults to the source. */
+  abilityDefId: string = card.defId,
+): boolean {
+  const cost = activationCostOf(abilityDefId);
   if (cost.exhaust && card.exhausted) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;
+  // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
+  // not offered rather than offered and refused.
+  if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
+  // The Energy half is a payment, so affordability is "could a payment be
+  // computed", which is exactly what the enumerator will do — asked through the
+  // same function so the two cannot disagree about what is affordable.
+  if (cost.energy !== undefined && activationPayment(state, playerIndex, cost.energy) === undefined) return false;
   return true;
 }
 
+/**
+ * The runes that would pay an activation's Energy cost, or undefined if it
+ * cannot be paid.
+ *
+ * Floating Energy first, exactly as a card's cost is priced — `energyAfterFloat`
+ * is the same function `computeEffectiveCost` uses, so an activation and a play
+ * agree on what a player can afford.
+ */
+export function activationPayment(state: GameState, playerIndex: 0 | 1, energy: number): RunePayment | undefined {
+  const actor = state.players[playerIndex];
+  return computeAutoPayment(actor.channeled, energyAfterFloat(actor.floatingEnergy, energy), 0, null) ?? undefined;
+}
+
 /** Pays an activation cost, or returns undefined if it cannot be paid. */
-export function payActivationCost(state: GameState, playerIndex: 0 | 1, instanceId: string, defId: string): GameState | undefined {
+export function payActivationCost(
+  state: GameState,
+  playerIndex: 0 | 1,
+  instanceId: string,
+  defId: string,
+  payment?: RunePayment,
+): GameState | undefined {
   const cost = activationCostOf(defId);
   let next = state;
   if (cost.recycleFromTrash !== undefined) {
@@ -164,8 +326,43 @@ export function payActivationCost(state: GameState, playerIndex: 0 | 1, instance
     if (recycled === undefined) return undefined;
     next = recycled;
   }
+  if (cost.spendBuff) {
+    const spent = spendBuff(next, playerIndex, instanceId);
+    if (spent === undefined) return undefined;
+    next = spent;
+  }
+  if (cost.energy !== undefined) {
+    const paid = payActivationEnergy(next, playerIndex, cost.energy, payment);
+    if (paid === undefined) return undefined;
+    next = paid;
+  }
   if (cost.exhaust) next = exhaustActivated(next, playerIndex, instanceId);
   return next;
+}
+
+/** Spends floating Energy first, then exhausts the named runes — the same order
+ *  and the same arithmetic execute-play-card uses for a card's Energy cost. */
+function payActivationEnergy(
+  state: GameState,
+  playerIndex: 0 | 1,
+  energy: number,
+  payment: RunePayment | undefined,
+): GameState | undefined {
+  const actor = state.players[playerIndex];
+  const fromFloat = Math.min(actor.floatingEnergy, energy);
+  const owed = energy - fromFloat;
+  const runeIds = new Set(payment?.energyRunes ?? []);
+  const usable = actor.channeled.filter((r) => runeIds.has(r.id) && r.state === "Ready");
+  if (usable.length < owed) return undefined;
+
+  const spend = new Set(usable.slice(0, owed).map((r) => r.id));
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...actor,
+    floatingEnergy: actor.floatingEnergy - fromFloat,
+    channeled: actor.channeled.map((r) => (spend.has(r.id) ? { ...r, state: "Exhausted" as const } : r)),
+  };
+  return { ...state, players };
 }
 
 /** Does this ability only bank a resource? See `banksResource` — the AI skips
@@ -193,12 +390,17 @@ export function findActivatable(
   state: GameState,
   playerIndex: 0 | 1,
   instanceId: string,
-): { card: UnitInstance | GearInstance; definition: ActivatedAbilityDefinition } | undefined {
+): { card: UnitInstance | GearInstance | LegendInstance; definition: ActivatedAbilityDefinition } | undefined {
   const actor = state.players[playerIndex];
-  const candidates: (UnitInstance | GearInstance)[] = [
+  // The LEGEND is a fourth place an activatable thing sits, and it is not on the
+  // board at all — it has its own zone. Two of the three OGN preset legends have
+  // an exhaust ability, and while this list held only the board zones they were
+  // unreachable rather than merely unimplemented: no action could name them.
+  const candidates: (UnitInstance | GearInstance | LegendInstance)[] = [
     ...actor.baseUnits,
     ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
     ...actor.activeGear,
+    actor.legend,
   ];
   const card = candidates.find((c) => c.instanceId === instanceId);
   if (!card) return undefined;
@@ -219,6 +421,10 @@ export function exhaustActivated(state: GameState, playerIndex: 0 | 1, instanceI
     ...actor,
     baseUnits: actor.baseUnits.map(exhaust),
     activeGear: actor.activeGear.map(exhaust),
+    // The legend zone. Missing it made a Legend ability free and repeatable
+    // within a turn — the cost was silently not paid, which is the worst shape
+    // of bug here because the effect still happened.
+    legend: exhaust(actor.legend),
   };
 
   const battlefields = state.battlefields.map((bf) => {
@@ -227,5 +433,159 @@ export function exhaustActivated(state: GameState, playerIndex: 0 | 1, instanceI
     return { ...bf, units: { ...bf.units, [actor.id]: mine.map(exhaust) } };
   });
 
+  return { ...state, players, battlefields };
+}
+
+/** Heimerdinger - Inventor: "I have all :rb_exhaust: abilities of all friendly
+ *  legends, units, and gear." He has no ability of his own; he has everyone
+ *  else's. */
+const HEIMERDINGER_INVENTOR = "OGN-111";
+
+/**
+ * Every ability `source` can be used to activate right now, as (abilityDefId,
+ * definition) pairs.
+ *
+ * Almost always exactly one — the source's own. Heimerdinger is the exception,
+ * and the reason this is a list rather than a lookup: he offers every activated
+ * ability any friendly permanent has, with himself as the source.
+ *
+ * Rule 416.1 decides whose exhaust pays: "In abilities, the Exhaust symbol
+ * represents the cost 'Exhaust this' or **'Exhaust me'**." He HAS the ability, so
+ * the exhaust is his — which also means the card he borrowed it from can be
+ * exhausted already and it makes no difference.
+ */
+export function abilitiesAvailableTo(
+  state: GameState,
+  playerIndex: 0 | 1,
+  source: { defId: string },
+): { abilityDefId: string; definition: ActivatedAbilityDefinition }[] {
+  if (source.defId === HEIMERDINGER_INVENTOR) {
+    const actor = state.players[playerIndex];
+    const friendly = [
+      actor.legend,
+      ...actor.baseUnits,
+      ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
+      ...actor.activeGear,
+    ];
+    // Deduplicated: two copies of the same gear grant one ability, not two
+    // identical entries the board would render twice.
+    const defIds = [...new Set(friendly.map((c) => c.defId).filter((defId) => defId in ACTIVATED_ABILITIES))];
+    return defIds.map((abilityDefId) => ({ abilityDefId, definition: ACTIVATED_ABILITIES[abilityDefId]! }));
+  }
+  const own = ACTIVATED_ABILITIES[source.defId];
+  return own ? [{ abilityDefId: source.defId, definition: own }] : [];
+}
+
+/** Does this card offer anything to activate — its own ability or borrowed ones? */
+export function hasAnyActivatableAbility(state: GameState, playerIndex: 0 | 1, source: { defId: string }): boolean {
+  return abilitiesAvailableTo(state, playerIndex, source).length > 0;
+}
+
+/**
+ * The source and ability one ActivateAbility action names, or undefined if the
+ * pairing is not real.
+ *
+ * The single answer to "what is this action actually doing", shared by the
+ * validator, the executor and the enumerator — the three places that have drifted
+ * apart before in exactly this codebase.
+ */
+export function resolveActivation(
+  state: GameState,
+  playerIndex: 0 | 1,
+  permanentInstanceId: string,
+  viaAbilityDefId?: string,
+): { card: UnitInstance | GearInstance | LegendInstance; abilityDefId: string; definition: ActivatedAbilityDefinition } | undefined {
+  const actor = state.players[playerIndex];
+  const source = [
+    ...actor.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
+    ...actor.activeGear,
+    actor.legend,
+  ].find((c) => c.instanceId === permanentInstanceId);
+  if (!source) return undefined;
+
+  const available = abilitiesAvailableTo(state, playerIndex, source);
+  const chosen = viaAbilityDefId === undefined ? available[0] : available.find((a) => a.abilityDefId === viaAbilityDefId);
+  // A borrowed ability must still be one this source really offers — naming an
+  // arbitrary defId must not let anyone activate a card they do not control.
+  if (!chosen) return undefined;
+  return { card: source, ...chosen };
+}
+
+/** For coverage.ts — Heimerdinger's whole printed text is implemented by the
+ *  borrowing above, and he appears in no ability registry of his own. */
+export function borrowedAbilityDefIds(): string[] {
+  return [HEIMERDINGER_INVENTOR];
+}
+
+/** The synthetic id a non-modal ability's single mode carries. Never appears on
+ *  an action, since enumeration omits `modeId` when there is only one. */
+const SOLE_MODE = "";
+
+/**
+ * Every ability, as a list of modes.
+ *
+ * A plain ability becomes one unnamed mode built from its own targeting and
+ * resolve, so enumeration, validation and execution never branch on "is this
+ * modal" — they were three places that would each have needed the same new
+ * branch, and three places is how a mechanic ends up working in two of them.
+ */
+export function modesOf(abilityDefId: string): readonly AbilityMode[] {
+  const definition = ACTIVATED_ABILITIES[abilityDefId];
+  if (!definition) return [];
+  if (definition.modes) return definition.modes;
+  if (!definition.resolve) return [];
+  return [
+    {
+      id: SOLE_MODE,
+      label: "",
+      targeting: definition.targeting ?? { kind: "none" },
+      resolve: definition.resolve,
+    },
+  ];
+}
+
+/** The modes still available to `source` right now — all of them, unless the
+ *  ability is "one you've not chosen this turn". */
+export function availableModes(
+  abilityDefId: string,
+  /** Only a Unit carries the per-turn record — a Legend or Gear simply has none
+   *  to spend, which reads as "nothing used yet" and is correct: no modal
+   *  ability in this pool sits on either. */
+  source: { abilityModesUsedThisTurn?: string[] } | object,
+): readonly AbilityMode[] {
+  const modes = modesOf(abilityDefId);
+  if (!ACTIVATED_ABILITIES[abilityDefId]?.modesOncePerTurn) return modes;
+  const used = new Set("abilityModesUsedThisTurn" in source ? (source.abilityModesUsedThisTurn ?? []) : []);
+  return modes.filter((m) => !used.has(m.id));
+}
+
+/** The mode an action names, checked against what is actually still available. */
+export function resolveMode(
+  abilityDefId: string,
+  source: { abilityModesUsedThisTurn?: string[] } | object,
+  modeId: string | undefined,
+): AbilityMode | undefined {
+  const available = availableModes(abilityDefId, source);
+  return modeId === undefined ? available.find((m) => m.id === SOLE_MODE) : available.find((m) => m.id === modeId);
+}
+
+/** Does this ability track its modes per turn? */
+export function tracksModeUse(abilityDefId: string): boolean {
+  return ACTIVATED_ABILITIES[abilityDefId]?.modesOncePerTurn === true;
+}
+
+/** Records that `modeId` has been used, so "you've not chosen this turn" holds. */
+export function recordModeUsed(state: GameState, playerIndex: 0 | 1, instanceId: string, modeId: string): GameState {
+  const remember = <T extends { instanceId: string; abilityModesUsedThisTurn?: string[] }>(c: T): T =>
+    c.instanceId === instanceId ? { ...c, abilityModesUsedThisTurn: [...(c.abilityModesUsedThisTurn ?? []), modeId] } : c;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const actor = players[playerIndex];
+  players[playerIndex] = { ...actor, baseUnits: actor.baseUnits.map(remember) };
+  const battlefields = state.battlefields.map((bf) => {
+    const mine = bf.units[actor.id];
+    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(remember) } } : bf;
+  });
   return { ...state, players, battlefields };
 }

@@ -11,7 +11,7 @@ import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardPlacesTokens, discardChoiceOf, optionalUnitCostOf } from "../engine/card-effects.js";
+import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import {
@@ -305,20 +305,28 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
   }
 
-  // A Spell carrying a destination is deploying tokens there (Recruit the
-  // Vanguard). "Battlefields you CONTROL" — deliberately stricter than the
-  // Unit rule above, which accepts mere presence even at a contested
-  // battlefield; the card says control and the oracle treats that as a real
-  // difference rather than a copy-paste (ActionValidator.java:1487-1504).
+  // A Spell carrying a destination means one of two different things, and they
+  // carry different restrictions — so the check asks WHICH rather than assuming.
   if (card.kind === "Spell" && action.destinationBattlefieldId !== undefined) {
-    if (!cardPlacesTokens(card.defId)) {
-      return fail(`${card.name} cannot be played directly to a battlefield`);
-    }
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
-    if (destination.controllerId !== actor.id) {
-      return fail(`${card.name} can only place tokens at a battlefield you control`);
+
+    if (cardPlacesTokens(card.defId)) {
+      // Deploying tokens there (Recruit the Vanguard). "Battlefields you
+      // CONTROL" — deliberately stricter than the Unit rule above, which accepts
+      // mere presence even at a contested battlefield; the card says control and
+      // the oracle treats that as a real difference rather than a copy-paste
+      // (ActionValidator.java:1487-1504).
+      if (destination.controllerId !== actor.id) {
+        return fail(`${card.name} can only place tokens at a battlefield you control`);
+      }
+    } else if (!cardMovesTarget(card.defId)) {
+      return fail(`${card.name} cannot be played directly to a battlefield`);
     }
+    // A move-target spell (Charm) is deliberately unrestricted: "Move an enemy
+    // unit" names no destination requirement, and the unit being moved is not
+    // yours, so "a battlefield you control" would be the wrong test entirely —
+    // the whole point is putting them somewhere they did not choose.
   }
 
   // Floating Energy/Power (banked from earlier recycled runes this turn)
@@ -335,6 +343,13 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // A discard choice: legal only for a card that asks for one, only naming a
   // card actually in hand, and never the card being played (by the time it
   // resolves it has already left hand). A MANDATORY one must be present.
+  // "Move an enemy unit" without saying where is not a legal action — the
+  // destination is part of the instruction, not an optional extra like a
+  // token-placing spell's (which defaults to base).
+  if (cardMovesTarget(card.defId) && action.destinationBattlefieldId === undefined) {
+    return fail(`${card.name} must name a battlefield to move the unit to`);
+  }
+
   const discardChoice = discardChoiceOf(card.defId);
   if (action.discardCardInstanceId !== undefined) {
     if (!discardChoice) return fail(`${card.name} does not discard a card`);

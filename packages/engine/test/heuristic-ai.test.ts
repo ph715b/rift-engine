@@ -273,6 +273,9 @@ describe("heuristic AI", () => {
       damage: 0,
       mightThisTurn: 0,
       buffed: false,
+      stunned: false,
+      keywordsThisTurn: {},
+      abilityModesUsedThisTurn: [],
       ...overrides,
     });
     const attacker = mkUnit({ instanceId: "mine-1", ...mine });
@@ -329,6 +332,9 @@ describe("heuristic AI", () => {
       damage: 0,
       mightThisTurn: 0,
       buffed: false,
+      stunned: false,
+      keywordsThisTurn: {},
+      abilityModesUsedThisTurn: [],
     });
     const theirId = state.players[1]!.id;
     // Both battlefields contested, so there's no uncontested walk-in to
@@ -375,6 +381,9 @@ describe("heuristic AI", () => {
       damage: 0,
       mightThisTurn: 0,
       buffed: false,
+      stunned: false,
+      keywordsThisTurn: {},
+      abilityModesUsedThisTurn: [],
     };
     const bf: BattlefieldState = {
       id: "bf-only",
@@ -439,6 +448,9 @@ describe("heuristic AI", () => {
         damage: 0,
         mightThisTurn: 0,
         buffed: false,
+        stunned: false,
+        keywordsThisTurn: {},
+        abilityModesUsedThisTurn: [],
       });
       const own = mkUnit("own-1", ownMight);
       const enemy = mkUnit("enemy-1", enemyMight);

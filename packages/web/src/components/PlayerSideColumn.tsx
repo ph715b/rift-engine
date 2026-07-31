@@ -23,6 +23,13 @@ interface PlayerSideColumnProps {
    *  to its base row) — a pure visual mirror, per the user's own layout
    *  note. */
   legendAtBottom?: boolean;
+  /** The Legend has an activated ability the human can use right now — two of
+   *  the three OGN preset legends read "1 Energy, exhaust:". Without this the
+   *  engine and the AI could both use it and a human could not, which is exactly
+   *  the gap Gear had before it rendered as a card. */
+  isLegendSelectable?: boolean;
+  isLegendSelected?: boolean;
+  onLegendClick?: () => void;
   isChampionSelectable?: boolean;
   /** The champion can't be played right now (on the viewer's own turn) —
    *  dimmed, matching how the hand renders its own unplayable cards. */
@@ -61,6 +68,9 @@ export function PlayerSideColumn({
   activeGear,
   isEnemy,
   legendAtBottom,
+  isLegendSelectable,
+  isLegendSelected,
+  onLegendClick,
   isChampionSelectable,
   isChampionUnplayable,
   onChampionClick,
@@ -71,7 +81,13 @@ export function PlayerSideColumn({
 }: PlayerSideColumnProps) {
   const legendAndChampion = (
     <div className={`side-column-cards${legendAtBottom ? " at-bottom" : ""}`}>
-      <CardView card={legend} isEnemy={isEnemy} />
+      <CardView
+        card={legend}
+        isEnemy={isEnemy}
+        isSelectable={isLegendSelectable}
+        isSelected={isLegendSelected}
+        {...(onLegendClick ? { onClick: onLegendClick } : {})}
+      />
       {champion && (
         <CardView
           card={champion}

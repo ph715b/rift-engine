@@ -916,6 +916,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ...human.activeGear,
       ...human.baseUnits,
       ...state.battlefields.flatMap((bf) => bf.units[human.id] ?? []),
+      human.legend,
     ];
     return everywhere.find((c) => c.instanceId === pendingAbility)?.name ?? "ability";
   }
@@ -1910,6 +1911,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           label="You"
           points={human.points}
           legend={human.legend}
+          isLegendSelectable={canActivate(human.legend.instanceId)}
+          isLegendSelected={pendingAbility === human.legend.instanceId}
+          onLegendClick={() => handleActivateClick(human.legend.instanceId)}
           champion={human.championZone}
           trashCount={human.trash.length}
           onViewTrash={() => setViewingTrash({ label: "Your trash", cards: human.trash })}
