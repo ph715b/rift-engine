@@ -8,7 +8,15 @@ import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
 import { executeAnswerDecision } from "../actions/execute-answer-decision.js";
-import { abilityBanksResource, findActivatable } from "../engine/activated-abilities.js";
+import {
+  abilitiesAvailableTo,
+  abilityBanksResource,
+  availableModes,
+  canPayActivationCost,
+  findActivatable,
+} from "../engine/activated-abilities.js";
+import { eligibleTargets } from "../engine/target-lookup.js";
+import { contextFor } from "../engine/effect-context.js";
 import { maskHiddenCards } from "../engine/hidden.js";
 import { effectiveMight } from "../engine/effective-might.js";
 import { runCleanup } from "../engine/cleanup.js";
@@ -96,6 +104,28 @@ function applyBare(state: GameState, action: PlayerAction): GameState {
   }
 }
 
+/**
+ * The actions worth scoring, for whoever is acting.
+ *
+ * Shared by the AI's own choice and by the opponent model, so the two cannot
+ * disagree about what the opponent might do — an opponent model that considers
+ * moves the AI itself would never make is not modelling the opponent, it is
+ * modelling a different player.
+ *
+ * FloatRune and HideCard are out, and so are the ActivateAbility candidates that
+ * only BANK a resource: `evaluate` scores board state, which cannot value
+ * something stored for a future play this lookahead never sees, so scoring them
+ * only ever produces a meaningless tie with Pass.
+ */
+function candidateActions(state: GameState): PlayerAction[] {
+  return legalActions(state).filter(
+    (a) =>
+      a.type !== "FloatRune" &&
+      a.type !== "HideCard" &&
+      !(a.type === "ActivateAbility" && abilityBanksResource(findActivatable(state, a.playerIndex, a.permanentInstanceId)?.card.defId ?? "")),
+  );
+}
+
 /** How many PassFocus rounds `settleDeferredResolution` will drive before
  *  giving up. Two per pending item in a 2-player game, so this covers a chain
  *  several entries deep plus a Showdown — far more than anything reachable —
@@ -128,15 +158,26 @@ const MAX_SETTLE_PASSES = 16;
  * as −7 on a losing attack, so the AI now declines bad fights for the same
  * reason it takes good ones. It gains judgement, not just aggression.
  *
- * The one assumption: that the opponent passes rather than responding. Now that
- * [Action]/[Reaction] casting exists, that is a genuine OPTIMISTIC assumption
- * rather than the only legal outcome — the AI scores every attack and every cast
- * as though it resolves unopposed, and will walk into removal it could have
- * anticipated. Correcting it means modelling the opponent's best response
- * (2-ply), which is a separate piece of work; it is recorded as a known
- * consequence in docs/rules-conformance.md rather than papered over here.
+ * `opponentReplies` is what makes this 2-ply rather than 1. With it false, the
+ * opponent is assumed to pass — which used to be the only behaviour, and was a
+ * genuinely OPTIMISTIC assumption rather than the only legal outcome once
+ * [Action]/[Reaction] casting existed: the AI scored every attack and every cast
+ * as though it resolved unopposed, and walked into removal it could have
+ * anticipated.
+ *
+ * With it true, whenever the player to act is not the one being evaluated for,
+ * that player picks their own best action instead. Their evaluation of it is
+ * settled with `opponentReplies: false` — the depth guard. Without it the two
+ * sides would model each other forever; with it the search is exactly two plies
+ * deep, which is what the branching factor here affords (measured: 0.16 ms and
+ * a median of 16 candidates per decision before this).
  */
-function settleDeferredResolution(state: GameState): GameState {
+function settleDeferredResolution(
+  state: GameState,
+  weights: EvalWeights = BASELINE_WEIGHTS,
+  forIndex?: 0 | 1,
+  opponentReplies = false,
+): GameState {
   let settled = state;
   for (let i = 0; i < MAX_SETTLE_PASSES; i++) {
     // A pending question comes first — nothing else is legal until it is
@@ -157,7 +198,7 @@ function settleDeferredResolution(state: GameState): GameState {
       let bestAnswer = answers[0]!;
       let bestValue = -Infinity;
       for (const answer of answers) {
-        const value = evaluate(applyBare(current, answer), pending.playerIndex);
+        const value = evaluate(applyBare(current, answer), pending.playerIndex, weights);
         if (value > bestValue) {
           bestValue = value;
           bestAnswer = answer;
@@ -166,6 +207,20 @@ function settleDeferredResolution(state: GameState): GameState {
       settled = applyBare(current, bestAnswer);
       continue;
     }
+    // The opponent gets to answer back, rather than being assumed to pass.
+    // Their reply is chosen in THEIR interest, by the same candidate list and
+    // the same evaluator the AI uses on itself — an opponent model that
+    // considers moves the AI would never make is modelling somebody else.
+    if (opponentReplies && forIndex !== undefined && actingPlayerIndex(settled) !== forIndex) {
+      const reply = bestActionFor(settled, actingPlayerIndex(settled), weights, false);
+      // Passing is the one reply that changes nothing, so taking it here would
+      // spin the loop; fall through to the PassFocus driving below instead.
+      if (reply && reply.type !== "Pass") {
+        settled = applyAction(settled, reply);
+        continue;
+      }
+    }
+
     // A closed chain takes precedence over an open Showdown, mirroring
     // executePassFocus's own dispatch order (it checks `chainOpen` first).
     if (!settled.chainOpen) {
@@ -220,14 +275,187 @@ function totalBoardMight(state: GameState, playerIndex: 0 | 1): number {
   return total;
 }
 
-/** Points dominate (winning the game outranks any board-state consideration);
- *  board value is the tiebreak/proxy for "which position is developing better"
- *  in the absence of any deeper positional evaluation yet. */
-function evaluate(state: GameState, forIndex: 0 | 1): number {
+/**
+ * What the evaluator prices, and at what.
+ *
+ * Named and passable so a candidate weighting can be played head-to-head against
+ * the current one over hundreds of games — which is the only defensible way to
+ * add a term here. This codebase's standing rule is no speculative heuristic
+ * without a real evaluative basis (it is why the AI does not mulligan, does not
+ * float runes, and skips resource-banking abilities), and "a card in hand feels
+ * like about 2 Might" is exactly the kind of invented number that rule exists to
+ * keep out. A win rate is not an invented number.
+ *
+ * Deliberately NOT a forked `heuristic-ai-v1.ts` to compare against: a copied
+ * module rots the moment the engine underneath it changes, and a benchmark that
+ * has quietly stopped meaning anything is worse than none.
+ */
+export interface EvalWeights {
+  /**
+   * Model the opponent answering back, rather than assuming they pass.
+   *
+   * Not a weight — a change of SEARCH depth, not of valuation — but it lives
+   * here so a candidate can be played head-to-head against the current
+   * behaviour by exactly the same harness.
+   *
+   * **Off by default, and measured rather than assumed.** On its own it LOSES,
+   * 46.6% over 3000 games, and the reason is a mispricing rather than the search:
+   * with `cardInHand` at 0 the modelled opponent answers back for FREE, so the AI
+   * over-fears a reply that really costs them a card. Priced properly the same
+   * search wins (52.0%) — but that is indistinguishable from `cardInHand` alone
+   * (52.2%), and it costs ~5x the compute per action.
+   *
+   * So it is kept, off, with its result written down: no measurable gain, real
+   * cost. Worth revisiting when the pool has enough Reaction cards that a reply
+   * is common rather than occasional, which is when a depth-2 search should
+   * start to pay for itself.
+   */
+  twoPly: boolean;
+  /** Points dominate — winning outranks any board consideration. */
+  point: number;
+  /** A unit's Might, the proxy for "whose position is developing better". */
+  might: number;
+  /**
+   * A card in hand. Zero today, and that is not neutrality — it is an
+   * INCONSISTENCY: playing a card spends one and the evaluator charges nothing,
+   * drawing one gains nothing. Every card the AI has never once played (Morbid
+   * Return, Meditation, Mobilize, Scrapheap's draw) is priced by this term.
+   */
+  cardInHand: number;
+  /**
+   * A permanent on the board that is not a unit — gear. Zero today, which is why
+   * the AI has played gear exactly zero times in 60 games: a gear changes no
+   * Might on arrival, so it ties with Pass, and ties go to Pass.
+   */
+  permanentInPlay: number;
+  /**
+   * Price a permanent by what its ACTIVATED ability would actually do right now,
+   * instead of (or alongside) the flat `permanentInPlay` weight. See
+   * `activatedAbilityValue` — this is the difference between recognising a gear
+   * and merely counting it.
+   *
+   * **Off by default, and the reason is a fact about the CARDS.** It works: with
+   * it on, the AI plays Orb of Regret (the one gear in the pool with an
+   * activated ability) and correctly declines the four whose value waits on a
+   * future trigger. But it measures 50.7% against 52.2% without it — every
+   * configuration that plays more gear lands at ~50%, whether the gear is
+   * chosen well or badly. The recognition is accurate; the gear is marginal.
+   * "-1 Might, to a minimum of 1" is not worth a card and an Energy here.
+   *
+   * Kept because it is the right MECHANISM the day the pool has gear worth
+   * playing, and because turning it on is what makes gear reachable in the
+   * self-play probes this project verifies with — today they cannot reach it.
+   */
+  abilityValue: boolean;
+}
+
+/**
+ * What ships, and what every candidate is measured against.
+ *
+ * Every number here was settled by `scratchpad/ai-ab.mjs` over 3000 games per
+ * candidate, across all 49 deck pairings in both seats. The results, because the
+ * losers are as informative as the winners:
+ *
+ *   cardInHand 0.25 / 0.5 / 0.75   52.1-52.2%   win   (a flat plateau)
+ *   cardInHand 2                   46.3%        LOSE
+ *   cardInHand 4                   34.0%        LOSE
+ *   permanentInPlay 0.5 .. 4       ~50%         neutral
+ *   twoPly alone                   46.6%        LOSE
+ *   twoPly + cardInHand 0.5        52.0%        win
+ *
+ * `cardInHand` is small on purpose and the plateau is why: it works as a
+ * TIE-BREAKER, not a valuation — the same design as DAMAGE_WEIGHT above, and for
+ * the same reason. At 2 and 4 it stops breaking ties and starts outbidding real
+ * board value, and the AI hoards; hoarding loses. My own stated rationale for
+ * adding it ("the evaluator charges nothing for spending a card") predicted the
+ * opposite sign, which is exactly why the harness was built before the tuning.
+ *
+ * `permanentInPlay` earns its place on behaviour rather than strength: it is
+ * neutral in win rate at every weight tried, and it takes gear plays from ZERO
+ * across 60 games to ~22 per 40. An AI that never plays a third of its deck is a
+ * worse opponent to practise against and, worse, makes every gear card
+ * unreachable in the self-play probes this project verifies with.
+ */
+export const BASELINE_WEIGHTS: EvalWeights = {
+  point: 1000,
+  might: 1,
+  cardInHand: 0.5,
+  permanentInPlay: 0.5,
+  abilityValue: false,
+  twoPly: false,
+};
+
+/**
+ * What a permanent with an ACTIVATED ability is actually worth: whatever using
+ * it right now would be worth.
+ *
+ * This is recognition rather than a fudge factor, and the difference shows in
+ * play. A flat per-gear weight says every gear is worth the same, so the AI
+ * plays a useless one as readily as a useful one and plays it when it does
+ * nothing — which is why the flat weight costs win rate. This asks the actual
+ * question: apply the ability through the real executor, and see if the board
+ * got better.
+ *
+ * Scored on Might alone, deliberately, and NOT through `evaluate`: that would
+ * recurse (evaluate -> gear value -> evaluate). Might is also the only thing an
+ * activation can move in one step, so the cheaper metric loses nothing.
+ *
+ * Floored at zero. An ability that would make things worse is one the AI simply
+ * would not use, so it does not make the gear a liability — it makes it worth
+ * nothing, which is the honest valuation of a card you will not activate.
+ *
+ * Reaches only ACTIVATED abilities, and that is a real limit worth naming: four
+ * of the five gear in the preset pool are TRIGGERED (Mushroom Pouch on your
+ * Beginning Phase, Mistfall on a buff, Mask of Foresight when combat begins,
+ * Scrapheap on its own fate). Their value depends on an event that has not
+ * happened, so a position evaluator has nothing to price it with. Declining to
+ * guess is the same judgement this AI already makes about [Hidden] and floating
+ * runes.
+ */
+function activatedAbilityValue(state: GameState, playerIndex: 0 | 1): number {
+  const actor = state.players[playerIndex];
+  const before = totalBoardMight(state, playerIndex) - totalBoardMight(state, 1 - playerIndex as 0 | 1);
+  let total = 0;
+
+  for (const gear of actor.activeGear) {
+    let best = 0;
+    for (const { abilityDefId } of abilitiesAvailableTo(state, playerIndex, gear)) {
+      if (!canPayActivationCost(state, playerIndex, gear, abilityDefId)) continue;
+      for (const mode of availableModes(abilityDefId, gear)) {
+        const targets =
+          mode.targeting.kind === "unit"
+            ? eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope).map((u) => u.instanceId)
+            : [undefined];
+        for (const targetUnitInstanceId of targets) {
+          const used = mode.resolve(
+            state,
+            contextFor(playerIndex),
+            targetUnitInstanceId !== undefined ? { targetUnitInstanceId } : {},
+            gear.instanceId,
+          );
+          const after = totalBoardMight(used, playerIndex) - totalBoardMight(used, 1 - playerIndex as 0 | 1);
+          best = Math.max(best, after - before);
+        }
+      }
+    }
+    total += best;
+  }
+  return total;
+}
+
+function evaluate(state: GameState, forIndex: 0 | 1, weights: EvalWeights = BASELINE_WEIGHTS): number {
   const opponentIndex: 0 | 1 = forIndex === 0 ? 1 : 0;
-  const me = state.players[forIndex];
-  const opponent = state.players[opponentIndex];
-  return me.points * 1000 - opponent.points * 1000 + totalBoardMight(state, forIndex) - totalBoardMight(state, opponentIndex);
+  const side = (index: 0 | 1) => {
+    const p = state.players[index];
+    return (
+      p.points * weights.point +
+      totalBoardMight(state, index) * weights.might +
+      p.hand.length * weights.cardInHand +
+      p.activeGear.length * weights.permanentInPlay +
+      (weights.abilityValue ? activatedAbilityValue(state, index) : 0)
+    );
+  };
+  return side(forIndex) - side(opponentIndex);
 }
 
 /** Picks the legal action whose resulting state scores highest for the
@@ -257,7 +485,42 @@ function evaluate(state: GameState, forIndex: 0 | 1): number {
  *  ability and wrong once a Gear ability could change a unit's Might — that
  *  IS board state, so the evaluator prices it correctly and the AI should
  *  use it. `abilityBanksResource` is the line between the two. */
-export function chooseAction(rawState: GameState): PlayerAction {
+/**
+ * The best action for `forIndex`, or undefined when there is nothing to choose.
+ *
+ * `opponentReplies` is passed straight through to the settle: true for the AI's
+ * real decision (2-ply), false when this IS the opponent's reply being modelled
+ * (the depth guard — see settleDeferredResolution).
+ */
+function bestActionFor(
+  state: GameState,
+  forIndex: 0 | 1,
+  weights: EvalWeights,
+  opponentReplies: boolean,
+): PlayerAction | undefined {
+  const candidates = candidateActions(state);
+  if (candidates.length === 0) return undefined;
+
+  let best: PlayerAction | undefined;
+  let bestScore = -Infinity;
+  for (const action of candidates) {
+    // Every candidate is scored on its SETTLED outcome — see
+    // settleDeferredResolution for why scoring the immediate state made the AI
+    // structurally unable to attack a contested battlefield or cast a Spell.
+    // Only the scoring looks ahead; the action actually returned is still the
+    // single candidate, so the real game still resolves through the real
+    // PassFocus actions (and, in the UI, at the AI's own pacing).
+    const settled = settleDeferredResolution(applyAction(state, action), weights, forIndex, opponentReplies);
+    const score = evaluate(settled, forIndex, weights);
+    if (score > bestScore) {
+      bestScore = score;
+      best = action;
+    }
+  }
+  return best;
+}
+
+export function chooseAction(rawState: GameState, weights: EvalWeights = BASELINE_WEIGHTS): PlayerAction {
   const forIndex = actingPlayerIndex(rawState);
   // The AI may see THAT a facedown card is at a battlefield — it changes whether
   // attacking there is wise, and it is public information — but not WHICH card it
@@ -268,27 +531,7 @@ export function chooseAction(rawState: GameState): PlayerAction {
   //
   // Its OWN facedown cards are untouched, so it can still play them.
   const state = maskHiddenCards(rawState, forIndex);
-  const candidates = legalActions(state).filter(
-    (a) =>
-      a.type !== "FloatRune" &&
-      a.type !== "HideCard" &&
-      !(a.type === "ActivateAbility" && abilityBanksResource(findActivatable(state, a.playerIndex, a.permanentInstanceId)?.card.defId ?? "")),
-  );
-
-  let best: PlayerAction = { type: "Pass", playerIndex: forIndex };
-  let bestScore = -Infinity;
-  for (const action of candidates) {
-    // Every candidate is scored on its SETTLED outcome — see
-    // settleDeferredResolution for why scoring the immediate state made the AI
-    // structurally unable to attack a contested battlefield or cast a Spell.
-    // Only the scoring looks ahead; the action actually returned is still the
-    // single candidate, so the real game still resolves through the real
-    // PassFocus actions (and, in the UI, at the AI's own pacing).
-    const score = evaluate(settleDeferredResolution(applyAction(state, action)), forIndex);
-    if (score > bestScore) {
-      bestScore = score;
-      best = action;
-    }
-  }
-  return best;
+  // `twoPly` here is what separates the real decision from the opponent model it
+  // contains — see settleDeferredResolution's `opponentReplies`.
+  return bestActionFor(state, forIndex, weights, weights.twoPly) ?? { type: "Pass", playerIndex: forIndex };
 }
