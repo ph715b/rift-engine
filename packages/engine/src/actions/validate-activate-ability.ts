@@ -64,7 +64,8 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     return fail(`${card.name} has no such mode available${action.modeId ? ` (${action.modeId})` : ""}`);
   }
 
-  if (mode.targeting.kind === "unit") {
+  const targeting = mode.targeting;
+  if (targeting.kind === "unit") {
     if (action.targetUnitInstanceId === undefined) {
       return fail(`${card.name}'s ability needs a target unit`);
     }
@@ -72,7 +73,9 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     // action and an accepted action can't come apart — the failure mode that bit
     // this codebase before, when legal-actions offered a destination the
     // validator refused.
-    const legal = eligibleTargets(state, action.playerIndex, mode.targeting.owner, mode.targeting.scope);
+    const legal = eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope).filter(
+      (u) => !targeting.exhaustedOnly || u.exhausted,
+    );
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {
       return fail(`${action.targetUnitInstanceId} is not a legal target for ${card.name}'s ability`);
     }

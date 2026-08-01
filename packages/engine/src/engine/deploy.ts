@@ -50,11 +50,27 @@ function otherFriendlyUnitsEnterReady(state: GameState, playerIndex: 0 | 1, excl
  */
 const LEONA_ZEALOT = "OGN-079";
 
-/** For coverage.ts — this module implements Magma Wurm's whole printed text and
- *  the enter-ready half of Leona - Zealot's (effective-might.ts declares the
- *  other half, and coverage merges both). */
+/**
+ * Gear that prints "This enters exhausted" — Iron Ballista, whose whole cost of
+ * being a 3-Energy repeatable 2 damage is that it cannot fire the turn it lands.
+ *
+ * A set rather than a field on GearInstance: it is a property of the CARD, not
+ * of the copy, and the parse-time keyword table (card-loader) is for keywords
+ * this is not. Same "small, precise, non-speculative table" convention as
+ * effective-might.ts's aura list.
+ */
+const GEAR_ENTERING_EXHAUSTED = new Set(["OGN-017"]); // Iron Ballista
+
+export function gearEntersExhausted(defId: string): boolean {
+  return GEAR_ENTERING_EXHAUSTED.has(defId);
+}
+
+/** For coverage.ts — this module implements Magma Wurm's whole printed text, the
+ *  enter-ready half of Leona - Zealot's (effective-might.ts declares the other
+ *  half, and coverage merges both), and Iron Ballista's enters-exhausted clause
+ *  (its ability is in activated-abilities.ts). */
 export function playCardDefIds(): string[] {
-  return [MAGMA_WURM, LEONA_ZEALOT];
+  return [MAGMA_WURM, LEONA_ZEALOT, ...GEAR_ENTERING_EXHAUSTED];
 }
 
 /**

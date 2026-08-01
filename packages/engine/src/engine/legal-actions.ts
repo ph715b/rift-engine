@@ -117,6 +117,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // nothing is never what the player meant.
         for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope)) {
           if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
+          if (mode.targeting.exhaustedOnly && !target.exhausted) continue;
           if (!mode.movesTarget) {
             out.push({ ...withMode, targetUnitInstanceId: target.instanceId });
             continue;

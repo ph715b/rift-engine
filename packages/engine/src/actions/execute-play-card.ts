@@ -3,7 +3,7 @@ import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { dispatchEvent, dispatchSelfEvent } from "../engine/triggers.js";
-import { consumeNextUnitEntersReady, unitEntersReady } from "../engine/deploy.js";
+import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -380,7 +380,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     updatedActor = {
       ...actor,
       ...sharedUpdates,
-      activeGear: [...actor.activeGear, card],
+      // Gear normally arrives ready; Iron Ballista prints "This enters
+      // exhausted", which is the gear counterpart of a Unit's 143.4.a default
+      // and the reason it can't shoot the turn it lands. Asked through
+      // gearEntersExhausted rather than branched on here, so the rule stays with
+      // the other deploy rules.
+      activeGear: [...actor.activeGear, gearEntersExhausted(card.defId) ? { ...card, exhausted: true } : card],
     };
   }
 

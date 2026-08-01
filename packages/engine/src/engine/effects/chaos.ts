@@ -3,6 +3,7 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
+  channelRunesExhausted,
   discardCards,
   discardThenDraw,
   drawCards,
@@ -187,6 +188,18 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "OGN-186": {
+    // Treasure Trove — "When this leaves the board, draw 1 and channel 1 rune
+    // exhausted."
+    //
+    // Keyed on being KILLED, which is the only way it leaves the board in this
+    // pool — its own "[Chaos], Exhaust: Kill this" (activated-abilities.ts) and
+    // `[Temporary]` expiry both route through killGear, which fires this. The
+    // payout lives HERE rather than in that ability so it cannot be paid twice
+    // if the Trove ever dies some other way.
+    on: ["killed"],
+    resolve: (state, event) => channelRunesExhausted(drawCards(state, event.ownerIndex, 1), event.ownerIndex, 1),
+  },
   // Scrapheap � "When this is played, discarded, or killed, draw 1."
   //
   // The only card in the pool that watches its OWN three-way fate, and the

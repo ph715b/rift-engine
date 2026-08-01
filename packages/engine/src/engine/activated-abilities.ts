@@ -1,14 +1,17 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
+import type { Domain } from "../model/domain.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 import {
   addBuff,
   dealDamage,
+  drawCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   legionActive,
+  payPowerFromChanneled,
   readyUnit,
   recallUnitToBase,
   recycleFromTrash,
@@ -84,6 +87,18 @@ export interface ActivationCost {
    * fires: being spent as a cost is still being killed.
    */
   killSelf?: true;
+  /**
+   * Power of a specific domain, recycled from the channeled pool (rule 416) —
+   * Treasure Trove's "[Chaos], Exhaust: Kill this".
+   *
+   * Distinct from `energy` above, which exhausts runes and rides a chosen
+   * `payment` on the action: a Power cost RECYCLES the rune to the bottom of the
+   * deck instead, and which rune goes is not a meaningful choice when they all
+   * match the same domain. So it is paid from state through
+   * `payPowerFromChanneled`, the same helper Flame Chompers and Mistfall use,
+   * and needs nothing on the action.
+   */
+  power?: { domain: Domain; count: number };
 }
 
 /**
@@ -188,7 +203,134 @@ const SUN_DISC = "OGN-021";
  *  first ability in the pool paid for with the source's own destruction. */
 const FORGE_OF_THE_FUTURE = "OGN-212";
 
+/**
+ * The six Seals — one per domain, and the same sentence six times: "Exhaust:
+ * Add 1 <domain> Power."
+ *
+ * Generated rather than written out six times, because they are one card with a
+ * parameter and six hand-copied entries is six chances to paste the wrong
+ * domain. That is the opposite of the "small precise table" convention used
+ * elsewhere in this file, and it earns the exception: those tables hold cards
+ * that differ, this holds a card that does not.
+ *
+ * The Power lands in `floatingPower`, the per-domain pool a card's Power pip
+ * already drains — so a Seal is a rune you keep, which is exactly what makes it
+ * worth a card at 1 Power.
+ */
+const SEALS: ReadonlyArray<readonly [defId: string, domain: Domain]> = [
+  ["OGN-040", "Fury"],
+  ["OGN-081", "Calm"],
+  ["OGN-120", "Mind"],
+  ["OGN-163", "Body"],
+  ["OGN-204", "Chaos"],
+  ["OGN-245", "Order"],
+];
+
+function sealAbility(domain: Domain): ActivatedAbilityDefinition {
+  return {
+    kind: "Gear",
+    targeting: { kind: "none" },
+    // Banks a resource and changes nothing on the board, so the AI's
+    // board-state evaluator cannot price it — same flag, same reason, as
+    // Lux - Crownguard and Darius.
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = {
+        ...actor,
+        floatingPower: { ...actor.floatingPower, [domain]: (actor.floatingPower[domain] ?? 0) + 1 },
+      };
+      return { ...state, players };
+    },
+  };
+}
+
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
+  ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "OGN-098": {
+    // Energy Conduit — "Exhaust: Add 1 Energy."
+    //
+    // The Seals' Energy counterpart, and unrestricted unlike Lux - Crownguard's
+    // spells-only pool: it lands in `floatingEnergy`, which pays for anything.
+    kind: "Gear",
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingEnergy: actor.floatingEnergy + 1 };
+      return { ...state, players };
+    },
+  },
+  "OGN-017": {
+    // Iron Ballista — "This enters exhausted. Exhaust: Deal 2 to a unit at a
+    // battlefield."
+    //
+    // The enters-exhausted half is a play rule and lives in deploy.ts; it is the
+    // card's whole cost, since without it a 3-Energy repeatable 2 damage would
+    // fire the turn it lands.
+    //
+    // Default battlefield scope: "at a battlefield" is printed, so a unit in
+    // base is out of range. Either player's is fair game — no owner is named.
+    kind: "Gear",
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, 2) : state,
+  },
+  "OGN-124": {
+    // Arena Bar — "Exhaust: Buff an exhausted friendly unit."
+    //
+    // "EXHAUSTED" is a restriction on the target's state, which no spec could
+    // express before — see TargetingSpec's `exhaustedOnly`. Filtered in
+    // enumeration so a ready unit is never offered, rather than checked in this
+    // resolver where the exhaust would already have been paid for nothing.
+    //
+    // addBuff, so 708 applies: buffing an already-buffed unit spends the exhaust
+    // and does nothing, which is the rule rather than a case to dodge.
+    kind: "Gear",
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", exhaustedOnly: true },
+    resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? addBuff(state, event.targetUnitInstanceId) : state),
+  },
+  "OGN-184": {
+    // The Syren — "1 Energy, Exhaust: Move a friendly unit at a battlefield to
+    // its base."
+    //
+    // recallUnitToBase, which exhausts the moved unit — see its doc comment for
+    // why that is an open question rather than a settled reading, filed as
+    // Unverified for Flash and Maddened Marauder and inherited here rather than
+    // decided differently for a third card.
+    kind: "Gear",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "unit", owner: "friendly" },
+    resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? recallUnitToBase(state, event.targetUnitInstanceId) : state),
+  },
+  "OGN-099": {
+    // Garbage Grabber — "Recycle 3 from your trash, 1 Energy, Exhaust: Draw 1."
+    //
+    // Three costs at once and every one of them already existed: the Recycle
+    // (Vi - Destructive), the Energy (the preset Legends) and the exhaust. Rule
+    // 416.3 makes the Recycle all-or-nothing, so a trash of two cards cannot pay
+    // it and the ability is simply not offered.
+    kind: "Gear",
+    cost: { recycleFromTrash: 3, energy: 1, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "OGN-186": {
+    // Treasure Trove — "When this leaves the board, draw 1 and channel 1 rune
+    // exhausted. [Chaos], Exhaust: Kill this."
+    //
+    // The ability's whole function is to pay its own leave-the-board trigger,
+    // which is why the effect here is empty: `killSelf` in the COST does the
+    // work, and killGear fires the self-trigger that draws and channels. Putting
+    // the draw in this resolver instead would double it the day the Trove leaves
+    // the board some other way.
+    kind: "Gear",
+    cost: { power: { domain: "Chaos", count: 1 }, killSelf: true, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state) => state,
+  },
   [LUX_CROWNGUARD]: {
     kind: "Unit",
     targeting: { kind: "none" },
@@ -510,6 +652,9 @@ export function canPayActivationCost(
   const cost = activationCostOf(abilityDefId);
   if (cost.exhaust && card.exhausted) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;
+  // Power is paid from state, so affordability is asked through the very helper
+  // that will pay it — the two cannot disagree about what is payable.
+  if (cost.power && payPowerFromChanneled(state, playerIndex, cost.power.domain, cost.power.count) === undefined) return false;
   // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
@@ -555,6 +700,11 @@ export function payActivationCost(
     const spent = spendBuff(next, playerIndex, instanceId);
     if (spent === undefined) return undefined;
     next = spent;
+  }
+  if (cost.power) {
+    const paid = payPowerFromChanneled(next, playerIndex, cost.power.domain, cost.power.count);
+    if (paid === undefined) return undefined;
+    next = paid;
   }
   if (cost.killSelf) {
     const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === instanceId);

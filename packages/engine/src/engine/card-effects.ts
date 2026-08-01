@@ -45,7 +45,11 @@ export type UnitSlotRole = "any" | "friendly" | "enemy";
 
 export type TargetingSpec =
   | { kind: "none" }
-  | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number; scope?: TargetScope }
+  /** `exhaustedOnly` is Arena Bar's "buff an EXHAUSTED friendly unit" — a
+   *  restriction on the target's state rather than its owner or its Might, and
+   *  the first of that shape. Filtered during enumeration like every other part
+   *  of this spec, so a ready unit is never offered and then refused. */
+  | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number; scope?: TargetScope; exhaustedOnly?: true }
   | { kind: "battlefield" }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
   /**
