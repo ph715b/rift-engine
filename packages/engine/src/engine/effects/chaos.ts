@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   channelRunesExhausted,
@@ -163,6 +163,11 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "OGN-202": {
     // Jinx - Rebel — "When you discard one or more cards, ready me and give me

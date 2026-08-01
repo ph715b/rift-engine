@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
@@ -9,6 +9,7 @@ import {
   drawCards,
   giveMightThisTurnToAllFriendlies,
   legionActive,
+  ownUnitsEverywhere,
   readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
@@ -119,6 +120,16 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => giveMightThisTurnToAllFriendlies(state, ctx.casterIndex, 5),
   },
+  "OGN-229": {
+    // Vengeance — "Kill a unit."
+    //
+    // The whole card. No battlefield named (scope "anywhere") and no owner
+    // named, so it reaches either player's units wherever they stand — killing
+    // your own is a bad play, not an illegal one.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
   "OGN-224": {
     // Salvage — "You may kill up to one gear. Draw 1."
     //
@@ -199,6 +210,42 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // let a card that watches for kills fire on its controller's own upkeep.
     resolve: (state, _ctx, _unitId, event) =>
       event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
+  "OGN-234": {
+    // Harnessed Dragon — "When you play me, kill an enemy unit."
+    //
+    // "An enemy unit" with no battlefield named, so scope "anywhere": a unit
+    // sheltering in the opponent's base is a legal target (355.9.b).
+    //
+    // destroyUnit, not damage: a Kill Instruction ignores Might and marked
+    // damage, and routes through the funnel that fires [Deathknell] (808) and
+    // honours a death ward (809.1.b.1). The caster is the killer.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
+  "OGN-223": {
+    // Peak Guardian — "When you play me, buff me. Then, if I am at a
+    // battlefield, buff all other friendly units there."
+    //
+    // The second clause is conditional on WHERE he landed, which `destination`
+    // carries: played to base he buffs only himself, played to a battlefield he
+    // buffs the whole board there. Reading the board for his location instead
+    // would work too, but the destination is what the play actually decided.
+    //
+    // "ALL OTHER" — every friendly unit at that battlefield except him, and
+    // addBuff's 708 no-op handles the already-buffed ones without a filter.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) => {
+      const buffedSelf = addBuff(state, unitId);
+      const destination = event.destination;
+      if (destination === "base") return buffedSelf;
+      const bf = buffedSelf.battlefields.find((b) => b.id === destination.battlefieldId);
+      const here = bf?.units[buffedSelf.players[ctx.casterIndex].id] ?? [];
+      return here
+        .filter((u) => u.instanceId !== unitId)
+        .reduce((next, u) => addBuff(next, u.instanceId), buffedSelf);
+    },
   },
   "OGN-217": {
     // Trifarian Gloryseeker — "[Legion] — When you play me, buff me."
@@ -281,6 +328,46 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/**
+ * Listeners for someone ELSE dying, keyed by the LISTENING card's defId.
+ * Distinct from `deathTriggers` above, which is a [Deathknell] keyed by the
+ * DYING card — "when a buffed friendly unit dies" is a property of the watcher,
+ * not of the corpse.
+ */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {
+  "OGN-228": (state, listener, death) => {
+    // Vanguard Helm — "When a buffed friendly unit dies, buff another friendly
+    // unit."
+    //
+    // "BUFFED" is read off the unit AS IT DIED (`death.unit`), which 809.1.b.3
+    // requires be captured before the card reaches the trash — by now it is in
+    // one, and killUnit has already stripped the buff off the trashed copy
+    // (rule 709). Asking the board would find nothing.
+    //
+    // "ANOTHER" excludes the unit that died, which is free here since it is no
+    // longer in play; what it really excludes is nothing else, so any surviving
+    // friendly unit is eligible.
+    if (death.ownerIndex !== listener.ownerIndex) return state; // not friendly to the Helm
+    if (!death.unit.buffed) return state;
+    const candidates = ownUnitsEverywhere(state, listener.ownerIndex);
+    if (candidates.length === 0) return state;
+    return parkDecision(state, { kind: "OGN-228-buff", playerIndex: listener.ownerIndex });
+  },
+  "OGN-246": (state, listener, death) => {
+    // Viktor - Leader — "When another non-Recruit unit you control dies, play a
+    // 1 Might Recruit unit token into your base."
+    //
+    // Two exclusions, both printed and both load-bearing: "ANOTHER" (Viktor's
+    // own death does not pay out) and "NON-RECRUIT" — without the second he
+    // would replace each token with another forever, which is a livelock rather
+    // than a combo.
+    if (death.ownerIndex !== listener.ownerIndex) return state;
+    if (death.unit.instanceId === listener.card.instanceId) return state; // "another"
+    if (death.unit.isToken) return state; // the Recruit tokens he makes
+    return placeRecruitToken(state, listener.ownerIndex, "base");
+  },
+};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -307,6 +394,19 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Vanguard Helm's "buff another friendly unit", raised by its death-watch.
+  //
+  // WHICH unit is a real choice with no action to hang it on — the trigger fires
+  // inside a death, mid-resolution. Already-buffed units stay on offer: 708
+  // makes a second buff a no-op rather than an illegal choice, and filtering
+  // them would quietly change "another friendly unit" into "another UNBUFFED
+  // friendly unit", which matters when everything you control is already buffed.
+  "OGN-228-buff": {
+    prompt: () => "Vanguard Helm: buff another friendly unit",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
   // Cull the Weak's half of the work: one player picking which of their own
   // units dies. Asked of BOTH players, so it is written from the answering
   // player's point of view rather than the caster's.

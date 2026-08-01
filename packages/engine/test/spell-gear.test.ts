@@ -401,6 +401,13 @@ describe("legalActions: Spell and Gear candidates", () => {
     const player: PlayerState = emptyPlayer("p1", "Alice", legend);
     player.hand = [spell, gear, unit];
     player.channeled = [readyRune("r1"), readyRune("r2"), readyRune("r3"), readyRune("r4"), readyRune("r5"), readyRune("r6")];
+    // A unit on the board for Cleave to point at. It needed none while Cleave
+    // was inert — a spell with no registered effect has no targeting spec and is
+    // always enumerable. Now that it grants [Assault 3] to a unit, an empty board
+    // means no legal target and therefore no candidate, which is correct and is
+    // the opposite of what this test is about. Same stale-fixture shape as the
+    // Mobilize case above.
+    player.baseUnits = [createCardInstance(registry.get("OGN-210")) as UnitInstance];
 
     const opponent: PlayerState = emptyPlayer("p2", "Bob", createCardInstance(registry.get("OGS-021")) as LegendInstance);
 

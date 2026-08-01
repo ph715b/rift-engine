@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { PlayerState } from "../../model/game-state.js";
 import {
@@ -11,6 +11,7 @@ import {
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
+  ownUnitsEverywhere,
   readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
@@ -184,6 +185,32 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx, _unitId, event) =>
       event.acceleratePaid ? drawCards(channelRunesExhausted(state, ctx.casterIndex, 2), ctx.casterIndex, 1) : state,
   },
+  "OGN-082": {
+    // Whiteflame Protector — "When you play me, give a unit +8 Might this turn."
+    //
+    // Eight is enormous and the card names no owner and no battlefield, so scope
+    // "anywhere" and either side is targetable. giveMightThisTurn, not a Buff:
+    // it expires in the Expiration Step (317).
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 8) : state,
+  },
+  "OGN-061": {
+    // Poro Herder — "When you play me, if you control a Poro, buff me and
+    // draw 1."
+    //
+    // "A PORO" is a tag, not a name: four cards carry it (Pouty Poro, Stalwart
+    // Poro, Mystic Poro, Daring Poro), and the Herder himself is Freljord rather
+    // than Poro — so he does not satisfy his own condition, which is the point
+    // of the card.
+    //
+    // Checked across base and battlefields, since "control" is not positional.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) => {
+      const hasPoro = ownUnitsEverywhere(state, ctx.casterIndex).some((u) => (u.tags ?? []).includes("Poro"));
+      return hasPoro ? drawCards(addBuff(state, unitId), ctx.casterIndex, 1) : state;
+    },
+  },
   "OGN-051": {
     // Solari Shieldbearer — "When you play me, stun a unit."
     //
@@ -201,6 +228,11 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "OGN-060": {
     // Mask of Foresight — "When a friendly unit attacks or defends alone, give it

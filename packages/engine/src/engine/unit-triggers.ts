@@ -29,6 +29,13 @@ export type UnitPlayDestination = TokenDestination;
 export interface UnitTriggerEvent {
   destination: UnitPlayDestination;
   targetUnitInstanceId?: string;
+  /** The second unit named by a `unitSlots` spec — Kinkou Monk's "buff up to two
+   *  other friendly units", the first UNIT trigger to want two targets. Spells
+   *  have carried this since Gentlemen's Duel; the Unit path simply had no card
+   *  that needed it, and a field that exists on the action, is validated and is
+   *  enumerated but gets dropped on this hop is the exact bug shape this file's
+   *  dispatch comment already records twice. */
+  secondTargetUnitInstanceId?: string;
   visionRecycle?: boolean;
   trashCardInstanceId?: string;
   /** The friendly unit named for this card's OPTIONAL additional cost, or
@@ -286,6 +293,7 @@ export function dispatchOnPlayUnit(
   destination: UnitPlayDestination,
   extra?: {
     targetUnitInstanceId?: string;
+    secondTargetUnitInstanceId?: string;
     visionRecycle?: boolean;
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
@@ -311,6 +319,9 @@ export function dispatchOnPlayUnit(
   return trigger.resolve(withLegend, contextFor(casterIndex), unit.instanceId, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
+    ...(extra?.secondTargetUnitInstanceId !== undefined
+      ? { secondTargetUnitInstanceId: extra.secondTargetUnitInstanceId }
+      : {}),
     ...(extra?.visionRecycle !== undefined ? { visionRecycle: extra.visionRecycle } : {}),
     ...(extra?.trashCardInstanceId !== undefined ? { trashCardInstanceId: extra.trashCardInstanceId } : {}),
     ...(extra?.additionalCostUnitInstanceId !== undefined

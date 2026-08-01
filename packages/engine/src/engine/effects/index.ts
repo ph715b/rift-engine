@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
@@ -73,6 +73,21 @@ export function domainDeathTriggers(): { name: string; entries: Record<string, D
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.deathTriggers,
+  }));
+}
+
+/**
+ * Death-WATCH listeners contributed by the per-domain files ("when a friendly
+ * unit dies", as opposed to a `[Deathknell]`, which is keyed by the DYING card).
+ *
+ * Split out of the inline table in triggers.ts once Order had two of them
+ * (Vanguard Helm and Viktor - Leader), which is exactly the condition that
+ * table's own comment named for splitting.
+ */
+export function domainDeathWatch(): { name: string; entries: Record<string, DeathWatchEffect> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.deathWatchTriggers,
   }));
 }
 

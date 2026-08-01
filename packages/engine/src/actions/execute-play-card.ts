@@ -272,6 +272,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // (805). Only the action knows — the deployed unit carries no record of
         // how it was paid for. Same dropped-field hazard as the fields above.
         ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
+      // Kinkou Monk is the first UNIT trigger with a two-slot spec; Spells have
+      // carried this field since Gentlemen's Duel.
+      ...(action.secondTargetUnitInstanceId !== undefined
+        ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId }
+        : {}),
       });
     }
 
@@ -300,6 +305,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       // Same Accelerate forwarding as the base branch — a reinforce play pays
       // the same optional cost and fires the same trigger.
       ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
+      // Kinkou Monk is the first UNIT trigger with a two-slot spec; Spells have
+      // carried this field since Gentlemen's Duel.
+      ...(action.secondTargetUnitInstanceId !== undefined
+        ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId }
+        : {}),
     });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;

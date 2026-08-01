@@ -1,13 +1,15 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
   channelRunesExhausted,
   dealDamage,
+  dealDamageToAllUnitsAtAllBattlefields,
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
+  giveMightThisTurn,
   payPowerFromChanneled,
   readyPermanent,
   readyUnit,
@@ -48,6 +50,25 @@ import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-133": {
+    // Flurry of Blades — "Deal 1 to all units at battlefields."
+    //
+    // ALL units, both players' including the caster's — symmetric, and the base
+    // is excluded because "at battlefields" is printed. The existing helper is
+    // exactly this sentence.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => dealDamageToAllUnitsAtAllBattlefields(state, ctx.casterIndex, 1),
+  },
+  "OGN-154": {
+    // Primal Strength — "Give a unit +7 Might this turn."
+    //
+    // No owner, no battlefield, no floor: scope "anywhere" and the number as
+    // printed. giveMightThisTurn rather than a Buff — this expires in the
+    // Expiration Step (317) rather than persisting (710).
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 7) : state,
+  },
   "OGN-144": {
     // Spoils of War — "If an enemy unit has died this turn, this costs 2 Energy
     // less. Draw 2."
@@ -164,6 +185,29 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-141": {
+    // Kinkou Monk — "When you play me, buff up to two OTHER friendly units."
+    //
+    // `min: 0` is what makes "up to" real — the empty choice is legal, so a Monk
+    // played with nothing else on board still deploys. "OTHER" is free here: he
+    // is not yet a legal target of his own trigger, since legal-actions
+    // enumerates while he is still in hand.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 0, scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      [event.targetUnitInstanceId, event.secondTargetUnitInstanceId]
+        .filter((id): id is string => id !== undefined)
+        .reduce((next, id) => addBuff(next, id), state),
+  },
+  "OGN-164": {
+    // Sett - Brawler — "When I'm played AND when I conquer, buff me." (His
+    // "Spend my buff: give me +4 Might this turn" is in activated-abilities.)
+    //
+    // Only the played half is here; the conquer half listens to
+    // `battlefieldConquered` below. Two clauses, two mechanisms, one card —
+    // splitting them is what lets each be the narrowest thing it needs.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, unitId) => addBuff(state, unitId),
+  },
   "OGN-136": {
     // Pit Rookie — "When you play me, buff another friendly unit."
     //
@@ -226,7 +270,26 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-164": {
+    // Sett - Brawler's second half — "and when I conquer, buff me."
+    //
+    // "When I conquer" is his own conquest, so he must be AT the battlefield
+    // taken — the same reading Kai'Sa - Survivor takes, and what separates a
+    // unit's conquer trigger from a Legend's "when you conquer".
+    on: "battlefieldConquered",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (listener.battlefieldId !== event.battlefieldId) return state;
+      return addBuff(state, listener.card.instanceId);
+    },
+  },
   "OGN-152": {
     // Mistfall — "When you buff a friendly unit, you may pay [Body] and exhaust
     // this to ready it."

@@ -604,6 +604,20 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       return { ...state, players };
     },
   },
+  "OGN-164": {
+    // Sett - Brawler — "Spend my buff: Give me +4 Might this turn." (His two
+    // buff-me clauses are in effects/body.ts.)
+    //
+    // No exhaust anywhere in the cost line, exactly like Udyr and Vi, so he can
+    // do this as often as buffs keep arriving — and his own text is what keeps
+    // supplying them. Assuming an exhaust would have capped the engine of the
+    // card at once per turn.
+    kind: "Unit",
+    cost: { spendBuff: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _event, sourceInstanceId) =>
+      giveMightThisTurnToOwnUnit(state, ctx.casterIndex, sourceInstanceId, 4),
+  },
   [ORB_OF_REGRET]: {
     kind: "Gear",
     // "A unit" names no battlefield and no owner, so a unit in either player's

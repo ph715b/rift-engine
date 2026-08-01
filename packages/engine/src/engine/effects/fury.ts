@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   dealDamage,
@@ -8,9 +8,13 @@ import {
   discardThenDraw,
   drawCards,
   giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
+  grantKeywordThisTurn,
   legionActive,
   payPowerFromChanneled,
+  readyUnit,
 } from "../effect-helpers.js";
+import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
@@ -44,6 +48,43 @@ import type { PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-009": {
+    // Hextech Ray — "Deal 3 to a unit at a battlefield."
+    // Default battlefield scope, exactly as printed.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, 3) : state,
+  },
+  "OGN-022": {
+    // Thermo Beam — "Kill all gear."
+    //
+    // ALL gear, both players', including the caster's own — the text names no
+    // owner and this is a symmetric sweep. Routed through killGear per gear so
+    // each fires its own "when I am killed" self-trigger (Treasure Trove pays
+    // out, Scrapheap fires) rather than being silently removed.
+    //
+    // The lists are snapshotted before anything dies: a gear's death trigger can
+    // change the board, and iterating a live array would skip entries.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      const doomed = ([0, 1] as const).flatMap((i) => state.players[i].activeGear.map((g) => ({ gear: g, ownerIndex: i })));
+      return doomed.reduce((next, { gear, ownerIndex }) => killGear(next, gear, ownerIndex), state);
+    },
+  },
+  "OGN-004": {
+    // Cleave — "[Action] Give a unit [Assault 3] this turn."
+    //
+    // A NUMBERED keyword grant, which is why grantKeywordThisTurn takes a value:
+    // it hardcoded 1, which is right for [Ganking] and wrong here by two. The
+    // keyword machinery does the rest — effective-might reads [Assault] for the
+    // attacking side, so this is +3 only while attacking, not a flat pump.
+    //
+    // "A unit", no owner and no battlefield named, so scope "anywhere" and
+    // either side is legal.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", 3) : state,
+  },
   "OGN-033": {
     // Shakedown — "Choose an enemy unit. Deal 6 to it unless its controller has
     // you draw 2."
@@ -230,7 +271,31 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-027": {
+    // Darius - Trifarian — "When you play your SECOND card in a turn, give me
+    // +2 Might this turn and ready me."
+    //
+    // Exactly the second, not the second-or-later: `cardsPlayedThisTurn === 2`
+    // rather than `>= 2`, so a third and fourth card pay nothing. The counter is
+    // incremented before this event fires (see legionActive's note), so the
+    // second card is 2 here and not 1.
+    //
+    // "YOU play" — his own controller; the opponent's second card is not his.
+    on: "cardPlayed",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      if (state.players[listener.ownerIndex].cardsPlayedThisTurn !== 2) return state;
+      const pumped = giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 2);
+      return readyUnit(pumped, listener.card.instanceId);
+    },
+  },
   "OGN-039": {
     // Kai'Sa - Survivor — "[Accelerate] ... When I conquer, draw 1."
     //

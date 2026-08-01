@@ -489,11 +489,55 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
  * with the rest of this turn's state and cannot be smuggled into a later turn by
  * a card that reads the printed set.
  */
-export function grantKeywordThisTurn(state: GameState, targetInstanceId: string, keyword: Keyword): GameState {
+export function grantKeywordThisTurn(
+  state: GameState,
+  targetInstanceId: string,
+  keyword: Keyword,
+  /**
+   * The keyword's VALUE, for the numbered ones — Cleave grants `[Assault 3]`,
+   * not `[Assault]`. Defaults to 1, which is right for every unnumbered keyword
+   * (`[Ganking]`, `[Tank]`) and was the hardcoded behaviour before a numbered
+   * grant existed.
+   *
+   * `Math.max` against what is already there, so a smaller grant never downgrades
+   * a bigger one — 817.1.a makes duplicate instances redundant rather than
+   * cumulative, and taking the larger is what "redundant" means for a number.
+   */
+  value = 1,
+): GameState {
   return updateUnitAnywhere(state, targetInstanceId, (u) => ({
     ...u,
-    keywordsThisTurn: { ...u.keywordsThisTurn, [keyword]: Math.max(u.keywordsThisTurn[keyword] ?? 0, 1) },
+    keywordsThisTurn: { ...u.keywordsThisTurn, [keyword]: Math.max(u.keywordsThisTurn[keyword] ?? 0, value) },
   }));
+}
+
+/**
+ * Exhausts every unit `playerIndex` controls, base and battlefields — Unchecked
+ * Power's "Exhaust all friendly units, then deal 12 to ALL units at
+ * battlefields".
+ *
+ * The exhaust is the card's price rather than part of the damage, which is why
+ * it hits units in BASE too while the damage does not: one clause says "all
+ * friendly units", the other says "at battlefields", and the difference is
+ * printed.
+ */
+export function exhaustAllFriendlyUnits(state: GameState, playerIndex: 0 | 1): GameState {
+  const exhaust = (u: UnitInstance): UnitInstance => (u.exhausted ? u : { ...u, exhausted: true });
+  const actor = state.players[playerIndex];
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...actor, baseUnits: actor.baseUnits.map(exhaust) };
+  const battlefields = state.battlefields.map((bf) => {
+    const mine = bf.units[actor.id];
+    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(exhaust) } } : bf;
+  });
+  return { ...state, players, battlefields };
+}
+
+/** Every unit `playerIndex` controls, base and battlefields — the walk half a
+ *  dozen "all friendly units" effects each re-derived by hand. */
+export function ownUnitsEverywhere(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  const actor = state.players[playerIndex];
+  return [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
 }
 
 /**

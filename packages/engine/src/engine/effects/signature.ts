@@ -1,8 +1,8 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { forceMoveToBattlefield, stunUnits } from "../effect-helpers.js";
+import { forceMoveToBattlefield, giveMightThisTurn, stunUnits } from "../effect-helpers.js";
 import { findUnitOnBattlefield } from "../target-lookup.js";
 
 /**
@@ -27,6 +27,32 @@ import { findUnitOnBattlefield } from "../target-lookup.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-266": {
+    // Siphon Power (Mind + Order) — "Choose a battlefield. Give friendly units
+    // there +1 Might this turn and enemy units there -1 Might this turn, to a
+    // minimum of 1 Might."
+    //
+    // "THERE" on both halves, so this is strictly positional — nothing in base
+    // moves. The floor is printed on the debuff half only, and applied per unit
+    // by giveMightThisTurn.
+    //
+    // Both halves resolve off the SAME battlefield snapshot taken before either
+    // is applied. Nothing here kills, so the lists cannot shrink, but reading
+    // them once is what keeps that true if a modifier ever does.
+    targeting: { kind: "battlefield" },
+    resolve: (state, ctx, event) => {
+      const bf = state.battlefields.find((b) => b.id === event.targetBattlefieldId);
+      if (!bf) return state;
+      const casterId = state.players[ctx.casterIndex].id;
+      const friendly = (bf.units[casterId] ?? []).map((u) => u.instanceId);
+      const enemy = Object.entries(bf.units)
+        .filter(([ownerId]) => ownerId !== casterId)
+        .flatMap(([, units]) => units.map((u) => u.instanceId));
+
+      const pumped = friendly.reduce((next, id) => giveMightThisTurn(next, id, 1), state);
+      return enemy.reduce((next, id) => giveMightThisTurn(next, id, -1, 1), pumped);
+    },
+  },
   "OGN-262": {
     // Zenith Blade (Calm + Order) — "[Action] Stun an enemy unit at a
     // battlefield. You may move a friendly unit to that enemy unit's
@@ -82,6 +108,11 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed

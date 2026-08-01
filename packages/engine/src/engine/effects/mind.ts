@@ -1,11 +1,18 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
-import { giveMightThisTurn, giveMightThisTurnToAllEnemies, recycleUnitFromPlayToDeck } from "../effect-helpers.js";
+import {
+  dealDamage,
+  dealDamageToAllUnitsAtAllBattlefields,
+  exhaustAllFriendlyUnits,
+  giveMightThisTurn,
+  giveMightThisTurnToAllEnemies,
+  recycleUnitFromPlayToDeck,
+} from "../effect-helpers.js";
 import type { PlayerState } from "../../model/game-state.js";
 
 /**
@@ -40,6 +47,22 @@ import type { PlayerState } from "../../model/game-state.js";
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-123": {
+    // Unchecked Power — "Exhaust all friendly units, then deal 12 to ALL units
+    // at battlefields."
+    //
+    // The two clauses have deliberately different reach and the text says so:
+    // the exhaust hits "all FRIENDLY units" (base included), the damage hits
+    // "ALL units AT BATTLEFIELDS" (both players, base excluded). Reading either
+    // as the other would change the card completely.
+    //
+    // Order matters and is printed: exhaust first, THEN damage. A unit that dies
+    // to the 12 was exhausted on its way out, which is invisible here but not to
+    // anything watching for exhaustion.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      dealDamageToAllUnitsAtAllBattlefields(exhaustAllFriendlyUnits(state, ctx.casterIndex), ctx.casterIndex, 12),
+  },
   "OGN-114": {
     // Progress Day — "Draw 4."
     //
@@ -141,6 +164,17 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return { ...recycled, players };
     },
   },
+  "OGN-092": {
+    // Riptide Rex — "When you play me, deal 6 to an enemy unit at a
+    // battlefield."
+    //
+    // Both restrictions printed: enemy, and at a battlefield. Six is enough to
+    // kill almost anything in the pool outright, which is what the
+    // battlefield-only clause is balancing.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, 6) : state,
+  },
   "OGN-116": {
     // Thousand-Tailed Watcher — "When you play me, give enemy units -3 Might
     // this turn, to a minimum of 1 Might."
@@ -166,7 +200,36 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
+/** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
+ *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
+ *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
+export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-119": {
+    // Ahri - Inquisitive — "When I attack or defend, give an enemy unit here
+    // -2 Might this turn, to a minimum of 1 Might."
+    //
+    // "Attacks OR DEFENDS" is why this listens to `combatBegan` rather than
+    // riding the on-attack table: that one fires only for the unit that moved
+    // in. The same distinction Mask of Foresight already draws — which side
+    // started the fight is deliberately not consulted.
+    //
+    // She must be AT the battlefield in question, and the target is auto-selected
+    // from the enemies there (same precedent as the other combat triggers, filed
+    // Unverified). The floor is her own printed clause.
+    on: "combatBegan",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (listener.battlefieldId !== event.battlefieldId) return state;
+      const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+      const ownerId = state.players[listener.ownerIndex].id;
+      const enemy = Object.entries(bf?.units ?? {})
+        .filter(([id]) => id !== ownerId)
+        .flatMap(([, units]) => units)[0];
+      return enemy ? giveMightThisTurn(state, enemy.instanceId, -2, 1) : state;
+    },
+  },
   "OGN-109": {
     // Dr. Mundo - Expert — "At the start of your Beginning Phase, recycle 3 from
     // your trash." (His Might clause is a continuous modifier in

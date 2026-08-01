@@ -7,7 +7,13 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // Doing module-init work across this cycle is what broke the engine once before.
 import { drawCards } from "./effect-helpers.js";
 import { parkDecision } from "./decisions.js";
-import { domainDeathTriggers, domainEventTriggers, domainSelfTriggers, mergeRegistries } from "./effects/index.js";
+import {
+  domainDeathTriggers,
+  domainDeathWatch,
+  domainEventTriggers,
+  domainSelfTriggers,
+  mergeRegistries,
+} from "./effects/index.js";
 
 /**
  * Events other than "a card was played", and the one place that answers "which
@@ -119,13 +125,29 @@ function allDeathknells(): Record<string, DeathknellEffect> {
 
 /** Every defId with a Deathknell or death-watch implementation, for coverage.ts. */
 export function deathTriggerDefIds(): string[] {
-  return [...Object.keys(allDeathknells()), ...Object.keys(DEATH_WATCH)];
+  return [...Object.keys(allDeathknells()), ...Object.keys(allDeathWatch())];
 }
 
+let composedDeathWatch: Record<string, DeathWatchEffect> | null = null;
+
 /**
- * Death-watch listeners. Small enough to live inline; move to per-domain files
- * the moment a second card per domain needs one, same rule as everywhere else.
+ * Death-watch listeners: the inline ones below plus whatever the per-domain
+ * files contribute.
+ *
+ * This table used to be the whole story, with a note to "move to per-domain
+ * files the moment a second card per domain needs one". Order reached two
+ * (Vanguard Helm and Viktor - Leader), so the split happened — new death-watch
+ * cards belong in `effects/<domain>.ts`, and the entries here stay put for the
+ * same reason ALL_CARD_EFFECTS' inline ones do.
  */
+function allDeathWatch(): Record<string, DeathWatchEffect> {
+  composedDeathWatch ??= mergeRegistries<DeathWatchEffect>("death watch", [
+    { name: "engine/triggers.ts", entries: DEATH_WATCH },
+    ...domainDeathWatch(),
+  ]);
+  return composedDeathWatch;
+}
+
 const DEATH_WATCH: Record<string, DeathWatchEffect> = {
   // Wraith of Echoes — "The first time a friendly unit dies each turn, draw 1."
   //
@@ -202,8 +224,9 @@ export function dispatchOnUnitDied(state: GameState, death: DeathContext): GameS
   // Listeners are re-walked AFTER the Deathknell, not captured before it: a
   // Deathknell that kills things (Kog'Maw - Caustic) can remove a listener, and
   // a stale snapshot would fire a trigger for a permanent no longer in play.
+  const watchers = allDeathWatch();
   for (const listener of allListeningPermanents(next)) {
-    const watch = DEATH_WATCH[listener.card.defId];
+    const watch = watchers[listener.card.defId];
     if (watch) next = watch(next, listener, death);
   }
 
