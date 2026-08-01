@@ -164,6 +164,20 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return { ...recycled, players };
     },
   },
+  "OGN-097": {
+    // Blastcone Fae — "[Hidden] When you play me, give a unit -2 Might this
+    // turn, to a minimum of 1 Might."
+    //
+    // [Hidden] is handled entirely by engine/hidden.ts and the loader; nothing
+    // here is aware of it. What DOES follow from it: played from facedown, rule
+    // 811 restricts the target to that battlefield, which legal-actions enforces
+    // — this resolver takes whatever it is given either way.
+    //
+    // "A unit", no owner and no battlefield, so scope "anywhere".
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, -2, 1) : state,
+  },
   "OGN-092": {
     // Riptide Rex — "When you play me, deal 6 to an enemy unit at a
     // battlefield."

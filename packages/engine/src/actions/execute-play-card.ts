@@ -100,7 +100,14 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // itself (Scrapheap's "when this is played"), which a listener walk would also
   // reach but only by accident of it happening to be in play — a Spell wouldn't be.
   const withSelf = dispatchSelfEvent(played, "played", action.card, action.playerIndex);
-  return dispatchEvent(withSelf, { kind: "cardPlayed", casterIndex: action.playerIndex });
+  return dispatchEvent(withSelf, {
+    kind: "cardPlayed",
+    casterIndex: action.playerIndex,
+    // Ember Monk watches specifically for a play FROM facedown. Carried on the
+    // existing event rather than a new one, so every other listener still sees
+    // a hidden play as the play it is.
+    ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
+  });
 }
 
 /** Takes a from-hidden card off its battlefield. A no-op for an ordinary play. */

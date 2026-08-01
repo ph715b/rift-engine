@@ -11,6 +11,7 @@ import { deathTriggerDefIds, eventTriggerDefIds, selfTriggerDefIds } from "./tri
 import { decisionDefIds } from "./decisions.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
+import { deathReplacementDefIds } from "./death-ward.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -104,6 +105,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "activated abilities", defIds: activatedAbilityDefIds },
   { label: "borrowed abilities", defIds: borrowedAbilityDefIds },
   { label: "card-loader keywords", defIds: loaderHandledDefIds },
+  { label: "death replacements", defIds: deathReplacementDefIds },
 ];
 
 /** Every defId implemented anywhere in the engine. Computed once and lazily —

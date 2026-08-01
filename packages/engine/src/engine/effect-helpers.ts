@@ -5,8 +5,8 @@ import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
-import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
+import { ZHONYAS_HOURGLASS, isDeathWarded, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
+import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
@@ -101,6 +101,24 @@ export function killUnit(
 ): GameState {
   if (isDeathWarded(state, unit.instanceId)) {
     return reviveWithDeathWard(state, unit, ownerIndex);
+  }
+
+  // Zhonya's Hourglass: "If a friendly unit would die, kill this instead. Heal
+  // that unit, exhaust it, and recall it."
+  //
+  // MANDATORY — no "you may" anywhere in the text — so unlike Sett's it asks
+  // nothing and simply happens. That is also why it is checked here rather than
+  // through offerDeathReplacement, which exists for the optional kind.
+  //
+  // **Simplification, named:** with BOTH an Hourglass and a ready Sett, the
+  // rules would let the controller pick which replacement applies. The Hourglass
+  // wins here because it is not a choice at all, so there is no question to
+  // fold the other into. Recorded in docs/rules-conformance.md.
+  const hourglass = state.players[ownerIndex].activeGear.find((g) => g.defId === ZHONYAS_HOURGLASS);
+  if (hourglass) {
+    // killGear, not a quiet removal: the Hourglass is KILLED, so it goes to the
+    // trash through the funnel that fires a gear's own killed-trigger.
+    return reviveToBase(killGear(state, hourglass, ownerIndex), unit, ownerIndex);
   }
 
   const death: PendingDeath = {
@@ -1011,6 +1029,61 @@ export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId:
     return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(ready) } } : bf;
   });
   return { ...state, players, battlefields };
+}
+
+/**
+ * Swaps two of a player's own units between wherever each of them is —
+ * Tideturner's "Move me to its location and it to my original location".
+ *
+ * One operation rather than two moves, and that is required rather than tidy:
+ * done as two `forceMoveToBattlefield` calls the first would vacate the square
+ * the second needs to read, and a unit swapping with one in BASE has no
+ * battlefield to be moved to at all.
+ *
+ * No-ops when either unit is missing, when they are the same unit, or when both
+ * are already in the same place — "ANOTHER location" is printed, and a swap
+ * within one location is not a move.
+ *
+ * Contested is applied for each unit that lands on a battlefield, for the same
+ * reason `forceMoveToBattlefield` does it (458): arriving somewhere the
+ * controller does not hold contests it.
+ */
+export function swapUnitLocations(
+  state: GameState,
+  playerIndex: 0 | 1,
+  firstInstanceId: string,
+  secondInstanceId: string,
+): GameState {
+  if (firstInstanceId === secondInstanceId) return state;
+  const first = findUnitAnywhere(state, firstInstanceId);
+  const second = findUnitAnywhere(state, secondInstanceId);
+  if (!first || !second) return state;
+  if (first.ownerIndex !== playerIndex || second.ownerIndex !== playerIndex) return state;
+
+  const placeOf = (zone: typeof first.zone) => (zone === "base" ? "base" : state.battlefields[zone.battlefieldIndex]!.id);
+  const firstPlace = placeOf(first.zone);
+  const secondPlace = placeOf(second.zone);
+  if (firstPlace === secondPlace) return state; // "another location"
+
+  const removed = removeUnitAnywhere(removeUnitAnywhere(state, firstInstanceId), secondInstanceId);
+  const put = (s: GameState, unit: UnitInstance, place: string): GameState => {
+    if (place === "base") {
+      return updatePlayer(s, playerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, unit] }));
+    }
+    const index = s.battlefields.findIndex((bf) => bf.id === place);
+    const bf = s.battlefields[index]!;
+    const battlefields = [...s.battlefields];
+    const ownerId = s.players[playerIndex].id;
+    battlefields[index] = { ...bf, units: { ...bf.units, [ownerId]: [...(bf.units[ownerId] ?? []), unit] } };
+    return { ...s, battlefields };
+  };
+
+  // Each ends up where the other was.
+  let next = put(put(removed, first.unit, secondPlace), second.unit, firstPlace);
+  for (const place of [firstPlace, secondPlace]) {
+    if (place !== "base") next = applyContested(next, place, playerIndex);
+  }
+  return next;
 }
 
 /** Deals `amount` damage to every enemy (relative to `casterIndex`) unit at

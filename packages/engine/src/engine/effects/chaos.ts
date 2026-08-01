@@ -12,6 +12,7 @@ import {
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
+  swapUnitLocations,
   takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
 import { parkDecision } from "../decisions.js";
@@ -96,6 +97,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
   },};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-197": {
+    // Teemo - Scout — "[Hidden] When you play me, give me +3 Might this turn."
+    //
+    // The keyword is the card: hidden for 1 Power, played later for 0 as a
+    // 2-Energy 3-Might body that arrives swinging for 3 more. Nothing here
+    // touches [Hidden] — engine/hidden.ts owns it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) => giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unitId, 3),
+  },
+  "OGN-199": {
+    // Tideturner — "[Hidden] When you play me, you may choose a unit you control
+    // at ANOTHER location. Move me to its location and it to my original
+    // location."
+    //
+    // A SWAP, not two moves: both units end up where the other was, so it cannot
+    // be expressed as forceMoveToBattlefield twice (the first move would vacate
+    // the square the second reads). swapUnitLocations does it in one step.
+    //
+    // "ANOTHER location" — base counts as a location, so a Tideturner played to
+    // base can pull a unit home from a battlefield and take its place there,
+    // which is the card's whole trick. The target spec is therefore "anywhere",
+    // and the resolver rejects a same-location choice.
+    //
+    // "You MAY", and the choice rides on the action: enumeration offers the
+    // no-target variant too, so declining is a real option.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, unitId, event) =>
+      event.targetUnitInstanceId ? swapUnitLocations(state, ctx.casterIndex, unitId, event.targetUnitInstanceId) : state,
+  },
   "OGN-192": {
     // Mindsplitter — "When you play me, choose an opponent. They reveal their
     // hand. Choose a card from it, and they discard that card."
@@ -169,6 +199,24 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-167": {
+    // Ember Monk — "When you play a card from [Hidden], give me +2 Might this
+    // turn."
+    //
+    // Note what he does NOT do: he has [Hidden] himself, but this triggers on
+    // playing ANY card from facedown, his own arrival included if he was hidden.
+    // The event carries `fromHidden` rather than existing as its own kind, so
+    // nothing else that watches plays goes blind to hidden ones.
+    //
+    // "YOU play" — his own controller's hidden card, not the opponent's.
+    on: "cardPlayed",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (!event.fromHidden) return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      return giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 2);
+    },
+  },
   "OGN-202": {
     // Jinx - Rebel — "When you discard one or more cards, ready me and give me
     // +1 Might this turn."

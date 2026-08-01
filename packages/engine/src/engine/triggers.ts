@@ -243,8 +243,13 @@ export function dispatchOnUnitDied(state: GameState, death: DeathContext): GameS
  */
 export type GameEvent =
   /** A card was played by `casterIndex` — ANY card, on anyone's turn. Fired
-   *  after the card has resolved into play, so a listener sees the new board. */
-  | { kind: "cardPlayed"; casterIndex: 0 | 1 }
+   *  after the card has resolved into play, so a listener sees the new board.
+   *
+   *  `fromHidden` is Ember Monk's "when you play a card FROM [Hidden]" — the
+   *  same event, since a card played from facedown is still a card being played
+   *  and everything watching `cardPlayed` should still see it. A separate event
+   *  would have meant every existing listener silently missing hidden plays. */
+  | { kind: "cardPlayed"; casterIndex: 0 | 1; fromHidden?: boolean }
   /** `playerIndex`'s Beginning Phase is starting. Fired BEFORE holds score, for
    *  the same reason `[Temporary]`'s kill runs there: a Beginning-Phase ability
    *  that changes the board has to do so while there is still a scoring step

@@ -11,6 +11,7 @@ import {
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
+  grantKeywordThisTurn,
   ownUnitsEverywhere,
   readyUnit,
   stunUnits,
@@ -139,6 +140,25 @@ export const cardEffects: Record<string, EffectDefinition> = {
         // something on the caster's turn.
         playerIndex: ctx.casterIndex === 0 ? 1 : 0,
       }),
+  },
+  "OGN-057": {
+    // Block — "[Hidden][Action] Give a unit [Shield 3] and [Tank] this turn."
+    //
+    // Two grants, one numbered and one not, which is exactly the pair
+    // grantKeywordThisTurn's `value` argument exists for: [Shield 3] is +3 while
+    // DEFENDING (effective-might reads it only for the defending side), and
+    // [Tank] is "must be assigned combat damage first" (combat.ts owns that).
+    // Both are handled by the keyword machinery, so this entry is only the
+    // granting.
+    //
+    // Hidden and played in a Showdown, this is the card's whole point: a
+    // defender that suddenly absorbs the damage AND takes it first.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const id = event.targetUnitInstanceId;
+      if (!id) return state;
+      return grantKeywordThisTurn(grantKeywordThisTurn(state, id, "Shield", 3), id, "Tank");
+    },
   },
   "OGN-047": {
     // Find Your Center — "If an opponent's score is within 3 points of the
