@@ -5,7 +5,8 @@ import type { DecisionDefinition } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
-import { giveMightThisTurn, giveMightThisTurnToAllEnemies } from "../effect-helpers.js";
+import { giveMightThisTurn, giveMightThisTurnToAllEnemies, recycleUnitFromPlayToDeck } from "../effect-helpers.js";
+import type { PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for **Mind** — one file, one owner.
@@ -115,6 +116,31 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-110": {
+    // Ekko - Recurrent — "[Accelerate] — Recycle me to ready your runes."
+    //
+    // Gated on the Accelerate cost having been PAID (805), like Tasty Faefolk.
+    //
+    // "Recycle ME" is a cost paid with the card itself: he goes from play to the
+    // bottom of his owner's Main Deck (416), which is why this is not a death
+    // and fires no [Deathknell]. Then every channeled rune readies — the whole
+    // pool, which is what makes him a one-shot refuel rather than a body.
+    //
+    // He readies runes he did not pay for either: the Accelerate cost was
+    // already spent by the time this resolves, so the refuel is real.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) => {
+      if (!event.acceleratePaid) return state;
+      const recycled = recycleUnitFromPlayToDeck(state, ctx.casterIndex, unitId);
+      const players = [...recycled.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = {
+        ...actor,
+        channeled: actor.channeled.map((r) => (r.state === "Exhausted" ? { ...r, state: "Ready" as const } : r)),
+      };
+      return { ...recycled, players };
+    },
+  },
   "OGN-116": {
     // Thousand-Tailed Watcher — "When you play me, give enemy units -3 Might
     // this turn, to a minimum of 1 Might."
@@ -141,6 +167,35 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-109": {
+    // Dr. Mundo - Expert — "At the start of your Beginning Phase, recycle 3 from
+    // your trash." (His Might clause is a continuous modifier in
+    // effective-might.ts.)
+    //
+    // The two clauses fight each other on purpose: he is bigger the fuller your
+    // trash is, and every turn he empties it. That is the card, so this must NOT
+    // be skipped when the trash is short.
+    //
+    // Which is why it does not use `recycleFromTrash`: that helper is a COST and
+    // returns undefined unless it can move all 3 (416.3). Here recycling is an
+    // EFFECT, so "do as much as you can" applies (422) — a 2-card trash recycles
+    // both. Same distinction Salvage's "up to one gear" makes.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase") return state;
+      if (event.playerIndex !== listener.ownerIndex) return state;
+      const owner = state.players[listener.ownerIndex];
+      const recycled = owner.trash.slice(0, 3);
+      if (recycled.length === 0) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = {
+        ...owner,
+        trash: owner.trash.slice(recycled.length),
+        deck: [...owner.deck, ...recycled], // bottom, per 416
+      };
+      return { ...state, players };
+    },
+  },
   "OGN-101": {
     // Mushroom Pouch — "At the start of your Beginning Phase, if you control a
     // facedown card at a battlefield, draw 1."

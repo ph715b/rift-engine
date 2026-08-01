@@ -1,6 +1,7 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { WIN_THRESHOLD_1V1 } from "./constants.js";
 import { dispatchLegendOnConquer } from "./legend-abilities.js";
+import { dispatchEvent } from "./triggers.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -81,6 +82,11 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   // spot). Placed before the withheld-point branch so the trigger can't be
   // skipped by an early return.
   next = dispatchLegendOnConquer(next, playerIndex, battlefieldId);
+  // Permanents watch the same moment (Kai'Sa - Survivor), and so does a card in
+  // the trash (Super Mega Death Rocket). Placed beside the Legend dispatch and
+  // before the withheld-point branch for the same reason: "when you conquer" is
+  // about taking the battlefield, not about the point.
+  next = dispatchEvent(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
 
   // Already scored here this turn — the battlefield changed hands, and the
   // Conquer trigger above still fired, but no second point.

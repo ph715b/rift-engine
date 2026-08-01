@@ -14,6 +14,7 @@ import {
   readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
+import { parkDecision } from "../decisions.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -117,6 +118,26 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, ctx, event) =>
       drawCards(giveMightThisTurn(state, event.targetUnitInstanceId!, 2), ctx.casterIndex, 1),
+  },
+  "OGN-071": {
+    // Party Favors — "Each other player chooses Cards or Runes. For each player
+    // that chooses Cards, you and that player each draw 1. For each player that
+    // chooses Runes, you and that player each channel 1 rune exhausted."
+    //
+    // Written for multiplayer and collapsed honestly to two players: "each other
+    // player" is exactly one opponent, so this is one question with one answer,
+    // and both halves pay out to the caster AND the chooser. The card is a
+    // Group Hug — the opponent picks which resource you BOTH get, so the choice
+    // is real and genuinely theirs.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      parkDecision(state, {
+        kind: "OGN-071-choose",
+        // Answered by the OPPONENT, which is the whole point — this is the
+        // second card in the pool (after Cull the Weak) to ask the non-caster
+        // something on the caster's turn.
+        playerIndex: ctx.casterIndex === 0 ? 1 : 0,
+      }),
   },
   "OGN-047": {
     // Find Your Center — "If an opponent's score is within 3 points of the
@@ -243,6 +264,31 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Party Favors' "Cards or Runes", answered by the OPPONENT.
+  //
+  // Both options always offered, even when a pool is empty: choosing Runes with
+  // an empty rune deck is a legal way to give the caster nothing, and filtering
+  // it out would quietly turn a Group Hug into a card the opponent cannot use
+  // defensively. drawCards and channelRunesExhausted both take what they can.
+  //
+  // `d.playerIndex` is the CHOOSER (the opponent); the caster is the other seat,
+  // and both are paid.
+  "OGN-071-choose": {
+    prompt: () => "Party Favors: choose Cards or Runes — you and the caster each get it",
+    options: () => [
+      { id: "cards", label: "Cards (you both draw 1)" },
+      { id: "runes", label: "Runes (you both channel 1 exhausted)" },
+    ],
+    resolve: (state, d, optionId) => {
+      const chooser = d.playerIndex;
+      const caster: 0 | 1 = chooser === 0 ? 1 : 0;
+      const both = [caster, chooser] as const;
+      return optionId === "cards"
+        ? both.reduce((next, i) => drawCards(next, i, 1), state)
+        : both.reduce((next, i) => channelRunesExhausted(next, i, 1), state);
+    },
+  },
+
   // Solari Shrine's "you may exhaust this to draw 1" — raised by its death-watch
   // in engine/triggers.ts, which has already checked that the kill was yours,
   // the victim was a stunned enemy, and the Shrine is still ready.

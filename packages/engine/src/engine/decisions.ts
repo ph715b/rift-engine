@@ -3,6 +3,7 @@ import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
 import { legendDecisions } from "./legend-abilities.js";
 import { discardCards, drawCards } from "./effect-helpers.js";
+import { dispatchEvent } from "./triggers.js";
 
 /**
  * The engine stopping to ask a player a question, and carrying on with the
@@ -87,9 +88,14 @@ const GENERIC: Record<string, DecisionDefinition> = {
     options: (state, d) =>
       state.players[d.playerIndex].hand.map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
     resolve: (state, d, optionId) => {
-      const discarded = discardCards(state, d.playerIndex, 1, [optionId]);
+      // suppressEvent: this handler takes ONE card per answer, but the player
+      // was given one instruction. Jinx - Rebel's "when you discard one or more
+      // cards" pays out once for it, so the event waits for the last card —
+      // firing per answer would ready her twice for a "discard 2".
+      const discarded = discardCards(state, d.playerIndex, 1, [optionId], { suppressEvent: true });
       const remaining = (d.count ?? 1) - 1;
-      return remaining > 0 ? repeatDecision(discarded, { ...d, count: remaining }) : discarded;
+      if (remaining > 0) return repeatDecision(discarded, { ...d, count: remaining });
+      return dispatchEvent(discarded, { kind: "cardsDiscarded", discarderIndex: d.playerIndex });
     },
   },
 

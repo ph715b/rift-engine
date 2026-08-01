@@ -53,6 +53,11 @@ const LEE_SIN_CENTERED = "OGN-151";
  *  NOT gated on [Legion]: the keyword sits before his FIRST sentence (the
  *  ready-me), and this is his second. */
 const DARIUS_EXECUTIONER = "OGN-243";
+/** Dr. Mundo - Expert: "My Might is increased by the number of cards in your
+ *  trash." Self-scaling off a zone, like Master Yi - Meditative's rune count —
+ *  and like his, recomputed on read rather than written into state, so it falls
+ *  as his own second clause recycles the trash away. */
+const DR_MUNDO_EXPERT = "OGN-109";
 /**
  * Leona - Zealot: "Stunned enemy units here have -8 Might, to a minimum of 1
  * Might."
@@ -91,6 +96,7 @@ export function effectiveMightDefIds(): string[] {
     LEE_SIN_CENTERED,
     LEONA_ZEALOT,
     DARIUS_EXECUTIONER,
+    DR_MUNDO_EXPERT,
   ];
 }
 
@@ -137,6 +143,13 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
 
   if (unit.defId === MASTER_YI_MEDITATIVE && state.players[ownerIndex].channeled.length >= 8) {
     bonus += 4;
+  }
+
+  // "By the NUMBER of cards in your trash" — a scaling bonus rather than a
+  // threshold, and read from the OWNER's trash ("your"), not from whoever is
+  // asking about his Might.
+  if (unit.defId === DR_MUNDO_EXPERT) {
+    bonus += state.players[ownerIndex].trash.length;
   }
 
   // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),

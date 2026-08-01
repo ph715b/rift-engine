@@ -286,7 +286,21 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {};
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
-export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "OGN-212": {
+    // Forge of the Future — "When you play this, play a 1-Might Recruit unit
+    // token at your base." (Its "Kill this:" ability is in activated-abilities.)
+    //
+    // A SELF-trigger rather than an event listener: a Gear entering play is not
+    // something the listener walk reaches for its own arrival, which is the same
+    // reason Scrapheap is keyed this way.
+    //
+    // "At YOUR BASE" is printed, so the token goes home regardless of anything
+    // else on the board — unlike Faithful Manufactor's "here".
+    on: ["played"],
+    resolve: (state, event) => placeRecruitToken(state, event.ownerIndex, "base"),
+  },
+};
 
 /** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
  *  a `kind` string rather than a defId, since one card can ask more than one

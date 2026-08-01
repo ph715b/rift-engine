@@ -61,13 +61,19 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   const movedUnits: UnitInstance[] = [];
   for (const unitId of action.unitInstanceIds) {
     const { state: afterRemove, unit } = removeFromOrigin(next, action.playerIndex, unitId);
-    const moved = { ...unit, exhausted: true };
+    // `movedThisTurn` records that this unit has moved AT ALL this turn, for
+    // Miss Fortune - Captain's "the first time I move each turn". Set on the
+    // Standard Move only: a unit relocated by a spell (forceMoveToBattlefield)
+    // or recalled (454, explicitly not a Move) has not moved in the sense the
+    // card asks about.
+    const moved = { ...unit, exhausted: true, movedThisTurn: true };
+    const isFirstMoveThisTurn = !unit.movedThisTurn;
     movedUnits.push(moved);
     next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, moved);
     // On-move fires for every completed move, contested or not (Traveling
     // Merchant, Noxian Drummer) — on-attack (below) only if it turns out to
     // be contested, so it must wait until every unit has actually landed.
-    next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId);
+    next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId, isFirstMoveThisTurn);
   }
 
   const bf = next.battlefields.find((b) => b.id === action.destinationBattlefieldId)!;

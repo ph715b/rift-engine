@@ -245,6 +245,9 @@ export function runEnd(state: GameState): GameState {
     // both expire here for the same reason mightThisTurn does.
     ...("keywordsThisTurn" in u ? { keywordsThisTurn: {} } : {}),
     ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
+    // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
+    // has to be per unit and has to expire, exactly like the two above.
+    ...("movedThisTurn" in u ? { movedThisTurn: false } : {}),
   });
 
   const players = afterLegend.players.map((p) => ({
@@ -259,6 +262,10 @@ export function runEnd(state: GameState): GameState {
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
+    // itself from — both are "this turn" state, so both end with the turn.
+    nextUnitsEnterReady: 0,
+    unitsLostThisTurn: 0,
   })) as [PlayerState, PlayerState];
 
   const battlefields = afterLegend.battlefields.map((bf) => {

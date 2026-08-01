@@ -12,6 +12,7 @@ import {
   payPowerFromChanneled,
 } from "../effect-helpers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
+import { findUnitAnywhere } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
 import type { PlayerState } from "../../model/game-state.js";
 
@@ -43,6 +44,37 @@ import type { PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-033": {
+    // Shakedown — "Choose an enemy unit. Deal 6 to it unless its controller has
+    // you draw 2."
+    //
+    // A punisher: the caster picks the target, and then the VICTIM'S CONTROLLER
+    // picks the poison — eat 6, or hand the caster two cards. So the target is a
+    // normal fan-out on the action, and the second half is a decision belonging
+    // to the other player.
+    //
+    // "Its controller" is read when the question is RAISED and travels on the
+    // decision, because by the time it is answered the unit may be somewhere
+    // else entirely; `targetInstanceId` carries which unit the 6 is for, for the
+    // same reason.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const location = findUnitAnywhere(state, targetId);
+      if (!location) return state;
+      // The caster is not carried on the decision: `playerIndex` is the victim's
+      // controller, and in a 2-player game the other seat is the caster by
+      // definition. Storing it too would be a second source of truth that could
+      // disagree with the first.
+      void ctx;
+      return parkDecision(state, {
+        kind: "OGN-033-choose",
+        playerIndex: location.ownerIndex,
+        targetInstanceId: targetId,
+      });
+    },
+  },
   "OGN-008": {
     // Get Excited! — "[Action] Discard 1. Deal its Energy cost as damage to a
     // unit at a battlefield. (Ignore its Power cost.)"
@@ -198,7 +230,26 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-039": {
+    // Kai'Sa - Survivor — "[Accelerate] ... When I conquer, draw 1."
+    //
+    // "When *I* conquer" — she has to be AT the conquered battlefield, which is
+    // what separates her from a "when you conquer" card like Garen's Legend.
+    // Checked against the listener's own location rather than the event alone,
+    // since the listener walk reaches her wherever she stands.
+    //
+    // The [Accelerate] on her frame is a cost keyword handled at play time
+    // (805); it does not gate this trigger, which is why nothing here reads it.
+    on: "battlefieldConquered",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (listener.battlefieldId !== event.battlefieldId) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -228,6 +279,28 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Shakedown's "unless its controller has you draw 2" — answered by the
+  // VICTIM'S controller, whose seat is `d.playerIndex`.
+  //
+  // Both options are always offered: an empty deck makes "let them draw" a way
+  // to take nothing at all, which is a legitimate play rather than a case to
+  // filter out. Six damage is dealt through dealDamage, so it goes through
+  // effectiveMight, damage modifiers and the kill funnel like any other damage.
+  "OGN-033-choose": {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId)?.unit : undefined;
+      return `Shakedown: take 6 on ${unit?.name ?? "your unit"}, or let your opponent draw 2?`;
+    },
+    options: () => [
+      { id: "damage", label: "Take 6" },
+      { id: "draw", label: "They draw 2 instead" },
+    ],
+    resolve: (state, d, optionId) => {
+      const caster: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      if (optionId === "draw") return drawCards(state, caster, 2);
+      return d.targetInstanceId ? dealDamage(state, caster, d.targetInstanceId, 6) : state;
+    },
+  },
   "OGN-006-play": {
     prompt: () => "Flame Chompers: pay 1 Fury Power to play it from your trash?",
     options: (state, d) => {

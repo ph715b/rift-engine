@@ -30,6 +30,7 @@ function makeUnit(overrides: Partial<UnitInstance> = {}): UnitInstance {
     stunned: false,
     keywordsThisTurn: {},
     abilityModesUsedThisTurn: [],
+    movedThisTurn: false,
     ...overrides,
   };
 }
@@ -68,6 +69,8 @@ function makePlayer(id: string): PlayerState {
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    nextUnitsEnterReady: 0,
+    unitsLostThisTurn: 0,
   };
 }
 

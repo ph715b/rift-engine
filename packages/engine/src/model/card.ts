@@ -114,6 +114,15 @@ export interface UnitInstance extends CardInstanceBase {
    * and under nearly the same name (`udyrOptionsChosenThisTurn`).
    */
   abilityModesUsedThisTurn: string[];
+  /**
+   * Has this unit already moved this turn? Miss Fortune - Captain reads "the
+   * FIRST time I move each turn", which needs a per-unit memory: a per-player
+   * flag would let one unit's move spend another's allowance.
+   *
+   * On the unit for the same reason `abilityModesUsedThisTurn` is, and cleared
+   * by runEnd alongside it.
+   */
+  movedThisTurn: boolean;
 }
 
 export interface SpellInstance extends CardInstanceBase {
@@ -191,6 +200,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         stunned: false,
         keywordsThisTurn: {},
         abilityModesUsedThisTurn: [],
+        movedThisTurn: false,
       };
     case "Spell":
       return {

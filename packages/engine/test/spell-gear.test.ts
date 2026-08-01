@@ -48,6 +48,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    nextUnitsEnterReady: 0,
+    unitsLostThisTurn: 0,
   };
 }
 

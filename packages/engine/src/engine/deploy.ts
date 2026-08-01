@@ -74,11 +74,48 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     // [Accelerate] paid as an additional cost (805): "if you do, I enter ready".
     acceleratePaid === true ||
     state.players[playerIndex].unitsEnterReadyThisTurn ||
+    // Sun Disc's armed charge. A COUNT, not a flag: it readies the NEXT unit
+    // only, unlike Confront's blanket this-turn permission above. Only read
+    // here; `consumeNextUnitEntersReady` below spends it, and the two are
+    // separate because a caller that asks must not accidentally spend.
+    state.players[playerIndex].nextUnitsEnterReady > 0 ||
     otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId) ||
     // A property of THIS card and the score, unlike the three above — the only
     // override that depends on who is winning.
     (card.defId === LEONA_ZEALOT && opponentNearVictory(state, playerIndex))
   );
+}
+
+/**
+ * Spends one Sun Disc charge, if the unit that just entered play used one.
+ *
+ * Separate from `unitEntersReady` because that predicate is asked in more places
+ * than a unit actually enters play — the UI asks it to preview, and the AI's
+ * lookahead asks it once per candidate. Spending inside the predicate would burn
+ * the charge on a play that never happened, which is exactly the class of bug
+ * this codebase's lookahead has produced before.
+ *
+ * Only spends when the charge was the REASON: a `[Quick]` unit, or one played
+ * under Confront, readies on its own and leaves the charge armed for the next.
+ */
+export function consumeNextUnitEntersReady(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: UnitInstance,
+  acceleratePaid?: boolean,
+): GameState {
+  const player = state.players[playerIndex];
+  if (player.nextUnitsEnterReady <= 0) return state;
+  const readiedByOtherMeans =
+    "Quick" in card.keywords ||
+    acceleratePaid === true ||
+    player.unitsEnterReadyThisTurn ||
+    otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId);
+  if (readiedByOtherMeans) return state;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...player, nextUnitsEnterReady: player.nextUnitsEnterReady - 1 };
+  return { ...state, players };
 }
 
 /**
@@ -97,10 +134,11 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
  */
 export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState {
   const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card) };
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[playerIndex] = { ...state.players[playerIndex], baseUnits: [...state.players[playerIndex].baseUnits, deployed] };
+  const spent = consumeNextUnitEntersReady(state, playerIndex, card);
+  const players = [...spent.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...spent.players[playerIndex], baseUnits: [...spent.players[playerIndex].baseUnits, deployed] };
 
-  const arrived = dispatchOnPlayUnit({ ...state, players }, deployed, playerIndex, "base", {});
+  const arrived = dispatchOnPlayUnit({ ...spent, players }, deployed, playerIndex, "base", {});
   const self = dispatchSelfEvent(arrived, "played", deployed, playerIndex);
   return dispatchEvent(self, { kind: "cardPlayed", casterIndex: playerIndex });
 }

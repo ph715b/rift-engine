@@ -18,6 +18,7 @@ import {
 import { placeRecruitToken, type TokenDestination } from "./token.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { dispatchLegendOnEnemyAttack, dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
+import { parkDecision } from "./decisions.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -454,8 +455,15 @@ export function dispatchOnAttack(state: GameState, unit: UnitInstance, casterInd
 }
 
 /** On-move triggers — fired once per completed move, contested or not
- *  (execute-move-unit.ts), independent of on-attack above. */
-const ON_MOVE_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
+ *  (execute-move-unit.ts), independent of on-attack above.
+ *
+ *  `isFirstMoveThisTurn` exists for Miss Fortune - Captain alone ("the FIRST
+ *  time I move each turn"); every other listener ignores it and fires on every
+ *  move, which is what their own text says. */
+const ON_MOVE_TRIGGERS: Record<
+  string,
+  (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string, isFirstMoveThisTurn: boolean) => GameState
+> = {
   "OGN-185": (state, ctx) => {
     // Traveling Merchant — "When I move, discard 1, then draw 1."
     //
@@ -470,12 +478,57 @@ const ON_MOVE_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, un
     // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit token here.
     return placeTokenAtDestination(state, ctx.casterIndex, { battlefieldId });
   },
+  "OGN-162": (state, ctx, unit, _battlefieldId, isFirstMoveThisTurn) => {
+    // Miss Fortune - Captain — "The first time I move each turn, you may ready
+    // something else that's exhausted."
+    //
+    // "FIRST time each turn" is the reason UnitInstance carries movedThisTurn:
+    // a per-player flag would let one unit's move spend another's allowance, and
+    // "each turn" means it comes back, so it cannot be a one-shot.
+    //
+    // "SOMETHING ELSE that's exhausted" — not "a unit", so the Legend and Gear
+    // are eligible too, and not herself. "You may", so it stops to ask.
+    if (!isFirstMoveThisTurn) return state;
+    if (readyableOthers(state, ctx.casterIndex, unit.instanceId).length === 0) return state;
+    return parkDecision(state, {
+      kind: "OGN-162-ready",
+      playerIndex: ctx.casterIndex,
+      cardInstanceId: unit.instanceId,
+    });
+  },
 };
 
-export function dispatchOnMove(state: GameState, unit: UnitInstance, casterIndex: 0 | 1, battlefieldId: string): GameState {
+/** Everything `playerIndex` controls that is exhausted and is not
+ *  `excludeInstanceId` — Miss Fortune - Captain's "something ELSE that's
+ *  exhausted", which names no card type, so the Legend and Gear count. */
+export function readyableOthers(
+  state: GameState,
+  playerIndex: 0 | 1,
+  excludeInstanceId: string,
+): { instanceId: string; name: string }[] {
+  const actor = state.players[playerIndex];
+  return [
+    ...actor.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
+    ...actor.activeGear,
+    actor.legend,
+  ]
+    .filter((c) => c.exhausted && c.instanceId !== excludeInstanceId)
+    .map((c) => ({ instanceId: c.instanceId, name: c.name }));
+}
+
+export function dispatchOnMove(
+  state: GameState,
+  unit: UnitInstance,
+  casterIndex: 0 | 1,
+  battlefieldId: string,
+  /** Defaults true so the one caller that does not track it (a test, or a future
+   *  mover) gets the every-move behaviour every listener but one wants. */
+  isFirstMoveThisTurn = true,
+): GameState {
   const trigger = ON_MOVE_TRIGGERS[unit.defId];
   if (!trigger) return state;
-  return trigger(state, contextFor(casterIndex), unit, battlefieldId);
+  return trigger(state, contextFor(casterIndex), unit, battlefieldId, isFirstMoveThisTurn);
 }
 
 /** On-spell-cast listeners — units that react to THEIR OWN controller

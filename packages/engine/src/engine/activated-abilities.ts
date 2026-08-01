@@ -8,6 +8,7 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
+  legionActive,
   readyUnit,
   recallUnitToBase,
   recycleFromTrash,
@@ -15,6 +16,7 @@ import {
   stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
+import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
@@ -73,6 +75,15 @@ export interface ActivationCost {
    *  Recycle, this is a cost with no exhaust, so the ability repeats as long as
    *  buffs keep arriving. */
   spendBuff?: true;
+  /**
+   * Kill the source to pay — Forge of the Future's "Kill this:".
+   *
+   * The only cost that destroys what it is paid with, so it is once and only
+   * once by construction rather than by an exhaust. Routed through `killGear`
+   * when it is paid, so the gear's own "when I am killed" self-trigger still
+   * fires: being spent as a cost is still being killed.
+   */
+  killSelf?: true;
 }
 
 /**
@@ -167,6 +178,15 @@ const MISS_FORTUNE_BOUNTY_HUNTER = "OGN-267";
 const DARIUS_HAND_OF_NOXUS = "OGN-253";
 const KAISA_DAUGHTER_OF_THE_VOID = "OGN-247";
 const YASUO_UNFORGIVEN = "OGN-259";
+
+/** Sun Disc: "Exhaust: [Legion] — The next unit you play this turn enters
+ *  ready." The first Gear whose ability arms a charge rather than changing the
+ *  board. */
+const SUN_DISC = "OGN-021";
+
+/** Forge of the Future: "Kill this: Recycle up to 4 cards from trashes." The
+ *  first ability in the pool paid for with the source's own destruction. */
+const FORGE_OF_THE_FUTURE = "OGN-212";
 
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   [LUX_CROWNGUARD]: {
@@ -383,6 +403,65 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       },
     ],
   },
+  [FORGE_OF_THE_FUTURE]: {
+    // Forge of the Future — "Kill this: Recycle up to 4 cards from trashes."
+    // (Its "when you play this, play a Recruit token" half is a self-trigger in
+    // effects/order.ts.)
+    //
+    // "From TRASHES", plural — either player's, which is what makes it a
+    // graveyard-hate card rather than a self-recursion one. Taken from the
+    // opponent's first, since that is the only reason to cast it at an opponent
+    // and the caster's own trash is theirs to keep otherwise.
+    //
+    // "UP TO 4", so a short trash recycles what is there (422).
+    kind: "Gear",
+    cost: { killSelf: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const opponentIndex: 0 | 1 = ctx.casterIndex === 0 ? 1 : 0;
+      let next = state;
+      let remaining = 4;
+      for (const index of [opponentIndex, ctx.casterIndex] as const) {
+        if (remaining <= 0) break;
+        const owner = next.players[index];
+        const taken = owner.trash.slice(0, remaining);
+        if (taken.length === 0) continue;
+        remaining -= taken.length;
+        const players = [...next.players] as [PlayerState, PlayerState];
+        players[index] = { ...owner, trash: owner.trash.slice(taken.length), deck: [...owner.deck, ...taken] };
+        next = { ...next, players };
+      }
+      return next;
+    },
+  },
+  [SUN_DISC]: {
+    // Sun Disc — "Exhaust: [Legion] — The next unit you play this turn enters
+    // ready."
+    //
+    // A CHARGE on the player (`nextUnitsEnterReady`), not Confront's blanket
+    // this-turn flag: this readies exactly one unit and is then spent, which is
+    // why deploy.ts consumes it rather than just reading it.
+    //
+    // [Legion] is checked with `countingSelf: false` — activating an ability is
+    // not playing a card and increments nothing, so "another card this turn" is
+    // any one card, the same reading Darius - Hand of Noxus takes.
+    //
+    // An unmet [Legion] still spends the exhaust and arms nothing: the keyword
+    // gates the EFFECT, not the cost.
+    //
+    // banksResource: the AI's evaluate() scores board state, and an armed charge
+    // changes nothing it can see until a unit is played into it.
+    kind: "Gear",
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      if (!legionActive(state, ctx.casterIndex, false)) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, nextUnitsEnterReady: actor.nextUnitsEnterReady + 1 };
+      return { ...state, players };
+    },
+  },
   [ORB_OF_REGRET]: {
     kind: "Gear",
     // "A unit" names no battlefield and no owner, so a unit in either player's
@@ -434,6 +513,9 @@ export function canPayActivationCost(
   // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
+  // `killSelf` needs no check here: the source was found in play by
+  // resolveActivation before this was called, and unlike an exhaust there is no
+  // second state it could be in — a Forge that has paid is gone, not spent.
   // The Energy half is a payment, so affordability is "could a payment be
   // computed", which is exactly what the enumerator will do — asked through the
   // same function so the two cannot disagree about what is affordable.
@@ -473,6 +555,14 @@ export function payActivationCost(
     const spent = spendBuff(next, playerIndex, instanceId);
     if (spent === undefined) return undefined;
     next = spent;
+  }
+  if (cost.killSelf) {
+    const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === instanceId);
+    if (!gear) return undefined;
+    // killGear, not a quiet removal: paying a cost with a permanent is still
+    // killing it, so its own "when I am killed" self-trigger must fire — the
+    // same reasoning Cruel Patron's kill-as-a-cost already follows.
+    next = killGear(next, gear, playerIndex);
   }
   if (cost.energy !== undefined) {
     const paid = payActivationEnergy(next, playerIndex, cost.energy, payment);

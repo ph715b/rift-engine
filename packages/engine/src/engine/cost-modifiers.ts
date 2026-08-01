@@ -66,10 +66,17 @@ function legionDiscountDefIds(): string[] {
 const FIND_YOUR_CENTER = "OGN-047";
 const FIND_YOUR_CENTER_DISCOUNT = 2;
 
+/** Spoils of War: "If an enemy unit has died this turn, this costs 2 Energy
+ *  less." Read from the OPPONENT's `unitsLostThisTurn`, which the death funnel
+ *  bumps — a replaced or warded death never reaches it, and neither should
+ *  discount this. */
+const SPOILS_OF_WAR = "OGN-144";
+const SPOILS_OF_WAR_DISCOUNT = 2;
+
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
-  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, ...legionDiscountDefIds()];
+  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, SPOILS_OF_WAR, ...legionDiscountDefIds()];
 }
 
 /**
@@ -97,6 +104,10 @@ export function modifiedEnergyCost(
 
   if (defId === FIND_YOUR_CENTER && opponentNearVictory(state, playerIndex)) {
     cost = Math.max(0, cost - FIND_YOUR_CENTER_DISCOUNT);
+  }
+
+  if (defId === SPOILS_OF_WAR && state.players[playerIndex === 0 ? 1 : 0].unitsLostThisTurn > 0) {
+    cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);
   }
 
   if (defId === RHASA_THE_SUNDERER) {

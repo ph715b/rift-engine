@@ -3,7 +3,7 @@ import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { dispatchEvent, dispatchSelfEvent } from "../engine/triggers.js";
-import { unitEntersReady } from "../engine/deploy.js";
+import { consumeNextUnitEntersReady, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -226,11 +226,17 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // Ready-or-exhausted lives in engine/deploy.ts now, shared with the effects
     // that play a unit without a PlayCardAction to carry the question.
     const deployedUnit = { ...card, exhausted: !unitEntersReady(state, action.playerIndex, card, action.acceleratePaid) };
+    // Sun Disc's charge is spent on the unit that used it, and only then — see
+    // consumeNextUnitEntersReady. Applied to `updatedActor` below rather than to
+    // `state`, since this branch has already begun building the new player.
+    const chargeSpent = consumeNextUnitEntersReady(state, action.playerIndex, card, action.acceleratePaid);
+    const nextUnitsEnterReady = chargeSpent.players[action.playerIndex].nextUnitsEnterReady;
     const playedFromChampionZone = actor.championZone?.instanceId === card.instanceId;
     const updatedActor: PlayerState = {
       ...actor,
       ...sharedUpdates,
       championZone: playedFromChampionZone ? null : actor.championZone,
+      nextUnitsEnterReady,
     };
 
     if (action.destinationBattlefieldId === undefined) {

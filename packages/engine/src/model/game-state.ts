@@ -121,6 +121,27 @@ export interface PlayerState {
    */
   restrictedSpellPower: number;
   /**
+   * Sun Disc's "the NEXT unit you play this turn enters ready" — a charge, not a
+   * flag, and the difference is the whole card.
+   *
+   * Confront's `unitsEnterReadyThisTurn` above is a boolean because it readies
+   * EVERY unit you play for the rest of the turn; this readies exactly one and
+   * is then spent. Modelled as a count so two activations (Sun Disc plus a
+   * borrowed copy via Heimerdinger) arm two units rather than collapsing into
+   * one boolean. Cleared at runEnd with the rest of the turn.
+   */
+  nextUnitsEnterReady: number;
+  /**
+   * Has a unit THIS player controls died this turn? Spoils of War costs 2 less
+   * "if an enemy unit has died this turn", which each player has to answer about
+   * the other, so it is stored per victim rather than as a global flag.
+   *
+   * Set in the death funnel and cleared by runEnd — "this turn" means every
+   * turn, not just your own, so a unit of yours dying on the opponent's turn
+   * discounts their Spoils of War during it.
+   */
+  unitsLostThisTurn: number;
+  /**
    * Has this player's "first time a friendly unit dies each turn" already
    * fired? Wraith of Echoes is the only card that asks, and the Java oracle
    * carries a field of the same shape and nearly the same name

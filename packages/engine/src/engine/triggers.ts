@@ -256,7 +256,34 @@ export type GameEvent =
       kind: "unitsStunned";
       stunnerIndex: 0 | 1;
       stunned: readonly { unitInstanceId: string; ownerIndex: 0 | 1 }[];
-    };
+    }
+  /**
+   * `conquerorIndex` just conquered `battlefieldId` — the same moment
+   * `dispatchLegendOnConquer` serves, opened up to permanents.
+   *
+   * Kai'Sa - Survivor reads "when I conquer", which is a UNIT's own conquest;
+   * Super Mega Death Rocket reads "when you conquer" from the TRASH, which no
+   * listener walk reaches at all. Both are answered from this one event, with
+   * each card checking for itself which of the two it meant — the alternative
+   * was a third dispatch shape for a difference the cards do not treat as one.
+   *
+   * Fired after the conquest is recorded, so a listener sees the score it caused.
+   */
+  | { kind: "battlefieldConquered"; conquerorIndex: 0 | 1; battlefieldId: string }
+  /**
+   * `discarderIndex` discarded one or more cards — Jinx - Rebel's "when you
+   * discard ONE OR MORE cards", which pays out once per discard INSTRUCTION
+   * however many cards it took.
+   *
+   * Deliberately carries NO count. It could not carry an honest one: a "discard
+   * 2" the player has to choose for is answered one card at a time through the
+   * decision queue, so the funnel sees two separate single-card discards and
+   * only the queue knows they were one instruction. Rather than pass a number
+   * that would be wrong on exactly the path that matters, the event says the
+   * only thing every card asks — that a discard happened. A card that one day
+   * needs the count can have it added along with the plumbing to make it true.
+   */
+  | { kind: "cardsDiscarded"; discarderIndex: 0 | 1 };
 
 /** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;

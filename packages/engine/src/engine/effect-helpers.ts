@@ -130,7 +130,14 @@ export function killUnit(
 export function completeDeath(state: GameState, death: PendingDeath): GameState {
   const { unit, ownerIndex } = death;
   const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
-  const inTrash = updatePlayer(state, ownerIndex, (p) => ({ ...p, trash: [...p.trash, trashed] }));
+  // The per-turn tally is bumped HERE rather than in killUnit, so a death that
+  // was replaced (Sett) or warded (Highlander) does not count — neither of those
+  // is a unit dying, and Spoils of War prices itself off units that actually did.
+  const inTrash = updatePlayer(state, ownerIndex, (p) => ({
+    ...p,
+    trash: [...p.trash, trashed],
+    unitsLostThisTurn: p.unitsLostThisTurn + 1,
+  }));
   return dispatchOnUnitDied(inTrash, death);
 }
 
@@ -594,6 +601,14 @@ export function discardCards(
   playerIndex: 0 | 1,
   count: number,
   chosenInstanceIds?: readonly string[],
+  /**
+   * Suppresses the `cardsDiscarded` event. Set ONLY by the `discard` decision as
+   * it takes one card at a time: a "discard 2" the player chooses for arrives
+   * here twice, and Jinx - Rebel's "one or more cards" must pay out once for the
+   * instruction, not once per answer. The decision fires the event itself when
+   * the last card is gone.
+   */
+  options?: { suppressEvent?: boolean },
 ): GameState {
   if (count <= 0) return state;
   const actor = state.players[playerIndex];
@@ -632,7 +647,13 @@ export function discardCards(
   // in the trash rather than in play — so it is dispatched by its own defId, not
   // found by walking the board. Fired after the move, so the trigger sees the
   // finished zones.
-  return chosen.reduce((next, c) => dispatchSelfEvent(next, "discarded", c, playerIndex), moved);
+  const selfTriggered = chosen.reduce((next, c) => dispatchSelfEvent(next, "discarded", c, playerIndex), moved);
+
+  // Then the board event, ONCE for the whole instruction (Jinx - Rebel's "one or
+  // more cards"). After the per-card self-triggers, so a card that plays itself
+  // out of the trash on being discarded has already done so.
+  if (options?.suppressEvent) return selfTriggered;
+  return dispatchEvent(selfTriggered, { kind: "cardsDiscarded", discarderIndex: playerIndex });
 }
 
 /**
@@ -683,6 +704,82 @@ export function recycleFromTrash(state: GameState, playerIndex: 0 | 1, count: nu
     trash: p.trash.slice(count),
     deck: [...p.deck, ...recycled], // bottom of the deck, per 416
   }));
+}
+
+/**
+ * Recycles one named card out of a player's HAND — rule 416's "puts it on the
+ * bottom of the corresponding deck", applied to a card that was never in the
+ * trash (Sabotage).
+ *
+ * Distinct from `recycleFromTrash` above rather than a parameterised version of
+ * it, and the difference is not the zone: that one is a COST and returns
+ * undefined when it cannot be paid in full, while this is an effect on a card
+ * someone else chose, so a card that has since left the hand is simply a no-op.
+ */
+export function recycleCardFromHand(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): GameState {
+  const actor = state.players[playerIndex];
+  const card = actor.hand.find((c) => c.instanceId === cardInstanceId);
+  if (!card) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
+    deck: [...p.deck, card], // bottom, per 416
+  }));
+}
+
+/**
+ * "Look at the top N of your Main Deck. Put 1 into your hand and recycle the
+ * rest." (Stacked Deck) — takes `keptInstanceId` from among the top `count` and
+ * sends the others to the bottom.
+ *
+ * Only ever touches the top `count`, so a card named from deeper in the deck
+ * cannot be smuggled into hand by a forged answer. Recycling the rest preserves
+ * their relative order, which matters because the next Stacked Deck will look at
+ * whatever is on top now.
+ */
+export function takeOneFromTopAndRecycleRest(
+  state: GameState,
+  playerIndex: 0 | 1,
+  count: number,
+  keptInstanceId: string,
+): GameState {
+  const actor = state.players[playerIndex];
+  const looked = actor.deck.slice(0, count);
+  const kept = looked.find((c) => c.instanceId === keptInstanceId);
+  if (!kept) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    deck: [...p.deck.slice(looked.length), ...looked.filter((c) => c.instanceId !== keptInstanceId)],
+    hand: [...p.hand, kept],
+  }));
+}
+
+/**
+ * "Recycle me" paid with a unit already in play — Ekko - Recurrent. The unit
+ * leaves the board for the BOTTOM of its owner's Main Deck (rule 416).
+ *
+ * Deliberately NOT a death and deliberately not routed through `killUnit`: a
+ * Recycle is a zone change, so no `[Deathknell]` fires, no death-watch sees it,
+ * and it never reaches the trash. Its damage and this-turn state are cleared for
+ * the same reason `returnUnitToHand` clears them — the card may be drawn and
+ * played again fresh.
+ */
+export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, unitInstanceId: string): GameState {
+  const location = findUnitAnywhere(state, unitInstanceId);
+  if (!location || location.ownerIndex !== playerIndex) return state;
+  const clean: UnitInstance = {
+    ...location.unit,
+    damage: 0,
+    mightThisTurn: 0,
+    buffed: false,
+    stunned: false,
+    exhausted: false,
+    keywordsThisTurn: {},
+    abilityModesUsedThisTurn: [],
+    movedThisTurn: false,
+  };
+  const removed = removeUnitAnywhere(state, unitInstanceId);
+  return updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] }));
 }
 
 /** Draws up to `count` cards for `playerIndex`, stopping early (not
@@ -796,6 +893,35 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
  *  target here... widen the search the day one does" — this is that day). */
 export function readyUnit(state: GameState, targetInstanceId: string): GameState {
   return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
+}
+
+/**
+ * Readies ANY permanent a player controls — a unit in either zone, a Gear, or
+ * the Legend.
+ *
+ * `readyUnit` above deliberately only knows about units, because every card that
+ * says "ready a unit" means one. Miss Fortune - Captain says "something else
+ * that's exhausted", naming no type at all, so she needs the wider reach — and
+ * the Legend zone is not on the board, which is exactly the gap that made Legend
+ * abilities unreachable before `findActivatable` learned about it.
+ */
+export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId: string): GameState {
+  const ready = <T extends { instanceId: string; exhausted: boolean }>(c: T): T =>
+    c.instanceId === instanceId ? { ...c, exhausted: false } : c;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const actor = players[playerIndex];
+  players[playerIndex] = {
+    ...actor,
+    baseUnits: actor.baseUnits.map(ready),
+    activeGear: actor.activeGear.map(ready),
+    legend: ready(actor.legend),
+  };
+  const battlefields = state.battlefields.map((bf) => {
+    const mine = bf.units[actor.id];
+    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(ready) } } : bf;
+  });
+  return { ...state, players, battlefields };
 }
 
 /** Deals `amount` damage to every enemy (relative to `casterIndex`) unit at

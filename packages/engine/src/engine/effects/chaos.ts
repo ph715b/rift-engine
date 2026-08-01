@@ -2,7 +2,18 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { discardCards, discardThenDraw, drawCards, grantTemporary, recallUnitToBase, returnCardFromTrash } from "../effect-helpers.js";
+import {
+  discardCards,
+  discardThenDraw,
+  drawCards,
+  giveMightThisTurnToOwnUnit,
+  grantTemporary,
+  readyUnit,
+  recallUnitToBase,
+  returnCardFromTrash,
+  takeOneFromTopAndRecycleRest,
+} from "../effect-helpers.js";
+import { parkDecision } from "../decisions.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -32,6 +43,19 @@ import { discardCards, discardThenDraw, drawCards, grantTemporary, recallUnitToB
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-183": {
+    // Stacked Deck — "Look at the top 3 cards of your Main Deck. Put 1 into your
+    // hand and recycle the rest."
+    //
+    // A decision rather than a fan-out on the action, and that is forced rather
+    // than chosen: legal-actions enumerates from PUBLIC state, and the top of a
+    // deck is not public. Fanning it out would put the three card identities
+    // into the action list, which the AI reads — handing it knowledge of its own
+    // deck order that a human casting the same spell would only learn on
+    // resolution.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-183-keep", playerIndex: ctx.casterIndex }),
+  },
   "OGN-180": {
     // Fading Memories — "Give a unit at a battlefield or a gear [Temporary]."
     //
@@ -71,6 +95,23 @@ export const cardEffects: Record<string, EffectDefinition> = {
   },};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-192": {
+    // Mindsplitter — "When you play me, choose an opponent. They reveal their
+    // hand. Choose a card from it, and they discard that card."
+    //
+    // "Choose an opponent" is not a decision in a 2-player game: there is one,
+    // and offering it would be theatre. The real choice is WHICH card, and it
+    // belongs to the CASTER even though the cards are the opponent's — which is
+    // why the decision's playerIndex is the caster and its options come from the
+    // other player's hand.
+    //
+    // A decision rather than an action fan-out for the same reason Stacked Deck
+    // needs one: enumeration is built from public state, and putting the
+    // opponent's hand into the action list would leak it to the AI before the
+    // reveal ever happened.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-192-discard", playerIndex: ctx.casterIndex }),
+  },
   "OGN-165": {
     // Cemetery Attendant — "When you play me, return a unit from your trash to
     // your hand."
@@ -121,7 +162,26 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-202": {
+    // Jinx - Rebel — "When you discard one or more cards, ready me and give me
+    // +1 Might this turn."
+    //
+    // "ONE OR MORE" pays out once per discard instruction, not once per card,
+    // which is exactly why `cardsDiscarded` carries a count rather than firing
+    // per card — a "discard 2" readies her once.
+    //
+    // "YOU discard" is her own controller: Mindsplitter making the OPPONENT
+    // discard must not ready their Jinx.
+    on: "cardsDiscarded",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardsDiscarded") return state;
+      if (event.discarderIndex !== listener.ownerIndex) return state;
+      const readied = readyUnit(state, listener.card.instanceId);
+      return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, 1);
+    },
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -148,4 +208,35 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
-export const decisions: Record<string, DecisionDefinition> = {};
+export const decisions: Record<string, DecisionDefinition> = {
+  // Stacked Deck's "put 1 into your hand and recycle the rest".
+  //
+  // The options are the top 3 read from LIVE state when the question reaches the
+  // front of the queue, not captured when it was raised — a question queued
+  // behind another must not offer a card the earlier answer has since drawn.
+  "OGN-183-keep": {
+    prompt: () => "Stacked Deck: put one into your hand, recycle the rest",
+    options: (state, d) =>
+      state.players[d.playerIndex].deck.slice(0, 3).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => takeOneFromTopAndRecycleRest(state, d.playerIndex, 3, optionId),
+  },
+
+  // Mindsplitter's "choose a card from it, and they discard that card".
+  //
+  // The chooser is the caster (`d.playerIndex`); the cards are the opponent's,
+  // and so is the discard. Routed through discardCards so the discarded card
+  // still fires its own on-discard trigger (Flame Chompers, Scrapheap) and still
+  // sets `discardedThisTurn` for Raging Soul and Jinx - Rebel — a hand-rolled
+  // move would silently skip all three.
+  "OGN-192-discard": {
+    prompt: () => "Mindsplitter: choose a card for your opponent to discard",
+    options: (state, d) => {
+      const opponent = state.players[d.playerIndex === 0 ? 1 : 0];
+      return opponent.hand.map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId }));
+    },
+    resolve: (state, d, optionId) => {
+      const opponentIndex: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      return discardCards(state, opponentIndex, 1, [optionId]);
+    },
+  },
+};

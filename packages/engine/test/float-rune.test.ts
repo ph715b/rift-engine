@@ -43,6 +43,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    nextUnitsEnterReady: 0,
+    unitsLostThisTurn: 0,
     ...overrides,
   };
 }

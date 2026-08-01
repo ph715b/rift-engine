@@ -9,9 +9,12 @@ import {
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
   payPowerFromChanneled,
+  readyPermanent,
   readyUnit,
+  recycleCardFromHand,
   spendBuff,
 } from "../effect-helpers.js";
+import { readyableOthers } from "../unit-triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import { effectiveMight } from "../effective-might.js";
@@ -45,6 +48,30 @@ import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-144": {
+    // Spoils of War — "If an enemy unit has died this turn, this costs 2 Energy
+    // less. Draw 2."
+    //
+    // Only the draw is here; the conditional discount is a COST and lives in
+    // cost-modifiers.ts, the same split Find Your Center takes.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 2),
+  },
+  "OGN-156": {
+    // Sabotage — "Choose an opponent. They reveal their hand. Choose a non-unit
+    // card from it, and recycle that card."
+    //
+    // "NON-UNIT", which is the whole texture of the card: it takes the removal
+    // and the card draw out of a hand and leaves the bodies. A hand of nothing
+    // but units makes this a blank, and the decision correctly offers nothing —
+    // advanceDecisions drops a question with no answers rather than deadlocking.
+    //
+    // Recycle, not discard: the card goes to the BOTTOM OF THEIR DECK (416), so
+    // they will draw it again eventually. That distinction matters to anything
+    // watching the trash, which is why this does not route through discardCards.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-156-recycle", playerIndex: ctx.casterIndex }),
+  },
   "OGN-138": {
     // Catalyst of Aeons — "Channel 2 runes exhausted. If you couldn't channel 2
     // runes this way, draw 1."
@@ -244,6 +271,41 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Sabotage's "choose a non-unit card from it, and recycle that card".
+  //
+  // Chooser is the caster; the hand and the deck it goes to the bottom of are
+  // the opponent's. Filtering to non-units HERE rather than in the resolver is
+  // what makes an all-units hand offer nothing at all, which is the card doing
+  // as much as it can (422) rather than the player being asked a fake question.
+  "OGN-156-recycle": {
+    prompt: () => "Sabotage: choose a non-unit card to recycle",
+    options: (state, d) => {
+      const opponent = state.players[d.playerIndex === 0 ? 1 : 0];
+      return opponent.hand
+        .filter((c) => c.kind !== "Unit")
+        .map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId }));
+    },
+    resolve: (state, d, optionId) => recycleCardFromHand(state, d.playerIndex === 0 ? 1 : 0, optionId),
+  },
+  // Miss Fortune - Captain's "you may ready something else that's exhausted",
+  // raised by her on-move trigger the first time she moves each turn.
+  //
+  // Options are rebuilt from live state, so a permanent readied by something
+  // else between the trigger and the answer is simply no longer on offer.
+  // Declining is always available and listed first, so a mis-click and the AI's
+  // tie-break both land on doing nothing.
+  "OGN-162-ready": {
+    prompt: () => "Miss Fortune - Captain: ready something else that's exhausted?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...readyableOthers(state, d.playerIndex, d.cardInstanceId ?? "").map((c) => ({
+        id: c.instanceId,
+        label: `Ready ${c.name}`,
+        instanceId: c.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => (optionId === "decline" ? state : readyPermanent(state, d.playerIndex, optionId)),
+  },
   "OGN-152-ready": {
     prompt: () => "Mistfall: pay 1 Body Power and exhaust it to ready the buffed unit?",
     options: (state, d) => {
