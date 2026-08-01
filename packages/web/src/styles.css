@@ -242,6 +242,19 @@ button:disabled {
 }
 
 .battlefields {
+  /*
+   * Battlefield cards are sized for the box they live in, not for the global card
+   * size. A battlefield stacks TWO unit rows plus its name line inside one grid
+   * cell, so a card at the global `--card-h` is taller than the row it sits in —
+   * measured at 125px of card in a 104px row, which is exactly why this area used
+   * to scroll. `--card-w` is `calc(var(--card-h) * 0.716)` and custom properties
+   * resolve lazily at point of use, so overriding the height here rescales both.
+   *
+   * Sized with a few px of headroom rather than exactly to the row: a unit card
+   * carries badges that sit slightly proud of its box, and at an exact fit those
+   * overshot the row by 3-5px and brought the scrollbar straight back.
+   */
+  --card-h: clamp(48px, 9.5dvh, 132px);
   display: grid;
   grid-template-columns: repeat(2, 1fr); /* fallback; GameBoard sets this inline from state.battlefields.length */
   grid-template-rows: minmax(0, 1fr);
@@ -297,15 +310,77 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/*
+ * A battlefield side FANS its units rather than scrolling them.
+ *
+ * This used to wrap and `overflow-y: auto`, which meant a crowded battlefield hid
+ * its own contents behind a scrollbar — the one place in the game where seeing
+ * everything at once matters most, since combat is decided by what is present.
+ * Scrolling also broke the drag-to-move affordance: a unit you cannot see is a
+ * unit you cannot drag, and nothing indicated there were more.
+ *
+ * Instead the cards tuck under each other, the way a real board crowds a location.
+ * `--unit-count` is set inline by BattlefieldView; the tuck stays at 0 while the
+ * units comfortably fit and then grows per extra unit, capped so every card keeps
+ * a readable sliver showing. Later cards stack on top (DOM order + position:
+ * relative), so the fan reads left-to-right, and hovering lifts one clear.
+ */
 .battlefield-side {
+  --units-fit: 3; /* how many sit side by side before tucking starts */
+  --tuck-step: 0.14; /* fraction of a card width reclaimed per extra unit */
+  --tuck-max: 0.7; /* never hide more than this much of a card */
+  /* Declared here but written in `cqh`, which is only valid for DESCENDANTS of the
+     container — a container cannot query itself. Custom properties resolve at the
+     point of USE, and both of these are only ever used on the cards inside, so they
+     resolve against this row exactly as intended. */
+  --bf-card-h: 88cqh;
+  --bf-card-w: calc(88cqh * 0.716);
+  --tuck: calc(min(max(0, var(--unit-count, 0) - var(--units-fit)) * var(--tuck-step), var(--tuck-max)) * var(--bf-card-w));
+  /*
+   * The row is the container its cards are measured against. A viewport-derived
+   * size (`dvh`) cannot work here: the row's height is whatever is left after the
+   * battlefield grid, the name line and the other side have taken theirs, and that
+   * varies with the window. Measured at 1024x700 the row was 64px while a
+   * dvh-sized card was 74px — still overflowing, just at a different breakpoint.
+   * Container units close that loop by measuring the row itself.
+   */
+  container-type: size;
   display: flex;
   gap: 0.9rem;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   flex: 1 1 0;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* No scrollbars in either axis: the fan is what makes everything fit. */
+  overflow: visible;
+}
+
+/* 88% of the row, leaving room for the badges that sit proud of a card's box —
+   at an exact fit those alone put the scrollbar back. Width follows the height at
+   the card's own 0.716 ratio, set explicitly rather than with `aspect-ratio`:
+   paired with `width: auto` in a flex row that derives the HEIGHT from the content
+   width instead, which silently defeats the cap. */
+.battlefield-side > .card {
+  height: var(--bf-card-h);
+  width: var(--bf-card-w);
+}
+
+.battlefield-side > * + * {
+  margin-left: calc(-1 * var(--tuck));
+}
+
+/* No `aspect-ratio` here, deliberately. Pairing it with `width: auto` in a flex row
+   makes the card size its HEIGHT from its content width instead of the other way
+   round — measured at 87.5px wide ÷ 0.716 = 122px tall, silently defeating the
+   height cap and keeping the very overflow this was meant to remove. The
+   `--card-h` override on `.battlefields` is the whole mechanism; `.card` already
+   derives its width from it. */
+
+/* Bring a hovered unit clear of the ones tucked over it — without this the lift
+   from `.card.selectable:hover` happens UNDERNEATH its neighbour and reads as
+   nothing happening. */
+.battlefield-side > *:hover {
+  z-index: 3;
 }
 
 .card {

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { CardView, type DragPoint } from "./CardView.js";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
 
@@ -130,7 +131,10 @@ export function BattlefieldView({
           })}
         </div>
       )}
-      <div className="battlefield-side">
+      {/* `--unit-count` drives the fan in styles.css — the row tucks its cards
+          under each other instead of scrolling once they stop fitting. Passed as
+          data rather than measured, so it cannot disagree with what is rendered. */}
+      <div className="battlefield-side" style={{ "--unit-count": aiUnits.length } as CSSProperties}>
         {aiUnits.map((unit) => (
           <CardView
             key={unit.instanceId}
@@ -144,7 +148,7 @@ export function BattlefieldView({
           />
         ))}
       </div>
-      <div className="battlefield-side">
+      <div className="battlefield-side" style={{ "--unit-count": humanUnits.length } as CSSProperties}>
         {humanUnits.map((unit) => (
           <CardView
             key={unit.instanceId}
