@@ -331,3 +331,82 @@ describe("Call to Glory (OGN-207): spend a buff to ignore the cost", () => {
     expect(target.buffed).toBe(false);
   });
 });
+
+/**
+ * Rebuke (OGN-172): "[Action] Return a unit at a battlefield to its owner's hand."
+ *
+ * From the imported Yasuo list rather than the Sett one, and the cheapest of its
+ * six dead copies — `returnUnitToHand` already existed, so the card was one
+ * registration away the whole time.
+ *
+ * The scope is the part worth pinning: "at a battlefield" is printed, so a unit
+ * in base is out of reach. Reading that as `scope: "anywhere"` is a mistake this
+ * codebase has made before, and it silently makes the card strictly better.
+ */
+describe("Rebuke (OGN-172): bounce a unit at a battlefield", () => {
+  const REBUKE = "OGN-172"; // 2 Energy + 2 Chaos Power
+
+  function rebukeState(): { state: GameState; spell: ReturnType<typeof spellInstance> } {
+    const spell = spellInstance(REBUKE);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [spell];
+    state.players[0]!.channeled = Array.from({ length: 6 }, (_, i) => ({
+      id: `ch${i}`,
+      domain: "Chaos" as const,
+      state: "Ready" as const,
+    }));
+    return { state, spell };
+  }
+
+  const casts = (state: GameState, id: string) =>
+    legalActions(state).filter((a) => a.type === "PlayCard" && a.card.instanceId === id);
+
+  it("returns an ENEMY unit at a battlefield to its owner's hand", () => {
+    const { state, spell } = rebukeState();
+    state.battlefields[0]!.units = { p2: [makeUnit({ name: "Intruder", instanceId: "intruder" })] };
+
+    const action = casts(state, spell.instanceId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === "intruder");
+    expect(action, "Rebuke was never offered the enemy unit").toBeDefined();
+    const after = castAndResolve(state, action);
+
+    expect(after.battlefields[0]!.units["p2"] ?? []).toHaveLength(0);
+    // Its OWNER's hand, not the caster's.
+    expect(after.players[1]!.hand.map((c) => c.name)).toEqual(["Intruder"]);
+    expect(after.players[0]!.hand.some((c) => c.name === "Intruder")).toBe(false);
+  });
+
+  it("can bounce your OWN unit — 'a unit' carries no side", () => {
+    const { state, spell } = rebukeState();
+    state.battlefields[0]!.units = { p1: [makeUnit({ name: "Mine", instanceId: "mine" })] };
+
+    const action = casts(state, spell.instanceId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === "mine");
+    expect(action, "Rebuke was never offered a friendly unit").toBeDefined();
+    expect(castAndResolve(state, action).players[0]!.hand.some((c) => c.name === "Mine")).toBe(true);
+  });
+
+  it("strips a Buff on the way out (709)", () => {
+    const { state, spell } = rebukeState();
+    state.battlefields[0]!.units = { p1: [makeUnit({ name: "Buffed", instanceId: "buffed", buffed: true })] };
+
+    const action = casts(state, spell.instanceId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === "buffed");
+    const after = castAndResolve(state, action);
+    expect(after.players[0]!.hand.find((c) => c.name === "Buffed")).toBeDefined();
+    expect((after.players[0]!.hand.find((c) => c.name === "Buffed") as UnitInstance).buffed).toBe(false);
+  });
+
+  it("never offers a unit in BASE — 'at a battlefield' is printed", () => {
+    const { state, spell } = rebukeState();
+    state.players[1]!.baseUnits = [makeUnit({ name: "Homebody", instanceId: "homebody" })];
+
+    expect(casts(state, spell.instanceId).some((a) => a.type === "PlayCard" && a.targetUnitInstanceId === "homebody")).toBe(false);
+  });
+
+  it("is not castable with no unit at any battlefield", () => {
+    const { state, spell } = rebukeState();
+    expect(casts(state, spell.instanceId)).toEqual([]);
+  });
+
+  it("reports as implemented", () => {
+    expect(isCardImplemented(registry.get(REBUKE))).toBe(true);
+  });
+});

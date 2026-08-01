@@ -12,6 +12,7 @@ import {
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
+  returnUnitToHand,
   swapUnitLocations,
   takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
@@ -45,6 +46,24 @@ import { parkDecision } from "../decisions.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-172": {
+    // Rebuke — "[Action] Return a unit at a battlefield to its owner's hand."
+    //
+    // "AT A BATTLEFIELD" is printed, so the default battlefield scope is right
+    // and `scope: "anywhere"` would be wrong: a unit sitting in base is out of
+    // reach, which is the whole limit on the card. That distinction is
+    // load-bearing here and this codebase has got it wrong before.
+    //
+    // No owner restriction — "a unit", not "an enemy unit". Bouncing your own is
+    // a real line (it resets damage and saves a unit about to die), not an
+    // oversight, and 355.9.b's bare noun carries no side.
+    //
+    // returnUnitToHand sends it to its OWNER's hand rather than the caster's,
+    // and strips Buffs on the way (709, "if a Unit leaves play, remove all Buffs
+    // from it") — both already handled there, which is why this is one call.
+    targeting: { kind: "unit" },
+    resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state),
+  },
   "OGN-183": {
     // Stacked Deck — "Look at the top 3 cards of your Main Deck. Put 1 into your
     // hand and recycle the rest."
