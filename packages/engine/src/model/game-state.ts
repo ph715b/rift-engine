@@ -80,6 +80,15 @@ export interface TriggerChainEntry {
   /** Which card's registered trigger to run — kept alongside the instance id so
    *  resolution needs no board scan to know WHICH ability is pending. */
   listenerDefId: string;
+  /** The listener's printed name, captured when the trigger fired.
+   *
+   *  Carried rather than looked up because the chain viewer has to name the item
+   *  while it waits, and by then the source may be in a trash — a [Deathknell] is
+   *  the common case, and it is precisely the one where a board lookup returns
+   *  nothing. Same reasoning as `event` above: 809.1.b.3's "note its attributes
+   *  before the card is moved to the Trash", applied to the one attribute the UI
+   *  needs. */
+  listenerName: string;
   /** Where the listener stood when the trigger fired. Positional triggers ("when
    *  I conquer", "here") read this rather than asking the board again, since the
    *  unit may have moved or died in between. */
@@ -470,6 +479,51 @@ export interface GameState {
    *  implemented yet) — this is the correct general shape, not speculative:
    *  it needs no restructuring the moment reaction casting is added. */
   spellChain: ChainEntry[];
+  /**
+   * Whether the currently-open chain was opened by a triggered ability rather
+   * than by a played card — rule 347's exception to 346's Focus pass.
+   *
+   * 347: "Focus will not pass in this way if the chain opened as a result of a
+   * triggered ability being added to the chain, nor if it opened as a result of an
+   * Add ability." Its printed example is the Combat Chain, which opens exactly that
+   * way.
+   *
+   * STATE rather than a property of the popped entry, and that distinction is the
+   * whole point: the rule asks how the chain OPENED, not what just resolved. A
+   * [Reaction] Spell cast in response to a trigger pops last, so a per-entry test
+   * would see a Spell and pass Focus — losing the Focus rule 345 had just awarded
+   * to the player who contested the battlefield, before they had taken one action
+   * in their own Showdown.
+   *
+   * Meaningless while `chainOpen` (same "stale but harmless" convention as
+   * `chainPriority` and `focusHolder`); set when a flush closes an open chain and
+   * cleared when the chain empties.
+   */
+  chainOpenedByTrigger: boolean;
+  /**
+   * Triggers that have fired but are not yet respondable — the Chain's **Pending
+   * Item** portion of the chain (337-345), held here rather than in `spellChain`.
+   *
+   * The rules put a trigger on the Chain the instant it fires, in any state: 383
+   * says "Triggered Abilities can be put on the Chain during Closed States or Open
+   * States on any player's turn", and 323.3 allows it even mid-Cleanup ("New
+   * Pending Items can be added, but Finalized Items cannot be executed and Priority
+   * and Focus are not passed or awarded"). What a Pending Item is NOT is
+   * respondable: 345 grants priority to "the controller of the newest item on the
+   * chain" only once there are **no** Pending Items left.
+   *
+   * So this is not a queue invented to work around the dispatch sites firing where
+   * nobody holds priority — it is that rules concept, given the one shape it can
+   * have here. Most of the 14 `dispatch*` entry points fire during the Beginning
+   * Phase, a Cleanup, scoring, or mid-resolution, and pushing straight onto
+   * `spellChain` there would offer a response window at a moment the rules say
+   * priority is not awarded.
+   *
+   * Drained by `runCleanup`'s flush, which is the engine's Finalize step: the one
+   * hook that runs after every action in both `submit` and the AI's lookahead.
+   * Empty in every settled state.
+   */
+  pendingTriggers: TriggerChainEntry[];
   /** Highlander's "the next time it would die this turn, heal it, exhaust
    *  it, and recall it instead" — a flat list of warded unit instanceIds
    *  (not per-player: instanceIds are globally unique), consumed at every

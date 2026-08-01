@@ -1401,6 +1401,24 @@ button:disabled {
   align-items: flex-start;
 }
 
+/* Stands in for the CardView a Spell row shows. A triggered ability has no card
+   of its own — its source is a permanent on the board, or already in a trash if it
+   was a [Deathknell] — so this occupies the same slot at the same width, keeping
+   the name and owner columns aligned between the two kinds of row. */
+.chain-item-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.5rem;
+  align-self: stretch;
+  min-height: 3.5rem;
+  border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 0.35rem;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
 .chain-item-text {
   display: flex;
   flex-direction: column;

@@ -6,7 +6,7 @@ import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import { ZHONYAS_HOURGLASS, isDeathWarded, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, killGear } from "./triggers.js";
+import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, holdEventTrigger, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
@@ -452,7 +452,21 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
   if (!location || location.unit.buffed) return updateUnitAnywhere(state, targetInstanceId, (u) => u);
 
   const buffed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
-  return dispatchEvent(buffed, { kind: "unitBuffed", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
+  // HELD as a Chain Pending Item rather than resolved here — the first of the 14
+  // dispatch sites to be converted (809.1.b.3: a trigger goes on the Chain so the
+  // opponent may respond before it resolves). The buff itself is applied
+  // immediately; only the "when you buff a friendly unit" TRIGGER waits.
+  //
+  // This site went first because it is the least entangled: one listener in the
+  // whole pool (Mistfall), tail position so no caller reads state after it, it
+  // already fires only when a buff was really placed (708, the guard above), and
+  // Mistfall's resolution parks a question rather than moving the board — so the
+  // observable change is WHEN the question is asked, not what the board looks like.
+  return holdEventTrigger(buffed, {
+    kind: "unitBuffed",
+    ownerIndex: location.ownerIndex,
+    unitInstanceId: targetInstanceId,
+  });
 }
 
 /**

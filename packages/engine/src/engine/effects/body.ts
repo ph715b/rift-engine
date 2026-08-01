@@ -327,11 +327,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // decline has to be a genuine option, which it is by being one of the two
     // answers rather than an inference.
     on: "unitBuffed",
+    // "A FRIENDLY unit" is measured against Mistfall's controller, not against
+    // whoever caused the buff — buffing an ENEMY unit must not trigger this at all.
+    //
+    // Stated here as well as in `resolve` because the two answer different
+    // questions once this trigger is held as a Chain Pending Item: this one decides
+    // whether it goes on the chain (and so whether both players are asked to pass),
+    // while `resolve`'s copy decides what happens when it gets there, on a board
+    // that the response window may have changed.
+    applies: (_state, listener, event) => event.kind === "unitBuffed" && event.ownerIndex === listener.ownerIndex,
     resolve: (state, listener, event) => {
       if (event.kind !== "unitBuffed") return state;
-      // "A FRIENDLY unit" is measured against Mistfall's controller, not against
-      // whoever caused the buff — buffing an enemy unit must not offer their
-      // gear this trigger.
       if (event.ownerIndex !== listener.ownerIndex) return state;
       if (listener.card.exhausted) return state; // it exhausts itself to pay
       return parkDecision(state, {

@@ -1,6 +1,8 @@
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
 import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
+import { runCleanup } from "../src/engine/cleanup.js";
+import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import type { PendingDecision } from "../src/model/game-state.js";
 import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
 
@@ -112,12 +114,41 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     chainOpen: true,
     chainPriority: 0,
     chainPasses: 0,
+    chainOpenedByTrigger: false,
     spellChain: [],
+    pendingTriggers: [],
     deathWardedUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
     ...overrides,
   };
+}
+
+/**
+ * Drives triggers held as Chain Pending Items through to resolution, standing in
+ * for the two players passing on them.
+ *
+ * Needed because a converted trigger no longer resolves at its dispatch site: it is
+ * held in `pendingTriggers`, finalized onto the chain by the Cleanup, and resolved
+ * by two consecutive PassFocus actions (340). A test that calls `addBuff` and then
+ * looks straight at `pendingDecisions` is now looking a full response window too
+ * early.
+ *
+ * Stops at a pending question rather than answering it, so callers keep control of
+ * the answer — compose with `answerDecisions` for the full sequence. This mirrors
+ * `submit`, which likewise refuses a PassFocus while a decision is outstanding
+ * (323.2.a).
+ *
+ * Returns unchanged states unchanged, so it is safe to wrap any call.
+ */
+export function resolveHeldTriggers(state: GameState): GameState {
+  let current = runCleanup(state);
+  for (let guard = 0; guard < 32; guard += 1) {
+    if (current.pendingDecisions.length > 0) return current;
+    if (current.chainOpen) return current;
+    current = runCleanup(executePassFocus(current, { type: "PassFocus", playerIndex: current.chainPriority }));
+  }
+  throw new Error("resolveHeldTriggers: the chain never reopened");
 }
 
 /**

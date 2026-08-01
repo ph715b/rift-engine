@@ -4,11 +4,12 @@ import { contextFor } from "../src/engine/effect-context.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { addBuff, discardCards, payPowerFromChanneled } from "../src/engine/effect-helpers.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
-import { answerDecisions, makePlayer, makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The three cards that needed the engine to be able to stop and ask.
@@ -142,10 +143,30 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
     return { state, mistfall, ally };
   }
 
+  it("waits on the chain as a Pending Item before it asks (809.1.b.3)", () => {
+    // The buff lands immediately; the TRIGGER does not. It is held, finalized onto
+    // the chain by the Cleanup, and only resolves once both players have passed —
+    // which is the response window this conversion exists to create.
+    const { state, ally } = mistfallState();
+
+    const buffed = addBuff(state, ally.instanceId);
+
+    expect(buffed.players[0]!.baseUnits[0]!.buffed).toBe(true); // the buff is not deferred
+    expect(buffed.pendingTriggers).toHaveLength(1); // the trigger is
+    expect(buffed.pendingTriggers[0]!.listenerDefId).toBe(MISTFALL);
+    expect(buffed.pendingDecisions).toHaveLength(0); // nothing asked yet
+
+    const onChain = runCleanup(buffed);
+    expect(onChain.pendingTriggers).toHaveLength(0); // finalized...
+    expect(onChain.spellChain).toHaveLength(1); // ...onto the chain
+    expect(onChain.chainOpen).toBe(false); // which closes it, so PassFocus is the move
+    expect(onChain.chainOpenedByTrigger).toBe(true); // 347: Focus will not pass when it empties
+  });
+
   it("asks when a friendly unit is buffed", () => {
     const { state, ally } = mistfallState();
 
-    const asked = addBuff(state, ally.instanceId);
+    const asked = resolveHeldTriggers(addBuff(state, ally.instanceId));
 
     expect(pendingDecision(asked)!.kind).toBe("OGN-152-ready");
     expect(hasOption(asked, "pay")).toBe(true);
@@ -155,7 +176,7 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
   it("paying readies the unit, exhausts Mistfall and spends the Power", () => {
     const { state, ally } = mistfallState();
 
-    const after = answerDecisions(addBuff(state, ally.instanceId), () => "pay");
+    const after = answerDecisions(resolveHeldTriggers(addBuff(state, ally.instanceId)), () => "pay");
 
     expect(after.players[0]!.baseUnits[0]!.exhausted).toBe(false);
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
@@ -166,7 +187,7 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
   it("declining leaves everything as it was but for the buff", () => {
     const { state, ally } = mistfallState();
 
-    const after = answerDecisions(addBuff(state, ally.instanceId), () => "decline");
+    const after = answerDecisions(resolveHeldTriggers(addBuff(state, ally.instanceId)), () => "decline");
 
     expect(after.players[0]!.baseUnits[0]!.exhausted).toBe(true);
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
@@ -178,12 +199,17 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
     // "If a Buff is added on a Unit that already has a Buff, it is not placed
     // instead" — so nothing was buffed, and there is nothing to trigger on.
     // Without this, a buff-heavy board would offer the same question forever.
+    // Each negative below asserts NOTHING WAS HELD as well as nothing asked. Now
+    // that the trigger is deferred, checking `pendingDecisions` alone would pass for
+    // the wrong reason — no question is outstanding immediately after ANY buff — so
+    // these would go green even if the trigger fired when it must not.
     const { state, ally } = mistfallState();
-    const once = answerDecisions(addBuff(state, ally.instanceId), () => "decline");
+    const once = answerDecisions(resolveHeldTriggers(addBuff(state, ally.instanceId)), () => "decline");
 
     const twice = addBuff(once, ally.instanceId);
 
-    expect(twice.pendingDecisions).toHaveLength(0);
+    expect(twice.pendingTriggers).toHaveLength(0);
+    expect(resolveHeldTriggers(twice).pendingDecisions).toHaveLength(0);
   });
 
   it("does not fire for the OPPONENT's unit being buffed", () => {
@@ -192,19 +218,24 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
     const theirs = makeUnit({ name: "Theirs" });
     state.players[1]!.baseUnits = [theirs];
 
-    expect(addBuff(state, theirs.instanceId).pendingDecisions).toHaveLength(0);
+    const buffed = addBuff(state, theirs.instanceId);
+    expect(buffed.pendingTriggers).toHaveLength(0);
+    expect(resolveHeldTriggers(buffed).pendingDecisions).toHaveLength(0);
   });
 
   it("offers nothing to pay with when Mistfall is already exhausted", () => {
     const { state, ally } = mistfallState();
     state.players[0]!.activeGear[0]!.exhausted = true;
 
-    expect(addBuff(state, ally.instanceId).pendingDecisions).toHaveLength(0);
+    // Mistfall still TRIGGERS — being unable to pay is a resolution-time question
+    // (its options come out empty and advanceDecisions drops it as moot), not a
+    // reason not to trigger. So the assertion is about what is ASKED, after resolving.
+    expect(resolveHeldTriggers(addBuff(state, ally.instanceId)).pendingDecisions).toHaveLength(0);
   });
 
   it("offers only the decline with no Body Power", () => {
     const { state, ally } = mistfallState(0);
-    const asked = addBuff(state, ally.instanceId);
+    const asked = resolveHeldTriggers(addBuff(state, ally.instanceId));
     // One option left, so it is not a question at all and never reaches the queue.
     expect(asked.pendingDecisions).toHaveLength(0);
     expect(asked.players[0]!.baseUnits[0]!.exhausted).toBe(true); // declined by default

@@ -17,6 +17,57 @@ describe("describeChain", () => {
     expect(describeChain(makeState())).toEqual([]);
   });
 
+  it("gives a triggered ability a real row, named by its source", () => {
+    // Triggers used to be SKIPPED here, which was survivable only while nothing
+    // could push one. Now that the Cleanup finalizes them onto the chain, skipping
+    // would render a CLOSED chain as an EMPTY viewer while the board demands a
+    // Pass Focus — the player asked to pass at something they cannot see.
+    const state = makeState({
+      chainOpen: false,
+      spellChain: [
+        {
+          kind: "trigger",
+          playerIndex: 1,
+          listenerInstanceId: "gear-1",
+          listenerDefId: "OGN-152",
+          listenerName: "Mistfall",
+          event: { kind: "unitBuffed", ownerIndex: 1, unitInstanceId: "u-1" },
+        },
+      ],
+    });
+
+    const items = describeChain(state);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.kind).toBe("trigger");
+    expect(items[0]!.cardName).toBe("Mistfall"); // the carried name, not a board lookup
+    expect(items[0]!.playerIndex).toBe(1);
+    expect(items[0]!.depthFromTop).toBe(0);
+    // Pushed already-finalized, so nothing was ever targeted — see the Pending vs.
+    // Finalized row in docs/rules-conformance.md.
+    expect(items[0]!.targets).toEqual([]);
+  });
+
+  it("keys Spell and trigger rows distinctly, so a mixed chain cannot collide", () => {
+    // The UI keys its list on `key`. A trigger has no card instance to borrow one
+    // from, and two of one permanent's triggers can wait at once — a duplicate key
+    // is a React remount and, with Framer Motion, a duplicate-layoutId warning.
+    const trigger = {
+      kind: "trigger" as const,
+      playerIndex: 0 as const,
+      listenerInstanceId: "gear-1",
+      listenerDefId: "OGN-152",
+      listenerName: "Mistfall",
+      event: { kind: "unitBuffed", ownerIndex: 0, unitInstanceId: "u-1" },
+    };
+    const state = makeState({
+      chainOpen: false,
+      spellChain: [{ playerIndex: 0, card: spellInstance(FIRESTORM) }, trigger, { ...trigger }],
+    });
+
+    const keys = describeChain(state).map((i) => i.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("orders NEWEST FIRST — depthFromTop 0 is the last-pushed entry (rule 343)", () => {
     // White-box: a chain deeper than one entry is unreachable through any
     // public action until reaction-speed casting lands (nothing can be cast

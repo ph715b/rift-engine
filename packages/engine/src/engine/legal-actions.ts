@@ -249,6 +249,29 @@ export function legalActions(state: GameState): PlayerAction[] {
     }));
   }
 
+  // A closed chain outranks the phase, for the same reason a pending decision does:
+  // something is mid-resolution and the game is waiting on a specific player.
+  //
+  // The phase guard below is about DISCRETIONARY actions — "a Game Action that may
+  // be performed at any time during a player's turn during a Neutral Open State"
+  // (307, States of the Turn). Passing on a chain item is not discretionary; it is
+  // the only way the resolution advances, which is why it belongs above the guard.
+  //
+  // Reachable because 383 puts triggered abilities on the Chain "during Closed
+  // States or Open States on any player's turn": once triggers are held as Pending
+  // Items and finalized onto the chain, the chain can be closed during the Beginning
+  // Phase. With the phase check first, that state returns NO legal actions for
+  // either player and the game hangs outright — the same shape as the
+  // pending-decision hang the comment above describes.
+  //
+  // Only OUTSIDE the Action phase. Inside it the normal enumeration below already
+  // handles a closed chain correctly and offers [Reaction] casting alongside the
+  // pass — short-circuiting here would silently delete the response window this
+  // whole mechanism exists to create.
+  if (state.phase !== "Action" && !state.chainOpen) {
+    return [{ type: "PassFocus", playerIndex: actingPlayerIndex(state) } satisfies PassFocusAction];
+  }
+
   if (state.phase !== "Action") return [];
 
   // ONE enumeration path for every state, rather than the three it used to be

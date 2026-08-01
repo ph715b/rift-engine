@@ -1017,6 +1017,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     const units = new Set<string>();
     const battlefields = new Set<string>();
     for (const item of source) {
+      // A triggered ability waiting as a Pending Item has no chosen targets to
+      // co-highlight — it is pushed already-finalized, so nothing was ever picked.
+      if (item.kind !== "spell") continue;
       for (const id of [
         item.entry.targetUnitInstanceId,
         item.entry.secondTargetUnitInstanceId,

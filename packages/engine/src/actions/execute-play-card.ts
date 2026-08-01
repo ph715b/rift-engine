@@ -353,6 +353,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       chainOpen: false,
       chainPriority: action.playerIndex,
       chainPasses: 0,
+      // A played Spell opened this chain, so 347's exception does not apply and
+      // Focus passes normally when it empties (346). Stated rather than inherited:
+      // this is the OTHER producer of a closed chain besides the trigger flush, and
+      // letting it carry a stale `true` through a spread would silently withhold a
+      // Focus pass that rule 346 requires.
+      chainOpenedByTrigger: false,
       // Rule 349 ends a Showdown only when "all Players have passed once in
       // sequence" — casting breaks that sequence. Without this reset, a cast
       // after the opponent had already passed once would let the very next pass

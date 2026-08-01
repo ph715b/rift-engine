@@ -126,12 +126,24 @@ function candidateActions(state: GameState): PlayerAction[] {
   );
 }
 
-/** How many PassFocus rounds `settleDeferredResolution` will drive before
- *  giving up. Two per pending item in a 2-player game, so this covers a chain
- *  several entries deep plus a Showdown — far more than anything reachable —
- *  and exists only so a future mechanic that re-closes the chain during
- *  resolution can't spin this forever. */
-const MAX_SETTLE_PASSES = 16;
+/**
+ * How many iterations `settleDeferredResolution` will drive before giving up.
+ *
+ * This used to be 16, justified as "two per pending item... far more than anything
+ * reachable". That miscounted what the loop spends: EVERY iteration costs one, not
+ * two per chain item — decision answers and opponent replies burn an iteration each
+ * alongside the passes. A single PlayCard that buffs (Cithria → `unitBuffed` →
+ * Mistfall → a parked question) already costs ~12, and a combat-closing PassFocus
+ * with two deaths and a conquest costs ~24. So the old bound was already reachable
+ * before triggers start taking chain slots of their own.
+ *
+ * Raised, and — more importantly — exhaustion is now LOUD. It used to fall out of
+ * the loop and hand a half-resolved board straight to `evaluate`, which scores
+ * points/might/hand/gear and cannot tell that a chain is still closed. That is a
+ * silent wrong answer, the failure mode this project keeps paying for.
+ * `decisions.ts`'s MAX_ADVANCE_STEPS is the precedent: it throws.
+ */
+const MAX_SETTLE_PASSES = 64;
 
 /**
  * Drives deferred resolution to completion, so a candidate action can be
@@ -197,14 +209,27 @@ function settleDeferredResolution(
       const current = settled;
       let bestAnswer = answers[0]!;
       let bestValue = -Infinity;
+      // `applyAction`, not `applyBare`: `submit` runs a Cleanup after an
+      // AnswerDecision like it does after every other action (game-engine.ts:113),
+      // and `applyAction` carries the same 323.2.b suppression at :68 for the case
+      // where answering one question raises another. Scoring bare states here made
+      // the lookahead judge answers on a board the real game never passes through —
+      // an answer that empties a battlefield would not have lapsed control, and one
+      // that contests a battlefield would not have staged the Showdown that scores it.
+      //
+      // It also matters for anything the Cleanup is the ONLY carrier of. Today that
+      // is control lapsing and Showdown staging; once triggers are held as Chain
+      // Pending Items and flushed by the Cleanup, a settle that skipped it here
+      // would return with the holding pen full and `evaluate` would score a board
+      // where the trigger never happened — silently, since nothing throws.
       for (const answer of answers) {
-        const value = evaluate(applyBare(current, answer), pending.playerIndex, weights);
+        const value = evaluate(applyAction(current, answer), pending.playerIndex, weights);
         if (value > bestValue) {
           bestValue = value;
           bestAnswer = answer;
         }
       }
-      settled = applyBare(current, bestAnswer);
+      settled = applyAction(current, bestAnswer);
       continue;
     }
     // The opponent gets to answer back, rather than being assumed to pass.
@@ -236,7 +261,17 @@ function settleDeferredResolution(
     }
     return settled;
   }
-  return settled;
+  // Falling out of the loop means the resolution never settled. Returning the
+  // half-resolved state here is what made this a SILENT failure: `evaluate` reads
+  // points, might, hand and gear, none of which reveal that a chain is still closed
+  // or that work is still queued, so the AI would score a board the game can never
+  // reach and pick a move on it. Throwing matches decisions.ts's MAX_ADVANCE_STEPS,
+  // the same "a queue that will not drain is a bug, not a state" call.
+  throw new Error(
+    `settleDeferredResolution did not settle in ${MAX_SETTLE_PASSES} iterations ` +
+      `(chainOpen=${settled.chainOpen}, chain=${settled.spellChain.length}, ` +
+      `pendingDecisions=${settled.pendingDecisions.length}, turnState=${settled.turnState})`,
+  );
 }
 
 /**

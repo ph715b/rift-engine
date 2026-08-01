@@ -90,7 +90,11 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
  */
 function finishChainPop(resolved: GameState, spellChain: GameState["spellChain"]): GameState {
   if (spellChain.length === 0) {
-    const reopened = { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };
+    // The chain is empty, so how it opened stops being a live question — cleared
+    // here rather than left to go stale, because unlike chainPriority this one is
+    // read on the very next thing that closes the chain.
+    const openedByTrigger = resolved.chainOpenedByTrigger;
+    const reopened = { ...resolved, spellChain, chainOpen: true, chainPasses: 0, chainOpenedByTrigger: false };
     if (reopened.turnState !== "Showdown") return reopened;
     // Rule 346: "When the last item on the chain resolves and the turn returns to
     // an Open State during a Showdown, Focus passes, and the next Player gains
@@ -103,10 +107,23 @@ function finishChainPop(resolved: GameState, spellChain: GameState["spellChain"]
     // someone actually doing something; without that, one earlier pass plus this
     // cast would let the very next pass close the window.
     //
-    // 347's exception — Focus does NOT pass if the chain was opened by a
-    // triggered ability or an Add ability — is unreachable here: nothing in this
-    // engine puts anything but a played Spell on the chain. Left as a comment
-    // rather than a branch that could never be exercised or tested.
+    // 347's exception, now a real branch: "Focus will not pass in this way if the
+    // chain opened as a result of a triggered ability being added to the chain, nor
+    // if it opened as a result of an Add ability." Its printed example is the
+    // Combat Chain, which opens exactly that way.
+    //
+    // This used to be a comment saying the case was unreachable because nothing but
+    // a played Spell reached the chain. Triggers held as Pending Items and flushed
+    // onto the chain make it reachable, and it is not cosmetic: staging a Showdown
+    // gives Focus to whoever contested the battlefield (345, cleanup.stageShowdowns)
+    // and then fires `combatBegan`. Without this branch that trigger's own
+    // resolution would hand Focus straight to their opponent, before the player who
+    // opened the Showdown had taken a single action inside it.
+    //
+    // Read from state, not from the popped entry — see chainOpenedByTrigger. A
+    // [Reaction] Spell cast in response to a trigger is the last thing to pop, and
+    // testing IT would take the wrong branch.
+    if (openedByTrigger) return reopened;
     const nextFocus: 0 | 1 = reopened.focusHolder === 0 ? 1 : 0;
     return { ...reopened, focusHolder: nextFocus, chainPriority: nextFocus, consecutiveFocusPasses: 0 };
   }

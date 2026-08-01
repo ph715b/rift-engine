@@ -62,8 +62,24 @@ export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Liste
   return out;
 }
 
-/** Both players' listeners, active player first — turn order, which is the
- *  order the rules resolve simultaneous triggers in. */
+/**
+ * Both players' listeners, active player first.
+ *
+ * That IS the rules' order, but it is the order triggers are PLACED on the chain,
+ * not the order they resolve — a distinction this comment used to get wrong by
+ * claiming turn order "is the order the rules resolve simultaneous triggers in".
+ *
+ * Rule 383: "If multiple players separately control Triggered Abilities that are
+ * Triggered simultaneously, then starting with the Turn Player and proceeding in
+ * Turn Order, each player orders their Triggered Abilities on the Chain." Rule 343
+ * then resolves the chain LIFO — newest first. So the turn player places first,
+ * lands at the BOTTOM, and resolves LAST.
+ *
+ * While every trigger resolves inline at its dispatch site, placement order and
+ * resolution order are the same thing and the error is invisible. They come apart
+ * the moment a trigger is held as a Pending Item and flushed onto the chain, which
+ * is why the correction is recorded here rather than left for whoever hits it.
+ */
 export function allListeningPermanents(state: GameState): Listener[] {
   const active = state.activePlayerIndex;
   const other: 0 | 1 = active === 0 ? 1 : 0;
@@ -331,6 +347,28 @@ export type EventTriggerEffect = (state: GameState, listener: Listener, event: G
 
 export interface EventTriggerDefinition {
   on: GameEvent["kind"];
+  /**
+   * Whether the ability actually TRIGGERS for this listener and event, as opposed
+   * to merely listening for the right event kind.
+   *
+   * `on` is only half a trigger condition. "When you buff a **friendly** unit" also
+   * requires the buffed unit to be the listener's — a check that has always lived
+   * inside `resolve`, where returning the state unchanged made "did not trigger"
+   * and "triggered and did nothing" indistinguishable. Inline, they ARE
+   * indistinguishable, which is why it went unnoticed.
+   *
+   * Deferral separates them. A held trigger becomes a Chain Pending Item: it closes
+   * the chain and costs both players a PassFocus. Holding one whose condition was
+   * never met would open a response window at every buff on the board, including an
+   * opponent's, for an ability that will resolve to nothing.
+   *
+   * Optional, defaulting to "yes": a trigger with no condition beyond its event
+   * kind needs nothing here, and omitting it reproduces today's behaviour exactly.
+   * `resolve` must still re-check its own conditions — the inline `dispatchEvent`
+   * path does not consult this, and a resolution is separated from its trigger by a
+   * response window in which the board can change.
+   */
+  applies?: (state: GameState, listener: Listener, event: GameEvent) => boolean;
   resolve: EventTriggerEffect;
 }
 
@@ -352,6 +390,50 @@ export function eventTriggerDefIds(): string[] {
 }
 
 /**
+ * Resolves a triggered ability that was waiting on the chain as a Pending Item
+ * (809.1.b.3) — the deferred counterpart to `dispatchEvent` below.
+ *
+ * The listener is re-looked-up by instance id rather than carried as an object,
+ * because between the trigger firing and this resolving the opponent has had a
+ * window to respond and the permanent may be gone. A listener that has left play
+ * resolves to nothing, which is 422's "do as much as you can" and the same
+ * safe-no-op convention every dispatch here already follows.
+ *
+ * **SCOPE — this reaches the EventTrigger registry and nothing else.** The engine
+ * has six trigger registries, and the other five cannot be resolved through this
+ * shape as it stands:
+ *   - Deathknells and death-watch need the whole `DeathContext`; the dying card is
+ *     already in a trash, and `killerIndex` is derivable from no board state.
+ *   - Self-triggers fire for a card that has left play, so no lookup can find it.
+ *   - Unit on-play/on-attack/on-move triggers carry action-time choices (destination,
+ *     targets, `isFirstMoveThisTurn`) that are destroyed by the time this runs.
+ *   - The 7 legend hooks are not on the board at all: `allListeningPermanents` walks
+ *     baseUnits, battlefield units and activeGear, never `players[i].legend`.
+ * Each needs its own carried payload before its dispatch sites can be converted.
+ *
+ * An unregistered defId therefore THROWS rather than returning `state`. Only the
+ * Cleanup's finalize pushes these entries, and it only pushes for abilities this
+ * can run — so reaching that line means an unsupported source was queued, and
+ * silently returning `state` is precisely how all seven legend hooks would
+ * disappear without a single failing test.
+ */
+export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = allEventTriggers()[entry.listenerDefId];
+  if (!trigger) {
+    throw new Error(
+      `resolvePendingTrigger: no event trigger registered for ${entry.listenerDefId} ` +
+        `(${entry.listenerName}). Only EventTrigger-registry abilities may be held as ` +
+        `Pending Items today — see this function's scope note.`,
+    );
+  }
+  const listener = allListeningPermanents(state).find((l) => l.card.instanceId === entry.listenerInstanceId);
+  if (!listener) return state; // left play while the response window was open
+  const event = entry.event as GameEvent;
+  if (trigger.on !== event.kind) return state;
+  return trigger.resolve(state, listener, event);
+}
+
+/**
  * Fires every listener registered for `event`, in turn order.
  *
  * Listeners are walked fresh rather than snapshotted, for the same reason
@@ -360,32 +442,46 @@ export function eventTriggerDefIds(): string[] {
  *
  * Same deliberate divergence as every other trigger here — resolved immediately
  * rather than added to the Chain as a Pending Item (809.1.b.3). See
- * dispatchOnUnitDied.
+ * dispatchOnUnitDied. `holdEventTrigger` is the converted counterpart.
  */
 /**
- * Resolves a triggered ability that was waiting on the chain as a Pending Item
- * (809.1.b.3 / 323 step 3a) — the deferred counterpart to `dispatchEvent` above.
+ * The CONVERTED form of `dispatchEvent`: instead of resolving each listener inline,
+ * adds one Pending Item to the chain per listener that would have fired (383 /
+ * 338.1.a.3). They become respondable when the Cleanup finalizes them — see
+ * cleanup.finalizePendingTriggers.
  *
- * The listener is re-looked-up by instance id rather than carried as an object,
- * because between the trigger firing and this resolving the opponent has had a
- * window to respond and the permanent may be gone. A listener that has left play
- * resolves to nothing, which is 422's "do as much as you can" and the same
- * safe-no-op convention every dispatch here already follows.
+ * Listeners are walked ONCE here, unlike `dispatchEvent`, which re-walks after every
+ * resolution because an earlier trigger can remove a later one. That difference is
+ * required rather than incidental: 383 says the set of abilities that triggered is
+ * determined at the moment of the event, all together, and a permanent leaving play
+ * afterwards does not un-trigger it — 809.1.b.3 exists precisely so a dead
+ * permanent's trigger still resolves. `resolvePendingTrigger` re-looks-up the
+ * listener and no-ops if it has gone, which is where "it left play" is handled.
  *
- * Nothing pushes a TriggerChainEntry yet, so this is currently unreachable; it
- * exists so that converting the dispatch sites is incremental against a working
- * resolution path. It is deliberately NOT wired into `dispatchEvent` — that
- * conversion is the next step and changes observable ordering, which is why it
- * is not bundled with the plumbing.
+ * Pushed in walk order — turn player first — which under the chain's LIFO
+ * resolution (343) makes the NON-turn player's triggers resolve first. That is what
+ * 383 and 343 together require; see allListeningPermanents for why placement order
+ * and resolution order are opposites.
  */
-export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry): GameState {
-  const trigger = allEventTriggers()[entry.listenerDefId];
-  if (!trigger) return state;
-  const listener = allListeningPermanents(state).find((l) => l.card.instanceId === entry.listenerInstanceId);
-  if (!listener) return state; // left play while the response window was open
-  const event = entry.event as GameEvent;
-  if (trigger.on !== event.kind) return state;
-  return trigger.resolve(state, listener, event);
+export function holdEventTrigger(state: GameState, event: GameEvent): GameState {
+  const registry = allEventTriggers();
+  const held: TriggerChainEntry[] = [];
+  for (const listener of allListeningPermanents(state)) {
+    const trigger = registry[listener.card.defId];
+    if (trigger?.on !== event.kind) continue;
+    if (trigger.applies && !trigger.applies(state, listener, event)) continue;
+    held.push({
+      kind: "trigger",
+      playerIndex: listener.ownerIndex,
+      listenerInstanceId: listener.card.instanceId,
+      listenerDefId: listener.card.defId,
+      listenerName: listener.card.name,
+      ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
+      event,
+    });
+  }
+  if (held.length === 0) return state;
+  return { ...state, pendingTriggers: [...state.pendingTriggers, ...held] };
 }
 
 export function dispatchEvent(state: GameState, event: GameEvent): GameState {

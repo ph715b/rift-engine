@@ -10,7 +10,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type LegendInstance } from "../src/model/card.js";
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Activating a LEGEND, and Heimerdinger borrowing everyone else's abilities.
@@ -108,7 +108,10 @@ describe("a Legend can be activated at all", () => {
     const after = executeActivateAbility(state, action as never);
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
-    expect(after.pendingDecisions[0]?.kind).toBe("OGN-152-ready"); // Mistfall heard it
+    // Mistfall heard it — but as a Chain Pending Item now (809.1.b.3), so the
+    // question comes after the response window rather than inside the activation.
+    expect(after.pendingTriggers.map((t) => t.listenerDefId)).toEqual(["OGN-152"]);
+    expect(resolveHeldTriggers(after).pendingDecisions[0]?.kind).toBe("OGN-152-ready");
   });
 
   it("Jinx's fires in the Beginning Phase, only on a hand of one or fewer", () => {

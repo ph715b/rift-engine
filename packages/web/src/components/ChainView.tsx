@@ -69,7 +69,7 @@ export function ChainView({ items, resolving, humanIndex, chainPasses, isHumanRe
           )}
           {items.map((item, index) => (
             <ChainItem
-              key={item.entry.card.instanceId}
+              key={item.key}
               item={item}
               ownerLabel={ownerLabel(item.playerIndex)}
               badge={item.depthFromTop === 0 ? "▸ Resolves next" : `#${item.depthFromTop + 1}`}
@@ -122,8 +122,20 @@ function ChainItem({ item, ownerLabel, badge, isResolving, onHoverChange }: Chai
             element sharing this one's layoutId. Hovering it still pops the
             full art/rules text through the ordinary hover-preview context —
             which is exactly why the card itself is here and not just its
-            name. */}
-        <CardView card={item.entry.card} layoutKey={`chain:${item.entry.card.instanceId}`} inPile />
+            name.
+
+            A triggered ability has no card of its own to show: its source is a
+            permanent still on the board, or already in a trash if it was a
+            [Deathknell]. It gets a marker instead, so the row still reads as a real
+            chain item rather than a blank — the player is being asked to pass at
+            it. */}
+        {item.kind === "spell" ? (
+          <CardView card={item.entry.card} layoutKey={`chain:${item.entry.card.instanceId}`} inPile />
+        ) : (
+          <div className="chain-item-trigger" aria-hidden>
+            ⚡
+          </div>
+        )}
         <div className="chain-item-text">
           <div className="chain-item-name">{item.cardName}</div>
           <div className="chain-item-owner">{ownerLabel}</div>

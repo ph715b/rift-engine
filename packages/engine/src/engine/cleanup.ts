@@ -29,7 +29,58 @@ export function runCleanup(state: GameState): GameState {
   // (step 4) before facedown cards are checked against who controls their
   // battlefield, or a card would survive one extra Cleanup at a battlefield its
   // owner had already lost.
-  return stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state)));
+  return finalizePendingTriggers(stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state))));
+}
+
+/**
+ * Moves triggers that have fired from the holding pen onto the chain, closing it —
+ * the Finalize step of the chain's finalize/resolve loop (337-345).
+ *
+ * A trigger is on the Chain from the moment it fires (383), but as a **Pending
+ * Item**, which is not respondable: 345 awards priority to the newest item's
+ * controller only "if the Chain is not empty and there are **no Pending Items**".
+ * `state.pendingTriggers` is that Pending portion; this is where they become
+ * Finalized and a response window actually opens.
+ *
+ * **Why here.** `runCleanup` is the only hook that runs after every resolved action
+ * in BOTH `submit` (via withCleanupAndWinnerCheck) and the AI's lookahead (via
+ * heuristic-ai's applyAction and its settle loop). Finalizing in `submit` instead
+ * would leave the lookahead scoring boards whose triggers never resolved — silently,
+ * since `evaluate` reads points/might/hand/gear and none of those reveal a full pen.
+ *
+ * **Why last.** Staging a Showdown fires `combatBegan` (step 6, above), and those
+ * triggers belong on the chain this Cleanup produces rather than waiting for the
+ * next one. Running before `stageShowdowns` would also close the chain first, and
+ * step 6 refuses to stage while the chain is closed.
+ *
+ * A pending DECISION never reaches here — `withCleanupAndWinnerCheck` returns before
+ * `runCleanup` while the queue is non-empty (323.2.b, a Cleanup cannot occur inside
+ * a resolution), so a mid-resolution question defers finalization with everything else.
+ *
+ * **Order.** The pen is appended to in listener-walk order, which is turn order
+ * (383: "starting with the Turn Player and proceeding in Turn Order, each player
+ * orders their Triggered Abilities on the Chain"), and the chain resolves LIFO
+ * (343). Pushing in pen order therefore resolves the NON-turn player's triggers
+ * first, which is what those two rules together require — see allListeningPermanents.
+ */
+function finalizePendingTriggers(state: GameState): GameState {
+  if (state.pendingTriggers.length === 0) return state;
+
+  const spellChain = [...state.spellChain, ...state.pendingTriggers];
+  const newTop = spellChain[spellChain.length - 1]!;
+  return {
+    ...state,
+    pendingTriggers: [],
+    spellChain,
+    chainOpen: false,
+    chainPasses: 0,
+    // 345: the controller of the newest item gains priority for a fresh round.
+    chainPriority: newTop.playerIndex,
+    // 347's exception is about how the chain OPENED, so it is only set when this
+    // finalize is what closed it. A trigger finalized onto a chain a Spell already
+    // opened leaves that answer alone.
+    chainOpenedByTrigger: state.chainOpen ? true : state.chainOpenedByTrigger,
+  };
 }
 
 /**

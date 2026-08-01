@@ -1,4 +1,10 @@
-import { isSpellChainEntry, type ChainEntry, type SpellChainEntry, type GameState } from "../model/game-state.js";
+import {
+  isSpellChainEntry,
+  type ChainEntry,
+  type SpellChainEntry,
+  type TriggerChainEntry,
+  type GameState,
+} from "../model/game-state.js";
 import { findUnitAnywhere } from "./target-lookup.js";
 
 /**
@@ -28,19 +34,44 @@ export interface ChainTargetDescription {
   missing?: boolean;
 }
 
-export interface ChainItemDescription {
-  /** Narrowed to the Spell case: describeChain skips triggered abilities waiting
-   *  as Pending Items, so a described item is always a played Spell. */
-  entry: SpellChainEntry;
-  /** The caster. Rule 343's resolution order is by position, not by owner, so
-   *  this is display information only. */
+interface ChainItemDescriptionBase {
+  /** The caster, or the controller of the triggered ability. Rule 343's resolution
+   *  order is by position, not by owner, so this is display information only. */
   playerIndex: 0 | 1;
+  /** The Spell's name, or the name of the permanent whose ability is waiting. */
   cardName: string;
   /** Distance from the top of the chain. 0 resolves next (rule 343: the newest
    *  finalized item resolves first). */
   depthFromTop: number;
+  /** Stable identity for this row, for a UI keying a list on it. Distinct per kind
+   *  because a trigger has no card instance of its own to borrow one from. */
+  key: string;
   targets: ChainTargetDescription[];
 }
+
+/** A played Spell waiting to resolve. */
+export interface SpellChainItemDescription extends ChainItemDescriptionBase {
+  kind: "spell";
+  entry: SpellChainEntry;
+}
+
+/** A triggered ability waiting as a Pending Item. Carries no `card`: its source may
+ *  already be in a trash (a [Deathknell] is the ordinary case), so there is no
+ *  CardInstance to render and a caller must not reach for one. */
+export interface TriggerChainItemDescription extends ChainItemDescriptionBase {
+  kind: "trigger";
+  entry: TriggerChainEntry;
+}
+
+/**
+ * A DISCRIMINATED UNION rather than one shape with optional fields, and that is
+ * load-bearing: the previous single shape typed `entry` as a SpellChainEntry, so
+ * every caller read `entry.card` freely. Widening it to ChainEntry without the
+ * discriminant would have made `entry.card` a type error with no guidance about
+ * what to do instead; with it, the compiler names each site and narrowing produces
+ * the right branch. It found three in ChainView and one in GameBoard.
+ */
+export type ChainItemDescription = SpellChainItemDescription | TriggerChainItemDescription;
 
 /**
  * `state.spellChain` projected NEWEST-FIRST — i.e. in the order the entries
@@ -65,17 +96,37 @@ export function describeChain(state: GameState): ChainItemDescription[] {
   const items: ChainItemDescription[] = [];
   for (let i = state.spellChain.length - 1; i >= 0; i -= 1) {
     const entry = state.spellChain[i]!;
-    // A triggered ability waiting as a Pending Item is not a Spell and has no
-    // card name or targets to describe. Skipped rather than half-described,
-    // because nothing pushes one yet (see TriggerChainEntry) and inventing a
-    // label now would be guessing at a UI that has no case to show it. Giving
-    // triggers a real chain-viewer row is part of converting the dispatch sites.
-    if (!isSpellChainEntry(entry)) continue;
+    const depthFromTop = state.spellChain.length - 1 - i;
+    // A triggered ability waiting as a Pending Item gets a real row. It used to be
+    // skipped, on the grounds that nothing pushed one — but the moment one is
+    // flushed onto the chain, skipping it renders a CLOSED chain as an EMPTY chain
+    // viewer, while the board still demands a PassFocus. The player would be asked
+    // to pass at something they cannot see.
+    //
+    // It carries no targets: a trigger's targets are chosen when it FINALIZES, and
+    // this engine pushes triggers already-finalized (a recorded simplification —
+    // see docs/rules-conformance.md), so there is nothing target-shaped to show.
+    if (!isSpellChainEntry(entry)) {
+      items.push({
+        entry,
+        kind: "trigger",
+        playerIndex: entry.playerIndex,
+        cardName: entry.listenerName,
+        depthFromTop,
+        // The listener instance alone is not unique: one permanent can have two of
+        // its triggers waiting at once, and the chain position is what separates them.
+        key: `trigger:${entry.listenerInstanceId}:${i}`,
+        targets: [],
+      });
+      continue;
+    }
     items.push({
       entry,
+      kind: "spell",
       playerIndex: entry.playerIndex,
       cardName: entry.card.name,
-      depthFromTop: state.spellChain.length - 1 - i,
+      depthFromTop,
+      key: `spell:${entry.card.instanceId}`,
       targets: describeTargets(state, entry),
     });
   }
