@@ -93,7 +93,24 @@ export function startGame(state: GameState): { state: GameState; result: SubmitR
  * passes Focus within an open Showdown, not the whole turn.
  */
 export function submit(state: GameState, action: PlayerAction): { state: GameState; result: SubmitResult } {
-  if (winner(state) !== null) {
+  // A win is declared IN A CLEANUP (rule 194.4: "A player wins the game if, in a
+  // cleanup, they have points greater than or equal to the Victory Score..."), and
+  // 323.2.b says a Cleanup cannot occur while a resolution is suspended. So while
+  // a question is pending, points being over the threshold is NOT yet a win — the
+  // Cleanup that would declare it has not run and cannot run.
+  //
+  // Reading `winner` as a bare points predicate here stranded games: an action that
+  // parked a question and THEN crossed the threshold (combat kills a buffed unit,
+  // Sett's replacement offer is parked, the loop continues into scoring) returned
+  // Ok with the winner check skipped by withCleanupAndWinnerCheck above — and then
+  // this gate refused every subsequent action INCLUDING the AnswerDecision that
+  // would have finished the resolution. The unit was left in
+  // `unitsAwaitingDeathReplacement` forever, in neither play nor a trash.
+  // Measured at 5 stranded units per 300 self-play games before this line changed.
+  //
+  // The suspension is the same one line 62 already honours, expressed once more
+  // here rather than letting the two guards disagree about whether the game is over.
+  if (state.pendingDecisions.length === 0 && winner(state) !== null) {
     return { state, result: { type: "Invalid", error: "Game is already over" } };
   }
 

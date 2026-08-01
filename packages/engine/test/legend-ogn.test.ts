@@ -9,6 +9,9 @@ import { hasKeyword } from "../src/engine/granted-keywords.js";
 import { addBuff, dealDamage, destroyUnit } from "../src/engine/effect-helpers.js";
 import { resolveShowdown } from "../src/engine/combat.js";
 import { pendingDecision } from "../src/engine/decisions.js";
+import { submit } from "../src/engine/game-engine.js";
+import { winner } from "../src/engine/win-condition.js";
+import { WIN_THRESHOLD_1V1 } from "../src/engine/constants.js";
 import { implementingModule, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -400,6 +403,59 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
     expect(asked.players[0]!.trash).toHaveLength(0);
     expect(unitsAt(asked, "p1")).toHaveLength(0);
     expect(asked.unitsAwaitingDeathReplacement.map((p) => p.unit.instanceId)).toEqual([victim.instanceId]);
+  });
+
+  /**
+   * Rule 194.4 declares a win IN A CLEANUP, and 323.2.b forbids a Cleanup while a
+   * resolution is suspended. So points crossing the Victory Score while a question
+   * is outstanding is not yet a win, and the answer must still be accepted.
+   *
+   * This is a `submit` test on purpose. Every other test in this describe drives
+   * `destroyUnit` / `answerDecisions` directly, which bypasses submit's entry gate
+   * entirely — and that gate was the bug: it read `winner` as a bare points
+   * predicate and refused the AnswerDecision that would have finished the
+   * resolution, leaving the unit in `unitsAwaitingDeathReplacement` forever, in
+   * neither play nor a trash. Measured at 5 stranded units per 300 self-play games.
+   */
+  it("still accepts the answer when the same action crossed the Victory Score (194.4)", () => {
+    const { state, victim } = settState();
+    // The state an action leaves behind when it parks the offer and then scores:
+    // question outstanding, unit held, points already over the threshold.
+    const asked = destroyUnit(state, victim.instanceId, 1);
+    expect(pendingDecision(asked)!.kind).toBe("OGN-269-save");
+
+    const won: GameState = {
+      ...asked,
+      players: [{ ...asked.players[0]!, points: WIN_THRESHOLD_1V1 }, asked.players[1]!] as GameState["players"],
+    };
+    expect(winner(won)).toBe(0); // the points predicate alone says the game is over
+
+    const decision = pendingDecision(won)!;
+    const answer = legalActions(won).find((a) => a.type === "AnswerDecision");
+    expect(answer).toBeDefined(); // the question is still on offer
+
+    const { state: after, result } = submit(won, {
+      type: "AnswerDecision",
+      playerIndex: decision.playerIndex,
+      decisionId: decision.id,
+      optionId: "die",
+    });
+
+    expect(result.type).not.toBe("Invalid"); // was "Game is already over"
+    expect(after.unitsAwaitingDeathReplacement).toHaveLength(0); // nothing stranded
+    expect(after.players[0]!.trash.map((c) => c.instanceId)).toContain(victim.instanceId);
+    expect(result).toEqual({ type: "GameOver", winnerId: "p1" }); // and NOW the win is declared
+  });
+
+  it("refuses every action once the win is actually declared, with no question pending", () => {
+    // The other side of the same gate: no suspension, so the points predicate is
+    // the whole answer and the game really is over.
+    const over: GameState = {
+      ...makeState(),
+      players: [{ ...makeState().players[0]!, points: WIN_THRESHOLD_1V1 }, makeState().players[1]!] as GameState["players"],
+    };
+    const { result } = submit(over, { type: "Pass", playerIndex: 0 });
+    expect(result).toEqual({ type: "Invalid", error: "Game is already over" });
   });
 
   it("saves it: healed, exhausted, recalled to base — and pays all three costs", () => {
