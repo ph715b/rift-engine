@@ -526,7 +526,7 @@ describe("coverage", () => {
     // half existed; the entry was deleted when the replacement landed rather
     // than reworded, which is the shape that list is meant to have.
     expect(isCardImplemented(registry.get(SETT))).toBe(true);
-    expect(partialImplementationNote(SETT)).toBeUndefined();
+    expect(partialImplementationNote(registry.get(SETT))).toBeUndefined();
     expect(implementingModule(SETT)).toBe("legend-abilities");
   });
 
@@ -537,7 +537,7 @@ describe("coverage", () => {
     // only when one appears is how the mechanism rots in between.
     const lying = registry
       .all()
-      .filter((def) => partialImplementationNote(def.id) !== undefined && isCardImplemented(def));
+      .filter((def) => partialImplementationNote(def) !== undefined && isCardImplemented(def));
     expect(lying.map((d) => d.id)).toEqual([]);
   });
 });

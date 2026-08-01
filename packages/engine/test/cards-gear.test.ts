@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
+import { executePlayCard } from "../src/actions/execute-play-card.js";
+import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
+import { createCardInstance } from "../src/model/card.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { gearEntersExhausted } from "../src/engine/deploy.js";
@@ -8,7 +11,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance } from "../src/model/card.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit } from "./fixtures.js";
 
 /**
  * The Gear activated abilities.
@@ -254,6 +257,74 @@ describe("Treasure Trove (OGN-186): pay Chaos and kill it to cash it in", () => 
 
   it("is not offered without the Chaos Power", () => {
     expect(abilityActions(troveState(false))).toHaveLength(0);
+  });
+});
+
+/**
+ * Spirit's Refuge (OGN-063): "When you play this, buff a friendly unit."
+ *
+ * The only Gear here whose text fires on PLAY rather than on activation, so it is
+ * driven through `legalActions` -> `executePlayCard` — the dispatch hop where a
+ * self-trigger can silently do nothing.
+ *
+ * Its second sentence ("Friendly buffed units have [Deflect]") is deliberately
+ * unimplemented, so unlike the batch above this card must NOT report as finished.
+ * That is asserted below, because a half-written card reading as whole is the
+ * failure coverage.ts exists to prevent.
+ */
+describe("Spirit's Refuge (OGN-063): buff a friendly unit when it is played", () => {
+  const SPIRITS_REFUGE = "OGN-063"; // 2 Energy + 1 Calm Power
+
+  /** Spirit's Refuge in hand, Calm runes to pay with, and `units` friendly
+   *  bodies on the board to choose between. */
+  function refugeState(unitNames: string[]): GameState {
+    const state = makeState({ phase: "Action" });
+    const card = createCardInstance(registry.get(SPIRITS_REFUGE)) as GearInstance;
+    state.players[0]!.hand = [card];
+    state.players[0]!.channeled = Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`,
+      domain: "Calm" as const,
+      state: "Ready" as const,
+    }));
+    state.players[0]!.baseUnits = unitNames.map((name) => makeUnit({ name, instanceId: name }));
+    return state;
+  }
+
+  const playRefuge = (state: GameState) => {
+    const action = legalActions(state).find((a) => a.type === "PlayCard" && a.card.defId === SPIRITS_REFUGE);
+    expect(action, "Spirit's Refuge was never enumerated as playable").toBeDefined();
+    return executePlayCard(state, action as never);
+  };
+
+  it("asks which friendly unit to buff, and buffs the one chosen", () => {
+    const after = playRefuge(refugeState(["Alpha", "Beta"]));
+    const decision = pendingDecision(after);
+
+    expect(decision?.kind).toBe("OGN-063-buff");
+    expect(optionsFor(after, decision!).map((o) => o.id)).toEqual(["Alpha", "Beta"]);
+
+    const answered = answerDecisions(after, (options) => options.find((o) => o.id === "Beta")!.id);
+    // The chosen one, and ONLY the chosen one.
+    expect(answered.players[0]!.baseUnits.filter((u) => u.buffed).map((u) => u.name)).toEqual(["Beta"]);
+  });
+
+  it("reaches the board at all — the gear is in play, not just the buff", () => {
+    const after = answerDecisions(playRefuge(refugeState(["Alpha"])));
+    expect(after.players[0]!.activeGear.map((g) => g.defId)).toEqual([SPIRITS_REFUGE]);
+  });
+
+  it("plays fine with no friendly unit, and parks no unanswerable question", () => {
+    // Rule 422's "do as much as you can": nothing to buff is not a reason the
+    // Gear cannot be played, and a decision with no options must never be parked.
+    const after = playRefuge(refugeState([]));
+    expect(after.pendingDecisions).toHaveLength(0);
+    expect(after.players[0]!.activeGear).toHaveLength(1);
+  });
+
+  it("is still reported PARTIAL, because its [Deflect] grant does nothing", () => {
+    // The honest half. If this ever flips to `true` without [Deflect] landing,
+    // the measure has started lying about this card again.
+    expect(isCardImplemented(registry.get(SPIRITS_REFUGE))).toBe(false);
   });
 });
 

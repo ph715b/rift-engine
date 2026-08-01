@@ -2,8 +2,16 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { implementableText, implementingModule, needsImplementation } from "../src/engine/coverage.js";
+import {
+  implementableText,
+  implementingModule,
+  isCardImplemented,
+  needsImplementation,
+  partialImplementationNote,
+  unimplementedKeywordsOn,
+} from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { KEYWORDS } from "../src/model/keyword.js";
 
 /**
  * coverage.ts answers "does this card's printed text actually do something?",
@@ -196,5 +204,92 @@ describe("every card type reaches the coverage measure", () => {
     const vanilla = registry.all().find((d) => d.text === "");
     expect(vanilla, "the pool has no text-free card — this test needs a new subject").toBeDefined();
     expect(needsImplementation(vanilla!)).toBe(false);
+  });
+});
+
+/**
+ * A keyword the rules engine does not implement must not read as implemented.
+ *
+ * `implementableText` strips bracketed keywords because a keyword lives in the
+ * rules engine rather than an effect registry — true for twelve of the thirteen
+ * in KEYWORDS, and ASSUMED rather than checked for the thirteenth. `[Deflect]` is
+ * parsed and then read by nothing, so the strip made Pouty Poro — whose entire
+ * printed text is `[Deflect]` — report as implemented while doing nothing, in a
+ * precon deck. That is the over-reporting direction coverage.ts calls the worse
+ * one: a card that looks finished and silently isn't.
+ *
+ * Pinned per CARD rather than per keyword-name, so this keeps meaning something
+ * when Deflect lands and the next pending keyword takes its place.
+ */
+describe("an unimplemented keyword is text that still needs writing", () => {
+  const registry = defaultCardRegistry();
+  const POUTY_PORO = "OGN-013"; // entire text is "[Deflect] (reminder)"
+  const FIORA_VICTORIOUS = "OGN-232"; // grants [Deflect], [Ganking], [Shield] while Mighty
+  const VOLIBEAR_FURIOUS = "OGN-041"; // carries the VALUED form, [Deflect 2]
+  const GAREN_RUGGED = "OGS-007"; // "[Assault 2], [Shield 2]" — keywords that DO work
+
+  it("keeps a keyword-only card that does nothing OUT of the implemented count", () => {
+    const poro = registry.get(POUTY_PORO);
+    // The exact shape of the old lie: nothing survived the strip, so nothing
+    // needed implementing, so the card was "done".
+    expect(needsImplementation(poro)).toBe(true);
+    expect(isCardImplemented(poro)).toBe(false);
+    // And it says WHICH keyword, rather than just greying the card.
+    expect(implementableText(poro)).toContain("[Deflect]");
+    expect(partialImplementationNote(poro)).toContain("[Deflect]");
+  });
+
+  it("still strips the keywords that ARE implemented", () => {
+    // The other half of the guard. Garen is entirely keyword and entirely
+    // working; flagging him is the false-"5 precon cards are inert" bug that
+    // implementableText's own doc comment exists to prevent.
+    const garen = registry.get(GAREN_RUGGED);
+    expect(garen.text).toContain("[Assault");
+    expect(implementableText(garen)).toBe("");
+    expect(needsImplementation(garen)).toBe(false);
+    expect(isCardImplemented(garen)).toBe(true);
+  });
+
+  it("reads the VALUED bracket form too", () => {
+    // "[Deflect 2]" must match as readily as "[Deflect]" — a value-blind matcher
+    // would let exactly one card in the pool slip back through.
+    const volibear = registry.get(VOLIBEAR_FURIOUS);
+    expect(volibear.text).toContain("[Deflect 2]");
+    expect(unimplementedKeywordsOn(volibear)).toEqual(["Deflect"]);
+  });
+
+  it("catches a card that GRANTS the keyword and is otherwise registered", () => {
+    // Fiora is the case a hand-maintained list would have missed: her grant IS
+    // implemented (granted-keywords), and [Ganking]/[Shield] really work, so the
+    // registry check alone says "finished" for a card doing two thirds of its text.
+    const fiora = registry.get(FIORA_VICTORIOUS);
+    expect(implementingModule(FIORA_VICTORIOUS)).toBe("granted keywords");
+    expect(unimplementedKeywordsOn(fiora)).toEqual(["Deflect"]);
+    expect(isCardImplemented(fiora)).toBe(false);
+    expect(partialImplementationNote(fiora)).toBeDefined();
+  });
+
+  it("detects a grant from TEXT, not from the parsed keyword map", () => {
+    // The two disagree in both directions, so reading def.keywords would be wrong
+    // twice over: Fiora's map is empty (hers are conditional, stripped at parse
+    // time), and Spirit's Refuge parses a Deflect it does not have and only grants.
+    const fiora = registry.get(FIORA_VICTORIOUS);
+    // Narrowed rather than cast: `keywords` lives on Unit/Gear and not on Legend,
+    // and asserting the type here is what keeps this test honest if Fiora's
+    // definition kind ever changes underneath it.
+    expect(fiora.type).toBe("Unit");
+    if (fiora.type !== "Unit") throw new Error("unreachable");
+    expect(fiora.keywords).toEqual({});
+    expect(unimplementedKeywordsOn(fiora)).toContain("Deflect");
+  });
+
+  it("flags no card for a keyword that has a real consumer", () => {
+    // Guards the opposite failure: if UNIMPLEMENTED_KEYWORDS ever grew an entry
+    // for a working keyword, a large slice of the pool would silently go inert.
+    const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
+    for (const keyword of flagged) {
+      expect(KEYWORDS).toContain(keyword);
+    }
+    expect([...flagged]).toEqual(["Deflect"]);
   });
 });

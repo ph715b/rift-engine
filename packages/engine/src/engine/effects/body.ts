@@ -322,6 +322,25 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "OGN-155": {
+    // Qiyana - Victorious — "When I conquer, draw 1 or channel 1 rune exhausted."
+    //
+    // "When *I* conquer" is Kai'Sa - Survivor's reading (OGN-039, fury.ts): she
+    // has to be AT the conquered battlefield, which is what separates it from a
+    // "when you conquer" card that fires wherever it sits. Checked against the
+    // listener's own location rather than the event alone, since the listener
+    // walk reaches her anywhere.
+    //
+    // Her `[Deflect]` is a separate, still-unimplemented clause — the card stays
+    // correctly reported as partial (coverage.ts's UNIMPLEMENTED_KEYWORDS).
+    on: "battlefieldConquered",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (listener.battlefieldId !== event.battlefieldId) return state;
+      return parkDecision(state, { kind: "OGN-155-conquer", playerIndex: listener.ownerIndex });
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -334,6 +353,28 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Qiyana - Victorious's "draw 1 OR channel 1 rune exhausted", raised by her
+  // on-conquer trigger above.
+  //
+  // A genuine either/or with no decline — unlike Mistfall and Miss Fortune
+  // below, the card offers no third answer, so neither option is listed as one.
+  //
+  // BOTH are offered unconditionally, even when the corresponding pile is empty,
+  // and that is deliberate on each side. An empty rune deck channels nothing
+  // (315.4.b, channelRunesExhausted's own "as many as it can"), and an empty
+  // DECK is not a non-choice either — drawing from one is what triggers Burn Out
+  // (431), a real and sometimes correct outcome. Suppressing an option here
+  // would take a legal decision away from the player, and `advanceDecisions`
+  // auto-resolves a one-option question, so pruning would silently pick for them.
+  "OGN-155-conquer": {
+    prompt: () => "Qiyana - Victorious: draw 1, or channel 1 rune exhausted?",
+    options: () => [
+      { id: "draw", label: "Draw 1" },
+      { id: "channel", label: "Channel 1 rune exhausted" },
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "draw" ? drawCards(state, d.playerIndex, 1) : channelRunesExhausted(state, d.playerIndex, 1),
+  },
   // Sabotage's "choose a non-unit card from it, and recycle that card".
   //
   // Chooser is the caster; the hand and the deck it goes to the bottom of are

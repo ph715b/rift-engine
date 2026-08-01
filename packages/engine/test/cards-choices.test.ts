@@ -408,6 +408,77 @@ describe("Kai'Sa - Survivor (OGN-039): when I conquer, draw 1", () => {
   });
 });
 
+/**
+ * Qiyana - Victorious (OGN-155): "When I conquer, draw 1 or channel 1 rune exhausted."
+ *
+ * Kai'Sa's trigger above with a choice on the end, so the location tests are hers
+ * and the interesting ones here are the two answers. Both must actually FIRE
+ * through the decision queue — a parked question that resolves to nothing is the
+ * dispatch-hop failure this suite exists to catch.
+ *
+ * Her `[Deflect]` remains unimplemented and she is still correctly reported as
+ * partial; that is asserted in coverage-drift.test.ts, not here.
+ */
+describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exhausted", () => {
+  const QIYANA_VICTORIOUS = "OGN-155";
+
+  /** Qiyana at bf1 with something to draw AND something to channel, so neither
+   *  answer can pass merely because the other pile was empty. */
+  function qiyanaState(): GameState {
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [realUnitInstance(QIYANA_VICTORIOUS)] };
+    state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
+    state.players[0]!.runeDeck = [{ id: "rune-x", domain: "Body", state: "Ready" }];
+    return state;
+  }
+
+  it("asks the question when she conquers, rather than picking for the player", () => {
+    const after = recordConquest(qiyanaState(), 0, "bf1");
+    const decision = pendingDecision(after);
+
+    expect(decision?.kind).toBe("OGN-155-conquer");
+    // Two real answers and no decline — the card offers an either/or, not a "may".
+    expect(optionsFor(after, decision!).map((o) => o.id)).toEqual(["draw", "channel"]);
+  });
+
+  it("draws when that is the answer, and does NOT channel", () => {
+    const before = qiyanaState();
+    const after = answerDecisions(recordConquest(before, 0, "bf1"), (options) => options.find((o) => o.id === "draw")!.id);
+
+    expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);
+    expect(after.players[0]!.runeDeck).toHaveLength(1); // untouched
+    expect(after.players[0]!.channeled).toHaveLength(0);
+  });
+
+  it("channels one rune EXHAUSTED when that is the answer, and does NOT draw", () => {
+    const after = answerDecisions(recordConquest(qiyanaState(), 0, "bf1"), (options) => options.find((o) => o.id === "channel")!.id);
+
+    expect(after.players[0]!.hand).toHaveLength(0); // untouched
+    expect(after.players[0]!.runeDeck).toHaveLength(0);
+    // Exhausted, not Ready — that is what makes it weaker than a free rune.
+    expect(after.players[0]!.channeled.map((r) => r.state)).toEqual(["Exhausted"]);
+  });
+
+  it("asks nothing for a conquest she is not at", () => {
+    expect(recordConquest(qiyanaState(), 0, "bf2").pendingDecisions).toHaveLength(0);
+  });
+
+  it("asks nothing when the OPPONENT conquers her battlefield", () => {
+    expect(recordConquest(qiyanaState(), 1, "bf1").pendingDecisions).toHaveLength(0);
+  });
+
+  it("still asks when a pile is empty — an empty deck is a real choice, not a non-choice", () => {
+    // Drawing from an empty deck is what triggers Burn Out (431), so pruning the
+    // option would hide a legal and sometimes decisive line. And a one-option
+    // question auto-resolves, so pruning would silently choose for the player.
+    const state = qiyanaState();
+    state.players[0]!.deck = [];
+    const after = recordConquest(state, 0, "bf1");
+
+    expect(optionsFor(after, pendingDecision(after)!).map((o) => o.id)).toEqual(["draw", "channel"]);
+  });
+});
+
 describe("Ekko - Recurrent (OGN-110): [Accelerate] — recycle me to ready your runes", () => {
   function ekkoState(): GameState {
     const state = makeState();

@@ -1,4 +1,5 @@
 import type { CardDefinition } from "../model/card-definition.js";
+import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
 import { activatedAbilityDefIds, borrowedAbilityDefIds } from "./activated-abilities.js";
 import { loaderHandledDefIds } from "../cards/card-loader.js";
 import { playCardDefIds } from "./deploy.js";
@@ -36,6 +37,68 @@ import { deathReplacementDefIds } from "./death-ward.js";
  */
 
 /**
+ * Keywords the rules engine does NOT implement, each with what is missing.
+ *
+ * `implementableText` below strips every bracketed keyword on the assumption
+ * that a keyword is implemented in the rules engine (combat, timing, exhaustion)
+ * rather than in an effect registry. That assumption is load-bearing — it is what
+ * keeps a vanilla-with-a-keyword card from reporting inert — but it was
+ * ASSUMED rather than checked, and it is false for exactly one of the thirteen
+ * entries in KEYWORDS.
+ *
+ * Measured 2026-08-01 by asking, per keyword, which engine modules consult it:
+ * twelve have a real consumer (combat.ts, timing.ts, hidden.ts, legal-actions.ts,
+ * effective-might.ts…). `[Deflect]`'s only two mentions are the table that GRANTS
+ * it and a doc comment in rune-payment.ts recording that the surcharge is absent.
+ * Nothing reads it, so a spell targeting a Deflect unit pays the printed price.
+ *
+ * The cost of leaving that unstated was a measure that lied in the direction this
+ * module's own doc comment calls the worse one. Pouty Poro's entire printed text
+ * is `[Deflect]`, so the strip left nothing, `needsImplementation` said no, and it
+ * reported as implemented while doing nothing — in a precon deck, twice.
+ * Fiora - Victorious granted it and reported finished on the strength of the two
+ * keywords that do work.
+ *
+ * Listing it here rather than fixing those two cards by hand is the point: the
+ * next unimplemented keyword ([Backline]/[Hunt]/[Level]/[Ambush] are already
+ * named in KEYWORDS' own doc comment as pending sets) cannot silently reopen the
+ * same hole, and when Deflect lands, DELETING one entry flips all seven cards
+ * that carry it at once.
+ */
+const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
+  [
+    "Deflect",
+    "[Deflect] is parsed (with its value — Volibear - Furious is [Deflect 2]) and then ignored: " +
+      "opponents choose the unit with a spell or ability at the printed price",
+  ],
+]);
+
+/** The keyword a bracket encloses, if it is one this engine does not implement.
+ *  Reads `[Deflect]` and `[Deflect 2]` alike, through the model's own parser
+ *  rather than a second copy of the bracket grammar. */
+function unimplementedKeywordIn(bracketInner: string): Keyword | undefined {
+  const keyword = keywordFromBracketText(bracketInner.trim().replace(/\s+\d+$/, ""));
+  return keyword !== undefined && UNIMPLEMENTED_KEYWORDS.has(keyword) ? keyword : undefined;
+}
+
+/** Which unimplemented keywords a card's printed text carries — whether it HAS
+ *  them (Pouty Poro) or GRANTS them (Fiora - Victorious, Spirit's Refuge).
+ *
+ *  Keyed off the text rather than `def.keywords` deliberately, and the two
+ *  disagree in both directions: Fiora's parsed keywords are empty because hers
+ *  are conditional, while Spirit's Refuge parses a `Deflect` it does not have and
+ *  only grants. The text is what needs implementing, so the text is what's read. */
+export function unimplementedKeywordsOn(def: CardDefinition): Keyword[] {
+  const raw = "text" in def && typeof def.text === "string" ? def.text : "";
+  const found = new Set<Keyword>();
+  for (const [, inner] of raw.matchAll(/\[([^\]]*)\]/g)) {
+    const keyword = unimplementedKeywordIn(inner!);
+    if (keyword !== undefined) found.add(keyword);
+  }
+  return [...found];
+}
+
+/**
  * Rules text with the bracketed keywords and their parenthesised reminder text
  * removed — what's left is text that needs an implementation.
  *
@@ -45,11 +108,17 @@ import { deathReplacementDefIds } from "./death-ward.js";
  * text would flag every vanilla-with-a-keyword card as broken. Getting this wrong
  * in an earlier ad-hoc audit is exactly what produced a false "5 precon cards are
  * inert" figure, three of which were keyword-only and fine.
+ *
+ * An UNIMPLEMENTED keyword is deliberately NOT stripped, because for it that
+ * justification does not hold — there is no rules-engine implementation to defer
+ * to, so the bracket really is text that still needs writing. It survives into
+ * the residue so the deck builder can say WHICH keyword is missing rather than
+ * just greying the card.
  */
 export function implementableText(def: CardDefinition): string {
   const raw = "text" in def && typeof def.text === "string" ? def.text : "";
   const stripped = raw
-    .replace(/\[[^\]]*\]/g, "")
+    .replace(/\[([^\]]*)\]/g, (whole, inner: string) => (unimplementedKeywordIn(inner) !== undefined ? whole : ""))
     .replace(/\([^)]*\)/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -143,9 +212,19 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
 
 /** What is still missing from a partially-implemented card, or undefined when
  *  the card is whole. Exported so the deck builder can say WHY rather than just
- *  greying it. */
-export function partialImplementationNote(defId: string): string | undefined {
-  return PARTIALLY_IMPLEMENTED.get(defId);
+ *  greying it.
+ *
+ *  Takes the definition, not just the id, so an unimplemented keyword can be
+ *  DERIVED rather than transcribed into the hand-maintained map above. That
+ *  matters here more than it looks: six of the seven cards carrying `[Deflect]`
+ *  have unrelated text of their own, so each would have needed a manual entry the
+ *  moment that text landed — six chances to forget, and forgetting reads as
+ *  "finished". The same reasoning as COVERAGE_SOURCES asking each module instead
+ *  of keeping a list. */
+export function partialImplementationNote(def: CardDefinition): string | undefined {
+  const listed = PARTIALLY_IMPLEMENTED.get(def.id);
+  const missingKeywords = unimplementedKeywordsOn(def).map((k) => UNIMPLEMENTED_KEYWORDS.get(k)!);
+  return [listed, ...missingKeywords].filter((note) => note !== undefined).join("; ") || undefined;
 }
 
 /**
@@ -165,5 +244,10 @@ export function isCardImplemented(def: CardDefinition): boolean {
   // Checked before the registry, since it is registered — that is the whole
   // reason this list has to exist.
   if (PARTIALLY_IMPLEMENTED.has(def.id)) return false;
+  // An unimplemented keyword is the same kind of partial, derived rather than
+  // listed. Fiora - Victorious is the case that needs it: her grant IS registered
+  // (granted-keywords), and [Ganking] and [Shield] really do work, so the registry
+  // check below says yes while the [Deflect] third of her text does nothing.
+  if (unimplementedKeywordsOn(def).length > 0) return false;
   return registeredDefIds().has(def.id);
 }

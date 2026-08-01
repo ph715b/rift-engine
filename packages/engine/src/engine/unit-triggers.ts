@@ -76,15 +76,43 @@ export function unitTriggerHasVisionChoice(defId: string): boolean {
   return VISION_UNIT_DEF_IDS.has(defId);
 }
 
-/** Cards whose printed text ("You may play me to an open battlefield")
- *  carves out an exception to the universal "reinforce only" rule
- *  (validate-play-card.ts's presence check) — mirrors
- *  ActionValidator.validateUnitDirectToBattlefield's own small hardcoded
- *  exception list (Sneaky Deckhand/Sai Scout/etc., ActionValidator.java:1306-1319). */
-const OPEN_PLACEMENT_UNIT_DEF_IDS = new Set(["OGN-176", "OGN-174"]); // Sneaky Deckhand, Sai Scout
+/**
+ * Cards whose printed text carves out an exception to the universal
+ * "reinforce only" rule (validate-play-card.ts's presence check) — mirrors
+ * ActionValidator.validateUnitDirectToBattlefield's own small hardcoded
+ * exception list (Sneaky Deckhand/Sai Scout/etc., ActionValidator.java:1306-1319).
+ *
+ * Keyed to WHICH place the card names, because the pool now has two different
+ * grants and they are close to opposites. "You may play me to an open
+ * battlefield" (Sneaky Deckhand, Sai Scout) names somewhere empty and
+ * uncontrolled; Deadbloom Predator's "You may play me to an occupied enemy
+ * battlefield" names somewhere the opponent is standing — which applies
+ * Contested and opens a Showdown, and is the whole point of the card.
+ *
+ * A table rather than a second parallel `canPlayToOccupiedEnemy` predicate: the
+ * two call sites are the validator and the enumerator, and them disagreeing is
+ * the specific drift that has bitten this codebase before (see
+ * mayPlaceWithoutPresence below).
+ */
+type PlacementGrant = "openBattlefield" | "occupiedEnemyBattlefield";
+
+const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
+  "OGN-176": "openBattlefield", // Sneaky Deckhand
+  "OGN-174": "openBattlefield", // Sai Scout
+  "OGN-161": "occupiedEnemyBattlefield", // Deadbloom Predator
+};
 
 export function canPlayToOpenBattlefield(defId: string): boolean {
-  return OPEN_PLACEMENT_UNIT_DEF_IDS.has(defId);
+  return PLACEMENT_GRANTS[defId] === "openBattlefield";
+}
+
+/** Is the OPPONENT standing here? Deadbloom Predator's "occupied enemy
+ *  battlefield" — occupancy by the enemy specifically, not occupancy in general,
+ *  so a battlefield holding only your own units is not a legal destination for
+ *  it (that case is already covered by the ordinary presence rule anyway). */
+function isOccupiedByEnemy(state: GameState, playerIndex: 0 | 1, battlefield: BattlefieldState): boolean {
+  const opponentId = state.players[1 - playerIndex]!.id;
+  return (battlefield.units[opponentId]?.length ?? 0) > 0;
 }
 
 /**
@@ -114,9 +142,26 @@ export function isOpenBattlefield(battlefield: BattlefieldState): boolean {
  * you already controlled (reported from playtesting), and — worse — onto one the
  * OPPONENT held, which applies Contested and opens a Showdown, turning "play me
  * to an open battlefield" into a free 5-Might attack.
+ *
+ * Now asks the grant table which KIND of place the card names, so Deadbloom
+ * Predator gets the destination its text describes and not Sai Scout's. Keeping
+ * that decision here — rather than letting each call site pick a predicate — is
+ * what makes it structurally impossible for the two to diverge.
  */
-export function mayPlaceOnOpenBattlefield(defId: string, battlefield: BattlefieldState): boolean {
-  return canPlayToOpenBattlefield(defId) && isOpenBattlefield(battlefield);
+export function mayPlaceWithoutPresence(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string,
+  battlefield: BattlefieldState,
+): boolean {
+  switch (PLACEMENT_GRANTS[defId]) {
+    case "openBattlefield":
+      return isOpenBattlefield(battlefield);
+    case "occupiedEnemyBattlefield":
+      return isOccupiedByEnemy(state, playerIndex, battlefield);
+    default:
+      return false;
+  }
 }
 
 function applyVision(state: GameState, casterIndex: 0 | 1, recycle: boolean | undefined): GameState {
@@ -248,7 +293,7 @@ export function unitTriggerDefIds(): string[] {
     ...Object.keys(ON_ATTACK_TRIGGERS),
     ...Object.keys(ON_MOVE_TRIGGERS),
     ...Object.keys(ON_SPELL_CAST_TRIGGERS),
-    ...OPEN_PLACEMENT_UNIT_DEF_IDS,
+    ...Object.keys(PLACEMENT_GRANTS),
   ];
 }
 

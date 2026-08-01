@@ -101,7 +101,7 @@ function SingleSelectList<T extends { id: string; name: string }>({
  * of the two, because such a card visibly does something.
  */
 function unimplementedNote(def: CardDefinition): string | undefined {
-  const partial = partialImplementationNote(def.id);
+  const partial = partialImplementationNote(def);
   if (partial) return `Only partly implemented — ${partial}`;
   if (isCardImplemented(def)) return undefined;
   return `No effect implemented yet — this card's text does nothing:\n"${implementableText(def)}"`;

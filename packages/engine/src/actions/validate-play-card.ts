@@ -1,5 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
+import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import {
   findUnitAnywhere,
   findUnitOnBattlefield,
@@ -305,15 +305,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // player already has a unit of their own there — a pure "reinforce"
   // action. Mirrors ActionValidator.validateUnitDirectToBattlefield's
   // universal rule (Battlefield.hasUnitsFor(actor)) — minus the small,
-  // hardcoded exception for cards whose text explicitly grants open-
-  // battlefield placement (canPlayToOpenBattlefield: Sneaky Deckhand, Sai
-  // Scout), mirroring ActionValidator's own small named-card exception
-  // list (ActionValidator.java:1306-1319).
+  // hardcoded exception for cards whose text names a destination of their own
+  // (mayPlaceWithoutPresence: Sneaky Deckhand and Sai Scout to an OPEN
+  // battlefield, Deadbloom Predator to an OCCUPIED ENEMY one), mirroring
+  // ActionValidator's own small named-card exception list
+  // (ActionValidator.java:1306-1319).
   if (card.kind === "Unit" && action.destinationBattlefieldId !== undefined) {
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
     const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;
-    if (!hasPresence && !mayPlaceOnOpenBattlefield(card.defId, destination)) {
+    if (!hasPresence && !mayPlaceWithoutPresence(state, action.playerIndex, card.defId, destination)) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }

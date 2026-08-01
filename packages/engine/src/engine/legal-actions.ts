@@ -11,7 +11,7 @@ import type {
   RecallUnitAction,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
-import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
+import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import { eligibleTargets, findUnitOnBattlefield, shareABattlefield, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
 import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner, slotScope } from "./card-effects.js";
@@ -578,7 +578,7 @@ export function legalActions(state: GameState): PlayerAction[] {
           // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
           // this is asked per battlefield rather than once per card. Same shared
           // predicate the validator uses.
-          if (!hasPresence && !mayPlaceOnOpenBattlefield(card.defId, bf)) continue;
+          if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf)) continue;
           // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
           // your base or a battlefield you control. Checked here as well as in the
           // validator, via the same shared predicate: without it, enumeration

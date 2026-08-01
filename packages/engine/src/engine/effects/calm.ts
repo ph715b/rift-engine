@@ -309,13 +309,50 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
-export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "OGN-063": {
+    // Spirit's Refuge — "When you play this, buff a friendly unit."
+    //
+    // A SELF-trigger, like Forge of the Future (OGN-212): a Gear entering play is
+    // not something the listener walk reaches for its own arrival. Gear has no
+    // targeting of its own on the PlayCard action (no Gear is registered in
+    // cardEffects, and the executor's Gear branch only moves it to activeGear),
+    // so WHICH unit is buffed is asked as a decision — the same shape, and for
+    // the same reason, as Vanguard Helm's "buff another friendly unit".
+    //
+    // The card's SECOND sentence — "Friendly buffed units have [Deflect] if they
+    // didn't already" — is deliberately NOT written here. `[Deflect]` has no
+    // implementation anywhere in the engine, so granting it would be a no-op
+    // dressed up as an implementation; coverage.ts keeps the card honestly
+    // reported as partial until the keyword lands.
+    on: ["played"],
+    resolve: (state, event) =>
+      // "Do as much as you can" (422): with no friendly unit anywhere there is
+      // nothing to buff, and a question with no answers must not be parked.
+      ownUnitsEverywhere(state, event.ownerIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "OGN-063-buff", playerIndex: event.ownerIndex }),
+  },
+};
 
 /** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Spirit's Refuge's "buff a friendly unit", raised by its on-play self-trigger.
+  //
+  // "A friendly unit" carries no location word, so base and battlefield are both
+  // eligible — 355.9.b's bare-noun reading, the same one Vanguard Helm's
+  // equivalent question takes. Already-buffed units stay on offer: 708 makes a
+  // second buff a no-op rather than an illegal choice, and filtering them would
+  // quietly rewrite the card as "an UNBUFFED friendly unit".
+  "OGN-063-buff": {
+    prompt: () => "Spirit's Refuge: buff a friendly unit",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
   // Party Favors' "Cards or Runes", answered by the OPPONENT.
   //
   // Both options always offered, even when a pool is empty: choosing Runes with
