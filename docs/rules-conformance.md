@@ -43,6 +43,8 @@ are `Unverified`, not `Conformant`.
 | Scoring: two methods | Hold (Beginning Phase) and Conquer, one score per battlefield per turn | 471.1 / 471.1.b | `scoring.scoreHolds`, `scoring.recordConquest` |
 | Final point | Through a Conquer at Victory−1, only if every battlefield was **Scored** this turn (holds count); else draw 1 | 473 / 474 | `scoring.recordConquest` |
 | Beginning Phase | Turn Player Holds all Battlefields they Control | 315.2.b.3 | `turn-manager.runBeginning` |
+| Burn Out | Drawing from an empty deck recycles that player's trash into their deck, an **opponent gains 1 point**, and the draw completes | 431 | `effect-helpers.drawCards` / `burnOut` |
+| Burn Out is the one funnel | The turn's own draw and a card's draw resolve an empty deck identically | 431 | `turn-manager.runDraw` delegates to `drawCards` |
 | Victory score | 8 points, and strictly more than the opponent, checked in a cleanup | 194.4 / 198.1 | `win-condition`, `constants` |
 | Channel | 2 runes per turn, as many as possible if fewer remain | 315.4.b | `turn-manager.runChannel` |
 | Control lapses | No units + Open State → control lost in the following Cleanup, unless a Combat/Showdown is ongoing **there** | 190.6 / 323.11 step 4 | `cleanup.runCleanup`, run after every action by `game-engine.withCleanupAndWinnerCheck`; `combat.resolveShowdown`'s mutual-wipe branch still covers the in-combat case |
@@ -121,7 +123,7 @@ are `Unverified`, not `Conformant`.
 | Rule | Should be | We do | Rule # | Status |
 |---|---|---|---|---|
 | Combat "No Result" re-stage | If No Result and both players still have units, stage another Showdown + Combat there | Resolve once | 466.5.d | **Out of scope, unreachable in 2-player**: step 3d removes the attackers exactly when defenders remain, so both sides can never still be present. Exists for multiplayer, where a third player's units can be there |
-| Burn Out | Draw as many as possible → recycle trash into deck (randomised) → an opponent gains 1 point → finish the draw | Empty deck silently no-ops | 431 | Known gap, pre-dates this file. Its sharpest consequence: rule 474 withholds a Victory−1 Conquer point until every battlefield has been Scored that turn and gives a compensation draw instead — which on an empty deck silently does nothing, so that player gains neither. **Correction:** an earlier version of this row credited Burn Out as the cause of non-terminating games, measured at 2 of 40 self-play. The real cause was the control-lapse gap below (those boards had both battlefields controlled-but-unoccupied); with 190.6 implemented, **40/40 self-play and 16/16 passive games now terminate**. Burn Out remains a genuine gap, just not a demonstrated liveness bug |
+| Burn Out: trash order | Recycle the trash into the deck **randomised** | Recycled in trash order | 431 | The recycle, the opponent's point and the completed draw are all implemented (see Verified). Only the shuffle is missing: `drawCards` has no RNG to hand and determinism is a stated NFR — every shuffle in this engine takes an explicit seeded `Rng`. Same convention, and the same reason, as `recycleFromTrash` taking the front of the trash |
 | Damage assignment: `[Backline]` | "Assigned last" — the mirror of Tank | Not implemented | — | UNL-set keyword with no card in this pool; slots into `combat.assignmentOrder` as a second sort tier when that set lands |
 | Damage assignment choice | The ASSIGNING player chooses freely within the constraints | Natural unit-list order within each Tank tier | 465.2.c | No interactive assignment UI; the order stands in for the choice |
 | `[Deflect]` | "Opponents must pay 1 rainbow Power to choose me with a spell or ability" | Parsed into the keyword model, then ignored — spells targeting a Deflect unit cost their printed price | — | **Open, one precon card** (Pouty Poro). Needs a third cost dimension: a rainbow (any-domain) Power component that is NOT float-reduced and depends on the CHOSEN TARGET, so `legal-actions` must compute payment per target variant instead of once per card. Mirrors the oracle's `ActionExecutor.deflectSurcharge` + `beginPaymentExact`'s separate `rainbowPowerCost` |
@@ -135,6 +137,26 @@ are `Unverified`, not `Conformant`.
 | AI lookahead vs. responses | — | `heuristic-ai.settleDeferredResolution` settles each candidate assuming the opponent **passes** rather than responding | — | Not a rules divergence but a direct consequence of the timing work: that assumption was exactly true while nothing could be cast into a Showdown or onto a chain, and is now optimistic. The AI scores attacks and casts as though unopposed and will walk into removal it could have anticipated. Fixing it means modelling the opponent's best response (2-ply) |
 | Death replacement vs. the rest of a resolution | A replacement effect is settled before the resolution continues | Sett - The Boss's offer is parked as a pending decision from inside `killUnit`; the resolution that raised it (a combat exchange, a board wipe) runs to completion first, and only then is the question answered | 809.1.b.1 | **Measured, not theorised.** In 150 self-play games with Sett as legend the offer fired 16 times, no game stalled and no action was refused — but **2 games ended inside the very action that raised the question**: combat killed the buffed unit, parked the offer, then continued through scoring and declared a winner, leaving the unit held in `unitsAwaitingDeathReplacement` forever. Nothing observable follows a finished game, but the save could in principle have prevented the conquest that won it. Same root cause as the Chain row above: a mid-resolution question cannot suspend the resolution |
 | Sett's Recall on a save | — | `heal it, exhaust it, and recall it` puts the unit in base with damage cleared, exhausted, and its buff spent | 454 / 704.1 | Conformant in substance and listed here only because the buff removal has two possible readings: it is charged as part of the printed COST ("spend its buff"), not as rule 709's leave-play cleanup, since a saved unit never leaves play. Both readings produce the same board |
+
+## How Burn Out was found, and what it says about the other gaps
+
+Worth recording as a method, not just a fix. Burn Out sat in the Divergent table
+for a long time with an explicit note that it was "a genuine gap, just not a
+demonstrated liveness bug" — 40/40 self-play terminated, so nothing pointed at
+it.
+
+It was demonstrated by accident. Re-tuning the AI's `cardInHand` weight made the
+AI spend cards faster, which reached two empty decks, which nothing could
+resolve: self-play sat at score 7-7 with both decks empty and no battlefield
+held, passing back and forth to **turn 538**. The rule that breaks that position
+is the one that was missing.
+
+Two things follow. First, "our probes terminate" is evidence about the
+DISTRIBUTION the probes explore, not about the engine — a change in how the AI
+values anything can move that distribution onto a gap that was always there.
+Second, a tuning run is a liveness probe whether or not it is meant to be, and
+is worth reading as one. The remaining Divergent rows below have not been
+cleared by 40/40 either; they have only not been visited.
 
 ## Readings taken for the Stun and Legend pass
 

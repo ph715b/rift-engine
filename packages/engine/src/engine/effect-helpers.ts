@@ -782,17 +782,62 @@ export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, 
   return updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] }));
 }
 
-/** Draws up to `count` cards for `playerIndex`, stopping early (not
- *  crashing) if the deck runs out — matches this codebase's existing
- *  "documented, weaker-than-real-rules gap, not a crash" Burn Out
- *  convention (turn-manager.ts's runDraw) rather than modeling Burn Out's
- *  real trash-recycle-and-award-a-point rule here too. */
+/**
+ * Draws `count` cards, running **Burn Out** (rule 431) whenever the deck cannot
+ * cover the draw: recycle that player's trash into their deck, an opponent gains
+ * 1 point, then finish the draw.
+ *
+ * **This used to silently no-op on an empty deck**, described as a documented
+ * gap "weaker than the real rules, but not a crash". It was worse than that: it
+ * was a LIVELOCK. With both decks empty, neither player able to develop and no
+ * battlefield held, self-play ran to turn 538 passing back and forth, because
+ * the only rule that can break that position is the one that was missing. The
+ * conformance doc had recorded Burn Out as "a genuine gap, just not a
+ * demonstrated liveness bug" — it is demonstrated now, and this is the fix.
+ *
+ * The point is what actually ends such a game: a deck that keeps running out
+ * keeps feeding the opponent points until someone reaches the Victory Score.
+ *
+ * **Simplification, named:** the recycled trash goes back in trash order rather
+ * than shuffled. Rule 431 randomises it, but `drawCards` has no RNG to hand and
+ * determinism is a stated project NFR (every shuffle here takes an explicit
+ * seeded `Rng`). Same convention, and the same reason, as `recycleFromTrash`
+ * taking the front of the trash. Recorded in docs/rules-conformance.md.
+ */
 export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): GameState {
-  return updatePlayer(state, playerIndex, (p) => {
-    if (count <= 0 || p.deck.length === 0) return p;
-    const drawn = p.deck.slice(0, count);
-    return { ...p, deck: p.deck.slice(count), hand: [...p.hand, ...drawn] };
-  });
+  if (count <= 0) return state;
+  let next = state;
+  for (let drawn = 0; drawn < count; drawn += 1) {
+    const player = next.players[playerIndex];
+    if (player.deck.length === 0) {
+      // Nothing in either zone: there is no card to draw and no trash to make
+      // one from, so Burn Out cannot repeat. Stopping here is what keeps this
+      // loop finite rather than trading one livelock for another.
+      if (player.trash.length === 0) return next;
+      next = burnOut(next, playerIndex);
+    }
+    next = updatePlayer(next, playerIndex, (p) => {
+      const [top, ...rest] = p.deck;
+      return top ? { ...p, deck: rest, hand: [...p.hand, top] } : p;
+    });
+  }
+  return next;
+}
+
+/**
+ * Rule 431's Burn Out: the drawing player's trash becomes their deck, and an
+ * opponent gains 1 point.
+ *
+ * The point goes to the OPPONENT of whoever burned out — running out of cards is
+ * the losing condition this game has instead of decking out, so it hands the win
+ * to the other player over time rather than ending immediately.
+ */
+function burnOut(state: GameState, playerIndex: 0 | 1): GameState {
+  const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...players[playerIndex], deck: [...players[playerIndex].trash], trash: [] };
+  players[opponentIndex] = { ...players[opponentIndex], points: players[opponentIndex].points + 1 };
+  return { ...state, players };
 }
 
 /**

@@ -316,10 +316,26 @@ export interface EvalWeights {
   /** A unit's Might, the proxy for "whose position is developing better". */
   might: number;
   /**
-   * A card in hand. Zero today, and that is not neutrality — it is an
-   * INCONSISTENCY: playing a card spends one and the evaluator charges nothing,
-   * drawing one gains nothing. Every card the AI has never once played (Morbid
-   * Return, Meditation, Mobilize, Scrapheap's draw) is priced by this term.
+   * A card in hand.
+   *
+   * **Back to zero, and this time zero is the measured answer rather than an
+   * oversight.** It shipped at 0.5 on the strength of a 52.2% plateau measured
+   * across the seven preset decks — which, it turned out, contained no card
+   * whose value was drawing. Re-measured on decks built to contain them, 0 beats
+   * 0.5 at ~53.9% (four independent seed sets: 54.3/54.9/53.7/52.7) and is
+   * neutral on the presets themselves (~49%).
+   *
+   * The behavioural half points the same way and is the more decisive one: over
+   * 72 games, `cardInHand: 0` casts the eight pure-draw cards **49** times
+   * against **2** at 0.5. Valuing a card in hand makes the AI reluctant to spend
+   * one even to draw three, so the cards go uncast — which also makes every card
+   * of that shape unreachable in the self-play probes this project verifies with.
+   *
+   * The original rationale for adding it ("the evaluator charges nothing for
+   * spending a card") was sound; the correction is that the term as written
+   * charges for spending WITHOUT crediting what the spend buys, so it prices
+   * hoarding rather than card advantage. A term that did the latter would need
+   * to value the BOARD a drawn card becomes, which `evaluate` cannot see.
    */
   cardInHand: number;
   /**
@@ -352,9 +368,10 @@ export interface EvalWeights {
 /**
  * What ships, and what every candidate is measured against.
  *
- * Every number here was settled by `scratchpad/ai-ab.mjs` over 3000 games per
- * candidate, across all 49 deck pairings in both seats. The results, because the
- * losers are as informative as the winners:
+ * Every number here was settled by `scratchpad/ai-ab.mjs`, candidate against
+ * shipping, both seats, thousands of games per candidate.
+ *
+ * **The first round, across the seven preset decks:**
  *
  *   cardInHand 0.25 / 0.5 / 0.75   52.1-52.2%   win   (a flat plateau)
  *   cardInHand 2                   46.3%        LOSE
@@ -363,12 +380,37 @@ export interface EvalWeights {
  *   twoPly alone                   46.6%        LOSE
  *   twoPly + cardInHand 0.5        52.0%        win
  *
- * `cardInHand` is small on purpose and the plateau is why: it works as a
- * TIE-BREAKER, not a valuation — the same design as DAMAGE_WEIGHT above, and for
- * the same reason. At 2 and 4 it stops breaking ties and starts outbidding real
- * board value, and the AI hoards; hoarding loses. My own stated rationale for
- * adding it ("the evaluator charges nothing for spending a card") predicted the
- * opposite sign, which is exactly why the harness was built before the tuning.
+ * **The second round, and why it was needed.** The presets contain no card whose
+ * value is drawing — they were taken to zero inert cards early, so every card
+ * added since lives outside them. Once eight pure-draw cards existed, the basis
+ * that settled `cardInHand` no longer exercised it. Measured on decks BUILT to
+ * hold them, `cardInHand: 0` beat the shipped 0.5 at ~53.9% (four seed sets)
+ * while staying neutral on the presets themselves.
+ *
+ * That run also exposed an ENGINE bug rather than an AI one: spending cards
+ * faster reached two empty decks, which the missing Burn Out (431) could not
+ * resolve, and self-play livelocked at turn 538. Burn Out is implemented now,
+ * and everything was re-measured against the corrected engine, because a
+ * liveness bug in the middle of a tuning basis invalidates the tuning:
+ *
+ *   (baseline is cardInHand 0)
+ *   cardInHand 0.25   cantrip decks   44.5%   LOSE
+ *   cardInHand 0.5    cantrip decks   45.7%   LOSE
+ *   cardInHand 1      cantrip decks   46.9%   LOSE
+ *   cardInHand 2      cantrip decks   38.8%   LOSE
+ *   cardInHand 0.5    presets         49.9%   neutral
+ *   cardInHand 1      presets         49.8%   neutral
+ *
+ * So 0 it is, and more clearly after the fix than before it. The behavioural
+ * half agrees and is the more decisive one: 0 casts the eight pure-draw cards
+ * 49 times per 72 games against 2 at 0.5.
+ *
+ * Two lessons, both about the BASIS rather than the number. A measurement is
+ * only as good as the pool it ran on, and this one silently stopped being
+ * representative the moment the card pool grew past it — any future tuning has
+ * to say which decks it ran on. And a tuning run is a liveness probe whether or
+ * not it is meant to be: this one found a 538-turn livelock that 40/40 self-play
+ * had been passing over.
  *
  * `permanentInPlay` earns its place on behaviour rather than strength: it is
  * neutral in win rate at every weight tried, and it takes gear plays from ZERO
@@ -379,7 +421,7 @@ export interface EvalWeights {
 export const BASELINE_WEIGHTS: EvalWeights = {
   point: 1000,
   might: 1,
-  cardInHand: 0.5,
+  cardInHand: 0,
   permanentInPlay: 0.5,
   abilityValue: false,
   twoPly: false,

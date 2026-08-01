@@ -347,12 +347,20 @@ describe("resolving the chain via PassFocus", () => {
     expect(next.chainPasses).toBe(0);
     expect(next.spellChain).toHaveLength(0);
 
-    // The resolving pass itself is a genuine no-op beyond the chain
-    // bookkeeping — no EffectRegistry-equivalent exists yet, and the card
-    // already moved to trash at cast time (asserted in the cast test above),
-    // so player state must be byte-for-byte unchanged by the two passes.
-    expect(next.players).toEqual(afterCast.players);
+    // This assertion used to read "player state must be byte-for-byte
+    // unchanged", on the premise that no effect registry existed yet. Both
+    // halves of that premise have since expired: the fixture's spell is
+    // Mobilize ("Channel 1 rune exhausted. If you can't, draw 1"), which IS
+    // implemented, and the fixture has an empty rune deck — so it draws.
+    //
+    // The draw then finds an empty Main Deck with the just-cast Mobilize in the
+    // trash, which is Burn Out (431): the trash becomes the deck, the OPPONENT
+    // gains a point, and the draw completes. Asserted rather than dodged,
+    // because a fixture that quietly hid the rule is what let it stay missing.
     expect(next.battlefields).toEqual(afterCast.battlefields);
+    expect(next.players[1]!.points).toBe(afterCast.players[1]!.points + 1); // Burn Out's point
+    expect(next.players[0]!.trash).toHaveLength(0); // recycled into the deck
+    expect(next.players[0]!.hand.map((c) => c.name)).toEqual(["Mobilize"]); // and drawn back
   });
 
   it("white-box: a 2-entry spellChain resolves top-first, handing priority to the next entry's caster instead of reopening", () => {

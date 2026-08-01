@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase, dispatchLegendEndOfTurn } from "./legend-abilities.js";
-import { destroyUnit, healAllUnits } from "./effect-helpers.js";
+import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, killGear } from "./triggers.js";
 
 /**
@@ -168,22 +168,21 @@ export function runChannel(state: GameState): GameState {
 /**
  * Draws 1 card for the active player. Mirrors TurnManager.runDraw
  * (engine/TurnManager.java:203-222), minus the >2-player "player 0 skips
- * their turn-1 draw" exception (out of scope — this engine is 2-player
- * only) and Burn Out (drawing from an empty deck should recycle the trash
- * and award the opponent 1 point, core rules §431-433) — not implemented
- * yet (no ScoringSystem); an empty deck silently no-ops here for now, a
- * documented, weaker-than-real-rules gap rather than a crash.
+ * their turn-1 draw" exception (out of scope — this engine is 2-player only).
+ *
+ * **Burn Out (rule 431) is no longer missing here.** This used to no-op on an
+ * empty deck, described as a gap "weaker than the real rules but not a crash".
+ * It was in fact a livelock: two empty decks with no battlefield held is a
+ * position only Burn Out can break, and self-play sat in it passing to turn 538.
+ * It now goes through `drawCards`, the same funnel every card effect draws
+ * through, so the turn's draw and a spell's draw cannot disagree about what
+ * running out of cards means.
  */
 export function runDraw(state: GameState): GameState {
   if (state.phase !== "Draw") {
     throw new Error(`runDraw requires Draw phase, currently: ${state.phase}`);
   }
-  const next = updatePlayer(state, state.activePlayerIndex, (p) => {
-    if (p.deck.length === 0) return p; // TODO: Burn Out (see doc comment)
-    const [drawn, ...rest] = p.deck;
-    return { ...p, deck: rest, hand: [...p.hand, drawn!] };
-  });
-  return { ...next, phase: "Action" };
+  return { ...drawCards(state, state.activePlayerIndex, 1), phase: "Action" };
 }
 
 /** Runs Awaken -> Beginning -> Channel -> Draw, landing in Action phase.
