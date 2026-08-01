@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveKeywords, hasKeyword } from "../src/engine/granted-keywords.js";
+import { deflectSurcharge, effectiveKeywords, hasKeyword } from "../src/engine/granted-keywords.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { addBuff, discardCards, spendBuff } from "../src/engine/effect-helpers.js";
 import { validateMoveUnit } from "../src/actions/validate-move-unit.js";
@@ -11,7 +11,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { MoveUnitAction } from "../src/actions/player-action.js";
-import { answerDecisions, makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 
 /**
  * Keywords a card grants ITSELF conditionally.
@@ -208,5 +208,64 @@ describe("coverage counts all three", () => {
     for (const id of [RAGING_SOUL, BILGEWATER_BULLY, MAGMA_WURM]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(true);
     }
+  });
+});
+
+/**
+ * `[Deflect N]`'s surcharge arithmetic, on its own.
+ *
+ * Kept separate from the cost pipeline deliberately: this is the reason payment
+ * has to be computed PER TARGET rather than once per card, and the two can be
+ * got wrong independently. The keyword itself is still unimplemented in the cost
+ * path — coverage.ts's UNIMPLEMENTED_KEYWORDS still lists it — so nothing here
+ * claims a spell actually costs more yet.
+ */
+describe("deflectSurcharge: what an opponent must pay to choose this unit", () => {
+  const POUTY_PORO = "OGN-013"; // [Deflect]
+  const VOLIBEAR_FURIOUS = "OGN-041"; // [Deflect 2]
+  const FIORA_VICTORIOUS = "OGN-232"; // [Deflect] only while [Mighty]
+
+  it("is the printed value for an opponent", () => {
+    const state = makeState();
+    const poro = realUnitInstance(POUTY_PORO);
+    state.players[0]!.baseUnits = [poro];
+    // owner 0, chooser 1 — the opponent pays.
+    expect(deflectSurcharge(state, poro, 0, 1)).toBe(1);
+  });
+
+  it("reads the VALUED form — Volibear is [Deflect 2], not a flat pip", () => {
+    const state = makeState();
+    const voli = realUnitInstance(VOLIBEAR_FURIOUS);
+    state.players[0]!.baseUnits = [voli];
+    expect(deflectSurcharge(state, voli, 0, 1)).toBe(2);
+  });
+
+  it("costs the OWNER nothing — the keyword taxes opponents", () => {
+    // Without the side check, buffing your own Fiora would be taxed.
+    const state = makeState();
+    const poro = realUnitInstance(POUTY_PORO);
+    state.players[0]!.baseUnits = [poro];
+    expect(deflectSurcharge(state, poro, 0, 0)).toBe(0);
+  });
+
+  it("is 0 for a unit without the keyword", () => {
+    const state = makeState();
+    const plain = makeUnit({ might: 3 });
+    expect(deflectSurcharge(state, plain, 0, 1)).toBe(0);
+  });
+
+  it("follows a GRANTED Deflect on and off as the condition changes", () => {
+    // Fiora has it only while [Mighty] (Might 5+). A granted keyword must tax
+    // exactly like a printed one, and must stop when the grant stops.
+    const state = makeState();
+    const fiora = realUnitInstance(FIORA_VICTORIOUS);
+
+    const weak = { ...fiora, might: 4 };
+    state.players[0]!.baseUnits = [weak];
+    expect(deflectSurcharge(state, weak, 0, 1)).toBe(0);
+
+    const mighty = { ...fiora, might: 5 };
+    state.players[0]!.baseUnits = [mighty];
+    expect(deflectSurcharge(state, mighty, 0, 1)).toBe(1);
   });
 });

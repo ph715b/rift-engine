@@ -111,3 +111,32 @@ export function effectiveKeywords(
 export function hasKeyword(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, keyword: Keyword): boolean {
   return keyword in effectiveKeywords(state, unit, ownerIndex);
 }
+
+/**
+ * `[Deflect N]`: "Opponents must pay N rainbow Power to choose me with a spell or
+ * ability." Returns the extra rainbow Power `chooserIndex` must pay to target
+ * this unit, or 0.
+ *
+ * **OPPONENTS.** Measured against the unit's owner, so choosing your own
+ * Deflect unit costs nothing — the keyword taxes the enemy, and a caster-blind
+ * version would tax you for buffing your own Fiora.
+ *
+ * **N is a parameter, not a flat pip.** Volibear - Furious prints `[Deflect 2]`
+ * and it parses as `{"Deflect": 2}`. An omitted value means 1, which is what
+ * `effectiveKeywords` already returns for a granted keyword.
+ *
+ * Read through `effectiveKeywords`, so a GRANTED Deflect taxes exactly like a
+ * printed one — Fiora - Victorious has it only while she is [Mighty], and
+ * Spirit's Refuge grants it to buffed units, so the answer genuinely changes as
+ * Might and Buffs move. That is also why this is computed on read rather than
+ * stored: there is nothing to expire and no way for it to go stale.
+ *
+ * Pure and target-scoped on purpose. It is the whole reason the cost pipeline
+ * has to price PER TARGET rather than once per card, and keeping the arithmetic
+ * separate from the payment plumbing means the two can be tested — and got
+ * wrong — independently.
+ */
+export function deflectSurcharge(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, chooserIndex: 0 | 1): number {
+  if (chooserIndex === ownerIndex) return 0; // "OPPONENTS must pay"
+  return effectiveKeywords(state, unit, ownerIndex)["Deflect"] ?? 0;
+}
