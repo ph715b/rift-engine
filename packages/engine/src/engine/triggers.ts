@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { GameState, PlayerState, TriggerChainEntry } from "../model/game-state.js";
 import type { CardInstance, GearInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 // effect-helpers imports dispatchOnUnitDied from here, so this is a cycle. It is
@@ -362,6 +362,32 @@ export function eventTriggerDefIds(): string[] {
  * rather than added to the Chain as a Pending Item (809.1.b.3). See
  * dispatchOnUnitDied.
  */
+/**
+ * Resolves a triggered ability that was waiting on the chain as a Pending Item
+ * (809.1.b.3 / 323 step 3a) — the deferred counterpart to `dispatchEvent` above.
+ *
+ * The listener is re-looked-up by instance id rather than carried as an object,
+ * because between the trigger firing and this resolving the opponent has had a
+ * window to respond and the permanent may be gone. A listener that has left play
+ * resolves to nothing, which is 422's "do as much as you can" and the same
+ * safe-no-op convention every dispatch here already follows.
+ *
+ * Nothing pushes a TriggerChainEntry yet, so this is currently unreachable; it
+ * exists so that converting the dispatch sites is incremental against a working
+ * resolution path. It is deliberately NOT wired into `dispatchEvent` — that
+ * conversion is the next step and changes observable ordering, which is why it
+ * is not bundled with the plumbing.
+ */
+export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = allEventTriggers()[entry.listenerDefId];
+  if (!trigger) return state;
+  const listener = allListeningPermanents(state).find((l) => l.card.instanceId === entry.listenerInstanceId);
+  if (!listener) return state; // left play while the response window was open
+  const event = entry.event as GameEvent;
+  if (trigger.on !== event.kind) return state;
+  return trigger.resolve(state, listener, event);
+}
+
 export function dispatchEvent(state: GameState, event: GameEvent): GameState {
   const registry = allEventTriggers();
   let next = state;

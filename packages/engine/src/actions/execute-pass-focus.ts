@@ -1,4 +1,5 @@
-import type { GameState } from "../model/game-state.js";
+import { isSpellChainEntry, type GameState } from "../model/game-state.js";
+import { resolvePendingTrigger } from "../engine/triggers.js";
 import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import { dispatchOnSpellCast } from "../engine/unit-triggers.js";
@@ -44,6 +45,22 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   }
 
   const poppedEntry = state.spellChain[state.spellChain.length - 1]!;
+
+  // A triggered ability waiting as a Pending Item (809.1.b.3) resolves like any
+  // other chain item, but it is not a Spell: it has no cost to total and no
+  // on-spell-cast listeners to notify, so it takes its own short path and never
+  // reaches the Spell handling below (which reads `poppedEntry.card`).
+  //
+  // Nothing pushes one of these yet — see TriggerChainEntry — so this branch is
+  // currently unreachable. It exists so that converting the 14 dispatch sites is
+  // a series of small changes against a resolution path that already works,
+  // rather than one change that moves the type and the behaviour together.
+  if (!isSpellChainEntry(poppedEntry)) {
+    const afterTrigger = resolvePendingTrigger(state, poppedEntry);
+    const remaining = afterTrigger.spellChain.slice(0, -1);
+    return finishChainPop(afterTrigger, remaining);
+  }
+
   const resolvedEffect = resolveCardEffect(state, poppedEntry);
   // On-spell-cast listeners (Ravenbloom Student, Lux-Illuminated) fire once
   // the Spell's own effect has resolved — every ChainEntry is a Spell by
@@ -58,7 +75,20 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   const afterUnits = dispatchOnSpellCast(resolvedEffect, poppedEntry.playerIndex, totalCost);
   // The caster's Legend listens at the same moment (Lux - Lady of Luminosity).
   const resolved = dispatchLegendOnSpellCast(afterUnits, poppedEntry.playerIndex, totalCost);
-  const spellChain = resolved.spellChain.slice(0, -1); // pop the top (LIFO — last pushed)
+  return finishChainPop(resolved, resolved.spellChain.slice(0, -1)); // pop the top (LIFO — last pushed)
+}
+
+/**
+ * What happens once ANY chain item has resolved and been popped: either the
+ * chain empties and the turn returns to an Open State, or the next link down
+ * gets a fresh round of passes.
+ *
+ * Extracted so a Spell and a triggered ability share one exit rather than two
+ * copies — the Showdown focus-pass rule (346) is subtle enough that a second
+ * copy would drift, and a trigger resolving is just as much "the last item on
+ * the chain" as a Spell is.
+ */
+function finishChainPop(resolved: GameState, spellChain: GameState["spellChain"]): GameState {
   if (spellChain.length === 0) {
     const reopened = { ...resolved, spellChain, chainOpen: true, chainPasses: 0 };
     if (reopened.turnState !== "Showdown") return reopened;

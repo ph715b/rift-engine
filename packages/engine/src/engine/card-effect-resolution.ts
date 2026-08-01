@@ -1,4 +1,4 @@
-import type { ChainEntry, GameState } from "../model/game-state.js";
+import type { SpellChainEntry, GameState } from "../model/game-state.js";
 import { effectForCard } from "./card-effects.js";
 import { contextFor } from "./effect-context.js";
 
@@ -8,7 +8,7 @@ import { contextFor } from "./effect-context.js";
  * oracle's own EffectRegistry.has() safe-no-op guard for an unregistered
  * card name).
  */
-export function resolveCardEffect(state: GameState, entry: ChainEntry): GameState {
+export function resolveCardEffect(state: GameState, entry: SpellChainEntry): GameState {
   const effect = effectForCard(entry.card);
   if (!effect) return state;
   return effect.resolve(state, contextFor(entry.playerIndex), {

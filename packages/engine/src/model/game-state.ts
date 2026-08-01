@@ -5,8 +5,18 @@ import type { Phase, TurnState } from "./phase.js";
 
 /** One pending Spell resolution on the chain. Mirrors GameState.java's
  *  `record ChainEntry(PlayerAction.PlayCard action, Player caster)`, trimmed
- *  to just what's needed since our PlayCardAction already carries the card. */
-export interface ChainEntry {
+ *  to just what's needed since our PlayCardAction already carries the card.
+ *
+ *  `kind` is OPTIONAL here and required on TriggerChainEntry below, which is
+ *  deliberate and is NOT the same judgement as `cardPlayed`'s required
+ *  `playedKind`. There, omitting a field would silently produce WRONG behaviour,
+ *  so the compiler had to name every producer. Here, an entry with no
+ *  discriminant is unambiguously a Spell — `card: SpellInstance` is required on
+ *  this shape and absent from the other — and omission reproduces exactly the
+ *  behaviour that exists today. Making it required would churn a dozen test
+ *  literals to assert something the type system already knows. */
+export interface SpellChainEntry {
+  kind?: "spell";
   playerIndex: 0 | 1;
   card: SpellInstance;
   /** Only meaningful when the resolved card's registered effect has a
@@ -36,6 +46,57 @@ export interface ChainEntry {
    *  unit and must never reach a reader expecting one. */
   targetPermanentInstanceId?: string;
   discardCardInstanceId?: string;
+}
+
+/**
+ * A triggered ability waiting on the chain — rule 809.1.b.3 / 323 step 3a's
+ * **Pending Item**.
+ *
+ * The rules put a trigger on the Chain so the opponent may respond before it
+ * resolves. This engine currently resolves every trigger IMMEDIATELY at its
+ * source (14 `dispatch*` entry points across triggers.ts, unit-triggers.ts and
+ * legend-abilities.ts), which is the largest recorded divergence in
+ * docs/rules-conformance.md — an entire interaction layer is absent, because
+ * nothing can ever be responded to.
+ *
+ * This type is the seam that work builds on, and it lands ahead of any dispatch
+ * site being converted ON PURPOSE: the conversion is 14 sites that each change
+ * observable ordering, and doing it in one step would make a termination
+ * regression impossible to bisect. Nothing pushes one of these yet, so the
+ * engine's behaviour is unchanged by its existence.
+ *
+ * `listenerInstanceId` rather than the listener object: by the time the entry
+ * resolves the board may have moved on, and rule 809.1.b.3 is explicit that the
+ * dying permanent's ATTRIBUTES are captured up front while its identity is
+ * re-looked-up — the same split `triggers.DeathContext` already makes.
+ */
+export interface TriggerChainEntry {
+  kind: "trigger";
+  /** Whose trigger it is — the player who would get priority to respond, and
+   *  the index the resolution runs under. */
+  playerIndex: 0 | 1;
+  /** The permanent whose ability this is, re-looked-up at resolution. */
+  listenerInstanceId: string;
+  /** Which card's registered trigger to run — kept alongside the instance id so
+   *  resolution needs no board scan to know WHICH ability is pending. */
+  listenerDefId: string;
+  /** Where the listener stood when the trigger fired. Positional triggers ("when
+   *  I conquer", "here") read this rather than asking the board again, since the
+   *  unit may have moved or died in between. */
+  battlefieldId?: string;
+  /** The event as it was when it fired, captured rather than recomputed — 809.1.b.3's
+   *  "noted before it moves to the Trash" applied generally. Typed loosely here
+   *  to keep model/ free of an import from engine/; triggers.ts narrows it. */
+  event: unknown;
+}
+
+/** One item waiting on the chain: a played Spell, or a triggered ability. */
+export type ChainEntry = SpellChainEntry | TriggerChainEntry;
+
+/** Narrows a chain entry to the Spell case. An entry with no `kind` is a Spell —
+ *  see SpellChainEntry's own note on why the discriminant is optional there. */
+export function isSpellChainEntry(entry: ChainEntry): entry is SpellChainEntry {
+  return entry.kind !== "trigger";
 }
 
 /**

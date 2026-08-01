@@ -1,4 +1,4 @@
-import type { ChainEntry, GameState } from "../model/game-state.js";
+import { isSpellChainEntry, type ChainEntry, type SpellChainEntry, type GameState } from "../model/game-state.js";
 import { findUnitAnywhere } from "./target-lookup.js";
 
 /**
@@ -29,7 +29,9 @@ export interface ChainTargetDescription {
 }
 
 export interface ChainItemDescription {
-  entry: ChainEntry;
+  /** Narrowed to the Spell case: describeChain skips triggered abilities waiting
+   *  as Pending Items, so a described item is always a played Spell. */
+  entry: SpellChainEntry;
   /** The caster. Rule 343's resolution order is by position, not by owner, so
    *  this is display information only. */
   playerIndex: 0 | 1;
@@ -63,6 +65,12 @@ export function describeChain(state: GameState): ChainItemDescription[] {
   const items: ChainItemDescription[] = [];
   for (let i = state.spellChain.length - 1; i >= 0; i -= 1) {
     const entry = state.spellChain[i]!;
+    // A triggered ability waiting as a Pending Item is not a Spell and has no
+    // card name or targets to describe. Skipped rather than half-described,
+    // because nothing pushes one yet (see TriggerChainEntry) and inventing a
+    // label now would be guessing at a UI that has no case to show it. Giving
+    // triggers a real chain-viewer row is part of converting the dispatch sites.
+    if (!isSpellChainEntry(entry)) continue;
     items.push({
       entry,
       playerIndex: entry.playerIndex,
@@ -77,7 +85,7 @@ export function describeChain(state: GameState): ChainItemDescription[] {
 /** Every choice on one entry, in the order the player made them (see
  *  GameBoard's own PendingStep sequence: first target, second target,
  *  battlefield, placement, additional cost, trash card). */
-function describeTargets(state: GameState, entry: ChainEntry): ChainTargetDescription[] {
+function describeTargets(state: GameState, entry: SpellChainEntry): ChainTargetDescription[] {
   const targets: ChainTargetDescription[] = [];
 
   for (const instanceId of [entry.targetUnitInstanceId, entry.secondTargetUnitInstanceId]) {
