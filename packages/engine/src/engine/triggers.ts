@@ -249,7 +249,20 @@ export type GameEvent =
    *  same event, since a card played from facedown is still a card being played
    *  and everything watching `cardPlayed` should still see it. A separate event
    *  would have meant every existing listener silently missing hidden plays. */
-  | { kind: "cardPlayed"; casterIndex: 0 | 1; fromHidden?: boolean }
+  /** `playedKind` and `playedInstanceId` identify WHAT was played. Required, not
+   *  optional, and deliberately so: Cithria of Cloudfield reads "when you play
+   *  ANOTHER UNIT", which needs both the kind (a Spell must not buff her) and the
+   *  identity (her own arrival must not). Optional fields would let a producer
+   *  omit them and leave her silently doing nothing — the exact failure this
+   *  codebase keeps rediscovering — whereas required ones make the compiler name
+   *  every site that fires the event. */
+  | {
+      kind: "cardPlayed";
+      casterIndex: 0 | 1;
+      playedKind: CardInstance["kind"];
+      playedInstanceId: string;
+      fromHidden?: boolean;
+    }
   /** `playerIndex`'s Beginning Phase is starting. Fired BEFORE holds score, for
    *  the same reason `[Temporary]`'s kill runs there: a Beginning-Phase ability
    *  that changes the board has to do so while there is still a scoring step

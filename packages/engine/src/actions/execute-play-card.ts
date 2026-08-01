@@ -103,6 +103,8 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   return dispatchEvent(withSelf, {
     kind: "cardPlayed",
     casterIndex: action.playerIndex,
+    playedKind: action.card.kind,
+    playedInstanceId: action.card.instanceId,
     // Ember Monk watches specifically for a play FROM facedown. Carried on the
     // existing event rather than a new one, so every other listener still sees
     // a hidden play as the play it is.

@@ -7,10 +7,12 @@ import {
   channelRunesExhausted,
   destroyUnit,
   drawCards,
+  giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
   legionActive,
   ownUnitsEverywhere,
   readyUnit,
+  spendBuff,
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
@@ -47,6 +49,41 @@ import type { GameState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-207": {
+    // Call to Glory — "As you play this, you may spend a buff as an additional
+    // cost. If you do, ignore this spell's cost. Give a unit +3 Might this turn."
+    //
+    // Only the payoff is here. The buff-spending cost and the cost-ignoring live
+    // in card-effects.ts's OPTIONAL_UNIT_COSTS (`ignoresCostWhenPaid`), because
+    // they are a COST — decided in the submitted action, priced by legal-actions
+    // and re-derived by the validator — not something the effect can do at
+    // resolution time. Same split Spoils of War and Find Your Center take.
+    //
+    // "A unit", not "a friendly unit" and not "at a battlefield": scope
+    // "anywhere" with no owner restriction, the reading 355.9.b gives the bare
+    // noun and the one Primal Strength and Discipline already take. Pumping an
+    // enemy unit is a bad play, not an illegal one.
+    //
+    // giveMightThisTurn rather than a Buff — "this turn" expires in the
+    // Expiration Step (317) instead of persisting (710). That matters doubly on
+    // this card, since the buff it SPENDS is the persistent kind: it converts a
+    // standing +1 into a bigger, temporary +3.
+    // The buff is SPENT here rather than by a generic cost step, because there
+    // is no such step: execute-play-card carries the chosen unit through to the
+    // resolver and each card pays its own cost, the way Wildclaw Shaman already
+    // does. A known simplification of "AS you play this" — the cost lands at
+    // resolution rather than on announcement — shared with every other optional
+    // cost in this pool, and it only becomes observable once something can
+    // respond between the two (see the Chain Pending Items row).
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const paid =
+        event.additionalCostUnitInstanceId !== undefined
+          ? (spendBuff(state, ctx.casterIndex, event.additionalCostUnitInstanceId) ?? state)
+          : state;
+      return event.targetUnitInstanceId ? giveMightThisTurn(paid, event.targetUnitInstanceId, 3) : paid;
+    },
+  },
   "OGN-209": {
     // Cull the Weak — "Each player kills one of their units."
     //

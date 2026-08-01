@@ -37,7 +37,13 @@ import { placeRecruitToken, type TokenDestination } from "./token.js";
  * this pool — a card only opts into the wider scope when its printed text
  * declines to name a battlefield.
  */
-export type TargetScope = "battlefield" | "anywhere";
+/** Where a "unit"-kind target may be drawn from. `"battlefield"` is the default
+ *  because most text says "a unit at a battlefield"; `"anywhere"` is the bare
+ *  noun "unit", which 355.9.b makes include Bases. `"base"` is the narrowest and
+ *  the newest — Showstopper's "buff a friendly unit IN YOUR BASE, then move it to
+ *  a battlefield", where reaching a unit already at a battlefield would make the
+ *  move half meaningless. */
+export type TargetScope = "battlefield" | "anywhere" | "base";
 
 /** Who may fill one slot of a multi-target spell. `"any"` means either
  *  player's — Singularity's "up to two units" doesn't care whose. */
@@ -181,6 +187,15 @@ export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly" | "k
 export interface UnitCostSpec {
   kind: OptionalUnitCost;
   mandatory?: true;
+  /** Call to Glory's "If you do, **ignore this spell's cost**" — paying the
+   *  additional cost replaces the printed one rather than adding to it.
+   *
+   *  IGNORED, not discounted, so it takes the same shape rule 811 gives a card
+   *  played from Hidden: the payment must be EMPTY rather than merely small, and
+   *  floating resources and cost modifiers all drop out with it. That also means
+   *  the card is castable with no runes at all, which is the whole point — so
+   *  affordability must be judged per variant, not once per card. */
+  ignoresCostWhenPaid?: true;
 }
 
 /**
@@ -204,6 +219,10 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // No "you may", so there is no decline variant and the card simply cannot be
   // played with nothing of yours to kill.
   "OGN-208": { kind: "killFriendly", mandatory: true },
+  // Call to Glory — "As you play this, you may spend a buff as an additional
+  // cost. If you do, ignore this spell's cost." Same buff-spending cost as
+  // Wildclaw Shaman; what is new is that paying it REPLACES the printed cost.
+  "OGN-207": { kind: "spendBuffFriendly", ignoresCostWhenPaid: true },
 };
 
 /**
@@ -263,7 +282,14 @@ export function cardPlacesTokens(defId: string): boolean {
  *  the token-placing spells use, for the same reason: it is a place, not a
  *  second target. Unlike those, it is mandatory — a move with nowhere to go is
  *  not a move, so a card here is not offered without one. */
-const MOVE_TARGET_SPELL_DEF_IDS = new Set(["OGN-043"]); // Charm
+const MOVE_TARGET_SPELL_DEF_IDS = new Set([
+  "OGN-043", // Charm — "Move an enemy unit."
+  // Showstopper — "Buff a friendly unit in your base, THEN MOVE IT to a
+  // battlefield." The move is the second half of one instruction rather than a
+  // separate effect, so it needs the same destination field; what differs from
+  // Charm is only whose unit it is, which the targeting spec says.
+  "OGN-270",
+]);
 
 export function cardMovesTarget(defId: string): boolean {
   return MOVE_TARGET_SPELL_DEF_IDS.has(defId);

@@ -276,6 +276,29 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-139": {
+    // Cithria of Cloudfield — "When you play another unit, buff me."
+    //
+    // Three conditions, all printed. **You**: only her controller's plays, so an
+    // opponent building a board does not feed her. **Unit**: a Spell or Gear is
+    // not a unit, and without the kind check she would grow off Showstopper and
+    // Call to Glory — which is a lot, in the deck she is actually played in.
+    // **Another**: her own arrival must not buff her, which matters because the
+    // cardPlayed event fires for her too.
+    //
+    // She stacks: 710 makes a second Buff on an already-buffed unit a no-op, so
+    // she is +1 Might once and then stops climbing. That is the rules working,
+    // not a missing feature — the payoff for a board full of units is Sett -
+    // Kingpin's aura counting her as one more buffed body.
+    on: "cardPlayed",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      if (event.playedKind !== "Unit") return state;
+      if (event.playedInstanceId === listener.card.instanceId) return state; // "another"
+      return addBuff(state, listener.card.instanceId);
+    },
+  },
   "OGN-164": {
     // Sett - Brawler's second half — "and when I conquer, buff me."
     //

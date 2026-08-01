@@ -59,9 +59,9 @@ interface LobbyProps {
 }
 
 /**
- * Setup screen: pick your deck (a Proving Grounds preset or anything in
- * your profile) and the AI's deck (presets only — the AI plays a fixed
- * built-in role, not your own collection), then start the match. This is
+ * Setup screen: pick your deck and the AI's, each from the Proving Grounds
+ * presets or anything in your profile (imported, built, or pasted from a
+ * community list), then start the match. This is
  * the ONE place deck selection happens (per the user's own framing) —
  * rematch either reuses this exact config or jumps straight back here for
  * a quick swap, it never re-litigates the choice mid-game.
@@ -116,6 +116,21 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
         <DeckListPicker
           label="Opponent's deck"
           decks={PRESET_DECK_LISTS}
+          selectedName={aiDeck?.name ?? null}
+          onSelect={setAiDeck}
+        />
+        {/* The AI plays your own decks too. It used to be presets only, on the
+            reasoning that the opponent is a fixed built-in role — but the AI and
+            the UI consume the same `legalActions` contract, and game-setup takes
+            any pair of DeckLists, so the restriction was never an engine one.
+            Testing a deck against itself, or against the list you actually
+            expect to face, is the point of building one.
+
+            Deliberately a SECOND picker rather than one merged list: which decks
+            are yours stays visible, and it mirrors the human side above. */}
+        <DeckListPicker
+          label="Your saved decks"
+          decks={profileDecks}
           selectedName={aiDeck?.name ?? null}
           onSelect={setAiDeck}
         />

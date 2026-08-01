@@ -143,3 +143,75 @@ describe("effectiveMight: Wielder of Water (OGN-055) alone-in-combat self-buff",
     expect(effectiveMight(state, wielder, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(3);
   });
 });
+
+/**
+ * Sett - Kingpin (OGN-240): "I get +1 Might for each buffed friendly unit at my
+ * battlefield."
+ *
+ * Self-scaling off the BOARD rather than a zone — it moves as neighbours are
+ * buffed, arrive, leave or spend their buffs, which is why it is recomputed on
+ * read rather than written into state.
+ *
+ * The self-inclusion case is the one worth pinning: his text omits the "other"
+ * that Garen - Commander, Darius - Executioner and Lee Sin - Centered all print,
+ * so a buffed Sett counts himself. In the deck he is actually played in — which
+ * runs Cithria, Showstopper and Call to Glory to buff things — that is a real
+ * point of Might, not a technicality.
+ */
+describe("effectiveMight: Sett - Kingpin (OGN-240) counts buffed neighbours", () => {
+  const SETT_KINGPIN = "OGN-240";
+
+  /** Sett plus `others` standing together at bf1. */
+  function atBattlefield(sett: ReturnType<typeof makeUnit>, others: ReturnType<typeof makeUnit>[]) {
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [sett, ...others] };
+    return state;
+  }
+
+  it("adds +1 per buffed friendly unit standing with him", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4 });
+    const state = atBattlefield(sett, [makeUnit({ buffed: true }), makeUnit({ buffed: true })]);
+
+    expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(6);
+  });
+
+  it("ignores UNBUFFED friendlies — a body alone is worth nothing to him", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4 });
+    const state = atBattlefield(sett, [makeUnit({ buffed: false }), makeUnit({ buffed: false })]);
+
+    expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(4);
+  });
+
+  it("counts HIMSELF when buffed — his text omits the 'other' the other auras print", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4, buffed: true });
+    const state = atBattlefield(sett, []);
+
+    // 4 printed, +1 for the Buff itself (710), +1 for counting himself.
+    expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(6);
+  });
+
+  it("ignores the ENEMY's buffed units at the same battlefield", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [sett], p2: [makeUnit({ buffed: true }), makeUnit({ buffed: true })] };
+
+    expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(4);
+  });
+
+  it("is worth nothing in base — 'at my battlefield' is positional", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [sett, makeUnit({ buffed: true })];
+
+    expect(effectiveMight(state, sett, 0, { isCombat: false })).toBe(4);
+  });
+
+  it("does not reach a buffed friendly at a DIFFERENT battlefield", () => {
+    const sett = makeUnit({ defId: SETT_KINGPIN, might: 4 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [sett] };
+    state.battlefields[1]!.units = { p1: [makeUnit({ buffed: true })] };
+
+    expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(4);
+  });
+});

@@ -370,7 +370,15 @@ export function legalActions(state: GameState): PlayerAction[] {
           card.powerDomainAlt,
         )
       : payment;
-    if (!payment && !discountedPayment) continue; // can't afford it either way
+    // Call to Glory — "you may spend a buff ... if you do, ignore this spell's
+    // cost." Its printed cost is IGNORED rather than reduced when the additional
+    // cost is paid, so affordability is a per-VARIANT question: the card is
+    // castable with no runes at all if a buffed friendly unit is there to spend.
+    // Bailing here on the printed cost would have made that variant unreachable
+    // exactly when it matters most — the same mistake the discount path already
+    // records having made with Brazen Buccaneer.
+    const canIgnoreCost = optionalUnitCostOf(card.defId)?.ignoresCostWhenPaid === true;
+    if (!payment && !discountedPayment && !canIgnoreCost) continue; // can't afford it any way
 
     // [Accelerate] (805) is an OPTIONAL additional cost, so it is a second
     // candidate rather than a replacement — declining must stay available even
@@ -531,6 +539,13 @@ export function legalActions(state: GameState): PlayerAction[] {
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.
       const hiddenFields = fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {};
+      // A variant that PAID the cost-ignoring additional cost pays nothing else.
+      // Empty rather than small — the validator re-derives exactly this, and the
+      // two must agree or the UI offers a click validation then refuses.
+      const variantPayment =
+        canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
+          ? { energyRunes: [], powerRunes: [] }
+          : payment;
       // One candidate per discardable card, priced against the DISCOUNTED cost.
       if (discardChoice && discountedPayment) {
         for (const c of discardable) {
@@ -549,9 +564,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       // card to discard was skipped above, and its plain variant must not appear
       // here either.
       if (discardChoice && !discardChoice.optional) continue;
-      if (!payment) continue; // affordable only WITH the discount, already emitted
+      if (!variantPayment) continue; // affordable only WITH the discount, already emitted
 
-      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment, ...variant, ...hiddenFields };
+      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment: variantPayment, ...variant, ...hiddenFields };
       if (accelerated) {
         actions.push({ type: "PlayCard", playerIndex, card, payment: accelerated, ...variant, ...hiddenFields, acceleratePaid: true });
       }
@@ -590,7 +605,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             type: "PlayCard",
             playerIndex,
             card,
-            payment,
+            payment: variantPayment,
             ...variant,
             ...hiddenFields,
             destinationBattlefieldId: bf.id,
@@ -614,7 +629,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             type: "PlayCard",
             playerIndex,
             card,
-            payment,
+            payment: variantPayment,
             ...variant,
             destinationBattlefieldId: bf.id,
             ...(fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {}),

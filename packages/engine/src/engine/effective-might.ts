@@ -76,6 +76,25 @@ const DR_MUNDO_EXPERT = "OGN-109";
 const LEONA_ZEALOT = "OGN-079";
 const ZEALOT_PENALTY = 8;
 const ZEALOT_FLOOR = 1;
+/**
+ * Sett - Kingpin: "I get +1 Might for each buffed friendly unit at my
+ * battlefield."
+ *
+ * Self-scaling off the BOARD rather than off a zone — Dr. Mundo counts a trash,
+ * this counts neighbours — so it moves as units are buffed, arrive, leave or
+ * spend their buffs, which is exactly why it is recomputed on read.
+ *
+ * **He counts himself when buffed, and that is the printed text, not an
+ * oversight.** Every other positional aura in this file that excludes its own
+ * source says so out loud — Garen - Commander and Darius - Executioner print
+ * "OTHER friendly units", Lee Sin - Centered prints "other" too. Sett - Kingpin
+ * does not, and in a deck built to buff (his own list runs Cithria, Showstopper
+ * and Call to Glory) the difference is a real point of Might, not a technicality.
+ *
+ * "At my battlefield" is positional, so he gets nothing while he stands in base —
+ * the same reading, for the same reason, as Lee Sin's aura below.
+ */
+const SETT_KINGPIN = "OGN-240";
 
 /**
  * The cards whose printed text this module implements. Exported for
@@ -97,6 +116,7 @@ export function effectiveMightDefIds(): string[] {
     LEONA_ZEALOT,
     DARIUS_EXECUTIONER,
     DR_MUNDO_EXPERT,
+    SETT_KINGPIN,
   ];
 }
 
@@ -150,6 +170,16 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // asking about his Might.
   if (unit.defId === DR_MUNDO_EXPERT) {
     bonus += state.players[ownerIndex].trash.length;
+  }
+
+  // Sett - Kingpin counts the buffed friendly units standing with him. Read off
+  // the battlefield he is actually on, so it is 0 in base; and INCLUDING himself
+  // when he is buffed, since his text omits the "other" every other aura here
+  // prints (see his constant above).
+  if (unit.defId === SETT_KINGPIN && ownLocation !== "base") {
+    const ownerId = state.players[ownerIndex].id;
+    const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
+    bonus += here.filter((u) => u.buffed).length;
   }
 
   // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),

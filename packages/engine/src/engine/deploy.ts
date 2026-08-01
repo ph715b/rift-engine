@@ -156,5 +156,12 @@ export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitI
 
   const arrived = dispatchOnPlayUnit({ ...spent, players }, deployed, playerIndex, "base", {});
   const self = dispatchSelfEvent(arrived, "played", deployed, playerIndex);
-  return dispatchEvent(self, { kind: "cardPlayed", casterIndex: playerIndex });
+  // A token deployed straight to base is still a Unit being played, and Cithria
+  // of Cloudfield's "another unit" makes no exception for one.
+  return dispatchEvent(self, {
+    kind: "cardPlayed",
+    casterIndex: playerIndex,
+    playedKind: deployed.kind,
+    playedInstanceId: deployed.instanceId,
+  });
 }

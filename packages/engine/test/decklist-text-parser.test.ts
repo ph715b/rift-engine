@@ -223,4 +223,60 @@ Side Board:
     expect(result).not.toBeNull();
     expect(result!.deckList.cardIds.length).toBeGreaterThanOrEqual(3);
   });
+
+  /**
+   * CARD NAMES resolve case-insensitively too, not just section headers.
+   *
+   * Found by importing a real community Yasuo list: it asked for "Ride the
+   * Wind" while the registry prints "Ride The Wind" (OGN-173, capital T). Exact
+   * keying dropped a card that exists straight into `unresolvedNames` — and
+   * because a miss there is non-fatal by design, the deck imported "cleanly"
+   * one card short. That field is meant to say "this name is outside the
+   * Origins-only pool"; a casing difference answering that question wrongly
+   * makes it a liar rather than a warning.
+   */
+  describe("card names resolve regardless of casing and spacing", () => {
+    const withMain = (line: string) =>
+      parseDecklistText(`Legend:\n1 Yasuo, Unforgiven\n\nChampion:\n1 Yasuo, Remorseful\n\nMainDeck:\n${line}\n`, registry);
+
+    it("matches a name whose casing differs from the printed card", () => {
+      const result = withMain("1 Ride the Wind"); // registry prints "Ride The Wind"
+      expect(result!.unresolvedNames).toEqual([]);
+      expect(result!.deckList.cardIds).toContain("OGN-173");
+    });
+
+    it("still resolves the exact printed casing", () => {
+      // The fix must not have traded one exact match for another.
+      expect(withMain("1 Ride The Wind")!.deckList.cardIds).toContain("OGN-173");
+    });
+
+    it("folds casing and the comma/dash swap together", () => {
+      // Community lists write "Character, Title"; the registry prints
+      // "Character - Title". Both variations at once is the realistic case.
+      const result = withMain("1 lee sin, centered");
+      expect(result!.unresolvedNames).toEqual([]);
+      expect(result!.deckList.cardIds.some((id) => registry.get(id).name === "Lee Sin - Centered")).toBe(true);
+    });
+
+    it("still reports a name genuinely outside this pool", () => {
+      // The guard must not have become "everything resolves" — the field has to
+      // keep earning its keep for real out-of-set cards.
+      const result = withMain("1 Definitely Not A Riftbound Card");
+      expect(result!.unresolvedNames).toEqual(["Definitely Not A Riftbound Card"]);
+    });
+
+    it("has no two cards whose names collide once folded", () => {
+      // The assumption the fold rests on. If the pool ever gained two cards
+      // differing only by case or spacing, folding would silently pick one —
+      // and a human pasting a list could not have told them apart either.
+      const seen = new Map<string, string>();
+      const collisions: string[] = [];
+      for (const def of registry.all()) {
+        const key = def.name.replace(/\s+/g, " ").trim().toLowerCase();
+        if (seen.has(key)) collisions.push(`${seen.get(key)} vs ${def.name}`);
+        seen.set(key, def.name);
+      }
+      expect(collisions).toEqual([]);
+    });
+  });
 });

@@ -2,7 +2,7 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { forceMoveToBattlefield, giveMightThisTurn, stunUnits } from "../effect-helpers.js";
+import { addBuff, forceMoveToBattlefield, giveMightThisTurn, stunUnits } from "../effect-helpers.js";
 import { findUnitOnBattlefield } from "../target-lookup.js";
 
 /**
@@ -27,6 +27,27 @@ import { findUnitOnBattlefield } from "../target-lookup.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-270": {
+    // Showstopper (Body + Order) — "Buff a friendly unit in your base, then move
+    // it to a battlefield."
+    //
+    // `scope: "base"` is the narrowest targeting in the pool and it is
+    // load-bearing, not decoration: under the usual battlefield scope the card
+    // would offer a unit already at a battlefield and "then move it" would be a
+    // sideways shuffle rather than the deploy the card is for. It is also what
+    // makes the spell honestly uncastable with an empty base.
+    //
+    // Buff FIRST, then move — printed order, and it matters rather than being
+    // pedantry: Sett - Kingpin counts buffed friendly units AT HIS BATTLEFIELD,
+    // so a unit that arrives already buffed is worth a point of his Might the
+    // moment it lands. Doing it the other way round would still buff the right
+    // unit, but through an intermediate state the card never describes.
+    targeting: { kind: "unit", owner: "friendly", scope: "base" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId && event.destinationBattlefieldId
+        ? forceMoveToBattlefield(addBuff(state, event.targetUnitInstanceId), event.targetUnitInstanceId, event.destinationBattlefieldId)
+        : state,
+  },
   "OGN-266": {
     // Siphon Power (Mind + Order) — "Choose a battlefield. Give friendly units
     // there +1 Might this turn and enemy units there -1 Might this turn, to a

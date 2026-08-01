@@ -99,7 +99,7 @@ describe("Viktor - Innovator (OGN-117): a card played on an OPPONENT'S turn", ()
       players: [makePlayer("p1", { baseUnits: [viktor] }), makePlayer("p2")],
     });
 
-    const after = dispatchEvent(state, { kind: "cardPlayed", casterIndex: 1 });
+    const after = dispatchEvent(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
 
     expect(after.players[0]!.baseUnits.some((u) => u.isToken)).toBe(false);
     expect(after).toBe(state);

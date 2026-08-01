@@ -51,15 +51,18 @@ export function eligibleTargets(
   state: GameState,
   playerIndex: 0 | 1,
   owner?: "friendly" | "enemy",
-  scope: "battlefield" | "anywhere" = "battlefield",
+  scope: "battlefield" | "anywhere" | "base" = "battlefield",
 ): UnitInstance[] {
   const ownerMatches = (ownerIndex: 0 | 1) =>
     !(owner === "friendly" && ownerIndex !== playerIndex) && !(owner === "enemy" && ownerIndex === playerIndex);
 
   const inBase =
-    scope === "anywhere"
+    scope === "anywhere" || scope === "base"
       ? ([0, 1] as const).flatMap((ownerIndex) => (ownerMatches(ownerIndex) ? state.players[ownerIndex].baseUnits : []))
       : [];
+  // "base" is base and NOTHING else — the one scope that excludes battlefields
+  // rather than adding to them.
+  if (scope === "base") return inBase;
   return [...inBase, ...eligibleBattlefieldUnits(state, playerIndex, owner)];
 }
 

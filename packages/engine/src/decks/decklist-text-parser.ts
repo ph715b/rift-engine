@@ -46,10 +46,28 @@ function normalizeQuotes(s: string): string {
  * hand in the DeckBuilder UI this feeds into.
  */
 export function parseDecklistText(text: string, registry: CardRegistry): DecklistTextImportResult | null {
-  const byName = new Map(registry.all().map((def) => [def.name, def]));
+  /**
+   * Keyed on a FOLDED name — lowercased, whitespace collapsed.
+   *
+   * Exact-match keying reported false gaps, and they were invisible because a
+   * miss is non-fatal by design: a real community list asked for "Ride the Wind"
+   * while the registry prints "Ride The Wind", so a card that exists (OGN-173)
+   * landed in `unresolvedNames` and was silently dropped from the deck. Since
+   * the whole point of that field is to say which names are outside this
+   * Origins-only pool, a casing difference reading as "not in the pool" is the
+   * measure lying rather than a card missing.
+   *
+   * Folding cannot introduce a wrong match here: two cards differing only by
+   * case or spacing would already be indistinguishable to a human pasting a
+   * list, and the assertion below pins that no such collision exists.
+   */
+  const fold = (name: string) => normalizeQuotes(name).replace(/\s+/g, " ").trim().toLowerCase();
+  const byName = new Map(registry.all().map((def) => [fold(def.name), def]));
 
   function resolve(rawName: string) {
-    const name = normalizeQuotes(rawName);
+    const name = fold(rawName);
+    // Community lists write "Character, Title"; this registry prints
+    // "Character - Title". Retried folded, so the swap survives casing too.
     return byName.get(name) ?? byName.get(name.replace(", ", " - "));
   }
 

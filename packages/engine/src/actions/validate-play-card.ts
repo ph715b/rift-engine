@@ -56,11 +56,21 @@ function findUnitInScope(
   instanceId: string,
   scope: TargetScope | undefined,
 ): { unit: UnitInstance; ownerIndex: 0 | 1 } | undefined {
-  return scope === "anywhere" ? findUnitAnywhere(state, instanceId) : findUnitOnBattlefield(state, instanceId);
+  if (scope === "anywhere") return findUnitAnywhere(state, instanceId);
+  // "base" is narrower than "anywhere", not a synonym: found anywhere, then kept
+  // only if it really is in a base. Without the second half, Showstopper would
+  // accept a unit already at a battlefield that enumeration never offered.
+  if (scope === "base") {
+    const found = findUnitAnywhere(state, instanceId);
+    const inBase = found !== undefined && state.players[found.ownerIndex].baseUnits.some((u) => u.instanceId === instanceId);
+    return inBase ? found : undefined;
+  }
+  return findUnitOnBattlefield(state, instanceId);
 }
 
 function scopeDescription(scope: TargetScope | undefined): string {
-  return scope === "anywhere" ? "in play" : "at a battlefield";
+  if (scope === "anywhere") return "in play";
+  return scope === "base" ? "in a base" : "at a battlefield";
 }
 
 /**
@@ -382,7 +392,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   const accelerateEnergy = action.acceleratePaid ? ACCELERATE_ENERGY : 0;
   const acceleratePower = action.acceleratePaid ? ACCELERATE_POWER : 0;
 
-  const effectiveCost = fromHidden
+  // Call to Glory's "if you do, ignore this spell's cost" — the same zeroing
+  // rule 811 gives a from-hidden play, and gated on the additional cost having
+  // ACTUALLY been named, since declining leaves the printed cost standing.
+  const costIgnored = optionalCost?.ignoresCostWhenPaid === true && action.additionalCostUnitInstanceId !== undefined;
+
+  const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
     : computeEffectiveCost(
         actor.floatingEnergy,
