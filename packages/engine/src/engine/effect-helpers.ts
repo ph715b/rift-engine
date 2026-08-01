@@ -321,6 +321,54 @@ export function isBuffed(unit: UnitInstance): boolean {
 }
 
 /**
+ * `[Legion]` — "Get the effect if you've played **another** card this turn."
+ *
+ * `countingSelf` is not a convenience, it is the whole correctness of this
+ * predicate, and getting it wrong is invisible: the effect simply happens a turn
+ * too eagerly. `execute-play-card` increments `cardsPlayedThisTurn` as part of
+ * the same update that puts the card into play, BEFORE `dispatchOnPlayUnit`
+ * runs — so by the time a Legion on-play trigger asks, the count already
+ * includes the card asking.
+ *
+ *  - **Cost time** (`countingSelf: false`) — the card has not been played yet,
+ *    so one other card is one card: `>= 1`.
+ *  - **Trigger time** (`countingSelf: true`) — this card is already counted, so
+ *    "another" needs `>= 2`.
+ *
+ * Darius - Hand of Noxus reads "if you've played **a** card this turn" rather
+ * than "another", because a Legend ability is not a card being played and
+ * increments nothing; his check is the cost-time one and lives with his ability.
+ */
+export function legionActive(state: GameState, playerIndex: 0 | 1, countingSelf: boolean): boolean {
+  return state.players[playerIndex].cardsPlayedThisTurn >= (countingSelf ? 2 : 1);
+}
+
+/**
+ * "Give enemy units -N Might this turn" (Thousand-Tailed Watcher) — every unit
+ * the OPPONENT of `casterIndex` controls, base and every battlefield.
+ *
+ * The mirror of `giveMightThisTurnToAllFriendlies` above, and separate from it
+ * rather than a parameterised version, because the two differ in more than the
+ * sign: this one carries a `floor` (every enemy-side debuff in this pool states
+ * "to a minimum of 1"), and routing through `giveMightThisTurn` per unit is what
+ * applies that floor per unit rather than to the group.
+ */
+export function giveMightThisTurnToAllEnemies(
+  state: GameState,
+  casterIndex: 0 | 1,
+  amount: number,
+  floor?: number,
+): GameState {
+  const enemyIndex: 0 | 1 = casterIndex === 0 ? 1 : 0;
+  const enemy = state.players[enemyIndex];
+  const targets = [
+    ...enemy.baseUnits.map((u) => u.instanceId),
+    ...state.battlefields.flatMap((bf) => (bf.units[enemy.id] ?? []).map((u) => u.instanceId)),
+  ];
+  return targets.reduce((next, id) => giveMightThisTurn(next, id, amount, floor), state);
+}
+
+/**
  * Pays `count` Power of `domain` out of channeled runes, for the costs that are
  * NOT part of a PlayCardAction — Flame Chompers' "you may pay [Fury] to play me"
  * and Mistfall's "you may pay [Body] and exhaust this".

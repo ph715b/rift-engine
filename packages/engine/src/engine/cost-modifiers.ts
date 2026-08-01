@@ -1,4 +1,7 @@
 import type { GameState } from "../model/game-state.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
+import { opponentNearVictory } from "./constants.js";
+import { legionActive } from "./effect-helpers.js";
 
 /**
  * Cross-cutting cost modifiers — checked at every cost-computation call
@@ -19,10 +22,54 @@ const EAGER_APPRENTICE = "OGN-084";
  *  off the board. */
 const RHASA_THE_SUNDERER = "OGN-195";
 
+/**
+ * `[Legion] — I cost N less.` (Noxus Hopeful)
+ *
+ * Handled as a RULE rather than as a per-card branch, because it already is
+ * one: `card-loader.ts` derives `legionDiscount` from the printed text of every
+ * card, so the discount is data the definition carries and any future
+ * "[Legion] — I cost N less" card works with no edit here. That is the opposite
+ * choice from the two hardcoded ids above, and it earns it — those two are
+ * genuinely bespoke sentences, this is a keyword with a number.
+ *
+ * Cost time, so `countingSelf: false`: the card being priced has not been played
+ * yet, and "another card" is any one card.
+ */
+function legionDiscountFor(state: GameState, playerIndex: 0 | 1, defId: string | undefined): number {
+  if (defId === undefined) return 0;
+  const def = defaultCardRegistry().tryGet(defId);
+  const discount = def && "legionDiscount" in def ? def.legionDiscount : 0;
+  if (discount <= 0) return 0;
+  return legionActive(state, playerIndex, false) ? discount : 0;
+}
+
+/** Every card whose printed `[Legion] — I cost N less` this module implements.
+ *  Derived from the pool rather than listed, for the same reason the discount
+ *  itself is: a hand-kept list would drift the first time a card was added. */
+function legionDiscountDefIds(): string[] {
+  return defaultCardRegistry()
+    .all()
+    .filter((def) => "legionDiscount" in def && def.legionDiscount > 0)
+    .map((def) => def.id);
+}
+
+/**
+ * Find Your Center: "If an opponent's score is within 3 points of the Victory
+ * Score, this costs 2 Energy less."
+ *
+ * The same comeback clause Leona - Zealot's enter-ready half reads, and asked
+ * through the same shared predicate so the two can never disagree about what
+ * "within 3" means. Its own half — draw 1 and channel 1 — is in effects/calm.ts;
+ * only the cost can live here, because a cost has to be known before the card is
+ * paid for.
+ */
+const FIND_YOUR_CENTER = "OGN-047";
+const FIND_YOUR_CENTER_DISCOUNT = 2;
+
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
-  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER];
+  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, ...legionDiscountDefIds()];
 }
 
 /**
@@ -42,6 +89,15 @@ export function modifiedEnergyCost(
 ): number {
   const player = state.players[playerIndex];
   let cost = rawEnergyCost;
+
+  // Before the other two: a discount that only sometimes applies should be taken
+  // off the printed cost, not off an already-reduced one, and Eager Apprentice's
+  // own "to a minimum of 1" then clamps whatever is left.
+  cost = Math.max(0, cost - legionDiscountFor(state, playerIndex, defId));
+
+  if (defId === FIND_YOUR_CENTER && opponentNearVictory(state, playerIndex)) {
+    cost = Math.max(0, cost - FIND_YOUR_CENTER_DISCOUNT);
+  }
 
   if (defId === RHASA_THE_SUNDERER) {
     // "For EACH card in your trash" — your own trash only, and every card in it,

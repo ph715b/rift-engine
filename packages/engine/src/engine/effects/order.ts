@@ -3,12 +3,17 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
+  addBuff,
   channelRunesExhausted,
   destroyUnit,
   drawCards,
   giveMightThisTurnToAllFriendlies,
+  legionActive,
+  readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
+import { killGear } from "../triggers.js";
+import { placeRecruitToken } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision } from "../decisions.js";
 import type { GameState } from "../../model/game-state.js";
@@ -114,6 +119,32 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => giveMightThisTurnToAllFriendlies(state, ctx.casterIndex, 5),
   },
+  "OGN-224": {
+    // Salvage — "You may kill up to one gear. Draw 1."
+    //
+    // "UP TO one" and "you may", so the kill is optional in both directions and
+    // the draw happens regardless — a Salvage cast with no gear on the board is
+    // a 1-card cantrip, not an uncastable card. `unitOrGear` is the only spec
+    // that can name a gear, and the decline variant is the empty choice
+    // enumeration already produces when no target is given.
+    //
+    // killGear, not a hand-rolled removal: it is the funnel that fires a gear's
+    // own "when I am killed" self-trigger (Scrapheap, Forge of the Future).
+    // Either player's gear is fair game — the card names no owner.
+    targeting: { kind: "unitOrGear" },
+    resolve: (state, ctx, event) => {
+      const drawn = () => drawCards(state, ctx.casterIndex, 1);
+      const chosen = event.targetPermanentInstanceId;
+      if (!chosen) return drawn();
+      for (const ownerIndex of [0, 1] as const) {
+        const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === chosen);
+        // A unit named by the unitOrGear spec is simply not a legal thing for
+        // this card to kill, so it falls through to the draw.
+        if (gear) return drawCards(killGear(state, gear, ownerIndex), ctx.casterIndex, 1);
+      }
+      return drawn();
+    },
+  },
   "OGN-220": {
     // Facebreaker — "[Hidden][Action] Stun a friendly unit and an enemy unit at
     // the same battlefield."
@@ -168,6 +199,45 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // let a card that watches for kills fire on its controller's own upkeep.
     resolve: (state, _ctx, _unitId, event) =>
       event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
+  "OGN-217": {
+    // Trifarian Gloryseeker — "[Legion] — When you play me, buff me."
+    //
+    // `countingSelf: true` (see legionActive): an on-play trigger already counts
+    // the card that caused it.
+    //
+    // addBuff on its own instanceId, so 708's "not placed instead" applies — a
+    // Gloryseeker that somehow arrives buffed gains nothing, which is the rule
+    // rather than a case to special-case.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) => (legionActive(state, ctx.casterIndex, true) ? addBuff(state, unitId) : state),
+  },
+  "OGN-218": {
+    // Vanguard Captain — "[Legion] — When you play me, play two 1-Might Recruit
+    // unit tokens here."
+    //
+    // "HERE" — the tokens land wherever the Captain did, which is what
+    // `event.destination` carries; a Captain played to base makes them in base.
+    // Two separate placements rather than a count, because placeRecruitToken
+    // mints one token and two tokens are two game objects.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      if (!legionActive(state, ctx.casterIndex, true)) return state;
+      const once = placeRecruitToken(state, ctx.casterIndex, event.destination);
+      return placeRecruitToken(once, ctx.casterIndex, event.destination);
+    },
+  },
+  "OGN-243": {
+    // Darius - Executioner — "[Legion] — When you play me, ready me. Other
+    // friendly units have +1 Might here."
+    //
+    // Two clauses with different lifetimes, so only the first is here: the
+    // ready is a one-off gated on Legion, while the aura is continuous,
+    // ungated, and lives in effective-might.ts with the other positional auras.
+    // Reading the card as though Legion gated both would be a plausible
+    // misreading — the keyword sits before the first sentence only.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) => (legionActive(state, ctx.casterIndex, true) ? readyUnit(state, unitId) : state),
   },
   "OGN-225": {
     // Solari Chief — "When you play me, choose an enemy unit. If it is stunned,

@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { dispatchOnPlayUnit } from "./unit-triggers.js";
 import { dispatchEvent, dispatchSelfEvent } from "./triggers.js";
-import { WIN_THRESHOLD_1V1 } from "./constants.js";
+import { opponentNearVictory } from "./constants.js";
 
 /**
  * A unit arriving in play, and the state it arrives in.
@@ -39,22 +39,16 @@ function otherFriendlyUnitsEnterReady(state: GameState, playerIndex: 0 | 1, excl
  * flag anyone set — so it belongs here with the other three enter-ready
  * overrides rather than in a card registry, and it is asked fresh every time.
  *
- * "Within 3 points of" is inclusive and is a gap, not a score: at the 8-point
- * Victory Score (WIN_THRESHOLD_1V1), 5 or more triggers it. She is a
- * comeback card, so the threshold reads from the OPPONENT's points — every
- * opponent's, though there is only one in a 2-player game.
+ * The "within 3 points" test itself lives in constants.ts as
+ * `opponentNearVictory`, shared with Find Your Center, which prints the same
+ * clause as a cost reduction. Two copies of an inclusive-vs-exclusive boundary
+ * is exactly the kind of thing that drifts.
  *
  * Her second clause ("stunned enemy units here have -8 Might") is a continuous
  * modifier and lives in effective-might.ts; the two halves have nothing to do
  * with each other beyond sharing a card.
  */
 const LEONA_ZEALOT = "OGN-079";
-const ZEALOT_SCORE_GAP = 3;
-
-function opponentIsCloseToWinning(state: GameState, playerIndex: 0 | 1): boolean {
-  const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
-  return WIN_THRESHOLD_1V1 - state.players[opponentIndex].points <= ZEALOT_SCORE_GAP;
-}
 
 /** For coverage.ts — this module implements Magma Wurm's whole printed text and
  *  the enter-ready half of Leona - Zealot's (effective-might.ts declares the
@@ -83,7 +77,7 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId) ||
     // A property of THIS card and the score, unlike the three above — the only
     // override that depends on who is winning.
-    (card.defId === LEONA_ZEALOT && opponentIsCloseToWinning(state, playerIndex))
+    (card.defId === LEONA_ZEALOT && opponentNearVictory(state, playerIndex))
   );
 }
 

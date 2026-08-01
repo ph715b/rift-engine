@@ -43,6 +43,11 @@ export interface UnitTriggerEvent {
    *  than one; the multi-discards nobody names up front (Jinx, Undercover Agent's
    *  Deathknell) go through discardCards, which asks the player instead. */
   discardCardInstanceId?: string;
+  /** Did the caster pay `[Accelerate]`'s optional additional cost (805)? Tasty
+   *  Faefolk's whole ability is gated on it, and the choice is made when the
+   *  card is paid for — long before the trigger runs — so it has to ride here
+   *  rather than be re-derived from a board that no longer remembers. */
+  acceleratePaid?: boolean;
 }
 
 export interface UnitTriggerDefinition {
@@ -284,6 +289,7 @@ export function dispatchOnPlayUnit(
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
     discardCardInstanceId?: string;
+    acceleratePaid?: boolean;
   },
 ): GameState {
   // The LEGEND watches every unit played (Volibear), whether or not that unit
@@ -310,6 +316,7 @@ export function dispatchOnPlayUnit(
       ? { additionalCostUnitInstanceId: extra.additionalCostUnitInstanceId }
       : {}),
     ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
+    ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
   });
 }
 

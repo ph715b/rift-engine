@@ -2,7 +2,15 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { dealDamage, discardCards, drawCards, payPowerFromChanneled } from "../effect-helpers.js";
+import {
+  dealDamage,
+  discardCards,
+  discardThenDraw,
+  drawCards,
+  giveMightThisTurn,
+  legionActive,
+  payPowerFromChanneled,
+} from "../effect-helpers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
 import type { PlayerState } from "../../model/game-state.js";
@@ -101,6 +109,36 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-016": {
+    // Dangerous Duo — "[Legion] — When you play me, give a unit +2 Might this
+    // turn."
+    //
+    // `countingSelf: true`: this fires from dispatchOnPlayUnit, by which point
+    // execute-play-card has already counted the Duo itself, so "another card"
+    // needs two. See legionActive — the off-by-one here is invisible in play,
+    // it just makes the card work on the turn's first play when it shouldn't.
+    //
+    // "A unit" with no owner and no battlefield named, so scope "anywhere" and
+    // either side is legal (355.9.b). The target is still CHOSEN when Legion is
+    // unmet — enumeration cannot know whether the condition will hold at
+    // resolution, and a card that offers no target would be unplayable rather
+    // than merely ineffective.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) =>
+      legionActive(state, ctx.casterIndex, true) && event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, 2)
+        : state,
+  },
+  "OGN-020": {
+    // Scrapyard Champion — "[Legion] — When you play me, discard 2, then draw 2."
+    //
+    // discardThenDraw, not drawCards(discardCards(...)): the "then" is
+    // load-bearing and the discard stops to ask, so the draw has to be queued
+    // BEHIND the questions or the cards just drawn join the hand being chosen
+    // from. That helper exists for exactly this sentence.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => (legionActive(state, ctx.casterIndex, true) ? discardThenDraw(state, ctx.casterIndex, 2, 2) : state),
+  },
   "OGN-002": {
     // Brazen Buccaneer — "As you play me, you may discard 1 as an additional
     // cost. If you do, reduce my cost by 2 Energy."

@@ -5,6 +5,7 @@ import type { DecisionDefinition } from "../decisions.js";
 import type { PlayerState } from "../../model/game-state.js";
 import {
   addBuff,
+  channelRunesExhausted,
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
@@ -117,6 +118,22 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       drawCards(giveMightThisTurn(state, event.targetUnitInstanceId!, 2), ctx.casterIndex, 1),
   },
+  "OGN-047": {
+    // Find Your Center — "If an opponent's score is within 3 points of the
+    // Victory Score, this costs 2 Energy less. Draw 1 and channel 1 rune
+    // exhausted."
+    //
+    // Only the second sentence is here. The conditional discount is a COST and
+    // therefore has to be known before the card is paid for, so it lives in
+    // cost-modifiers.ts with the other cross-cutting reductions — the same split
+    // Brazen Buccaneer's discount already takes.
+    //
+    // Exhausted, not Ready: the rune can pay Power this turn but no Energy until
+    // the next Awaken, which is what makes "channel 1 exhausted" weaker than a
+    // free rune.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => channelRunesExhausted(drawCards(state, ctx.casterIndex, 1), ctx.casterIndex, 1),
+  },
   "OGN-050": {
     // Rune Prison — "[Action] Stun a unit."
     //
@@ -134,6 +151,18 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-075": {
+    // Tasty Faefolk — "[Accelerate] — Channel 2 runes exhausted and draw 1."
+    //
+    // Gated on the ACCELERATE COST HAVING BEEN PAID, not on the card merely
+    // having the keyword: 805 makes Accelerate a "you may pay" additional cost,
+    // so a Faefolk played the cheap way enters exhausted and does nothing. The
+    // flag rides on the action (`acceleratePaid`) because the choice is made
+    // when the card is paid for, long before this resolver runs.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.acceleratePaid ? drawCards(channelRunesExhausted(state, ctx.casterIndex, 2), ctx.casterIndex, 1) : state,
+  },
   "OGN-051": {
     // Solari Shieldbearer — "When you play me, stun a unit."
     //

@@ -262,6 +262,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
           : {}),
         ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
+        // Tasty Faefolk's whole ability is gated on Accelerate having been PAID
+        // (805). Only the action knows — the deployed unit carries no record of
+        // how it was paid for. Same dropped-field hazard as the fields above.
+        ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
       });
     }
 
@@ -287,6 +291,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
+      // Same Accelerate forwarding as the base branch — a reinforce play pays
+      // the same optional cost and fires the same trigger.
+      ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
     });
 
     const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;

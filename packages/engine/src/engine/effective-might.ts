@@ -48,6 +48,11 @@ const WIZENED_ELDER = "OGN-065";
 /** Lee Sin - Centered: "Other buffed friendly units at my battlefield have +2
  *  Might." Positional like Garen - Commander, but conditional on the BUFF too. */
 const LEE_SIN_CENTERED = "OGN-151";
+/** Darius - Executioner: "Other friendly units have +1 Might here." Positional
+ *  and unconditional — the same shape as Garen - Commander's, and deliberately
+ *  NOT gated on [Legion]: the keyword sits before his FIRST sentence (the
+ *  ready-me), and this is his second. */
+const DARIUS_EXECUTIONER = "OGN-243";
 /**
  * Leona - Zealot: "Stunned enemy units here have -8 Might, to a minimum of 1
  * Might."
@@ -78,7 +83,15 @@ const ZEALOT_FLOOR = 1;
  * disagree — a parallel list of ids would drift the first time one changed.
  */
 export function effectiveMightDefIds(): string[] {
-  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER, LEE_SIN_CENTERED, LEONA_ZEALOT];
+  return [
+    GAREN_COMMANDER,
+    MASTER_YI_MEDITATIVE,
+    WIELDER_OF_WATER,
+    WIZENED_ELDER,
+    LEE_SIN_CENTERED,
+    LEONA_ZEALOT,
+    DARIUS_EXECUTIONER,
+  ];
 }
 
 /**
@@ -111,10 +124,15 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   let bonus = 0;
   const ownLocation = ctx.battlefieldId ?? "base";
 
-  const garenCommanderLocation = ownUnitLocation(state, ownerIndex, GAREN_COMMANDER);
-  if (garenCommanderLocation !== undefined && garenCommanderLocation === ownLocation) {
-    const isGarenCommanderItself = unit.defId === GAREN_COMMANDER;
-    if (!isGarenCommanderItself) bonus += 1;
+  // Garen - Commander and Darius - Executioner print the same sentence ("other
+  // friendly units have +1 Might here"), so they share one loop rather than two
+  // near-identical branches. Both stack if both are present, which is what
+  // "other friendly units" means when there are two of them.
+  for (const auraDefId of [GAREN_COMMANDER, DARIUS_EXECUTIONER]) {
+    const auraLocation = ownUnitLocation(state, ownerIndex, auraDefId);
+    if (auraLocation === undefined || auraLocation !== ownLocation) continue;
+    if (unit.defId === auraDefId) continue; // "OTHER friendly units"
+    bonus += 1;
   }
 
   if (unit.defId === MASTER_YI_MEDITATIVE && state.players[ownerIndex].channeled.length >= 8) {

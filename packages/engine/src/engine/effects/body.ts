@@ -2,7 +2,16 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { addBuff, dealDamage, dealDamageToEnemyUnitsAtBattlefield, payPowerFromChanneled, readyUnit, spendBuff } from "../effect-helpers.js";
+import {
+  addBuff,
+  channelRunesExhausted,
+  dealDamage,
+  dealDamageToEnemyUnitsAtBattlefield,
+  drawCards,
+  payPowerFromChanneled,
+  readyUnit,
+  spendBuff,
+} from "../effect-helpers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import { effectiveMight } from "../effective-might.js";
@@ -36,6 +45,24 @@ import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-138": {
+    // Catalyst of Aeons — "Channel 2 runes exhausted. If you couldn't channel 2
+    // runes this way, draw 1."
+    //
+    // The consolation is measured off what ACTUALLY happened, not off the rune
+    // deck's size beforehand: channelRunesExhausted takes as many as it can
+    // (315.4.b), so comparing the channeled pool before and after is the only
+    // reading that stays right if that helper's own short-deck behaviour ever
+    // changes. "Couldn't channel 2" is fewer than 2, so a deck with exactly one
+    // rune left both channels it AND draws.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const before = state.players[ctx.casterIndex].channeled.length;
+      const channelled = channelRunesExhausted(state, ctx.casterIndex, 2);
+      const gained = channelled.players[ctx.casterIndex].channeled.length - before;
+      return gained < 2 ? drawCards(channelled, ctx.casterIndex, 1) : channelled;
+    },
+  },
   "OGN-127": {
     // Cannon Barrage — "[Reaction] Deal 2 to all enemy units in combat."
     //

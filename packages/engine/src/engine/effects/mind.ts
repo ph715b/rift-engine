@@ -5,7 +5,7 @@ import type { DecisionDefinition } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
-import { giveMightThisTurn } from "../effect-helpers.js";
+import { giveMightThisTurn, giveMightThisTurnToAllEnemies } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Mind** — one file, one owner.
@@ -39,6 +39,14 @@ import { giveMightThisTurn } from "../effect-helpers.js";
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-114": {
+    // Progress Day — "Draw 4."
+    //
+    // Drawing on a short deck takes what is there rather than throwing: the
+    // documented Burn Out gap in drawCards, not a decision made here.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 4),
+  },
   "OGN-083": {
     // Consult the Past — "[Hidden][Reaction] Draw 2."
     // The simplest card in the pool, and the one that shows what Hidden is worth
@@ -106,7 +114,25 @@ export const cardEffects: Record<string, EffectDefinition> = {
   },
 };
 
-export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-116": {
+    // Thousand-Tailed Watcher — "When you play me, give enemy units -3 Might
+    // this turn, to a minimum of 1 Might."
+    //
+    // "Enemy UNITS", not "enemy units here" and not "at a battlefield" — so this
+    // reaches the opponent's base as well (355.9.b), which is what makes it a
+    // board sweep rather than a combat trick.
+    //
+    // The floor is applied PER UNIT by giveMightThisTurn rather than to the
+    // group: a 2-Might unit stops at 1 while a 7-Might one beside it still
+    // loses the full 3.
+    //
+    // giveMightThisTurn, not a Buff — this expires in the Expiration Step
+    // (rule 317) when runEnd zeroes every unit's mightThisTurn.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => giveMightThisTurnToAllEnemies(state, ctx.casterIndex, -3, 1),
+  },
+};
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
