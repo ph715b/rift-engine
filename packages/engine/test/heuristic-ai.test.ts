@@ -48,6 +48,7 @@ function buildInitialGameState(): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
 }

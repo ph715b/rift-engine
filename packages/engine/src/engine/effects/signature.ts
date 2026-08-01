@@ -2,6 +2,8 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
+import { forceMoveToBattlefield, stunUnits } from "../effect-helpers.js";
+import { findUnitOnBattlefield } from "../target-lookup.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -24,7 +26,53 @@ import type { DecisionDefinition } from "../decisions.js";
  * See effects/fury.ts's header for what adding a card owes: registration, a rule
  * or oracle citation, and an engine test.
  */
-export const cardEffects: Record<string, EffectDefinition> = {};
+export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-262": {
+    // Zenith Blade (Calm + Order) — "[Action] Stun an enemy unit at a
+    // battlefield. You may move a friendly unit to that enemy unit's
+    // battlefield."
+    //
+    // `min: 1`: the stun is mandatory, the move is "you may". That is exactly
+    // what a two-slot spec with a minimum of one expresses — enumeration offers
+    // both the stun-only variant and every stun+move pair, so declining is a
+    // real choice rather than a target the player leaves blank.
+    //
+    // `slotScopes` because the two halves are scoped differently in print: the
+    // enemy is "at a battlefield", the friendly is not, and the friendly you
+    // most want to send is the one standing in base. Reading one scope for both
+    // would either forbid that or make the enemy targetable in their own base.
+    //
+    // The destination is NOT chosen — it is "that enemy unit's battlefield",
+    // read off the board at resolution. A unit that has left the battlefield in
+    // between (killed on the chain, moved) leaves nothing to move to, and the
+    // stun still happens: the move is the optional half.
+    //
+    // forceMoveToBattlefield, not the MoveUnit executor: 415.1.b puts the
+    // exhaust on the Standard Move ACTION, so a unit sent by a spell arrives
+    // ready, and 458 contests the destination for the MOVED unit's controller.
+    // Here that is the caster's own unit walking into the enemy's battlefield,
+    // which is the whole point of the card.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["enemy", "friendly"],
+      min: 1,
+      slotScopes: ["battlefield", "anywhere"],
+    },
+    resolve: (state, ctx, event) => {
+      const enemyId = event.targetUnitInstanceId;
+      if (!enemyId) return state;
+      // Where the enemy is must be read BEFORE the stun, not because stunning
+      // moves anything (it does not) but because Eclipse Herald and Leona fire
+      // inside stunUnits and either could kill or relocate it.
+      const enemyBattlefield = findUnitOnBattlefield(state, enemyId);
+      const stunned = stunUnits(state, ctx.casterIndex, [enemyId]);
+
+      const friendlyId = event.secondTargetUnitInstanceId;
+      if (!friendlyId || !enemyBattlefield) return stunned;
+      return forceMoveToBattlefield(stunned, friendlyId, state.battlefields[enemyBattlefield.battlefieldIndex]!.id);
+    },
+  },
+};
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
 

@@ -6,6 +6,7 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
 import { drawCards } from "./effect-helpers.js";
+import { parkDecision } from "./decisions.js";
 import { domainDeathTriggers, domainEventTriggers, domainSelfTriggers, mergeRegistries } from "./effects/index.js";
 
 /**
@@ -75,6 +76,17 @@ export interface DeathContext {
   ownerIndex: 0 | 1;
   /** undefined if it died in base. */
   battlefieldId?: string;
+  /**
+   * Who killed it, for the cards that say "when **you** kill" rather than "when
+   * a unit dies" — Solari Shrine's "When you kill a stunned enemy unit". Without
+   * it neither "you" nor "enemy" has an answer, and the card would fire for the
+   * victim's own controller cleaning up their board.
+   *
+   * Optional because an unattributed death is real and must stay expressible:
+   * `[Temporary]` expiring at end of turn (rule 816) kills a unit with nobody
+   * behind it, and naming a killer there would be an invention.
+   */
+  killerIndex?: 0 | 1;
 }
 
 /**
@@ -131,6 +143,37 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
     const players = [...state.players] as [PlayerState, PlayerState];
     players[listener.ownerIndex] = { ...players[listener.ownerIndex], firstFriendlyDeathUsedThisTurn: true };
     return drawCards({ ...state, players }, listener.ownerIndex, 1);
+  },
+
+  /**
+   * Solari Shrine — "When you kill a stunned enemy unit, you may exhaust this to
+   * draw 1."
+   *
+   * Three conditions, all printed and all separately load-bearing:
+   *  - **you kill** — `death.killerIndex`, the field this card is the reason
+   *    for. Without it the Shrine would fire when its own controller's units
+   *    were cleaned up by the opponent, which is the opposite of the card.
+   *  - **stunned** — read off the unit AS IT DIED (`death.unit`), which rule
+   *    809.1.b.3 requires be captured before the card reaches the trash. Asking
+   *    the board instead would find nothing: it is already in a trash.
+   *  - **enemy** — relative to the SHRINE's controller, which is why a
+   *    death-watch is handed the listener as well as the death.
+   *
+   * The exhaust is optional AND is the price of the draw, so it stops to ask —
+   * a "you may" with a cost is a decision, not a freebie. An already-exhausted
+   * Shrine cannot pay it, so it is not offered at all rather than offered and
+   * refused (the same shape `canPayActivationCost` uses).
+   */
+  "OGN-072": (state, listener, death) => {
+    if (death.killerIndex !== listener.ownerIndex) return state; // not YOUR kill
+    if (death.ownerIndex === listener.ownerIndex) return state; // not an ENEMY unit
+    if (!death.unit.stunned) return state;
+    if (listener.card.exhausted) return state;
+    return parkDecision(state, {
+      kind: "OGN-072-draw",
+      playerIndex: listener.ownerIndex,
+      cardInstanceId: listener.card.instanceId,
+    });
   },
 };
 
@@ -195,7 +238,25 @@ export type GameEvent =
    *  staged Combat and for a Non-Combat one promoted by 317.2, since both are a
    *  combat beginning as far as a card that says "when a unit attacks or
    *  defends" is concerned. */
-  | { kind: "combatBegan"; battlefieldId: string };
+  | { kind: "combatBegan"; battlefieldId: string }
+  /**
+   * `stunnerIndex` just stunned these units (rule 422) — ONE event per
+   * instruction, carrying every unit that actually became stunned.
+   *
+   * The batch shape is the card text's doing, not tidiness: Leona - Radiant Dawn
+   * buffs once for "one or more" stunned units while Eclipse Herald triggers per
+   * unit, and a per-unit event cannot express the first. `ownerIndex` rides
+   * along per unit because "an ENEMY unit" is measured against the LISTENER's
+   * controller, which is not necessarily the stunner (a card can stun its own).
+   *
+   * Fired only by `effect-helpers.stunUnits`, which drops the units that were
+   * already stunned — re-stunning is not a stunning.
+   */
+  | {
+      kind: "unitsStunned";
+      stunnerIndex: 0 | 1;
+      stunned: readonly { unitInstanceId: string; ownerIndex: 0 | 1 }[];
+    };
 
 /** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;

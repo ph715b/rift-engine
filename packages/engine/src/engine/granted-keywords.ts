@@ -73,7 +73,7 @@ const CONDITIONAL_GRANTS: Record<string, Grant> = {
  * property of the unit rather than of the fight it happens to be in — which is
  * also what 711 describes.
  */
-function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): boolean {
+export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): boolean {
   return effectiveMight(state, unit, ownerIndex, { isCombat: false }) >= 5;
 }
 

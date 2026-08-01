@@ -109,6 +109,18 @@ export interface PlayerState {
    *  — mirrors Player.java:74/TurnManager.java:335. */
   restrictedSpellEnergy: number;
   /**
+   * Kai'Sa - Daughter of the Void's activated ability ("Add 1 rainbow Power. Use
+   * only to play spells.") — the Power counterpart of `restrictedSpellEnergy`
+   * above, drained after `floatingPower` and only by a Spell's Power cost.
+   *
+   * A bare number rather than an entry in `floatingPower`, because that record
+   * is keyed by Domain and this Power is RAINBOW: it pays a pip of any domain. A
+   * seventh pseudo-domain would have to be understood, and ignored, by every
+   * consumer of floatingPower. Cleared at runEnd if unused, same as the Energy
+   * pool.
+   */
+  restrictedSpellPower: number;
+  /**
    * Has this player's "first time a friendly unit dies each turn" already
    * fired? Wraith of Echoes is the only card that asks, and the Java oracle
    * carries a field of the same shape and nearly the same name
@@ -255,6 +267,29 @@ export interface PendingDecision {
  * one's effect is actually implemented, the same way Player/Card already
  * defer their own long tails.
  */
+/**
+ * A unit that has been taken off the board because it is dying, but whose death
+ * is not settled yet — Sett - The Boss's "if a buffed unit you control **would
+ * die**, you may pay ... to heal it, exhaust it, and recall it **instead**".
+ *
+ * A holding pen is needed because a replacement is offered at the moment of
+ * death, unlike Highlander's ward which is armed in advance
+ * (`deathWardedUnitInstanceIds`). By the time the question can be asked the unit
+ * has already been removed from wherever it was, and it must NOT be in the trash
+ * — rule 809.1.b.1 makes a replaced death not a death at all, so its Deathknell
+ * must never fire. It therefore exists nowhere the board can see, and a decision
+ * carrying only its instanceId would have nothing to look it up in.
+ *
+ * Carries the same fields DeathContext does, because if the offer is declined
+ * this is exactly what the ordinary death path is handed.
+ */
+export interface PendingDeath {
+  unit: UnitInstance;
+  ownerIndex: 0 | 1;
+  battlefieldId?: string;
+  killerIndex?: 0 | 1;
+}
+
 export interface GameState {
   players: [PlayerState, PlayerState];
   battlefields: BattlefieldState[];
@@ -362,6 +397,17 @@ export interface GameState {
    *  "this turn" lifetime as GameState.java's own set
    *  (TurnManager.java:287-290). */
   deathWardedUnitInstanceIds: string[];
+  /**
+   * Deaths waiting on a replacement offer — see PendingDeath above. Empty
+   * except for the instant between Sett - The Boss's question being raised and
+   * answered, which the pending-decision queue guarantees is before any other
+   * action can be taken.
+   *
+   * NOT reset by runEnd, unlike the ward: a death sitting here is mid-resolution
+   * rather than a this-turn status, and silently discarding one would make the
+   * unit vanish into neither play nor a trash.
+   */
+  unitsAwaitingDeathReplacement: PendingDeath[];
   /**
    * Questions the engine has stopped to ask, oldest first.
    *

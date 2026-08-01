@@ -12,6 +12,7 @@ import {
   isCardLegalForLegend,
   isEligibleChampion,
   loadBattlefieldDefinitions,
+  partialImplementationNote,
   serializeDeckFile,
   sortByDomainOrdinal,
   validateDeckList,
@@ -43,33 +44,67 @@ interface SingleSelectListProps<T extends { id: string; name: string }> {
   selectedId: string | null;
   onSelect: (id: string) => void;
   emptyText: string;
+  /** Returns why this entry is unimplemented, or undefined when it is fine.
+   *  Omitted entirely for a picker whose items aren't cards. */
+  markUnimplemented?: (item: T) => string | undefined;
 }
 
 /** The same "pick one of several named things" pattern Lobby.tsx's
  *  DeckListPicker already established (deck-list/deck-option classes) —
- *  reused here for the legend and champion pickers instead of a new markup. */
+ *  reused here for the legend and champion pickers instead of a new markup.
+ *
+ *  Marks unimplemented entries the same way CardBrowserTile marks unimplemented
+ *  cards. It did not, and that mattered more here than anywhere: every deck has
+ *  exactly one Legend and it is in play from turn 1, so choosing an inert one
+ *  meant playing the whole game a card down with nothing on screen saying so.
+ *  The card browser below has always been honest about this; the two pickers
+ *  that pick the ALWAYS-in-play cards were the ones that weren't. */
 function SingleSelectList<T extends { id: string; name: string }>({
   label,
   items,
   selectedId,
   onSelect,
   emptyText,
+  markUnimplemented,
 }: SingleSelectListProps<T>) {
   return (
     <div>
       <div className="zone-label">{label}</div>
       <div className="deck-list">
-        {items.map((item) => (
-          <div key={item.id} className={`deck-option${selectedId === item.id ? " selected" : ""}`}>
-            <button className="deck-option-button" onClick={() => onSelect(item.id)}>
-              {item.name}
-            </button>
-          </div>
-        ))}
+        {items.map((item) => {
+          const note = markUnimplemented?.(item);
+          return (
+            <div
+              key={item.id}
+              className={`deck-option${selectedId === item.id ? " selected" : ""}${note ? " not-implemented" : ""}`}
+              title={note}
+            >
+              <button className="deck-option-button" onClick={() => onSelect(item.id)}>
+                {item.name}
+              </button>
+            </div>
+          );
+        })}
         {items.length === 0 && <p className="deck-list-empty">{emptyText}</p>}
       </div>
     </div>
   );
+}
+
+/**
+ * Why this card is not fully implemented, or undefined when it is — the tooltip
+ * text for both pickers and the flag that greys them.
+ *
+ * Two distinct cases, and they are worth telling apart on screen: a card with no
+ * implementation at all, and one whose registration covers only PART of its text
+ * (coverage.ts's partialImplementationNote). The second is the more misleading
+ * of the two, because such a card visibly does something.
+ */
+function unimplementedNote(def: CardDefinition): string | undefined {
+  const partial = partialImplementationNote(def.id);
+  if (partial) return `Only partly implemented — ${partial}`;
+  if (isCardImplemented(def)) return undefined;
+  return `No effect implemented yet — this card's text does nothing:\n"${implementableText(def)}"`;
 }
 
 interface CardBrowserTileProps {
@@ -95,12 +130,16 @@ function CardBrowserTile({ def, count, isChampion, onIncrement, onDecrement, can
   // unimplemented card is invisible in play: it costs runes, goes to the trash
   // and quietly does nothing. Marking it here is the difference between a
   // playtest you can draw conclusions from and one you can't.
-  const notImplemented = !isCardImplemented(def);
+  //
+  // Shared with the legend/champion pickers via unimplementedNote, so the whole
+  // builder answers "is this card finished?" in one voice — including the
+  // partly-implemented case, which used to read as fully working here.
+  const notImplemented = unimplementedNote(def);
 
   return (
     <div
       className={`card-tile${count > 0 ? " in-deck" : ""}${notImplemented ? " not-implemented" : ""}`}
-      title={notImplemented ? `No effect implemented yet — this card's text does nothing:\n"${implementableText(def)}"` : undefined}
+      title={notImplemented}
     >
       {def.imageUrl ? (
         <img className="card-tile-art" src={def.imageUrl} alt={def.name} draggable={false} loading="lazy" />
@@ -392,6 +431,7 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
           selectedId={legendId}
           onSelect={selectLegend}
           emptyText="No legends available."
+          markUnimplemented={unimplementedNote}
         />
       </div>
 
@@ -402,6 +442,7 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
           selectedId={championId}
           onSelect={selectChampion}
           emptyText={legendDef ? "No eligible champions found." : "Pick a legend first."}
+          markUnimplemented={unimplementedNote}
         />
       </div>
 

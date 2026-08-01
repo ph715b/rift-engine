@@ -89,5 +89,6 @@ export function buildPlayerFromDeckList(
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
+    restrictedSpellPower: 0,
   };
 }

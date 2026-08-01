@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import { slotOwner, type TargetingSpec } from "./card-effects.js";
+import { slotOwner, slotScope, type TargetingSpec } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 
 export interface BattlefieldUnitLocation {
@@ -75,6 +75,24 @@ function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: 
 }
 
 /**
+ * Are these two units at the SAME battlefield — Facebreaker's "a friendly unit
+ * and an enemy unit at the same battlefield"?
+ *
+ * False when either is in base, which is the right answer rather than an edge
+ * case: a base is not a battlefield, so two units in the same base do not
+ * satisfy "at the same battlefield" and neither does one of each.
+ *
+ * Lives here so the enumerator and the validator ask it in exactly the same
+ * words. Those two disagreeing about what is legal is a bug this codebase has
+ * shipped before, and it surfaces as the AI throwing on an action it was offered.
+ */
+export function shareABattlefield(state: GameState, firstInstanceId: string, secondInstanceId: string): boolean {
+  const first = findUnitOnBattlefield(state, firstInstanceId);
+  const second = findUnitOnBattlefield(state, secondInstanceId);
+  return first !== undefined && second !== undefined && first.battlefieldIndex === second.battlefieldIndex;
+}
+
+/**
  * Does this unit satisfy a `maxMight` restriction (Gust's "3 Might or less")?
  * Routes through effectiveMight rather than `might + mightThisTurn`, so a unit
  * standing under a continuous aura is judged at the Might it actually has —
@@ -123,12 +141,19 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // Nothing is REQUIRED when min is 0, so nothing can be missing — the
       // empty choice is itself legal ("up to two").
       if (targeting.min === 0) return true;
-      const first = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[0]), targeting.scope);
+      const first = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[0]), slotScope(targeting, 0));
       if (targeting.min === 1) return first.length > 0;
-      const second = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[1]), targeting.scope);
+      const second = eligibleTargets(state, playerIndex, slotOwner(targeting.slots[1]), slotScope(targeting, 1));
       // Two slots must be two DISTINCT units — mirrors the fan-out's own
-      // `first.instanceId === second.instanceId` skip.
-      return first.some((a) => second.some((b) => a.instanceId !== b.instanceId));
+      // `first.instanceId === second.instanceId` skip — and must share a
+      // battlefield when the spec says so, mirroring its `sameBattlefield` skip.
+      return first.some((a) =>
+        second.some(
+          (b) =>
+            a.instanceId !== b.instanceId &&
+            (!targeting.sameBattlefield || shareABattlefield(state, a.instanceId, b.instanceId)),
+        ),
+      );
     }
     case "ownTrashCard": {
       const trash = state.players[playerIndex].trash;

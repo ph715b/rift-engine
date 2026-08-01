@@ -47,6 +47,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
+    restrictedSpellPower: 0,
   };
 }
 
@@ -87,6 +88,7 @@ function buildSpellFixture() {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+      unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
 
@@ -125,6 +127,7 @@ function buildGearFixture() {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+      unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
 
@@ -408,6 +411,7 @@ describe("legalActions: Spell and Gear candidates", () => {
       chainPasses: 0,
       spellChain: [],
       deathWardedUnitInstanceIds: [],
+      unitsAwaitingDeathReplacement: [],
       pendingDecisions: [],
     };
 

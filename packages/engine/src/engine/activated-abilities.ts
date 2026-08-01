@@ -4,13 +4,15 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 import {
   addBuff,
   dealDamage,
+  forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   readyUnit,
+  recallUnitToBase,
   recycleFromTrash,
   spendBuff,
-  stunUnit,
+  stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
@@ -40,6 +42,9 @@ export interface ActivatedAbilityEvent {
   /** Chosen ahead of the action, same constraint as every other effect in this
    *  engine — it cannot pause mid-resolution to ask. */
   targetUnitInstanceId?: string;
+  /** Where the target is moved to, for a mode that declares `movesTarget` —
+   *  Yasuo - Unforgiven's "from its base". */
+  destinationBattlefieldId?: string;
 }
 
 /**
@@ -82,6 +87,15 @@ export interface AbilityMode {
   /** What the board's button says. */
   label: string;
   targeting: TargetingSpec;
+  /**
+   * This mode moves its target somewhere the player must also choose, so
+   * enumeration fans out per battlefield as well as per target — Yasuo -
+   * Unforgiven's "move a friendly unit ... from its base".
+   *
+   * A flag on the MODE rather than on the ability because Yasuo's other mode
+   * (going home) has an implicit destination and must not be fanned out.
+   */
+  movesTarget?: true;
   resolve: (state: GameState, ctx: EffectContext, event: ActivatedAbilityEvent, sourceInstanceId: string) => GameState;
 }
 
@@ -147,6 +161,12 @@ const UDYR_WILDMAN = "OGN-157";
 /** Vi - Destructive: "Recycle 1 from your trash: Give me +1 Might this turn."
  *  The first ability whose cost is NOT an exhaust. */
 const VI_DESTRUCTIVE = "OGN-036";
+
+/** The four OGN Legends whose whole printed text is an activated ability. */
+const MISS_FORTUNE_BOUNTY_HUNTER = "OGN-267";
+const DARIUS_HAND_OF_NOXUS = "OGN-253";
+const KAISA_DAUGHTER_OF_THE_VOID = "OGN-247";
+const YASUO_UNFORGIVEN = "OGN-259";
 
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   [LUX_CROWNGUARD]: {
@@ -224,7 +244,13 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         id: "stun",
         label: "Stun a unit at a battlefield",
         targeting: { kind: "unit" },
-        resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? stunUnit(state, event.targetUnitInstanceId) : state),
+        // stunUnits, not stunUnit: this is a real stun by a real player, so it
+        // has to be visible to Eclipse Herald and Leona - Radiant Dawn. Reading
+        // the primitive here instead would be the dispatch-hop bug this codebase
+        // has already shipped three times — the ability would still stun, and
+        // the watchers would silently never fire.
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
       },
       {
         id: "ready",
@@ -237,6 +263,123 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         label: "Give me [Ganking] this turn",
         targeting: { kind: "none" },
         resolve: (state, _ctx, _event, sourceInstanceId) => grantKeywordThisTurn(state, sourceInstanceId, "Ganking"),
+      },
+    ],
+  },
+  [MISS_FORTUNE_BOUNTY_HUNTER]: {
+    // Miss Fortune - Bounty Hunter — "Exhaust: Give a unit [Ganking] this turn."
+    //
+    // "A unit" with no owner and no battlefield named, so scope: "anywhere" and
+    // either player's units are legal targets — the same reading Orb of Regret
+    // below already has. Granting [Ganking] to an ENEMY unit is a bad play
+    // rather than an illegal one, so `owner` stays unset.
+    //
+    // keywordsThisTurn, via grantKeywordThisTurn, so it expires at runEnd with
+    // the rest of the turn rather than being written into the printed set —
+    // exactly what Udyr's own [Ganking] mode needed.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Ganking") : state,
+  },
+  [DARIUS_HAND_OF_NOXUS]: {
+    // Darius - Hand of Noxus — "Exhaust: [Reaction], [Legion] — Add 1 Energy."
+    //
+    // [Legion] is "get the effect if you've played a card this turn", and the
+    // state for it already exists: `cardsPlayedThisTurn`, which execute-play-card
+    // increments and runEnd resets. Nothing new is needed for the keyword here —
+    // it is a condition on the effect, not a cost, so an unmet [Legion] still
+    // spends the exhaust and yields nothing. That is what the keyword says.
+    //
+    // The Energy is UNRESTRICTED (unlike Lux - Crownguard's spells-only pool), so
+    // it lands in `floatingEnergy` — the fungible pool every cost drains first.
+    //
+    // [Reaction] needs nothing here: activateAbilityCandidates is already offered
+    // in every timing branch (legal-actions.ts), which is more permissive than
+    // this keyword requires rather than less.
+    //
+    // banksResource, like Lux - Crownguard: the AI's evaluate() scores board
+    // state, so an ability that only stores Energy would tie with Pass and be
+    // chosen on a coin flip.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      if (actor.cardsPlayedThisTurn < 1) return state; // [Legion] unmet
+      players[ctx.casterIndex] = { ...actor, floatingEnergy: actor.floatingEnergy + 1 };
+      return { ...state, players };
+    },
+  },
+  [KAISA_DAUGHTER_OF_THE_VOID]: {
+    // Kai'Sa - Daughter of the Void — "Exhaust: [Reaction] — Add 1 rainbow Power.
+    // Use only to play spells."
+    //
+    // POWER, not Energy, and that is the difference from Lux - Crownguard: it
+    // pays a card's Power pip. "Rainbow" means any domain (rule 811 uses the
+    // same pip for Hide), so it cannot live in `floatingPower`, which is keyed by
+    // Domain — a rainbow entry there would need a seventh fake domain that every
+    // consumer would then have to know to ignore.
+    //
+    // So it gets its own scalar, `restrictedSpellPower`, drained after
+    // floatingPower and only for Spells — a direct mirror of the
+    // restrictedSpellEnergy pool that already exists for exactly this shape of
+    // ability. See rune-payment.ts's computeEffectiveCost.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, restrictedSpellPower: actor.restrictedSpellPower + 1 };
+      return { ...state, players };
+    },
+  },
+  [YASUO_UNFORGIVEN]: {
+    // Yasuo - Unforgiven — "2 Energy, exhaust: Move a friendly unit to or from
+    // its base."
+    //
+    // TWO modes rather than one compound target, and the reason is that "to or
+    // from" is genuinely two different moves with two different target shapes:
+    // going home names only a unit, while leaving home also names a destination.
+    // A single spec would have needed a unit-plus-battlefield pair that no other
+    // card in this pool wants.
+    //
+    // `modesOncePerTurn` is deliberately NOT set. Udyr needs it because his cost
+    // has no exhaust and he can go four times; Yasuo's exhaust already caps him
+    // at once, so tracking spent modes would be bookkeeping with nothing to stop.
+    //
+    // Both moves are `forceMoveToBattlefield`/`recallUnitToBase`, not the
+    // MoveUnit executor — 415.1.b puts the exhaust on the Standard Move ACTION,
+    // so a unit Yasuo moves does not pay it again.
+    kind: "Legend",
+    cost: { energy: 2, exhaust: true },
+    modes: [
+      {
+        id: "toBase",
+        label: "Move a friendly unit to its base",
+        // "To its base" — so the unit must be AT a battlefield to have somewhere
+        // to come back from. The default battlefield scope says exactly that.
+        targeting: { kind: "unit", owner: "friendly" },
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId ? recallUnitToBase(state, event.targetUnitInstanceId) : state,
+      },
+      {
+        id: "fromBase",
+        label: "Move a friendly unit from its base",
+        // The destination rides on the action's own battlefield field, fanned
+        // out per battlefield by legal-actions — the same field Charm already
+        // uses to say where a moved unit lands.
+        targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+        movesTarget: true,
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId && event.destinationBattlefieldId
+            ? forceMoveToBattlefield(state, event.targetUnitInstanceId, event.destinationBattlefieldId)
+            : state,
       },
     ],
   },

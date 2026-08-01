@@ -13,9 +13,11 @@ import {
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
+  stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
+import { dispatchLegendOnEnemyAttack, dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -284,14 +286,22 @@ export function dispatchOnPlayUnit(
     discardCardInstanceId?: string;
   },
 ): GameState {
+  // The LEGEND watches every unit played (Volibear), whether or not that unit
+  // has a trigger of its own — so this runs before the early return below rather
+  // than after it. Folded into this funnel rather than added at each of the
+  // three call sites (both execute-play-card branches and deploy.playUnitToBase)
+  // for the reason the comment below records: a dispatch hop that one call site
+  // forgets is invisible, because the unit still deploys.
+  const withLegend = dispatchLegendOnUnitPlayed(state, { unit, casterIndex });
+
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
   // straight to the inline one, so a Unit registered in a per-domain effects
   // file validated, cost runes, deployed — and then its ability silently never
   // ran. Nothing caught it because no per-domain file had registered a Unit yet,
   // which is exactly when a per-card implementation pass would have hit it.
   const trigger = allUnitTriggers()[unit.defId];
-  if (!trigger) return state;
-  return trigger.resolve(state, contextFor(casterIndex), unit.instanceId, {
+  if (!trigger) return withLegend;
+  return trigger.resolve(withLegend, contextFor(casterIndex), unit.instanceId, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.visionRecycle !== undefined ? { visionRecycle: extra.visionRecycle } : {}),
@@ -332,12 +342,108 @@ const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, 
     );
     return hasReadyEnemy ? giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 2) : state;
   },
+  "OGN-238": (state, ctx, unit, battlefieldId) => {
+    // Leona - Determined — "When I attack, stun an enemy unit here."
+    //
+    // "Here" is her own battlefield, so the candidates are the enemy units at
+    // it — and the first is taken, the same auto-selection Crackshot Corsair
+    // above already makes for the same structural reason: an on-attack trigger
+    // fires inside the move/play executor, which has no action left to hang a
+    // choice on. Recorded as Unverified in docs/rules-conformance.md.
+    //
+    // Her [Shield] is a combat-damage property (effective-might.ts), not part of
+    // this trigger.
+    const enemyId = firstEnemyAt(state, ctx.casterIndex, battlefieldId, unit.instanceId);
+    return enemyId ? stunUnits(state, ctx.casterIndex, [enemyId]) : state;
+  },
+  "OGN-200": (state, ctx, unit, battlefieldId) => {
+    // Twisted Fate - Gambler — "When I attack, reveal the top rune of your rune
+    // deck, then recycle it. Do one of the following based on its domain:
+    // [Fury] Deal 2 to an enemy unit here and 1 to all other enemy units here.
+    // [Mind] Draw 1.  [Order] Stun an enemy unit."
+    //
+    // The reveal is the whole cost of the card's variance, so an empty rune deck
+    // reveals nothing and does nothing — no branch, not a default one. Recycling
+    // puts the rune on the BOTTOM of the rune deck (416), which is why this
+    // rotates rather than discards.
+    //
+    // Three of the six domains do nothing. That is printed, not an omission: a
+    // Calm, Body or Chaos rune is a whiff, and inventing a fallback would make
+    // the card strictly better than it reads.
+    const owner = state.players[ctx.casterIndex];
+    const revealed = owner.runeDeck[0];
+    if (!revealed) return state;
+
+    const players = [...state.players] as [PlayerState, PlayerState];
+    players[ctx.casterIndex] = { ...owner, runeDeck: [...owner.runeDeck.slice(1), revealed] };
+    const recycled: GameState = { ...state, players };
+
+    switch (revealed.domain) {
+      case "Fury": {
+        // "An enemy unit here" takes 2 and "all OTHER enemy units here" take 1 —
+        // so this is 2 to the first and 1 to each of the rest, not 3 to one. The
+        // list is snapshotted before any damage lands, so a unit killed by the 2
+        // cannot shorten the loop (dealDamage no-ops on an id already gone).
+        const enemyIds = enemiesAt(recycled, ctx.casterIndex, battlefieldId, unit.instanceId);
+        return enemyIds.reduce((next, id, index) => dealDamage(next, ctx.casterIndex, id, index === 0 ? 2 : 1), recycled);
+      }
+      case "Mind":
+        return drawCards(recycled, ctx.casterIndex, 1);
+      case "Order": {
+        // "An enemy unit" — no "here" on this branch, unlike the Fury one. The
+        // card distinguishes them in print, so this reaches an enemy anywhere on
+        // the board, base included (355.9.b).
+        const anyEnemy = enemiesAnywhere(recycled, ctx.casterIndex)[0];
+        return anyEnemy ? stunUnits(recycled, ctx.casterIndex, [anyEnemy]) : recycled;
+      }
+      default:
+        return recycled;
+    }
+  },
 };
+
+/** The enemy units at one battlefield, in board order, excluding `selfInstanceId`
+ *  (an on-attack trigger's own unit is standing there too). Shared by the
+ *  auto-selecting on-attack triggers so they pick in the same, stable order —
+ *  which is what makes their tests meaningful rather than incidental. */
+function enemiesAt(state: GameState, casterIndex: 0 | 1, battlefieldId: string, selfInstanceId: string): string[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  const casterId = state.players[casterIndex].id;
+  return Object.entries(bf.units)
+    .filter(([ownerId]) => ownerId !== casterId)
+    .flatMap(([, units]) => units.map((u) => u.instanceId))
+    .filter((id) => id !== selfInstanceId);
+}
+
+function firstEnemyAt(state: GameState, casterIndex: 0 | 1, battlefieldId: string, selfInstanceId: string): string | undefined {
+  return enemiesAt(state, casterIndex, battlefieldId, selfInstanceId)[0];
+}
+
+/** Every enemy unit in play, base and battlefields — for the triggers whose text
+ *  names no location. Base first, then battlefields in board order, the same
+ *  order `listeningPermanents` walks. */
+function enemiesAnywhere(state: GameState, casterIndex: 0 | 1): string[] {
+  const enemyIndex: 0 | 1 = casterIndex === 0 ? 1 : 0;
+  const enemy = state.players[enemyIndex];
+  return [
+    ...enemy.baseUnits.map((u) => u.instanceId),
+    ...state.battlefields.flatMap((bf) => (bf.units[enemy.id] ?? []).map((u) => u.instanceId)),
+  ];
+}
 
 export function dispatchOnAttack(state: GameState, unit: UnitInstance, casterIndex: 0 | 1, battlefieldId: string): GameState {
   const trigger = ON_ATTACK_TRIGGERS[unit.defId];
-  if (!trigger) return state;
-  return trigger(state, contextFor(casterIndex), unit, battlefieldId);
+  const attacked = trigger ? trigger(state, contextFor(casterIndex), unit, battlefieldId) : state;
+  // The DEFENDER's legend also watches this moment (Ahri), so it fires whether
+  // or not the attacking unit has a trigger — and after it, so a unit killed by
+  // its own on-attack effect is not then debuffed. Inside this funnel rather
+  // than at its two call sites, same reasoning as dispatchOnPlayUnit above.
+  return dispatchLegendOnEnemyAttack(attacked, {
+    unitInstanceId: unit.instanceId,
+    attackerIndex: casterIndex,
+    battlefieldId,
+  });
 }
 
 /** On-move triggers — fired once per completed move, contested or not

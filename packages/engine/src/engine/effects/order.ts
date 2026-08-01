@@ -2,7 +2,13 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { channelRunesExhausted, destroyUnit, drawCards, giveMightThisTurnToAllFriendlies } from "../effect-helpers.js";
+import {
+  channelRunesExhausted,
+  destroyUnit,
+  drawCards,
+  giveMightThisTurnToAllFriendlies,
+  stunUnits,
+} from "../effect-helpers.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision } from "../decisions.js";
 import type { GameState } from "../../model/game-state.js";
@@ -73,12 +79,12 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // marked damage are irrelevant and it goes through the same funnel that
     // fires [Deathknell] (808) and honours a death ward (809.1.b.1).
     targeting: { kind: "unit" },
-    resolve: (state, _ctx, event) => {
+    resolve: (state, ctx, event) => {
       if (!event.targetUnitInstanceId) return state;
       const location = findUnitAnywhere(state, event.targetUnitInstanceId);
       if (!location) return state;
       const victimIndex = location.ownerIndex;
-      return drawCards(destroyUnit(state, event.targetUnitInstanceId), victimIndex, 2);
+      return drawCards(destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex), victimIndex, 2);
     },
   },
   "OGN-233": {
@@ -108,6 +114,36 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => giveMightThisTurnToAllFriendlies(state, ctx.casterIndex, 5),
   },
+  "OGN-220": {
+    // Facebreaker — "[Hidden][Action] Stun a friendly unit and an enemy unit at
+    // the same battlefield."
+    //
+    // `min: 2`: both halves are mandatory, so the card is simply not playable
+    // without a friendly and an enemy standing together somewhere. It is not a
+    // "do as much as you can" — the two are one instruction joined by "and", and
+    // the friendly stun is the price of the enemy one.
+    //
+    // `sameBattlefield` is a relation between the two targets, which no other
+    // card here has, so it lives on the SPEC and is enforced by the enumerator
+    // and the validator together (see card-effects.ts's TargetingSpec). A check
+    // inside this resolver would come too late: the card would already be paid
+    // for.
+    //
+    // ONE stunUnits call, not two. "Stun a friendly unit AND an enemy unit" is a
+    // single instruction, so Leona - Radiant Dawn's "when you stun one or more
+    // enemy units" pays out once, and Eclipse Herald sees the pair together.
+    // Two calls would fire the batch event twice and double both.
+    //
+    // [Hidden] (811) and [Action] (159.2.a.1) are both handled by the engine —
+    // engine/hidden.ts and engine/timing.ts — not here.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, sameBattlefield: true },
+    resolve: (state, ctx, event) => {
+      const chosen = [event.targetUnitInstanceId, event.secondTargetUnitInstanceId].filter(
+        (id): id is string => id !== undefined,
+      );
+      return chosen.length > 0 ? stunUnits(state, ctx.casterIndex, chosen) : state;
+    },
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -127,8 +163,37 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // death, so [Deathknell] fires (808) and a death ward can replace it
     // (809.1.b.1). Being a cost does not make it a quieter kill.
     targeting: { kind: "none" },
+    // No killerIndex: paying a cost with your own unit is not you "killing" it
+    // in the sense Solari Shrine asks about, and naming the caster here would
+    // let a card that watches for kills fire on its controller's own upkeep.
     resolve: (state, _ctx, _unitId, event) =>
       event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
+  "OGN-225": {
+    // Solari Chief — "When you play me, choose an enemy unit. If it is stunned,
+    // kill it. Otherwise, stun it."
+    //
+    // The stunned check reads the board at RESOLUTION, not at the moment the
+    // target was chosen: the choice rides on the action, and a stun landing in
+    // between (another Solari card, an opponent's reaction) has to count. Asking
+    // `findUnitAnywhere` here rather than caching anything is what gets that.
+    //
+    // "An enemy unit", with no battlefield named — so scope: "anywhere" and a
+    // unit sheltering in the opponent's base is a legal target. The `owner`
+    // constraint is printed, so it is not optional the way Rune Prison's is.
+    //
+    // destroyUnit, not dealDamage: "kill it" is a Kill Instruction, so Might and
+    // marked damage are irrelevant, and the caster is the killer.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const location = findUnitAnywhere(state, targetId);
+      if (!location) return state;
+      return location.unit.stunned
+        ? destroyUnit(state, targetId, ctx.casterIndex)
+        : stunUnits(state, ctx.casterIndex, [targetId]);
+    },
   },
 };
 
@@ -173,7 +238,10 @@ export const decisions: Record<string, DecisionDefinition> = {
     // and is killed without a prompt.
     options: (state, d) =>
       ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
-    resolve: (state, _d, optionId) => destroyUnit(state, optionId),
+    // The killer is the player answering, not the caster: 209 makes each player
+    // kill one of THEIR OWN, so a watcher asking "did you kill an enemy unit"
+    // correctly sees a friendly death and stays quiet.
+    resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
   },
 };
 

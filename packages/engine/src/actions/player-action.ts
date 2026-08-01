@@ -171,6 +171,16 @@ export interface ActivateAbilityAction {
    *  targeting is "none". */
   targetUnitInstanceId?: string;
   /**
+   * Where the targeted unit is being moved TO — Yasuo - Unforgiven's "move a
+   * friendly unit ... from its base", which names a unit and a destination.
+   *
+   * The same field, chosen the same way, that a Charm-style Spell already
+   * carries on PlayCardAction: fanned out per battlefield during enumeration,
+   * because this engine cannot pause mid-resolution to ask. Absent for every
+   * ability whose mode does not move anything.
+   */
+  destinationBattlefieldId?: string;
+  /**
    * Which runes cover an Energy portion of the activation cost. Absent for the
    * abilities that cost only an exhaust — which was every one of them until the
    * preset Legends arrived reading ":rb_energy_1:, :rb_exhaust::".

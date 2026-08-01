@@ -4,6 +4,7 @@ import {
   findUnitAnywhere,
   findUnitOnBattlefield,
   hasAnyLegalEffectChoice,
+  shareABattlefield,
   unitOrGearTargets,
   unitWithinMaxMight,
 } from "../engine/target-lookup.js";
@@ -11,7 +12,7 @@ import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf } from "../engine/card-effects.js";
+import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotScope } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import {
@@ -239,12 +240,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
     for (const [slot, id] of chosen.entries()) {
       if (id === undefined) continue;
-      const location = findUnitInScope(state, id, targeting.scope);
-      if (!location) return fail(`No unit with id ${id} found ${scopeDescription(targeting.scope)}`);
+      // Per SLOT, not per spec: Zenith Blade's first target is "at a
+      // battlefield" and its second is not. Reading the spec-wide scope for both
+      // would refuse the friendly-in-base target legal-actions offered.
+      const scope = slotScope(targeting, slot as 0 | 1);
+      const location = findUnitInScope(state, id, scope);
+      if (!location) return fail(`No unit with id ${id} found ${scopeDescription(scope)}`);
       const role = targeting.slots[slot]!;
       if (!roleHolds(location.ownerIndex, role)) {
         return fail(`${card.name}'s ${slot === 0 ? "first" : "second"} target must be ${role}`);
       }
+    }
+
+    // Facebreaker's "at the same battlefield" — a relation between the two
+    // targets, so it cannot be checked slot by slot above. Asked through the
+    // same helper legal-actions' fan-out uses, so "offered" and "legal" cannot
+    // drift apart.
+    if (targeting.sameBattlefield && filled.length === 2 && !shareABattlefield(state, filled[0]!, filled[1]!)) {
+      return fail(`${card.name} requires two units at the same battlefield`);
     }
   }
 
@@ -379,6 +392,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+        card.kind === "Spell" ? actor.restrictedSpellPower : 0,
       );
 
   if (payment.energyRunes.length !== effectiveCost.energyCost) {

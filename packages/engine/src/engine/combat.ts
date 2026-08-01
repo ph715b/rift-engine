@@ -152,9 +152,13 @@ function processDefeated(
   ownerIndex: 0 | 1,
   battlefieldId: string,
 ): GameState {
+  // Combat damage comes from the units on the other side, so the killer is the
+  // opposing player — the answer "when you kill a unit" (Solari Shrine) needs,
+  // and the one case where it can be derived rather than passed in.
+  const killerIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
   let next = state;
   for (const unit of defeated) {
-    next = killUnit(next, unit, ownerIndex, battlefieldId);
+    next = killUnit(next, unit, ownerIndex, battlefieldId, killerIndex);
   }
   return next;
 }

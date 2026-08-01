@@ -101,6 +101,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
 }

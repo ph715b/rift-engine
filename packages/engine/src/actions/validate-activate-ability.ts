@@ -2,7 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { ActivateAbilityAction } from "./player-action.js";
 import { activationCostOf, canPayActivationCost, resolveActivation, resolveMode } from "../engine/activated-abilities.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
-import { eligibleTargets } from "../engine/target-lookup.js";
+import { eligibleTargets, findUnitOnBattlefield } from "../engine/target-lookup.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
@@ -75,6 +75,23 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     const legal = eligibleTargets(state, action.playerIndex, mode.targeting.owner, mode.targeting.scope);
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {
       return fail(`${action.targetUnitInstanceId} is not a legal target for ${card.name}'s ability`);
+    }
+  }
+
+  // A mode that moves its target needs somewhere to move it, and it must be a
+  // real battlefield the unit is not already standing on — the two conditions
+  // the enumerator's own fan-out applies, asked here in the same words so a
+  // legal action and an accepted action cannot come apart.
+  if (mode.movesTarget) {
+    if (action.destinationBattlefieldId === undefined) {
+      return fail(`${card.name}'s ability needs a destination battlefield`);
+    }
+    if (!state.battlefields.some((bf) => bf.id === action.destinationBattlefieldId)) {
+      return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
+    }
+    const from = action.targetUnitInstanceId ? findUnitOnBattlefield(state, action.targetUnitInstanceId) : undefined;
+    if (from !== undefined && state.battlefields[from.battlefieldIndex]!.id === action.destinationBattlefieldId) {
+      return fail(`${card.name}'s target is already at that battlefield`);
     }
   }
 

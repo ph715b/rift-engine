@@ -44,7 +44,12 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   return mode.resolve(
     recorded,
     contextFor(action.playerIndex),
-    { ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}) },
+    {
+      ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+      ...(action.destinationBattlefieldId !== undefined
+        ? { destinationBattlefieldId: action.destinationBattlefieldId }
+        : {}),
+    },
     action.permanentInstanceId,
   );
 }

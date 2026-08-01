@@ -79,11 +79,16 @@ export function computeEffectiveCost(
   powerDomain: Domain | null,
   powerDomainAlt?: Domain,
   restrictedSpellEnergy = 0,
+  /** Kai'Sa's rainbow, Spells only — callers pass 0 for a Unit/Gear. Applied
+   *  after floatingPower for the same reason the Energy pool is applied after
+   *  floating Energy: the fungible resource is spent before the restricted one.
+   *  Rainbow, so it needs no domain match — any leftover Power cost takes it. */
+  restrictedSpellPower = 0,
 ): { energyCost: number; powerCost: number } {
   const afterFloat = energyAfterFloat(floatingEnergy, energyCost);
   return {
     energyCost: Math.max(0, afterFloat - restrictedSpellEnergy),
-    powerCost: powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt),
+    powerCost: Math.max(0, powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt) - restrictedSpellPower),
   };
 }
 

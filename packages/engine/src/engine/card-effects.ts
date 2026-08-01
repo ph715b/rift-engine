@@ -61,7 +61,36 @@ export type TargetingSpec =
    * one unit fill both slots; the oracle's own `allowsDuplicateTargets` flag
    * exists for cards like Falling Star that do, none of which are here).
    */
-  | { kind: "unitSlots"; slots: readonly [UnitSlotRole, UnitSlotRole]; min: number; scope?: TargetScope }
+  /**
+   * `sameBattlefield` is Facebreaker's "stun a friendly unit and an enemy unit
+   * **at the same battlefield**" — the first card here whose two targets are
+   * related to each other rather than each independently legal. It has to be a
+   * property of the SPEC rather than a check inside the resolver, because by the
+   * time a resolver runs the choice has already been made and validated: a
+   * resolver that refused would leave the card paid for and doing nothing.
+   *
+   * Implies both targets are at a battlefield, so it is only meaningful with the
+   * default `scope`.
+   */
+  | {
+      kind: "unitSlots";
+      slots: readonly [UnitSlotRole, UnitSlotRole];
+      min: number;
+      scope?: TargetScope;
+      /**
+       * Per-slot scope, for the one card whose two targets are scoped
+       * DIFFERENTLY: Zenith Blade's "Stun an enemy unit **at a battlefield**.
+       * You may move **a friendly unit** to that enemy unit's battlefield." The
+       * first half names a battlefield and the second does not, and rule 355.9.b
+       * makes that difference load-bearing — the friendly being moved is usually
+       * the one sitting at home.
+       *
+       * Overrides `scope` slot by slot; falls back to it where absent, so every
+       * existing card is unaffected.
+       */
+      slotScopes?: readonly [TargetScope, TargetScope];
+      sameBattlefield?: true;
+    }
   /**
    * "A unit at a battlefield **or a gear**" — Fading Memories. One choice over
    * two different kinds of permanent, which no other spec expresses: `unit`
@@ -76,6 +105,17 @@ export type TargetingSpec =
  *  `"any"` is the absence of a constraint, which is `undefined` there. */
 export function slotOwner(role: UnitSlotRole): "friendly" | "enemy" | undefined {
   return role === "any" ? undefined : role;
+}
+
+/** The scope one slot draws its candidates from — its own if the spec gives it
+ *  one, otherwise the spec's. One function rather than the same `??` written out
+ *  in the enumerator, the validator and `hasAnyLegalEffectChoice`, which are
+ *  exactly the three places that have drifted apart in this codebase before. */
+export function slotScope(
+  targeting: { scope?: TargetScope; slotScopes?: readonly [TargetScope, TargetScope] },
+  slot: 0 | 1,
+): TargetScope | undefined {
+  return targeting.slotScopes?.[slot] ?? targeting.scope;
 }
 
 /** Everything about the caster's choice(s) needed to resolve an effect —
@@ -258,7 +298,7 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
   "OGS-012": {
     // Blast of Power — Kill a unit at a battlefield.
     targeting: { kind: "unit" },
-    resolve: (state, _ctx, event) => destroyUnit(state, event.targetUnitInstanceId!),
+    resolve: (state, ctx, event) => destroyUnit(state, event.targetUnitInstanceId!, ctx.casterIndex),
   },
   "OGS-024": {
     // Decisive Strike — Give friendly units +2 Might this turn.

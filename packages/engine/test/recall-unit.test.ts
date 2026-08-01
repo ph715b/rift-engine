@@ -67,6 +67,7 @@ function makePlayer(id: string): PlayerState {
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
+    restrictedSpellPower: 0,
   };
 }
 
@@ -88,6 +89,7 @@ function makeState(): GameState {
     chainPasses: 0,
     spellChain: [],
     deathWardedUnitInstanceIds: [],
+    unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
 }

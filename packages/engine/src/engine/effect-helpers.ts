@@ -1,11 +1,16 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
+import { matchesPowerDomain } from "./rune-payment.js";
 import { isDeathWarded, reviveWithDeathWard } from "./death-ward.js";
 import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent } from "./triggers.js";
+// legend-abilities imports drawCards from here, so this is a cycle — the same
+// safe shape as the triggers.ts one above: the binding is only read inside
+// stunUnits, long after both modules have initialised.
+import { dispatchLegendOnUnitsStunned, offerDeathReplacement } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
@@ -86,19 +91,47 @@ function removeUnitAnywhere(state: GameState, targetInstanceId: string): GameSta
  *  3. Trash, then triggers — the trigger has to see a board where the unit is
  *     already gone, or "all units at my battlefield" would include the corpse.
  */
-export function killUnit(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId?: string): GameState {
+export function killUnit(
+  state: GameState,
+  unit: UnitInstance,
+  ownerIndex: 0 | 1,
+  battlefieldId?: string,
+  /** Who did it, when anyone did — see DeathContext.killerIndex. */
+  killerIndex?: 0 | 1,
+): GameState {
   if (isDeathWarded(state, unit.instanceId)) {
     return reviveWithDeathWard(state, unit, ownerIndex);
   }
 
-  const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
-  const inTrash = updatePlayer(state, ownerIndex, (p) => ({ ...p, trash: [...p.trash, trashed] }));
-
-  return dispatchOnUnitDied(inTrash, {
+  const death: PendingDeath = {
     unit,
     ownerIndex,
     ...(battlefieldId !== undefined ? { battlefieldId } : {}),
-  });
+    ...(killerIndex !== undefined ? { killerIndex } : {}),
+  };
+
+  // A replacement that has to be OFFERED, not one armed in advance. Asked before
+  // the trash step for the same reason the ward is checked before it: 809.1.b.1
+  // makes a replaced death not a death, so the card must not reach the trash and
+  // the Deathknell must not fire while the answer is outstanding.
+  const offer = offerDeathReplacement(state, death);
+  if (offer) return offer;
+
+  return completeDeath(state, death);
+}
+
+/**
+ * The ordinary end of a death — trash, then triggers.
+ *
+ * Split out of killUnit so a DECLINED replacement offer can resume exactly here,
+ * rather than re-entering killUnit and being offered the same replacement again
+ * forever.
+ */
+export function completeDeath(state: GameState, death: PendingDeath): GameState {
+  const { unit, ownerIndex } = death;
+  const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
+  const inTrash = updatePlayer(state, ownerIndex, (p) => ({ ...p, trash: [...p.trash, trashed] }));
+  return dispatchOnUnitDied(inTrash, death);
 }
 
 /**
@@ -134,7 +167,10 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
       stateAfterRemoval,
       damagedUnit,
       ownerIndex,
-      ...(zone === "base" ? [] : [state.battlefields[zone.battlefieldIndex]!.id]),
+      zone === "base" ? undefined : state.battlefields[zone.battlefieldIndex]!.id,
+      // Damage that kills is a kill BY whoever dealt it — the one place a killer
+      // was already known and simply had nowhere to go.
+      casterIndex,
     );
   }
 
@@ -143,8 +179,12 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
 
 /** Unconditionally removes a unit at a battlefield to its owner's trash —
  *  no damage/lethal math at all, unlike dealDamage — but still a "death,"
- *  so still honors Highlander's ward the same way dealDamage does. */
-export function destroyUnit(state: GameState, targetInstanceId: string): GameState {
+ *  so still honors Highlander's ward the same way dealDamage does.
+ *
+ *  `killerIndex` is optional rather than required because this funnel serves
+ *  both a Kill Instruction with someone behind it (Blast of Power, Hidden Blade)
+ *  and a death with nobody (a `[Temporary]` unit expiring at end of turn). */
+export function destroyUnit(state: GameState, targetInstanceId: string, killerIndex?: 0 | 1): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   const { unit, ownerIndex, zone } = location;
@@ -154,7 +194,8 @@ export function destroyUnit(state: GameState, targetInstanceId: string): GameSta
     stateAfterRemoval,
     unit,
     ownerIndex,
-    ...(zone === "base" ? [] : [state.battlefields[zone.battlefieldIndex]!.id]),
+    zone === "base" ? undefined : state.battlefields[zone.battlefieldIndex]!.id,
+    killerIndex,
   );
 }
 
@@ -298,11 +339,14 @@ export function isBuffed(unit: UnitInstance): boolean {
 export function payPowerFromChanneled(
   state: GameState,
   playerIndex: 0 | 1,
-  domain: Domain,
+  /** `null` is RAINBOW — any domain pays, rule 811's pip and Sett - The Boss's.
+   *  Asked through `matchesPowerDomain`, which already means exactly that, so
+   *  rainbow needed no new cost machinery here either. */
+  domain: Domain | null,
   count: number,
 ): GameState | undefined {
   const actor = state.players[playerIndex];
-  const spend = actor.channeled.filter((r) => r.domain === domain).slice(0, count);
+  const spend = actor.channeled.filter((r) => matchesPowerDomain(r, domain)).slice(0, count);
   if (spend.length < count) return undefined;
 
   const spentIds = new Set(spend.map((r) => r.id));
@@ -398,18 +442,61 @@ export function grantKeywordThisTurn(state: GameState, targetInstanceId: string,
 }
 
 /**
- * Stuns a unit — rule 422's Stun section.
+ * Stuns a unit — rule 422's Stun section. The PRIMITIVE: it changes the flag and
+ * fires nothing.
  *
  * A no-op on an already-stunned unit, because "a Stunned Unit can not be Stunned
  * again" — and that is a real distinction, not tidiness: the rules' own example
  * is Eclipse Herald, which triggers "when you stun an enemy unit" and does NOT
  * trigger when the chosen unit was already stunned. Returning the state
- * unchanged is what will make that card correct when it lands.
+ * unchanged is what makes that card correct.
+ *
+ * **A card implementation must call `stunUnits` below, not this.** This one is
+ * for tests that need a stunned unit as a fixture, where there is no stunner and
+ * inventing one would be a lie. Every real stun has a player behind it, and
+ * Eclipse Herald / Leona - Radiant Dawn are watching for exactly that.
  */
 export function stunUnit(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location || location.unit.stunned) return state;
   return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, stunned: true }));
+}
+
+/**
+ * "`stunnerIndex` stuns these units" — the funnel every card's stun goes
+ * through, and the only thing that fires the `unitsStunned` event.
+ *
+ * **One event for the whole instruction, not one per unit**, and the card text
+ * forces it: Leona - Radiant Dawn reads "When you stun **one or more** enemy
+ * units, buff a friendly unit" — one buff however many were stunned — while
+ * Eclipse Herald reads "When you stun **an** enemy unit" and wants one trigger
+ * each. A per-unit event would silently make Leona fire twice for Facebreaker;
+ * a batch payload lets each listener read it its own way.
+ *
+ * Only units that ACTUALLY became stunned are reported. Rule 422's "a Stunned
+ * Unit can not be Stunned again" means re-stunning is not a stunning, so it must
+ * not offer Eclipse Herald its ready-me trigger over and over for nothing —
+ * exactly the reasoning `addBuff` uses for `unitBuffed` under rule 708. A stun
+ * that changed nothing at all fires no event and returns the state untouched.
+ *
+ * The Legend is dispatched separately because `allListeningPermanents` walks
+ * base units, battlefield units and gear — a Legend is not on the board and no
+ * listener walk can reach it. Board listeners resolve first, then each player's
+ * Legend in turn order.
+ */
+export function stunUnits(state: GameState, stunnerIndex: 0 | 1, targetInstanceIds: readonly string[]): GameState {
+  const stunned: { unitInstanceId: string; ownerIndex: 0 | 1 }[] = [];
+  let next = state;
+  for (const id of targetInstanceIds) {
+    const location = findUnitAnywhere(next, id);
+    if (!location || location.unit.stunned) continue;
+    next = stunUnit(next, id);
+    stunned.push({ unitInstanceId: id, ownerIndex: location.ownerIndex });
+  }
+  if (stunned.length === 0) return state;
+
+  const event = { kind: "unitsStunned", stunnerIndex, stunned } as const;
+  return dispatchLegendOnUnitsStunned(dispatchEvent(next, event), event);
 }
 
 /**
@@ -729,6 +816,26 @@ export function giveMightThisTurnToOwnUnit(state: GameState, playerIndex: 0 | 1,
     actor.baseUnits.some((u) => u.instanceId === unitInstanceId) ||
     state.battlefields.some((bf) => (bf.units[actor.id] ?? []).some((u) => u.instanceId === unitInstanceId));
   return owned ? giveMightThisTurn(state, unitInstanceId, amount) : state;
+}
+
+/**
+ * Exhausts a Gear its owner controls — the exhaust that is a TRIGGER's cost
+ * rather than an activated ability's ("you may exhaust this to draw 1", Solari
+ * Shrine).
+ *
+ * Distinct from `activated-abilities.exhaustActivated`, which is reached through
+ * an ActivateAbility action and covers all three zones a source can sit in. A
+ * trigger has no action, so it cannot go through that path at all; this is the
+ * gear-only counterpart. No-ops if the gear is not in play or is already
+ * exhausted, so a caller cannot pay the cost twice.
+ */
+export function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: string): GameState {
+  const owner = state.players[playerIndex];
+  if (!owner.activeGear.some((g) => g.instanceId === gearInstanceId && !g.exhausted)) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    activeGear: p.activeGear.map((g) => (g.instanceId === gearInstanceId ? { ...g, exhausted: true } : g)),
+  }));
 }
 
 /** Exhausts a unit `playerIndex` owns, wherever it is (base or a

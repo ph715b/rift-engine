@@ -48,6 +48,24 @@ const WIZENED_ELDER = "OGN-065";
 /** Lee Sin - Centered: "Other buffed friendly units at my battlefield have +2
  *  Might." Positional like Garen - Commander, but conditional on the BUFF too. */
 const LEE_SIN_CENTERED = "OGN-151";
+/**
+ * Leona - Zealot: "Stunned enemy units here have -8 Might, to a minimum of 1
+ * Might."
+ *
+ * Two firsts, and both are why she cannot go in `continuousAuraBonus` with the
+ * others:
+ *  - **Enemy-side.** Every aura above is a player's own legend or unit helping
+ *    their own units, found via `ownUnitLocation(state, ownerIndex, …)`. Leona
+ *    hurts the OPPONENT's units, so she is looked up under the other index.
+ *  - **Floored.** "To a minimum of 1" is a clamp, not a delta, and a function
+ *    that sums bonuses cannot express one. Applied after the sum in
+ *    `effectiveMight`.
+ *
+ * Her enter-ready clause is unrelated and lives in deploy.ts.
+ */
+const LEONA_ZEALOT = "OGN-079";
+const ZEALOT_PENALTY = 8;
+const ZEALOT_FLOOR = 1;
 
 /**
  * The cards whose printed text this module implements. Exported for
@@ -60,7 +78,23 @@ const LEE_SIN_CENTERED = "OGN-151";
  * disagree — a parallel list of ids would drift the first time one changed.
  */
 export function effectiveMightDefIds(): string[] {
-  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER, LEE_SIN_CENTERED];
+  return [GAREN_COMMANDER, MASTER_YI_MEDITATIVE, WIELDER_OF_WATER, WIZENED_ELDER, LEE_SIN_CENTERED, LEONA_ZEALOT];
+}
+
+/**
+ * Is an enemy Leona - Zealot standing at the same battlefield as this stunned
+ * unit? — the condition on her "Stunned enemy units **here** have -8 Might".
+ *
+ * All three clauses are printed and none is redundant. **Stunned**: she does
+ * nothing to a ready unit. **Enemy**: measured from HER controller's side, so
+ * she never weakens her own stunned units. **Here**: positional, so she reaches
+ * nothing while she sits in base — `ownLocation` of "base" can never match, the
+ * same reasoning Lee Sin - Centered's aura uses one step above.
+ */
+function zealotPenaltyApplies(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ownLocation: string): boolean {
+  if (!unit.stunned || ownLocation === "base") return false;
+  const enemyIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
+  return ownUnitLocation(state, enemyIndex, LEONA_ZEALOT) === ownLocation;
 }
 
 /**
@@ -157,5 +191,14 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
     }
   }
   m += continuousAuraBonus(state, unit, ownerIndex, ctx);
+
+  // Leona - Zealot's -8, applied AFTER the sum and clamped rather than added,
+  // because "to a minimum of 1 Might" is a floor and a floor is not a delta.
+  // Ordering it last is what makes the floor mean what it says: a buff or aura
+  // arriving alongside her lifts the unit before the clamp, so she can never
+  // take a unit below 1 and a +2 aura can never be "spent" on the way down.
+  if (zealotPenaltyApplies(state, unit, ownerIndex, ctx.battlefieldId ?? "base")) {
+    m = Math.max(ZEALOT_FLOOR, m - ZEALOT_PENALTY);
+  }
   return Math.max(0, m);
 }

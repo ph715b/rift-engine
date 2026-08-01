@@ -195,6 +195,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, powerToPay);
   const primarySpent = Math.min(primaryAvailable, floatingPowerSpent);
   const altSpent = floatingPowerSpent - primarySpent;
+  // restrictedSpellPower (Kai'Sa's rainbow, Spells only) drains AFTER floating
+  // Power, exactly as the Energy pair above does and in the same order
+  // computeEffectiveCost applies them — fungible first, restricted second.
+  const restrictedPowerSpent =
+    card.kind === "Spell" ? Math.min(actor.restrictedSpellPower, powerToPay - floatingPowerSpent) : 0;
 
   // A from-hidden card was never in hand; it comes off the battlefield instead,
   // which happens on `battlefields` further down.
@@ -205,6 +210,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
+    restrictedSpellPower: actor.restrictedSpellPower - restrictedPowerSpent,
     floatingPower:
       floatingPowerSpent > 0
         ? {

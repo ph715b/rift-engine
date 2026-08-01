@@ -120,6 +120,33 @@ export function implementingModule(defId: string): string | undefined {
 }
 
 /**
+ * Cards a module registers for only PART of their printed text.
+ *
+ * Registration is per defId, so a card with two abilities counts as covered the
+ * moment either one is written. That is over-reporting, and this module's own
+ * doc comment says why over-reporting is the worse direction: a greyed-out
+ * working card wastes an implementer's time, but a card that *looks* finished
+ * and silently does half of what it says is a wrong conclusion drawn from a
+ * playtest.
+ *
+ * Each entry names what is missing, and the entry is deleted — not amended —
+ * when the rest lands. A card is either finished or it is on this list.
+ */
+const PARTIALLY_IMPLEMENTED = new Map<string, string>([
+  // Empty, and that is the point of the shape: Sett - The Boss lived here while
+  // only his on-conquer clause worked, and the entry was DELETED rather than
+  // reworded when his death replacement landed. A card is either finished or it
+  // is on this list.
+]);
+
+/** What is still missing from a partially-implemented card, or undefined when
+ *  the card is whole. Exported so the deck builder can say WHY rather than just
+ *  greying it. */
+export function partialImplementationNote(defId: string): string | undefined {
+  return PARTIALLY_IMPLEMENTED.get(defId);
+}
+
+/**
  * Is this card's printed text actually implemented?
  *
  * True for a card needing no implementation (vanilla or keyword-only) — those
@@ -132,5 +159,9 @@ export function implementingModule(defId: string): string | undefined {
  */
 export function isCardImplemented(def: CardDefinition): boolean {
   if (!needsImplementation(def)) return true;
+  // A card whose registration covers only some of its text is NOT implemented.
+  // Checked before the registry, since it is registered — that is the whole
+  // reason this list has to exist.
+  if (PARTIALLY_IMPLEMENTED.has(def.id)) return false;
   return registeredDefIds().has(def.id);
 }

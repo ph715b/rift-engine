@@ -258,6 +258,7 @@ export function runEnd(state: GameState): GameState {
     discardedThisTurn: false,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
+    restrictedSpellPower: 0,
   })) as [PlayerState, PlayerState];
 
   const battlefields = afterLegend.battlefields.map((bf) => {

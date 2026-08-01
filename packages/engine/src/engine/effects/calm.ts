@@ -3,7 +3,16 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { PlayerState } from "../../model/game-state.js";
-import { addBuff, drawCards, forceMoveToBattlefield, giveMightThisTurn } from "../effect-helpers.js";
+import {
+  addBuff,
+  drawCards,
+  exhaustGear,
+  forceMoveToBattlefield,
+  giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
+  readyUnit,
+  stunUnits,
+} from "../effect-helpers.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -108,9 +117,33 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       drawCards(giveMightThisTurn(state, event.targetUnitInstanceId!, 2), ctx.casterIndex, 1),
   },
+  "OGN-050": {
+    // Rune Prison — "[Action] Stun a unit."
+    //
+    // scope: "anywhere". "A unit", not "a unit at a battlefield" — rule 355.9.b
+    // settles the bare noun as objects on the Board, and the targeting section
+    // lists Bases among the Public zones. Same reading Discipline, Final Spark
+    // and Stupefy already have. No owner restriction either: stunning your own
+    // unit is a bad play, not an illegal one, so `owner` stays unset.
+    //
+    // [Action] is timing (engine/timing.ts), not something this entry does.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
+  },
 };
 
-export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-051": {
+    // Solari Shieldbearer — "When you play me, stun a unit."
+    //
+    // Same "a unit" reading as Rune Prison above, and for the same reason: the
+    // text names no battlefield, so a unit in either base is a legal target.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
+  },
+};
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
@@ -142,6 +175,33 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return mine.length === 1 ? giveMightThisTurn(state, mine[0]!.instanceId, 1) : state;
     },
   },
+  "OGN-059": {
+    // Eclipse Herald — "When you stun an enemy unit, ready me and give me
+    // +1 Might this turn."
+    //
+    // The rules use this card as their own worked example for why stunning an
+    // already-stunned unit is not a stunning (422), so the guard it needs is not
+    // written here at all: `stunUnits` drops those before the event exists.
+    //
+    // "AN enemy unit", singular — so this pays out once per qualifying unit in
+    // the batch rather than once per instruction (which is Leona - Radiant
+    // Dawn's "one or more" wording, deliberately different). Readying twice is
+    // idempotent; the Might is not, and +2 for two enemies is the literal read.
+    //
+    // Both halves of "you ... enemy" are measured against the HERALD's
+    // controller: `stunnerIndex` must be the listener, and the victim must not
+    // be. A Herald does not celebrate its own controller's units being stunned,
+    // nor the opponent stunning something.
+    on: "unitsStunned",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitsStunned") return state;
+      if (event.stunnerIndex !== listener.ownerIndex) return state;
+      const enemiesStunned = event.stunned.filter((s) => s.ownerIndex !== listener.ownerIndex).length;
+      if (enemiesStunned === 0) return state;
+      const readied = readyUnit(state, listener.card.instanceId);
+      return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, enemiesStunned);
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -153,4 +213,33 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
-export const decisions: Record<string, DecisionDefinition> = {};
+export const decisions: Record<string, DecisionDefinition> = {
+  // Solari Shrine's "you may exhaust this to draw 1" — raised by its death-watch
+  // in engine/triggers.ts, which has already checked that the kill was yours,
+  // the victim was a stunned enemy, and the Shrine is still ready.
+  //
+  // Two options always, so `advanceDecisions` can never auto-resolve it: a "you
+  // may" that the engine answers for you is not a "you may". Declining is a real
+  // play — the Shrine's exhaust is worth keeping when a second stunned enemy is
+  // about to die this turn.
+  "OGN-072-draw": {
+    prompt: () => "Solari Shrine: exhaust it to draw 1?",
+    // No `instanceId` on either option, deliberately. The board renders an
+    // option that carries one as the CARD itself, which is right for "pick one
+    // of your units" and wrong here: this is a yes/no, and half a card next to
+    // half a button reads as two different kinds of choice. The prompt already
+    // names the Shrine.
+    options: () => [
+      { id: "draw", label: "Exhaust and draw 1" },
+      { id: "decline", label: "Decline" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "draw" || !d.cardInstanceId) return state;
+      // Exhaust FIRST, then draw: the exhaust is the cost, and exhaustGear
+      // no-ops on a Shrine that is somehow already spent — so a state where the
+      // cost cannot be paid must not hand over the draw.
+      const paid = exhaustGear(state, d.playerIndex, d.cardInstanceId);
+      return paid === state ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
+};

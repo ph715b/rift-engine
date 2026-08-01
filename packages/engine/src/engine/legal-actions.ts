@@ -12,9 +12,9 @@ import type {
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { mayPlaceOnOpenBattlefield, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
-import { eligibleTargets, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
+import { eligibleTargets, findUnitOnBattlefield, shareABattlefield, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner } from "./card-effects.js";
+import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner, slotScope } from "./card-effects.js";
 import {
   abilitiesAvailableTo,
   activationCostOf,
@@ -117,7 +117,19 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // nothing is never what the player meant.
         for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope)) {
           if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
-          out.push({ ...withMode, targetUnitInstanceId: target.instanceId });
+          if (!mode.movesTarget) {
+            out.push({ ...withMode, targetUnitInstanceId: target.instanceId });
+            continue;
+          }
+          // A mode that MOVES its target needs a destination too, so the fan-out
+          // is target x battlefield — the same second axis a Charm-style Spell
+          // already gets from cardMovesTarget. Where the unit already is is not
+          // a destination: offering it would be a no-op the player paid for.
+          const from = findUnitOnBattlefield(state, target.instanceId);
+          for (const bf of state.battlefields) {
+            if (from !== undefined && state.battlefields[from.battlefieldIndex]!.id === bf.id) continue;
+            out.push({ ...withMode, targetUnitInstanceId: target.instanceId, destinationBattlefieldId: bf.id });
+          }
         }
       }
     }
@@ -321,6 +333,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+        card.kind === "Spell" ? actor.restrictedSpellPower : 0,
       );
     const payment = computeAutoPayment(
       actor.channeled,
@@ -344,6 +357,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             card.powerDomain,
             card.powerDomainAlt,
             card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+            card.kind === "Spell" ? actor.restrictedSpellPower : 0,
           )
         : undefined;
     const discountedPayment = discountedEffective
@@ -412,9 +426,15 @@ export function legalActions(state: GameState): PlayerAction[] {
       //   - min 0 -> the empty choice is legal ("up to two")
       //   - one target -> fills slot 0, so it must satisfy slot 0's role
       //   - two -> slot-0 x slot-1, distinct units
-      // The two targets need not share a location; no card here restricts that.
+      // The two targets need not share a location unless the spec says so —
+      // `sameBattlefield` is Facebreaker's, and it is enforced HERE as well as
+      // in the validator so the AI (which trusts this enumeration and calls the
+      // executor directly) is never handed a pair the validator would refuse.
+      //
+      // Scope is asked PER SLOT: Zenith Blade's enemy target is "at a
+      // battlefield" and its friendly one is not.
       const forSlot = (slot: 0 | 1) =>
-        eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), targeting.scope).filter((u) =>
+        eligibleTargets(state, playerIndex, slotOwner(targeting.slots[slot]), slotScope(targeting, slot)).filter((u) =>
           atHiddenBattlefield(state, u.instanceId, fromHiddenBattlefieldId),
         );
       const firstSlot = forSlot(0);
@@ -432,6 +452,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         for (const [j, second] of secondSlot.entries()) {
           if (first.instanceId === second.instanceId) continue;
           if (symmetric && j < i) continue; // keep one ordering of each pair
+          if (targeting.sameBattlefield && !shareABattlefield(state, first.instanceId, second.instanceId)) continue;
           effectVariants.push({ targetUnitInstanceId: first.instanceId, secondTargetUnitInstanceId: second.instanceId });
         }
       }
