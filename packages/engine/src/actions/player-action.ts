@@ -42,6 +42,10 @@ export interface PlayCardAction {
    *  Icathian Rain's six, Fox-Fire's any number. Ordered and possibly repeating;
    *  see TargetingSpec's `unitList` and ResolveEvent's matching field. */
   targetUnitInstanceIds?: readonly string[];
+  /** The SPELL on the chain a `chainSpell`-kind spec named (Wind Wall, Defy,
+   *  Mystic Reversal) — by the card's instanceId, since the chain moves between
+   *  announcing and resolving and an index would come to mean something else. */
+  targetChainCardInstanceId?: string;
   /** The battlefield a "battlefield"-kind targeted effect applies to (e.g.
    *  Firestorm's "all enemy units at a battlefield"). */
   targetBattlefieldId?: string;

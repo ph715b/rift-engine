@@ -12,6 +12,7 @@ import type {
   RunePayment,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
+import { counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
   eligibleTargets,
@@ -457,6 +458,14 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const trashCard of actor.trash) {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
+      }
+    } else if (targeting.kind === "chainSpell") {
+      // One candidate per counterable spell waiting on the chain. The counter
+      // itself is not among them: enumeration happens before it is pushed, so
+      // "a spell cannot target itself" holds by construction rather than by a
+      // check — see the spec's own note.
+      for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower)) {
+        effectVariants.push({ targetChainCardInstanceId: entry.card.instanceId });
       }
     } else if (targeting.kind === "unitList") {
       // A BOUNDED sample, not the powerset — see `unitListCandidates`, which is

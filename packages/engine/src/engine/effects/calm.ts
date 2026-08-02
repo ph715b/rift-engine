@@ -22,6 +22,7 @@ import {
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
+import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
@@ -54,6 +55,60 @@ import { parkDecision, type DecisionOption } from "../decisions.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-064": {
+    // Wind Wall — "[Reaction] Counter a spell."
+    //
+    // The clean driver for the whole counter spine: no filter, no condition, and
+    // the only reason it works at all is `[Reaction]` timing, which lets it be
+    // cast onto an already-closed chain. It resolves BEFORE its target because
+    // the chain is LIFO (343) — the counter goes on top and pops first.
+    //
+    // Uncastable with an empty chain rather than castable-and-inert. For a Spell
+    // the targeting IS the effect, so "no legal target" really does mean "cannot
+    // cast" — the rule card-effects.ts's own spec comment states, applied here.
+    targeting: { kind: "chainSpell" },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+  },
+  "OGN-045": {
+    // Defy — "[Reaction] Counter a spell that costs no more than [4] and no more
+    // than [rainbow]."
+    //
+    // Wind Wall with a printed-cost filter, and the numeral took the CARD IMAGE
+    // to settle: the rainbow pip is absent from the JSON's rich text and from its
+    // accessibility text, and the rules PDF quotes the card the same way. Energy
+    // prints as a NUMBERED glyph and Power as COUNTED PIPS — Defy's own cost
+    // proves the convention, printing a "1" Energy circle above exactly one Calm
+    // pip — so one unnumbered rainbow pip is **1 Power of any domain**. Written up
+    // in docs/rules-calls-resolved.md, including the wrong first answer.
+    //
+    // "Of any domain" is a COUNT of pips, not a domain match, which is why the
+    // filter is a number rather than a domain — a 1-Power Fury spell and a 1-Power
+    // Calm spell are equally legal targets.
+    targeting: { kind: "chainSpell", maxPrintedEnergy: 4, maxPrintedPower: 1 },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+  },
+  "OGN-080": {
+    // Mystic Reversal — "[Reaction] Gain control of a spell. You may make new
+    // choices for it."
+    //
+    // The FIRST sentence is implemented and the second is not, which is the
+    // larger half rather than the easier one: taking control moves who "you" is
+    // for the whole resolution, so a spell that draws now draws for the thief,
+    // its on-spell-cast listeners fire for the thief's Legend, and the thief gets
+    // priority for the fresh round of passes on it (345).
+    //
+    // "You may make new choices for it" needs a question asked WHILE a resolution
+    // is suspended — the targets were fixed when the spell was announced, and
+    // re-making them means offering the new controller the original spec's
+    // candidate list mid-chain. Recorded in docs/rules-conformance.md rather than
+    // guessed at; the card is registered because its main clause works, and
+    // coverage carries a PARTIALLY_IMPLEMENTED entry saying what is missing.
+    targeting: { kind: "chainSpell" },
+    resolve: (state, ctx, event) =>
+      event.targetChainCardInstanceId ? gainControlOfSpell(state, event.targetChainCardInstanceId, ctx.casterIndex) : state,
+  },
   "OGN-043": {
     // Charm — "Move an enemy unit."
     //

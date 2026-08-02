@@ -1,0 +1,122 @@
+import { isSpellChainEntry, type ChainEntry, type GameState, type SpellChainEntry } from "../model/game-state.js";
+import type { SpellInstance } from "../model/card.js";
+
+/**
+ * Countering a spell, and taking control of one — the two things a chain item can
+ * have done to it.
+ *
+ * Its own module because neither is an effect on the BOARD: every other helper in
+ * this engine changes units, gear or a player's zones, and these change the chain
+ * itself. Keeping them here also keeps `effect-helpers.ts` from having to import
+ * the chain types.
+ */
+
+/** Every spell currently waiting on the chain, with its position — the pool a
+ *  `chainSpell`-kind target is chosen from. */
+export function spellsOnChain(state: GameState): { entry: SpellChainEntry; index: number }[] {
+  return state.spellChain
+    .map((entry, index) => ({ entry, index }))
+    .filter((e): e is { entry: SpellChainEntry; index: number } => isSpellChainEntry(e.entry));
+}
+
+/**
+ * Does this waiting spell satisfy a counter's printed-cost filter?
+ *
+ * PRINTED cost, which the PDF states as a general rule and then works using Defy
+ * by name — a Rocket Barrage whose Repeat cost was paid is still a legal Defy
+ * target, because Defy only checks what the card prints.
+ *
+ * The Power test is "no more than N Power **of any domain**", which is a count of
+ * pips rather than a domain match: Defy's own text prints a single unnumbered
+ * rainbow pip, and the card image is what settled that it means 1 (Energy prints
+ * as a NUMBERED glyph, Power as COUNTED PIPS — see docs/rules-calls-resolved.md).
+ */
+export function matchesCostFilter(card: SpellInstance, maxPrintedEnergy?: number, maxPrintedPower?: number): boolean {
+  if (maxPrintedEnergy !== undefined && card.energyCost > maxPrintedEnergy) return false;
+  if (maxPrintedPower !== undefined && card.powerCost > maxPrintedPower) return false;
+  return true;
+}
+
+/** The waiting spells a counter with this filter could legally name. Asked by
+ *  both `legal-actions` and `validate-play-card`, so the enumerator and the
+ *  validator cannot disagree about what is counterable. */
+export function counterableSpells(
+  state: GameState,
+  maxPrintedEnergy?: number,
+  maxPrintedPower?: number,
+): { entry: SpellChainEntry; index: number }[] {
+  return spellsOnChain(state).filter(({ entry }) => matchesCostFilter(entry.card, maxPrintedEnergy, maxPrintedPower));
+}
+
+/**
+ * Removes a spell from the chain without resolving it — rule: a Countered spell
+ * is put into its owner's trash and its effect never happens.
+ *
+ * **The card is already in the trash** and that is not an oversight: this engine
+ * trashes a Spell when it is CAST, not when it resolves (see
+ * execute-play-card's chain push and execute-pass-focus's note that "the spell is
+ * already in the caster's trash at this point"). So countering is purely the
+ * removal of the pending item.
+ *
+ * **The subtle half: a countered card was never PLAYED.** The rules are explicit —
+ * "A card that is Countered is not considered to have been played for abilities
+ * that trigger on cards being played" — and this engine fires `cardPlayed` when a
+ * spell is CAST rather than when it resolves. So by the time a counter resolves,
+ * that event's triggers have already been held, and possibly already finalized
+ * onto the chain. Both places have to be swept, and getting it wrong is invisible
+ * in play: Cithria still grows, Darius still counts, and nothing errors.
+ *
+ * **`cardsPlayedThisTurn` is deliberately NOT decremented.** The same rules
+ * passage says `[Legion]` and cost-counting are explicitly unaffected by a
+ * counter — only the TRIGGERS are undone.
+ *
+ * A no-op when the id names nothing on the chain, which is a real case rather
+ * than defensive padding: two counters can be cast at the same target, and the
+ * second resolves after the first has already removed it.
+ */
+export function counterSpell(state: GameState, spellCardInstanceId: string): GameState {
+  const target = spellsOnChain(state).find(({ entry }) => entry.card.instanceId === spellCardInstanceId);
+  if (!target) return state;
+
+  const spellChain = state.spellChain
+    .filter((_, index) => index !== target.index)
+    .filter((entry) => !isPlayedTriggerFor(entry, spellCardInstanceId));
+  const pendingTriggers = state.pendingTriggers.filter((entry) => !isPlayedTriggerFor(entry, spellCardInstanceId));
+
+  return { ...state, spellChain, pendingTriggers };
+}
+
+/** Is this chain entry a `cardPlayed` trigger that fired for the countered card?
+ *  Those are the ones a counter unwinds — a trigger that fired for anything else,
+ *  including one the countered spell's own resolution would have caused, stays. */
+function isPlayedTriggerFor(entry: ChainEntry, spellCardInstanceId: string): boolean {
+  if (isSpellChainEntry(entry)) return false;
+  const event = entry.event as { kind?: string; playedInstanceId?: string };
+  return event?.kind === "cardPlayed" && event.playedInstanceId === spellCardInstanceId;
+}
+
+/**
+ * Moves a waiting spell's control to `playerIndex` — Mystic Reversal's "gain
+ * control of a spell".
+ *
+ * Control of a chain item is `playerIndex` on the entry, and it decides three
+ * separate things, which is why taking it is worth more than redirecting the
+ * effect: whose Legend fires on-spell-cast when it resolves, who gets priority
+ * for the fresh round of passes on it (345), and — for every effect that reads
+ * `ctx.casterIndex` — who "you" is. A card that draws now draws for the thief.
+ *
+ * **"You may make new choices for it" is NOT implemented**, and it is the half
+ * that needs a mid-resolution question the engine cannot yet ask: the choices
+ * were made when the spell was announced, and re-making them means offering the
+ * new controller the original spec's candidate list while a resolution is
+ * suspended. Recorded in docs/rules-conformance.md; the control change alone is
+ * the card's larger half and works on its own.
+ */
+export function gainControlOfSpell(state: GameState, spellCardInstanceId: string, playerIndex: 0 | 1): GameState {
+  const target = spellsOnChain(state).find(({ entry }) => entry.card.instanceId === spellCardInstanceId);
+  if (!target) return state;
+
+  const spellChain = [...state.spellChain];
+  spellChain[target.index] = { ...target.entry, playerIndex };
+  return { ...state, spellChain };
+}

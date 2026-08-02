@@ -218,8 +218,14 @@ export function implementingModule(defId: string): string | undefined {
  * when the rest lands. A card is either finished or it is on this list.
  */
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // EMPTY as of 2026-08-02, and that is the shape working rather than an
-  // omission. Entries are DELETED when the rest lands, never reworded: Sett - The
+  [
+    "OGN-080",
+    "its second sentence — 'you may make new choices for it' — is not written. Gaining control of the spell IS " +
+      "implemented (which moves who 'you' is for the whole resolution); re-choosing its targets needs a question " +
+      "asked while a resolution is suspended, offering the original spec's candidate list mid-chain",
+  ],
+  // The list above was EMPTY for a while, and that is the shape working rather
+  // than an omission. Entries are DELETED when the rest lands, never reworded: Sett - The
   // Boss lived here while only his on-conquer clause worked, Convergent Mutation
   // for the hours between its enumeration gap being found and `asymmetricSlots`
   // landing, and Spirit's Refuge until `granted-keywords.KEYWORD_AURAS` gave a

@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
+import { counterableSpells } from "./counter-spell.js";
 
 export interface BattlefieldUnitLocation {
   unit: UnitInstance;
@@ -417,6 +418,12 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       const trash = state.players[playerIndex].trash;
       return trash.some((c) => targeting.cardKind === undefined || c.kind === targeting.cardKind);
     }
+    case "chainSpell":
+      // Every counter in this pool is a [Reaction], so "is there a spell to
+      // counter" is genuinely the whole question — with an empty chain the card
+      // is uncastable rather than castable-and-inert, which is what the spec's
+      // own "targeting IS the effect" rule for Spells requires.
+      return counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower).length > 0;
     case "unitOrGear":
       return unitOrGearTargets(state).length > 0;
   }

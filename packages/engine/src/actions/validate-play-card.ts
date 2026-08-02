@@ -28,6 +28,7 @@ import {
   timingRejection,
 } from "../engine/timing.js";
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
+import { counterableSpells } from "../engine/counter-spell.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
@@ -210,6 +211,17 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
     if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
       return fail(`${card.name} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`);
+    }
+  } else if (targeting.kind === "chainSpell") {
+    if (!action.targetChainCardInstanceId) {
+      return fail(`${card.name} requires a spell on the chain to target`);
+    }
+    // Asked through the same predicate the enumerator fans out from, so a cost
+    // filter can never offer a target it then refuses. The cost is the target's
+    // PRINTED one — see counterableSpells.
+    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
+    if (!counterable.some(({ entry }) => entry.card.instanceId === action.targetChainCardInstanceId)) {
+      return fail(`${card.name} cannot target that spell`);
     }
   } else if (targeting.kind === "unitList") {
     // Accepts ANY legal set, not only the ones `legal-actions` sampled — that

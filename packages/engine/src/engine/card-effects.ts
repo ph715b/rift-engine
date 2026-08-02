@@ -182,6 +182,30 @@ export type TargetingSpec =
        */
       maxTotalMight?: number;
     }
+  /**
+   * A SPELL WAITING ON THE CHAIN — Wind Wall's "counter a spell", Defy's
+   * cost-restricted version, Mystic Reversal's "gain control of a spell".
+   *
+   * The first targeting kind that names a chain item rather than a permanent, and
+   * it is what makes `[Reaction]` mean anything: every card here is a Reaction,
+   * cast onto a chain that is already closed, and resolves BEFORE its target
+   * because the chain is LIFO (343).
+   *
+   * **A spell cannot target itself** — the rules say so outright, and here it is
+   * true by construction rather than by a check: `legal-actions` enumerates before
+   * the counter is pushed, so the counter is not on the chain to be seen. (The
+   * rules' matching exception, that an ABILITY of a permanent CAN target that
+   * permanent "because abilities and their sources are separate objects", has no
+   * card in this pool.)
+   *
+   * The cost filters read the target's **printed** cost, which the PDF states as a
+   * general rule and then works using Defy by name: "Effects that need to
+   * determine a card's cost for any purpose always use its printed or copied
+   * cost, even if that cost is increased, decreased, or ignored as the card is
+   * played." So Wallop and Call to Glory, whose `ignoresCostWhenPaid` zeroes what
+   * they cost to play, are still judged at what they print.
+   */
+  | { kind: "chainSpell"; maxPrintedEnergy?: number; maxPrintedPower?: number }
   | { kind: "unitOrGear" };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
@@ -243,6 +267,11 @@ export interface ResolveEvent {
    * `targetPermanentInstanceId` records one field up.
    */
   targetUnitInstanceIds?: readonly string[];
+  /** The SPELL on the chain a `chainSpell`-kind spec named — by its card's
+   *  instanceId rather than by a chain index, because the chain moves between
+   *  announcing and resolving and an index would silently come to mean a
+   *  different item. */
+  targetChainCardInstanceId?: string;
 }
 
 export interface EffectDefinition {

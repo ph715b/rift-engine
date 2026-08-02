@@ -30,6 +30,9 @@ export interface SpellChainEntry {
    *  the spell was ANNOUNCED — which is what lets a card read another chain
    *  item's target set while it waits here. */
   targetUnitInstanceIds?: readonly string[];
+  /** Only meaningful for a `chainSpell`-kind TargetingSpec — the spell BELOW
+   *  this one that it counters or takes control of. */
+  targetChainCardInstanceId?: string;
   /** Only meaningful for a "battlefield"-kind TargetingSpec. */
   targetBattlefieldId?: string;
   /** Only meaningful for an "ownTrashCard"-kind TargetingSpec. */
