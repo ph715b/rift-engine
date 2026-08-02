@@ -1340,6 +1340,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ...(pendingPlay.destinationBattlefieldId !== undefined && pendingPlay.destinationBattlefieldId !== BASE_ZONE_ID
         ? { destinationBattlefieldId: pendingPlay.destinationBattlefieldId }
         : {}),
+      // [Accelerate], and it is NOT optional to copy. `pendingLegalAction` resolves
+      // to the accelerated candidate once the toggle is on, so the cost quoted and
+      // paid is the accelerated one (4E+2P against 3E+1P) — but this action is
+      // rebuilt field by field, and omitting the flag submitted the PLAIN variant
+      // carrying the accelerated payment. validate-play-card recomputes the cost
+      // from the flag, saw a payment that did not match, and refused: the card sat
+      // fully paid and never left the champion zone.
+      //
+      // Spread only when true: the field is typed `?: true`, and absent is how the
+      // engine spells "declined".
+      ...(pendingPlay.acceleratePaid ? { acceleratePaid: true as const } : {}),
     };
     applyAction(action);
     // eslint-disable-next-line react-hooks/exhaustive-deps
