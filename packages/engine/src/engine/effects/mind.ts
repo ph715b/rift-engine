@@ -6,14 +6,19 @@ import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard } from "../hidden.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import {
+  channelRunesExhausted,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
   exhaustAllFriendlyUnits,
   giveMightThisTurn,
   giveMightThisTurnToAllEnemies,
+  readyUnit,
   recycleUnitFromPlayToDeck,
+  returnUnitToHand,
 } from "../effect-helpers.js";
-import type { PlayerState } from "../../model/game-state.js";
+import { effectiveMight } from "../effective-might.js";
+import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for **Mind** — one file, one owner.
@@ -45,6 +50,15 @@ import type { PlayerState } from "../../model/game-state.js";
 /** Sprite Call's token: 3 Might, enters ready, and dies at the start of its
  *  controller's next Beginning Phase (rule 816). */
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
+
+/** The non-combat MightContext for a unit wherever it is standing — the same
+ *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
+ *  because Convergent Mutation compares two units' Might across zones. */
+function mightContextFor(state: GameState, location: AnyUnitLocation) {
+  return location.zone === "base"
+    ? { isCombat: false }
+    : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+}
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "OGN-123": {
@@ -136,6 +150,98 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) => giveMightThisTurn(state, event.targetUnitInstanceId!, -4, 1),
   },
+  "OGN-104": {
+    // Retreat — "[Reaction] Return a friendly unit to its owner's hand. Its
+    // owner channels 1 rune exhausted."
+    //
+    // scope "anywhere": the text says "a friendly unit", not "at a battlefield",
+    // and 355.9.b puts Bases among the public zones a target may be drawn from.
+    // Bouncing a unit out of your own base is a real (if narrow) play — it
+    // re-arms an on-play trigger — so it is not worth narrowing on a guess.
+    //
+    // The owner is looked up BEFORE the bounce rather than assumed to be the
+    // caster. It always IS the caster today (control and ownership are the same
+    // thing in this engine — OGN-203 is the only card that would separate them
+    // and it is unimplemented), but "its owner" is what the card says, and the
+    // lookup has to happen first either way: after returnUnitToHand the unit is
+    // in a hand and findUnitAnywhere no longer sees it.
+    //
+    // A target that left play while this sat on the chain does NOTHING AT ALL,
+    // including the channel. That is not the usual defensive no-op: rule 359.3.e
+    // says "if any of the spell's targets are no longer legal ... any
+    // instructions related to an illegal target can't be followed", and the
+    // second sentence names "ITS owner" — it is an instruction about the target.
+    // Contrast the rules' own Void Seeker example ("Deal 4 to a unit at a
+    // battlefield. Draw 1."), where the draw survives because it refers to
+    // nothing.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId!);
+      if (!location) return state;
+      return channelRunesExhausted(returnUnitToHand(state, location.unit.instanceId), location.ownerIndex, 1);
+    },
+  },
+  "OGN-108": {
+    // Convergent Mutation — "[Reaction] Choose a friendly unit. This turn,
+    // increase its Might to the Might of another friendly unit."
+    //
+    // Two friendly targets and the slots are NOT interchangeable: slot 0 is the
+    // unit that grows, slot 1 is only measured. See the reachability note below.
+    //
+    // "INCREASE its Might TO x" is arithmetic, not assignment, and the rules
+    // separate those two layers explicitly (rule 477's layer list): "A unit's
+    // Might becomes 4 this turn" is set in the assignment layer, whereas
+    // "Increase a friendly unit's Might to 5" is worked in the Arithmetic layer
+    // as a positive delta. That is why this is a `giveMightThisTurn` and not a
+    // new set-to-a-value primitive — and why it stacks with, rather than wipes,
+    // an existing modifier.
+    //
+    // The delta is clamped at 0 by the same rules text: "Players cannot increase
+    // a numeric attribute by a negative amount. If an effect would instruct a
+    // player to do so, they increase it by 0 instead." So naming a SMALLER donor
+    // is legal and does nothing; it never shrinks the chosen unit.
+    //
+    // EFFECTIVE Might on both sides, not printed — the Arithmetic layer runs on
+    // the value the rest of the game sees, so a donor pumped by Discipline
+    // donates the pumped number and a chosen unit already under a buff needs
+    // less to catch up. Rule 463 ("effects that calculate Might increases and
+    // decreases use the actual value") is why a stunned donor still donates its
+    // real Might rather than the 0 combat treats it as; `effectiveMight` does not
+    // zero stunned units, so this gets that for free.
+    //
+    // Snapshotted, per the same Arithmetic-layer rule: the delta is computed once
+    // at resolution and stored, so the chosen unit does not track the donor
+    // afterwards. If the donor is killed a moment later the growth stays.
+    //
+    // `min: 2` — Gentlemen's Duel's precedent rather than Back to Back's `min: 0`.
+    // "Increase its Might to the Might of ANOTHER friendly unit" has no reading
+    // with one unit on the board: there is no value to increase to, so the card
+    // is uncastable rather than castable-and-inert.
+    //
+    // **HALF-REACHABLE — measured, not suspected.** legal-actions.ts collapses a
+    // two-slot spec whose roles are equal (`symmetric = slots[0] === slots[1]`)
+    // and enumerates only one ordering of each pair, on the reasoning that
+    // (A,B) and (B,A) are "the SAME choice". True for Back to Back and
+    // Singularity, which apply the same thing to each unit; FALSE here, where
+    // the ordering IS the decision. So a real player or the AI is offered
+    // exactly one of "grow A to B" / "grow B to A", and with a 5-Might A and a
+    // 2-Might B it is the one that increases by 0. The resolver below is correct
+    // and fires through submit for either ordering; only the enumeration is
+    // short. Fixing it needs an `asymmetricSlots` opt-out in legal-actions.ts,
+    // which is not this file — see cards-ready-mind.test.ts, which pins the
+    // current behaviour so the gap stays visible instead of looking like a
+    // working card.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const chosen = findUnitAnywhere(state, event.targetUnitInstanceId!);
+      const donor = findUnitAnywhere(state, event.secondTargetUnitInstanceId!);
+      if (!chosen || !donor) return state; // either target gone: 359.3.e again
+      const chosenMight = effectiveMight(state, chosen.unit, chosen.ownerIndex, mightContextFor(state, chosen));
+      const donorMight = effectiveMight(state, donor.unit, donor.ownerIndex, mightContextFor(state, donor));
+      const increase = Math.max(0, donorMight - chosenMight);
+      return increase > 0 ? giveMightThisTurn(state, chosen.unit.instanceId, increase) : state;
+    },
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -206,11 +312,44 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => giveMightThisTurnToAllEnemies(state, ctx.casterIndex, -3, 1),
   },
+  "OGN-106": {
+    // Sprite Mother — "When you play me, play a ready 3 Might Sprite unit token
+    // with [Temporary] HERE."
+    //
+    // The same token Sprite Call makes (SPRITE_TOKEN above), so the spec is
+    // shared rather than re-declared: two copies of "3 Might, ready, Temporary"
+    // is exactly the drift token.ts's spec parameter was added to prevent.
+    //
+    // "Here" is wherever SHE landed, which the trigger event already carries as
+    // `destination` — Faithful Manufactor's precedent. Played to base, "here" is
+    // the base; that is not a special case, it is what `UnitPlayDestination`
+    // means. Nothing is chosen, so targeting stays "none".
+    //
+    // placeToken applies Contested for a battlefield destination (190.4), which
+    // matters: she can only be played to a battlefield she reinforces or one you
+    // control, but a Showdown already staged there is promoted by the token
+    // becoming present just as it would be by any other arrival.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => placeToken(state, ctx.casterIndex, event.destination, SPRITE_TOKEN),
+  },
 };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {};
+export const deathTriggers: Record<string, DeathknellEffect> = {
+  // Watchful Sentry — "[Deathknell] — Draw 1." (rule 808, "When I die, [Effect]".)
+  //
+  // The DYING unit's controller draws, not whoever killed it: dispatchOnUnitDied
+  // builds this ctx from `death.ownerIndex`, which is the whole reason a
+  // Deathknell is keyed by the dying card rather than walked as a listener.
+  // Killing a Sentry therefore pays its owner, which is what makes a 2-Energy
+  // 1-Might body worth playing at all.
+  //
+  // Nothing here is conditional on HOW it died: 808 is every death, and the
+  // funnel dispatchOnUnitDied sits behind (damage, destroy, combat) is what
+  // makes that true rather than three separate sites remembering to fire.
+  "OGN-096": (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
@@ -314,6 +453,31 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (state.activePlayerIndex === listener.ownerIndex) return state; // not an opponent's turn
       // "in your base" is stated, so the destination is fixed rather than chosen.
       return placeRecruitToken(state, listener.ownerIndex, "base");
+    },
+  },
+  "OGN-091": {
+    // Pit Crew — "When you play a gear, ready me."
+    //
+    // Rides the existing `cardPlayed` event, whose `playedKind` is a REQUIRED
+    // field precisely so a listener can ask what was played without a producer
+    // being able to omit the answer. No new event, no new field.
+    //
+    // "YOU play" is the caster against the listener's controller — the opponent
+    // equipping their own board must not ready mine. Deliberately NOT the check
+    // Viktor - Innovator makes above (his is caster vs the ACTIVE player, which
+    // is a different question and would fire this only on the opponent's turn).
+    //
+    // `readyUnit` rather than `readyPermanent`: "ready me" is a unit readying
+    // itself, and Pit Crew can be standing in base or at a battlefield, both of
+    // which readyUnit reaches. Already-ready is a harmless no-op, so there is no
+    // exhaustion guard — a trigger that fired and changed nothing and a trigger
+    // that did not fire are the same board here.
+    on: "cardPlayed",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state; // not YOUR gear
+      if (event.playedKind !== "Gear") return state;
+      return readyUnit(state, listener.card.instanceId);
     },
   },
 };

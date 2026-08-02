@@ -12,21 +12,32 @@ from card names. Verdict totals:
 
 ## Two bugs found that the survey was not looking for
 
-**1. LIVE — `combat.assignmentOrder` ignores granted keywords.** `combat.ts:72,74` is the
-only keyword read in the file and it reads printed `u.keywords`; it never imports
-`effectiveKeywords`. `grantKeywordThisTurn` writes to `keywordsThisTurn`. So **Block
-(OGN-057) is half inert while reporting as implemented** — its `[Shield 3]` works
-(effective-might reads through `effectiveKeywords`), its `[Tank]` does nothing. The card's
-own comment states the failed assumption: "[Tank] is 'must be assigned combat damage
-first' (combat.ts owns that)". Fix is small: `assignmentOrder` needs `state` + owner index,
-both already in scope at its two call sites in `resolveShowdown`.
+**Both are FIXED as of 2026-08-02 — and the second one was not the bug it was reported as.
+Read the correction below before quoting it.**
 
-**2. LATENT — activation Energy+Power double-spends a rune.** `activationPayment` calls
-`computeAutoPayment(channeled, energy, 0, null)` — Power hardcoded to `0` — while
-`payActivationCost` pays Power FIRST (`activated-abilities.ts:718`), recycling a rune. If
-auto-payment picked that rune, the Energy payment then fails and `executeActivateAbility`
-throws on an action `legal-actions` offered as legal. Verified not triggered today: no
-registered ability combines `energy` with `power`. OGN-242 Baited Hook would be the first.
+**1. LIVE — `combat.assignmentOrder` ignored granted keywords.** `combat.ts:72,74` was the
+only keyword read in the file and it read printed `u.keywords`; it never imported
+`effectiveKeywords`. `grantKeywordThisTurn` writes to `keywordsThisTurn`. So **Block
+(OGN-057) was half inert while reporting as implemented** — its `[Shield 3]` worked
+(effective-might reads through `effectiveKeywords`), its `[Tank]` did nothing. The card's
+own comment stated the failed assumption: "[Tank] is 'must be assigned combat damage
+first' (combat.ts owns that)". Fixed by asking through `hasKeyword`; `assignmentOrder` now
+takes `state` + the owner index, both already in scope at its two call sites in
+`resolveShowdown`. Two regression tests, each written to fail against the old code first.
+
+**2. NOT a bug — activation Energy+Power does NOT double-spend a rune.** The claim was
+that `activationPayment`'s hardcoded `computeAutoPayment(channeled, energy, 0, null)`
+could name a rune that `payActivationCost` then recycles paying Power first
+(`activated-abilities.ts:718`), so the Energy payment fails and `executeActivateAbility`
+throws on an action `legal-actions` offered as legal. **It cannot.** Recycling a READY rune
+banks exactly 1 floating Energy (`payPowerFromChanneled`), which covers precisely the 1
+Energy that rune could have paid; recycling an Exhausted one removes a rune that could not
+have paid Energy anyway. The two errors cancel for every pool and every cost — pre-Power
+pricing and post-Power payment are exactly equivalent, so the throw is unreachable, not
+merely unreached. `activationPayment` was rewritten anyway to take the whole
+`ActivationCost` and apply the Power step first, so the agreement is by construction rather
+than by that arithmetic coincidence — the card that would inherit the coincidence is
+OGN-242 Baited Hook, the first to combine `energy` with `power`.
 
 ---
 
@@ -148,7 +159,7 @@ true model change, lowest leverage per unit of risk).
 
 ## Suggested order
 
-1. The **live Block/Tank bug** (small, and it is a card silently half-working today).
+1. ~~The **live Block/Tank bug**~~ — done 2026-08-02, see the correction above.
 2. **Cluster 1** — 29 cards, no engine risk, and it more than triples the pool's working
    card count in one sweep.
 3. **Cluster 2's `unitMoved` event** — 4 cards for one event + one integer, written as a

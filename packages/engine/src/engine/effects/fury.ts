@@ -11,9 +11,11 @@ import {
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   legionActive,
+  ownUnitsEverywhere,
   payPowerFromChanneled,
   readyUnit,
 } from "../effect-helpers.js";
+import { isMighty } from "../granted-keywords.js";
 import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
@@ -263,6 +265,31 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => discardCards(state, ctx.casterIndex, 1),
   },
+  "OGN-038": {
+    // Kadregrin the Infernal — "When you play me, draw 1 for each of your
+    // [Mighty] units."
+    //
+    // `isMighty` rather than a hand-written `>= 5`, and that is not tidiness:
+    // rule 711 asks about a unit's CURRENT Might, so a 3-Might body standing
+    // under Garen - Commander with a buff is Mighty and a hardcoded comparison
+    // against `unit.might` would miss it. That helper is also asked with
+    // `isCombat: false` on purpose (see its doc comment) — Mighty is a property
+    // of the unit, not of a fight, so `[Assault]` never pushes one over the line.
+    //
+    // **He counts himself, and that is the printed text.** `dispatchOnPlayUnit`
+    // runs after execute-play-card has already put him on the board, so
+    // `ownUnitsEverywhere` sees him — and at a printed 9 Might he is always
+    // Mighty, which makes this card draw at least 1 rather than sometimes 0.
+    // The text says "each of YOUR Mighty units" with no "other", exactly as
+    // Sett - Kingpin's aura omits the "other" that Garen and Lee Sin print.
+    //
+    // "YOUR" units, base and battlefields both — nothing here is positional.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const mighty = ownUnitsEverywhere(state, ctx.casterIndex).filter((u) => isMighty(state, u, ctx.casterIndex)).length;
+      return drawCards(state, ctx.casterIndex, mighty);
+    },
+  },
 };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
@@ -307,10 +334,21 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // The [Accelerate] on her frame is a cost keyword handled at play time
     // (805); it does not gate this trigger, which is why nothing here reads it.
     on: "battlefieldConquered",
+    // `battlefieldConquered` is held as a Chain Pending Item (383), so both
+    // conditions have to be asked BEFORE the trigger goes on the chain — holding
+    // one for a conquest elsewhere, or for the opponent's, would cost both
+    // players a PassFocus for an ability that resolves to nothing.
+    //
+    // The location check is not repeated in `resolve`: 383 fixes what triggered
+    // at the moment of the event, and the window the hold opens is exactly when
+    // she could be moved off it.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldConquered") return state;
       if (event.conquerorIndex !== listener.ownerIndex) return state;
-      if (listener.battlefieldId !== event.battlefieldId) return state;
       return drawCards(state, listener.ownerIndex, 1);
     },
   },

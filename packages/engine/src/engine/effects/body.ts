@@ -10,6 +10,7 @@ import {
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
   giveMightThisTurn,
+  ownUnitsEverywhere,
   payPowerFromChanneled,
   readyPermanent,
   readyUnit,
@@ -153,33 +154,85 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // standing in its owner's BASE — including the opponent's. Same reading as
     // Final Spark's "deal 8 to a unit"; base is not a safe parking spot.
     //
-    // The Might-in-its-zone lookup below is duplicated from Gentlemen's Duel
-    // rather than shared: the shared home for it would be effect-helpers.ts, and
-    // this file's owner doesn't own that one. Worth folding into a single
-    // `unitsDuel` helper the next time either card is touched.
+    // The Might-in-its-zone lookup is now `unitsDuel` at the foot of this file —
+    // the fold this comment used to ask for, taken the moment a second Body card
+    // (Carnivorous Snapvine) printed the same sentence. Gentlemen's Duel still
+    // carries its own copy in card-effects.ts, which this file's owner doesn't own.
     targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      unitsDuel(state, ctx.casterIndex, event.targetUnitInstanceId!, event.secondTargetUnitInstanceId!),
+  },
+  "OGN-146": {
+    // Wallop — "[Action] As you play this, you may spend a buff as an additional
+    // cost. If you do, ignore this spell's cost. Ready a unit."
+    //
+    // **HALF-IMPLEMENTED, deliberately.** The optional additional cost and the
+    // cost-ignoring are a COST, and costs live in card-effects.ts's
+    // OPTIONAL_UNIT_COSTS — the entry this card needs is
+    // `"OGN-146": { kind: "spendBuffFriendly", ignoresCostWhenPaid: true }`,
+    // exactly Call to Glory's (OGN-207). Without it `legal-actions` never
+    // enumerates a paid variant and `validate-play-card` refuses one, so the
+    // `spendBuff` branch below is currently unreachable: Wallop plays at its
+    // printed 2 Energy and readies a unit, and the free-cast mode does not exist.
+    // The branch is written anyway so the card is complete the moment that one
+    // line lands, rather than needing a second author to notice it is missing.
+    //
+    // "Ready a unit" — the bare noun, so scope "anywhere" with no owner
+    // restriction (355.9.b). Readying an ENEMY unit is a bad play, not an illegal
+    // one; same reading Call to Glory's "a unit" and First Mate's "ready another
+    // unit" already take, and base is where an exhausted unit usually sits.
+    targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, ctx, event) => {
-      const friendlyId = event.targetUnitInstanceId!;
-      const enemyId = event.secondTargetUnitInstanceId!;
-
-      // A chosen unit can be gone by the time this resolves (killed by something
-      // earlier on the chain) — then nobody duels, the same "target vanished"
-      // no-op convention every other effect here uses.
-      const friendlyLocation = findUnitAnywhere(state, friendlyId);
-      const enemyLocation = findUnitAnywhere(state, enemyId);
-      if (!friendlyLocation || !enemyLocation) return state;
-
-      // A base unit has no battlefield id; auras keyed on location (Garen -
-      // Commander) read that omission as "base".
-      const mightCtx = (location: AnyUnitLocation) =>
-        location.zone === "base"
-          ? { isCombat: false }
-          : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
-      const friendlyMight = effectiveMight(state, friendlyLocation.unit, friendlyLocation.ownerIndex, mightCtx(friendlyLocation));
-      const enemyMight = effectiveMight(state, enemyLocation.unit, enemyLocation.ownerIndex, mightCtx(enemyLocation));
-
-      const afterEnemyDamage = dealDamage(state, ctx.casterIndex, enemyId, friendlyMight);
-      return dealDamage(afterEnemyDamage, ctx.casterIndex, friendlyId, enemyMight);
+      const paid =
+        event.additionalCostUnitInstanceId !== undefined
+          ? (spendBuff(state, ctx.casterIndex, event.additionalCostUnitInstanceId) ?? state)
+          : state;
+      return event.targetUnitInstanceId ? readyUnit(paid, event.targetUnitInstanceId) : paid;
+    },
+  },
+  "OGN-153": {
+    // Overt Operation — "[Action] For each friendly unit, you may spend its buff
+    // to ready it. Then buff all friendly units."
+    //
+    // Targeting is "none" because nothing here is chosen when the card is
+    // announced: "for each friendly unit" is a sweep over the board as it stands
+    // at RESOLUTION, and each "you may" is answered then. That is what
+    // engine/decisions.ts exists for — the fan-out-onto-the-action approach
+    // cannot express one question per unit, and 2^N variants would be a lie
+    // about when the choice is made anyway.
+    //
+    // One question per BUFFED friendly unit. Unbuffed ones are skipped rather
+    // than asked-and-declined: rule 705 forbids spending a buff that isn't there,
+    // so their "you may" has no payable side and advanceDecisions would drop the
+    // one-option question on sight.
+    //
+    // READY buffed units ARE still asked, even though readying a ready unit does
+    // nothing. The spend is not wasted — "then buff all friendly units" hands the
+    // buff straight back (708 makes it a no-op only for units that kept theirs),
+    // so the answer is at worst neutral and at best fires `unitBuffed` again for
+    // Mistfall. Filtering them out would take a legal, occasionally useful answer
+    // away; the precedent for pruning (Mistfall's own exhausted-only offer) is
+    // about an unpayable COST, which this is not.
+    //
+    // "THEN buff all friendly units" is queued as its own single-option decision
+    // rather than applied here, and the "then" is what forces that: every spend
+    // must land before any buff does, or a unit re-buffed early could have that
+    // same buff spent by a later answer. Same reason Undercover Agent's "discard
+    // 2, then draw 2" queues its draw (see decisions.ts's `draw`).
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const asked = ownUnitsEverywhere(state, ctx.casterIndex)
+        .filter((u) => u.buffed)
+        .reduce(
+          (next, unit) =>
+            parkDecision(next, {
+              kind: "OGN-153-spend",
+              playerIndex: ctx.casterIndex,
+              targetInstanceId: unit.instanceId,
+            }),
+          state,
+        );
+      return parkDecision(asked, { kind: "OGN-153-buff-all", playerIndex: ctx.casterIndex });
     },
   },
 };
@@ -262,6 +315,32 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return readyUnit(addBuff(paid, unitInstanceId), unitInstanceId);
     },
   },
+  "OGN-149": {
+    // Carnivorous Snapvine — "When you play me, choose an enemy unit at a
+    // battlefield. We deal damage equal to our Mights to each other."
+    //
+    // Challenge's duel (above) with the friendly slot pinned to the Snapvine
+    // itself, so it shares `unitsDuel` and inherits the ordering that matters:
+    // both Mights are read BEFORE either damage lands, so a target killed
+    // outright still hits back for its full Might.
+    //
+    // Scope differs from Challenge and it is printed, not incidental: "an enemy
+    // unit AT A BATTLEFIELD", so the default battlefield scope stands and a unit
+    // sitting in the opponent's base cannot be picked. The SNAPVINE, though, may
+    // be anywhere — playing it to your own base and shooting across the board is
+    // a legal (and expensive) line, which is why the duel looks its own location
+    // up rather than assuming `event.destination`.
+    //
+    // Guarded on the target because a Unit is playable with its trigger's target
+    // omitted when the board offered none (validate-play-card's
+    // targetOmissionAllowed) — a Snapvine played into an empty board deploys and
+    // fights nobody.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, unitInstanceId, event) =>
+      event.targetUnitInstanceId
+        ? unitsDuel(state, ctx.casterIndex, unitInstanceId, event.targetUnitInstanceId)
+        : state,
+  },
 };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
@@ -306,10 +385,27 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // taken — the same reading Kai'Sa - Survivor takes, and what separates a
     // unit's conquer trigger from a Legend's "when you conquer".
     on: "battlefieldConquered",
+    // Both conditions decide whether this goes ON THE CHAIN, so they belong here
+    // and not only in `resolve` — `battlefieldConquered` is a held event now, and
+    // a trigger held for a conquest that is not his opens a response window for
+    // nothing.
+    //
+    // The LOCATION check is here and NOT re-checked in `resolve`, deliberately.
+    // 383 fixes what triggered at the moment of the event; between then and the
+    // resolution there is a real window in which Sett can be moved, killed or
+    // bounced, and 809.1.b.3 exists precisely so a permanent that has left still
+    // resolves its trigger. Re-asking at resolution would let the opponent cancel
+    // a fired trigger by pushing him one battlefield sideways.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldConquered") return state;
+      // The conqueror check survives here because it reads only the event and the
+      // listener's owner, neither of which the response window can change. The
+      // location check does not — see `applies`.
       if (event.conquerorIndex !== listener.ownerIndex) return state;
-      if (listener.battlefieldId !== event.battlefieldId) return state;
       return addBuff(state, listener.card.instanceId);
     },
   },
@@ -363,10 +459,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Her `[Deflect]` is a separate, still-unimplemented clause — the card stays
     // correctly reported as partial (coverage.ts's UNIMPLEMENTED_KEYWORDS).
     on: "battlefieldConquered",
+    // Same shape as Sett - Brawler above, and for the same reasons: both
+    // conditions gate whether this reaches the chain, and the location one is
+    // deliberately not re-asked in `resolve`. Her question is worth more than his
+    // buff, so cancelling it by moving her would be a real exploit.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldConquered") return state;
       if (event.conquerorIndex !== listener.ownerIndex) return state;
-      if (listener.battlefieldId !== event.battlefieldId) return state;
       return parkDecision(state, { kind: "OGN-155-conquer", playerIndex: listener.ownerIndex });
     },
   },
@@ -462,7 +565,92 @@ export const decisions: Record<string, DecisionDefinition> = {
       return readyUnit(exhaustGear(paid, d.playerIndex, d.cardInstanceId!), d.targetInstanceId!);
     },
   },
+  // Overt Operation's "for each friendly unit, you may spend its buff to ready
+  // it" — one of these per buffed friendly unit, raised in board order.
+  //
+  // The unit rides on `targetInstanceId` rather than being re-derived from the
+  // board, for Mistfall's reason above: "its buff" means THIS unit's, and by the
+  // time this question reaches the front an earlier answer may have changed what
+  // is buffed. Options are still rebuilt live, so a unit that lost its buff (or
+  // died) in the meantime is simply no longer offered the spend.
+  "OGN-153-spend": {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      return `Overt Operation: spend ${unit?.unit.name ?? "this unit"}'s buff to ready it?`;
+    },
+    options: (state, d) => {
+      // Declining first, so a mis-click and the AI's tie-break both do nothing —
+      // the same ordering Mistfall and Miss Fortune - Captain use.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const found = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      // Ownership is re-checked as well as the buff: 705.1 restricts spending to
+      // units you control, and control can move (Hostile Takeover) between the
+      // question being raised and answered.
+      if (found && found.ownerIndex === d.playerIndex && found.unit.buffed) {
+        options.push({ id: "spend", label: `Spend ${found.unit.name}'s buff to ready it`, instanceId: found.unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "spend") return state;
+      const paid = spendBuff(state, d.playerIndex, d.targetInstanceId!);
+      if (!paid) return state; // cost unpayable (705/705.1) — no ready
+      return readyUnit(paid, d.targetInstanceId!);
+    },
+  },
+  // Overt Operation's "Then buff all friendly units."
+  //
+  // Never a real question — one option, so `advanceDecisions` executes it the
+  // instant it reaches the front and no player is ever shown it. It exists only
+  // to sit BEHIND the spend questions in the queue, which is the whole of what
+  // "then" asks for. Exactly decisions.ts's `draw` precedent.
+  //
+  // The roster is re-read here rather than snapshotted when the card resolved,
+  // because a unit that died to something on the chain must not be buffed and
+  // one that arrived should be.
+  "OGN-153-buff-all": {
+    prompt: () => "Overt Operation: buff all friendly units",
+    options: () => [{ id: "buff", label: "Buff all friendly units" }],
+    resolve: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).reduce((next, unit) => addBuff(next, unit.instanceId), state),
+  },
 };
+
+/**
+ * Two units dealing damage equal to their Mights to each other — Challenge's
+ * whole text, and Carnivorous Snapvine's second sentence.
+ *
+ * **Both Mights are read before either damage instance is dealt.** That ordering
+ * is the load-bearing part: the first duellist to die still lands its full Might
+ * on the way out, where deal-then-read would let its death silently shrink the
+ * damage coming back. The two damages are still applied one after the other,
+ * because `dealDamage` is the single death choke point (Deathknells, death
+ * wards) — simultaneity here is about the AMOUNTS, which the snapshot gives.
+ *
+ * `firstId` takes damage second, so the caller's slot order survives: Challenge
+ * passes (friendly, enemy) and the enemy is hit first, exactly as before.
+ *
+ * A duellist that is already gone (killed earlier on the chain, or never chosen)
+ * cancels the whole exchange rather than half of it — the "target vanished"
+ * no-op convention, and it returns the state untouched rather than merely equal.
+ */
+function unitsDuel(state: GameState, casterIndex: 0 | 1, firstId: string, secondId: string): GameState {
+  const first = findUnitAnywhere(state, firstId);
+  const second = findUnitAnywhere(state, secondId);
+  if (!first || !second) return state;
+
+  // A base unit has no battlefield id; auras keyed on location (Garen -
+  // Commander) read that omission as "base".
+  const mightCtx = (location: AnyUnitLocation) =>
+    location.zone === "base"
+      ? { isCombat: false }
+      : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+  const firstMight = effectiveMight(state, first.unit, first.ownerIndex, mightCtx(first));
+  const secondMight = effectiveMight(state, second.unit, second.ownerIndex, mightCtx(second));
+
+  const afterSecondDamage = dealDamage(state, casterIndex, secondId, firstMight);
+  return dealDamage(afterSecondDamage, casterIndex, firstId, secondMight);
+}
 
 /** Exhausts a gear its controller owns — Mistfall pays with itself. */
 function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: string): GameState {

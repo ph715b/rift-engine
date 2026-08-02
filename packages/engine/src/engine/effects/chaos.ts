@@ -4,11 +4,15 @@ import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTr
 import type { DecisionDefinition } from "../decisions.js";
 import {
   channelRunesExhausted,
+  dealDamage,
   discardCards,
   discardThenDraw,
   drawCards,
+  forceMoveToBattlefield,
   giveMightThisTurnToOwnUnit,
   grantTemporary,
+  ownUnitsEverywhere,
+  payPowerFromChanneled,
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
@@ -16,7 +20,11 @@ import {
   swapUnitLocations,
   takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
-import { parkDecision } from "../decisions.js";
+import { killGear } from "../triggers.js";
+import { playUnitToBase } from "../deploy.js";
+import { parkDecision, type DecisionOption } from "../decisions.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { UnitInstance } from "../../model/card.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -46,6 +54,36 @@ import { parkDecision } from "../decisions.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-173": {
+    // Ride The Wind — "[Action] Move a friendly unit and ready it."
+    //
+    // The destination rides on `destinationBattlefieldId`, which is only
+    // enumerated for cards named in card-effects.ts's MOVE_TARGET_SPELL_DEF_IDS
+    // (`cardMovesTarget`) — without that entry this resolver would always be
+    // handed `undefined` and the card would be castable, inert and reported as
+    // done. It is the third card in that set, after Charm and Showstopper.
+    //
+    // `scope: "anywhere"`, not the default: "a friendly unit" is 355.9.b's bare
+    // noun, so a unit in base is a legal choice — and it is the main one, since
+    // this is how the card deploys. Charm's "an ENEMY unit" is the contrast.
+    //
+    // MOVE then READY, printed order. It matters: moving into a contested
+    // battlefield is what opens the Showdown, and arriving ready is what lets the
+    // unit fight in it. Readying first and moving second reaches the same board,
+    // but through a state the card does not describe.
+    //
+    // `forceMoveToBattlefield` rather than a list splice, because the move must
+    // apply Contested and stage the Showdown — the same funnel Charm uses. Note
+    // this is a MOVE, so it is exactly the kind [Ganking] and the move validator
+    // constrain for a player-initiated MoveUnit; a spell moving a unit is not
+    // subject to those, which is what makes the card worth casting.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const { targetUnitInstanceId: unitId, destinationBattlefieldId: destination } = event;
+      if (!unitId || !destination) return state;
+      return readyUnit(forceMoveToBattlefield(state, unitId, destination), unitId);
+    },
+  },
   "OGN-172": {
     // Rebuke — "[Action] Return a unit at a battlefield to its owner's hand."
     //
@@ -113,7 +151,91 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unit" },
     resolve: (state, _ctx, event) =>
       event.targetUnitInstanceId ? recallUnitToBase(state, event.targetUnitInstanceId) : state,
-  },};
+  },
+  "OGN-179": {
+    // Acceptable Losses — "[Action] Each player kills one of their gear."
+    //
+    // Cull the Weak (OGN-209, effects/order.ts) with gear in place of units, and
+    // it is the same card structurally: no targeting spec, because the caster
+    // does not pick two victims — each player picks their OWN, at resolution,
+    // through engine/decisions.ts. Fanning the choice onto the action would also
+    // commit it at cast time, and the opponent may respond on the chain in
+    // between; "one of their gear" means the gear they still have when this
+    // resolves.
+    //
+    // APNAP by rule 894 ("Turn Order is referenced to organize the sequence of
+    // actions, starting with the current Turn Player"), which the FIFO decision
+    // queue implements for free: the order the questions are parked in is the
+    // order they are answered in.
+    targeting: { kind: "none" },
+    resolve: (state) => askInTurnOrder(state, "OGN-179-kill", state.activePlayerIndex),
+  },
+  "OGN-187": {
+    // Whirlwind — "Starting with the next player, each player may return a unit
+    // to its owner's hand."
+    //
+    // "Starting with the NEXT player" is an explicit override of rule 894's
+    // default, which sequences simultaneous actions "starting with the current
+    // Turn Player" — so this is the one card in the pool that runs APNAP
+    // backwards, and the non-turn player answers first. That difference is the
+    // whole reason the card names an order at all, and it is real in play: the
+    // opponent has to commit before you do.
+    //
+    // Anchored on `activePlayerIndex` rather than the caster because "next" is
+    // defined against TURN ORDER (175/179), not against whoever is resolving.
+    // The two coincide here anyway — Whirlwind prints neither [Action] nor
+    // [Reaction], so only the turn player can ever cast it.
+    //
+    // "A unit", not "a unit at a battlefield" — 355.9.b's bare noun, so a unit
+    // sitting in either base is on offer too. Rebuke (above) prints the narrower
+    // wording and gets the narrower reach; the difference between them is
+    // printed, and this codebase has got that distinction wrong before.
+    targeting: { kind: "none" },
+    resolve: (state) => askInTurnOrder(state, "OGN-187-return", (1 - state.activePlayerIndex) as 0 | 1),
+  },
+  "OGN-201": {
+    // Invert Timelines — "Each player discards their hand, then draws 4."
+    //
+    // Not a decision, and that is the point: discarding your WHOLE hand leaves
+    // nothing to choose, so this goes straight through `discardCards` with a
+    // count equal to the hand — which its own "a hand no bigger than `count` is
+    // not a choice" branch takes without a prompt. Each player's discard is one
+    // instruction, so `cardsDiscarded` fires once per player (Jinx - Rebel
+    // readies once, not once per card).
+    //
+    // `discardThenDraw`, not `drawCards(discardCards(...))`, because "then" is
+    // printed and the discard can queue work behind it: a discarded Flame
+    // Chompers parks its own "you may play me" question, and a draw wrapped
+    // around the discard would resolve BEFORE that question — handing the player
+    // four fresh cards while the engine still owes them an answer about the old
+    // hand. The hand size is read from the live state per player for the same
+    // reason.
+    //
+    // Turn order per rule 894, matching every other "each player" card here.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      const first = state.activePlayerIndex;
+      return [first, (1 - first) as 0 | 1].reduce(
+        (next, playerIndex) => discardThenDraw(next, playerIndex, next.players[playerIndex].hand.length, 4),
+        state,
+      );
+    },
+  },
+};
+
+/**
+ * Parks one question of `kind` for each player, starting with `first`.
+ *
+ * `parkDecision` pushes onto the BACK of a FIFO queue, so the order they are
+ * parked in IS the order they are answered in — which is the entire
+ * implementation of both "each player, in turn order" (rule 894, Acceptable
+ * Losses) and Whirlwind's "starting with the next player". Written once rather
+ * than twice because the two differ only in where the sequence starts, and a
+ * second hand-rolled copy is how the two would drift.
+ */
+function askInTurnOrder(state: GameState, kind: string, first: 0 | 1): GameState {
+  return [first, (1 - first) as 0 | 1].reduce((next, playerIndex) => parkDecision(next, { kind, playerIndex }), state);
+}
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-197": {
@@ -192,6 +314,51 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx, _unitId, event) =>
       event.trashCardInstanceId ? returnCardFromTrash(state, ctx.casterIndex, event.trashCardInstanceId) : state,
   },
+  "OGN-188": {
+    // Zaunite Bouncer — "When you play me, return another unit at a battlefield
+    // to its owner's hand."
+    //
+    // "AT A BATTLEFIELD" is printed, so the default battlefield scope is right
+    // and `scope: "anywhere"` would be wrong — a unit at home is out of reach,
+    // which is the limit on the card.
+    //
+    // No owner restriction ("another unit", not "an enemy unit"), so bouncing
+    // your own is a legitimate line — it resets damage and rescues a unit about
+    // to die, exactly as Rebuke's does.
+    //
+    // "ANOTHER" needs no check here, for the reason First Mate's entry in
+    // engine/unit-triggers.ts already records: legal-actions enumerates the
+    // candidates while this card is still in HAND, before it exists anywhere on
+    // the board, so the Bouncer can never be offered as its own target and
+    // validate-play-card would refuse an id that was not enumerated.
+    //
+    // The `?:` guard is load-bearing rather than defensive: with no unit at any
+    // battlefield the Unit is still playable with its trigger's target omitted
+    // (validate-play-card's targetOmissionAllowed), and the Bouncer simply
+    // deploys and bounces nothing.
+    targeting: { kind: "unit" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state,
+  },
+  "OGN-196": {
+    // Soulgorger — "When you play me, you may play a unit from your trash,
+    // ignoring its Energy cost. (You must still pay its Power cost.)"
+    //
+    // A DECISION rather than an `ownTrashCard` target, unlike Cemetery Attendant
+    // above, and the two differences are both printed:
+    //   - "You MAY". A fanned-out `ownTrashCard` spec offers the no-target
+    //     variant only when the board offered no legal candidate, so with a
+    //     stocked trash "you may" would silently become "you must" — the exact
+    //     failure card-effects.ts's OPTIONAL_UNIT_COSTS comment records for
+    //     Wildclaw Shaman.
+    //   - The Power cost is paid AT RESOLUTION, out of the pool as it stands
+    //     then. It is not part of the PlayCardAction's payment and cannot be:
+    //     the action paid for the Soulgorger.
+    // Flame Chompers (OGN-006, effects/fury.ts) is the precedent for both halves
+    // — the same "offer it from the trash, pay Power, then playUnitToBase" shape.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-196-play", playerIndex: ctx.casterIndex }),
+  },
 };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
@@ -208,7 +375,48 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // wrapping drawCards around it: the draw has to queue behind the questions, or
   // the cards it adds join the pool being discarded from.
   "OGN-178": (state, ctx) => discardThenDraw(state, ctx.casterIndex, 2, 2),
+
+  // Kog'Maw - Caustic — "[Deathknell] Deal 4 to all units at my battlefield."
+  //
+  // The card triggers.ts's DeathContext doc comment names as the reason
+  // `battlefieldId` is captured before the corpse reaches the trash (809.1.b.3):
+  // by the time this runs, asking the board where Kog'Maw is would find him in a
+  // trash and "my battlefield" would have no answer.
+  //
+  // He is NOT among the 4 damage's targets, and that falls out of `killUnit`'s
+  // ordering rather than needing a filter: the unit is removed from the board and
+  // trashed before triggers fire, precisely so "all units at my battlefield"
+  // cannot include the corpse.
+  //
+  // "ALL units", so his own side takes it too — the card names no owner, and this
+  // is a symmetric blast that is often worse for the player who cast him.
+  // Undefined `battlefieldId` means he died in base, where there is no
+  // battlefield and so nothing to hit.
+  //
+  // `ctx.casterIndex` is his controller, which is who is dealing this damage —
+  // so Annie - Fiery's +1 applies to it and a damage-modifier read from the
+  // victim's side would be wrong.
+  "OGN-190": (state, ctx, death) =>
+    death.battlefieldId === undefined ? state : dealDamageToAllUnitsAt(state, ctx.casterIndex, death.battlefieldId, 4),
 };
+
+/**
+ * Deals `amount` to every unit at ONE battlefield, both owners' — the shape
+ * "all units at my battlefield" needs, and the one variant effect-helpers does
+ * not carry (it has enemy-units-at-one-battlefield and all-units-at-ALL-
+ * battlefields, neither of which is this).
+ *
+ * The id list is snapshotted before any damage lands, for the same reason
+ * `dealDamageToEnemyUnitsAtBattlefield` does it: a unit killed by an earlier
+ * iteration must not shorten the loop, and `dealDamage` already no-ops on an id
+ * that has since left play.
+ */
+function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefieldId: string, amount: number): GameState {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return state;
+  const targetIds = Object.values(bf.units).flatMap((units) => units.map((u) => u.instanceId));
+  return targetIds.reduce((next, id) => dealDamage(next, casterIndex, id, amount), state);
+}
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
@@ -324,4 +532,125 @@ export const decisions: Record<string, DecisionDefinition> = {
       return discardCards(state, opponentIndex, 1, [optionId]);
     },
   },
+
+  // Acceptable Losses' half of the work: one player picking which of their OWN
+  // gear dies. Asked of both players, so it is written from the answering
+  // player's point of view rather than the caster's — the same shape as
+  // Cull the Weak's "OGN-209-kill".
+  //
+  // No decline option: the text carries no "you may", so a player with gear must
+  // kill one. A player with NO gear produces no options at all and
+  // advanceDecisions drops the question as moot (422's "do as much as you can");
+  // a player with exactly one is not being offered a choice, and it dies without
+  // a prompt.
+  "OGN-179-kill": {
+    prompt: () => "Acceptable Losses: kill one of your gear",
+    options: (state, d) =>
+      state.players[d.playerIndex].activeGear.map((g) => ({ id: g.instanceId, label: g.name, instanceId: g.instanceId })),
+    // killGear, not a hand-rolled removal: it is the funnel that trashes a gear
+    // and fires its own killed self-trigger, so a Treasure Trove taken by this
+    // still pays out and a Scrapheap still draws.
+    resolve: (state, d, optionId) => {
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === optionId);
+      return gear ? killGear(state, gear, d.playerIndex) : state;
+    },
+  },
+
+  // Whirlwind's half: one player choosing a unit — ANY unit, either owner's,
+  // base or battlefield (355.9.b's bare noun) — to send to its owner's hand.
+  //
+  // The decline leads, and is what makes "MAY" mean may: with no unit in play at
+  // all it is the only option, so the question is executed rather than asked and
+  // nobody is interrupted to be told there is nothing to do. Leading also means a
+  // mis-click and the AI's tie-break both land on doing nothing, the same
+  // convention Flame Chompers' offer uses.
+  //
+  // `returnUnitToHand` sends it to its OWNER's hand rather than the answering
+  // player's, and strips Buffs on the way (709) — both already handled there.
+  "OGN-187-return": {
+    prompt: () => "Whirlwind: you may return a unit to its owner's hand",
+    options: (state): DecisionOption[] => [
+      { id: "decline", label: "Decline" },
+      ...allUnitsInPlay(state).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    ],
+    resolve: (state, _d, optionId) => (optionId === "decline" ? state : returnUnitToHand(state, optionId)),
+  },
+
+  // Soulgorger's "you may play a unit from your trash, ignoring its Energy cost."
+  //
+  // Priced when the OPTIONS are built, so a unit whose Power cost cannot be paid
+  // is never offered rather than offered and then refused — 416.3's "the action
+  // must be able to be completed for the cost to be paid", and the same shape
+  // Flame Chompers' offer uses.
+  //
+  // **Named limitation:** affordability is asked through `payPowerFromChanneled`,
+  // which takes a single domain and reads only the channeled pool. So a card with
+  // a split Power pip (`powerDomainAlt`, e.g. Tibbers) is judged against its
+  // primary domain only, and floating Power does not count. Both under-offer —
+  // the option is withheld, never granted free — and both are inherited from that
+  // helper rather than introduced here.
+  "OGN-196-play": {
+    prompt: () => "Soulgorger: you may play a unit from your trash, paying only its Power cost",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      for (const card of state.players[d.playerIndex].trash) {
+        if (card.kind !== "Unit") continue;
+        if (payUnitPowerCost(state, d.playerIndex, card) === undefined) continue;
+        options.push({ id: card.instanceId, label: playLabel(card), instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const card = state.players[d.playerIndex].trash.find((c) => c.instanceId === optionId);
+      if (!card || card.kind !== "Unit") return state;
+      const paid = payUnitPowerCost(state, d.playerIndex, card);
+      if (!paid) return state;
+
+      // Out of the trash, then into play through the shared deploy funnel — so it
+      // enters exhausted (143.4.a) unless something says otherwise, and both
+      // events a real play fires go off. "Play a unit" means play it.
+      //
+      // The printed Energy is not paid and not discounted: the card's text
+      // replaces that half of the cost outright, exactly as rule 811 does for a
+      // card played from Hidden. `cardsPlayedThisTurn` is bumped because this IS
+      // a card being played, which is what [Legion] counts.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== optionId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      return playUnitToBase({ ...paid, players }, d.playerIndex, card);
+    },
+  },
 };
+
+/** Every unit in play, both players, base and battlefields — Whirlwind's "a
+ *  unit" with no owner and no location named. Player order, then each player's
+ *  own base-before-battlefields walk, so the option list is stable and the tests
+ *  about WHICH unit was chosen mean something. */
+function allUnitsInPlay(state: GameState): UnitInstance[] {
+  return ([0, 1] as const).flatMap((playerIndex) => ownUnitsEverywhere(state, playerIndex));
+}
+
+/**
+ * Pays a trashed unit's Power cost, or `undefined` when it cannot be paid — the
+ * same contract `payPowerFromChanneled` and `spendBuff` use, so an unpayable cost
+ * withholds the payoff instead of handing it over free.
+ *
+ * A zero Power cost is payable and costs nothing; it is short-circuited rather
+ * than passed through as `count: 0` because `powerDomain` is null exactly when
+ * the cost is 0, and null means RAINBOW to that helper — asking it to take zero
+ * rainbow runes works, but only by accident of the arithmetic.
+ */
+function payUnitPowerCost(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState | undefined {
+  if (card.powerCost <= 0) return state;
+  return payPowerFromChanneled(state, playerIndex, card.powerDomain, card.powerCost);
+}
+
+function playLabel(card: UnitInstance): string {
+  return card.powerCost <= 0
+    ? `Play ${card.name} (free)`
+    : `Play ${card.name} (pay ${card.powerCost} ${card.powerDomain ?? "any"} Power)`;
+}

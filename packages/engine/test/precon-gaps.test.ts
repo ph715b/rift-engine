@@ -4,6 +4,7 @@ import { submit } from "../src/engine/game-engine.js";
 import { effectForCard } from "../src/engine/card-effects.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { grantKeywordThisTurn } from "../src/engine/effect-helpers.js";
 import { createCardInstance } from "../src/model/card.js";
 import type { UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -224,6 +225,26 @@ describe("[Tank] is assigned combat damage first", () => {
     // gone by the time we can look — what matters is that Squishy SURVIVED,
     // which it only does if the Tank was capped at lethal.
     expect(remaining[0]!.damage).toBe(0);
+  });
+
+  it("reads a GRANTED [Tank], not only a printed one", () => {
+    // Block (OGN-057) and anything else routing through grantKeywordThisTurn
+    // writes to `keywordsThisTurn`, which is invisible to `unit.keywords`.
+    // combat.ts read the printed set, so a granted [Tank] reordered nothing
+    // while the card reported as implemented.
+    const state = tankFixture(2, false);
+    const squishy = state.battlefields[0]!.units["p2"]![0]!;
+    const granted = grantKeywordThisTurn(state, state.battlefields[0]!.units["p2"]![1]!.instanceId, "Tank");
+    // Same fixture, but the Tank-ness arrives as a grant rather than printed.
+    const printedOff = {
+      ...granted,
+      battlefields: granted.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { ...bf.units, p2: bf.units["p2"]!.map((u) => ({ ...u, keywords: {} })) } } : bf,
+      ),
+    };
+
+    const next = resolveShowdown(printedOff, "bf1", 0);
+    expect((next.battlefields[0]!.units["p2"] ?? []).map((u) => u.name)).toEqual([squishy.name]);
   });
 
   it("leaves assignment unchanged when every unit is a Tank", () => {

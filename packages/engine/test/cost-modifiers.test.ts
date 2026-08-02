@@ -99,3 +99,68 @@ describe("modifiedEnergyCost: Rhasa the Sunderer (OGN-195)", () => {
     expect(isCardImplemented(defaultCardRegistry().get(RHASA))).toBe(true);
   });
 });
+
+/**
+ * Herald of Scales (OGN-140): "Your Dragons' Energy costs are reduced by 2, to a
+ * minimum of 1."
+ *
+ * The first modifier keyed off a card's TYPE LINE rather than its id — Dragon-ness
+ * comes from `CardDefinition.tags`, which 8 cards in this pool carry. Blazing
+ * Scorcher (OGN-001, 5 Energy) is the subject throughout; Mindsplitter (OGN-192,
+ * 7 Energy) is the second Dragon, used where a different printed cost matters.
+ */
+describe("modifiedEnergyCost: Herald of Scales (OGN-140)", () => {
+  const HERALD = "OGN-140";
+  const BLAZING_SCORCHER = "OGN-001"; // Dragon, 5 Energy
+  const NOT_A_DRAGON = "OGN-002";
+
+  const withHeralds = (count: number, inBase = false) => {
+    const state = makeState();
+    const heralds = Array.from({ length: count }, (_, i) => makeUnit({ defId: HERALD, instanceId: `herald-${i}` }));
+    if (inBase) state.players[0]!.baseUnits = heralds;
+    else state.battlefields[0]!.units = { p1: heralds };
+    return state;
+  };
+
+  it("takes 2 Energy off a Dragon's cost", () => {
+    expect(modifiedEnergyCost(withHeralds(1), 0, "Unit", 5, BLAZING_SCORCHER)).toBe(3);
+  });
+
+  it("applies from BASE as well as from a battlefield", () => {
+    // The difference from Eager Apprentice above, and it is printed: that card
+    // says "while I'm at a battlefield", this one names no location at all.
+    expect(modifiedEnergyCost(withHeralds(1, true), 0, "Unit", 5, BLAZING_SCORCHER)).toBe(3);
+  });
+
+  it("stacks — two Heralds are -4", () => {
+    // Continuous abilities are not keywords, so 817.1.a's redundancy rule does
+    // not reach them. Same precedent as Garen - Commander + Darius - Executioner
+    // both applying in effective-might.
+    expect(modifiedEnergyCost(withHeralds(2), 0, "Unit", 7, "OGN-192")).toBe(3);
+  });
+
+  it("floors at 1, never at 0", () => {
+    // Unreachable with today's pool — every Dragon costs 5+ — so this is pinned
+    // on a raw cost rather than on a real card's, which is the honest way to
+    // exercise a printed clause the card pool cannot currently reach.
+    expect(modifiedEnergyCost(withHeralds(2), 0, "Unit", 2, BLAZING_SCORCHER)).toBe(1);
+  });
+
+  it("leaves a non-Dragon alone", () => {
+    expect(modifiedEnergyCost(withHeralds(1), 0, "Unit", 5, NOT_A_DRAGON)).toBe(5);
+  });
+
+  it("does nothing without a Herald on the board", () => {
+    expect(modifiedEnergyCost(makeState(), 0, "Unit", 5, BLAZING_SCORCHER)).toBe(5);
+  });
+
+  it("is YOUR Dragons — an enemy Herald does not discount them", () => {
+    const state = makeState();
+    state.battlefields[0]!.units = { p2: [makeUnit({ defId: HERALD })] };
+    expect(modifiedEnergyCost(state, 0, "Unit", 5, BLAZING_SCORCHER)).toBe(5);
+  });
+
+  it("is counted as implemented by coverage", () => {
+    expect(isCardImplemented(defaultCardRegistry().get(HERALD))).toBe(true);
+  });
+});

@@ -10,6 +10,8 @@ import {
   discardThenDraw,
   drawCards,
   dealDamageToAllUnitsAtAllBattlefields,
+  dealDamageToEnemyUnitsAtBattlefield,
+  destroyUnit,
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
@@ -419,6 +421,40 @@ const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, 
     // this trigger.
     const enemyId = firstEnemyAt(state, ctx.casterIndex, battlefieldId, unit.instanceId);
     return enemyId ? stunUnits(state, ctx.casterIndex, [enemyId]) : state;
+  },
+  "OGN-148": (state, ctx, _unit, battlefieldId) =>
+    // Anivia - Primal — "When I attack, deal 3 to all enemy units here."
+    //
+    // "All enemy units HERE", so this is the battlefield sweep rather than
+    // `enemiesAt`'s auto-selection: nothing is chosen, so none of the
+    // auto-selection caveats the other entries carry apply to it. Anivia herself
+    // is never in the list — `dealDamageToEnemyUnitsAtBattlefield` filters on
+    // owner, not on instance.
+    dealDamageToEnemyUnitsAtBattlefield(state, ctx.casterIndex, battlefieldId, 3),
+  "OGN-159": (state, ctx, unit, battlefieldId) => {
+    // Warwick - Hunter — "I enter ready. When I attack, kill all damaged enemy
+    // units here." (The enter-ready half is a play-time property and lives in
+    // deploy.ts's table, not here.)
+    //
+    // "DAMAGED" is `damage > 0` — marked damage, which is what a unit carries
+    // between showdowns until Combat Cleanup heals it (466 step 3c). So this is
+    // a follow-up punisher: it reads damage an EARLIER fight left behind, and
+    // finds nothing on a board that has just been healed.
+    //
+    // Read the ids up front and go through `destroyUnit`, not a filtered rebuild
+    // of the unit list: a kill is a death, so each one must fire its own
+    // [Deathknell] and death-watch listeners. Killing from a snapshot is also
+    // what stops one death's trigger removing a unit still to be killed and
+    // shrinking the list mid-loop — `destroyUnit` no-ops on an id already gone.
+    const bf = state.battlefields.find((b) => b.id === battlefieldId);
+    if (!bf) return state;
+    const casterId = state.players[ctx.casterIndex].id;
+    const damagedEnemyIds = Object.entries(bf.units)
+      .filter(([ownerId]) => ownerId !== casterId)
+      .flatMap(([, units]) => units)
+      .filter((u) => u.damage > 0 && u.instanceId !== unit.instanceId)
+      .map((u) => u.instanceId);
+    return damagedEnemyIds.reduce((next, id) => destroyUnit(next, id, ctx.casterIndex), state);
   },
   "OGN-200": (state, ctx, unit, battlefieldId) => {
     // Twisted Fate - Gambler — "When I attack, reveal the top rune of your rune

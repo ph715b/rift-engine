@@ -215,3 +215,68 @@ describe("effectiveMight: Sett - Kingpin (OGN-240) counts buffed neighbours", ()
     expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(4);
   });
 });
+
+/**
+ * Draven - Showboat (OGN-028): "My Might is increased by your points."
+ *
+ * The first aura here that scales off a PLAYER COUNTER rather than off a zone or
+ * the board — Dr. Mundo counts a trash, Sett - Kingpin counts neighbours, Draven
+ * counts the score. Recomputed on read like the rest, so he grows the instant a
+ * point is scored and shrinks if a point is ever taken away.
+ *
+ * Two things worth pinning, because both are readings of the printed text rather
+ * than of the mechanism: it is the OWNER's points ("your"), not the asker's, and
+ * it is NOT positional — his text names no battlefield, so unlike Sett - Kingpin
+ * and Lee Sin he carries it in base as well.
+ */
+describe("effectiveMight: Draven - Showboat (OGN-028) rides his controller's score", () => {
+  const DRAVEN_SHOWBOAT = "OGN-028";
+
+  it("adds the owner's points to his printed Might", () => {
+    const draven = makeUnit({ defId: DRAVEN_SHOWBOAT, might: 3 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [draven];
+    state.players[0]!.points = 4;
+
+    expect(effectiveMight(state, draven, 0, { isCombat: false })).toBe(7);
+  });
+
+  it("is his printed Might at zero points — the aura is not a flat bonus", () => {
+    const draven = makeUnit({ defId: DRAVEN_SHOWBOAT, might: 3 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [draven];
+
+    expect(effectiveMight(state, draven, 0, { isCombat: false })).toBe(3);
+  });
+
+  it("reads the OWNER's points, not the opponent's", () => {
+    // The distinction Dr. Mundo's "your trash" already draws. An enemy Draven
+    // must not grow off the score of whoever is asking about his Might.
+    const draven = makeUnit({ defId: DRAVEN_SHOWBOAT, might: 3 });
+    const state = makeState();
+    state.players[1]!.baseUnits = [draven];
+    state.players[0]!.points = 5;
+    state.players[1]!.points = 1;
+
+    expect(effectiveMight(state, draven, 1, { isCombat: false })).toBe(4);
+  });
+
+  it("carries it at a battlefield too — his text names no location", () => {
+    const draven = makeUnit({ defId: DRAVEN_SHOWBOAT, might: 3 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [draven] };
+    state.players[0]!.points = 2;
+
+    expect(effectiveMight(state, draven, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(5);
+  });
+
+  it("reaches no other unit — it is a self-aura, not a board one", () => {
+    const draven = makeUnit({ defId: DRAVEN_SHOWBOAT, might: 3 });
+    const ally = makeUnit({ might: 3 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [draven, ally];
+    state.players[0]!.points = 4;
+
+    expect(effectiveMight(state, ally, 0, { isCombat: false })).toBe(3);
+  });
+});

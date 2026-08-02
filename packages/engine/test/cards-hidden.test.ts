@@ -97,6 +97,28 @@ describe("Block (OGN-057): [Shield 3] and [Tank] this turn", () => {
 
     expect(after.players[0]!.trash).toHaveLength(0);
   });
+
+  it("pulls the blocked unit to the FRONT of the damage assignment, saving the unit behind it", () => {
+    // The [Tank] half, which is the other reason to cast this in a Showdown:
+    // "must be assigned lethal damage before any other unit with the same
+    // controller that does not have [Tank]". The grant lands in
+    // `keywordsThisTurn`, so combat only sees it through `effectiveKeywords`.
+    //
+    // 2 damage against two 2-Might defenders, with the blocked one listed
+    // SECOND so only real reordering can put it in front. Blocked has
+    // [Shield 3] as well, so it soaks all 2 and lives; assigning in list
+    // order instead kills Squishy outright.
+    const attacker = makeUnit({ name: "Attacker", might: 2 });
+    const squishy = makeUnit({ name: "Squishy", might: 2 });
+    const blockTarget = makeUnit({ name: "Blocked", might: 2 });
+    const state = makeState({ turnState: "Showdown", showdownBattlefieldId: "bf1", showdownKind: "Combat", activePlayerIndex: 1 });
+    state.battlefields[0]!.units = { p2: [attacker], p1: [squishy, blockTarget] };
+
+    const blocked = resolveSpell(BLOCK, 0, state, { targetUnitInstanceId: blockTarget.instanceId });
+    const after = resolveShowdown(blocked, "bf1", 1);
+
+    expect(atBf(after, "p1").map((u) => u.name)).toEqual(["Squishy", "Blocked"]);
+  });
 });
 
 describe("Zhonya's Hourglass (OGN-077): a MANDATORY death replacement", () => {

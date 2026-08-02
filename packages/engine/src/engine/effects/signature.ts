@@ -2,8 +2,9 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { addBuff, forceMoveToBattlefield, giveMightThisTurn, stunUnits } from "../effect-helpers.js";
-import { findUnitOnBattlefield } from "../target-lookup.js";
+import { addBuff, dealDamage, forceMoveToBattlefield, giveMightThisTurn, readyUnit, stunUnits } from "../effect-helpers.js";
+import { effectiveMight } from "../effective-might.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -117,6 +118,109 @@ export const cardEffects: Record<string, EffectDefinition> = {
       const friendlyId = event.secondTargetUnitInstanceId;
       if (!friendlyId || !enemyBattlefield) return stunned;
       return forceMoveToBattlefield(stunned, friendlyId, state.battlefields[enemyBattlefield.battlefieldIndex]!.id);
+    },
+  },
+  "OGN-260": {
+    // Last Breath (Calm + Chaos) — "[Action] Ready a friendly unit. It deals
+    // damage equal to its Might to an enemy unit at a battlefield."
+    //
+    // `slotScopes`, the second card in the pool to need them (Zenith Blade above
+    // is the first) and for the same printed reason: the enemy is "at a
+    // battlefield" and the friendly is not. The unit you most want to ready is
+    // usually the exhausted one sitting at home, and a single scope would either
+    // forbid that or make the enemy reachable in their own base.
+    //
+    // `min: 2` — BOTH halves are mandatory and both are targets, so 355.8 settles
+    // castability outright: "in order to put a spell or ability on the chain,
+    // valid choices must be made for all targets." This is not a "do as much as
+    // you can" card the way Back to Back's "two friendly units" is; there is no
+    // "up to" anywhere in the text, so with no enemy at a battlefield the spell
+    // simply cannot be played, ready or no ready.
+    //
+    // Ready FIRST, then damage — printed order. Nothing in this pool makes
+    // readying change a Might, so the two orders agree today; doing it in the
+    // card's order is what keeps that true when something does (and it is the
+    // order a player watching the board expects).
+    //
+    // Might is read through effectiveMight at resolution, like Gentlemen's Duel's
+    // exchange: buffs, this-turn modifiers and continuous auras all count, and
+    // the damage lands from the CASTER (`ctx.casterIndex`) because the unit
+    // dealing it is theirs — which is what feeds Annie - Fiery's damage bonus.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 2,
+      slotScopes: ["anywhere", "battlefield"],
+    },
+    resolve: (state, ctx, event) => {
+      const friendlyId = event.targetUnitInstanceId;
+      if (!friendlyId) return state;
+      const readied = readyUnit(state, friendlyId);
+
+      const enemyId = event.secondTargetUnitInstanceId;
+      if (!enemyId) return readied;
+      // Located AFTER the ready rather than before, so the Might read is the one
+      // the board holds at the moment the damage is dealt.
+      const location = findUnitAnywhere(readied, friendlyId);
+      if (!location) return readied; // it left play while this sat on the chain
+      const might = effectiveMight(
+        readied,
+        location.unit,
+        location.ownerIndex,
+        location.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: readied.battlefields[location.zone.battlefieldIndex]!.id },
+      );
+      return dealDamage(readied, ctx.casterIndex, enemyId, might);
+    },
+  },
+  "OGN-250": {
+    // Stormbringer (Fury + Body) — "Choose a friendly unit in your base. Deal
+    // damage equal to its Might to all enemy units at a battlefield, then move
+    // your unit there."
+    //
+    // Showstopper's exact shape: a `unit` target scoped to BASE plus a
+    // battlefield riding on `destinationBattlefieldId`, which is only enumerated
+    // for cards named in card-effects.ts's MOVE_TARGET_SPELL_DEF_IDS. Registering
+    // this without that entry would be worse than leaving the card dead — it
+    // would be castable, the destination would always arrive undefined, and
+    // coverage would report a card that does nothing as done.
+    //
+    // `scope: "base"` is printed ("in your base") and load-bearing for the same
+    // reason as Showstopper's: "then move your unit there" is a deploy, and a
+    // unit already at a battlefield would make it a sideways shuffle.
+    //
+    // **Damage FIRST, then move, and the order is the card.** The unit is in
+    // BASE while it fires, so it is not at the battlefield it is bombarding —
+    // which means it takes nothing back, and it is not counted among "all enemy
+    // units at a battlefield" by anything reading that battlefield's occupants.
+    // Moving first would walk it into a fight it then damages from inside.
+    //
+    // Might is read ONCE, before the damage, and read EFFECTIVE (auras and
+    // this-turn pumps count, `isCombat: false` because this is not a Showdown —
+    // the same reading Gentlemen's Duel and Last Breath already take). Reading it
+    // per target would let the first kill's Deathknell change what the rest take.
+    targeting: { kind: "unit", owner: "friendly", scope: "base" },
+    resolve: (state, ctx, event) => {
+      const { targetUnitInstanceId: unitId, destinationBattlefieldId: destination } = event;
+      if (!unitId || !destination) return state;
+      const location = findUnitAnywhere(state, unitId);
+      if (!location) return state;
+
+      const might = effectiveMight(state, location.unit, ctx.casterIndex, { isCombat: false });
+      const bf = state.battlefields.find((b) => b.id === destination);
+      if (!bf) return state;
+      const casterId = state.players[ctx.casterIndex].id;
+      const enemyIds = Object.entries(bf.units)
+        .filter(([ownerId]) => ownerId !== casterId)
+        .flatMap(([, units]) => units.map((u) => u.instanceId));
+
+      const bombarded = enemyIds.reduce((next, id) => dealDamage(next, ctx.casterIndex, id, might), state);
+      // "THEN move your unit there" — unconditional, so the unit deploys even if
+      // the damage killed nothing and even if it killed everything. Through
+      // forceMoveToBattlefield, which is what applies Contested and stages the
+      // Showdown; a raw list splice would deploy it into a fight that never opens.
+      return forceMoveToBattlefield(bombarded, unitId, destination);
     },
   },
 };

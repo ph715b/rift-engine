@@ -92,14 +92,20 @@ function parseKeywords(text: string): Partial<Record<Keyword, number>> {
 /**
  * Cards whose printed text grants "enters ready" as plain prose ("I enter
  * ready.") rather than the bracketed `[Quick]` keyword tag `parseKeywords`
- * looks for — confirmed by direct inspection of both cards' raw text
+ * looks for — confirmed by direct inspection of each card's raw text
  * (Vanguard Attendant: "I enter ready."; Master Yi - Honed: "[Ganking] I
- * enter ready."). Mechanically identical to Quick (execute-play-card.ts's
- * `exhausted: !("Quick" in card.keywords)`), so reuse that existing,
- * already-correct mechanism rather than adding a redundant on-play
- * un-exhaust effect for the same outcome.
+ * enter ready."; Warwick - Hunter: "I enter ready.When I attack, kill all
+ * damaged enemy units here."). Mechanically identical to Quick
+ * (execute-play-card.ts's `exhausted: !("Quick" in card.keywords)`), so reuse
+ * that existing, already-correct mechanism rather than adding a redundant
+ * on-play un-exhaust effect for the same outcome.
+ *
+ * Warwick carries a SECOND clause, which this does not cover — his attack
+ * trigger lives in unit-triggers.ts's ON_ATTACK_TRIGGERS. Registration is per
+ * defId, so a card with two clauses reports as done when one is written; both
+ * of his are.
  */
-const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009"]); // Vanguard Attendant, Master Yi - Honed
+const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009", "OGN-159"]); // Vanguard Attendant, Master Yi - Honed, Warwick - Hunter
 
 /**
  * Cards whose bracketed keywords are CONDITIONAL, so parsing them as printed

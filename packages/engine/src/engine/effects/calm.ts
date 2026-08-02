@@ -2,21 +2,27 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import type { PlayerState } from "../../model/game-state.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
   channelRunesExhausted,
+  dealDamage,
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
+  grantTemporary,
   ownUnitsEverywhere,
   readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
-import { parkDecision } from "../decisions.js";
+import { killGear } from "../triggers.js";
+import { effectiveMight } from "../effective-might.js";
+import { findUnitAnywhere } from "../target-lookup.js";
+import { parkDecision, type DecisionOption } from "../decisions.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -190,7 +196,56 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
   },
+  "OGN-069": {
+    // Last Stand — "[Action] Double a friendly unit's Might this turn. Give it
+    // [Temporary]."
+    //
+    // **EFFECTIVE Might, not printed**, and the card's own second sentence is
+    // why: it hands you a unit that will die at your next Beginning Phase
+    // (816), so the payoff has to be the unit's Might as it actually stands
+    // when this resolves — buffs, this-turn pumps and continuous auras all
+    // included. Reading `unit.might` would make Last Stand on a buffed,
+    // aura-boosted attacker worth less than the board says it is worth. Same
+    // reading, through the same `effectiveMight` choke point, that Gentlemen's
+    // Duel takes for "damage equal to their Mights" and Stupefy takes for its
+    // minimum-1 floor.
+    //
+    // `isCombat: false`, so `[Assault]`/`[Shield]` do not count. Those are
+    // "while I'm attacking/defending" bonuses (817), i.e. properties of a fight
+    // rather than of the unit, and this spell can be cast outside one — the same
+    // reason rule 711's `isMighty` is asked with isCombat false.
+    //
+    // Doubling is a SNAPSHOT: `+M this turn` on a unit currently at M. A later
+    // buff therefore lands on top rather than being doubled too, which is what
+    // "double ... this turn" means at resolution (317's this-turn effects are
+    // fixed amounts, not live multipliers). Recomputing on read would need a
+    // multiplier layer in effective-might that no other card wants.
+    //
+    // "A friendly unit" with no battlefield named, so scope "anywhere"
+    // (355.9.b) — sacrificing a unit at home for one big turn is the play.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const id = event.targetUnitInstanceId;
+      if (!id) return state;
+      const location = findUnitAnywhere(state, id);
+      if (!location) return state; // target left play between casting and resolution
+      const doubled = giveMightThisTurn(state, id, effectiveMight(state, location.unit, location.ownerIndex, mightContext(state, location)));
+      // Printed order: the Might first, then [Temporary]. Observable rather than
+      // cosmetic — a 0-Might unit doubles to nothing and still becomes Temporary.
+      return grantTemporary(doubled, id);
+    },
+  },
 };
+
+/** The `MightContext` for a unit `findUnitAnywhere` just located — the
+ *  base-vs-battlefield branch three callers in this repo already write out by
+ *  hand (Stupefy, En Garde, Gentlemen's Duel). Positional auras
+ *  (Garen - Commander) resolve "base" from the omitted field. */
+function mightContext(state: GameState, location: AnyUnitLocation): { isCombat: false; battlefieldId?: string } {
+  return location.zone === "base"
+    ? { isCombat: false }
+    : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+}
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-075": {
@@ -304,6 +359,111 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, enemiesStunned);
     },
   },
+  "OGN-056": {
+    // Adaptatron — "When I conquer, you may kill a gear. If you do, buff me."
+    //
+    // "When *I* conquer" is Kai'Sa - Survivor's and Sett - Brawler's reading:
+    // the Adaptatron has to be AT the battlefield taken, which is what separates
+    // a unit's conquer trigger from a Legend's "when you conquer". Checked
+    // against the listener's own location rather than the event alone, since the
+    // listener walk reaches it wherever it stands.
+    //
+    // "A gear", with no owner printed — so YOUR gear is a legal choice too, and
+    // that is the card rather than an oversight: this pool's gear includes
+    // Treasure Trove and Scrapheap, which pay out when they die. Routed through
+    // `killGear` so those self-triggers fire, exactly as Thermo Beam does.
+    on: "battlefieldConquered",
+    // `battlefieldConquered` is held as a Chain Pending Item (383), so the two
+    // conditions that decide whether this TRIGGERED are asked here, before it
+    // reaches the chain.
+    //
+    // The gear check below is deliberately NOT one of them. "When I conquer" is
+    // the trigger; whether there is a gear to kill is a question about the board
+    // at RESOLUTION, and 383 fixes triggering at the moment of the event. A
+    // trigger that fires and then resolves to nothing is the rules working — it
+    // is not the same as never having triggered, which is the distinction holding
+    // makes observable for the first time.
+    //
+    // The location check is here and not repeated in `resolve` for the reason
+    // Sett - Brawler's entry sets out: the window this hold opens is exactly when
+    // the Adaptatron could be moved off the battlefield it took.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      // "You MAY" — but a question with no answers must not be parked (422's do
+      // as much as you can). With no gear anywhere the buff is unreachable, so
+      // nothing is asked and nothing happens.
+      if (state.players[0].activeGear.length + state.players[1].activeGear.length === 0) return state;
+      return parkDecision(state, {
+        kind: "OGN-056-kill",
+        playerIndex: listener.ownerIndex,
+        // "Buff ME" — carried rather than re-derived, because by the time the
+        // answer comes in the Adaptatron may have left the battlefield it
+        // conquered, or play entirely.
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "OGN-076": {
+    // Yasuo - Remorseful — "When I attack, deal damage equal to my Might to an
+    // enemy unit here."
+    //
+    // **An Attack Trigger fires when the unit GAINS THE ATTACKER DESIGNATION**,
+    // which rule 383.4's Attack Triggers section states outright ("trigger when a
+    // Unit or Player gains the Attacker designation for the first time during a
+    // combat"), and rule 465's Combat Step 1 is where that happens: "The Attacker
+    // is the player whose unit(s) applied the Contested status... Units at the
+    // Contested Battlefield controlled by the Attacker or Defender gain the
+    // Attacker or Defender designation now." So the moment is the COMBAT
+    // SHOWDOWN OPENING, not the move that contested the battlefield.
+    //
+    // That is why this is a `combatBegan` listener and not an entry in
+    // unit-triggers.ts's ON_ATTACK_TRIGGERS table, where the pool's four other
+    // "when I attack" cards live. Those fire inside the move/play executor, one
+    // per unit that just landed — earlier than the rules' moment, and blind to a
+    // unit that was already standing there when a friend walked in and started
+    // the fight. 465 gives that unit the Attacker designation too, so Yasuo
+    // holding a battlefield that his own reinforcement contests really does
+    // attack. Reading it off `combatBegan` gets both cases; the older table gets
+    // neither right. (Not a claim that those four are wrong enough to move —
+    // that is a separate change to a file this pass does not own.)
+    //
+    // Which side is attacking is `contestedByIndex`, which IS 465's definition of
+    // the Attacker verbatim and is still set here: `clearContested` runs only
+    // when the Showdown closes.
+    on: "combatBegan",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (listener.card.kind !== "Unit") return state;
+      if (listener.battlefieldId !== event.battlefieldId) return state;
+      const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+      if (!bf || bf.contestedByIndex !== listener.ownerIndex) return state; // he is DEFENDING
+      // "An enemy unit HERE" — the first one at this battlefield, in board order.
+      // Auto-selected rather than asked, the same simplification (and the same
+      // structural reason: no action to hang the choice on) that Crackshot
+      // Corsair and Leona - Determined already make for their on-attack targets.
+      const ownerId = state.players[listener.ownerIndex].id;
+      const enemyId = Object.entries(bf.units)
+        .filter(([id]) => id !== ownerId)
+        .flatMap(([, units]) => units.map((u) => u.instanceId))[0];
+      if (enemyId === undefined) return state;
+      // "MY Might" read through effectiveMight with `isCombat: false`, so buffs,
+      // this-turn pumps and continuous auras count but `[Assault]`/`[Shield]` do
+      // not. This is a damage instruction rather than combat damage — combat.ts
+      // owns that separately, and counting Assault here would pay it twice in the
+      // same fight. Same call Gentlemen's Duel makes for "damage equal to their
+      // Mights".
+      const might = effectiveMight(state, listener.card, listener.ownerIndex, {
+        isCombat: false,
+        battlefieldId: event.battlefieldId,
+      });
+      return dealDamage(state, listener.ownerIndex, enemyId, might);
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -404,6 +564,43 @@ export const decisions: Record<string, DecisionDefinition> = {
       // cost cannot be paid must not hand over the draw.
       const paid = exhaustGear(state, d.playerIndex, d.cardInstanceId);
       return paid === state ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
+
+  // Adaptatron's "you may kill a gear. If you do, buff me." — raised by its
+  // on-conquer trigger, which has already checked that the conquest was its
+  // controller's and that it was standing at the battlefield taken.
+  //
+  // BOTH players' gear is offered, because the card names no owner. Killing your
+  // own is a real play in this pool (Treasure Trove and Scrapheap pay out when
+  // they die), so filtering to the opponent's would quietly rewrite the card.
+  "OGN-056-kill": {
+    prompt: () => "Adaptatron: kill a gear to buff me?",
+    options: (state) => {
+      // Decline first, so a mis-click and the AI's tie-break both land on doing
+      // nothing — the same ordering Flame Chompers' "you may" uses. Two options
+      // minimum whenever there is any gear, which is what stops `advanceDecisions`
+      // answering a "you may" on the player's behalf.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      for (const index of [0, 1] as const) {
+        for (const gear of state.players[index].activeGear) {
+          options.push({ id: gear.instanceId, label: gear.name, instanceId: gear.instanceId });
+        }
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const ownerIndex = ([0, 1] as const).find((i) => state.players[i].activeGear.some((g) => g.instanceId === optionId));
+      if (ownerIndex === undefined) return state;
+      const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === optionId)!;
+      const killed = killGear(state, gear, ownerIndex);
+      // "IF YOU DO" — the buff is conditional on the kill actually happening, so
+      // it hangs off killGear having moved the board rather than off the answer.
+      if (killed === state) return state;
+      // `addBuff` no-ops if the Adaptatron has left play in the meantime, which
+      // is the usual "target vanished" convention rather than a special case.
+      return d.cardInstanceId ? addBuff(killed, d.cardInstanceId) : killed;
     },
   },
 };

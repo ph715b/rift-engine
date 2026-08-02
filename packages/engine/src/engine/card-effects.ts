@@ -223,6 +223,12 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // cost. If you do, ignore this spell's cost." Same buff-spending cost as
   // Wildclaw Shaman; what is new is that paying it REPLACES the printed cost.
   "OGN-207": { kind: "spendBuffFriendly", ignoresCostWhenPaid: true },
+  // Wallop — "[Action] As you play this, you may spend a buff as an additional
+  // cost. If you do, ignore this spell's cost. Ready a unit." Byte-identical in
+  // shape to Call to Glory above; the second card in the pool to REPLACE its
+  // printed cost rather than discount it, which is why `ignoresCostWhenPaid`
+  // was built as a flag rather than as one card's special case.
+  "OGN-146": { kind: "spendBuffFriendly", ignoresCostWhenPaid: true },
 };
 
 /**
@@ -289,6 +295,13 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // separate effect, so it needs the same destination field; what differs from
   // Charm is only whose unit it is, which the targeting spec says.
   "OGN-270",
+  // Ride The Wind — "[Action] Move a friendly unit and ready it."
+  "OGN-173",
+  // Stormbringer — "Choose a friendly unit in your base. Deal damage equal to
+  // its Might to all enemy units at a battlefield, then move your unit there."
+  // The destination is doing double duty here: it names both what is damaged and
+  // where the unit ends up. One field, because the card names one battlefield.
+  "OGN-250",
 ]);
 
 export function cardMovesTarget(defId: string): boolean {

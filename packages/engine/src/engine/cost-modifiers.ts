@@ -73,10 +73,62 @@ const FIND_YOUR_CENTER_DISCOUNT = 2;
 const SPOILS_OF_WAR = "OGN-144";
 const SPOILS_OF_WAR_DISCOUNT = 2;
 
+/**
+ * Herald of Scales: "Your Dragons' Energy costs are reduced by :rb_energy_2:, to
+ * a minimum of :rb_energy_1:."
+ *
+ * The first modifier here keyed off a card's TYPE LINE rather than its id or its
+ * keyword — `CardDefinition.tags` already carries "Dragon" for the 8 cards that
+ * are one, so this needs no new data. Keying off the tag rather than listing the
+ * 8 ids is the same choice `legionDiscountFor` makes and for the same reason: a
+ * hand-kept list drifts the first time the pool grows.
+ *
+ * **Not positional.** Eager Apprentice prints "while I'm at a battlefield" and is
+ * therefore checked against battlefields only; Herald's text names no location,
+ * so a Herald in base applies just as much. Two different sentences, two
+ * different checks — reading them the same way is the mistake this comment
+ * exists to prevent.
+ *
+ * **Two Heralds stack, to -4.** Continuous abilities are not keywords, so
+ * 817.1.a's redundancy rule does not reach them; the precedent in this codebase
+ * is effective-might's Garen - Commander and Darius - Executioner, which
+ * explicitly stack when both are present. The floor is per-card and applies once,
+ * after the whole reduction.
+ *
+ * The floor is dead weight against today's pool — all 8 Dragons cost 5 or more
+ * Energy, so nothing reaches it — and is written anyway because it is printed.
+ */
+const HERALD_OF_SCALES = "OGN-140";
+const HERALD_DISCOUNT = 2;
+const HERALD_FLOOR = 1;
+const DRAGON_TAG = "Dragon";
+
+/** How many Heralds this player controls, anywhere — base and battlefields, since
+ *  the card names no location. */
+function heraldCount(state: GameState, playerIndex: 0 | 1): number {
+  const player = state.players[playerIndex];
+  const atBattlefields = state.battlefields.reduce(
+    (sum, bf) => sum + (bf.units[player.id] ?? []).filter((u) => u.defId === HERALD_OF_SCALES).length,
+    0,
+  );
+  return player.baseUnits.filter((u) => u.defId === HERALD_OF_SCALES).length + atBattlefields;
+}
+
+function isDragon(defId: string | undefined): boolean {
+  if (defId === undefined) return false;
+  const def = defaultCardRegistry().tryGet(defId);
+  // Narrowed, not asserted: `tags` lives on Unit/Spell/Gear and NOT on
+  // LegendDefinition, so reading it straight off the union is `undefined` at
+  // runtime for a Legend — which threw on every priced card rather than just on
+  // Legends, because this is asked for all of them. The compiler says the same
+  // thing; `legionDiscountFor` above already narrows for exactly this reason.
+  return def !== undefined && "tags" in def && def.tags.includes(DRAGON_TAG);
+}
+
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
-  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, SPOILS_OF_WAR, ...legionDiscountDefIds()];
+  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, SPOILS_OF_WAR, HERALD_OF_SCALES, ...legionDiscountDefIds()];
 }
 
 /**
@@ -114,6 +166,15 @@ export function modifiedEnergyCost(
     // "For EACH card in your trash" — your own trash only, and every card in it,
     // not just units. A long game makes this free, which is the card's point.
     cost = Math.max(0, cost - player.trash.length);
+  }
+
+  // A Dragon being played while its Herald is on the board. Applied after the
+  // conditional discounts above for the same reason they precede each other: a
+  // sometimes-discount comes off the printed cost, and a printed floor clamps
+  // whatever is left rather than being applied mid-stack.
+  if (isDragon(defId)) {
+    const heralds = heraldCount(state, playerIndex);
+    if (heralds > 0) cost = Math.max(HERALD_FLOOR, cost - HERALD_DISCOUNT * heralds);
   }
 
   if (cardKind === "Spell") {

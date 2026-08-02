@@ -18,8 +18,10 @@ import {
 import { killGear } from "../triggers.js";
 import { placeRecruitToken } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
-import { parkDecision } from "../decisions.js";
-import type { GameState } from "../../model/game-state.js";
+import { parkDecision, type DecisionOption } from "../decisions.js";
+import { playUnitToBase } from "../deploy.js";
+import type { UnitInstance } from "../../model/card.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for **Order** — one file, one owner.
@@ -223,6 +225,30 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return chosen.length > 0 ? stunUnits(state, ctx.casterIndex, chosen) : state;
     },
   },
+  "OGN-237": {
+    // King's Edict — "Starting with the next player, each other player chooses a
+    // unit you don't control that hasn't been chosen for this spell. Kill those
+    // units."
+    //
+    // targeting: none, and that is a rule rather than a shortcut. Rule 355.6's
+    // Targeting list exempts a choice that "is part of a set of objects chosen in
+    // whole or in part by other players", with "Each player kills a unit they
+    // control" as its own worked example — so nothing here is targeted, and there
+    // is nothing for legal-actions.ts to fan out onto the action. The same shape
+    // Cull the Weak takes above, reached from the opposite direction: that card
+    // asks everyone, this one asks everyone EXCEPT the caster.
+    //
+    // "A unit YOU don't control" — "you" is this spell's controller. With two
+    // seats that set is exactly the answering player's own units, which is what
+    // the decision offers. Both of the card's multiplayer clauses therefore have
+    // nothing to do here: "starting with the next player" orders a single asker,
+    // and "hasn't been chosen for this spell" excludes from a single choice. They
+    // are written out rather than silently dropped, because the day a third seat
+    // exists they are the whole card.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      parkDecision(state, { kind: "OGN-237-kill", playerIndex: ctx.casterIndex === 0 ? 1 : 0 }),
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -349,6 +375,59 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
         : stunUnits(state, ctx.casterIndex, [targetId]);
     },
   },
+  "OGN-226": {
+    // Spectral Matron — "When you play me, you may play a unit costing no more
+    // than [3] and no more than [rainbow] from your trash, ignoring its cost."
+    //
+    // The cost filter is genuinely TWO conditions and both are printed: no more
+    // than 3 Energy AND no more than one RAINBOW Power pip. Rainbow means any
+    // domain (see payPowerFromChanneled's `null`), so it constrains the SIZE of
+    // the Power cost and not its colour — a 1-Fury-Power unit qualifies for an
+    // Order card. Read off the printed cost, which is what a "costing no more
+    // than" filter asks: the rules' own Defy example says such a filter "only
+    // checks the printed or copied cost of its target".
+    //
+    // Asked at resolution rather than fanned onto the play, which is where a
+    // Unit's on-play choice belongs anyway — rule 355 (Make Relevant Choices)
+    // excludes "making choices for Triggered Abilities of permanents" from the
+    // choices made as a card is played, and gives exactly this shape as its
+    // example: "a unit with a triggered ability that says 'When I'm played, kill
+    // a unit' does not require you to choose a target as it's played. The target
+    // will be chosen when the ability triggers."
+    //
+    // Guarded on there being something to offer, so a Matron played with a trash
+    // full of expensive units queues no question at all rather than one whose
+    // only answer is "decline".
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      matronPlayableFromTrash(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "OGN-226-play", playerIndex: ctx.casterIndex }),
+  },
+  "OGN-230": {
+    // Albus Ferros — "When you play me, spend any number of buffs. For each buff
+    // spent, channel 1 rune exhausted."
+    //
+    // "ANY NUMBER" including zero, so this is a repeated question with a standing
+    // "stop" answer rather than one multi-select: 355 makes "any number" mean the
+    // player "may choose any number of available targets, including zero". The
+    // buffs themselves are never targets — 355.6's Targeting list is explicit
+    // that "'When you play me, you may spend a buff to move a friendly unit'
+    // targets the friendly unit, but not the buff".
+    //
+    // The decision below re-parks itself after each spend, so the count is
+    // discovered rather than declared. That is what makes "any number" honest
+    // without a new multi-select mechanism, and it terminates because every
+    // answer that continues also removes a buff from the board.
+    //
+    // Exhausted runes, via the same helper Stormclaw Ursine and Soaring Scout
+    // use: a rune that can pay Power this turn but no Energy until Awaken.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      buffedOwnUnits(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "OGN-230-spend", playerIndex: ctx.casterIndex }),
+  },
 };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
@@ -361,6 +440,19 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // what makes it weaker than a free rune. Same helper Stormclaw Ursine's
   // on-play trigger uses, so the two cannot drift.
   "OGN-216": (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1),
+
+  // Machine Evangel — "[Deathknell] — Play three 1-Might Recruit unit tokens
+  // into your base." (rule 808)
+  //
+  // "INTO YOUR BASE" is printed, so unlike Vanguard Captain's "here" this ignores
+  // where the Evangel died — a Deathknell that fired at a battlefield still sends
+  // all three home. `ctx.casterIndex` is the dying unit's controller, which is
+  // what "your" means for a Deathknell.
+  //
+  // Three separate placements rather than a count: placeRecruitToken mints one
+  // token and three tokens are three game objects with three instanceIds.
+  "OGN-239": (state, ctx) =>
+    [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -464,10 +556,120 @@ export const decisions: Record<string, DecisionDefinition> = {
     // correctly sees a friendly death and stays quiet.
     resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
   },
+  // King's Edict's half of the work: the OPPONENT naming which of their units
+  // the spell kills. `d.playerIndex` is the answering player, so the caster is
+  // the other seat — the same way Shakedown's question reads its caster back.
+  "OGN-237-kill": {
+    prompt: () => "King's Edict: choose one of your units to be killed",
+    // "A unit YOU don't control", read from the answering player's side: with two
+    // seats, the units the caster does not control are exactly this player's own.
+    // No battlefield is named, so a unit in base is as eligible as one standing
+    // out — the bare noun "unit" means objects on the Board, and Bases are Public.
+    //
+    // No options with no units, which advanceDecisions drops rather than
+    // deadlocking on; exactly one unit is not a choice and is killed unprompted.
+    options: (state, d) =>
+      ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    // The KILLER is the spell's controller, not the player answering. "Each other
+    // player CHOOSES a unit... Kill those units" splits the two: the choice is
+    // theirs, the kill is the spell's, and the spell is the caster's. That is the
+    // one place this card differs from Cull the Weak, where each player kills
+    // their own — and it decides whether Solari Shrine's "when YOU kill a stunned
+    // enemy unit" pays out for the caster.
+    resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex === 0 ? 1 : 0),
+  },
+  // Spectral Matron's "you may play a unit ... from your trash, ignoring its
+  // cost". Flame Chompers' question in every respect but the filter and who
+  // asks: same decline-first shape, same out-of-trash-then-playUnitToBase path.
+  "OGN-226-play": {
+    prompt: () => "Spectral Matron: play a unit from your trash, ignoring its cost?",
+    options: (state, d) => {
+      // "You may" — declining leads, so doing nothing is what a mis-click and the
+      // AI's tie-break both land on. Same convention as Flame Chompers.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      for (const card of matronPlayableFromTrash(state, d.playerIndex)) {
+        options.push({ id: card.instanceId, label: card.name, instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Re-checked against the live list rather than trusted from the option id:
+      // the question can sit behind another whose answer emptied the trash.
+      const card = matronPlayableFromTrash(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (!card) return state;
+
+      // "IGNORING ITS COST" — nothing is paid and nothing is discounted, the same
+      // reading rule 811 gives a hidden play: the payment is EMPTY rather than
+      // small. `cardsPlayedThisTurn` still moves, because this is a play and
+      // [Legion] counts plays rather than payments.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== optionId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      // Through the shared deploy funnel, so it enters exhausted (143.4.a) unless
+      // something on the board says otherwise and both events a real play fires
+      // go off. The card says "play a unit"; this is what playing one means.
+      return playUnitToBase({ ...state, players }, d.playerIndex, card);
+    },
+  },
+  // Albus Ferros' "spend any number of buffs". Asked once per buff, with a
+  // standing "stop" — see his trigger above for why the count is discovered
+  // rather than declared.
+  "OGN-230-spend": {
+    prompt: () => "Albus Ferros: spend a buff to channel 1 rune exhausted?",
+    options: (state, d) => {
+      // "Stop" leads for the same reason Flame Chompers' decline does, and it is
+      // ALWAYS present — which is also what lets advanceDecisions retire the
+      // question on its own once the last buff is gone (one option, no prompt).
+      const options: DecisionOption[] = [{ id: "stop", label: "Spend no more buffs" }];
+      for (const unit of buffedOwnUnits(state, d.playerIndex)) {
+        options.push({ id: unit.instanceId, label: `Spend ${unit.name}'s buff`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "stop") return state;
+      // spendBuff returns undefined rather than an unchanged state when the spend
+      // is illegal (705), so an unpayable answer must not channel — the payoff
+      // would otherwise be free.
+      const spent = spendBuff(state, d.playerIndex, optionId);
+      if (!spent) return state;
+      // Channelled per buff rather than counted up and channelled once. Identical
+      // in outcome ("for EACH buff spent"), and it keeps the two halves of one
+      // answer together, so a rune deck that runs dry mid-sequence stops paying
+      // out exactly where it ran out.
+      const channelled = channelRunesExhausted(spent, d.playerIndex, 1);
+      // And ask again — "any number".
+      return parkDecision(channelled, { kind: "OGN-230-spend", playerIndex: d.playerIndex });
+    },
+  },
 };
 
 /** Every unit a player has in play, base and battlefields alike. */
 function ownUnits(state: GameState, playerIndex: 0 | 1) {
   const actor = state.players[playerIndex];
   return [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
+}
+
+/** The buffed units a player controls — Albus Ferros' spendable buffs. Rule 705.1
+ *  restricts spending to units you control, so this never walks the opponent's. */
+function buffedOwnUnits(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => u.buffed);
+}
+
+/**
+ * The units in a player's trash that Spectral Matron may play: "costing no more
+ * than [3] and no more than [rainbow]".
+ *
+ * Both conditions, and `powerCost <= 1` rather than a domain check — a rainbow
+ * pip is any domain, so what is bounded is how MANY Power the card costs. A
+ * 0-Power unit passes trivially, which is most of the pool.
+ */
+function matronPlayableFromTrash(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return state.players[playerIndex].trash.filter(
+    (c): c is UnitInstance => c.kind === "Unit" && c.energyCost <= 3 && c.powerCost <= 1,
+  );
 }

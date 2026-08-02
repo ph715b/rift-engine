@@ -15,7 +15,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The batch whose cards each needed one new mechanism: a decision over a zone
@@ -377,34 +377,52 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
   });
 });
 
+/**
+ * `battlefieldConquered` is a Chain Pending Item now (383 / 809.1.b.3), so a
+ * conquer trigger no longer resolves inside `recordConquest` — it lands in
+ * `state.pendingTriggers`, is finalized onto the chain by the Cleanup, and
+ * resolves when both players have passed on it.
+ *
+ * These tests therefore drive `resolveHeldTriggers`, and the NEGATIVE ones assert
+ * on the PEN as well as on the outcome. That second half is not belt-and-braces:
+ * "the hand is empty" is now true immediately after ANY conquest, so a negative
+ * test that only checked the hand would pass whether the condition worked or the
+ * trigger simply had not resolved yet. Four Mistfall tests went green for exactly
+ * that wrong reason when `unitBuffed` was converted.
+ */
 describe("Kai'Sa - Survivor (OGN-039): when I conquer, draw 1", () => {
-  it("draws when she is AT the conquered battlefield", () => {
+  function kaisaState(): GameState {
     const kaisa = realUnitInstance(KAISA_SURVIVOR);
     const state = makeState();
     state.battlefields[0]!.units = { p1: [kaisa] };
     state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
+    return state;
+  }
 
-    const after = recordConquest(state, 0, "bf1");
-
+  it("draws when she is AT the conquered battlefield", () => {
+    const after = resolveHeldTriggers(recordConquest(kaisaState(), 0, "bf1"));
     expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);
   });
 
-  it("does NOT draw for a conquest elsewhere — it is 'when I conquer'", () => {
-    const kaisa = realUnitInstance(KAISA_SURVIVOR);
-    const state = makeState();
-    state.battlefields[0]!.units = { p1: [kaisa] };
-    state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
+  it("is HELD rather than resolved at the source — the opponent gets a window", () => {
+    // The conversion itself. Nothing has been drawn at the moment of the
+    // conquest; the trigger is a Pending Item waiting for the Cleanup.
+    const conquered = recordConquest(kaisaState(), 0, "bf1");
 
-    expect(recordConquest(state, 0, "bf2").players[0]!.hand).toHaveLength(0);
+    expect(conquered.players[0]!.hand).toHaveLength(0);
+    expect(conquered.pendingTriggers.map((t) => t.listenerDefId)).toEqual([KAISA_SURVIVOR]);
+  });
+
+  it("does NOT draw for a conquest elsewhere — it is 'when I conquer'", () => {
+    const conquered = recordConquest(kaisaState(), 0, "bf2");
+    expect(conquered.pendingTriggers, "a trigger was held for a conquest that is not hers").toHaveLength(0);
+    expect(resolveHeldTriggers(conquered).players[0]!.hand).toHaveLength(0);
   });
 
   it("does NOT draw when the OPPONENT conquers her battlefield", () => {
-    const kaisa = realUnitInstance(KAISA_SURVIVOR);
-    const state = makeState();
-    state.battlefields[0]!.units = { p1: [kaisa] };
-    state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
-
-    expect(recordConquest(state, 1, "bf1").players[0]!.hand).toHaveLength(0);
+    const conquered = recordConquest(kaisaState(), 1, "bf1");
+    expect(conquered.pendingTriggers, "a trigger was held for the opponent's conquest").toHaveLength(0);
+    expect(resolveHeldTriggers(conquered).players[0]!.hand).toHaveLength(0);
   });
 });
 
@@ -433,7 +451,7 @@ describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exh
   }
 
   it("asks the question when she conquers, rather than picking for the player", () => {
-    const after = recordConquest(qiyanaState(), 0, "bf1");
+    const after = resolveHeldTriggers(recordConquest(qiyanaState(), 0, "bf1"));
     const decision = pendingDecision(after);
 
     expect(decision?.kind).toBe("OGN-155-conquer");
@@ -443,7 +461,7 @@ describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exh
 
   it("draws when that is the answer, and does NOT channel", () => {
     const before = qiyanaState();
-    const after = answerDecisions(recordConquest(before, 0, "bf1"), (options) => options.find((o) => o.id === "draw")!.id);
+    const after = answerDecisions(resolveHeldTriggers(recordConquest(before, 0, "bf1")), (options) => options.find((o) => o.id === "draw")!.id);
 
     expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);
     expect(after.players[0]!.runeDeck).toHaveLength(1); // untouched
@@ -451,7 +469,10 @@ describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exh
   });
 
   it("channels one rune EXHAUSTED when that is the answer, and does NOT draw", () => {
-    const after = answerDecisions(recordConquest(qiyanaState(), 0, "bf1"), (options) => options.find((o) => o.id === "channel")!.id);
+    const after = answerDecisions(
+      resolveHeldTriggers(recordConquest(qiyanaState(), 0, "bf1")),
+      (options) => options.find((o) => o.id === "channel")!.id,
+    );
 
     expect(after.players[0]!.hand).toHaveLength(0); // untouched
     expect(after.players[0]!.runeDeck).toHaveLength(0);
@@ -460,11 +481,19 @@ describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exh
   });
 
   it("asks nothing for a conquest she is not at", () => {
-    expect(recordConquest(qiyanaState(), 0, "bf2").pendingDecisions).toHaveLength(0);
+    // Asserted on the PEN first: `pendingDecisions` is empty immediately after
+    // ANY conquest now that the trigger is held, so checking it alone would pass
+    // whether the location condition worked or the trigger merely had not
+    // resolved yet.
+    const conquered = recordConquest(qiyanaState(), 0, "bf2");
+    expect(conquered.pendingTriggers).toHaveLength(0);
+    expect(resolveHeldTriggers(conquered).pendingDecisions).toHaveLength(0);
   });
 
   it("asks nothing when the OPPONENT conquers her battlefield", () => {
-    expect(recordConquest(qiyanaState(), 1, "bf1").pendingDecisions).toHaveLength(0);
+    const conquered = recordConquest(qiyanaState(), 1, "bf1");
+    expect(conquered.pendingTriggers).toHaveLength(0);
+    expect(resolveHeldTriggers(conquered).pendingDecisions).toHaveLength(0);
   });
 
   it("still asks when a pile is empty — an empty deck is a real choice, not a non-choice", () => {
@@ -473,7 +502,7 @@ describe("Qiyana - Victorious (OGN-155): when I conquer, draw 1 or channel 1 exh
     // question auto-resolves, so pruning would silently choose for the player.
     const state = qiyanaState();
     state.players[0]!.deck = [];
-    const after = recordConquest(state, 0, "bf1");
+    const after = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
 
     expect(optionsFor(after, pendingDecision(after)!).map((o) => o.id)).toEqual(["draw", "channel"]);
   });

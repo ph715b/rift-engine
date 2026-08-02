@@ -1,7 +1,7 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { WIN_THRESHOLD_1V1 } from "./constants.js";
 import { dispatchLegendOnConquer } from "./legend-abilities.js";
-import { dispatchEvent } from "./triggers.js";
+import { holdEventTrigger } from "./triggers.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -86,7 +86,24 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   // the trash (Super Mega Death Rocket). Placed beside the Legend dispatch and
   // before the withheld-point branch for the same reason: "when you conquer" is
   // about taking the battlefield, not about the point.
-  next = dispatchEvent(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
+  //
+  // HELD, not dispatched (383 / 809.1.b.3): a triggered ability goes on the Chain
+  // as a Pending Item the instant it fires and becomes respondable when the
+  // Cleanup finalizes it, so the opponent gets a window before Kai'Sa's draw or
+  // Qiyana's choice resolves. See cleanup.finalizePendingTriggers.
+  //
+  // Two consequences of holding here, both of which are the rules working rather
+  // than a regression:
+  //  - **The POINT below is now awarded BEFORE these resolve.** Inline, a conquer
+  //    trigger ran before the final-point check at 474; held, it runs after. No
+  //    listener in this pool awards points, so nothing observable changes today —
+  //    and 383's "on the chain the instant it fires, resolved later" is what makes
+  //    the new order the correct one rather than merely a different one.
+  //  - **The caster's LEGEND still fires inline, immediately above.** Those seven
+  //    hooks cannot be held yet (`allListeningPermanents` never walks
+  //    `players[i].legend`), so a conquer now resolves the Legend first and the
+  //    permanents on the chain. That was already the order; only the window is new.
+  next = holdEventTrigger(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
 
   // Already scored here this turn — the battlefield changed hands, and the
   // Conquer trigger above still fired, but no second point.

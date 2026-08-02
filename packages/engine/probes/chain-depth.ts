@@ -77,7 +77,10 @@ let passFocusActions = 0;
 let strandedPen = 0;
 let finished = 0;
 let invalid = 0;
+/** Distinct trigger chain entries observed, so a trigger that sits on the chain
+ *  through several passes counts once. Keyed by game + listener + depth. */
 const byListener: Record<string, number> = {};
+const seenChainEntries = new Set<string>();
 
 for (let g = 0; g < GAMES; g += 1) {
   // Battlefields pinned so successive runs of this control are comparable.
@@ -98,10 +101,32 @@ for (let g = 0; g < GAMES; g += 1) {
     if (next.pendingTriggers.length > 0) {
       heldStates += 1;
       maxHeldAtOnce = Math.max(maxHeldAtOnce, next.pendingTriggers.length);
-      for (const t of next.pendingTriggers) byListener[t.listenerName] = (byListener[t.listenerName] ?? 0) + 1;
     }
     maxChain = Math.max(maxChain, next.spellChain.length);
     if (next.spellChain.some((e) => e.kind === "trigger")) triggerOnChainStates += 1;
+
+    // Which abilities actually REACH the chain, counted off the chain itself and
+    // not off the pen.
+    //
+    // `byListener` used to be sampled from `next.pendingTriggers`, which was a
+    // near-useless measure and quietly so: `runCleanup` drains the pen at the end
+    // of every `submit`, so the pen is non-empty afterwards ONLY when a decision
+    // was pending and the Cleanup was skipped (323.2.b). It was therefore
+    // counting coincidences with a parked question rather than holdings, and it
+    // reported a plausible per-card breakdown while doing it — when
+    // `battlefieldConquered` was converted, Mistfall's count fell 6 → 0 and read
+    // as a regression, when in fact Mistfall's holding was untouched and its
+    // triggers had simply stopped overlapping with a decision.
+    //
+    // Counted per ENTRY-ID so one trigger sitting on the chain across several
+    // passes is one observation, not one per step.
+    for (const entry of next.spellChain) {
+      if (entry.kind !== "trigger") continue;
+      const id = `${g}:${entry.listenerInstanceId}:${entry.listenerDefId}:${next.spellChain.indexOf(entry)}`;
+      if (seenChainEntries.has(id)) continue;
+      seenChainEntries.add(id);
+      byListener[entry.listenerName] = (byListener[entry.listenerName] ?? 0) + 1;
+    }
 
     // Settled = chain open and nothing being asked. The pen MUST be empty there.
     if (next.chainOpen && next.pendingDecisions.length === 0 && next.pendingTriggers.length > 0) {

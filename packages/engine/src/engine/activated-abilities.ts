@@ -678,7 +678,7 @@ export function canPayActivationCost(
   // The Energy half is a payment, so affordability is "could a payment be
   // computed", which is exactly what the enumerator will do — asked through the
   // same function so the two cannot disagree about what is affordable.
-  if (cost.energy !== undefined && activationPayment(state, playerIndex, cost.energy) === undefined) return false;
+  if (cost.energy !== undefined && activationPayment(state, playerIndex, cost) === undefined) return false;
   return true;
 }
 
@@ -689,10 +689,32 @@ export function canPayActivationCost(
  * Floating Energy first, exactly as a card's cost is priced — `energyAfterFloat`
  * is the same function `computeEffectiveCost` uses, so an activation and a play
  * agree on what a player can afford.
+ *
+ * Takes the whole COST, not just the Energy number, because `payActivationCost`
+ * pays Power FIRST and paying Power RECYCLES the rune: the pool this prices
+ * against has to be the one the Power step leaves behind, or a single rune can
+ * be named for Energy and then be gone by the time the Energy is paid. Power is
+ * applied here to a throwaway state for exactly that reason — the same helper,
+ * in the same order, so the price and the payment cannot disagree.
+ *
+ * Note this is NOT a live fix: pricing it against the pre-Power pool happens to
+ * come out the same, because recycling a READY rune banks 1 floating Energy,
+ * which covers precisely the 1 Energy that rune could have paid — the two
+ * errors cancel exactly, for every pool and every cost. It is written this way
+ * so the agreement is by construction rather than by that coincidence. Nothing
+ * in the pool combines `energy` with `power` yet; OGN-242 Baited Hook would be
+ * the first, and it is the card that would inherit the coincidence.
  */
-export function activationPayment(state: GameState, playerIndex: 0 | 1, energy: number): RunePayment | undefined {
-  const actor = state.players[playerIndex];
-  return computeAutoPayment(actor.channeled, energyAfterFloat(actor.floatingEnergy, energy), 0, null) ?? undefined;
+export function activationPayment(state: GameState, playerIndex: 0 | 1, cost: ActivationCost): RunePayment | undefined {
+  if (cost.energy === undefined) return undefined;
+  let next = state;
+  if (cost.power) {
+    const paid = payPowerFromChanneled(next, playerIndex, cost.power.domain, cost.power.count);
+    if (paid === undefined) return undefined;
+    next = paid;
+  }
+  const actor = next.players[playerIndex];
+  return computeAutoPayment(actor.channeled, energyAfterFloat(actor.floatingEnergy, cost.energy), 0, null) ?? undefined;
 }
 
 /** Pays an activation cost, or returns undefined if it cannot be paid. */

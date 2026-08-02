@@ -2,6 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
+import { hasKeyword } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
 
@@ -67,11 +68,17 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
  * The rules let the ASSIGNING player choose freely within these constraints;
  * this engine has no interactive assignment, so within a tier the natural
  * unit-list order stands in for that choice.
+ *
+ * Asked through `hasKeyword`, never through `unit.keywords`. This was the only
+ * keyword read in this file and it read the PRINTED set, so a granted [Tank]
+ * — Block (OGN-057) is the card, and it grants for the turn via
+ * `keywordsThisTurn` — reordered nothing while the card reported implemented.
  */
-function assignmentOrder(units: readonly UnitInstance[]): readonly UnitInstance[] {
-  const tanks = units.filter((u) => "Tank" in u.keywords);
+function assignmentOrder(state: GameState, units: readonly UnitInstance[], ownerIndex: 0 | 1): readonly UnitInstance[] {
+  const isTank = (u: UnitInstance) => hasKeyword(state, u, ownerIndex, "Tank");
+  const tanks = units.filter(isTank);
   if (tanks.length === 0 || tanks.length === units.length) return units; // nothing to reorder
-  return [...tanks, ...units.filter((u) => !("Tank" in u.keywords))];
+  return [...tanks, ...units.filter((u) => !isTank(u))];
 }
 
 /**
@@ -257,8 +264,8 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
 
   // Tank-first on BOTH sides — the keyword is about a unit's own controller's
   // assignment order, so it applies whichever side is being assigned damage.
-  const damageToDefenders = distribute(state, attackerPool, assignmentOrder(defenderUnits), defenderIndex, battlefieldId, false);
-  const damageToAttackers = distribute(state, defenderPool, assignmentOrder(attackerUnits), attackerIndex, battlefieldId, true);
+  const damageToDefenders = distribute(state, attackerPool, assignmentOrder(state, defenderUnits, defenderIndex), defenderIndex, battlefieldId, false);
+  const damageToAttackers = distribute(state, defenderPool, assignmentOrder(state, attackerUnits, attackerIndex), attackerIndex, battlefieldId, true);
 
   const survivingAttackers = removeDefeated(state, applyDamage(attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
   const survivingDefenders = removeDefeated(state, applyDamage(defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);

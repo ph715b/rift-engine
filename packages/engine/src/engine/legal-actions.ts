@@ -87,8 +87,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
       if (!canPayActivationCost(state, playerIndex, permanent, abilityDefId)) continue;
 
       const cost = activationCostOf(abilityDefId);
-      const payment =
-        cost.energy !== undefined ? activationPayment(state, playerIndex, cost.energy) : undefined;
+      const payment = cost.energy !== undefined ? activationPayment(state, playerIndex, cost) : undefined;
       if (cost.energy !== undefined && payment === undefined) continue;
 
       const base: ActivateAbilityAction = {
@@ -549,12 +548,25 @@ export function legalActions(state: GameState): PlayerAction[] {
     // spell's it is mandatory: "Move an enemy unit" with nowhere to go is not a
     // move, so the card is simply not offered rather than offered and refused.
     // A destination the unit is ALREADY at is skipped for the same reason.
+    //
+    // That skip is asked OWNER-AGNOSTICALLY, through `findUnitOnBattlefield`.
+    // It used to look the target up under `players[1 - playerIndex]` — the
+    // opponent — which was written for Charm's "an enemy unit" and silently did
+    // nothing for a FRIENDLY target. It never bit, because the only other card
+    // in this set was Showstopper, whose target is base-scoped and so is never at
+    // a battlefield to begin with. Ride The Wind's "a friendly unit" is the first
+    // that reaches a battlefield, and under the old check its current battlefield
+    // was offered back to it: a no-op move the player paid 2 Energy and a Power
+    // for. The unit's OWNER is irrelevant to the question being asked, which is
+    // "is it already standing here".
     const withDestinations: Partial<PlayCardAction>[] = cardMovesTarget(card.defId)
-      ? variants.flatMap((v) =>
-          state.battlefields
-            .filter((bf) => !(bf.units[state.players[1 - playerIndex]!.id] ?? []).some((u) => u.instanceId === v.targetUnitInstanceId))
-            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id })),
-        )
+      ? variants.flatMap((v) => {
+          const currentBattlefieldIndex =
+            v.targetUnitInstanceId !== undefined ? findUnitOnBattlefield(state, v.targetUnitInstanceId)?.battlefieldIndex : undefined;
+          return state.battlefields
+            .filter((_bf, index) => index !== currentBattlefieldIndex)
+            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }));
+        })
       : variants;
 
     for (const variant of withDestinations) {

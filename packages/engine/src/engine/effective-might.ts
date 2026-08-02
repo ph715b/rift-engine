@@ -95,6 +95,23 @@ const ZEALOT_FLOOR = 1;
  * the same reading, for the same reason, as Lee Sin's aura below.
  */
 const SETT_KINGPIN = "OGN-240";
+/**
+ * Draven - Showboat: "My Might is increased by your points."
+ *
+ * Self-scaling off a PLAYER COUNTER rather than off a zone or the board — Dr.
+ * Mundo counts a trash and Sett - Kingpin counts neighbours, this counts the
+ * score — so it moves the instant a point is scored and is recomputed on read
+ * like the rest of this file.
+ *
+ * "YOUR points" is the OWNER's, read through `ownerIndex` exactly as Dr. Mundo's
+ * "your trash" is, and not whoever is asking about his Might.
+ *
+ * No recursion risk: nothing in the scoring path reads Might, so this cannot
+ * re-enter `effectiveMight` the way a Might-conditional aura would. He is also
+ * NOT positional — the text names no battlefield, so he carries it in base too,
+ * unlike Sett - Kingpin and Lee Sin.
+ */
+const DRAVEN_SHOWBOAT = "OGN-028";
 
 /**
  * The cards whose printed text this module implements. Exported for
@@ -117,6 +134,7 @@ export function effectiveMightDefIds(): string[] {
     DARIUS_EXECUTIONER,
     DR_MUNDO_EXPERT,
     SETT_KINGPIN,
+    DRAVEN_SHOWBOAT,
   ];
 }
 
@@ -170,6 +188,13 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // asking about his Might.
   if (unit.defId === DR_MUNDO_EXPERT) {
     bonus += state.players[ownerIndex].trash.length;
+  }
+
+  // Draven - Showboat rides his controller's score. Sits beside Dr. Mundo
+  // deliberately: same shape (a counter on the owner, not a board condition),
+  // and no location test, because his text names no battlefield.
+  if (unit.defId === DRAVEN_SHOWBOAT) {
+    bonus += state.players[ownerIndex].points;
   }
 
   // Sett - Kingpin counts the buffed friendly units standing with him. Read off

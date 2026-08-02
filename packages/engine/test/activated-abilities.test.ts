@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activatedAbilityDefIds, activatedAbilityTargeting, findActivatable } from "../src/engine/activated-abilities.js";
+import { activatedAbilityDefIds, activatedAbilityTargeting, activationPayment, findActivatable } from "../src/engine/activated-abilities.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -327,5 +327,42 @@ describe("the AI uses the abilities it can price, and skips the ones it can't", 
     expect(offered).toHaveLength(1); // legal, and offered to a human
 
     expect(chooseAction(state).type).not.toBe("ActivateAbility"); // but not to the AI
+  });
+});
+
+/**
+ * The Energy half of an activation is priced BEFORE the ability is paid for,
+ * and `payActivationCost` pays Power first — which recycles the rune rather
+ * than exhausting it. Pricing Energy against the pre-Power pool can therefore
+ * name a rune that will not be there when the Energy is actually paid.
+ *
+ * Nothing in the pool combines `energy` with `power` yet (OGN-242 Baited Hook
+ * would be the first), so these ask the pure pricing function directly with a
+ * cost no registered ability has. That is the whole point: the arithmetic that
+ * currently saves the pre-Power version is a coincidence — recycling a READY
+ * rune banks exactly the 1 floating Energy that rune could have paid — and the
+ * first card to combine the two would be relying on it.
+ */
+describe("activationPayment prices Energy against the pool the Power step leaves", () => {
+  const fury = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `fury-${i}`, domain: "Fury" as const, state: "Ready" as const }));
+  const withRunes = (n: number) => makeState({ players: [makePlayer("p1", { channeled: fury(n) }), makePlayer("p2")] });
+
+  it("does not name a rune that paying Power will recycle", () => {
+    const payment = activationPayment(withRunes(3), 0, { power: { domain: "Fury", count: 1 }, energy: 2, exhaust: true });
+
+    // fury-0 is recycled for the Power and banks 1 floating Energy, so only 1
+    // of the 2 Energy is still owed — and it is owed against the two runes that
+    // are left. Pricing against all three named fury-0 for Energy as well.
+    expect(payment?.energyRunes).toEqual(["fury-1"]);
+  });
+
+  it("refuses when the Power half cannot be paid at all", () => {
+    const payment = activationPayment(withRunes(1), 0, { power: { domain: "Order", count: 1 }, energy: 1, exhaust: true });
+    expect(payment).toBeUndefined();
+  });
+
+  it("is unchanged for the Energy-only costs every registered ability actually has", () => {
+    expect(activationPayment(withRunes(2), 0, { energy: 2, exhaust: true })?.energyRunes).toEqual(["fury-0", "fury-1"]);
+    expect(activationPayment(withRunes(1), 0, { energy: 2, exhaust: true })).toBeUndefined();
   });
 });

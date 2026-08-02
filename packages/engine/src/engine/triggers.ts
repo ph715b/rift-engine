@@ -342,6 +342,27 @@ export type GameEvent =
    */
   | { kind: "cardsDiscarded"; discarderIndex: 0 | 1 };
 
+/**
+ * The event kinds that have been CONVERTED to Chain Pending Items (383 /
+ * 809.1.b.3) — held in `state.pendingTriggers` and finalized onto the chain by
+ * `cleanup.finalizePendingTriggers` rather than resolved inline at their source.
+ *
+ * This exists so the compiler owns the conversion instead of a reviewer. Adding
+ * a kind here makes `dispatchEvent` refuse it, which names every remaining
+ * inline producer as a type error rather than leaving one behind to resolve the
+ * same event immediately while its siblings go on the chain — a split that would
+ * be invisible in play and would silently defeat every `applies` predicate.
+ *
+ * **An event kind must be converted ATOMICALLY, at every producer at once**, for
+ * the same reason. `holdEventTrigger` consults `applies` and `dispatchEvent` does
+ * not, so a half-converted kind resolves one way from one call site and the other
+ * way from another.
+ */
+export type HeldEventKind = "unitBuffed" | "battlefieldConquered";
+
+/** An event that is still resolved inline — everything not yet converted. */
+export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
+
 /** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;
 
@@ -484,7 +505,7 @@ export function holdEventTrigger(state: GameState, event: GameEvent): GameState 
   return { ...state, pendingTriggers: [...state.pendingTriggers, ...held] };
 }
 
-export function dispatchEvent(state: GameState, event: GameEvent): GameState {
+export function dispatchEvent(state: GameState, event: InlineEvent): GameState {
   const registry = allEventTriggers();
   let next = state;
   for (const listener of allListeningPermanents(next)) {
