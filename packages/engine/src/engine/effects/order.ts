@@ -430,6 +430,25 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   },
 };
 
+/**
+ * The units among the top 5 of `d.playerIndex`'s deck that Baited Hook may banish
+ * and play — Might no more than `d.count`, which the ability captured as the
+ * killed unit's effective Might plus 1.
+ *
+ * `d.count === undefined` means the victim was gone when the ability resolved
+ * (359.3.e.14): the player still looks and still recycles, but nothing qualifies.
+ *
+ * A card in a DECK has no modifiers, so its Might is necessarily the printed one —
+ * the asymmetry with the victim's effective Might is inherent to where the two
+ * live, not a choice made here.
+ */
+function hookPlayableFromTop5(state: GameState, d: { playerIndex: 0 | 1; count?: number }): UnitInstance[] {
+  if (d.count === undefined) return [];
+  return state.players[d.playerIndex].deck
+    .slice(0, 5)
+    .filter((c): c is UnitInstance => c.kind === "Unit" && c.might <= d.count!);
+}
+
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
 export const deathTriggers: Record<string, DeathknellEffect> = {
@@ -613,6 +632,59 @@ export const decisions: Record<string, DecisionDefinition> = {
       // something on the board says otherwise and both events a real play fires
       // go off. The card says "play a unit"; this is what playing one means.
       return playUnitToBase({ ...state, players }, d.playerIndex, card);
+    },
+  },
+  /**
+   * Baited Hook's "look at the top 5, you may banish a unit from among them with
+   * Might up to 1 more than the killed unit and play it, ignoring its cost. Then
+   * recycle the rest."
+   *
+   * The ability itself lives in `engine/activated-abilities.ts` — there is no
+   * per-domain registry for those — and it kills the chosen unit before parking
+   * this. The Might cap rides on `d.count`, captured at kill time because the
+   * victim is in a trash by now.
+   *
+   * **`count === undefined` is 359.3.e.14's null, not a cap of zero**, and the
+   * PDF works this exact card: if the victim was no longer a legal target, "its
+   * Might is treated as null. Baited Hook's controller looks at the top 5 cards of
+   * their Main Deck, but can't choose any unit from among them." So the look and
+   * the recycle still happen and nothing is playable — which is why the two cases
+   * are kept distinguishable rather than collapsed to a number.
+   *
+   * "Then recycle the rest" runs on EVERY answer including the decline, because
+   * it is a separate instruction from the banish-and-play (135.2.b's four
+   * instructions, the same structure as Teemo - Strategist's trigger).
+   */
+  "OGN-242-banish": {
+    prompt: () => "Baited Hook: banish a unit from the top 5 and play it free?",
+    options: (state, d) => {
+      // Decline leads, as everywhere else a "you may" is asked.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      for (const card of hookPlayableFromTop5(state, d)) {
+        options.push({ id: card.instanceId, label: card.name, instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      const top5 = state.players[d.playerIndex].deck.slice(0, 5);
+      const chosen = optionId === "decline" ? undefined : hookPlayableFromTop5(state, d).find((c) => c.instanceId === optionId);
+
+      // Recycle the rest FIRST, so the deck arithmetic is done against the five
+      // that were actually looked at. Whatever was banished-and-played is simply
+      // not among them.
+      const rest = top5.filter((c) => c.instanceId !== chosen?.instanceId);
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [...players[d.playerIndex].deck.slice(top5.length), ...rest],
+        ...(chosen ? { cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1 } : {}),
+      };
+      const recycled: GameState = { ...state, players };
+      // The banish is transient — the card is banished and played in the same
+      // instruction, and nothing can observe the intermediate zone — so it goes
+      // straight to play rather than through `PlayerState.banished`, which still
+      // has no writers. Recorded in docs/rules-conformance.md.
+      return chosen ? playUnitToBase(recycled, d.playerIndex, chosen as UnitInstance) : recycled;
     },
   },
   // Albus Ferros' "spend any number of buffs". Asked once per buff, with a

@@ -19,6 +19,10 @@ import {
   stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
+import { destroyUnit } from "./effect-helpers.js";
+import { effectiveMight } from "./effective-might.js";
+import { findUnitAnywhere } from "./target-lookup.js";
+import { parkDecision } from "./decisions.js";
 import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
@@ -183,6 +187,24 @@ const ORB_OF_REGRET = "OGN-090";
 const VIKTOR_HERALD = "OGN-265";
 const LEE_SIN_BLIND_MONK = "OGN-257";
 const UDYR_WILDMAN = "OGN-157";
+
+/**
+ * Baited Hook: "[1 Energy][Order], Exhaust: Kill a friendly unit. Look at the top
+ * 5 cards of your Main Deck. You may banish a unit from among them that has Might
+ * up to 1 more than the killed unit and play it, ignoring its cost. Then recycle
+ * the rest."
+ *
+ * **The first ability in the pool to combine `energy` with `power`** — the case
+ * `activationPayment` was rewritten for, and which this file's own comment named
+ * as hypothetical until now.
+ *
+ * Its cost is payable off a SINGLE Ready Order rune, which looks wrong and is
+ * right: a Basic Rune has two printed abilities (164.2), `[E]: Add [1]` and
+ * `Recycle this: Add [C]`, so a Ready rune can be exhausted for the Energy and
+ * then recycled for the Power. See the rune double-duty row in
+ * docs/rules-conformance.md.
+ */
+const BAITED_HOOK = "OGN-242";
 
 /** Vi - Destructive: "Recycle 1 from your trash: Give me +1 Might this turn."
  *  The first ability whose cost is NOT an exhaust. */
@@ -617,6 +639,45 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, _event, sourceInstanceId) =>
       giveMightThisTurnToOwnUnit(state, ctx.casterIndex, sourceInstanceId, 4),
+  },
+  [BAITED_HOOK]: {
+    kind: "Gear",
+    // Energy AND Power, which nothing else here has. `activationPayment` applies
+    // the Power step first and prices the Energy against what it leaves, so the
+    // two halves cannot double-spend a rune — and, per 164.2's two rune
+    // abilities, a single Ready Order rune legitimately covers both.
+    cost: { energy: 1, power: { domain: "Order", count: 1 }, exhaust: true },
+    // "Kill a FRIENDLY unit" — an announce-time target, so it is chosen before
+    // the ability resolves and `legal-actions` fans one candidate out per unit.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event, sourceInstanceId) => {
+      const victimId = event.targetUnitInstanceId;
+      if (!victimId) return state;
+      const victim = findUnitAnywhere(state, victimId);
+      // **359.3.e.14, and the PDF works THIS card as its example:** if the chosen
+      // unit is no longer a legal target, "it can't be killed and its Might is
+      // treated as null. Baited Hook's controller looks at the top 5 cards of
+      // their Main Deck, but can't choose any unit from among them." The look and
+      // the recycle are separate instructions and still execute — only the
+      // banish-and-play is linked to the kill and is therefore ignored.
+      //
+      // Unreachable today and written anyway: this engine opens no response
+      // window between submitting an ActivateAbility and resolving it, so nothing
+      // can remove the victim in between. Reported as unexercised, not working.
+      const cap = victim
+        ? effectiveMight(state, victim.unit, victim.ownerIndex, { isCombat: false }) + 1
+        : null;
+      const killed = victim ? destroyUnit(state, victimId, ctx.casterIndex) : state;
+      return parkDecision(killed, {
+        kind: "OGN-242-banish",
+        playerIndex: ctx.casterIndex,
+        cardInstanceId: sourceInstanceId,
+        // The Might cap rides on the decision rather than being re-derived: the
+        // victim is in a trash by the time this is answered, and `null` is the
+        // 359.3.e.14 case, which must stay distinguishable from a cap of 0.
+        ...(cap !== null ? { count: cap } : {}),
+      });
+    },
   },
   [ORB_OF_REGRET]: {
     kind: "Gear",

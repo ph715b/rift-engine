@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { ActivateAbilityAction } from "./player-action.js";
 import { activationCostOf, canPayActivationCost, resolveActivation, resolveMode } from "../engine/activated-abilities.js";
+import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { eligibleTargets, findUnitOnBattlefield } from "../engine/target-lookup.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -46,11 +47,29 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // The Energy half is a payment, so the runes named must actually cover what
   // floating Energy does not. Checked here rather than trusted from enumeration,
   // the same way validate-play-card re-derives a card's cost.
+  //
+  // **Reckoned AFTER the Power step, because that is the order the cost is
+  // actually paid in.** `payActivationCost` pays Power first, and paying Power
+  // recycles a rune — which banks 1 floating Energy for a Ready one (164.2: a
+  // Basic Rune has both `[E]: Add [1]` and `Recycle this: Add [C]`, so one Ready
+  // rune can produce both). Measuring `owed` against the PRE-Power pool therefore
+  // over-charges by exactly the runes the Power step will recycle.
+  //
+  // That desynchronised the enumerator from the validator when `activationPayment`
+  // moved to post-Power reckoning: `legal-actions` offered Baited Hook and this
+  // function refused it, "needs 1 more Energy than the runes named cover" — the
+  // offered-then-refused failure this file's own comment above exists to prevent.
+  // It was unreachable until OGN-242 became the first ability to combine `energy`
+  // with `power`, and the first test to drive that path through `submit` found it.
   const cost = activationCostOf(abilityDefId);
   if (cost.energy !== undefined) {
-    const owed = energyAfterFloat(actor.floatingEnergy, cost.energy);
+    const afterPower = cost.power
+      ? (payPowerFromChanneled(state, action.playerIndex, cost.power.domain, cost.power.count) ?? state)
+      : state;
+    const payer = afterPower.players[action.playerIndex];
+    const owed = energyAfterFloat(payer.floatingEnergy, cost.energy);
     const named = (action.payment?.energyRunes ?? []).filter((id) =>
-      actor.channeled.some((r) => r.id === id && r.state === "Ready"),
+      payer.channeled.some((r) => r.id === id && r.state === "Ready"),
     );
     if (named.length < owed) {
       return fail(`${card.name}'s ability needs ${owed} more Energy than the runes named cover`);
