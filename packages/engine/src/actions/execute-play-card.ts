@@ -153,7 +153,17 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // validator has already required an empty payment — so these sets are empty
   // and the loop below leaves the rune pool untouched, with no branch needed.
   const paidEnergyIds = new Set(action.payment.energyRunes);
-  const paidPowerIds = new Set(action.payment.powerRunes);
+  // The card's own Power and any [Deflect] surcharge are spent the same way — a
+  // Power cost RECYCLES the rune (416) whatever it is owed to — so they share one
+  // set here. They are separate buckets on the ACTION because the validator holds
+  // them to different domain rules, not because they are paid differently.
+  const paidPowerIds = new Set([...action.payment.powerRunes, ...(action.payment.rainbowRunes ?? [])]);
+  // Runes recycled for the surcharge get NO floating-Energy credit. The credit
+  // exists because a Ready rune recycled for its OWNER's Power had Energy-paying
+  // potential that the owner never got to use; a rune handed over as an opponent's
+  // Deflect tax is not paying its owner's cost at all, so there is nothing to
+  // refund. Without this a Deflect tax would partly pay for itself.
+  const surchargeIds = new Set(action.payment.rainbowRunes ?? []);
 
   let floatingEnergyGained = 0;
   const recycled: RuneCard[] = [];
@@ -165,7 +175,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       // recycled — bank it as floating Energy instead. True double duty
       // (also in energyRunes) already spends that potential directly, so no
       // credit is due there.
-      if (rune.state === "Ready" && !paidEnergyIds.has(rune.id)) floatingEnergyGained += 1;
+      if (rune.state === "Ready" && !paidEnergyIds.has(rune.id) && !surchargeIds.has(rune.id)) floatingEnergyGained += 1;
       recycled.push({ ...rune, state: "Ready" });
     } else if (paidEnergyIds.has(rune.id)) {
       remainingChanneled.push({ ...rune, state: "Exhausted" });

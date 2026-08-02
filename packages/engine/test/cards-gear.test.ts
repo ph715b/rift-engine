@@ -321,9 +321,20 @@ describe("Spirit's Refuge (OGN-063): buff a friendly unit when it is played", ()
     expect(after.players[0]!.activeGear).toHaveLength(1);
   });
 
-  it("is still reported PARTIAL, because its [Deflect] grant does nothing", () => {
-    // The honest half. If this ever flips to `true` without [Deflect] landing,
-    // the measure has started lying about this card again.
+  it("is still reported PARTIAL — but for a DIFFERENT reason since [Deflect] landed", () => {
+    // The reason changed and the assertion did not, which is worth saying out
+    // loud. This used to hold because `[Deflect]` had no implementation, so
+    // granting it would have been a no-op; the surcharge is now real. What is
+    // still unwritten is the GRANT itself — "friendly buffed units have
+    // [Deflect]" is a continuous keyword aura from a GEAR source with a
+    // per-target condition, and `CONDITIONAL_GRANTS` is keyed by the RECEIVING
+    // unit while no aura lookup walks `activeGear`.
+    //
+    // So this is now carried by a hand-written `coverage.PARTIALLY_IMPLEMENTED`
+    // entry rather than derived from the keyword. If it ever flips to `true`
+    // without that aura landing, the measure has started lying about this card
+    // again — which it briefly did, when deleting the keyword entry swept this
+    // card up with the four it genuinely finished.
     expect(isCardImplemented(registry.get(SPIRITS_REFUGE))).toBe(false);
   });
 });

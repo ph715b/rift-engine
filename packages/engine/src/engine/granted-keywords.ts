@@ -1,3 +1,4 @@
+import { findUnitAnywhere } from "./target-lookup.js";
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
@@ -139,4 +140,35 @@ export function hasKeyword(state: GameState, unit: UnitInstance, ownerIndex: 0 |
 export function deflectSurcharge(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, chooserIndex: 0 | 1): number {
   if (chooserIndex === ownerIndex) return 0; // "OPPONENTS must pay"
   return effectiveKeywords(state, unit, ownerIndex)["Deflect"] ?? 0;
+}
+
+/**
+ * The total `[Deflect]` surcharge a play owes for CHOOSING these units — the one
+ * function `legal-actions`, `validate-play-card` and `execute-play-card` all ask,
+ * so the enumerator and the validator cannot disagree about the price.
+ *
+ * Summed per target, because 355 makes each chosen unit a target in its own right
+ * and two Deflect units chosen by one spell are two taxes. Ids that name nothing
+ * on the board contribute 0 rather than throwing: a target can die between
+ * enumeration and validation, and the pricing must not be the thing that explodes.
+ *
+ * Floating Power deliberately does NOT reduce this. That is the design recorded
+ * in docs/rules-conformance.md and it is the conservative reading — it can only
+ * make a play cost more, never let one through that should not be — but it is
+ * genuinely UNVERIFIED against the rules, which say nothing about whether a
+ * rainbow surcharge draws on a floating pool.
+ */
+export function deflectSurchargeForTargets(
+  state: GameState,
+  chooserIndex: 0 | 1,
+  targetInstanceIds: readonly (string | undefined)[],
+): number {
+  let total = 0;
+  for (const id of targetInstanceIds) {
+    if (id === undefined) continue;
+    const found = findUnitAnywhere(state, id);
+    if (!found) continue;
+    total += deflectSurcharge(state, found.unit, found.ownerIndex, chooserIndex);
+  }
+  return total;
 }

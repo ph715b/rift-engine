@@ -66,11 +66,12 @@ import { deathReplacementDefIds } from "./death-ward.js";
  * that carry it at once.
  */
 const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
-  [
-    "Deflect",
-    "[Deflect] is parsed (with its value — Volibear - Furious is [Deflect 2]) and then ignored: " +
-      "opponents choose the unit with a spell or ability at the printed price",
-  ],
+  // EMPTY as of 2026-08-02, and that is the shape working: `[Deflect]` lived here
+  // while it was parsed and ignored, and DELETING this one entry flipped all five
+  // cards whose only remaining gap it was — exactly what this map's doc comment
+  // above predicted. Keep it as a map rather than deleting the mechanism: the
+  // KEYWORDS doc comment already names [Backline]/[Hunt]/[Level]/[Ambush] as
+  // pending sets, and the next one must not be able to reopen the same hole.
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.
@@ -217,11 +218,16 @@ export function implementingModule(defId: string): string | undefined {
  * when the rest lands. A card is either finished or it is on this list.
  */
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // Empty, and that is the point of the shape: entries are DELETED when the rest
-  // lands, never reworded. Sett - The Boss lived here while only his on-conquer
-  // clause worked; Convergent Mutation lived here for the hours between its
-  // enumeration gap being found and `asymmetricSlots` landing. A card is either
-  // finished or it is on this list.
+  // Entries are DELETED when the rest lands, never reworded. Sett - The Boss lived
+  // here while only his on-conquer clause worked; Convergent Mutation lived here
+  // for the hours between its enumeration gap being found and `asymmetricSlots`
+  // landing. A card is either finished or it is on this list.
+  [
+    "OGN-063",
+    "its second sentence — 'friendly buffed units have [Deflect] if they didn't already' — is not written. " +
+      "That is a continuous keyword aura from a GEAR source with a per-target condition, and nothing expresses it: " +
+      "CONDITIONAL_GRANTS is keyed by the RECEIVING unit's defId and no aura lookup walks activeGear",
+  ],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

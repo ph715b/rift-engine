@@ -223,28 +223,44 @@ describe("every card type reaches the coverage measure", () => {
  * Pinned per CARD rather than per keyword-name, so this keeps meaning something
  * when Deflect lands and the next pending keyword takes its place.
  */
-describe("an unimplemented keyword is text that still needs writing", () => {
+describe("the unimplemented-keyword mechanism, now that the pool has none", () => {
   const registry = defaultCardRegistry();
   const POUTY_PORO = "OGN-013"; // entire text is "[Deflect] (reminder)"
   const FIORA_VICTORIOUS = "OGN-232"; // grants [Deflect], [Ganking], [Shield] while Mighty
   const VOLIBEAR_FURIOUS = "OGN-041"; // carries the VALUED form, [Deflect 2]
   const GAREN_RUGGED = "OGS-007"; // "[Assault 2], [Shield 2]" — keywords that DO work
 
-  it("keeps a keyword-only card that does nothing OUT of the implemented count", () => {
+  /**
+   * `UNIMPLEMENTED_KEYWORDS` is EMPTY as of 2026-08-02: `[Deflect]` was its only
+   * entry and the surcharge now has real consumers in the cost pipeline, so
+   * deleting the entry flipped every card whose sole remaining gap it was.
+   *
+   * These tests used Deflect as their subject, so most of them no longer have
+   * one. Rewritten to pin what is now TRUE — every keyword has a consumer — plus
+   * the structural guards that keep meaning something when the next pending set
+   * ([Backline], [Hunt], [Level], [Ambush]) arrives. They are NOT deleted,
+   * because the hole they were written for is reopenable by one map entry.
+   */
+  it("flags nothing, because every keyword in KEYWORDS now has a real consumer", () => {
+    const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
+    expect([...flagged]).toEqual([]);
+  });
+
+  it("a keyword-only card is now genuinely finished — Pouty Poro's whole text is [Deflect]", () => {
+    // The card this mechanism was BUILT for. It reported implemented while doing
+    // nothing, then reported unimplemented once the lie was fixed, and now
+    // reports implemented because the keyword actually works. Its whole text is
+    // the keyword, so nothing survives the strip and nothing is left to write.
     const poro = registry.get(POUTY_PORO);
-    // The exact shape of the old lie: nothing survived the strip, so nothing
-    // needed implementing, so the card was "done".
-    expect(needsImplementation(poro)).toBe(true);
-    expect(isCardImplemented(poro)).toBe(false);
-    // And it says WHICH keyword, rather than just greying the card.
-    expect(implementableText(poro)).toContain("[Deflect]");
-    expect(partialImplementationNote(poro)).toContain("[Deflect]");
+    expect(implementableText(poro)).toBe("");
+    expect(needsImplementation(poro)).toBe(false);
+    expect(isCardImplemented(poro)).toBe(true);
+    expect(partialImplementationNote(poro)).toBeUndefined();
   });
 
   it("still strips the keywords that ARE implemented", () => {
-    // The other half of the guard. Garen is entirely keyword and entirely
-    // working; flagging him is the false-"5 precon cards are inert" bug that
-    // implementableText's own doc comment exists to prevent.
+    // Garen is entirely keyword and entirely working; flagging him is the
+    // false-"5 precon cards are inert" bug implementableText exists to prevent.
     const garen = registry.get(GAREN_RUGGED);
     expect(garen.text).toContain("[Assault");
     expect(implementableText(garen)).toBe("");
@@ -252,47 +268,41 @@ describe("an unimplemented keyword is text that still needs writing", () => {
     expect(isCardImplemented(garen)).toBe(true);
   });
 
-  it("reads the VALUED bracket form too", () => {
-    // "[Deflect 2]" must match as readily as "[Deflect]" — a value-blind matcher
-    // would let exactly one card in the pool slip back through.
+  it("still reads the VALUED bracket form — [Deflect 2] parses as a value of 2", () => {
+    // The value survives even though the keyword is no longer flagged: a
+    // value-blind parser would have made Volibear's [Deflect 2] a [Deflect 1]
+    // tax, i.e. half price, which nothing else in the pool would have caught.
     const volibear = registry.get(VOLIBEAR_FURIOUS);
     expect(volibear.text).toContain("[Deflect 2]");
-    expect(unimplementedKeywordsOn(volibear)).toEqual(["Deflect"]);
+    expect(volibear.type).toBe("Unit");
+    if (volibear.type !== "Unit") throw new Error("unreachable");
+    expect(volibear.keywords.Deflect).toBe(2);
   });
 
-  it("catches a card that GRANTS the keyword and is otherwise registered", () => {
-    // Fiora is the case a hand-maintained list would have missed: her grant IS
-    // implemented (granted-keywords), and [Ganking]/[Shield] really work, so the
-    // registry check alone says "finished" for a card doing two thirds of its text.
+  it("a card whose OTHER text is unwritten is still not finished", () => {
+    // Volibear carries the working keyword AND an unwritten attack trigger, so
+    // he must stay open — the keyword landing must not sweep him up with the
+    // cards it genuinely finished.
+    expect(isCardImplemented(registry.get(VOLIBEAR_FURIOUS))).toBe(false);
+    expect(implementableText(registry.get(VOLIBEAR_FURIOUS))).toContain("split");
+  });
+
+  it("Fiora, who GRANTS it conditionally, is finished now that it has a consumer", () => {
     const fiora = registry.get(FIORA_VICTORIOUS);
     expect(implementingModule(FIORA_VICTORIOUS)).toBe("granted keywords");
-    expect(unimplementedKeywordsOn(fiora)).toEqual(["Deflect"]);
-    expect(isCardImplemented(fiora)).toBe(false);
-    expect(partialImplementationNote(fiora)).toBeDefined();
+    expect(unimplementedKeywordsOn(fiora)).toEqual([]);
+    expect(isCardImplemented(fiora)).toBe(true);
   });
 
-  it("detects a grant from TEXT, not from the parsed keyword map", () => {
-    // The two disagree in both directions, so reading def.keywords would be wrong
-    // twice over: Fiora's map is empty (hers are conditional, stripped at parse
-    // time), and Spirit's Refuge parses a Deflect it does not have and only grants.
-    const fiora = registry.get(FIORA_VICTORIOUS);
-    // Narrowed rather than cast: `keywords` lives on Unit/Gear and not on Legend,
-    // and asserting the type here is what keeps this test honest if Fiora's
-    // definition kind ever changes underneath it.
-    expect(fiora.type).toBe("Unit");
-    if (fiora.type !== "Unit") throw new Error("unreachable");
-    expect(fiora.keywords).toEqual({});
-    expect(unimplementedKeywordsOn(fiora)).toContain("Deflect");
-  });
-
-  it("flags no card for a keyword that has a real consumer", () => {
-    // Guards the opposite failure: if UNIMPLEMENTED_KEYWORDS ever grew an entry
-    // for a working keyword, a large slice of the pool would silently go inert.
+  it("the mechanism is still WIRED, so the next pending keyword cannot slip through", () => {
+    // The map is empty, not removed. If an entry is ever added it must name a
+    // real keyword — this is what stops a typo silently flagging nothing, and
+    // what stops a working keyword silently greying a slice of the pool.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    for (const keyword of flagged) {
-      expect(KEYWORDS).toContain(keyword);
-    }
-    expect([...flagged]).toEqual(["Deflect"]);
+    for (const keyword of flagged) expect(KEYWORDS).toContain(keyword);
+    // And the reader is still reachable: a bracket that IS a modelled keyword
+    // parses, which is the half that would break silently if the parser rotted.
+    expect(KEYWORDS).toContain("Deflect");
   });
 });
 
@@ -312,37 +322,46 @@ describe("an unimplemented keyword is text that still needs writing", () => {
  * IS `[Deflect]`, so it genuinely is one keyword away and must not be told
  * otherwise.
  */
-describe("a partial note says how much is left, not just which keyword", () => {
+describe("a partial note says how much is left", () => {
   const registry = defaultCardRegistry();
-  const NOT_ONE_AWAY = /not one keyword away/;
 
-  it("warns when a keyword-carrying card has unwritten text of its own", () => {
-    // Both have real prose beyond the keyword and no implementing module.
-    for (const id of ["OGN-041", "OGN-231"]) {
+  /**
+   * This block was written the same day `[Deflect]` was implemented, and its
+   * subject went with it. It pinned a note that was too OPTIMISTIC — a card
+   * carrying an unimplemented keyword AND having no registered module reported
+   * "only [Deflect] is missing" when nothing of it worked at all.
+   *
+   * With `UNIMPLEMENTED_KEYWORDS` empty that branch is unreachable: it needs a
+   * flagged keyword to fire. Kept rather than deleted, and rewritten onto the
+   * half that IS live — the hand-maintained `PARTIALLY_IMPLEMENTED` map — because
+   * the optimistic-note hole reopens the moment the next pending keyword lands.
+   */
+  it("reports a hand-listed partial, and says WHY", () => {
+    // Spirit's Refuge is the live case: its buff half is implemented and its
+    // "friendly buffed units have [Deflect]" aura is not — a keyword aura from a
+    // GEAR source, which nothing expresses. [Deflect] itself works now, so the
+    // note can no longer be derived from the keyword and has to be stated.
+    const refuge = registry.get("OGN-063");
+    expect(isCardImplemented(refuge)).toBe(false);
+    expect(partialImplementationNote(refuge)).toMatch(/aura|not written/i);
+  });
+
+  it("says nothing about a card that is genuinely finished", () => {
+    // The guard against the map going stale in the other direction: an entry
+    // left behind after its gap closed would grey a working card forever.
+    for (const id of ["OGN-013", "OGN-155", "OGN-161", "OGN-232"]) {
       const def = registry.get(id);
-      expect(implementingModule(id), `${id} is registered — pick a different subject`).toBeUndefined();
-      expect(partialImplementationNote(def), `${id} (${def.name})`).toMatch(NOT_ONE_AWAY);
+      expect(partialImplementationNote(def), `${id} (${def.name})`).toBeUndefined();
+      expect(isCardImplemented(def), `${id} (${def.name})`).toBe(true);
     }
   });
 
-  it("does NOT warn for a card whose entire text is the keyword", () => {
-    // Pouty Poro is unregistered too, so a check keyed on registration alone
-    // gets this wrong — the question is whether any PROSE survives the strip.
-    const poro = registry.get("OGN-013");
-    expect(implementingModule("OGN-013")).toBeUndefined();
-    expect(partialImplementationNote(poro)).not.toMatch(NOT_ONE_AWAY);
-  });
-
-  it("does NOT warn for a card whose other clauses ARE implemented", () => {
-    // Fiora's grant works and her [Ganking]/[Shield] work; only [Deflect] is out.
-    const fiora = registry.get("OGN-232");
-    expect(implementingModule("OGN-232")).toBeDefined();
-    expect(partialImplementationNote(fiora)).not.toMatch(NOT_ONE_AWAY);
-  });
-
-  it("still names the keyword in every case", () => {
-    for (const id of ["OGN-013", "OGN-041", "OGN-231", "OGN-232"]) {
-      expect(partialImplementationNote(registry.get(id)), id).toContain("[Deflect]");
+  it("derives nothing from keywords while every keyword has a consumer", () => {
+    // The derived half is inert by construction right now. Asserting it rather
+    // than assuming keeps the two halves distinguishable: a note appearing from
+    // nowhere would mean a keyword had quietly lost its implementation.
+    for (const def of registry.all()) {
+      expect(unimplementedKeywordsOn(def), `${def.id} (${def.name})`).toEqual([]);
     }
   });
 });

@@ -11,6 +11,7 @@ import {
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
+import { deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotScope } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -441,6 +442,36 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (!matchesPowerDomain(rune, card.powerDomain, card.powerDomainAlt)) {
       const required = card.powerDomainAlt !== undefined ? `${card.powerDomain} or ${card.powerDomainAlt}` : `${card.powerDomain}`;
       return fail(`Rune ${id} is ${rune.domain}, but ${card.name}'s Power cost requires ${required}`);
+    }
+  }
+
+  // **[Deflect]** — re-derived here rather than trusted from the action, exactly
+  // as the card's own cost is. The surcharge depends on WHICH units this play
+  // chooses, so it is the first price in this engine that a client could
+  // understate by sending a different target than it was quoted for.
+  //
+  // No domain check on this bucket: rainbow means any domain, which is precisely
+  // why it is a separate bucket from `powerRunes` above rather than more entries
+  // in it.
+  const deflected = deflectSurchargeForTargets(state, action.playerIndex, [
+    action.targetUnitInstanceId,
+    action.secondTargetUnitInstanceId,
+  ]);
+  const rainbow = payment.rainbowRunes ?? [];
+  if (rainbow.length < deflected) {
+    return fail(
+      `${card.name} must pay ${deflected} rainbow Power for [Deflect] on its target${deflected === 1 ? "" : "s"}, ` +
+        `but named ${rainbow.length}`,
+    );
+  }
+  const alreadySpent = new Set([...payment.energyRunes, ...payment.powerRunes]);
+  for (const id of rainbow) {
+    if (!channeledById.has(id)) return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
+    // One rune cannot pay both the card's own cost and an opponent's Deflect tax.
+    // The Ready-rune double duty (164.2) lets a rune make Energy AND Power for
+    // ITS OWNER's cost; it does not make two Powers.
+    if (alreadySpent.has(id)) {
+      return fail(`Rune ${id} is already spent on ${card.name}'s own cost and cannot also pay its [Deflect] surcharge`);
     }
   }
 

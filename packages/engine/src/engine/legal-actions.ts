@@ -9,6 +9,7 @@ import type {
   PlayCardAction,
   PlayerAction,
   RecallUnitAction,
+  RunePayment,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
@@ -32,7 +33,7 @@ import {
   mayPlayUnitToBattlefield,
 } from "./timing.js";
 import { HIDE_POWER_COST, RAINBOW, hiddenCardIsPlayable, isHiddenCard } from "./hidden.js";
-import { hasKeyword } from "./granted-keywords.js";
+import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
@@ -611,7 +612,37 @@ export function legalActions(state: GameState): PlayerAction[] {
       if (discardChoice && !discardChoice.optional) continue;
       if (!variantPayment) continue; // affordable only WITH the discount, already emitted
 
-      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment: variantPayment, ...variant, ...hiddenFields };
+      // **[Deflect]: re-price THIS variant.** Every payment above is computed once
+      // per card, which was correct while nothing made the price depend on the
+      // choice. `[Deflect N]` does: the surcharge is owed for choosing a
+      // particular unit, so two variants of the same card can cost differently
+      // and one can be unaffordable while another is fine. This is the per-variant
+      // restructure the conformance row called for, and Call to Glory's
+      // `ignoresCostWhenPaid` was its first, smaller instance.
+      //
+      // Skipped entirely when nothing targeted has [Deflect], so the ordinary card
+      // keeps the single shared payment object it always had.
+      const deflected = deflectSurchargeForTargets(state, playerIndex, [
+        variant.targetUnitInstanceId,
+        variant.secondTargetUnitInstanceId,
+      ]);
+      let variantPaymentForTargets: RunePayment = variantPayment;
+      if (deflected > 0) {
+        const taxed = computeAutoPayment(
+          actor.channeled,
+          effectiveCost.energyCost,
+          effectiveCost.powerCost,
+          card.powerDomain,
+          card.powerDomainAlt,
+          deflected,
+        );
+        // Unaffordable ONCE THE TAX IS ADDED — the card may still be playable at
+        // another target, so this skips the variant rather than the card.
+        if (!taxed) continue;
+        variantPaymentForTargets = taxed;
+      }
+
+      const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment: variantPaymentForTargets, ...variant, ...hiddenFields };
       if (accelerated) {
         actions.push({ type: "PlayCard", playerIndex, card, payment: accelerated, ...variant, ...hiddenFields, acceleratePaid: true });
       }
@@ -650,7 +681,15 @@ export function legalActions(state: GameState): PlayerAction[] {
             type: "PlayCard",
             playerIndex,
             card,
-            payment: variantPayment,
+            // The TAXED payment, not the plain one. A Unit's on-play trigger can
+            // target — Maddened Marauder's does — and its target is chosen on
+            // this same action, so a reinforce variant owes the surcharge exactly
+            // as the base-play variant does. Using `variantPayment` here was a
+            // real offered-then-refused bug: the AI takes an enumerated action
+            // straight to the executor, and self-play threw "must pay 1 rainbow
+            // Power for [Deflect] on its target, but named 0" as soon as a
+            // Marauder targeted a Deflect unit.
+            payment: variantPaymentForTargets,
             ...variant,
             ...hiddenFields,
             destinationBattlefieldId: bf.id,

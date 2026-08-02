@@ -7,6 +7,21 @@ import type { CardInstance } from "../model/card.js";
 export interface RunePayment {
   energyRunes: string[];
   powerRunes: string[];
+  /**
+   * Runes recycled for a RAINBOW Power surcharge — `[Deflect N]`'s "opponents
+   * must pay N rainbow Power to choose me with a spell or ability".
+   *
+   * A third bucket rather than more entries in `powerRunes`, because the two are
+   * validated differently: `validate-play-card` requires every id in
+   * `powerRunes` to match the CARD's own `powerDomain`, and a rainbow surcharge
+   * is by definition any-domain. Folding them together would trip that check on
+   * every off-domain rune, which is exactly why this could not simply reuse the
+   * existing bucket.
+   *
+   * Optional so that every existing producer and every stored action stays valid
+   * — a card whose targets carry no `[Deflect]` never mentions it.
+   */
+  rainbowRunes?: string[];
 }
 
 export interface PlayCardAction {

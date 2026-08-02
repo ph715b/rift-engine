@@ -98,6 +98,21 @@ export function computeAutoPayment(
   powerCost: number,
   powerDomain: Domain | null,
   powerDomainAlt?: Domain,
+  /**
+   * A RAINBOW Power surcharge on top of the card's own cost — `[Deflect N]`.
+   *
+   * Filled from runes of ANY domain that this payment has not already spent, and
+   * returned in its own `rainbowRunes` bucket. Taken LAST, after the card's own
+   * Energy and Power are covered, because the card's Power is domain-restricted
+   * and the surcharge is not: spending a matching rune on the surcharge first
+   * could make an otherwise-payable card unpayable.
+   *
+   * Unlike the Energy/Power halves this does NOT get the Ready-rune double duty:
+   * a rune recycled for the surcharge is gone, and if it were also counted for
+   * Energy the same rune would be paying an opponent's tax and its owner's cost
+   * at once.
+   */
+  rainbowCost = 0,
 ): RunePayment | null {
   const exhaustedMatch = channeled.filter((r) => r.state === "Exhausted" && matchesPowerDomain(r, powerDomain, powerDomainAlt));
   const readyMatch = channeled.filter((r) => r.state === "Ready" && matchesPowerDomain(r, powerDomain, powerDomainAlt));
@@ -116,5 +131,14 @@ export function computeAutoPayment(
   energyRunes.push(...extraReady.slice(0, Math.max(stillNeededEnergy, 0)));
   if (energyRunes.length < energyCost) return null; // infeasible
 
-  return { energyRunes: energyRunes.map((r) => r.id), powerRunes: powerRunes.map((r) => r.id) };
+  const base = { energyRunes: energyRunes.map((r) => r.id), powerRunes: powerRunes.map((r) => r.id) };
+  if (rainbowCost <= 0) return base;
+
+  // Any domain, any state: a Power cost is paid by RECYCLING (416), and an
+  // already-exhausted rune recycles just as well as a Ready one. Excluding what
+  // this payment has already committed is what stops one rune paying twice.
+  const spent = new Set([...base.energyRunes, ...base.powerRunes]);
+  const rainbow = channeled.filter((r) => !spent.has(r.id)).slice(0, rainbowCost);
+  if (rainbow.length < rainbowCost) return null; // the surcharge is unpayable
+  return { ...base, rainbowRunes: rainbow.map((r) => r.id) };
 }
