@@ -1,0 +1,67 @@
+/**
+ * Builds `.buffdeck.txt` for live-triggers.mjs, from the REGISTRY rather than by
+ * hand — a hand-authored list goes stale the moment a card name changes, and a
+ * name that fails to resolve is non-fatal by design, so the deck would silently
+ * import one card short.
+ *
+ * Three things this has to get right, each of which cost a probe run:
+ *  - the champion `parseDecklistText` picks is itself a real card (Sett -
+ *    Brawler), so adding 3 more copies makes 4 and validation refuses;
+ *  - the main deck needs 39 lines, because `cardIds = [...mainDeck, championId]`
+ *    appends the champion once;
+ *  - the sideboard must be a full 8.
+ *
+ * PRIORITY is the point of the file. Filling by registry order alone produced a
+ * deck containing none of the cards the probe exists to observe, so the probe
+ * dutifully reported that their prompts never rendered. Anything whose live
+ * behaviour is being checked goes in the priority list.
+ */
+import { defaultCardRegistry, isEligibleChampion } from "../../packages/engine/dist/index.js";
+import { writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const registry = defaultCardRegistry();
+const ALL = registry.all();
+const legend = registry.get("OGN-269"); // Sett - The Boss, Body + Order
+const domains = legend.domains;
+const champion = ALL.find((d) => d.type === "Unit" && d.isChampion && isEligibleChampion(d, legend.name, domains));
+if (!champion) throw new Error("no eligible champion");
+
+/** Cards whose LIVE behaviour this deck exists to reach. Mistfall and Qiyana put
+ *  triggered abilities on the chain; the rest park DECISIONS, and were landed on
+ *  2026-08-02 having never been seen rendered. Only Body/Order ones can be here —
+ *  the Calm and Chaos decision cards need a different legend. */
+const PRIORITY = [
+  "OGN-152", // Mistfall — unitBuffed trigger
+  "OGN-155", // Qiyana - Victorious — battlefieldConquered trigger + decision
+  "OGN-230", // Albus Ferros — spend any number of buffs
+  "OGN-226", // Spectral Matron — play a unit from your trash
+  "OGN-237", // King's Edict — the opponent chooses
+  "OGN-153", // Overt Operation — one question per buffed friendly unit
+].filter((id) => id !== champion.id);
+
+const legal = ALL.filter((d) => d.type !== "Legend" && d.id !== champion.id && (d.domains ?? []).every((x) => domains.includes(x)));
+const priorityDefs = PRIORITY.map((id) => legal.find((d) => d.id === id)).filter(Boolean);
+const missing = PRIORITY.filter((id) => !priorityDefs.some((d) => d.id === id));
+if (missing.length) throw new Error(`priority cards are not legal in this deck: ${missing.join(", ")}`);
+
+const ids = [];
+for (const def of [...priorityDefs, ...legal.filter((d) => !PRIORITY.includes(d.id))]) {
+  if (ids.length >= 39) break;
+  for (let i = 0; i < 3 && ids.length < 39; i += 1) ids.push(def.id);
+}
+const counts = {};
+for (const id of ids) counts[id] = (counts[id] ?? 0) + 1;
+
+const lines = ["Legend:", `1 ${legend.name}`, "", "Champion:", `1 ${champion.name}`, "", "MainDeck:"];
+for (const [id, n] of Object.entries(counts)) lines.push(`${n} ${registry.get(id).name}`);
+const side = legal.filter((d) => !ids.includes(d.id)).slice(0, 8);
+if (side.length !== 8) throw new Error(`sideboard needs 8, got ${side.length}`);
+lines.push("", "Sideboard:");
+for (const d of side) lines.push(`1 ${d.name}`);
+
+const out = join(dirname(fileURLToPath(import.meta.url)), ".buffdeck.txt");
+writeFileSync(out, lines.join("\n"));
+console.log(`wrote ${out}: ${ids.length} main + champion ${champion.name}, sideboard ${side.length}`);
+console.log(`priority present: ${PRIORITY.map((id) => registry.get(id).name).join(", ")}`);

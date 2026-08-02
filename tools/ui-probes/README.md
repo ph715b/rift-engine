@@ -65,14 +65,17 @@ and uses it for BOTH seats, and it **fails** when it sees no trigger row.
 Regenerate the deck when the card pool changes:
 
 ```
-node -e "...builds tools/ui-probes/.buffdeck.txt from the registry..."
+node tools/ui-probes/make-buffdeck.mjs
 ```
 
-Three things the deck text has to get right, each of which cost a run:
-the champion the parser picks is itself a card (Sett - Brawler), so adding 3 more
-copies makes 4 and validation refuses; the main deck needs **39** lines because
-`cardIds = [...mainDeck, championId]` adds the champion once; and the sideboard
-must be a full 8.
+Its `PRIORITY` list is the point: filling by registry order alone produced a deck
+containing none of the cards the probe exists to observe, so the probe honestly
+reported that their prompts never rendered. **Anything whose live behaviour you
+are checking has to go in that list.** The generator also encodes three things the
+deck text must get right, each of which cost a run: the champion the parser picks
+is itself a card (Sett - Brawler), so adding 3 more copies makes 4 and validation
+refuses; the main deck needs **39** lines because `cardIds = [...mainDeck,
+championId]` adds the champion once; and the sideboard must be a full 8.
 
 Run it with `PORT` set — never assume 5173. Stale vite servers held 5173-5183 on
 2026-08-02 and the live server came up on **5184**.
@@ -80,5 +83,14 @@ Run it with `PORT` set — never assume 5173. Stale vite servers held 5173-5183 
 `GAMES` defaults to **6** because two is not enough: two consecutive 2-game runs
 gave 30 trigger-row states and then zero, same deck and same code.
 
-`decisionsSeen: 0` is honest reporting of an UNEXERCISED path, not a pass. The
-human passes all game, so it is never asked anything.
+**`ACTIVE=1` is what reaches decisions.** Passing alone never can — the human
+plays nothing and the AI answers its own questions silently — so a default run's
+`decisionsSeen: 0` means "not reached", never "no decisions render". Active mode
+plays from hand and gets **raised == answered**, which is what rules out a
+stranded question.
+
+Clicking a hand card needs the TOP ~12% of it, twice. The hand rests collapsed to
+a ~32% peek inside `overflow: hidden`, so the layout-box centre is clipped away —
+clicking there arms nothing and reports `playAttempts: 0`. Hover the visible
+strip, wait for the hand to open, then RE-MEASURE before clicking, because the
+point that was over the card no longer is (measured: y=845 to y=700).

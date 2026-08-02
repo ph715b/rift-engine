@@ -20,13 +20,20 @@
  * or an uncaught throw is never acceptable and is the thing most likely to be
  * caused by a card whose resolver returns a shape the board cannot render.
  *
- * **KNOWN UNEXERCISED: decisions.** The human passes all game, so it never plays
- * a card and is never asked anything; the AI answers its own questions without a
- * prompt. `decisionsSeen: 0` here therefore means "not reached", NOT "no
- * decisions render" — the eight decision-parking cards landed on 2026-08-02 have
- * still never been seen in a browser. Reaching them needs a driver that plays
- * cards rather than only passing. Reported rather than gated, precisely so the
- * zero cannot be mistaken for a pass.
+ * **DECISIONS need `ACTIVE=1`.** Passing alone can never reach one: the human
+ * plays nothing, and the AI answers its own questions with no prompt, so the
+ * default run reports `decisionsSeen: 0` meaning "not reached" — never "no
+ * decisions render". With `ACTIVE=1` the driver plays from hand and the prompts
+ * do appear, answerable, with **raised == answered**, which is what rules out a
+ * stranded question. Confirmed live: Qiyana - Victorious's "draw 1, or channel 1
+ * rune exhausted?", Mistfall's pay-and-exhaust, and Sett - The Boss's death
+ * replacement.
+ *
+ * Still NOT seen rendered: the decision prompts of Albus Ferros, Spectral Matron,
+ * King's Edict and Overt Operation. They are in the deck (see
+ * `make-buffdeck.mjs`'s PRIORITY list) and reached play, but their own conditions
+ * did not come up. The four Calm/Chaos decision cards from that batch cannot be in
+ * a Body/Order deck at all and need a second deck to reach.
  */
 import { chromium, ORIGIN, OUT, PORT, sleep, step } from "./lib.mjs";
 import { join, dirname } from "node:path";
@@ -46,6 +53,10 @@ import { fileURLToPath } from "node:url";
  */
 const GAMES = Number(process.env.GAMES ?? 6);
 const STEPS = Number(process.env.STEPS ?? 320);
+/** Play cards as the human, not just pass. Off by default so the trigger-row
+ *  measurement above stays comparable between runs; ACTIVE=1 is what reaches
+ *  decisions. */
+const ACTIVE = process.env.ACTIVE === '1';
 
 /**
  * The preset decks CANNOT reach this feature, and finding that out is half the
@@ -77,6 +88,7 @@ let decisionsAnswered = 0;
 const decisionTitles = new Map();
 const triggerNames = new Map();
 let gamesOver = 0;
+let playAttempts = 0;
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1600, height: 950 } });
@@ -149,6 +161,82 @@ async function bootWithImportedDeck(p) {
   await sleep(300);
 }
 
+/**
+ * Arms a card from the human's hand and pushes it through to submission.
+ *
+ * The board's play flow is several optional steps — target picking, Auto Pay,
+ * Accelerate — and any of them may be absent for a given card, so each is tried
+ * and skipped rather than assumed. If the card cannot be completed, it is
+ * CANCELLED explicitly: an armed card blocks the board, and a driver that leaves
+ * one armed turns the rest of the run into a silent no-op, which reads as "the
+ * game got quiet" rather than as a stuck probe.
+ *
+ * Uses `mouse.move` + `click` on a measured point rather than `locator.hover()`,
+ * which fails actionability on the Framer-animated hand cards and scores as a
+ * feature failure.
+ */
+async function tryPlayFromHand(p) {
+  if (await p.locator(".choice-overlay-panel").count()) return false;
+  const cancel = p.getByRole("button", { name: /^Cancel / });
+  if (await cancel.count()) return false; // something is already armed
+
+  const cards = p.locator(".hand-fan-layer .card");
+  const n = await cards.count();
+  if (n === 0) return false;
+
+  const card = cards.nth(Math.min(n - 1, Math.floor(n / 2)));
+  const box = await card.boundingBox().catch(() => null);
+  if (!box) return false;
+  // Aim at the TOP 12% of the card, twice.
+  //
+  // The hand rests COLLAPSED to a ~32% peek inside a slot with `overflow:
+  // hidden`, so the card's layout-box CENTRE is clipped away — a click there
+  // lands on nothing and arms nothing, which is exactly what the first version of
+  // this function did, silently, reporting `playAttempts: 0`. Hovering the
+  // visible strip opens the hand (measured: the card's box moves from y=845 to
+  // y=700), and the card must then be RE-MEASURED before clicking, because the
+  // point that was over it is no longer.
+  await p.mouse.move(box.x + box.width / 2, box.y + box.height * 0.12);
+  await sleep(420);
+  const opened = await card.boundingBox().catch(() => null);
+  if (!opened) return false;
+  await p.mouse.click(opened.x + opened.width / 2, opened.y + opened.height * 0.12);
+  await sleep(260);
+
+  if (!(await p.getByRole("button", { name: /^Cancel / }).count())) return false; // not armed: not playable now
+
+  for (let i = 0; i < 6; i += 1) {
+    const pay = p.getByRole("button", { name: /^Auto Pay$/ });
+    if (await pay.count()) {
+      await pay.first().click({ timeout: 1200 }).catch(() => {});
+      await sleep(200);
+      continue;
+    }
+    const done = p.getByRole("button", { name: /^(Done \(\d+\)|Choose no targets)$/ });
+    if (await done.count()) {
+      await done.first().click({ timeout: 1200 }).catch(() => {});
+      await sleep(250);
+      continue;
+    }
+    // A targeted card needs a target clicked on the board before Done appears.
+    const target = p.locator(".card.selectable, .battlefield.selectable").first();
+    if (await target.count()) {
+      await target.click({ timeout: 1200 }).catch(() => {});
+      await sleep(220);
+      continue;
+    }
+    break;
+  }
+
+  const stillArmed = p.getByRole("button", { name: /^Cancel / });
+  if (await stillArmed.count()) {
+    await stillArmed.first().click({ timeout: 1200 }).catch(() => {});
+    await sleep(150);
+    return false;
+  }
+  return true;
+}
+
 await importBuffDeck(page);
 
 for (let g = 0; g < GAMES; g += 1) {
@@ -205,6 +293,17 @@ for (let g = 0; g < GAMES; g += 1) {
     if ((await page.locator(".chain-item").count()) > 0) chainItemStates += 1;
 
     stepsTaken += 1;
+    // ACTIVE mode: try to play a card before falling back to passing.
+    //
+    // Passing alone can never reach a human decision — the human plays nothing,
+    // and the AI answers its own questions with no prompt — so the eight
+    // decision-parking cards landed today were unreachable by a passive driver.
+    // This is the "drive the rare state deliberately" half of gating on
+    // `tried > 0`: counting a branch that cannot occur is not measurement.
+    if (ACTIVE) {
+      const played = await tryPlayFromHand(page);
+      if (played) playAttempts += 1;
+    }
     const alive = await step(page);
     if (!alive) {
       gamesOver += 1;
@@ -246,6 +345,7 @@ console.log(
         decisionsAnswered,
         decisionTitles: Object.fromEntries(decisionTitles),
         triggerNames: Object.fromEntries(triggerNames),
+        playAttempts,
       },
       failures: { consoleErrors: consoleErrors.slice(0, 10), pageErrors: pageErrors.slice(0, 10) },
     },
