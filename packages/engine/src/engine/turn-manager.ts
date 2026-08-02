@@ -246,7 +246,7 @@ export function runEnd(state: GameState): GameState {
     ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
-    ...("movedThisTurn" in u ? { movedThisTurn: false } : {}),
+    ...("movesThisTurn" in u ? { movesThisTurn: 0 } : {}),
   });
 
   const players = afterLegend.players.map((p) => ({

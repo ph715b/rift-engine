@@ -2,6 +2,8 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnMove } from "../engine/unit-triggers.js";
+import { holdEventTrigger } from "../engine/triggers.js";
+import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
 
@@ -60,20 +62,45 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   let next = state;
   const movedUnits: UnitInstance[] = [];
   for (const unitId of action.unitInstanceIds) {
+    // Where it came FROM, captured before the removal — `removeFromOrigin` is
+    // what makes that unanswerable afterwards.
+    const origin = findUnitOnBattlefield(next, unitId)?.battlefieldIndex;
+    const originId = origin !== undefined ? next.battlefields[origin]!.id : "base";
     const { state: afterRemove, unit } = removeFromOrigin(next, action.playerIndex, unitId);
-    // `movedThisTurn` records that this unit has moved AT ALL this turn, for
-    // Miss Fortune - Captain's "the first time I move each turn". Set on the
-    // Standard Move only: a unit relocated by a spell (forceMoveToBattlefield)
-    // or recalled (454, explicitly not a Move) has not moved in the sense the
-    // card asks about.
-    const moved = { ...unit, exhausted: true, movedThisTurn: true };
-    const isFirstMoveThisTurn = !unit.movedThisTurn;
+    // `movesThisTurn` counts this unit's moves, for Miss Fortune - Captain's
+    // "the FIRST time I move each turn" and Yasuo - Windrider's "the THIRD time
+    // I move in a turn". Incremented on the Standard Move only: a unit relocated
+    // by a spell (forceMoveToBattlefield) or recalled (454, explicitly not a
+    // Move) has not moved in the sense those cards ask about.
+    const moved = { ...unit, exhausted: true, movesThisTurn: unit.movesThisTurn + 1 };
+    const isFirstMoveThisTurn = unit.movesThisTurn === 0;
     movedUnits.push(moved);
     next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, moved);
     // On-move fires for every completed move, contested or not (Traveling
     // Merchant, Noxian Drummer) — on-attack (below) only if it turns out to
     // be contested, so it must wait until every unit has actually landed.
     next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId, isFirstMoveThisTurn);
+    // A board-wide event, distinct from the per-card ON_MOVE_TRIGGERS table
+    // above: that one is keyed by the MOVING unit's defId and can never reach a
+    // listener sitting on a different card. Stealthy Pursuer watches "a friendly
+    // unit moves FROM my location" and Volibear - Imposing watches an opponent's
+    // moves, neither of which the table can express.
+    //
+    // HELD (383), never dispatched — the whole point of adding it now rather
+    // than later is that a `dispatchEvent` site would grow the Chain backlog it
+    // is being written against.
+    //
+    // Carries the ORIGIN as well as the destination, which is what Stealthy
+    // Pursuer needs and what `dispatchOnMove` cannot provide: by the time it
+    // runs the unit has already been removed from where it was.
+    next = holdEventTrigger(next, {
+      kind: "unitMoved",
+      moverIndex: action.playerIndex,
+      unitInstanceId: moved.instanceId,
+      from: originId,
+      to: action.destinationBattlefieldId,
+      movesThisTurn: moved.movesThisTurn,
+    });
   }
 
   const bf = next.battlefields.find((b) => b.id === action.destinationBattlefieldId)!;

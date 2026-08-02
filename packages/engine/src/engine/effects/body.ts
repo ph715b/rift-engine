@@ -355,6 +355,36 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-158": {
+    // Volibear - Imposing — "[Shield 3][Tank] When an opponent moves to a
+    // battlefield other than mine, draw 1. (Bases are not battlefield.)"
+    //
+    // Fires PER UNIT MOVED, because `unitMoved` is fired per unit inside
+    // `execute-move-unit`'s loop: a MoveUnitAction carries an ARRAY of units, and
+    // three units walking together are three moves. Recorded as Unverified —
+    // "when an opponent moves" could be read per ACTION, and the two differ by a
+    // factor of three on the board this card is built to punish.
+    //
+    // "OTHER THAN MINE" is positional, so **he must be AT a battlefield for it to
+    // name anything**: in base he has no "mine" for a destination to differ from,
+    // and he draws nothing. The same reading Sett - Kingpin and Lee Sin -
+    // Centered take of their own positional text. Also Unverified.
+    //
+    // The parenthetical is about the DESTINATION: a unit recalled or moved home
+    // has not moved "to a battlefield". `unitMoved` only fires for a Standard
+    // Move to a battlefield, so that is already true without a check here.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.moverIndex !== listener.ownerIndex &&
+      listener.battlefieldId !== undefined &&
+      event.to !== listener.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      if (event.moverIndex === listener.ownerIndex) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
   "OGN-139": {
     // Cithria of Cloudfield — "When you play another unit, buff me."
     //

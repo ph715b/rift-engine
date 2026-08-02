@@ -30,7 +30,7 @@ function makeCard(overrides: Partial<UnitInstance> = {}): UnitInstance {
     stunned: false,
     keywordsThisTurn: {},
     abilityModesUsedThisTurn: [],
-    movedThisTurn: false,
+    movesThisTurn: 0,
     ...overrides,
   };
 }

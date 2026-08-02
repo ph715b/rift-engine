@@ -115,14 +115,19 @@ export interface UnitInstance extends CardInstanceBase {
    */
   abilityModesUsedThisTurn: string[];
   /**
-   * Has this unit already moved this turn? Miss Fortune - Captain reads "the
-   * FIRST time I move each turn", which needs a per-unit memory: a per-player
-   * flag would let one unit's move spend another's allowance.
+   * How many times this unit has moved this turn.
    *
-   * On the unit for the same reason `abilityModesUsedThisTurn` is, and cleared
-   * by runEnd alongside it.
+   * A COUNT, not a boolean. Miss Fortune - Captain reads "the FIRST time I move
+   * each turn", which a boolean answered; Yasuo - Windrider reads "the THIRD
+   * time I move in a turn" and Kayn - Unleashed reads "if I have moved twice",
+   * which it cannot. This file's own comment already named the counter as the
+   * field to add when a card needed it.
+   *
+   * Per-unit for the same reason `abilityModesUsedThisTurn` is — a per-player
+   * flag would let one unit's move spend another's allowance — and cleared by
+   * runEnd alongside it.
    */
-  movedThisTurn: boolean;
+  movesThisTurn: number;
 }
 
 export interface SpellInstance extends CardInstanceBase {
@@ -200,7 +205,7 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         stunned: false,
         keywordsThisTurn: {},
         abilityModesUsedThisTurn: [],
-        movedThisTurn: false,
+        movesThisTurn: 0,
       };
     case "Spell":
       return {

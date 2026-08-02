@@ -852,7 +852,7 @@ export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, 
     exhausted: false,
     keywordsThisTurn: {},
     abilityModesUsedThisTurn: [],
-    movedThisTurn: false,
+    movesThisTurn: 0,
   };
   const removed = removeUnitAnywhere(state, unitInstanceId);
   return updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] }));

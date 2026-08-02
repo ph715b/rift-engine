@@ -295,6 +295,33 @@ export type GameEvent =
    *  staged Combat and for a Non-Combat one promoted by 317.2, since both are a
    *  combat beginning as far as a card that says "when a unit attacks or
    *  defends" is concerned. */
+  /**
+   * A unit completed a STANDARD move (a MoveUnit action), from `from` to `to`.
+   *
+   * Distinct from the per-card `ON_MOVE_TRIGGERS` table, which is keyed by the
+   * MOVING unit's defId and so can never reach a listener on a different card —
+   * Stealthy Pursuer watches "a friendly unit moves FROM my location" and
+   * Volibear - Imposing watches an opponent's moves.
+   *
+   * `from` is `"base"` or a battlefield id, and it is the reason this event
+   * exists rather than a widened `dispatchOnMove`: by the time that dispatcher
+   * runs the unit has already been removed from where it was.
+   *
+   * Does NOT fire for a spell-driven relocation (`forceMoveToBattlefield`) or a
+   * Recall (454 says a Recall is not a Move) — the same line
+   * `movesThisTurn` draws, so the counter and the event never disagree.
+   */
+  | {
+      kind: "unitMoved";
+      moverIndex: 0 | 1;
+      unitInstanceId: string;
+      from: string;
+      to: string;
+      /** The mover's count AFTER this move — Yasuo - Windrider's "the third time
+       *  I move in a turn" reads it here rather than re-deriving from a board
+       *  the response window may have changed. */
+      movesThisTurn: number;
+    }
   | { kind: "combatBegan"; battlefieldId: string }
   /**
    * `stunnerIndex` just stunned these units (rule 422) — ONE event per
@@ -358,7 +385,7 @@ export type GameEvent =
  * not, so a half-converted kind resolves one way from one call site and the other
  * way from another.
  */
-export type HeldEventKind = "unitBuffed" | "battlefieldConquered" | "cardPlayed";
+export type HeldEventKind = "unitBuffed" | "battlefieldConquered" | "cardPlayed" | "unitMoved";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;

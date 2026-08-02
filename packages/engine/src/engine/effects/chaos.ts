@@ -453,6 +453,36 @@ function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefiel
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-205": {
+    // Yasuo - Windrider — "[Ganking] The third time I move in a turn, you score
+    // 1 point."
+    //
+    // Reads `event.movesThisTurn`, the mover's count AFTER the move, rather than
+    // looking the unit up again: `unitMoved` is a Chain Pending Item, so between
+    // firing and resolving he can be moved again, bounced or killed, and "the
+    // third time" is a fact about the move that happened.
+    //
+    // EXACTLY the third, not the third-or-later — a fourth and fifth move score
+    // nothing, the same reading Darius - Trifarian's "your SECOND card" takes.
+    //
+    // **A plain `points + 1`, deliberately NOT routed through `recordConquest`.**
+    // The Final Point restriction (rule 474) applies only to a point gained
+    // "through a Conquer"; the rules are explicit that points from other sources
+    // are not beholden to it. Sending this through the conquest path would make
+    // the winning point silently withheld unless every battlefield had been
+    // scored that turn.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.movesThisTurn === 3,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = { ...players[listener.ownerIndex], points: players[listener.ownerIndex].points + 1 };
+      return { ...state, players };
+    },
+  },
   "OGN-167": {
     // Ember Monk — "When you play a card from [Hidden], give me +2 Might this
     // turn."
