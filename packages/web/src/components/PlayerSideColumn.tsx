@@ -21,6 +21,10 @@ interface PlayerSideColumnProps {
   runeDeckCount: number;
   activeGear: GearInstance[];
   isEnemy?: boolean;
+  /** Suppresses this column's pile list because those piles are rendered on the
+   *  BOARD instead (see BoardPiles.tsx). Only the human's move there, so the
+   *  AI's column still shows its own. */
+  pilesOnBoard?: boolean;
   /** Pins the Legend/Champion block to the bottom of this column (near the
    *  human player's own hand) instead of the top (the AI's default, next
    *  to its base row) — a pure visual mirror, per the user's own layout
@@ -71,6 +75,7 @@ export function PlayerSideColumn({
   runeDeckCount,
   activeGear,
   isEnemy,
+  pilesOnBoard,
   legendAtBottom,
   isLegendSelectable,
   isLegendSelected,
@@ -120,14 +125,23 @@ export function PlayerSideColumn({
 
       {!legendAtBottom && legendAndChampion}
 
-      <ZonePiles
-        deckCount={deckCount}
-        runeDeckCount={runeDeckCount}
-        trashCount={trashCount}
-        banishedCount={banishedCount}
-        gearCount={activeGear.length}
-        onViewTrash={onViewTrash}
-      />
+      {pilesOnBoard ? (
+        // Gear stays here even when the piles move to the board: it is not a
+        // pile, it is permanents in play, and it has no place in a cluster of
+        // hidden zones.
+        <span className="zone-piles-gear" title="Gear in play, unattached">
+          Gear: {activeGear.length}
+        </span>
+      ) : (
+        <ZonePiles
+          deckCount={deckCount}
+          runeDeckCount={runeDeckCount}
+          trashCount={trashCount}
+          banishedCount={banishedCount}
+          gearCount={activeGear.length}
+          onViewTrash={onViewTrash}
+        />
+      )}
 
       {legendAtBottom && legendAndChampion}
     </div>

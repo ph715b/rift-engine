@@ -5,8 +5,10 @@ import { useCallback, useRef, useState, type CSSProperties } from "react";
  *  scrollbar. */
 const ROW_FILL = 0.88;
 
-/** The real cards' aspect ratio (744x1039). */
-const CARD_RATIO = 0.716;
+/** The real cards' aspect ratio (744x1039). Exported so anything deriving a
+ *  width from the measured height uses this one number rather than repeating
+ *  0.716 and drifting from it. */
+export const CARD_ASPECT_RATIO = 0.716;
 
 /**
  * ONE card size for the whole board, derived from the TIGHTEST row.
@@ -81,8 +83,12 @@ export function useBoardCardSize() {
       ? undefined
       : ({
           "--board-card-h": `${cardHeight}px`,
-          "--board-card-w": `${Math.round(cardHeight * CARD_RATIO)}px`,
+          "--board-card-w": `${Math.round(cardHeight * CARD_ASPECT_RATIO)}px`,
         } as CSSProperties);
 
-  return { boardRef, style };
+  // `cardHeight` is returned as well as the CSS variables because the hand fan's
+  // overlap is computed in JS (useRowFit takes a pixel gap), and it has to be
+  // derived from the same measurement the cards are sized from — a second
+  // constant would drift the moment the board's size changed.
+  return { boardRef, style, cardHeight };
 }

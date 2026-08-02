@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useRowFit } from "./use-row-fit.js";
-import { useBoardCardSize } from "./use-board-card-size.js";
+import { useBoardCardSize, CARD_ASPECT_RATIO } from "./use-board-card-size.js";
 import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
@@ -41,6 +41,9 @@ import { ChoiceOverlay } from "./ChoiceOverlay.js";
 import { DecisionPrompt } from "./DecisionPrompt.js";
 import { RematchPanel } from "./RematchPanel.js";
 import { PlayerSideColumn } from "./PlayerSideColumn.js";
+import { BoardPiles } from "./BoardPiles.js";
+import { FlightLayer } from "./FlightLayer.js";
+import { useZoneFlights } from "./use-zone-flights.js";
 import { RuneZone } from "./RuneZone.js";
 import { MulliganScreen } from "./MulliganScreen.js";
 import { ChainView } from "./ChainView.js";
@@ -57,6 +60,46 @@ const BASE_ZONE_ID = "base";
  *  lands on the board, so a spell no longer resolves as an unexplained board
  *  change. Roughly matches AI_MOVE_DELAY_MS so the two read as one rhythm. */
 const CHAIN_RESOLVE_BEAT_MS = 800;
+
+/** How far the outermost hand card tilts, and how high the middle of the fan
+ *  rides above its ends. Both are small on purpose: the rotation widens each
+ *  card's bounding box (by its HEIGHT times the sine of the angle, ~7px at a
+ *  121px card), and the fan is already fitted to the exact width of the column
+ *  by useRowFit, which has no spare room to give. */
+const FAN_MAX_ANGLE_DEG = 3.2;
+const FAN_ARC_LIFT_PX = 10;
+
+/** The hand is drawn LARGER than the shared board card size. It can be: the fan
+ *  is an overlay, so unlike every board row it feeds nothing back into the
+ *  measurement that size comes from. Your own hand is also the thing you read
+ *  most often and the only cards whose rules text you act on directly. */
+const HAND_CARD_SCALE = 1.3;
+
+/** How much of a card its neighbour covers while the hand still has room to
+ *  spare. Deliberately overlapped rather than spaced out: hovering any card
+ *  raises it clear and opens the full preview, so the fan only has to show
+ *  enough of each card to pick it out — and a tighter fan leaves the bigger
+ *  cards room to actually be bigger. */
+const HAND_OVERLAP_FRACTION = 0.3;
+
+/**
+ * The hand fan's arc, per card.
+ *
+ * Inline rather than CSS because it is a function of both the index and the
+ * CURRENT count — the same reason the overlap between cards is measured in
+ * useRowFit rather than declared in the stylesheet. The slot pivots about its
+ * bottom centre (see `.hand-fan-slot`), so the tilt splays the tops apart while
+ * the held ends stay together, which is what makes it read as a hand rather than
+ * as a row of slanted cards.
+ */
+function fanTransform(index: number, count: number): CSSProperties {
+  if (count <= 1) return {};
+  const centre = (count - 1) / 2;
+  const offset = (index - centre) / centre; // -1 at the left edge, +1 at the right
+  const angle = offset * FAN_MAX_ANGLE_DEG;
+  const lift = (1 - offset * offset) * FAN_ARC_LIFT_PX;
+  return { transform: `rotate(${angle.toFixed(2)}deg) translateY(${(-lift).toFixed(1)}px)` };
+}
 
 /** A hand/champion card armed for play but not yet fully resolved — covers
  *  two composable phases in order (every choice the card needs, THEN
@@ -390,7 +433,33 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     p.baseUnits.filter((u) => u.exhausted).length + p.activeGear.filter((g) => g.exhausted).length;
   const aiBaseFit = useRowFit(ai.activeGear.length + ai.baseUnits.length, undefined, exhaustedIn(ai));
   const yourBaseFit = useRowFit(human.activeGear.length + human.baseUnits.length, undefined, exhaustedIn(human));
-  const handFit = useRowFit(human.hand.length);
+  // A NEGATIVE gap, so the hand fans overlapped even when the row could space it
+  // out. Derived from the measured card rather than being its own constant, so it
+  // tracks the board at every viewport size. `useRowFit` still tightens beyond
+  // this whenever the cards genuinely do not fit.
+  const handCardWidth =
+    boardCardSize.cardHeight === null ? null : boardCardSize.cardHeight * CARD_ASPECT_RATIO * HAND_CARD_SCALE;
+  const handFit = useRowFit(
+    human.hand.length,
+    handCardWidth === null ? undefined : -Math.round(handCardWidth * HAND_OVERLAP_FRACTION),
+  );
+  // The opponent's backs fan tighter than real cards: they carry no information
+  // beyond their own count, so there is nothing to keep readable.
+  const aiHandFit = useRowFit(ai.hand.length, 4);
+
+  // Cards that actually travel between your zones, recovered by diffing counts
+  // between renders — the engine reports state, not events. Only YOUR zones: the
+  // AI's piles are in its rail and a flight across the board to a rail would say
+  // something about where the opponent's cards went that the board does not
+  // otherwise show.
+  const flights = useZoneFlights({
+    deck: human.deck.length,
+    hand: human.hand.length,
+    trash: human.trash.length,
+    banished: human.banished.length,
+    runeDeck: human.runeDeck.length,
+    channeled: human.channeled.length,
+  });
 
   function playCardActionsFor(cardInstanceId: string): PlayCardAction[] {
     return legal.filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === cardInstanceId);
@@ -1643,6 +1712,23 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // which would be a surprising regression, not a feature.
   const floatModeActive = isHumanTurn && !isGameOver && !pendingPlay;
 
+  /**
+   * Is the hand fan barred from opening on hover right now?
+   *
+   * The hand rests collapsed to a peek and expands only while hovered, so the
+   * zones it overlays — your runes and your base — are visible by default. This
+   * pins it shut on top of that, for the moments when those zones are active
+   * CLICK TARGETS: an armed card being paid for or asking for a target, and a
+   * selected unit waiting for its destination.
+   *
+   * The reason it is worth pinning rather than relying on the player not to hover:
+   * the cursor has to TRAVEL to a rune tile, and the fan's peek lies along the
+   * bottom of exactly that path. Springing open under a cursor on its way to a
+   * payment target is the failure mode, and it is the one that would be blamed on
+   * the layout rather than on the hover.
+   */
+  const handPinned = Boolean(pendingPlay) || selectedUnitIds.size > 0;
+
   function canFloatEnergy(rune: RuneCard): boolean {
     return legal.some((a) => a.type === "FloatRune" && a.runeId === rune.id && !a.forPower);
   }
@@ -1693,6 +1779,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
   return (
     <div className="board">
+      {/* Cards travelling between your zones. Rendered at board level rather than
+          inside a zone: a flight belongs to neither of its endpoints, and the
+          layer is fixed-position anyway. */}
+      <FlightLayer flights={flights} />
+
       <div className="header">
         <h1>Rift-Engine</h1>
         <span>
@@ -1821,20 +1912,37 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       )}
 
       <div className="board-main" ref={boardCardSize.boardRef} style={boardCardSize.style}>
-        <PlayerSideColumn
-          label="AI Opponent"
-          points={ai.points}
-          handCount={ai.hand.length}
-          legend={ai.legend}
-          champion={ai.championZone}
-          deckCount={ai.deck.length}
-          trashCount={ai.trash.length}
-          onViewTrash={() => setViewingTrash({ label: "AI Opponent's trash", cards: ai.trash })}
-          banishedCount={ai.banished.length}
-          runeDeckCount={ai.runeDeck.length}
-          activeGear={ai.activeGear}
-          isEnemy
-        />
+        {/* The left rail: the AI's column, with YOUR pile cluster pinned beneath
+            it in the board's bottom-left corner. They share a grid cell rather
+            than the cluster floating over it, so the two can never overlap —
+            see `.board-rail` in styles.css. */}
+        <div className="board-rail">
+          <PlayerSideColumn
+            label="AI Opponent"
+            points={ai.points}
+            handCount={ai.hand.length}
+            legend={ai.legend}
+            champion={ai.championZone}
+            deckCount={ai.deck.length}
+            trashCount={ai.trash.length}
+            onViewTrash={() => setViewingTrash({ label: "AI Opponent's trash", cards: ai.trash })}
+            banishedCount={ai.banished.length}
+            runeDeckCount={ai.runeDeck.length}
+            activeGear={ai.activeGear}
+            isEnemy
+          />
+
+          {/* Your piles, pinned to the bottom of this rail — the board's
+              bottom-left corner, level with and immediately left of your rune
+              zone. See BoardPiles.tsx for the arrangement. */}
+          <BoardPiles
+            deckCount={human.deck.length}
+            runeDeckCount={human.runeDeck.length}
+            trashCount={human.trash.length}
+            banishedCount={human.banished.length}
+            onViewTrash={() => setViewingTrash({ label: "Your trash", cards: human.trash })}
+          />
+        </div>
 
         <div className="board-center">
           {/* Absolutely positioned inside this column and mounted only while
@@ -1853,6 +1961,24 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               onHoverItem={setHoveredChainIndex}
             />
           )}
+
+          {/* The opponent's hand, as backs.
+              NOTE: the state reaching this component is NOT masked — `ai.hand`
+              holds the real card identities, and nothing in the web package
+              masks anything (`BattlefieldView` carries the same "already masked"
+              claim, and it is wrong there too). So rendering only the COUNT is
+              not a restatement of what is available, it is the thing that keeps
+              the opponent's hand secret. Nothing here may read the elements. */}
+          <div
+            className="ai-hand-fan"
+            ref={aiHandFit.rowRef}
+            style={{ "--row-fit-margin": `${aiHandFit.marginLeft}px` } as CSSProperties}
+            title={`AI Opponent's hand: ${ai.hand.length} card${ai.hand.length === 1 ? "" : "s"}`}
+          >
+            {Array.from({ length: ai.hand.length }, (_, i) => (
+              <span key={i} className="hand-back" aria-hidden />
+            ))}
+          </div>
 
           <div className="base-and-runes">
             <div className="zone card-zone">
@@ -1936,6 +2062,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           <div className="base-and-runes">
             <RuneZone
               runes={human.channeled}
+              flightAnchor="runes"
               mode={
                 pendingResolvedAction
                   ? {
@@ -2006,17 +2133,42 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             </div>
           </div>
 
-          <div className="zone card-zone hand-zone">
-            <div className="zone-label">Your hand</div>
-            <div
-              className="card-row fitted"
-              ref={handFit.rowRef}
-              style={{ "--row-fit-margin": `${handFit.marginLeft}px` } as CSSProperties}
-            >
-              <AnimatePresence>
-                {human.hand.map((card) => (
+          {/* Your hand — an OVERLAY on the bottom of this column, not a row in
+              it. It has no `.zone` chrome and no label on purpose: it is not a
+              board zone any more, and a label would only reintroduce the
+              vertical cost the overlay exists to remove.
+
+              It rests COLLAPSED to a peek of each card's top edge and expands
+              only while hovered, so the runes and base it covers stay visible
+              unless you actually reach for the hand. `pinned` bars even that —
+              see `handPinned`, and `.hand-fan-layer` in styles.css for why the
+              open/shut is a height change rather than the translate it looks
+              like it should be. */}
+          <div
+            className={`hand-fan-layer${handPinned ? " pinned" : ""}`}
+            data-flight-anchor="hand"
+            ref={handFit.rowRef}
+            // The scale is handed to CSS rather than declared there, because the
+            // overlap above is computed from the same number in JS. One constant,
+            // two consumers.
+            style={
+              {
+                "--row-fit-margin": `${handFit.marginLeft}px`,
+                "--hand-card-scale": HAND_CARD_SCALE,
+              } as CSSProperties
+            }
+          >
+            <AnimatePresence>
+              {human.hand.map((card, index) => (
+                <div
+                  key={card.instanceId}
+                  className="hand-fan-slot"
+                  // The fan's arc. Written inline because it is per-index and
+                  // per-count, which a stylesheet cannot express — the same
+                  // reason the overlap itself is measured rather than declared.
+                  style={fanTransform(index, human.hand.length)}
+                >
                   <CardView
-                    key={card.instanceId}
                     card={card}
                     isSelectable={isHumanTurn && isCardInteractable(card.instanceId)}
                     isUnplayable={isHumanTurn && !isCardInteractable(card.instanceId)}
@@ -2029,9 +2181,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       isHumanTurn && isCardInteractable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
                     }
                   />
-                ))}
-              </AnimatePresence>
-            </div>
+                </div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
 
@@ -2049,6 +2201,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
           activeGear={human.activeGear}
+          pilesOnBoard
           legendAtBottom
           isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
           // Gated on isHumanTurn exactly like the hand above — without it the

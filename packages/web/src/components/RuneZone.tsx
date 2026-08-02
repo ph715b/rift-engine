@@ -42,6 +42,10 @@ export type RuneInteractionMode = PaymentMode | FloatMode;
 interface RuneZoneProps {
   runes: RuneCard[];
   mode?: RuneInteractionMode;
+  /** Marks this zone as an endpoint for the flying-card animations (see
+   *  use-zone-flights.ts). Set only on the human's zone — a rune channelled or
+   *  recycled by the AI is not something this board draws a path for. */
+  flightAnchor?: string;
 }
 
 const DEFAULT_TILE_GAP_PX = 6;
@@ -62,7 +66,7 @@ const DEFAULT_TILE_GAP_PX = 6;
  * the tiles out with a computed overlap, so any count always fits in one
  * row without ever scrolling.
  */
-export function RuneZone({ runes, mode }: RuneZoneProps) {
+export function RuneZone({ runes, mode, flightAnchor }: RuneZoneProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
 
@@ -75,7 +79,7 @@ export function RuneZone({ runes, mode }: RuneZoneProps) {
   const { rowRef, marginLeft: tileOffsetPx } = useRowFit(runes.length, DEFAULT_TILE_GAP_PX, exhaustedCount);
 
   return (
-    <div className="zone card-zone">
+    <div className="zone card-zone" {...(flightAnchor ? { "data-flight-anchor": flightAnchor } : {})}>
       <div className="zone-label">
         Runes ({readyCount}/{runes.length} ready)
       </div>

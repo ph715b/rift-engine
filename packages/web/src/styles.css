@@ -402,6 +402,419 @@ button:disabled {
  */
 
 
+/* ==========================================================================
+ * THE TWO HANDS — an arena-style fan instead of a board row.
+ *
+ * Why this is a layout change and not a decorative one: every card on the board
+ * is sized from the SHORTEST row (use-board-card-size.ts), so a row that exists
+ * only to hold the hand caps the size of every card everywhere. Taking the hand
+ * out of the flow raised the shared card size from 106px to 121px at 1600x950 —
+ * this is also the fix for "cards on the board are too small", approached from
+ * the other side.
+ * ========================================================================== */
+
+/*
+ * The opponent's hand: backs only. The state is NOT masked (see GameBoard) — the
+ * identities are right there — so rendering only the count is what keeps the
+ * opponent's hand secret rather than a restatement of what is knowable.
+ *
+ * A RESERVED strip rather than an overlay, unlike the player's own fan below.
+ * An earlier attempt floated these at `top: 0.15rem` and they landed on the
+ * header, reading as a stray dark bar over the runes label rather than as a
+ * hand. There is no free space at the top of the board to float into, so this
+ * takes a little — and the strip is deliberately cheap: ~4dvh against the ~14%
+ * card-size win from dropping the hand row, so the trade is still strongly
+ * positive.
+ *
+ * Its height is in VIEWPORT units, not card units. Sizing it from
+ * `--board-card-h` would be a feedback loop: the shared card size is measured
+ * from the rows, the rows get whatever height this strip leaves, so the strip
+ * would resize itself. Every other zone avoids this the same way.
+ */
+.ai-hand-fan {
+  --ai-back-h: clamp(22px, 4dvh, 44px);
+  height: var(--ai-back-h);
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  /* No gap — useRowFit's measured margin is the only spacing, the same
+     convention `.card-row.fitted` and `.rune-row` already document. */
+  gap: 0;
+}
+
+/* Same measured-margin convention as every other fitted row on this board. */
+.ai-hand-fan > * + * {
+  margin-left: var(--row-fit-margin, 4px);
+}
+
+.hand-back {
+  height: var(--ai-back-h);
+  /* Width set explicitly FROM the height. `aspect-ratio` with `width: auto` in a
+     flex row derives the height from the content width instead, which silently
+     defeats the height cap this strip depends on. */
+  width: calc(var(--ai-back-h) * 0.716);
+  flex: none;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--color-accent) 22%, var(--color-enemy-zone)) 0 3px,
+      var(--color-enemy-zone) 3px 6px
+    );
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+/*
+ * The player's own hand: a fan pinned to the bottom of the centre column,
+ * overlaying the base/rune row rather than taking a row of its own.
+ *
+ * `pointer-events: none` on the LAYER with each slot switching it back on is
+ * load-bearing, not tidiness: the layer spans the full width of the column, and
+ * without this its empty margins would swallow every click aimed at the rune
+ * tiles and base units behind it.
+ *
+ * z-index sits under `.chain-rail` (80), `.choice-overlay-backdrop` (90) and
+ * `.card-preview` (100) — a hand should never cover a question the game is
+ * asking.
+ */
+.hand-fan-layer {
+  /* The hand is drawn LARGER than the shared board card size — see
+     HAND_CARD_SCALE in GameBoard.tsx, which supplies the factor and derives the
+     fan's overlap from the same number. Safe to scale here and nowhere else
+     because this layer is absolutely positioned: it is out of flow, so it cannot
+     feed back into the row measurement `--board-card-h` is taken from. */
+  --hand-card-h: calc(var(--board-card-h, 84px) * var(--hand-card-scale, 1.3));
+  --hand-card-w: calc(var(--board-card-w, 60px) * var(--hand-card-scale, 1.3));
+  /* How much of each card shows while the hand is at rest. Enough to see how many
+     cards you hold, what colour they are, and to have something to aim at — but
+     not so much that it competes with the zones underneath, which are what the
+     resting state exists to keep visible. */
+  --hand-peek-h: clamp(16px, calc(var(--hand-card-h) * 0.3), 52px);
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+/*
+ * One slot per card, and the card inside it is positioned rather than laid out.
+ *
+ * The slot exists because the hover-raise cannot live on `.card` itself: every
+ * card is a Framer Motion `motion.div`, which writes `transform` as an INLINE
+ * style, and an inline transform beats any stylesheet rule. A wrapper is the only
+ * place a CSS transform still wins. It also gives useRowFit a stable first child
+ * to measure whose width does not change as the card animates.
+ */
+.hand-fan-slot {
+  position: relative;
+  width: var(--hand-card-w);
+  /*
+   * COLLAPSED IS THE RESTING STATE. The fan sits over your base and rune zones,
+   * so it shows only the top edge of each card until you actually reach for it —
+   * that way the thing it covers is visible by default and the hand is what costs
+   * a deliberate gesture, rather than the other way round.
+   *
+   * Proportional to the card so it scales with the board, and safe to derive from
+   * `--board-card-h` (which every row-height rule must avoid) precisely because
+   * this layer is absolutely positioned: it is out of flow, so it cannot feed back
+   * into the row measurement the shared card size comes from.
+   */
+  height: var(--hand-peek-h);
+  overflow: hidden;
+  flex: none;
+  pointer-events: auto;
+  /*
+   * FADE the collapsed edge instead of chopping it. `overflow: hidden` alone cuts
+   * the card mid-artwork against a hard horizontal line, which reads as a
+   * rendering fault rather than as a hand tucked away — reported as "the cards
+   * seem cut off". The gradient mask makes the same clip look like the hand
+   * sinking into the bottom of the board.
+   *
+   * A mask affects PAINTING only, so the faded-out strip still takes pointer
+   * events — the hover target stays the full peek and does not shrink to the
+   * part that happens to be opaque.
+   */
+  -webkit-mask-image: linear-gradient(to bottom, #000 46%, rgba(0, 0, 0, 0.45) 76%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 46%, rgba(0, 0, 0, 0.45) 76%, transparent 100%);
+  /* The fan pivots about the held end, so the tops splay apart while the bottoms
+     stay together — see fanTransform in GameBoard.tsx. */
+  transform-origin: bottom center;
+  transition:
+    height 0.26s ease,
+    transform 0.18s ease;
+}
+
+.hand-fan-slot > .card {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--hand-card-w);
+  height: var(--hand-card-h);
+  transition: top 0.18s ease;
+}
+
+/* Spacing and overlap in one measured value, exactly as `.card-row.fitted` does
+   it — see use-row-fit.ts for why this cannot be a CSS constant. */
+.hand-fan-layer > * + * {
+  margin-left: var(--row-fit-margin, 1.1rem);
+}
+
+/*
+ * REACHING FOR THE HAND — hovering any card's peek raises the WHOLE fan to full
+ * height, so the hand is read as one object rather than one card at a time.
+ *
+ * Driven by `:hover` on the layer even though the layer itself is
+ * `pointer-events: none`. That is not a contradiction: `:hover` matches every
+ * ancestor of the element actually hit, and the slots do take pointer events, so
+ * hovering a slot's peek matches the layer while the layer's own empty margins
+ * still pass clicks through to the rune tiles behind them. This is the property
+ * that lets one rule expand the fan without the layer becoming a full-width
+ * click-eater.
+ *
+ * Expanding UPWARD (the layer is bottom-anchored) is what keeps every pixel
+ * inside the board. Nothing here ever moves the fan DOWN: `.board` is
+ * overflow:hidden, so a fan tucked under the bottom edge is cut off, not peeking
+ * — which is exactly how the first attempt at this layout lost half of every card.
+ */
+.hand-fan-layer:not(.pinned):hover .hand-fan-slot {
+  height: var(--hand-card-h);
+  overflow: visible;
+  /* Nothing is being clipped once it is open, so the fade has nothing to soften
+     and would only dim the bottom of every card you are trying to read. */
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+/*
+ * Within an expanded fan, lift the one card under the cursor clear of its
+ * neighbours — and lift the CARD, never the slot.
+ *
+ * The slot is the hover target, so moving it is self-defeating. Lifting the slot
+ * 22px raises its bottom edge by 22px too, which drops the cursor out of the
+ * bottom of the box that was keeping the fan open: hover is lost, the fan
+ * collapses, the cursor is back over the peek, and it opens again. Measured as a
+ * dead zone across the lower 22px of the peek strip that oscillated instead of
+ * opening (caught live at 3 of 4 viewport sizes).
+ *
+ * The card inside is absolutely positioned, so `top` moves it without touching
+ * the slot's box at all. It also has to be `top` rather than a transform for the
+ * usual reason: the card is a Framer Motion element and its inline transform
+ * would win.
+ *
+ * Cancelling the slot's rotation IS safe, because it pivots about bottom centre —
+ * the cursor sits near that pivot, so the box barely moves under it.
+ */
+.hand-fan-layer:not(.pinned) .hand-fan-slot:hover {
+  transform: rotate(0deg) !important;
+  z-index: 5;
+}
+
+.hand-fan-layer:not(.pinned) .hand-fan-slot:hover > .card {
+  top: -22px;
+}
+
+/*
+ * PINNED — the board needs the space the expanded fan would cover, so the hand
+ * refuses to open at all. This is the case where a hover is most likely to be
+ * accidental: you are moving the cursor toward a rune tile or a base unit, and
+ * the hand springing open over the target mid-payment would be actively
+ * obstructive rather than merely untidy.
+ */
+.hand-fan-layer.pinned .hand-fan-slot {
+  transform: none !important;
+}
+
+/* ==========================================================================
+ * YOUR PILES, ON THE BOARD — a cluster in the bottom-left corner instead of a
+ * list of counts in the side rail. See BoardPiles.tsx for the arrangement and
+ * why only the human's piles move here.
+ * ========================================================================== */
+
+/*
+ * Absolutely positioned against `.board-main` so it occupies the empty LOWER
+ * part of the left rail without being a flex/grid item in it. Two reasons that
+ * matters: the rail is the AI's column and this is the human's cluster, so it
+ * must not be parented to it; and being out of flow means it cannot change any
+ * row's height, which is what the shared card size is measured from.
+ */
+/*
+ * The left grid cell holds two stacked things: the AI's rail (which scrolls if
+ * it must) and, pinned under it, your pile cluster.
+ *
+ * The cluster was absolutely positioned into this corner first, and that was
+ * wrong for a reason worth keeping: absolute positioning cannot see the rail
+ * content above it, so the two silently overlapped — 3px at 1600x950 and 52px at
+ * 900x600, i.e. it looked fine at the size it was built at and buried the AI's
+ * Champion at the size it wasn't. As a real flex item with `margin-top: auto` the
+ * non-overlap is structural instead of arithmetic.
+ */
+.board-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 0;
+  min-width: 0;
+}
+
+.board-rail > .side-column {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.board-piles {
+  margin-top: auto;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 0.35rem 0.4rem 0.3rem;
+  /* Two rows of two: Deck / Rune deck above, Trash / Banished below. Three
+     stacked rows expressed the same arrangement and was half again as tall,
+     which pushed the AI's rail above it into a scrollbar. */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+  justify-items: center;
+  /* Its own panel, because it lands in the lower part of the AI's rail and the
+     AI's own pile counts sit directly above it. Without a boundary the two read
+     as one list and you cannot tell whose deck you are looking at — which is a
+     worse failure than the rail being busy. */
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-elevated);
+}
+
+.board-pile {
+  /* Every tile the same size, so the cluster reads as one object. Half the rail
+     minus the padding and the column gap is what lets two sit side by side. */
+  --pile-w: calc((var(--side-col-w) - 0.8rem - 0.3rem) / 2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+  width: var(--pile-w);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text-dim);
+  font: inherit;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.board-pile-clickable {
+  cursor: pointer;
+}
+
+.board-pile-clickable:hover .board-pile-card {
+  border-color: var(--color-accent);
+}
+
+/* Positioning context for the depth layers and the count, which all stack on
+   top of each other. */
+.board-pile-stack {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* Card-shaped, from the real cards' own aspect ratio. Height derived from the
+     width rather than the other way round — see `.hand-back` for the trap. */
+  height: calc(var(--pile-w) / 0.716);
+}
+
+.board-pile-card,
+.board-pile-empty {
+  position: absolute;
+  inset: 0;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+}
+
+.board-pile-card {
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--color-accent) 16%, var(--color-friendly-zone)) 0 3px,
+      var(--color-friendly-zone) 3px 6px
+    );
+}
+
+/* An empty pile reads as an empty SLOT, not as a missing element — otherwise the
+   cluster silently reflows as piles empty and refill. */
+.board-pile-empty {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+.board-pile-count {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 0.05rem 0;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 0 0 5px 5px;
+}
+
+.board-pile-label {
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+/* ==========================================================================
+ * CARDS IN FLIGHT between zones — see use-zone-flights.ts / FlightLayer.tsx.
+ * ========================================================================== */
+
+.flight-layer {
+  position: fixed;
+  inset: 0;
+  /* Never intercepts a click. These appear exactly when the player has just
+     acted and is about to act again, so eating the next click would be a real
+     regression dressed up as polish. */
+  pointer-events: none;
+  /* Above the board and the hand fan (6), below the chain rail (80), the modal
+     backdrop (90) and the card preview (100). */
+  z-index: 70;
+}
+
+.flight-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Framer animates `x`/`y` as a transform from this origin; the negative
+     margins re-centre the card on the anchor point rather than hanging it off
+     the anchor's top-left corner. */
+  width: calc(var(--board-card-w, 60px) * 0.62);
+  height: calc(var(--board-card-h, 84px) * 0.62);
+  margin: calc(var(--board-card-h, 84px) * -0.31) 0 0 calc(var(--board-card-w, 60px) * -0.31);
+  border-radius: 5px;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 55%, var(--color-bg-elevated));
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* A card whose origin is hidden information (your deck, the rune deck) travels
+   face-down. One coming from the board or your hand is something you could
+   already see, so it keeps the brighter face. */
+.flight-card-hidden {
+  border-color: var(--color-border);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--color-accent) 20%, var(--color-friendly-zone)) 0 3px,
+      var(--color-friendly-zone) 3px 6px
+    );
+}
+
 .battlefields {
   /*
    * Battlefield cards are sized for the box they live in, not for the global card
@@ -1170,6 +1583,20 @@ button:disabled {
   flex: 1 1 0;
   min-height: 0;
   container-type: size;
+  /*
+   * Keeps the tiles' stacking LOCAL. RuneZone gives each tile `zIndex: index` so
+   * later tiles overlap earlier ones, and a flex item's z-index applies even
+   * though it is `position: static` — so without an explicit stacking context
+   * here those indices compete directly against the rest of the board. At 8
+   * channelled runes, indices 6 and 7 beat the hand overlay's z-index 6 and the
+   * runes painted OVER the opened hand (reported live, reproduced at exactly 8).
+   *
+   * `isolation: isolate` rather than a bigger z-index on the hand: the pool can
+   * reach 12, so out-racing it is a number that has to keep being right, whereas
+   * containing it is correct once. It changes nothing else — no layout, no paint,
+   * just the scope the indices resolve in.
+   */
+  isolation: isolate;
   --rune-tile-h: var(--board-card-h, 88cqh);
   --rune-tile-w: var(--board-card-w, calc(88cqh * 0.716));
 }
