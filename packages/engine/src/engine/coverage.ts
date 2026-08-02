@@ -204,16 +204,11 @@ export function implementingModule(defId: string): string | undefined {
  * when the rest lands. A card is either finished or it is on this list.
  */
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // Entries are DELETED when the rest lands, never reworded — Sett - The Boss
-  // lived here while only his on-conquer clause worked. A card is either finished
-  // or it is on this list.
-  [
-    "OGN-108",
-    "only one of the two target orderings is offered — legal-actions prunes " +
-      "symmetric slot pairs, and this card's slots are not symmetric (slot 0 is " +
-      "the beneficiary, slot 1 is only measured), so the offered ordering can be " +
-      "the one that increases Might by 0. The resolver is correct for either.",
-  ],
+  // Empty, and that is the point of the shape: entries are DELETED when the rest
+  // lands, never reworded. Sett - The Boss lived here while only his on-conquer
+  // clause worked; Convergent Mutation lived here for the hours between its
+  // enumeration gap being found and `asymmetricSlots` landing. A card is either
+  // finished or it is on this list.
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

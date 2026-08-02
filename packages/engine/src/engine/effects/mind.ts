@@ -218,20 +218,14 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // with one unit on the board: there is no value to increase to, so the card
     // is uncastable rather than castable-and-inert.
     //
-    // **HALF-REACHABLE — measured, not suspected.** legal-actions.ts collapses a
-    // two-slot spec whose roles are equal (`symmetric = slots[0] === slots[1]`)
-    // and enumerates only one ordering of each pair, on the reasoning that
-    // (A,B) and (B,A) are "the SAME choice". True for Back to Back and
-    // Singularity, which apply the same thing to each unit; FALSE here, where
-    // the ordering IS the decision. So a real player or the AI is offered
-    // exactly one of "grow A to B" / "grow B to A", and with a 5-Might A and a
-    // 2-Might B it is the one that increases by 0. The resolver below is correct
-    // and fires through submit for either ordering; only the enumeration is
-    // short. Fixing it needs an `asymmetricSlots` opt-out in legal-actions.ts,
-    // which is not this file — see cards-ready-mind.test.ts, which pins the
-    // current behaviour so the gap stays visible instead of looking like a
-    // working card.
-    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
+    // `asymmetricSlots` is REQUIRED here and its absence was a real half-dead
+    // card. legal-actions collapses a two-slot spec whose roles are equal and
+    // enumerates one ordering of each pair, reasoning that (A,B) and (B,A) are
+    // the same choice — true for Back to Back and Singularity, which apply the
+    // same thing to each unit, and false here, where the ordering IS the
+    // decision. Measured before the flag existed: with a 7-Might and a 2-Might
+    // friendly, the single offered pairing was the one that increases by 0.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere", asymmetricSlots: true },
     resolve: (state, _ctx, event) => {
       const chosen = findUnitAnywhere(state, event.targetUnitInstanceId!);
       const donor = findUnitAnywhere(state, event.secondTargetUnitInstanceId!);

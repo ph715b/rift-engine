@@ -31,6 +31,9 @@ const unitCard = (defId: string): UnitInstance => card(defId) as UnitInstance;
 
 const RETREAT = "OGN-104";
 const CONVERGENT_MUTATION = "OGN-108";
+/** Singularity — "up to two units", both slots interchangeable. The control for
+ *  `asymmetricSlots`: this card must KEEP the mirror-ordering pruning. */
+const SINGULARITY = "OGN-105";
 const PIT_CREW = "OGN-091";
 const WATCHFUL_SENTRY = "OGN-096";
 const SPRITE_MOTHER = "OGN-106";
@@ -289,33 +292,49 @@ describe("Convergent Mutation (OGN-108): increase a friendly unit's Might TO ano
     expect(mightOf(after, chosen.instanceId)).toBe(6);
   });
 
-  it("KNOWN GAP: enumeration offers only ONE of the two orderings", () => {
-    // Pinned, not asserted as desirable. legal-actions.ts collapses a two-slot
-    // spec whose roles are equal (`symmetric = slots[0] === slots[1]`) and keeps
-    // one ordering of each pair — correct for Back to Back and Singularity,
-    // where both units get the same thing, and wrong here, where slot 0 is the
-    // beneficiary and slot 1 is only measured.
-    //
-    // The consequence is concrete: with a 7-Might and a 2-Might friendly unit,
-    // the only ordering on offer is whichever the scan reaches first, so half
-    // the time the only legal cast is the one that increases by 0. Fixing it
-    // needs an `asymmetricSlots` opt-out in legal-actions.ts, which this agent
-    // does not own.
-    //
-    // If this test starts failing with a count of 2, the gap has been fixed and
-    // this test should be replaced with one asserting BOTH orderings resolve.
+  it("offers BOTH orderings — the slots share a role but not a meaning", () => {
+    // This was the gap: legal-actions collapses a two-slot spec whose roles are
+    // equal and keeps one ordering of each pair, which is right for Back to Back
+    // and Singularity (both units get the same thing) and wrong here, where slot
+    // 0 is the beneficiary and slot 1 is only measured. Measured before the fix:
+    // with a 7-Might and a 2-Might friendly, the ONLY ordering on offer was the
+    // one that increases by 0. `asymmetricSlots: true` opts this card out.
     const { state, chosen, donor } = mutationState(7, 2);
     const pairs = legalActions(state).filter(
       (a) => a.type === "PlayCard" && a.card.defId === CONVERGENT_MUTATION && a.secondTargetUnitInstanceId !== undefined,
     );
 
-    // Both orderings are individually legal — the validator accepts either.
-    expect(pairs.length).toBeGreaterThan(0); // gate: the card IS enumerated at all
+    expect(pairs.length, "the card is not enumerated at all — this proves nothing").toBeGreaterThan(0);
     const orderings = new Set(
       pairs.map((a) => (a.type === "PlayCard" ? `${a.targetUnitInstanceId}->${a.secondTargetUnitInstanceId}` : "")),
     );
-    expect(orderings).toEqual(new Set([`${chosen.instanceId}->${donor.instanceId}`]));
-    expect(orderings.has(`${donor.instanceId}->${chosen.instanceId}`)).toBe(false);
+    expect(orderings).toEqual(
+      new Set([`${chosen.instanceId}->${donor.instanceId}`, `${donor.instanceId}->${chosen.instanceId}`]),
+    );
+  });
+
+  it("still prunes the mirror ordering for a card whose slots ARE interchangeable", () => {
+    // The other half of the opt-in, so the flag cannot quietly become "always
+    // enumerate both" and double the AI's search space on every two-slot card.
+    // Singularity's "up to two units" does the same thing to each.
+    const a = makeUnit({ might: 3 });
+    const b = makeUnit({ might: 4 });
+    const spell = card(SINGULARITY);
+    const state = makeState({
+      players: [makePlayer("p1", { hand: [spell], channeled: mindRunes(8) }), makePlayer("p2")],
+    });
+    state.battlefields[0]!.units = { p1: [a, b] };
+
+    const pairs = legalActions(state).filter(
+      (x) => x.type === "PlayCard" && x.card.defId === SINGULARITY && x.secondTargetUnitInstanceId !== undefined,
+    );
+    const orderings = new Set(
+      pairs.map((x) => (x.type === "PlayCard" ? `${x.targetUnitInstanceId}->${x.secondTargetUnitInstanceId}` : "")),
+    );
+
+    expect(orderings.size, "no pair was enumerated — this proves nothing").toBeGreaterThan(0);
+    expect(orderings.has(`${a.instanceId}->${b.instanceId}`)).toBe(true);
+    expect(orderings.has(`${b.instanceId}->${a.instanceId}`)).toBe(false);
   });
 });
 

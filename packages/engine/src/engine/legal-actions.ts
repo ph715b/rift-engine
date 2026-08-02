@@ -470,10 +470,20 @@ export function legalActions(state: GameState): PlayerAction[] {
         );
       const firstSlot = forSlot(0);
       const secondSlot = forSlot(1);
-      // When both slots take the same role the pair is symmetric, so (A,B) and
-      // (B,A) are the SAME choice — enumerating both would double the AI's
-      // search space and offer the player a distinction that doesn't exist.
-      const symmetric = targeting.slots[0] === targeting.slots[1];
+      // When both slots take the same role the pair is USUALLY symmetric, so
+      // (A,B) and (B,A) are the same choice — enumerating both would double the
+      // AI's search space and offer the player a distinction that doesn't exist.
+      //
+      // Same ROLE is not the same as same TREATMENT, though, and reading it that
+      // way was a real bug. Back to Back and Singularity do the same thing to
+      // both units, so the pruning is right for them; Convergent Mutation's slots
+      // are both "friendly" but slot 0 is the BENEFICIARY and slot 1 is only
+      // measured ("increase its Might to the Might of another friendly unit"), so
+      // dropping one ordering hid half the card — measured with a 7-Might and a
+      // 2-Might unit, the single offered pairing was the one that increases by 0.
+      // `asymmetricSlots` is how a spec says the roles coincide but the meanings
+      // do not.
+      const symmetric = targeting.slots[0] === targeting.slots[1] && targeting.asymmetricSlots !== true;
 
       if (targeting.min === 0) effectVariants.push({});
       if (targeting.min <= 1) {

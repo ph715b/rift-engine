@@ -100,6 +100,23 @@ export type TargetingSpec =
        */
       slotScopes?: readonly [TargetScope, TargetScope];
       sameBattlefield?: true;
+      /**
+       * The two slots take the same ROLE but are not interchangeable, so BOTH
+       * orderings of a pair must be enumerated.
+       *
+       * `legal-actions` prunes (B,A) when it has already offered (A,B) and both
+       * slots share a role — correct for Back to Back and Singularity, which do
+       * the same thing to both units, and wrong for Convergent Mutation, whose
+       * slot 0 is the beneficiary and slot 1 is only measured ("increase its
+       * Might TO the Might of another friendly unit"). Without this the card was
+       * half unreachable: with a 7-Might and a 2-Might friendly, the one offered
+       * pairing was the one that increases by 0.
+       *
+       * Opt-IN rather than opt-out, so every existing card keeps the pruning that
+       * halves the AI's search space, and only a card that actually distinguishes
+       * its slots pays for both orderings.
+       */
+      asymmetricSlots?: true;
     }
   /**
    * "A unit at a battlefield **or a gear**" — Fading Memories. One choice over
