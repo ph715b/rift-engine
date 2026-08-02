@@ -160,6 +160,21 @@ button:disabled {
   flex: 1 1 0;
 }
 
+/*
+ * The hand gets a bigger share than a base row.
+ *
+ * Every row now sizes its cards to its own height, so the height split IS the card
+ * size split — and a battlefield spends its height on TWO rows plus a name line
+ * while the hand spends it on one. At an even split that made hand cards SMALLER
+ * than battlefield cards (measured: 110px against 136px), which reads as the hand
+ * being broken; it is the row you read most and it was the smallest thing on the
+ * board. These two numbers are tuned together with `.battlefields`' own flex to
+ * land both at roughly the same card size — change one and re-measure the other.
+ */
+.zone.card-zone.hand-zone {
+  flex: 1.25 1 0;
+}
+
 /* A player's Base zone and their RuneZone sit side by side as peer zones,
    sharing the row Base alone used to occupy full-width — mirrors how the
    battlefield boxes already sit side by side, per the user's own layout
@@ -184,7 +199,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  font-size: 0.85rem;
+  /* Was 0.85rem (13.6px), which is below this app's own body size in a rail only
+     137px wide — the point-and-hand counts are read at a glance mid-turn, so they
+     were the wrong thing to shrink. */
+  font-size: 1rem;
   color: var(--color-text-dim);
   flex: 0 0 auto;
 }
@@ -216,7 +234,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  font-size: 0.78rem;
+  /* Was 0.78rem (12.5px). These are the zone counts (rune deck, trash, banished,
+     gear) — reference numbers rather than headlines, so they stay a step below the
+     header, but a readable one. */
+  font-size: 0.9rem;
   color: var(--color-text-dim);
   flex: 0 0 auto;
 }
@@ -230,6 +251,9 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* The generic row: wraps, and scrolls if it must. Still used by the mulligan
+   screen, which sets its own much larger --card-h and lays out a single hand of
+   four — it must NOT inherit the board's fit-to-row sizing. */
 .card-row {
   display: flex;
   gap: 1.1rem;
@@ -239,6 +263,64 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+/*
+ * The BOARD's rows (AI base, your base, your hand) additionally fit their cards to
+ * the row, exactly like `.battlefield-side` — see that rule for the reasoning. They
+ * used to wrap onto a second line and scroll, which is the same "content hidden
+ * behind a scrollbar" problem, and giving the battlefields a larger share of the
+ * column made it bite harder rather than creating it (measured at 1600x950: 52
+ * overflowing states before, 122 after, on rows that were already overflowing).
+ *
+ * A separate class rather than more rules on `.card-row`: that class is shared with
+ * the mulligan screen, and sizing its cards from a row height broke it outright.
+ */
+.card-row.fitted {
+  --row-card-h: 88cqh;
+  --row-card-w: calc(88cqh * 0.716);
+  container-type: size;
+  /* No flex `gap` — the margin below is the ONLY spacing, the same convention
+     `.rune-row` already documents. A gap survives the negative margin and adds
+     back once per adjacent pair, so at 12 cards it re-added ~194px and the row
+     spilled past its zone's border however hard the tuck pulled. */
+  gap: 0;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  overflow: visible;
+}
+
+.card-row.fitted > .card {
+  height: var(--row-card-h);
+  width: var(--row-card-w);
+}
+
+/* Spacing and overlap in one value, MEASURED by useRowFit and handed down as
+   `--row-fit-margin`: positive while the row is roomy, negative once the cards have
+   to overlap to fit. Not derived in CSS — the overlap is a function of the
+   container's width against a count of fixed-width cards, which a stylesheet cannot
+   express, and a hand-tuned constant left 95-162px spilling past the zone border. */
+.card-row.fitted > * + * {
+  margin-left: var(--row-fit-margin, 1.1rem);
+}
+
+.card-row.fitted > *:hover {
+  z-index: 3;
+}
+
+/*
+ * A tapped card is rotated 90deg (see `.card.exhausted`), so it occupies its
+ * HEIGHT horizontally while its layout box still reserves only its width. The old
+ * wrapping rows had enough slack to absorb that; these rows are fitted, so the
+ * difference has to be reserved explicitly or a tapped card sits on top of its
+ * neighbour — measured at a 93px-wide bounding box in a 66px slot.
+ */
+.card-row.fitted > .card.exhausted {
+  margin-right: calc(var(--row-card-h) - var(--row-card-w));
+}
+
+.battlefield-side > .card.exhausted {
+  margin-right: calc(var(--bf-card-h) - var(--bf-card-w));
 }
 
 .battlefields {
@@ -259,7 +341,17 @@ button:disabled {
   grid-template-columns: repeat(2, 1fr); /* fallback; GameBoard sets this inline from state.battlefields.length */
   grid-template-rows: minmax(0, 1fr);
   gap: 0.75rem;
-  flex: 1.4 1 0;
+  /*
+   * The battlefields are where the game is read, so they get the largest share of
+   * the centre column. At 1.4 they took 32% of it (256px of 846) against 43% for
+   * the two base+rune rows and 24% for the hand, which is what made a battlefield
+   * card small — its row was 104px. At 2.4 the row is 155px.
+   *
+   * Worth recording because the obvious lever is the wrong one: the action-button
+   * row is only 32px of a 950px board, so moving it elsewhere returns about 13px
+   * here. This ratio is where the space actually is.
+   */
+  flex: 2.2 1 0;
   min-height: 0;
 }
 
@@ -979,14 +1071,28 @@ button:disabled {
      wrapping into a vertical scrollbar. */
   flex-wrap: nowrap;
   align-items: center;
+  /* Declares the container the tiles size their HEIGHT against; RuneZone's
+     measured margins still own the horizontal fit. Written in `cqh`, which is only
+     valid on descendants, and used only on `.rune-tile` — see `.battlefield-side`
+     for why that resolves correctly.
+     `flex`/`min-height` are REQUIRED alongside it, not decoration: `container-type:
+     size` applies `contain: size`, so the element stops being sized by its contents
+     and needs a definite height from its parent. Without them this row collapsed and
+     every tile resolved to 88cqh of nothing. */
+  flex: 1 1 0;
+  min-height: 0;
+  container-type: size;
+  --rune-tile-h: 88cqh;
+  --rune-tile-w: calc(88cqh * 0.716);
 }
 
 .rune-tile {
-  /* Every card on screen is the same size, runes included — no more
-     compact scaling for rune tiles specifically, per the user's own
-     "uniform card size" note. */
-  width: var(--card-w);
-  height: var(--card-h);
+  /* Sized to the row, like every other card row on the board. RuneZone already
+     fans these to fit the WIDTH by measurement; the height was still the global
+     `--card-h`, so a short rune row clipped its own tiles vertically — the same
+     axis the battlefields were failing on. `.rune-row` declares the container. */
+  width: var(--rune-tile-w);
+  height: var(--rune-tile-h);
   border-radius: 10px;
   border: 2px solid;
   overflow: hidden;

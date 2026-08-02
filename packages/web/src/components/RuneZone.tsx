@@ -1,4 +1,5 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
+import { useRowFit } from "./use-row-fit.js";
 import { loadRuneArt, type RuneCard } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 
@@ -65,51 +66,9 @@ export function RuneZone({ runes, mode }: RuneZoneProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
 
-  const rowRef = useRef<HTMLDivElement>(null);
-  const [tileOffsetPx, setTileOffsetPx] = useState(DEFAULT_TILE_GAP_PX);
-
-  useLayoutEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
-
-    function recompute() {
-      const row = rowRef.current;
-      const firstTile = row?.firstElementChild as HTMLElement | null | undefined;
-      if (!row || !firstTile) return;
-
-      const n = runes.length;
-      const containerWidth = row.clientWidth;
-      const tileWidth = firstTile.offsetWidth;
-      if (n <= 1 || tileWidth === 0) {
-        setTileOffsetPx(DEFAULT_TILE_GAP_PX);
-        return;
-      }
-
-      const naturalTotal = n * tileWidth + (n - 1) * DEFAULT_TILE_GAP_PX;
-      if (naturalTotal <= containerWidth) {
-        setTileOffsetPx(DEFAULT_TILE_GAP_PX);
-        return;
-      }
-
-      // No floor on how negative this gets — an earlier version clamped
-      // overlap at 85% of a tile's width to always keep a visible sliver,
-      // but since this row has no overflow:hidden, hitting that floor at
-      // an extreme count/narrow width meant the total row width exceeded
-      // the container and the excess spilled out past the zone's border
-      // (a real breach the user caught visually). Fitting exactly, however
-      // much overlap that takes, is what actually guarantees no breach.
-      const fitOffset = (containerWidth - n * tileWidth) / (n - 1);
-      setTileOffsetPx(fitOffset);
-    }
-
-    recompute();
-    const observer = new ResizeObserver(recompute);
-    observer.observe(row);
-    const firstTile = row.firstElementChild;
-    if (firstTile) observer.observe(firstTile);
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runes.length]);
+  // The fan that keeps any channelled count in one row is shared with the board's
+  // other card rows now — see use-row-fit.ts, which this logic was extracted into.
+  const { rowRef, marginLeft: tileOffsetPx } = useRowFit(runes.length, DEFAULT_TILE_GAP_PX);
 
   return (
     <div className="zone card-zone">

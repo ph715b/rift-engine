@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence } from "framer-motion";
+import { useRowFit } from "./use-row-fit.js";
 import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
@@ -356,6 +357,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
   const human = state.players[HUMAN_INDEX];
   const ai = state.players[AI_INDEX];
+
+  // One per card row. Each fans its cards to fit the width it actually has, so no
+  // row wraps onto a second line and grows a scrollbar — the same measured fit
+  // RuneZone has always used, now shared (see use-row-fit.ts).
+  const aiBaseFit = useRowFit(ai.activeGear.length + ai.baseUnits.length);
+  const yourBaseFit = useRowFit(human.activeGear.length + human.baseUnits.length);
+  const handFit = useRowFit(human.hand.length);
 
   function playCardActionsFor(cardInstanceId: string): PlayCardAction[] {
     return legal.filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === cardInstanceId);
@@ -1751,7 +1759,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           <div className="base-and-runes">
             <div className="zone card-zone">
               <div className="zone-label">AI base</div>
-              <div className="card-row">
+              {/* --row-count drives the fan in styles.css: the row tucks its cards
+                  under each other rather than wrapping onto a line it has no room
+                  for. Counted from the same arrays that render below, so it cannot
+                  drift from what is on screen. */}
+              {/* useRowFit measures this row and fans the cards to fit it, so the
+                  row can never wrap onto a line it has no height for. The margin it
+                  returns is the ONLY spacing — see the hook on why there is no gap. */}
+              <div
+                className="card-row fitted"
+                ref={aiBaseFit.rowRef}
+                style={{ "--row-fit-margin": `${aiBaseFit.marginLeft}px` } as CSSProperties}
+              >
                 <AnimatePresence>
                   {/* Gear sits in its controller's base and is public information —
                       it was previously only a count in the side rail, which made
@@ -1847,7 +1866,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               onClick={isBaseZoneTarget ? handleBaseZoneClick : undefined}
             >
               <div className="zone-label">Your base</div>
-              <div className="card-row">
+              <div
+                className="card-row fitted"
+                ref={yourBaseFit.rowRef}
+                style={{ "--row-fit-margin": `${yourBaseFit.marginLeft}px` } as CSSProperties}
+              >
                 <AnimatePresence>
                   {/* Gear renders here rather than in a zone of its own: it lives
                       in your base by the rules, and `.board` is a fixed-height
@@ -1885,9 +1908,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             </div>
           </div>
 
-          <div className="zone card-zone">
+          <div className="zone card-zone hand-zone">
             <div className="zone-label">Your hand</div>
-            <div className="card-row">
+            <div
+              className="card-row fitted"
+              ref={handFit.rowRef}
+              style={{ "--row-fit-margin": `${handFit.marginLeft}px` } as CSSProperties}
+            >
               <AnimatePresence>
                 {human.hand.map((card) => (
                   <CardView
