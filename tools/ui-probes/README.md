@@ -36,6 +36,7 @@ npx playwright install chromium
 | `mull2.mjs` | the mulligan screen fits four cards at every size, and the board's fitted sizing has not leaked into it |
 | `facedown.mjs` | an opponent's facedown card leaks neither its name nor a naming tooltip |
 | `flights.mjs` | cards actually travel between the right zones (`ACTIVE=1` also drives recycle/discard) |
+| `live-triggers.mjs` | a triggered ability really reaches the ChainView, named, with no console or page errors |
 
 Most take `<width> <height>`; without arguments they sweep all four sizes.
 
@@ -51,3 +52,33 @@ Most take `<width> <height>`; without arguments they sweep all four sizes.
 - **`piles-check.mjs` takes `REGRESS=1`**, which re-injects the old absolutely
   positioned layout and must FAIL. A check you cannot make fail has verified
   nothing; keep that property when you edit it.
+
+## `live-triggers.mjs` — and why it needs an imported deck
+
+**No preset deck contains a single `battlefieldConquered` listener or Mistfall**,
+so a preset-vs-preset game can never put a triggered ability on the chain. The
+first run of this probe reported `triggerRowStates: 0` and said **OK** — the
+0/0-reads-as-a-pass failure, reproduced in a brand-new instrument. It now imports
+a purpose-built Sett buff deck through the real lobby UI (paste → Parse → Save)
+and uses it for BOTH seats, and it **fails** when it sees no trigger row.
+
+Regenerate the deck when the card pool changes:
+
+```
+node -e "...builds tools/ui-probes/.buffdeck.txt from the registry..."
+```
+
+Three things the deck text has to get right, each of which cost a run:
+the champion the parser picks is itself a card (Sett - Brawler), so adding 3 more
+copies makes 4 and validation refuses; the main deck needs **39** lines because
+`cardIds = [...mainDeck, championId]` adds the champion once; and the sideboard
+must be a full 8.
+
+Run it with `PORT` set — never assume 5173. Stale vite servers held 5173-5183 on
+2026-08-02 and the live server came up on **5184**.
+
+`GAMES` defaults to **6** because two is not enough: two consecutive 2-game runs
+gave 30 trigger-row states and then zero, same deck and same code.
+
+`decisionsSeen: 0` is honest reporting of an UNEXERCISED path, not a pass. The
+human passes all game, so it is never asked anything.
