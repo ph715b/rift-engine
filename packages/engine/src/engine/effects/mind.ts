@@ -1,9 +1,17 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type {
+  DeathknellEffect,
+  DeathWatchEffect,
+  EventTriggerDefinition,
+  GameEvent,
+  Listener,
+  SelfTriggerDefinition,
+} from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
-import { controlsAnyFacedownCard } from "../hidden.js";
+import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
+import { defaultCardRegistry } from "../../cards/card-registry.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import {
   channelRunesExhausted,
@@ -58,6 +66,31 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
   return location.zone === "base"
     ? { isCombat: false }
     : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+}
+
+/**
+ * "When I defend" — the other side of Yasuo - Remorseful's test, and the reason
+ * neither card needs an event of its own.
+ *
+ * A Defend trigger fires when the unit gains the **Defender** designation, which
+ * rule 465's Combat Step 1 puts at the opening of the Combat Showdown ("Units at
+ * the Contested Battlefield controlled by the Attacker or Defender gain the
+ * Attacker or Defender designation now"), i.e. at `combatBegan`. Which side
+ * attacked is `bf.contestedByIndex` — 465's own definition of the Attacker,
+ * still set here because `clearContested` runs only when the Showdown closes —
+ * so everyone else standing at that battlefield is defending.
+ *
+ * Shared by Teemo's `applies` and his `resolve` so the two cannot drift. Both
+ * need it: the inline dispatch path never consults `applies`, and once
+ * `combatBegan` becomes a Chain Pending Item the two are separated by a response
+ * window in which Teemo can be moved off the battlefield he was defending.
+ */
+function isDefendingAt(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "combatBegan") return false;
+  if (listener.card.kind !== "Unit") return false;
+  if (listener.battlefieldId !== event.battlefieldId) return false;
+  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+  return bf !== undefined && bf.contestedByIndex !== null && bf.contestedByIndex !== listener.ownerIndex;
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
@@ -353,6 +386,109 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-121": {
+    // Teemo - Strategist — "[Hidden] When I defend, choose an enemy unit here and
+    // reveal the top 5 cards of your Main Deck. Deal 1 to that unit for each card
+    // with [Hidden] revealed this way, then recycle the revealed cards."
+    //
+    // `[Hidden]` is entirely engine/hidden.ts and the loader; only the defend
+    // trigger is written here, and the card is genuinely whole once it lands.
+    //
+    // **The rules PDF works this exact card twice, and both uses changed what is
+    // below rather than confirming it.**
+    //
+    // *135.2.b (Instructions)* splits the trigger into FOUR instructions by name:
+    // "choose an enemy unit here", "reveal the top 5 cards of your Main Deck",
+    // "deal 1 to that unit for each card with [Hidden] revealed this way", and
+    // "recycle the revealed cards". Separate instructions are ignored separately
+    // (359.3.e: "Instructions that can't be followed... are ignored"), so with no
+    // enemy unit here the choose and the deal drop out while the reveal and the
+    // recycle still happen. That is the Void Seeker precedent the same section
+    // works ("Deal 4 to a unit at a battlefield. Draw 1." — the draw survives an
+    // illegal target), NOT Retreat's, whose second sentence names "ITS owner" and
+    // so is an instruction about the target. Near-unreachable in play, since
+    // defending means enemy units are standing here; it costs one branch.
+    //
+    // *718.5 (Bonus Damage)* is why zero `[Hidden]` cards skips `dealDamage`
+    // rather than calling it with 0: "If no damage was Dealt, then Bonus Damage
+    // will not apply" — worked on Teemo himself carrying Rabadon's Deathcrown,
+    // "no deal action is performed for the Bonus Damage to apply to." This
+    // engine's Bonus Damage is Annie - Fiery, and damage-modifiers.ts adds her +1
+    // to any amount, so `dealDamage(..., 0)` beside her would deal 1 for
+    // revealing nothing. The guard is the rule, not defensive coding.
+    //
+    // `[Hidden]` on a revealed card is asked of the DEFINITION through
+    // `isHiddenCard`, never of the printed text: Noxus Saboteur, Ava Achiever,
+    // Ember Monk and Guerilla Warfare all MENTION "[Hidden]" without carrying it,
+    // and card-loader.ts's HIDDEN_KEYWORD_FALSE_POSITIVES is where that is
+    // already settled. A text scan would count them and still look like a working
+    // card.
+    //
+    // "Recycle" is 416/425 — the bottom of the corresponding deck, in revealed
+    // order. A deck shorter than 5 reveals what it has: this is an EFFECT, so
+    // 422's do-as-much-as-you-can applies rather than `recycleFromTrash`'s
+    // all-or-nothing cost rule, the same distinction Dr. Mundo - Expert draws
+    // below.
+    on: "combatBegan",
+    // **Currently unread.** `combatBegan` is still dispatched inline by
+    // cleanup.ts and only `holdEventTrigger` consults `applies`. Written anyway
+    // because `combatBegan` is next in the Chain conversion queue and this is
+    // exactly the predicate it will need — "when I defend" is a fact about the
+    // board at the moment of the event, and holding the trigger for a Teemo who
+    // is ATTACKING would open a response window for an ability that resolves to
+    // nothing.
+    applies: isDefendingAt,
+    resolve: (state, listener, event) => {
+      // Narrowing the union is not ceremony: the dispatcher filters by `on`, but
+      // the compiler cannot see it, and `isDefendingAt` cannot hand back the
+      // narrowed event.
+      if (event.kind !== "combatBegan") return state;
+      if (!isDefendingAt(state, listener, event)) return state;
+
+      const owner = state.players[listener.ownerIndex];
+      // "Reveal the top 5" — revealing moves nothing (425: "Cards remain in the
+      // zone they are being Revealed from"), so these are still the top of the
+      // deck while the damage is dealt, and only the recycle below moves them.
+      const revealed = owner.deck.slice(0, 5);
+      if (revealed.length === 0) return state; // nothing revealed, nothing to recycle
+      const registry = defaultCardRegistry();
+      const hiddenCount = revealed.filter((c) => isHiddenCard(registry.tryGet(c.defId))).length;
+
+      // "An enemy unit HERE" — the first at this battlefield in board order,
+      // auto-selected rather than asked. Same simplification, and the same
+      // structural reason, as Yasuo - Remorseful, Crackshot Corsair and Leona -
+      // Determined; filed Unverified in docs/rules-conformance.md.
+      const bf = state.battlefields.find((b) => b.id === event.battlefieldId)!;
+      const enemy = Object.entries(bf.units)
+        .filter(([id]) => id !== owner.id)
+        .flatMap(([, units]) => units)[0];
+
+      const damaged =
+        enemy !== undefined && hiddenCount > 0
+          ? dealDamage(state, listener.ownerIndex, enemy.instanceId, hiddenCount)
+          : state;
+
+      // Recycled by instance id off the POST-damage deck rather than by
+      // re-slicing the top 5, because the deal runs the full death funnel and
+      // that funnel can reach a deck: `[Deathknell]` draws exist (Watchful
+      // Sentry, in this file). **Stated as unexercised rather than claimed:** no
+      // card in this pool is known to draw from TEEMO'S controller's deck off an
+      // enemy unit's death — a Deathknell pays its own owner — so the difference
+      // between this and a re-slice is unreachable today. It is written this way
+      // because a re-slice would silently recycle a card that was never revealed
+      // the day such a card lands, and filtering costs nothing.
+      const after = damaged.players[listener.ownerIndex];
+      const revealedIds = new Set(revealed.map((c) => c.instanceId));
+      const survivors = after.deck.filter((c) => revealedIds.has(c.instanceId));
+      if (survivors.length === 0) return damaged;
+      const players = [...damaged.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = {
+        ...after,
+        deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
+      };
+      return { ...damaged, players };
+    },
+  },
   "OGN-119": {
     // Ahri - Inquisitive — "When I attack or defend, give an enemy unit here
     // -2 Might this turn, to a minimum of 1 Might."

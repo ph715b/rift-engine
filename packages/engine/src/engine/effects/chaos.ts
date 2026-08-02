@@ -221,6 +221,33 @@ export const cardEffects: Record<string, EffectDefinition> = {
       );
     },
   },
+  "OGN-198": {
+    // The Harrowing — "Play a unit from your trash, ignoring its Energy cost.
+    // (You must still pay its Power cost.)"
+    //
+    // Soulgorger's decision (OGN-196, in this file) with the "you may" removed,
+    // and it shares its two helpers rather than carrying a second copy of them.
+    //
+    // MANDATORY, so no decline option. That is not merely a missing button: with
+    // no payable unit in the trash the option list is EMPTY, and
+    // `advanceDecisions` drops a question nobody can answer instead of
+    // deadlocking on it. That is 422's do-as-much-as-you-can, and it is the
+    // failure mode worth naming — a mandatory instruction that stranded its own
+    // decision would hang the game rather than doing nothing visible. Tested
+    // directly in test/cards-harrowing.test.ts.
+    //
+    // A single payable unit is likewise not a question: one option, so
+    // `advanceDecisions` executes it without interrupting anyone. There is no
+    // choice to make, which is exactly what "play a unit from your trash" with
+    // one unit in the trash means.
+    //
+    // A DECISION rather than an `ownTrashCard` target for Soulgorger's second
+    // reason, which survives the loss of the first: the Power is paid AT
+    // RESOLUTION out of the pool as it stands then, and cannot ride on the
+    // PlayCardAction's payment — that action paid the Harrowing's own 6+2.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-198-play", playerIndex: ctx.casterIndex }),
+  },
 };
 
 /**
@@ -583,53 +610,91 @@ export const decisions: Record<string, DecisionDefinition> = {
 
   // Soulgorger's "you may play a unit from your trash, ignoring its Energy cost."
   //
-  // Priced when the OPTIONS are built, so a unit whose Power cost cannot be paid
-  // is never offered rather than offered and then refused — 416.3's "the action
-  // must be able to be completed for the cost to be paid", and the same shape
-  // Flame Chompers' offer uses.
-  //
-  // **Named limitation:** affordability is asked through `payPowerFromChanneled`,
-  // which takes a single domain and reads only the channeled pool. So a card with
-  // a split Power pip (`powerDomainAlt`, e.g. Tibbers) is judged against its
-  // primary domain only, and floating Power does not count. Both under-offer —
-  // the option is withheld, never granted free — and both are inherited from that
-  // helper rather than introduced here.
+  // The decline comes FIRST so that a mis-click and the AI's tie-break both land
+  // on doing nothing, the same convention Whirlwind's offer above uses — and it
+  // is the whole difference between this entry and The Harrowing's below, which
+  // prints the same instruction without "you may".
   "OGN-196-play": {
     prompt: () => "Soulgorger: you may play a unit from your trash, paying only its Power cost",
-    options: (state, d) => {
-      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
-      for (const card of state.players[d.playerIndex].trash) {
-        if (card.kind !== "Unit") continue;
-        if (payUnitPowerCost(state, d.playerIndex, card) === undefined) continue;
-        options.push({ id: card.instanceId, label: playLabel(card), instanceId: card.instanceId });
-      }
-      return options;
-    },
-    resolve: (state, d, optionId) => {
-      if (optionId === "decline") return state;
-      const card = state.players[d.playerIndex].trash.find((c) => c.instanceId === optionId);
-      if (!card || card.kind !== "Unit") return state;
-      const paid = payUnitPowerCost(state, d.playerIndex, card);
-      if (!paid) return state;
+    options: (state, d) => [{ id: "decline", label: "Decline" }, ...playableTrashUnits(state, d.playerIndex)],
+    resolve: (state, d, optionId) => (optionId === "decline" ? state : playUnitFromTrash(state, d.playerIndex, optionId)),
+  },
 
-      // Out of the trash, then into play through the shared deploy funnel — so it
-      // enters exhausted (143.4.a) unless something says otherwise, and both
-      // events a real play fires go off. "Play a unit" means play it.
-      //
-      // The printed Energy is not paid and not discounted: the card's text
-      // replaces that half of the cost outright, exactly as rule 811 does for a
-      // card played from Hidden. `cardsPlayedThisTurn` is bumped because this IS
-      // a card being played, which is what [Legion] counts.
-      const players = [...paid.players] as [PlayerState, PlayerState];
-      players[d.playerIndex] = {
-        ...players[d.playerIndex],
-        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== optionId),
-        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
-      };
-      return playUnitToBase({ ...paid, players }, d.playerIndex, card);
-    },
+  // The Harrowing's "Play a unit from your trash, ignoring its Energy cost."
+  //
+  // No decline: the instruction is mandatory, so the only options are the units
+  // that can actually be played. With none the list is EMPTY and
+  // `advanceDecisions` drops the question (422 — do as much as you can, then
+  // nothing); with exactly one it executes it without asking, because one option
+  // is not a choice. Both branches are asserted in test/cards-harrowing.test.ts,
+  // since a mandatory question with no answer is the one shape that could hang
+  // the game rather than fizzle.
+  "OGN-198-play": {
+    prompt: () => "The Harrowing: play a unit from your trash, paying only its Power cost",
+    options: (state, d) => playableTrashUnits(state, d.playerIndex),
+    resolve: (state, d, optionId) => playUnitFromTrash(state, d.playerIndex, optionId),
   },
 };
+
+/**
+ * The units in a player's trash they could play right now for their Power cost
+ * alone — Soulgorger's offer and The Harrowing's, which print the same
+ * instruction and differ only in whether declining is allowed.
+ *
+ * Priced when the OPTIONS are built, so a unit whose Power cost cannot be paid
+ * is never offered rather than offered and then refused — 416.3's "the action
+ * must be able to be completed for the cost to be paid", and the same shape
+ * Flame Chompers' offer uses.
+ *
+ * **Named limitation, inherited by both cards:** affordability is asked through
+ * `payPowerFromChanneled`, which takes a single domain and reads only the
+ * channeled pool. So a card with a split Power pip (`powerDomainAlt`, e.g.
+ * Tibbers) is judged against its primary domain only, and floating Power does
+ * not count. Both UNDER-offer — the option is withheld, never granted free — and
+ * both come from that helper rather than being introduced here. Widening it is a
+ * change to effect-helpers.ts, not to this file.
+ */
+function playableTrashUnits(state: GameState, playerIndex: 0 | 1): DecisionOption[] {
+  const options: DecisionOption[] = [];
+  for (const card of state.players[playerIndex].trash) {
+    if (card.kind !== "Unit") continue;
+    if (payUnitPowerCost(state, playerIndex, card) === undefined) continue;
+    options.push({ id: card.instanceId, label: playLabel(card), instanceId: card.instanceId });
+  }
+  return options;
+}
+
+/**
+ * Takes the named unit out of the trash, pays its Power, and plays it to base.
+ *
+ * Out of the trash, then into play through the shared deploy funnel — so it
+ * enters exhausted (143.4.a) unless something says otherwise, and both events a
+ * real play fires go off. "Play a unit" means play it.
+ *
+ * The printed Energy is not paid and not discounted: the card's text replaces
+ * that half of the cost outright, exactly as rule 811 does for a card played
+ * from Hidden. `cardsPlayedThisTurn` is bumped because this IS a card being
+ * played, which is what [Legion] counts.
+ *
+ * The cost is re-paid here rather than trusted from the option list, because the
+ * options were built from an earlier state — anything that drained the pool
+ * between the question and the answer makes this fizzle rather than play a unit
+ * for free.
+ */
+function playUnitFromTrash(state: GameState, playerIndex: 0 | 1, optionId: string): GameState {
+  const card = state.players[playerIndex].trash.find((c) => c.instanceId === optionId);
+  if (!card || card.kind !== "Unit") return state;
+  const paid = payUnitPowerCost(state, playerIndex, card);
+  if (!paid) return state;
+
+  const players = [...paid.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...players[playerIndex],
+    trash: players[playerIndex].trash.filter((c) => c.instanceId !== optionId),
+    cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1,
+  };
+  return playUnitToBase({ ...paid, players }, playerIndex, card);
+}
 
 /** Every unit in play, both players, base and battlefields — Whirlwind's "a
  *  unit" with no owner and no location named. Player order, then each player's

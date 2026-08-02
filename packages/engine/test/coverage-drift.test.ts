@@ -9,7 +9,9 @@ import {
   needsImplementation,
   partialImplementationNote,
   unimplementedKeywordsOn,
+  implementingModules,
 } from "../src/engine/coverage.js";
+import { decisionDefIds } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { KEYWORDS } from "../src/model/keyword.js";
 
@@ -342,5 +344,49 @@ describe("a partial note says how much is left, not just which keyword", () => {
     for (const id of ["OGN-013", "OGN-041", "OGN-231", "OGN-232"]) {
       expect(partialImplementationNote(registry.get(id)), id).toContain("[Deflect]");
     }
+  });
+});
+
+/**
+ * A card registered ONLY through a pending decision is not implemented, and
+ * coverage must not say otherwise.
+ *
+ * `decisionDefIds()` regex-peels the defId out of a decision key, so registering
+ * `"OGN-242-play"` and nothing else makes `isCardImplemented("OGN-242")` return
+ * true — while nothing in the game can ever park that decision, because parking
+ * is done by the card's own effect or trigger, which is the registration that is
+ * missing. **Two independent agents hit this within an hour of each other**, each
+ * by writing half a card and watching coverage claim the whole of it.
+ *
+ * Nothing in the pool is affected today, which is exactly why this is a test and
+ * not a behaviour change: altering `isCardImplemented` would change nothing now
+ * and could silently grey a future card that legitimately registers this way. A
+ * test states the invariant, fails loudly if it ever stops holding, and catches
+ * the next half-written card at review time rather than by an agent's diligence.
+ */
+describe("a decision registration is a continuation, never a whole implementation", () => {
+  it("every card reachable via a decision is also reachable some other way", () => {
+    const viaDecision = new Set(decisionDefIds());
+    // Every OTHER coverage source, asked directly rather than through a new
+    // export on coverage.ts — `implementingModule` already answers "which source
+    // claims this defId", so the check reads it back per id below.
+    // `implementingModules`, not `implementingModule`: the singular returns the
+    // FIRST source in COVERAGE_SOURCES order, so a card claimed by both a
+    // decision and a later source (an aura, a cost modifier) would look like an
+    // orphan. Asking for all of them makes this order-independent.
+    const claimedElsewhere = (defId: string): boolean =>
+      implementingModules(defId).some((label) => label !== "pending decisions");
+
+    // Gate on the scan finding anything: an empty decision registry would make
+    // this vacuous, which reads exactly like a pass.
+    expect(viaDecision.size, "no decisions are registered at all — this proves nothing").toBeGreaterThan(5);
+
+    const orphans = [...viaDecision].filter((defId) => !claimedElsewhere(defId));
+    const registry = defaultCardRegistry();
+    expect(
+      orphans.map((id) => `${id} (${registry.tryGet(id)?.name ?? "unknown"})`),
+      "these cards are registered ONLY through a pending decision, so coverage reports them implemented " +
+        "while nothing can ever park that decision — write the effect/trigger that parks it, or the card is half-written",
+    ).toEqual([]);
   });
 });

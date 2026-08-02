@@ -177,6 +177,19 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "death replacements", defIds: deathReplacementDefIds },
 ];
 
+/**
+ * EVERY source that claims `defId`, not just the first.
+ *
+ * `implementingModule` below returns the first match in COVERAGE_SOURCES order,
+ * which is the right answer for "where do I look" and the wrong one for "is this
+ * card implemented by more than a pending decision" — a card claimed by both
+ * `decisions` and a later source would report only the decision. Exported for
+ * the coverage-drift test that pins exactly that.
+ */
+export function implementingModules(defId: string): string[] {
+  return COVERAGE_SOURCES.filter((source) => source.defIds().includes(defId)).map((source) => source.label);
+}
+
 /** Every defId implemented anywhere in the engine. Computed once and lazily —
  *  eagerly would run across the pre-existing card-effects import cycle. */
 function registeredDefIds(): Set<string> {
