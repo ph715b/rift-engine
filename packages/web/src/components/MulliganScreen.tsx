@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import type { CardInstance } from "@rift-engine/engine";
 import { CardView } from "./CardView.js";
 
@@ -42,7 +42,11 @@ export function MulliganScreen({ hand, humanGoesFirst, seriesNote, onConfirm }: 
         <span>Mulligan{seriesNote ? ` · ${seriesNote}` : ""}</span>
       </div>
 
-      <div className="mulligan-screen">
+      {/* The card count drives the width half of the card size (see
+          `.mulligan-screen` in styles.css) — handed over rather than hardcoded
+          to 4 in the stylesheet, so the row keeps fitting if the opening hand
+          ever stops being four cards. */}
+      <div className="mulligan-screen" style={{ "--mulligan-count": hand.length } as CSSProperties}>
         <div className="banner">Choose up to 2 cards to set aside and replace</div>
         <div className="turn-order-note">
           {humanGoesFirst

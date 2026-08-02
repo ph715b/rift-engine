@@ -111,9 +111,14 @@ export function BattlefieldView({
       </div>
       {/* Facedown cards (rule 811). Presence is public and changes how the
           battlefield reads — there is a trick waiting here — while identity is
-          not, so the opponent's shows only a back. The state GameBoard passes in
-          is already masked for anything that isn't the viewer's own, so this
-          component cannot leak what it was never given. */}
+          not, so the opponent's shows only a back.
+          NOTE: this used to claim the state arrives "already masked", so the
+          component "cannot leak what it was never given". That is false —
+          nothing in the web package masks anything, and `h.card` carries the
+          real identity for BOTH players. The `mine` branch below is not a
+          convenience over already-safe data, it IS the thing keeping the
+          opponent's facedown card secret, in the label and in the title alike.
+          Do not collapse it. */}
       {battlefield.hiddenCards.length > 0 && (
         <div className="battlefield-hidden-row">
           {battlefield.hiddenCards.map((h) => {

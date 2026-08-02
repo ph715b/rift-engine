@@ -79,6 +79,11 @@ button:disabled {
   height: 100dvh;
   margin: 0 auto;
   padding: 0.6rem 1.25rem;
+  /* The usable width inside this padding, published so screens that must fit a
+     fixed number of cards ACROSS can size against it. Declared here, next to the
+     three values it is made of, so it cannot drift from them the way a copy of
+     `min(96vw, 2200px)` elsewhere silently would. */
+  --board-content-w: calc(min(96vw, 2200px) - 2.5rem);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1919,7 +1924,29 @@ button:disabled {
      property is defined, not wherever it's later used — --card-w's
      root-level definition stays locked to the root --card-h forever
      unless it's redeclared using the local one, same as this one is. */
-  --card-h: clamp(200px, 52dvh, 480px);
+  /*
+   * Capped on BOTH axes. The height clamp alone is what this used to be, and it
+   * never asked whether the cards fit ACROSS: at 1280x800 four 298px-wide cards
+   * plus their gaps came to 1245px inside a 1189px row, so one wrapped onto a
+   * second line and `.card-row`'s own `overflow-y: auto` hid it behind a
+   * scrollbar. Measured as one card outside `.board` at 1280x800, 1024x700 and
+   * 900x600 — every size except the one it was built at.
+   *
+   * The width term is the row's share: the space available minus the gaps
+   * between the cards, divided by how many there are, converted to a height
+   * through the card ratio. `--mulligan-count` comes from MulliganScreen rather
+   * than being hardcoded to 4 — the opening hand is 4 by rule today, and a
+   * layout that silently breaks if that ever changes is the same bug again.
+   *
+   * This deliberately overrides the 200px floor when width demands it: cards
+   * that are small but all visible beat cards that hit a readability floor and
+   * push one off the screen.
+   */
+  --mulligan-avail-w: calc(var(--board-content-w) - 3rem);
+  --card-h: min(
+    clamp(200px, 52dvh, 480px),
+    calc((var(--mulligan-avail-w) - (var(--mulligan-count, 4) - 1) * 1.1rem) / var(--mulligan-count, 4) / 0.716)
+  );
   --card-w: calc(var(--card-h) * 0.716);
 }
 
