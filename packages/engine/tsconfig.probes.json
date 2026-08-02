@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The probes are RUN by node's native type stripping, not compiled, so their
+    // imports must name the real `.ts` file. Kept out of tsconfig.typecheck.json
+    // so `src` and `test` keep the stricter `.js`-extension convention the build
+    // depends on.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["probes"]
+}

@@ -36,3 +36,6 @@ desktop.ini
 # Logs
 *.log
 npm-debug.log*
+
+# Screenshots written by tools/ui-probes — evidence for one run, not artefacts.
+tools/ui-probes/.shots/

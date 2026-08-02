@@ -11,8 +11,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.typecheck.json",
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.typecheck.json && tsc -p tsconfig.probes.json",
+    "test": "vitest run",
+    "probes": "node probes/ai-health.ts && node probes/passive-human.ts"
   },
   "dependencies": {
     "zod": "^3.24.1"
