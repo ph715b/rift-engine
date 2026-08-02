@@ -2,7 +2,7 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { addBuff, dealDamage, forceMoveToBattlefield, giveMightThisTurn, readyUnit, stunUnits } from "../effect-helpers.js";
+import { addBuff, dealDamage, destroyUnit, forceMoveToBattlefield, giveMightThisTurn, readyUnit, stunUnits } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 
@@ -28,6 +28,57 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-248": {
+    // Icathian Rain (Fury + Mind) — "Deal 2 to a unit." x6.
+    //
+    // SIX separate instructions, each naming its own target, so this is six
+    // ordered choices rather than "deal 12 split six ways". The rules settle both
+    // halves of what that means, using their own Rocket Barrage example: valid
+    // choices must be made for ALL targets before the spell goes on the chain
+    // (355), and the same unit may be chosen more than once provided the caster
+    // says which choice is which. So the card is uncastable with an empty board
+    // and deals all 12 to a lone survivor.
+    //
+    // `min: 6, max: 6` — not "up to six". Nothing in the text offers fewer.
+    // `scope: "anywhere"`: "a unit" is 355.9.b's bare noun, so a unit in either
+    // base is a legal target, the same reading Final Spark already takes.
+    targeting: { kind: "unitList", min: 6, max: 6, scope: "anywhere", allowsDuplicates: true },
+    resolve: (state, ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => dealDamage(next, ctx.casterIndex, id, 2), state),
+  },
+  "OGN-256": {
+    // Fox-Fire (Calm + Mind) — "Kill any number of units at a battlefield with
+    // total Might 4 or less."
+    //
+    // **The PDF works this exact card**, and three things fall out of its example,
+    // all load-bearing and none guessed:
+    //  - **ONE battlefield.** "at a single battlefield", "units at the same
+    //    battlefield" — hence `sameBattlefield`.
+    //  - **EFFECTIVE Might**, so a this-turn pump or an aura changes the answer.
+    //    That is the whole point of the example, in which a Reaction gives two of
+    //    four chosen Recruits +1 [M] after they were chosen.
+    //  - **A GROUP requirement**: the set must collectively satisfy the
+    //    restriction when the card is FINALIZED, which is what `maxTotalMight`
+    //    checks at announce time.
+    //
+    // "Any number" is genuinely `min: 0` — the rules say so outright ("If they
+    // choose zero, the spell or ability can be played without any targets"), so
+    // this is castable on an empty board and kills nothing.
+    //
+    // **The resolution-time re-choice is NOT implemented**, and it is the half the
+    // PDF's example is really about: if the group stops qualifying before the
+    // spell resolves, its controller "can choose a subset of the original targets
+    // that fulfills the targeting requirement". Here the kill simply proceeds on
+    // the units still present. Recorded in docs/rules-conformance.md — it needs a
+    // mid-resolution question, which is a decision-queue shape rather than a
+    // targeting one.
+    //
+    // Either player's units: the card names no owner, and killing your own is a
+    // real (if rare) play — clearing a battlefield you are about to lose.
+    targeting: { kind: "unitList", min: 0, sameBattlefield: true, maxTotalMight: 4 },
+    resolve: (state, _ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
+  },
   "OGN-270": {
     // Showstopper (Body + Order) — "Buff a friendly unit in your base, then move
     // it to a battlefield."

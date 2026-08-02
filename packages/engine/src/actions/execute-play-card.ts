@@ -392,6 +392,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           card,
           ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
           ...(action.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId } : {}),
+          ...(action.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: action.targetUnitInstanceIds } : {}),
           ...(action.targetBattlefieldId !== undefined ? { targetBattlefieldId: action.targetBattlefieldId } : {}),
           ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
       ...(action.additionalCostUnitInstanceId !== undefined

@@ -25,6 +25,11 @@ export interface SpellChainEntry {
   /** Only meaningful for a "unitPair"-kind TargetingSpec (Gentlemen's
    *  Duel) — targetUnitInstanceId above is the pair's first target. */
   secondTargetUnitInstanceId?: string;
+  /** Only meaningful for a `unitList`-kind TargetingSpec (Falling Star,
+   *  Icathian Rain, Fox-Fire). Ordered, possibly repeating, and chosen when
+   *  the spell was ANNOUNCED — which is what lets a card read another chain
+   *  item's target set while it waits here. */
+  targetUnitInstanceIds?: readonly string[];
   /** Only meaningful for a "battlefield"-kind TargetingSpec. */
   targetBattlefieldId?: string;
   /** Only meaningful for an "ownTrashCard"-kind TargetingSpec. */

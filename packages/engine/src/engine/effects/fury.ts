@@ -50,6 +50,32 @@ import type { PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-029": {
+    // Falling Star — "Deal 3 to a unit. Deal 3 to a unit."
+    //
+    // TWO instructions, each naming its own target, and the survey's premise that
+    // this made the card dead with one unit on the board was wrong. The rules
+    // answer both halves:
+    //  - **Both choices are mandatory** (355: "valid choices must be made for all
+    //    targets"), so `min: 2` and the card is uncastable with an empty board.
+    //  - **The same unit may fill both**, from the Repeat/Rocket Barrage example:
+    //    "may choose the same target or a different one… they must specify which
+    //    is the first target and which is the second."
+    // So one unit on the board is a legal cast that deals it 6, which is the
+    // card's real ceiling and would have been unreachable under a distinct-targets
+    // reading.
+    //
+    // `scope: "anywhere"` — "a unit" is 355.9.b's bare noun. Icathian Rain is the
+    // same sentence six times over and takes the same shape.
+    targeting: { kind: "unitList", min: 2, max: 2, scope: "anywhere", allowsDuplicates: true },
+    resolve: (state, ctx, event) =>
+      // One dealDamage per ENTRY, not per distinct unit: two instructions each
+      // deal 3, so a unit chosen twice takes two separate 3s. That matters beyond
+      // arithmetic — each is its own damage event, so a unit that dies to the
+      // first never takes the second, and `dealDamage`'s own lethal check is what
+      // makes that true without a check here.
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => dealDamage(next, ctx.casterIndex, id, 3), state),
+  },
   "OGN-009": {
     // Hextech Ray — "Deal 3 to a unit at a battlefield."
     // Default battlefield scope, exactly as printed.

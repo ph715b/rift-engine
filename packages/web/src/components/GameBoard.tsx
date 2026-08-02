@@ -129,6 +129,10 @@ interface PendingPlay {
   /** Gentlemen's Duel's second ("unitPair") target — always chosen after
    *  `targetUnitInstanceId`, never before. */
   secondTargetUnitInstanceId?: string;
+  /** A `unitList` card's targets so far, in CLICK order and including repeats.
+   *  Grows one entry per click rather than filling named slots, which is what
+   *  lets one step serve two targets or six. */
+  targetUnitInstanceIds?: readonly string[];
   targetBattlefieldId?: string;
   trashCardInstanceId?: string;
   visionRecycle?: boolean;
@@ -179,7 +183,18 @@ interface PendingPlay {
  *  (ChoiceOverlay) step, so a modal can never cover a zone the player still
  *  has to click — no card in the current pool combines the two, and this
  *  ordering keeps that safe if one ever does. */
-type PendingStep = "firstTarget" | "secondTarget" | "battlefieldTarget" | "placement" | "additionalCost" | "trashCard" | "vision";
+type PendingStep =
+  | "firstTarget"
+  | "secondTarget"
+  /** A `unitList` card accumulating its N ordered targets (Falling Star,
+   *  Icathian Rain, Fox-Fire) — one step that repeats rather than one step per
+   *  slot, because the slots are interchangeable and there can be six of them. */
+  | "listTarget"
+  | "battlefieldTarget"
+  | "placement"
+  | "additionalCost"
+  | "trashCard"
+  | "vision";
 
 /** Finds the drop zone (a battlefield id, or BASE_ZONE_ID) under a viewport
  *  point, via the `data-dropzone-id` attributes BattlefieldView/the base
@@ -643,6 +658,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return targeting.kind === "unitSlots" && targeting.slots[0] === targeting.slots[1];
   }
 
+  /** Do two `unitList` choices name the same units in the same ORDER? Order
+   *  matters and repeats matter: the rules make the choices ordered, and two
+   *  copies of a unit is a different play from one. */
+  function sameTargetList(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+    const left = a ?? [];
+    const right = b ?? [];
+    return left.length === right.length && left.every((id, i) => id === right[i]);
+  }
+
   /** The units named by an action/pending-play, slot order discarded. */
   function targetSetOf(source: { targetUnitInstanceId?: string; secondTargetUnitInstanceId?: string }): string[] {
     return [source.targetUnitInstanceId, source.secondTargetUnitInstanceId].filter((id): id is string => id !== undefined);
@@ -675,6 +699,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         if (pending.secondTargetUnitInstanceId !== undefined && a.secondTargetUnitInstanceId !== pending.secondTargetUnitInstanceId) {
           return false;
         }
+      }
+      // PREFIX, not equality: a half-made list must keep every candidate that
+      // starts with it live, which is what leaves the next click something to
+      // highlight. The same subset reasoning the symmetric-slots branch above
+      // uses, applied to an ordered list.
+      const chosenList = pending.targetUnitInstanceIds;
+      if (chosenList !== undefined) {
+        const candidateList = a.targetUnitInstanceIds ?? [];
+        if (candidateList.length < chosenList.length) return false;
+        if (chosenList.some((id, i) => candidateList[i] !== id)) return false;
       }
       if (pending.targetBattlefieldId !== undefined && a.targetBattlefieldId !== pending.targetBattlefieldId) return false;
       if (pending.trashCardInstanceId !== undefined && a.trashCardInstanceId !== pending.trashCardInstanceId) return false;
@@ -727,6 +761,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // second yet", exactly the ambiguity additionalCostResolved solves for
     // Meditation's cost.
     const stillChoosing = !pending.optionalTargetsResolved;
+    // A `unitList` card keeps asking until it has its maximum, or until the
+    // player presses Done — which is only offered once the minimum is met.
+    // `max: undefined` ("any number") therefore asks until Done or until nothing
+    // legal is left to click.
+    if (targeting.kind === "unitList" && stillChoosing) {
+      const chosen = pending.targetUnitInstanceIds ?? [];
+      const room = targeting.max === undefined || chosen.length < targeting.max;
+      if (room && offers("targetUnitInstanceIds")) return "listTarget";
+    }
     if (
       (targeting.kind === "unit" || targeting.kind === "unitSlots") &&
       pending.targetUnitInstanceId === undefined &&
@@ -805,6 +848,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return (
       (a.targetUnitInstanceId ?? null) === (pending.targetUnitInstanceId ?? null) &&
       (a.secondTargetUnitInstanceId ?? null) === (pending.secondTargetUnitInstanceId ?? null) &&
+      // EXACTLY, unlike pendingCandidates' prefix test: by this point targeting
+      // is settled, and a three-target choice resolving to a six-target candidate
+      // would size the payment against one action and submit another — the
+      // failure this whole function's doc comment is about.
+      sameTargetList(a.targetUnitInstanceIds, pending.targetUnitInstanceIds) &&
       (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
       (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
@@ -981,6 +1029,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // predicate, so every board zone that already highlights card targets picks
     // ability targets up with no further wiring.
     if (pendingAbility !== null) return isAbilityTarget(unit);
+    // The list step highlights whatever some live candidate names at the NEXT
+    // position — which is how a unit already chosen stays clickable for a card
+    // whose duplicates are legal, and stops being clickable for one whose are not.
+    if (pendingStep() === "listTarget" && pendingPlay) {
+      const next = (pendingPlay.targetUnitInstanceIds ?? []).length;
+      return pendingCandidates().some((a) => (a.targetUnitInstanceIds ?? [])[next] === unit.instanceId);
+    }
     const slot = pendingUnitSlot();
     if (!slot) return false;
     // Symmetric slots: a unit qualifies if any live candidate names it at ALL,
@@ -1200,6 +1255,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // armed-card path below follows: backing out is the explicit re-click.
       return;
     }
+    if (pendingPlay && pendingStep() === "listTarget" && isUnitLegalTarget(unit)) {
+      setPendingPlay({
+        ...pendingPlay,
+        targetUnitInstanceIds: [...(pendingPlay.targetUnitInstanceIds ?? []), unit.instanceId],
+      });
+      return;
+    }
     const slot = pendingUnitSlot();
     if (pendingPlay && slot && isUnitLegalTarget(unit)) {
       setPendingPlay({
@@ -1245,20 +1307,24 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function pendingMinTargets(): number {
     if (!pendingPlay) return 0;
     const targeting = targetingForAnyCard(pendingPlay.card);
-    return targeting.kind === "unitSlots" ? targeting.min : targeting.kind === "unit" ? 1 : 0;
+    if (targeting.kind === "unitSlots" || targeting.kind === "unitList") return targeting.min;
+    return targeting.kind === "unit" ? 1 : 0;
   }
 
   /** Can the player stop picking targets right now — i.e. has an "up to N"
    *  card already got at least its minimum? Drives the Done button. */
   function canFinishTargeting(): boolean {
     const step = pendingStep();
-    if (step !== "firstTarget" && step !== "secondTarget") return false;
+    if (step !== "firstTarget" && step !== "secondTarget" && step !== "listTarget") return false;
     return pendingChosenTargetCount() >= pendingMinTargets();
   }
 
   function pendingChosenTargetCount(): number {
     if (!pendingPlay) return 0;
-    return [pendingPlay.targetUnitInstanceId, pendingPlay.secondTargetUnitInstanceId].filter((id) => id !== undefined).length;
+    return (
+      [pendingPlay.targetUnitInstanceId, pendingPlay.secondTargetUnitInstanceId].filter((id) => id !== undefined).length +
+      (pendingPlay.targetUnitInstanceIds ?? []).length
+    );
   }
 
   /** Settles for the targets picked so far — see optionalTargetsResolved. */

@@ -2,9 +2,12 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import {
   findUnitAnywhere,
+  findUnitInScope,
   findUnitOnBattlefield,
   hasAnyLegalEffectChoice,
+  scopeDescription,
   shareABattlefield,
+  unitListChoiceError,
   unitOrGearTargets,
   unitWithinMaxMight,
 } from "../engine/target-lookup.js";
@@ -48,32 +51,6 @@ import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
  * returning something. Cards with no registered effect, or a "none"-kind
  * one, skip this entirely.
  */
-/** Resolves a target under the spec's own scope, so validation looks in
- *  exactly the places legal-actions.ts enumerated from. Returns the fields
- *  both callers need (owner + the unit itself), flattening the two location
- *  shapes. */
-function findUnitInScope(
-  state: GameState,
-  instanceId: string,
-  scope: TargetScope | undefined,
-): { unit: UnitInstance; ownerIndex: 0 | 1 } | undefined {
-  if (scope === "anywhere") return findUnitAnywhere(state, instanceId);
-  // "base" is narrower than "anywhere", not a synonym: found anywhere, then kept
-  // only if it really is in a base. Without the second half, Showstopper would
-  // accept a unit already at a battlefield that enumeration never offered.
-  if (scope === "base") {
-    const found = findUnitAnywhere(state, instanceId);
-    const inBase = found !== undefined && state.players[found.ownerIndex].baseUnits.some((u) => u.instanceId === instanceId);
-    return inBase ? found : undefined;
-  }
-  return findUnitOnBattlefield(state, instanceId);
-}
-
-function scopeDescription(scope: TargetScope | undefined): string {
-  if (scope === "anywhere") return "in play";
-  return scope === "base" ? "in a base" : "at a battlefield";
-}
-
 /**
  * The checks that only apply to a card played FROM facedown (rule 811).
  *
@@ -94,7 +71,7 @@ function hiddenPlayRejection(state: GameState, action: PlayCardAction): string |
   // Every target must come from that battlefield, PER TARGET (811). Checked
   // against the same predicate legal-actions enumerates from, so a from-hidden
   // play can never be offered and then refused.
-  for (const targetId of [action.targetUnitInstanceId, action.secondTargetUnitInstanceId]) {
+  for (const targetId of [action.targetUnitInstanceId, action.secondTargetUnitInstanceId, ...(action.targetUnitInstanceIds ?? [])]) {
     if (targetId === undefined) continue;
     if (!isAtBattlefield(state, targetId, action.fromHiddenBattlefieldId!)) {
       return `${action.card.name} was played from hidden, so its targets must be at that battlefield`;
@@ -181,6 +158,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     targetOmissionAllowed &&
     action.targetUnitInstanceId === undefined &&
     action.secondTargetUnitInstanceId === undefined &&
+    // A `unitList` play that named targets is NOT an omission, even an empty one:
+    // "any number" chooses zero deliberately, and treating that as "nothing was
+    // chosen" would skip the group checks below entirely.
+    action.targetUnitInstanceIds === undefined &&
     action.trashCardInstanceId === undefined;
 
   if (omitted) {
@@ -230,6 +211,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
       return fail(`${card.name} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`);
     }
+  } else if (targeting.kind === "unitList") {
+    // Accepts ANY legal set, not only the ones `legal-actions` sampled — that
+    // asymmetry is the point of the announce-time design: the enumeration is
+    // bounded for the AI's sake, and a human clicking a combination the sampler
+    // never emitted must still be able to cast the card.
+    const chosen = action.targetUnitInstanceIds ?? [];
+    const error = unitListChoiceError(state, action.playerIndex, targeting, chosen);
+    if (error) return fail(`${card.name} ${error}`);
   } else if (targeting.kind === "unitSlots") {
     const chosen = [action.targetUnitInstanceId, action.secondTargetUnitInstanceId];
     const filled = chosen.filter((id): id is string => id !== undefined);

@@ -139,7 +139,11 @@ export function describeChain(state: GameState): ChainItemDescription[] {
 function describeTargets(state: GameState, entry: SpellChainEntry): ChainTargetDescription[] {
   const targets: ChainTargetDescription[] = [];
 
-  for (const instanceId of [entry.targetUnitInstanceId, entry.secondTargetUnitInstanceId]) {
+  // A `unitList` entry's ids are listed alongside the one- and two-target
+  // fields, in choice order and INCLUDING repeats — Falling Star naming the same
+  // unit twice really is two targets on the chain, and the viewer showing it once
+  // would misreport what an opponent is being asked to respond to.
+  for (const instanceId of [entry.targetUnitInstanceId, entry.secondTargetUnitInstanceId, ...(entry.targetUnitInstanceIds ?? [])]) {
     if (instanceId !== undefined) targets.push(describeUnit(state, instanceId, "unit"));
   }
 

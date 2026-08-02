@@ -126,6 +126,62 @@ export type TargetingSpec =
    * The chosen thing rides on `targetPermanentInstanceId` rather than
    * `targetUnitInstanceId`, so nothing that assumes a unit can be handed a gear.
    */
+  /**
+   * N ordered targets, chosen when the card is ANNOUNCED — Falling Star's two,
+   * Icathian Rain's six, Fox-Fire's "any number".
+   *
+   * A separate kind from `unitSlots` rather than a widening of it, and
+   * deliberately: `unitSlots` is a fixed 2-tuple of ROLES with per-slot owners and
+   * scopes, and every one of its cards reads its two targets as doing DIFFERENT
+   * things ("a friendly unit and an enemy unit"). Every card here repeats one
+   * instruction N times, so the slots are interchangeable and the roles are not
+   * per-slot. Folding the two together would mean rewriting every existing card's
+   * resolver to read a list, for no card's benefit; the survey's "an ordered list
+   * subsumes asymmetricSlots and allowsDuplicateTargets" is still true and is
+   * still the eventual shape, just not the cheapest way to get these cards.
+   *
+   * **Announce-time, which the rules force** — 355: "In order to put a spell or
+   * ability on the chain, valid choices must be made for all targets", and
+   * Repulse can read another chain item's target set while that item is on the
+   * chain. Settled in docs/dead-card-survey-2.md; resolve-time would make a whole
+   * archetype unimplementable and hollow out the response window.
+   *
+   * `legal-actions` emits a BOUNDED SAMPLE of combinations rather than the
+   * powerset — six slots over a full board is ~10^5 variants. That is a search
+   * limitation for the AI, in the same family as the existing one-ply lookahead;
+   * it is not a rules divergence, because `validate-play-card` accepts any legal
+   * set and the UI builds one by clicking. Recorded in docs/rules-conformance.md.
+   */
+  | {
+      kind: "unitList";
+      /** Mandatory targets. Falling Star is 2 — 355 makes both choices required,
+       *  so it is uncastable with no units and castable with one (see
+       *  `allowsDuplicates`). "Any number" is 0. */
+      min: number;
+      /** Undefined is "any number" (Fox-Fire). Volibear's split damage caps at
+       *  the damage available, which is where a finite max comes from. */
+      max?: number;
+      owner?: "friendly" | "enemy";
+      scope?: TargetScope;
+      /**
+       * May one unit fill several slots? The rules' Repeat example settles it for
+       * this pool: "if they choose the same mode, may choose the same target or a
+       * different one… they must specify which is the first target and which is
+       * the second." So Falling Star with one unit on the board is castable and
+       * deals 6 to it.
+       */
+      allowsDuplicates?: true;
+      /** Fox-Fire's "units at A battlefield" — every chosen unit at ONE
+       *  battlefield, which the PDF works by name. */
+      sameBattlefield?: true;
+      /**
+       * A GROUP requirement (355): the chosen set must collectively satisfy this
+       * when the card is finalized. Fox-Fire's "with total Might 4 or less", read
+       * as EFFECTIVE Might — the PDF's worked example turns on a Reaction raising
+       * two Recruits' Might after the targets are chosen.
+       */
+      maxTotalMight?: number;
+    }
   | { kind: "unitOrGear" };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
@@ -173,6 +229,20 @@ export interface ResolveEvent {
   /** The unit OR gear chosen by a `unitOrGear`-kind spec. Deliberately not
    *  `targetUnitInstanceId`: every reader of that field assumes a unit. */
   targetPermanentInstanceId?: string;
+  /**
+   * The ordered targets of a `unitList`-kind spec — Falling Star's two, Icathian
+   * Rain's six, Fox-Fire's any number.
+   *
+   * ORDERED and possibly REPEATING, which is why it is a list rather than a set:
+   * the rules require the caster to say which choice is the first target and
+   * which is the second even when both name the same unit, and a card that deals
+   * damage per instruction must deal it once per entry.
+   *
+   * Its own field rather than a widening of `targetUnitInstanceId`, so nothing
+   * that reads the single-target field can be handed a list — the same reasoning
+   * `targetPermanentInstanceId` records one field up.
+   */
+  targetUnitInstanceIds?: readonly string[];
 }
 
 export interface EffectDefinition {

@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import { slotOwner, slotScope, type TargetingSpec } from "./card-effects.js";
+import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 
 export interface BattlefieldUnitLocation {
@@ -117,6 +117,249 @@ export function unitWithinMaxMight(state: GameState, unit: UnitInstance, maxMigh
   return effectiveMight(state, unit, location.ownerIndex, ctx) <= maxMight;
 }
 
+/** Resolves a target under the spec's own scope, so validation looks in
+ *  exactly the places legal-actions.ts enumerated from. Returns the fields
+ *  both callers need (owner + the unit itself), flattening the two location
+ *  shapes.
+ *
+ *  Lived in validate-play-card.ts while the validator was its only caller.
+ *  Moved here when `unitListChoiceError` below — which BOTH the validator and
+ *  the enumerator ask — needed it: a second copy is precisely how the two
+ *  would come to disagree about where a target may stand. */
+export function findUnitInScope(
+  state: GameState,
+  instanceId: string,
+  scope: TargetScope | undefined,
+): { unit: UnitInstance; ownerIndex: 0 | 1 } | undefined {
+  if (scope === "anywhere") return findUnitAnywhere(state, instanceId);
+  // "base" is narrower than "anywhere", not a synonym: found anywhere, then kept
+  // only if it really is in a base. Without the second half, Showstopper would
+  // accept a unit already at a battlefield that enumeration never offered.
+  if (scope === "base") {
+    const found = findUnitAnywhere(state, instanceId);
+    const inBase = found !== undefined && state.players[found.ownerIndex].baseUnits.some((u) => u.instanceId === instanceId);
+    return inBase ? found : undefined;
+  }
+  return findUnitOnBattlefield(state, instanceId);
+}
+
+export function scopeDescription(scope: TargetScope | undefined): string {
+  if (scope === "anywhere") return "in play";
+  return scope === "base" ? "in a base" : "at a battlefield";
+}
+
+/** The `unitList` variant of TargetingSpec, taken from the union rather than
+ *  restated so the two can never drift. */
+export type UnitListSpec = Extract<TargetingSpec, { kind: "unitList" }>;
+
+/**
+ * Why this set of ids is NOT a legal choice for `spec`, or undefined when it is.
+ *
+ * THE one place `unitList` legality is decided. `legal-actions` builds candidate
+ * sets and `validate-play-card` accepts submitted ones, and them disagreeing is
+ * the offered-then-refused shape this codebase has shipped three times — most
+ * recently found only by self-play, because the AI takes an enumerated action
+ * straight to the executor. A shared predicate is the only version of this that
+ * cannot drift.
+ *
+ * Returns a MESSAGE rather than a boolean so the validator's failure says which
+ * rule was broken, which is what the six separate checks below are worth.
+ *
+ * The group requirement (`maxTotalMight`) is read as EFFECTIVE Might, and that
+ * is the rules' own reading — the PDF's Fox-Fire example turns on a Reaction
+ * raising two Recruits' Might after the targets were chosen. This is the
+ * ANNOUNCE-time check; the resolution-time re-check ("choose a legal subset of
+ * the original targets") is the resolver's, and is deliberately not here.
+ */
+export function unitListChoiceError(
+  state: GameState,
+  playerIndex: 0 | 1,
+  spec: UnitListSpec,
+  ids: readonly string[],
+): string | undefined {
+  if (ids.length < spec.min) return `requires ${spec.min} target${spec.min === 1 ? "" : "s"}, got ${ids.length}`;
+  if (spec.max !== undefined && ids.length > spec.max) return `takes at most ${spec.max} targets, got ${ids.length}`;
+  if (spec.allowsDuplicates !== true && new Set(ids).size !== ids.length) {
+    return "requires distinct units";
+  }
+
+  const battlefieldIds = new Set<string>();
+  let totalMight = 0;
+  for (const id of ids) {
+    const location = findUnitInScope(state, id, spec.scope);
+    if (!location) return `${id} is not a unit ${scopeDescription(spec.scope)}`;
+    if (spec.owner === "friendly" && location.ownerIndex !== playerIndex) return `${location.unit.name} is not a friendly unit`;
+    if (spec.owner === "enemy" && location.ownerIndex === playerIndex) return `${location.unit.name} is not an enemy unit`;
+
+    if (spec.sameBattlefield) {
+      const at = findUnitOnBattlefield(state, id);
+      // A unit in base is at no battlefield, so it can never join a group the
+      // card requires to be "at a battlefield" — the same reading `shareABattlefield`
+      // takes for the two-slot case.
+      if (!at) return `${location.unit.name} is not at a battlefield`;
+      battlefieldIds.add(state.battlefields[at.battlefieldIndex]!.id);
+    }
+    if (spec.maxTotalMight !== undefined) {
+      const at = findUnitOnBattlefield(state, id);
+      const ctx = at ? { isCombat: false, battlefieldId: state.battlefields[at.battlefieldIndex]!.id } : { isCombat: false };
+      totalMight += effectiveMight(state, location.unit, location.ownerIndex, ctx);
+    }
+  }
+
+  if (spec.sameBattlefield && battlefieldIds.size > 1) return "requires every unit at the SAME battlefield";
+  if (spec.maxTotalMight !== undefined && totalMight > spec.maxTotalMight) {
+    return `requires total Might ${spec.maxTotalMight} or less, got ${totalMight}`;
+  }
+  return undefined;
+}
+
+/**
+ * How many candidate sets this repo is willing to enumerate exactly.
+ *
+ * **Measured, not picked**, and it is a trade between two consumers that want
+ * opposite things. Exhaustive enumeration is what keeps the WEB UI honest, since
+ * the board narrows its clickable targets against this pool; but the heuristic AI
+ * SCORES every enumerated action by applying it through the real executors, so
+ * the pool is also its per-decision cost.
+ *
+ * Measured on a board of 3 units: Icathian Rain's six slots come to 3^6 = **729**
+ * variants for one card in hand — 729 full executions at every decision point,
+ * which is not a cost worth paying for a card that is going to deal 12 damage
+ * whatever the spread. At 200:
+ *   - **Falling Star** (2 of N, duplicates) is exact up to a 14-unit board;
+ *   - **Fox-Fire** (subsets under a Might cap) is exact up to 7 units, and its
+ *     group cap prunes hard below that anyway;
+ *   - **Icathian Rain** is exact to 2 units and sampled beyond.
+ * So the one card whose UI is limited to sampled spreads is the one whose choice
+ * matters least, and it is named in docs/rules-conformance.md rather than left
+ * for a player to discover.
+ */
+const UNIT_LIST_EXHAUSTIVE_CAP = 200;
+
+/** Every legal set, or undefined when there are too many to enumerate.
+ *  Ordered tuples when duplicates are legal (the rules make the choices ordered),
+ *  combinations otherwise. */
+function exhaustiveUnitLists(
+  state: GameState,
+  playerIndex: 0 | 1,
+  spec: UnitListSpec,
+  pool: readonly UnitInstance[],
+): string[][] | undefined {
+  const n = pool.length;
+  const sizes: number[] = [];
+  const maxSize = spec.max ?? n;
+  for (let size = spec.min; size <= maxSize; size += 1) sizes.push(size);
+
+  // Cheap upper bound before doing any work.
+  //
+  // With duplicates the choices are ordered tuples, so it is n^size summed over
+  // the sizes wanted. WITHOUT duplicates every candidate is a distinct SUBSET, so
+  // 2^n bounds them ALL AT ONCE rather than per size — summing 2^n per size (as
+  // this first did) over-counted Fox-Fire by a factor of seven and pushed a
+  // 64-set board over the cap into sampling for no reason.
+  const bound = spec.allowsDuplicates ? sizes.reduce((total, size) => total + n ** size, 0) : 2 ** n;
+  if (!Number.isFinite(bound) || bound > UNIT_LIST_EXHAUSTIVE_CAP) return undefined;
+
+  const out: string[][] = [];
+  const walk = (prefix: string[], startIndex: number) => {
+    if (prefix.length >= spec.min && (spec.max === undefined || prefix.length <= spec.max)) {
+      if (unitListChoiceError(state, playerIndex, spec, prefix) === undefined) out.push([...prefix]);
+    }
+    if (prefix.length >= maxSize) return;
+    // With duplicates the choices are ORDERED and repeatable, so every index is
+    // available at every position; without them a combination is enough, since
+    // the resolvers all apply the same instruction per entry.
+    const from = spec.allowsDuplicates ? 0 : startIndex;
+    for (let i = from; i < n; i += 1) {
+      prefix.push(pool[i]!.instanceId);
+      walk(prefix, i + 1);
+      prefix.pop();
+    }
+  };
+  walk([], 0);
+  return out;
+}
+
+/**
+ * A BOUNDED sample of legal target sets for a `unitList` spec — what the AI
+ * searches over and what `hasAnyLegalEffectChoice` asks for existence.
+ *
+ * **Bounded on purpose, and this is the one divergence the announce-time
+ * decision costs.** Icathian Rain names six targets over a board of a dozen
+ * units: the powerset is ~10^5 variants, which would swamp `legal-actions` and
+ * the heuristic AI's per-action scoring. So this emits a handful of sensible
+ * shapes rather than every combination:
+ *
+ *   - the empty choice, when `min` is 0;
+ *   - **all on one unit**, for every candidate, when duplicates are legal — the
+ *     "focus it down" play, and the only way Falling Star kills a 5-Might unit;
+ *   - **spread across distinct units**, taking candidates in board order from
+ *     each starting offset — the "clear the board" play;
+ *   - for an unbounded `max`, the largest legal prefix and every shorter one down
+ *     to `min`, which is what "any number" actually offers a player.
+ *
+ * The divergence is narrow and honest: *the AI considers a subset of target
+ * combinations*. It is a search limitation in the same family as the existing
+ * one-ply lookahead — `validate-play-card` accepts ANY legal set, and the UI
+ * builds one by clicking, so nothing about what is LEGAL or what a human can do
+ * is affected. Recorded in docs/rules-conformance.md.
+ *
+ * Deterministic — same board, same list, in board order. A sampler that reached
+ * for randomness would make self-play runs incomparable, which this repo's probe
+ * notes already have three examples of.
+ */
+export function unitListCandidates(state: GameState, playerIndex: 0 | 1, spec: UnitListSpec): string[][] {
+  const pool = eligibleTargets(state, playerIndex, spec.owner, spec.scope);
+  const out: string[][] = [];
+  const push = (ids: string[]) => {
+    if (unitListChoiceError(state, playerIndex, spec, ids) === undefined) out.push(ids);
+  };
+
+  if (spec.min === 0) push([]);
+  if (pool.length === 0) return out;
+
+  // EXHAUSTIVE when the space is small enough to afford, sampled only when it is
+  // not — and the distinction is not an optimisation, it is what keeps the WEB UI
+  // honest. The board narrows its clickable targets against this same enumeration,
+  // so a set the enumeration never emitted is a set a human cannot build; a
+  // permanently-sampled pool would quietly cap what a player may choose, which is
+  // a far worse divergence than the AI searching a subset.
+  //
+  // In practice this makes Falling Star (2 of N, duplicates) and Fox-Fire (a
+  // group at one battlefield under a Might cap) exact on any real board, and
+  // leaves only Icathian Rain's six slots sampled once the board passes ~3 units.
+  const exhaustive = exhaustiveUnitLists(state, playerIndex, spec, pool);
+  if (exhaustive) return exhaustive;
+
+  // "Any number" has no natural size, so the sample is every prefix length; a
+  // fixed-size spec has exactly one size to fill.
+  const sizes = spec.max === undefined ? Array.from({ length: pool.length }, (_, i) => i + 1) : [spec.max];
+  for (const size of sizes) {
+    if (size < spec.min) continue;
+    // All on one target — only meaningful, and only legal, with duplicates.
+    if (spec.allowsDuplicates) {
+      for (const unit of pool) push(Array.from({ length: size }, () => unit.instanceId));
+    }
+    // Spread across distinct units, from each starting offset, so a board bigger
+    // than the requirement still offers every unit a chance to be included.
+    for (let offset = 0; offset < pool.length; offset += 1) {
+      const picked = Array.from({ length: size }, (_, i) => pool[(offset + i) % pool.length]!.instanceId);
+      if (new Set(picked).size !== picked.length && spec.allowsDuplicates !== true) continue;
+      push(picked);
+    }
+  }
+
+  // Distinct sets only — the offsets above overlap heavily on a small board, and
+  // a duplicate variant is a duplicate legal action the AI would score twice.
+  const seen = new Set<string>();
+  return out.filter((ids) => {
+    const key = ids.join(",");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /**
  * Could this targeting spec be satisfied AT ALL right now — is there at least
  * one legal choice on the board? The boolean counterpart to legal-actions.ts's
@@ -157,6 +400,18 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
             (!targeting.sameBattlefield || shareABattlefield(state, a.instanceId, b.instanceId)),
         ),
       );
+    }
+    case "unitList": {
+      // Nothing is REQUIRED when min is 0, so nothing can be missing — Fox-Fire
+      // with an empty board is castable and kills nothing, which the rules state
+      // outright for "any number" ("If they choose zero, the spell or ability can
+      // be played without any targets").
+      if (targeting.min === 0) return true;
+      // Otherwise: is there ANY legal set of the required size? Asked through the
+      // shared predicate rather than by counting candidates, because the group
+      // requirements (`sameBattlefield`, `maxTotalMight`) mean "enough units
+      // exist" is not the same question as "a legal choice exists".
+      return unitListCandidates(state, playerIndex, targeting).length > 0;
     }
     case "ownTrashCard": {
       const trash = state.players[playerIndex].trash;

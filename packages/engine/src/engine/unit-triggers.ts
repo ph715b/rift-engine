@@ -333,6 +333,11 @@ export function cardNeedsTarget(card: CardInstance): boolean {
     // none of it is mandatory — the point of this pass is that WHICH units
     // get hit is theirs to decide, so the card must arm rather than fire.
     case "unitSlots":
+    // Same for "any number" (Fox-Fire): the card must ARM so the player picks,
+    // rather than fire on click with an empty set. `default: false` would have
+    // made it cast instantly and kill nothing, which is a legal play the player
+    // never chose — the quiet failure this switch exists to prevent.
+    case "unitList":
       return true;
     default:
       return false;

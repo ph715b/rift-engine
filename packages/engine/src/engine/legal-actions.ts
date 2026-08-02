@@ -13,7 +13,14 @@ import type {
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
-import { eligibleTargets, findUnitOnBattlefield, shareABattlefield, unitOrGearTargets, unitWithinMaxMight } from "./target-lookup.js";
+import {
+  eligibleTargets,
+  findUnitOnBattlefield,
+  shareABattlefield,
+  unitListCandidates,
+  unitOrGearTargets,
+  unitWithinMaxMight,
+} from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
 import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner, slotScope } from "./card-effects.js";
 import {
@@ -450,6 +457,17 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const trashCard of actor.trash) {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
+      }
+    } else if (targeting.kind === "unitList") {
+      // A BOUNDED sample, not the powerset — see `unitListCandidates`, which is
+      // also what `validate-play-card` measures a submitted set against, so the
+      // AI can never be handed a set the validator refuses.
+      //
+      // Rule 811's per-target restriction filters the sets rather than the pool,
+      // so a from-hidden play cannot smuggle in a target elsewhere on the board.
+      for (const ids of unitListCandidates(state, playerIndex, targeting)) {
+        if (!ids.every((id) => atHiddenBattlefield(state, id, fromHiddenBattlefieldId))) continue;
+        effectVariants.push({ targetUnitInstanceIds: ids });
       }
     } else if (targeting.kind === "unitSlots") {
       // Rule 811's restriction is PER TARGET, so it filters the candidate pool

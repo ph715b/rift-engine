@@ -38,6 +38,10 @@ export interface PlayCardAction {
   /** The second target of a "unitPair"-kind effect (Gentlemen's Duel only)
    *  — targetUnitInstanceId above is the pair's first target. */
   secondTargetUnitInstanceId?: string;
+  /** The ordered targets of a `unitList`-kind spec — Falling Star's two,
+   *  Icathian Rain's six, Fox-Fire's any number. Ordered and possibly repeating;
+   *  see TargetingSpec's `unitList` and ResolveEvent's matching field. */
+  targetUnitInstanceIds?: readonly string[];
   /** The battlefield a "battlefield"-kind targeted effect applies to (e.g.
    *  Firestorm's "all enemy units at a battlefield"). */
   targetBattlefieldId?: string;
