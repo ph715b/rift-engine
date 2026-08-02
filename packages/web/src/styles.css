@@ -242,6 +242,101 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/*
+ * The hidden/discard zones as piles. Sized off the side rail's own width rather
+ * than the card size: this rail is a fixed 137px and holds a full-size Legend and
+ * Champion already, so a pile has to be small enough for two to sit side by side
+ * with their counts.
+ */
+.zone-piles {
+  display: grid;
+  /* ONE per row. Two columns fit the rail's 137px only by ellipsising the labels
+     to "D. 29" and "T... 2", which is worse than the plain text this replaced —
+     the label is what says which pile moved. */
+  grid-template-columns: 1fr;
+  gap: 0.35rem;
+  align-items: start;
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.zone-pile {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.zone-pile-clickable {
+  cursor: pointer;
+}
+
+.zone-pile-clickable:hover .zone-pile-card {
+  border-color: var(--color-accent);
+}
+
+/* The stack is the positioning context for both the depth layers and the flying
+   card, all of which are absolutely placed on top of each other. */
+.zone-pile-stack {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 25px;
+  flex: none;
+}
+
+.zone-pile-card,
+.zone-pile-flight,
+.zone-pile-empty {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+}
+
+.zone-pile-card {
+  background: var(--color-friendly-zone);
+}
+
+/* An empty zone reads as an empty SLOT, not as a missing element — otherwise the
+   row silently reflows as piles empty and refill. */
+.zone-pile-empty {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+/* The card in motion. Tinted by the accent so it reads against the stack it is
+   leaving or joining, and pointer-events:none so it can never eat the trash
+   pile's own click. */
+.zone-pile-flight {
+  background: color-mix(in srgb, var(--color-accent) 55%, var(--color-bg-elevated));
+  border-color: var(--color-accent);
+  pointer-events: none;
+}
+
+.zone-pile-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zone-pile-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.zone-piles-gear {
+  grid-column: 1 / -1;
+}
+
 .zone-label {
   font-size: 0.8rem;
   text-transform: uppercase;
@@ -1097,6 +1192,12 @@ button:disabled {
   border: 2px solid;
   overflow: hidden;
   flex-shrink: 0;
+  /* Tapping is a state change worth seeing happen, not just a different static
+     picture — and it is the only feedback that a rune you clicked was actually
+     spent. Transform only, so nothing here can affect layout. */
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .rune-tile img,
@@ -1108,12 +1209,23 @@ button:disabled {
 }
 
 .rune-tile.exhausted {
-  /* Rune tiles aren't square, so a 90deg rotation (CardView's convention for
-     exhausted units) clips into an ugly diamond inside the fixed-size,
-     overflow-hidden box instead of a clean "tapped" look — grayscale +
-     a stronger opacity drop reads as "spent" without that clipping. */
-  opacity: 0.45;
-  filter: grayscale(70%);
+  /*
+   * Tapped, like every other exhausted permanent (CardView rotates units 90deg).
+   * This used to grey out instead, on the grounds that rotating a non-square tile
+   * "clips into an ugly diamond" — the real problem was that a rotated tile's
+   * bounding box is its HEIGHT wide, so it overflowed a slot only its width
+   * across, and RuneZone fans these to fit EXACTLY with no spare room to give.
+   *
+   * The scale factor is the fix and it is not a fudge: a tile is `h * 0.716` wide,
+   * so a rotated one is `h` wide, and scaling by that same 0.716 brings it back to
+   * exactly `h * 0.716` — its original slot. Layout is untouched, the fan stays
+   * exact, and no neighbour is covered.
+   *
+   * Opacity still drops, but only enough to read as spent; the rotation is the
+   * signal now, as it is for units.
+   */
+  transform: rotate(90deg) scale(0.716);
+  opacity: 0.75;
 }
 
 .rune-tile.payable {

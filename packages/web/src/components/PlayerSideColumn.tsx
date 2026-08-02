@@ -1,5 +1,6 @@
 import type { GearInstance, LegendInstance, UnitInstance } from "@rift-engine/engine";
 import { CardView, type DragPoint } from "./CardView.js";
+import { ZonePiles } from "./ZonePiles.js";
 import { PointTracker } from "./PointTracker.js";
 
 interface PlayerSideColumnProps {
@@ -8,6 +9,8 @@ interface PlayerSideColumnProps {
   handCount?: number;
   legend: LegendInstance;
   champion: UnitInstance | null;
+  /** Main deck remaining — shown as a pile now, and previously not shown at all. */
+  deckCount: number;
   trashCount: number;
   /** Opens this player's trash for browsing. Wired for BOTH players — a
    *  trash pile is public information in Riftbound, so hiding the
@@ -61,6 +64,7 @@ export function PlayerSideColumn({
   handCount,
   legend,
   champion,
+  deckCount,
   trashCount,
   onViewTrash,
   banishedCount,
@@ -116,18 +120,14 @@ export function PlayerSideColumn({
 
       {!legendAtBottom && legendAndChampion}
 
-      <div className="side-column-meta">
-        <span title="Rune deck remaining">Rune deck: {runeDeckCount}</span>
-        {onViewTrash && trashCount > 0 ? (
-          <button className="side-column-link" title="View this trash pile (public information)" onClick={onViewTrash}>
-            Trash: {trashCount}
-          </button>
-        ) : (
-          <span title="Trash">Trash: {trashCount}</span>
-        )}
-        <span title="Banished">Banished: {banishedCount}</span>
-        <span title="Gear in play, unattached">Gear: {activeGear.length}</span>
-      </div>
+      <ZonePiles
+        deckCount={deckCount}
+        runeDeckCount={runeDeckCount}
+        trashCount={trashCount}
+        banishedCount={banishedCount}
+        gearCount={activeGear.length}
+        onViewTrash={onViewTrash}
+      />
 
       {legendAtBottom && legendAndChampion}
     </div>

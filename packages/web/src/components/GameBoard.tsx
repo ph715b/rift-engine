@@ -1806,6 +1806,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           handCount={ai.hand.length}
           legend={ai.legend}
           champion={ai.championZone}
+          deckCount={ai.deck.length}
           trashCount={ai.trash.length}
           onViewTrash={() => setViewingTrash({ label: "AI Opponent's trash", cards: ai.trash })}
           banishedCount={ai.banished.length}
@@ -2021,6 +2022,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           isLegendSelected={pendingAbility === human.legend.instanceId}
           onLegendClick={() => handleActivateClick(human.legend.instanceId)}
           champion={human.championZone}
+          deckCount={human.deck.length}
           trashCount={human.trash.length}
           onViewTrash={() => setViewingTrash({ label: "Your trash", cards: human.trash })}
           banishedCount={human.banished.length}
