@@ -9,7 +9,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The five Mind cards from cluster 1 of docs/dead-card-survey.md.
@@ -86,6 +86,22 @@ function play(
     ...extra,
   });
 }
+
+/**
+ * Plays a card and drives the `cardPlayed` trigger it fires to resolution.
+ *
+ * `cardPlayed` is a Chain Pending Item now (383), so `executePlayCard` only
+ * PLACES the trigger — the Cleanup finalizes it onto the chain and it resolves on
+ * two passes. `submit` does all of that; a direct `execute*` call does not, and a
+ * test that skips it reads "the listener did nothing".
+ *
+ * Deliberately NOT folded into `play` above. `resolveHeldTriggers` passes focus
+ * until the chain reopens, which also resolves a SPELL that was just cast — and
+ * one test here needs Retreat to sit on the chain while its target dies (359.3.e).
+ * Use this only when the assertion is about a `cardPlayed` listener.
+ */
+const playAndSettle = (state: GameState, playerIndex: 0 | 1, played: CardInstance): GameState =>
+  resolveHeldTriggers(play(state, playerIndex, played));
 
 /** Two consecutive passes per chain item, which is what actually resolves a
  *  Spell (340/343). A Spell that is only `executePlayCard`ed has done nothing
@@ -360,7 +376,7 @@ describe("Pit Crew (OGN-091): when you play a GEAR, ready me", () => {
     const { state } = pitCrewState("base", gear);
     expect(findPitCrew(state).exhausted).toBe(true); // gate: it really started exhausted
 
-    const after = play(state, 0, gear);
+    const after = playAndSettle(state, 0, gear);
 
     expect(findPitCrew(after).exhausted).toBe(false);
   });
@@ -371,7 +387,7 @@ describe("Pit Crew (OGN-091): when you play a GEAR, ready me", () => {
     const gear = card(GARBAGE_GRABBER);
     const { state } = pitCrewState("battlefield", gear);
 
-    const after = play(state, 0, gear);
+    const after = playAndSettle(state, 0, gear);
 
     expect(findPitCrew(after).exhausted).toBe(false);
   });

@@ -437,6 +437,11 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // "YOU play" — his own controller's hidden card, not the opponent's.
     on: "cardPlayed",
+    // Both conditions are properties of the event, so they cannot drift between
+    // firing and resolving — but they gate whether this reaches the chain at all,
+    // which is what `applies` is for now that `cardPlayed` is held.
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" && event.fromHidden === true && event.casterIndex === listener.ownerIndex,
     resolve: (state, listener, event) => {
       if (event.kind !== "cardPlayed") return state;
       if (!event.fromHidden) return state;

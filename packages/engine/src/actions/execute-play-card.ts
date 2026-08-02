@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
-import { dispatchEvent, dispatchSelfEvent } from "../engine/triggers.js";
+import { dispatchSelfEvent, holdEventTrigger } from "../engine/triggers.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -100,7 +100,18 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // itself (Scrapheap's "when this is played"), which a listener walk would also
   // reach but only by accident of it happening to be in play — a Spell wouldn't be.
   const withSelf = dispatchSelfEvent(played, "played", action.card, action.playerIndex);
-  return dispatchEvent(withSelf, {
+  // HELD as a Chain Pending Item (383 / 809.1.b.3), not resolved here. The
+  // self-trigger above stays inline: it fires for a card that has just LEFT play
+  // or never entered it, so `allListeningPermanents` cannot find it and
+  // `resolvePendingTrigger` could not re-look it up.
+  //
+  // Every condition that decides whether a listener TRIGGERED now lives in its
+  // `applies` predicate rather than only in `resolve`. Darius - Trifarian is the
+  // one that makes this load-bearing: "your SECOND card in a turn" reads
+  // `cardsPlayedThisTurn`, a counter that the response window this hold opens can
+  // itself change — a [Reaction] cast in answer makes it 3, and a `resolve` that
+  // re-checked would refuse a trigger that had already fired.
+  return holdEventTrigger(withSelf, {
     kind: "cardPlayed",
     casterIndex: action.playerIndex,
     playedKind: action.card.kind,

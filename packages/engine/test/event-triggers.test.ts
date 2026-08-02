@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dispatchEvent, eventTriggerDefIds } from "../src/engine/triggers.js";
+import { dispatchEvent, eventTriggerDefIds, holdEventTrigger } from "../src/engine/triggers.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { runEnd } from "../src/engine/turn-manager.js";
@@ -7,7 +7,27 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
+
+/**
+ * Fires a HELD event and drives it to resolution.
+ *
+ * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
+ * chain and both players pass. Calling the old inline dispatcher here would not
+ * merely be stale — it would bypass every `applies` predicate, which is where the
+ * trigger CONDITIONS now live, and quietly test nothing.
+ */
+const fireHeld = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): GameState =>
+  resolveHeldTriggers(holdEventTrigger(state, event));
+
+/** Was the trigger even PLACED? The negative assertion that matters once events
+ *  are held: "nothing happened" is true immediately after any hold, so a check on
+ *  the board alone passes whether the condition worked or the trigger merely had
+ *  not resolved yet. */
+const heldFor = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): string[] =>
+  holdEventTrigger(state, event).pendingTriggers.map((t) => t.listenerDefId);
+
 
 /**
  * Board events other than a death, and the two cards that listen for them.
@@ -58,8 +78,12 @@ describe("Viktor - Innovator (OGN-117): a card played on an OPPONENT'S turn", ()
     return { state, card: reaction };
   }
 
+  // `resolveHeldTriggers` wraps the executor because `cardPlayed` is a Chain
+  // Pending Item now (383): `executePlayCard` PLACES Viktor's trigger and the
+  // Cleanup finalizes it. `submit` does this for free; a direct `execute*` call
+  // leaves the pen full, and the assertion then reads "Viktor did nothing".
   const play = (state: GameState, card: CardInstance) =>
-    executePlayCard(state, {
+    resolveHeldTriggers(executePlayCard(state, {
       type: "PlayCard",
       playerIndex: 0,
       card,
@@ -67,7 +91,7 @@ describe("Viktor - Innovator (OGN-117): a card played on an OPPONENT'S turn", ()
         energyRunes: state.players[0]!.channeled.slice(0, "energyCost" in card ? card.energyCost : 0).map((r) => r.id),
         powerRunes: [],
       },
-    });
+    }));
 
   it("makes a Recruit token when you play a card on the opponent's turn", () => {
     // Only reachable at all because of reaction-speed timing: before
@@ -99,7 +123,7 @@ describe("Viktor - Innovator (OGN-117): a card played on an OPPONENT'S turn", ()
       players: [makePlayer("p1", { baseUnits: [viktor] }), makePlayer("p2")],
     });
 
-    const after = dispatchEvent(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const after = fireHeld(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
 
     expect(after.players[0]!.baseUnits.some((u) => u.isToken)).toBe(false);
     expect(after).toBe(state);

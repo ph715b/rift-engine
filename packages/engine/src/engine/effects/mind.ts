@@ -438,13 +438,21 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // the caster. Those differ: the event fires for both players' cards, and
     // Viktor must ignore the opponent's own plays on their own turn.
     on: "cardPlayed",
+    // "On an opponent's turn" is read at FIRE time and not re-asked in `resolve`.
+    // `cardPlayed` is a Chain Pending Item now, so the trigger can outlive the
+    // turn it fired in — a chain that is still resolving as the turn passes would
+    // otherwise make Viktor refuse a trigger that had genuinely fired on the
+    // opponent's turn. 383 fixes what triggered at the moment of the event.
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      state.activePlayerIndex !== listener.ownerIndex,
     resolve: (state, listener, event) => {
-      // Narrowing the union is not ceremony: `dispatchEvent` already filters by
+      // Narrowing the union is not ceremony: the dispatcher already filters by
       // `on`, but the compiler cannot see that, and the check documents which
       // event this listener is reading fields off.
       if (event.kind !== "cardPlayed") return state;
       if (event.casterIndex !== listener.ownerIndex) return state; // not YOUR card
-      if (state.activePlayerIndex === listener.ownerIndex) return state; // not an opponent's turn
       // "in your base" is stated, so the destination is fixed rather than chosen.
       return placeRecruitToken(state, listener.ownerIndex, "base");
     },
@@ -467,6 +475,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // exhaustion guard — a trigger that fired and changed nothing and a trigger
     // that did not fire are the same board here.
     on: "cardPlayed",
+    // Both conditions are properties of the EVENT, so they cannot drift across
+    // the response window this hold opens — but they still belong here, because
+    // `cardPlayed` is a Chain Pending Item and a trigger held for a Spell or for
+    // the opponent's gear would cost both players a PassFocus for nothing.
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" && event.casterIndex === listener.ownerIndex && event.playedKind === "Gear",
     resolve: (state, listener, event) => {
       if (event.kind !== "cardPlayed") return state;
       if (event.casterIndex !== listener.ownerIndex) return state; // not YOUR gear

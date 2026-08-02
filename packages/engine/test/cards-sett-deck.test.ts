@@ -8,7 +8,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The buff-payoff cluster from a real community Sett - The Boss list.
@@ -66,7 +66,13 @@ describe("Cithria of Cloudfield (OGN-139): buff me when you play another unit", 
   const play = (state: GameState, card: UnitInstance) => {
     const action = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === card.instanceId);
     expect(action, `${card.name} was never enumerated as playable`).toBeDefined();
-    return executePlayCard(state, action as never);
+  // `resolveHeldTriggers` wraps the executor: `cardPlayed` is a Chain Pending
+  // Item now, so `executePlayCard` PLACES the trigger and the Cleanup finalizes
+  // it. Called on its own, the executor leaves the pen full and every assertion
+  // about a `cardPlayed` listener reads as "the card does nothing" — which is
+  // what these tests did the moment the event was converted. `submit` does this
+  // for free; a direct `execute*` call does not.
+    return resolveHeldTriggers(executePlayCard(state, action as never));
   };
 
   const cithriaIn = (state: GameState, id: string) => state.players[0]!.baseUnits.find((u) => u.instanceId === id)!;

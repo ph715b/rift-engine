@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
-import { dispatchEvent } from "../src/engine/triggers.js";
+import { dispatchEvent, holdEventTrigger } from "../src/engine/triggers.js";
 import { destroyUnit, dealDamage } from "../src/engine/effect-helpers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
@@ -11,7 +11,27 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+
+/**
+ * Fires a HELD event and drives it to resolution.
+ *
+ * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
+ * chain and both players pass. Calling the old inline dispatcher here would not
+ * merely be stale — it would bypass every `applies` predicate, which is where the
+ * trigger CONDITIONS now live, and quietly test nothing.
+ */
+const fireHeld = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): GameState =>
+  resolveHeldTriggers(holdEventTrigger(state, event));
+
+/** Was the trigger even PLACED? The negative assertion that matters once events
+ *  are held: "nothing happened" is true immediately after any hold, so a check on
+ *  the board alone passes whether the condition worked or the trigger merely had
+ *  not resolved yet. */
+const heldFor = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): string[] =>
+  holdEventTrigger(state, event).pendingTriggers.map((t) => t.listenerDefId);
+
 
 /**
  * The `[Hidden]` cards whose printed TEXT was still unimplemented.
@@ -217,17 +237,17 @@ describe("Ember Monk (OGN-167): +2 when you play a card FROM hidden", () => {
   }
 
   it("fires on a hidden play", () => {
-    const after = dispatchEvent(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", fromHidden: true });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", fromHidden: true });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(2);
   });
 
   it("does NOT fire on an ordinary play", () => {
-    const after = dispatchEvent(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 
   it("does NOT fire for the OPPONENT's hidden play", () => {
-    const after = dispatchEvent(monkState(), { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", fromHidden: true });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", fromHidden: true });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 });

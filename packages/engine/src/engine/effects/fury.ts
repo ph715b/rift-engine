@@ -315,10 +315,22 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // "YOU play" — his own controller; the opponent's second card is not his.
     on: "cardPlayed",
+    // **The count is asked HERE and deliberately NOT re-asked in `resolve`.**
+    //
+    // "Your SECOND card in a turn" is a fact about the moment the card was
+    // played, and `cardsPlayedThisTurn` keeps moving afterwards. Now that
+    // `cardPlayed` is held as a Chain Pending Item, holding opens a real response
+    // window before this resolves — and anything either player casts into that
+    // window makes the counter 3, so a `resolve` that re-checked `!== 2` would
+    // refuse a trigger that had genuinely fired. 383 fixes what triggered at the
+    // moment of the event; this is exactly the condition that proves it.
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      state.players[listener.ownerIndex].cardsPlayedThisTurn === 2,
     resolve: (state, listener, event) => {
       if (event.kind !== "cardPlayed") return state;
       if (event.casterIndex !== listener.ownerIndex) return state;
-      if (state.players[listener.ownerIndex].cardsPlayedThisTurn !== 2) return state;
       const pumped = giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 2);
       return readyUnit(pumped, listener.card.instanceId);
     },

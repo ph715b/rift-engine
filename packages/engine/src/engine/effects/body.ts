@@ -370,6 +370,16 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // not a missing feature — the payoff for a board full of units is Sett -
     // Kingpin's aura counting her as one more buffed body.
     on: "cardPlayed",
+    // All three printed conditions read the EVENT and the listener's own
+    // identity, none of which the response window can change, so they are safe
+    // in both places — and they belong here because `cardPlayed` is held now: a
+    // trigger held for a Spell, or for the opponent's play, would cost both
+    // players a PassFocus for an ability that resolves to nothing.
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Unit" &&
+      event.playedInstanceId !== listener.card.instanceId,
     resolve: (state, listener, event) => {
       if (event.kind !== "cardPlayed") return state;
       if (event.casterIndex !== listener.ownerIndex) return state;

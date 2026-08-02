@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { recordConquest } from "../src/engine/scoring.js";
-import { dispatchEvent } from "../src/engine/triggers.js";
+import { dispatchEvent, holdEventTrigger } from "../src/engine/triggers.js";
 import { addBuff, destroyUnit } from "../src/engine/effect-helpers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
@@ -14,7 +14,27 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+
+/**
+ * Fires a HELD event and drives it to resolution.
+ *
+ * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
+ * chain and both players pass. Calling the old inline dispatcher here would not
+ * merely be stale — it would bypass every `applies` predicate, which is where the
+ * trigger CONDITIONS now live, and quietly test nothing.
+ */
+const fireHeld = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): GameState =>
+  resolveHeldTriggers(holdEventTrigger(state, event));
+
+/** Was the trigger even PLACED? The negative assertion that matters once events
+ *  are held: "nothing happened" is true immediately after any hold, so a check on
+ *  the board alone passes whether the condition worked or the trigger merely had
+ *  not resolved yet. */
+const heldFor = (state: GameState, event: Parameters<typeof holdEventTrigger>[1]): string[] =>
+  holdEventTrigger(state, event).pendingTriggers.map((t) => t.listenerDefId);
+
 
 /**
  * The damage / buff / might batch — cards built on machinery that already
@@ -272,12 +292,12 @@ describe("Might modification", () => {
     base.battlefields[0]!.units = { p1: [darius] };
 
     const second: GameState = { ...base, players: [{ ...base.players[0]!, cardsPlayedThisTurn: 2 }, base.players[1]!] };
-    const afterSecond = dispatchEvent(second, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const afterSecond = fireHeld(second, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" });
     expect(atBf(afterSecond, "p1")[0]!.mightThisTurn).toBe(2);
     expect(atBf(afterSecond, "p1")[0]!.exhausted).toBe(false);
 
     const third: GameState = { ...base, players: [{ ...base.players[0]!, cardsPlayedThisTurn: 3 }, base.players[1]!] };
-    expect(atBf(dispatchEvent(third, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" }), "p1")[0]!.mightThisTurn).toBe(0);
+    expect(atBf(fireHeld(third, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" }), "p1")[0]!.mightThisTurn).toBe(0);
   });
 
   it("Darius - Trifarian ignores the OPPONENT's second card", () => {
@@ -286,7 +306,7 @@ describe("Might modification", () => {
     state.battlefields[0]!.units = { p1: [darius] };
     state.players[0]!.cardsPlayedThisTurn = 2;
 
-    const after = dispatchEvent(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const after = fireHeld(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 });

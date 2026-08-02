@@ -358,7 +358,7 @@ export type GameEvent =
  * not, so a half-converted kind resolves one way from one call site and the other
  * way from another.
  */
-export type HeldEventKind = "unitBuffed" | "battlefieldConquered";
+export type HeldEventKind = "unitBuffed" | "battlefieldConquered" | "cardPlayed";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
