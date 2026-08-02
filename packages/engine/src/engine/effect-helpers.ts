@@ -47,8 +47,12 @@ function updateUnitAnywhere(state: GameState, targetInstanceId: string, change: 
 /** Removes a unit from play (base or battlefield) WITHOUT deciding where it
  *  goes next — callers add it to trash/hand/base themselves, since that
  *  differs per effect (a kill trashes, Gust returns to hand, a death ward
- *  recalls). Counterpart to updateUnitAnywhere above. */
-function removeUnitAnywhere(state: GameState, targetInstanceId: string): GameState {
+ *  recalls). Counterpart to updateUnitAnywhere above.
+ *
+ *  Exported since Portal Rescue: a BLINK takes a unit off the board and puts a
+ *  fresh copy back through the play path, which is neither a kill, a bounce nor
+ *  a relocation and so fits none of the helpers built on this one. */
+export function removeUnitAnywhere(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   const { ownerId, ownerIndex, zone } = location;
@@ -1005,6 +1009,37 @@ export function relocateToBaseUnchanged(state: GameState, targetInstanceId: stri
   const { unit, ownerIndex } = location;
   const removed = removeUnitAnywhere(state, targetInstanceId);
   return updatePlayer(removed, ownerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, unit] }));
+}
+
+/**
+ * Puts a card into its owner's BANISHED zone — `PlayerState.banished`'s first
+ * real writer.
+ *
+ * Distinct from the transient banish-and-play the pool is otherwise full of
+ * (Baited Hook, Portal Rescue, Dazzling Aurora), where a card is banished and
+ * replayed in ONE instruction and nothing can observe the intermediate zone —
+ * those go straight to play and never come through here. This is for a card that
+ * genuinely stays banished: Time Warp's "Banish this", which is what stops the
+ * spell being recurred out of a trash for a second extra turn.
+ *
+ * Removes from wherever the card currently is — hand, trash or the chain's
+ * already-trashed copy — so a caller does not have to know which. A card that is
+ * in none of them is left alone rather than duplicated into the zone.
+ */
+export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): GameState {
+  const owner = state.players[playerIndex];
+  const card =
+    owner.hand.find((c) => c.instanceId === cardInstanceId) ??
+    owner.trash.find((c) => c.instanceId === cardInstanceId) ??
+    owner.banished.find((c) => c.instanceId === cardInstanceId);
+  if (!card || owner.banished.some((c) => c.instanceId === cardInstanceId)) return state;
+
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
+    trash: p.trash.filter((c) => c.instanceId !== cardInstanceId),
+    banished: [...p.banished, card],
+  }));
 }
 
 /** Moves a unit from its battlefield to its OWNER's base, exhausted —

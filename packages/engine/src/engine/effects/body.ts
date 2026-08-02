@@ -19,8 +19,10 @@ import {
   spendBuff,
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
+import { playUnitToBase } from "../deploy.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { UnitInstance } from "../../model/card.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 
@@ -356,6 +358,47 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-160": {
+    // Dazzling Aurora — "At the end of your turn, reveal cards from the top of
+    // your Main Deck until you reveal a unit and banish it. Play it, ignoring its
+    // cost, and recycle the rest."
+    //
+    // The last `endOfTurn` card, and the only one of the six banish-and-play
+    // cards whose played card is guaranteed to BE a unit — it reveals until it
+    // finds one. That is what makes it implementable today: playing a revealed
+    // SPELL free would mean putting a card on the chain from inside a resolution,
+    // which nothing here can do.
+    //
+    // "REVEAL UNTIL" is a search with no cap, so an all-spell deck reveals the
+    // whole thing, banishes nothing and recycles everything. The loop is bounded
+    // by the deck rather than by a number, which is the printed behaviour and also
+    // what keeps it finite.
+    //
+    // The banish is TRANSIENT — banished and played in one instruction — so the
+    // unit goes straight to play rather than through `PlayerState.banished`, the
+    // same call Baited Hook and Portal Rescue make.
+    //
+    // "RECYCLE the rest" is the bottom of the Main Deck (1924), not the trash, and
+    // it covers every card revealed on the way including the ones before the unit.
+    on: "endOfTurn",
+    applies: (_state, listener, event) => event.kind === "endOfTurn" && event.playerIndex === listener.ownerIndex,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "endOfTurn") return state;
+      const owner = state.players[listener.ownerIndex];
+      const unitIndex = owner.deck.findIndex((c) => c.kind === "Unit");
+      // Nothing but spells and gear left: the whole deck is revealed and recycled,
+      // which is a real outcome rather than a no-op — the order changes even
+      // though nothing is played.
+      const revealed = unitIndex === -1 ? owner.deck : owner.deck.slice(0, unitIndex + 1);
+      const found = unitIndex === -1 ? undefined : (owner.deck[unitIndex] as UnitInstance);
+      const rest = revealed.filter((c) => c.instanceId !== found?.instanceId);
+
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
+      const recycled: GameState = { ...state, players };
+      return found ? playUnitToBase(recycled, listener.ownerIndex, found) : recycled;
+    },
+  },
   "OGN-143": {
     // Pirate's Haven — "When you ready a friendly unit, give it +1 Might this
     // turn."

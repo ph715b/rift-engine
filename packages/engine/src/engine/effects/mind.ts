@@ -14,6 +14,7 @@ import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
 import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import {
+  banishCard,
   channelRunesExhausted,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
@@ -22,8 +23,10 @@ import {
   giveMightThisTurnToAllEnemies,
   readyUnit,
   recycleUnitFromPlayToDeck,
+  removeUnitAnywhere,
   returnUnitToHand,
 } from "../effect-helpers.js";
+import { playUnitToBase } from "../deploy.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -94,6 +97,68 @@ function isDefendingAt(state: GameState, listener: Listener, event: GameEvent): 
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-122": {
+    // Time Warp — "Take a turn after this one. Banish this."
+    //
+    // At 10 Energy and 4 Power it is the most expensive card in the pool, and the
+    // two sentences are both load-bearing.
+    //
+    // **"A turn", not "another Action phase"** — so the extra turn Awakens,
+    // scores its holds, Channels and Draws like any other. That is why this is a
+    // counter on GameState read by `runEnd`'s rotation rather than anything
+    // clever: with the rotation suppressed, every other part of the turn loop is
+    // already correct.
+    //
+    // **"BANISH this"** is what stops the card being recurred, and it is the
+    // pool's FIRST real write to `PlayerState.banished` — every other banish here
+    // is transient (banished and replayed in one instruction, nothing able to
+    // observe the middle zone). A Spell is already in its caster's trash by
+    // resolution time, so this moves it from there; without it, Spectral Matron
+    // or Immortal Phoenix would hand back an unbounded chain of extra turns.
+    //
+    // The queue is a COUNT: casting it twice in one turn is two extra turns, which
+    // is what the sentence says and what `runEnd` spends one at a time.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => ({
+      ...banishCard(state, ctx.casterIndex, ctx.sourceCardInstanceId ?? ""),
+      extraTurns: state.extraTurns + 1,
+      extraTurnsForIndex: ctx.casterIndex,
+    }),
+  },
+  "OGN-102": {
+    // Portal Rescue — "Banish a friendly unit, then its owner plays it to their
+    // base, ignoring its cost."
+    //
+    // A BLINK: the unit leaves play and comes back fresh. That is the card, and
+    // it is why it goes through the banish-and-play path rather than
+    // `relocateToBaseUnchanged` — leaving play strips the Buff (709), clears
+    // damage and this-turn Might, and makes the return a genuine PLAY, so its
+    // on-play trigger fires again and Cithria sees another unit arrive.
+    //
+    // The banish is TRANSIENT: banished and replayed in one instruction, with no
+    // window in which anything could observe the middle zone. It therefore goes
+    // straight to play rather than through `PlayerState.banished` — the same call
+    // Baited Hook's decision already makes, and recorded in
+    // docs/rules-conformance.md.
+    //
+    // "ITS OWNER plays it", not the caster: `playUnitToBase` is handed the unit's
+    // own controller, so rescuing a friendly unit returns it to the right base.
+    // Scope "anywhere" because the text names no battlefield; a unit already in
+    // base is a legal (if pointless) target, which is 355.9.b rather than an
+    // oversight.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      const found = findUnitAnywhere(state, event.targetUnitInstanceId);
+      if (!found) return state;
+      // A fresh copy: 709 removes Buffs on leaving play, and damage/this-turn
+      // Might are properties of the body that left. Rebuilt here rather than in
+      // `playUnitToBase`, which is also used for cards that were never in play.
+      const returning = { ...found.unit, damage: 0, mightThisTurn: 0, buffed: false, stunned: false, movesThisTurn: 0 };
+      const removed = removeUnitAnywhere(state, event.targetUnitInstanceId);
+      return playUnitToBase(removed, found.ownerIndex, returning);
+    },
+  },
   "OGN-123": {
     // Unchecked Power — "Exhaust all friendly units, then deal 12 to ALL units
     // at battlefields."

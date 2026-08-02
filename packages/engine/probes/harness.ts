@@ -109,6 +109,8 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     chainPasses: 0,
     spellChain: [],
     pendingTriggers: [],
+    extraTurns: 0,
+    extraTurnsForIndex: 0,
     chainOpenedByTrigger: false,
     deathWardedUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],

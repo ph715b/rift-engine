@@ -541,6 +541,22 @@ export interface GameState {
    * Empty in every settled state.
    */
   pendingTriggers: TriggerChainEntry[];
+  /**
+   * How many EXTRA turns the player at `extraTurnsForIndex` still has coming —
+   * Time Warp's "take a turn after this one".
+   *
+   * A count rather than a boolean because the card can be cast twice in one
+   * turn, and the rules give you both turns rather than collapsing them. Paired
+   * with an index rather than being per-player, because only one player can be
+   * owed extra turns at a time: a Time Warp cast on YOUR turn queues yours, and
+   * `runEnd` hands the turn back to the same seat until the queue empties.
+   *
+   * Read once, in `runEnd`'s rotation. Everything else about a turn is unchanged
+   * — an extra turn is a normal turn, with its own Awaken, scoring and draw.
+   */
+  extraTurns: number;
+  /** Whose extra turns those are. Meaningless while `extraTurns` is 0. */
+  extraTurnsForIndex: 0 | 1;
   /** Highlander's "the next time it would die this turn, heal it, exhaust
    *  it, and recall it instead" — a flat list of warded unit instanceIds
    *  (not per-player: instanceIds are globally unique), consumed at every

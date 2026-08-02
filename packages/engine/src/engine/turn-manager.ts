@@ -322,8 +322,14 @@ export function runEnd(state: GameState): GameState {
     return { ...bf, units };
   });
 
-  const nextIndex = ((state.activePlayerIndex + 1) % 2) as 0 | 1;
-  const turnNumber = nextIndex === state.firstPlayerIndex ? state.turnNumber + 1 : state.turnNumber;
+  // An EXTRA turn (Time Warp) hands the turn straight back rather than rotating.
+  // Everything else about it is an ordinary turn — its own Awaken, scoring, draw
+  // and End — because the card says "take a turn", not "take another action
+  // phase". The `turnNumber` bump below therefore does NOT happen: a round is
+  // complete when play returns to the FIRST player (118), and it has not.
+  const takesAnotherTurn = state.extraTurns > 0 && state.extraTurnsForIndex === state.activePlayerIndex;
+  const nextIndex = takesAnotherTurn ? state.activePlayerIndex : (((state.activePlayerIndex + 1) % 2) as 0 | 1);
+  const turnNumber = !takesAnotherTurn && nextIndex === state.firstPlayerIndex ? state.turnNumber + 1 : state.turnNumber;
 
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.
@@ -333,6 +339,9 @@ export function runEnd(state: GameState): GameState {
     battlefields,
     activePlayerIndex: nextIndex,
     turnNumber,
+    // Spent as it is taken, so two Time Warps really are two extra turns and a
+    // queue can never outlive the player it belongs to.
+    extraTurns: takesAnotherTurn ? state.extraTurns - 1 : state.extraTurns,
     phase: "Awaken",
     // Highlander's ward only lasts "this turn" — cleared here same as every
     // other "this turn" field above (TurnManager.java:335's own reset).

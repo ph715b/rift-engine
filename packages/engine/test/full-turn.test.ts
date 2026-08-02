@@ -43,6 +43,8 @@ function buildInitialGameState(): GameState {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    extraTurns: 0,
+    extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],

@@ -11,7 +11,9 @@ import { contextFor } from "./effect-context.js";
 export function resolveCardEffect(state: GameState, entry: SpellChainEntry): GameState {
   const effect = effectForCard(entry.card);
   if (!effect) return state;
-  return effect.resolve(state, contextFor(entry.playerIndex), {
+  // The resolving card names itself through the context — Time Warp's
+  // "Banish this" is the first text that needs it.
+  return effect.resolve(state, contextFor(entry.playerIndex, entry.card.instanceId), {
     ...(entry.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: entry.targetUnitInstanceId } : {}),
     ...(entry.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: entry.secondTargetUnitInstanceId } : {}),
     ...(entry.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: entry.targetUnitInstanceIds } : {}),

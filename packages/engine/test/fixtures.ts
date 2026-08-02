@@ -117,6 +117,8 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    extraTurns: 0,
+    extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
