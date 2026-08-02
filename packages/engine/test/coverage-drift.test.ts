@@ -293,3 +293,54 @@ describe("an unimplemented keyword is text that still needs writing", () => {
     expect([...flagged]).toEqual(["Deflect"]);
   });
 });
+
+/**
+ * A partial-implementation note can mislead by being too OPTIMISTIC, and that
+ * direction is the one nobody checks.
+ *
+ * `UNIMPLEMENTED_KEYWORDS` fixed the over-report where a keyword-only card read
+ * as finished. The mirror of it survived: a card carrying `[Deflect]` AND having
+ * no registered module at all reported "only [Deflect] is missing", when in fact
+ * nothing of it works. Volibear - Furious's attack trigger and Commander Ledros's
+ * kill-any-number additional cost are both unwritten, so "implement [Deflect]"
+ * looked like it would finish seven cards when it finishes five.
+ *
+ * Pinned in BOTH directions, because the first attempt at this check fixed the
+ * pessimistic case and broke the optimistic one: Pouty Poro's entire printed text
+ * IS `[Deflect]`, so it genuinely is one keyword away and must not be told
+ * otherwise.
+ */
+describe("a partial note says how much is left, not just which keyword", () => {
+  const registry = defaultCardRegistry();
+  const NOT_ONE_AWAY = /not one keyword away/;
+
+  it("warns when a keyword-carrying card has unwritten text of its own", () => {
+    // Both have real prose beyond the keyword and no implementing module.
+    for (const id of ["OGN-041", "OGN-231"]) {
+      const def = registry.get(id);
+      expect(implementingModule(id), `${id} is registered — pick a different subject`).toBeUndefined();
+      expect(partialImplementationNote(def), `${id} (${def.name})`).toMatch(NOT_ONE_AWAY);
+    }
+  });
+
+  it("does NOT warn for a card whose entire text is the keyword", () => {
+    // Pouty Poro is unregistered too, so a check keyed on registration alone
+    // gets this wrong — the question is whether any PROSE survives the strip.
+    const poro = registry.get("OGN-013");
+    expect(implementingModule("OGN-013")).toBeUndefined();
+    expect(partialImplementationNote(poro)).not.toMatch(NOT_ONE_AWAY);
+  });
+
+  it("does NOT warn for a card whose other clauses ARE implemented", () => {
+    // Fiora's grant works and her [Ganking]/[Shield] work; only [Deflect] is out.
+    const fiora = registry.get("OGN-232");
+    expect(implementingModule("OGN-232")).toBeDefined();
+    expect(partialImplementationNote(fiora)).not.toMatch(NOT_ONE_AWAY);
+  });
+
+  it("still names the keyword in every case", () => {
+    for (const id of ["OGN-013", "OGN-041", "OGN-231", "OGN-232"]) {
+      expect(partialImplementationNote(registry.get(id)), id).toContain("[Deflect]");
+    }
+  });
+});

@@ -225,7 +225,29 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
 export function partialImplementationNote(def: CardDefinition): string | undefined {
   const listed = PARTIALLY_IMPLEMENTED.get(def.id);
   const missingKeywords = unimplementedKeywordsOn(def).map((k) => UNIMPLEMENTED_KEYWORDS.get(k)!);
-  return [listed, ...missingKeywords].filter((note) => note !== undefined).join("; ") || undefined;
+  // A card that carries an unimplemented keyword AND has no registered module at
+  // all is not "partial" — NOTHING of it works, and saying only "[Deflect] is
+  // ignored" understates the gap. Volibear - Furious and Commander Ledros are the
+  // two: both read as one keyword away while their own attack trigger and
+  // kill-any-number additional cost are equally unwritten, which would make
+  // "implement [Deflect]" look like it finishes seven cards when it finishes five.
+  //
+  // This is the same over-report `UNIMPLEMENTED_KEYWORDS` was added to fix, one
+  // level down — and pointed the other way, which is why it survived: nobody
+  // checks a note for being too OPTIMISTIC about how little is left.
+  // "Has prose of its own" is asked by stripping the unimplemented keywords too
+  // and seeing whether anything alphanumeric survives — NOT merely by the card
+  // being unregistered. Pouty Poro's entire printed text is `[Deflect]`, so it
+  // genuinely IS one keyword away and must not be told it has unwritten prose;
+  // the first version of this check said it did, which is the same kind of wrong
+  // note in the opposite direction.
+  const remainingProse = implementableText(def).replace(/\[[^\]]*\]/g, "");
+  const hasOwnProse = /[a-z0-9]/i.test(remainingProse);
+  const unregistered =
+    missingKeywords.length > 0 && hasOwnProse && implementingModule(def.id) === undefined
+      ? "nothing is registered for this card at all — its own text is unwritten too, so this is not one keyword away"
+      : undefined;
+  return [listed, unregistered, ...missingKeywords].filter((note) => note !== undefined).join("; ") || undefined;
 }
 
 /**
