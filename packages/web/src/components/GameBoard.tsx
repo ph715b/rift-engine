@@ -110,6 +110,23 @@ interface PendingPlay {
    *  from-hand ones — the same card can legitimately be both, at different
    *  costs and with different legal targets. */
   fromHiddenBattlefieldId?: string;
+  /**
+   * Whether this play pays [Accelerate]'s optional additional cost (805) to have
+   * the unit enter READY.
+   *
+   * `legal` holds two candidates for such a card, identical but for this flag and
+   * their payment. Without it here, `matchesPending` matched BOTH and `.find` took
+   * whichever came first — the exact failure its own comment warns about, sizing
+   * the payment against one action while submitting the other. An Accelerate card
+   * would arm, ask for a cost belonging to the other variant, and then never
+   * complete however many runes were clicked, which reads as the card being
+   * unplayable. Kai'Sa - Survivor, Jinx - Demolitionist and Lee Sin - Centered are
+   * all Accelerate CHAMPIONS, so it hit the champion zone hardest.
+   *
+   * Undefined until the card is armed, then always an explicit boolean, so the
+   * comparison never has to guess a default.
+   */
+  acceleratePaid?: boolean;
   payment: RunePayment;
 }
 
@@ -588,6 +605,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ) {
         return false;
       }
+      // [Accelerate] is a cost VARIANT, so it narrows the pool the same way a
+      // chosen target does. Set the moment the card is armed, so the payment being
+      // built and the action eventually submitted are always the same variant.
+      if (pending.acceleratePaid !== undefined && (a.acceleratePaid ?? false) !== pending.acceleratePaid) return false;
       return true;
     });
   }
@@ -692,7 +713,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
         (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
-        (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null)
+        (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
+        (a.acceleratePaid ?? false) === (pending.acceleratePaid ?? false)
       );
     }
     return (
@@ -703,7 +725,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       (a.visionRecycle ?? null) === (pending.visionRecycle ?? null) &&
       (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
       (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
-      (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null)
+      (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
+      (a.acceleratePaid ?? false) === (pending.acceleratePaid ?? false)
     );
   }
 
@@ -816,8 +839,40 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // next time a battlefield/base-zone is clicked.
     setSelectedUnitIds(new Set());
     setUnplayableNotice(null);
+    // Arms on the UNACCELERATED variant when both exist. [Accelerate] is an
+    // optional additional cost (805), so declining it is the cheaper default and
+    // the one a player who has never heard of the keyword expects; the toggle below
+    // opts in. Set explicitly rather than left undefined so `pendingCandidates`
+    // narrows to one variant immediately — leaving it open is what let the payment
+    // be sized against one action and submitted as the other.
     setPendingPlay((prev) =>
-      prev?.card.instanceId === first.card.instanceId ? null : { card: first.card, payment: { energyRunes: [], powerRunes: [] } },
+      prev?.card.instanceId === first.card.instanceId
+        ? null
+        : {
+            card: first.card,
+            acceleratePaid: false,
+            payment: { energyRunes: [], powerRunes: [] },
+          },
+    );
+  }
+
+  /** The armed card's OTHER cost variant, if [Accelerate] gives it one. Undefined
+   *  whenever the card has no accelerated form, which is every card but a handful —
+   *  so the toggle below simply doesn't render for them. */
+  function accelerateAlternative(): PlayCardAction | undefined {
+    const pending = pendingPlay;
+    if (!pending) return undefined;
+    const want = !(pending.acceleratePaid ?? false);
+    return playCardActionsFor(pending.card.instanceId).find((a) => (a.acceleratePaid ?? false) === want);
+  }
+
+  /** Switches the armed card between paying [Accelerate] and not. Clears the
+   *  payment: the two variants owe different runes, and carrying a part-paid
+   *  proposal across would leave runes committed against a cost that no longer
+   *  exists. */
+  function toggleAccelerate() {
+    setPendingPlay((prev) =>
+      prev ? { ...prev, acceleratePaid: !(prev.acceleratePaid ?? false), payment: { energyRunes: [], powerRunes: [] } } : prev,
     );
   }
 
@@ -1527,6 +1582,28 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         return null;
     }
   }
+  /**
+   * What the armed card STILL owes, counted down as runes are proposed.
+   *
+   * The prompt used to be a fixed sentence explaining the controls, which said the
+   * same thing whether you had paid nothing or everything but one pip. That is what
+   * makes a stuck payment read as "clicking does nothing" — the player gets no
+   * signal that a click counted, and no way to see that the remaining cost is a
+   * Power pip their left-clicks can never satisfy.
+   */
+  function paymentOwedText(): string {
+    const resolved = pendingResolvedAction;
+    const pending = pendingPlay;
+    if (!resolved || !pending) return "";
+    const energy = resolved.payment.energyRunes.length - pending.payment.energyRunes.length;
+    const power = resolved.payment.powerRunes.length - pending.payment.powerRunes.length;
+    const owed = [
+      energy > 0 ? `${energy} Energy (left-click)` : null,
+      power > 0 ? `${power} Power (right-click)` : null,
+    ].filter(Boolean);
+    return `${owed.join(" + ")} still owed, or Auto Pay`;
+  }
+
   const pendingStillOwesPayment = Boolean(
     pendingResolvedAction &&
       pendingPlay &&
@@ -1621,8 +1698,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 ? "Your turn"
                 : "AI's turn"}
           {pendingHintText()}
-          {pendingStillOwesPayment &&
-            ` — pay for ${pendingPlay!.card.name}: left-click a rune for Energy, right-click for Power (or Auto Pay)`}
+          {pendingStillOwesPayment && ` — pay for ${pendingPlay!.card.name}: ${paymentOwedText()}`}
         </span>
         {/* Appended as its own element rather than folded into the line above:
             the existing turn/phase text is matched verbatim by the throwaway
@@ -1986,6 +2062,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         {canFinishTargeting() && (
           <button onClick={finishTargeting}>
             {pendingChosenTargetCount() === 0 ? "Choose no targets" : `Done (${pendingChosenTargetCount()})`}
+          </button>
+        )}
+        {/* [Accelerate] (805) — "you may pay an additional cost to have me enter
+            ready". It is a real choice with a real price, and until now the UI made
+            it silently: two candidates existed and whichever the engine listed
+            first was taken. Only rendered when the armed card actually has both
+            variants available right now. */}
+        {pendingPlay && accelerateAlternative() && (
+          <button onClick={toggleAccelerate}>
+            {pendingPlay.acceleratePaid ? "Don't Accelerate" : "Accelerate (enter ready)"}
           </button>
         )}
         {pendingStillOwesPayment && <button onClick={handleAutoPay}>Auto Pay</button>}
