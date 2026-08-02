@@ -1,10 +1,13 @@
-# The survey's seven rules calls, answered from the PDF — 2026-08-02
+# The survey's seven rules calls, all answered — 2026-08-02
 
 `docs/dead-card-survey.md` listed seven questions under "Rules calls needed before
-implementing (do not guess)". Six are answered outright by the rules text, and
-**three of them because the PDF uses the card in question as its own worked
-example**. That is worth noting on its own: the survey treated them as ambiguities
-in the card text when they were documented behaviours nobody had looked up.
+implementing (do not guess)". **All seven are now answered** — six from the rules
+text and the last, Defy's missing numeral, from the printed card image.
+
+Three of the six are answered **because the PDF uses the card in question as its
+own worked example** (Fox-Fire, Defy, Baited Hook). That is worth noting on its
+own: the survey treated them as ambiguities in the card text when they were
+documented behaviours nobody had looked up.
 
 Citations are the PDF's own numbering. The extract is two-column, so a sentence
 and its rule number can land far apart — where the exact sub-number is uncertain
@@ -166,26 +169,28 @@ is the one answer here that costs real work rather than just settling a question
 
 **Asked:** the `:rb_rune_rainbow:` numeral is not in the card JSON.
 
-**STILL OPEN — I got this wrong first time, and the correction matters.**
+**ANSWERED FROM THE CARD IMAGE: one rainbow pip = 1 Power of any domain.** So Defy
+counters a spell costing **no more than 4 Energy and no more than 1 Power of any
+domain**.
 
-I originally wrote "an unnumbered pip is 1", citing *"If X is omitted, it is
-presumed to be 1"*, which appears five times in the rules. **All five are about
-KEYWORD values** — Predict X, the Assault Value, the Deflect Value, the Shield
-Value, Hunt X. Not one is about a cost pip printed on a card frame. Applying a
-keyword-value default to a COST was an unsupported leap, and a reviewing agent
-caught it.
+The numeral is absent from the card JSON's rich text and its accessibility text,
+and the rules PDF quotes the card the same way, so this could only be settled by
+looking at the printed card. Fetched from the image URL in `ogn.json`'s `media`
+block.
 
-What that rule *does* settle, correctly, is a different card: **`[Deflect]` with no
-number is Deflect 1** ("The X is referred to as the Deflect Value. If X is omitted,
-it is presumed to be 1"), which is what Pouty Poro carries and what
-`grantKeywordThisTurn` already assumes.
+**The convention the image reveals, which is the reusable part:** Energy is printed
+as a NUMBERED glyph (Defy's text shows a black ④), while Power is printed as
+COUNTED PIPS — one pip per Power. Defy's own cost proves it: the JSON says
+`{energy: 1, power: 1}` and the frame shows a "1" Energy circle above exactly one
+Calm pip. So the single unnumbered rainbow pip in its text is 1, and a "2 rainbow
+Power" filter would print two pips.
 
-Defy's `:rb_rune_rainbow:` is a cost filter, and the numeral is absent from the
-card JSON's rich text AND its accessibility text, and the rules PDF quotes the card
-the same way ("no more than [4] and no more than [A]"). Candidates: (a) ≤1 Power of
-any domain; (b) a printed number lost in the data. **Needs a look at the card image
-or a call from the user.** Do not guess it — this is the one of the seven that
-survives.
+**I originally answered this wrongly and the correction is worth keeping.** I cited
+*"If X is omitted, it is presumed to be 1"* — but all five instances of that rule
+are about KEYWORD values (Predict X, the Assault/Deflect/Shield Values, Hunt X),
+not cost pips. A reviewing agent caught the leap. The rule does settle a different
+card correctly: `[Deflect]` with no number is Deflect 1, which is what Pouty Poro
+carries.
 
 **And the cost filter reads the target's PRINTED cost — the PDF works Defy by
 name:**
@@ -213,9 +218,8 @@ sources are separate objects"*.
 
 ## What is still genuinely open
 
-**One of the original seven: Defy's rainbow numeral** (above). It is a data gap,
-not a rules gap — the number is missing from the card JSON — so it needs the card
-image or a user call.
+Nothing from the original seven — Defy's numeral was the last, and the card image
+settled it (one pip = 1).
 
 Judgement calls rather than lookups:
 

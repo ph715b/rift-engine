@@ -106,3 +106,80 @@ Four agents, read-only, disjoint sets, no build or test run. Their findings are 
 high-quality map and were spot-checked, not trusted: one flagged that a claim in
 `rules-calls-resolved.md` cited a keyword-value rule to settle a COST question, and
 it was right — that entry is corrected and the question reopened.
+
+---
+
+# The selection-model decision: ANNOUNCE-TIME
+
+Settled 2026-08-02. The survey framed this as a trade-off between rules-correctness
+and enumeration cost. It is not — the rules force it, and the enumeration cost is
+a misattribution.
+
+## Why the rules force it
+
+**Cards exist that read another chain item's target set.** The PDF's Volibear
+example:
+
+> *"Volibear's attack trigger goes on the chain targeting three of the units at that
+> battlefield. In reaction, the defending player plays Flash moving two of the three
+> units back. That player cannot then target the attack trigger with **Repulse**,
+> which reads 'Choose a friendly unit at a battlefield. Counter an enemy spell or
+> ability that chooses it and no other friendly unit.'"*
+
+Repulse asks *which units is that item choosing* while the item sits on the chain.
+Under resolve-time selection there is no answer, because nothing has been chosen
+yet. So resolve-time does not merely diverge on timing — it makes a whole card
+archetype unimplementable, and it hollows out the response window the entire Chain
+conversion has been built for. Holding triggers so an opponent can respond, and
+then not telling them what the trigger is aimed at, is the worst of both.
+
+**And the engine already does announce-time.** `unitSlots` with one and two targets
+is announce-time today. Choosing resolve-time for three or more would mean the same
+printed phrase — "a unit" — means different things depending on how many times it
+appears on the card, and two targeting models would coexist permanently. That is
+worse than either model chosen consistently.
+
+The rules also require BOTH halves for Fox-Fire: announce-time group targeting AND
+a resolution-time legal-subset re-choice when the group stops qualifying.
+Resolve-time-only gets neither.
+
+## Why the enumeration cost is a misattribution
+
+The survey's objection was ~10^5 variants for a six-slot card swamping
+`legal-actions` and the AI. That conflates two consumers that need different
+things:
+
+- **The UI never needed the enumeration.** It builds a play interactively —
+  `pendingPlay` plus a target step plus the existing `Done (N)` / `Choose no
+  targets` button, driven by `pendingChosenTargetCount()` and `pendingMinTargets()`.
+  It asks "what may I click next", not "give me every combination". The N-target
+  picker is **already built**; it is only capped because `pendingChosenTargetCount`
+  reads exactly two fields.
+- **`validate-play-card` is what actually gates legality**, and it can accept any
+  legal set without anyone enumerating it.
+- **Only the AI wants candidates**, and it does not need the powerset — it needs a
+  bounded, sensible sample.
+
+So the shape is: carry `targetUnitInstanceIds: string[]` on the action, validate the
+whole set (including group requirements like Fox-Fire's total Might), let the UI
+fill it with the picker it already has, and have `legal-actions` emit a **bounded
+heuristic sample** for the AI rather than every combination.
+
+**The divergence that leaves is narrow and honest:** "the AI considers a bounded
+subset of target combinations." That is a search limitation, in the same family as
+the existing one-ply lookahead — not a rules divergence, and it does not change what
+is legal or what a human can do. Resolve-time would instead have been a permanent
+rules divergence affecting what the game *is*.
+
+## What it costs
+
+`unitSlots.slots` is a fixed 2-tuple and `PlayCardAction`/`SpellChainEntry` carry
+exactly two target fields, so the widening touches the spec, the action, the
+validator, the enumerator and the UI's two-field counter. Bounded, mechanical, and
+it subsumes `asymmetricSlots` and `allowsDuplicateTargets` as special cases of an
+ordered list.
+
+Cards it governs: OGN-029 Falling Star, OGN-248 Icathian Rain, OGN-256 Fox-Fire,
+OGN-258 Dragon's Rage, OGN-244 Divine Judgment, plus OGN-041 Volibear's split
+damage — which the rules already specify as announce-time targeting with a cap
+equal to the damage.
