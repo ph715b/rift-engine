@@ -2,7 +2,15 @@ import type { GameState, PendingDeath, PlayerState } from "../model/game-state.j
 import type { UnitInstance } from "../model/card.js";
 import type { GameEvent } from "./triggers.js";
 import type { DecisionDefinition } from "./decisions.js";
-import { addBuff, channelRunesExhausted, completeDeath, drawCards, giveMightThisTurn, payPowerFromChanneled } from "./effect-helpers.js";
+import {
+  addBuff,
+  channelRunesExhausted,
+  completeDeath,
+  drawCards,
+  giveMightThisTurn,
+  payPowerFromChanneled,
+  readyRunes,
+} from "./effect-helpers.js";
 import { computeAutoPayment } from "./rune-payment.js";
 import { RAINBOW } from "./hidden.js";
 // Rule 711's "Might 5 or greater", already defined once for Fiora - Victorious.
@@ -85,26 +93,6 @@ export interface LegendMightContext {
   isCombat: boolean;
   isAttackingSide?: boolean;
   battlefieldId?: string;
-}
-
-/** Readies up to `max` exhausted runes in `ownerIndex`'s channeled pool, in
- *  pool order. Which specific runes are readied is deliberately not offered
- *  as a choice: readying is strictly beneficial and never wrong, so maxing it
- *  out IS the faithful implementation rather than a shortcut around a real
- *  decision — the Java oracle makes exactly this call and says so
- *  (LegendAbilities.java:30-32). */
-function readyRunes(state: GameState, ownerIndex: 0 | 1, max: number): GameState {
-  const owner = state.players[ownerIndex];
-  let readied = 0;
-  const channeled = owner.channeled.map((rune) => {
-    if (readied >= max || rune.state !== "Exhausted") return rune;
-    readied += 1;
-    return { ...rune, state: "Ready" as const };
-  });
-  if (readied === 0) return state;
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...owner, channeled };
-  return { ...state, players };
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {

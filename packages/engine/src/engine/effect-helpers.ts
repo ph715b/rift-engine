@@ -938,6 +938,34 @@ export function channelRunesExhausted(state: GameState, playerIndex: 0 | 1, coun
   });
 }
 
+/**
+ * Readies up to `max` exhausted runes in `ownerIndex`'s channeled pool, in pool
+ * order.
+ *
+ * Which specific runes are readied is deliberately not offered as a choice:
+ * readying is strictly beneficial and never wrong, so maxing it out IS the
+ * faithful implementation of "up to N" rather than a shortcut around a real
+ * decision — the Java oracle makes exactly this call and says so
+ * (LegendAbilities.java:30-32).
+ *
+ * Lived in legend-abilities.ts as a module-private helper while
+ * Annie - Dark Child's "ready up to 2 runes" was the only card that wanted it.
+ * Sona - Harmonious reads "ready up to 4 friendly runes" off a permanent rather
+ * than a Legend, so it moved here rather than being copied — a second copy is
+ * how the two would come to disagree about what "up to" means.
+ */
+export function readyRunes(state: GameState, ownerIndex: 0 | 1, max: number): GameState {
+  const owner = state.players[ownerIndex];
+  let readied = 0;
+  const channeled = owner.channeled.map((rune) => {
+    if (readied >= max || rune.state !== "Exhausted") return rune;
+    readied += 1;
+    return { ...rune, state: "Ready" as const };
+  });
+  if (readied === 0) return state;
+  return updatePlayer(state, ownerIndex, (p) => ({ ...p, channeled }));
+}
+
 /** Removes a unit from its battlefield and adds it to its OWNER's hand
  *  (not necessarily the caster's) — resets damage/this-turn Might/exhausted
  *  and removes any Buff (rule 709, "if a Unit leaves play, remove all Buffs
@@ -1008,12 +1036,24 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
   return { ...state, battlefields, players };
 }
 
-/** Sets a unit's `exhausted` to false regardless of its current state —
- *  First Mate's "ready another unit," which names no battlefield and so
- *  reaches a unit in base too (this comment used to say base units "aren't a
- *  target here... widen the search the day one does" — this is that day). */
+/**
+ * Readies a unit wherever it stands — First Mate's "ready another unit," which
+ * names no battlefield and so reaches a unit in base too (this comment used to
+ * say base units "aren't a target here... widen the search the day one does" —
+ * this is that day).
+ *
+ * Readying an ALREADY-READY unit is now a no-op rather than a redundant rewrite,
+ * and that is rule 415 rather than an optimisation: "A Unit that is already Ready
+ * cannot be Readied again. If a Unit is instructed to be Readied while it is
+ * already Ready, nothing additional happens." It is what makes the `unitReadied`
+ * event below honest — Pirate's Haven must not pay out for a ready that the rules
+ * say never happened, the same guard `addBuff` (708) and `stunUnits` (422) carry.
+ */
 export function readyUnit(state: GameState, targetInstanceId: string): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location || !location.unit.exhausted) return state;
+  const readied = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
+  return holdEventTrigger(readied, { kind: "unitReadied", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
 }
 
 /**
@@ -1025,8 +1065,17 @@ export function readyUnit(state: GameState, targetInstanceId: string): GameState
  * that's exhausted", naming no type at all, so she needs the wider reach — and
  * the Legend zone is not on the board, which is exactly the gap that made Legend
  * abilities unreachable before `findActivatable` learned about it.
+ *
+ * A UNIT readied through here routes to `readyUnit` rather than being handled by
+ * the map below, so it fires `unitReadied` exactly as any other ready does.
+ * Without that, Pirate's Haven would pay out for twelve of the pool's thirteen
+ * ready effects and silently skip Miss Fortune's — the kind of gap that is
+ * invisible in play because the card still resolves and nothing errors.
  */
 export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId: string): GameState {
+  const asUnit = findUnitAnywhere(state, instanceId);
+  if (asUnit && asUnit.ownerIndex === playerIndex) return readyUnit(state, instanceId);
+
   const ready = <T extends { instanceId: string; exhausted: boolean }>(c: T): T =>
     c.instanceId === instanceId ? { ...c, exhausted: false } : c;
 
@@ -1034,15 +1083,10 @@ export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId:
   const actor = players[playerIndex];
   players[playerIndex] = {
     ...actor,
-    baseUnits: actor.baseUnits.map(ready),
     activeGear: actor.activeGear.map(ready),
     legend: ready(actor.legend),
   };
-  const battlefields = state.battlefields.map((bf) => {
-    const mine = bf.units[actor.id];
-    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(ready) } } : bf;
-  });
-  return { ...state, players, battlefields };
+  return { ...state, players };
 }
 
 /**

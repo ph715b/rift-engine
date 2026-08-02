@@ -26,14 +26,25 @@
  * decisions render". With `ACTIVE=1` the driver plays from hand and the prompts
  * do appear, answerable, with **raised == answered**, which is what rules out a
  * stranded question. Confirmed live: Qiyana - Victorious's "draw 1, or channel 1
- * rune exhausted?", Mistfall's pay-and-exhaust, and Sett - The Boss's death
- * replacement.
+ * rune exhausted?", Mistfall's pay-and-exhaust, Sett - The Boss's death
+ * replacement, Baited Hook's "banish a unit from the top 5 and play it free?"
+ * and Blitzcrank - Impassive's "move an enemy unit to his battlefield?".
+ *
+ * **A decision that appears in one run and not the next is the seed, not a
+ * regression.** `decisionsSeen` is 0 or 1 per six games for most cards, so the
+ * gate does not require any particular prompt — only that every prompt raised was
+ * answered. Read the titles, not the count.
+ *
+ * Confirmed live as TRIGGER ROWS, with their own names rendered: Mistfall,
+ * Sett - Brawler, Qiyana - Victorious, Pirate's Haven (buff deck); Sona -
+ * Harmonious, Blitzcrank - Impassive, Ahri - Alluring (calm deck). Sona's is the
+ * first turn-boundary trigger — it is fired in one player's End Phase and shown
+ * on the chain during the other player's turn.
  *
  * Still NOT seen rendered: the decision prompts of Albus Ferros, Spectral Matron,
  * King's Edict and Overt Operation. They are in the deck (see
- * `make-buffdeck.mjs`'s PRIORITY list) and reached play, but their own conditions
- * did not come up. The four Calm/Chaos decision cards from that batch cannot be in
- * a Body/Order deck at all and need a second deck to reach.
+ * `make-buffdeck.mjs`'s priority list) and reached play, but their own conditions
+ * did not come up.
  */
 import { chromium, ORIGIN, OUT, PORT, sleep, step } from "./lib.mjs";
 import { join, dirname } from "node:path";
@@ -73,9 +84,20 @@ const ACTIVE = process.env.ACTIVE === '1';
  * The Boss, the same shape `probes/chain-depth.ts` uses headlessly, containing
  * Sett - Brawler (conquer) and Mistfall (buff). Both seats use it, so the AI
  * alone can produce trigger rows for a passive human to watch.
+ *
+ * **`DECK=calm` runs the second deck**, built by the same generator off Ahri -
+ * Nine-Tailed Fox. A domain pair is a hard ceiling on what one deck can contain,
+ * so the Calm cards were unreachable by any run of this probe — and unreachable
+ * looks exactly like broken from here, since both report the trigger as never
+ * observed. Two decks is what makes "not seen" mean something.
  */
-const DECK_TEXT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), ".buffdeck.txt"), "utf8");
-const DECK_NAME = /Sett/i;
+const DECK = process.env.DECK ?? "buff";
+const DECK_FILE = DECK === "calm" ? ".calmdeck.txt" : ".buffdeck.txt";
+const DECK_TEXT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), DECK_FILE), "utf8");
+// Matches the LEGEND's name, which is what the imported deck is called in the
+// lobby list. Both legends' names begin with the character, so a first-word
+// match is enough and stays right if a legend's subtitle ever changes.
+const DECK_NAME = DECK === "calm" ? /Ahri/i : /Sett/i;
 
 const consoleErrors = [];
 const pageErrors = [];
@@ -285,7 +307,17 @@ for (let g = 0; g < GAMES; g += 1) {
       // that failed to resolve its source name would still be counted by the
       // selector above while showing the player a blank. Counting the names is
       // what distinguishes "the row renders" from "the row renders something".
-      for (const name of await page.locator(".chain-item-name").allTextContents()) {
+      //
+      // **Scoped to the trigger row's own body.** This used to read every
+      // `.chain-item-name` on the chain whenever any trigger row existed, so a
+      // SPELL sitting on the same chain was tallied as a triggered ability — the
+      // Calm deck reported "Defy" and "Find Your Center" as triggers, neither of
+      // which is even implemented. Worse in the other direction: a trigger row
+      // showing a blank name would have been covered for by the spell beside it,
+      // which is the exact failure this counter exists to catch. `.chain-item-name`
+      // is a SIBLING of `.chain-item-trigger` inside `.chain-item-body`, so the
+      // scope has to be the body rather than the marker.
+      for (const name of await page.locator(".chain-item-body:has(.chain-item-trigger) .chain-item-name").allTextContents()) {
         const key = name.trim();
         if (key) triggerNames.set(key, (triggerNames.get(key) ?? 0) + 1);
       }

@@ -342,6 +342,15 @@ export interface PendingDecision {
    *  "it" means the unit that was buffed, not whatever is buffed by the time the
    *  answer comes in. */
   targetInstanceId?: string;
+  /** WHERE the question is about, for the questions whose answer is a
+   *  destination rather than a thing — Blitzcrank - Impassive's "you may move an
+   *  enemy unit to **here**", where "here" is the battlefield he was played to.
+   *
+   *  Captured when the question is raised for the same reason `targetInstanceId`
+   *  is: "here" means where he landed, not wherever he happens to be standing by
+   *  the time the answer arrives. Nothing can move him in between today, and that
+   *  is exactly the kind of fact that stops being true without anyone noticing. */
+  battlefieldId?: string;
 }
 
 /**

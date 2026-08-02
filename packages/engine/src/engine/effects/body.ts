@@ -10,6 +10,7 @@ import {
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
   giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
   ownUnitsEverywhere,
   payPowerFromChanneled,
   readyPermanent,
@@ -355,6 +356,36 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-143": {
+    // Pirate's Haven — "When you ready a friendly unit, give it +1 Might this
+    // turn."
+    //
+    // **This includes the Awakening Phase**, which is the difference between a
+    // combo trigger and +1 Might to your whole board every turn. Rule 415: "A
+    // player Readies all non-spell Game Objects they Control during the Awakening
+    // Phase on their turn" — the Awaken is a readying performed by the player, so
+    // "when you ready" is satisfied. That is the strong reading and the printed
+    // one; whether a card this broad was intended is a design question, and it is
+    // recorded Unverified in docs/rules-conformance.md rather than softened here.
+    //
+    // The 415 guard that keeps it from being broader still lives in `readyUnit`
+    // and `runAwaken`, not here: an already-Ready unit is not readied, so it
+    // produces no event and gets no Might.
+    //
+    // "Give IT" — the readied unit, carried on the event. Re-derived from the
+    // board it could not be found at all: `unitReadied` is held, and by the time
+    // this resolves the unit may have moved, and several other units may have
+    // been readied in the same Awaken.
+    on: "unitReadied",
+    // "A FRIENDLY unit", measured against the HAVEN's controller — the same
+    // relative reading Wraith of Echoes and Vanguard Helm take. Asked here rather
+    // than in `resolve` because an enemy's ready must not cost both players a
+    // PassFocus for an ability that would resolve to nothing; with the Awaken
+    // firing one of these per exhausted unit, that is not a rare shape.
+    applies: (_state, listener, event) => event.kind === "unitReadied" && event.ownerIndex === listener.ownerIndex,
+    resolve: (state, listener, event) =>
+      event.kind === "unitReadied" ? giveMightThisTurnToOwnUnit(state, listener.ownerIndex, event.unitInstanceId, 1) : state,
+  },
   "OGN-158": {
     // Volibear - Imposing — "[Shield 3][Tank] When an opponent moves to a
     // battlefield other than mine, draw 1. (Bases are not battlefield.)"

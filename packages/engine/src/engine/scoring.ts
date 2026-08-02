@@ -31,8 +31,9 @@ function isHeldBy(bf: BattlefieldState, playerId: string): boolean {
  * Hold points always apply, including as a winning point — the sweep
  * requirement in rule 473 is specific to gaining a point through a CONQUER.
  * Mirrors ScoringSystem.scoreHolds (engine/ScoringSystem.java:38-77), minus
- * every named-card scoring-block (Tianna Crownguard, Forgotten Monument) and
- * hold-trigger dispatch (no cards with onHold effects exist yet).
+ * every named-card scoring-block (Tianna Crownguard, Forgotten Monument).
+ * Hold triggers are no longer among the omissions — see the `battlefieldHeld`
+ * hold at the end of this function.
  */
 export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   const player = state.players[playerIndex];
@@ -43,11 +44,31 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
     .filter((bf) => !player.scoredBattlefieldsThisTurn.includes(bf.id))
     .map((bf) => bf.id);
   if (held.length === 0) return state;
-  return updatePlayer(state, playerIndex, (p) => ({
+  const scored = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     points: p.points + held.length,
     scoredBattlefieldsThisTurn: [...p.scoredBattlefieldsThisTurn, ...held],
   }));
+
+  // Permanents watch the hold itself (Ahri - Alluring, Blitzcrank - Impassive).
+  // This function's own doc comment used to end "minus ... hold-trigger dispatch
+  // (no cards with onHold effects exist yet)" — it fired NOTHING, and that is
+  // what those two cards were waiting on.
+  //
+  // HELD as Chain Pending Items (383), like every other converted event, and
+  // fired AFTER the points are recorded so a listener reads the score its own
+  // hold produced. One event per battlefield: "when I hold" is about the
+  // battlefield the unit stands at, and holding two at once is two separate
+  // holds.
+  //
+  // These are fired inside the Beginning Phase, which `submit`'s Pass runs as
+  // part of `runStartOfTurn` — so like `endOfTurn` they sit in the pen until the
+  // single Cleanup at the end of that action. See HeldEventKind's turn-boundary
+  // note.
+  return held.reduce(
+    (next, battlefieldId) => holdEventTrigger(next, { kind: "battlefieldHeld", holderIndex: playerIndex, battlefieldId }),
+    scored,
+  );
 }
 
 /**

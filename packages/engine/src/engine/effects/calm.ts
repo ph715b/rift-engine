@@ -16,7 +16,9 @@ import {
   grantKeywordThisTurn,
   grantTemporary,
   ownUnitsEverywhere,
+  readyRunes,
   readyUnit,
+  returnUnitToHand,
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
@@ -286,6 +288,42 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return hasPoro ? drawCards(addBuff(state, unitId), ctx.casterIndex, 1) : state;
     },
   },
+  "OGN-067": {
+    // Blitzcrank - Impassive — "[Tank] When you play me to a battlefield, you may
+    // move an enemy unit to here. When I hold, return me to my owner's hand."
+    //
+    // This clause is the middle one; `[Tank]` is the keyword engine's and the
+    // hold is a `battlefieldHeld` listener below.
+    //
+    // **"To a battlefield"** — played to base, nothing happens at all. That is
+    // why this reads `event.destination` rather than looking Blitzcrank up: it is
+    // the one fact about the play that the board does not record.
+    //
+    // **"You MAY"**, so it parks a question rather than taking a target. A target
+    // on the action would have made the grab compulsory whenever any enemy unit
+    // existed, and the card is frequently better declined — dragging a body onto
+    // your own battlefield is how you lose the hold this card's third clause is
+    // built around.
+    //
+    // Nothing is asked when there is no enemy unit anywhere: 422's do-as-much-as-
+    // you-can, and the same shape Adaptatron's gear check uses.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) => {
+      if (event.destination === "base") return state;
+      const enemyIndex: 0 | 1 = ctx.casterIndex === 0 ? 1 : 0;
+      if (ownUnitsEverywhere(state, enemyIndex).length === 0) return state;
+      return parkDecision(state, {
+        kind: "OGN-067-grab",
+        playerIndex: ctx.casterIndex,
+        // Blitzcrank's own battlefield, carried as the destination "here" means.
+        // Taken from the play rather than re-derived at answer time, which is the
+        // same reason the decision carries it at all — a question answered later
+        // must not be able to drag a unit somewhere Blitzcrank never was.
+        battlefieldId: event.destination.battlefieldId,
+        cardInstanceId: unitId,
+      });
+    },
+  },
   "OGN-051": {
     // Solari Shieldbearer — "When you play me, stun a unit."
     //
@@ -309,6 +347,88 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-066": {
+    // Ahri - Alluring — "When I hold, you score 1 point."
+    //
+    // "When **I** hold" is the positional reading Adaptatron and Sett - Brawler
+    // take of their own "when I conquer": the battlefield being held has to be the
+    // one Ahri is standing at, not merely one her controller held somewhere. The
+    // event carries a battlefield for exactly that reason.
+    //
+    // She therefore DOUBLES a hold: `scoreHolds` has already awarded the ordinary
+    // point for the battlefield by the time this fires, and this is a second one.
+    // That is the card — a 5-Energy 4-Might Champion-adjacent body whose whole
+    // text is "the battlefield I am standing on is worth two".
+    //
+    // **A plain `points + 1`, deliberately NOT routed through `recordConquest`**,
+    // for the reason Yasuo - Windrider's entry sets out: rule 474's Final Point
+    // restriction applies only to a point gained "through a Conquer", and sending
+    // this down that path would silently withhold a winning point unless every
+    // battlefield had been scored that turn.
+    on: "battlefieldHeld",
+    // Both conditions are fixed at fire time. The location one especially: this
+    // trigger is held, and the window it opens is precisely when an opponent
+    // could move or kill Ahri — re-asking at resolution would let them cancel a
+    // point that has already been earned.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = { ...players[listener.ownerIndex], points: players[listener.ownerIndex].points + 1 };
+      return { ...state, players };
+    },
+  },
+  "OGN-067": {
+    // Blitzcrank - Impassive's third clause — "When I hold, return me to my
+    // owner's hand."
+    //
+    // A drawback, and a printed one: he is a 5-Might [Tank] who cannot keep a
+    // battlefield he has taken. The point still SCORES — `scoreHolds` has already
+    // awarded it by the time this fires — so the card is a body that trades
+    // itself for a point and comes back to be replayed.
+    //
+    // "When **I** hold" is the same positional reading Ahri - Alluring takes
+    // above: the battlefield held has to be the one he is standing at.
+    //
+    // `returnUnitToHand` rather than a recall: "to my owner's HAND" is leaving
+    // play (709 strips the buff, damage and this-turn Might reset), which is what
+    // makes replaying him a fresh on-play trigger rather than a repositioning.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? returnUnitToHand(state, listener.card.instanceId) : state),
+  },
+  "OGN-073": {
+    // Sona - Harmonious — "At the end of your turn, if I'm at a battlefield,
+    // ready up to 4 friendly runes."
+    //
+    // The first permanent in the pool to watch the End Phase; Annie - Dark
+    // Child's "ready up to 2 runes" is the same moment on a Legend, and both now
+    // ready through the one `readyRunes` in effect-helpers.ts rather than two
+    // copies of "up to".
+    //
+    // **"Your turn" is read from the EVENT, never from `state.activePlayerIndex`.**
+    // `endOfTurn` is held as a Chain Pending Item (383) and `submit`'s Pass runs
+    // End and the next Start-of-Turn as one action, so by the time this resolves
+    // the turn has rotated and the active player is the opponent. Asking the
+    // board would make Sona fire on exactly the turns she should not.
+    //
+    // "Up to 4" is not offered as a choice, for the reason `readyRunes` gives:
+    // readying is strictly beneficial, so maxing it is the faithful reading
+    // rather than a shortcut. "FRIENDLY runes" is her controller's pool, which is
+    // the only pool the helper can reach.
+    on: "endOfTurn",
+    // Both conditions are settled at fire time and deliberately NOT re-asked in
+    // `resolve`. "If I'm at a battlefield" is a fire-time condition in the same
+    // family as Adaptatron's location check: the window this hold opens is
+    // precisely when an opponent could move or kill Sona, and re-asking would let
+    // them cancel an ability that has already triggered. 383 fixes triggering at
+    // the moment of the event.
+    applies: (_state, listener, event) =>
+      event.kind === "endOfTurn" && event.playerIndex === listener.ownerIndex && listener.battlefieldId !== undefined,
+    resolve: (state, listener, event) => (event.kind === "endOfTurn" ? readyRunes(state, listener.ownerIndex, 4) : state),
+  },
   "OGN-060": {
     // Mask of Foresight — "When a friendly unit attacks or defends alone, give it
     // +1 Might this turn."
@@ -500,6 +620,32 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Blitzcrank - Impassive's "you may move an enemy unit to here", raised by his
+  // on-play trigger, which has already established that he was played TO a
+  // battlefield and that some enemy unit exists.
+  //
+  // "AN ENEMY UNIT" carries no location word, so 355.9.b's bare-noun reading
+  // applies and a unit sitting in the opponent's base is a legal grab — which is
+  // the interesting half of the card, since dragging a defender out of a
+  // battlefield they were holding is something Charm already does.
+  //
+  // Declining is always available and listed FIRST, so a mis-click and the AI's
+  // tie-break both land on doing nothing. That default is the right way round
+  // here: the grab contests Blitzcrank's own battlefield and can cost the hold
+  // his third clause is built around.
+  "OGN-067-grab": {
+    prompt: () => "Blitzcrank - Impassive: move an enemy unit to his battlefield?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0).map((u) => ({
+        id: u.instanceId,
+        label: `Move ${u.name} here`,
+        instanceId: u.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" || !d.battlefieldId ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId),
+  },
   // Spirit's Refuge's "buff a friendly unit", raised by its on-play self-trigger.
   //
   // "A friendly unit" carries no location word, so base and battlefield are both

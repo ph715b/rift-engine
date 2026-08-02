@@ -284,6 +284,62 @@ export type GameEvent =
    *  that changes the board has to do so while there is still a scoring step
    *  left to be affected by it. */
   | { kind: "beginningPhase"; playerIndex: 0 | 1 }
+  /**
+   * `playerIndex`'s turn is ending — Sona - Harmonious's "at the end of your
+   * turn", and the same moment `dispatchLegendEndOfTurn` already serves for
+   * Annie - Dark Child.
+   *
+   * Fired from `runEnd` BEFORE the turn's "this turn" state is cleared and
+   * before `activePlayerIndex` rotates, so `playerIndex` is the player whose
+   * turn is ending and a listener asking "is it MY turn" gets the answer the
+   * card means. It carries that index rather than leaving listeners to read
+   * `state.activePlayerIndex`, because a held trigger resolves after the
+   * rotation and would then read the wrong player — see the turn-boundary note
+   * on `HeldEventKind`.
+   */
+  | { kind: "endOfTurn"; playerIndex: 0 | 1 }
+  /**
+   * A unit that was EXHAUSTED became Ready — Pirate's Haven's "when you ready a
+   * friendly unit, give it +1 Might this turn".
+   *
+   * **Includes the Awakening Phase's mass ready**, which is the whole difference
+   * between a combo trigger and +1 Might to a board every turn. Rule 415: "A
+   * player Readies all non-spell Game Objects they Control during the Awakening
+   * Phase on their turn", so the Awaken *is* a readying performed by the player
+   * and "when you ready" is satisfied. Recorded in docs/rules-calls-resolved.md
+   * as the strong reading, and it is the printed one.
+   *
+   * **Fires only for a unit that was actually exhausted.** 415 again: "A Unit
+   * that is already Ready cannot be Readied again. If a Unit is instructed to be
+   * Readied while it is already Ready, nothing additional happens." Same shape as
+   * `addBuff`'s 708 guard and `stunUnits`' 422 one — a no-op is not an event.
+   *
+   * `ownerIndex` is whose unit it is, which is what "a FRIENDLY unit" is measured
+   * against. There is deliberately no readier index: "you ready" and "a friendly
+   * unit" collapse in this pool because every one of the thirteen `readyUnit`
+   * call sites readies the actor's OWN unit (each is "ready me" or a
+   * `owner: "friendly"` target), and the Awaken readies the active player's own
+   * board. A carried readier would therefore be `ownerIndex` at every site — a
+   * field that cannot be wrong yet, which is exactly the kind that goes wrong
+   * silently later. The day a card readies an ENEMY unit, this is the field to
+   * add, and the compiler will name every producer.
+   */
+  | { kind: "unitReadied"; ownerIndex: 0 | 1; unitInstanceId: string }
+  /**
+   * `holderIndex` HELD `battlefieldId` in their Beginning Phase — Ahri -
+   * Alluring's "when I hold, you score 1 point".
+   *
+   * Held, in rule 471.1.a's sense: "maintains Control of a Battlefield they did
+   * not yet Score this turn". So this is the SCORING event, not merely "still
+   * has units there" — a battlefield already scored this turn by a Conquer is not
+   * held again (471.1.b), and fires nothing.
+   *
+   * ONE event per battlefield, not one per Beginning Phase. Both cards that read
+   * it say "when **I** hold", which is a claim about the battlefield the unit is
+   * standing at, and a phase-shaped event could not say which battlefield was
+   * meant when two are held at once.
+   */
+  | { kind: "battlefieldHeld"; holderIndex: 0 | 1; battlefieldId: string }
   /** A Buff was PLACED on a unit (Mistfall). `ownerIndex` is whose unit it is,
    *  which is what "a FRIENDLY unit" is measured against — not who caused it, so
    *  buffing an enemy unit does not offer their gear its trigger. Fired only when
@@ -384,8 +440,26 @@ export type GameEvent =
  * the same reason. `holdEventTrigger` consults `applies` and `dispatchEvent` does
  * not, so a half-converted kind resolves one way from one call site and the other
  * way from another.
+ *
+ * **A TURN-BOUNDARY event outlives the turn that fired it.** `submit`'s Pass runs
+ * `runStartOfTurn(runEnd(state))` as one action with a single Cleanup at the end,
+ * so a trigger held in `runEnd` is still in the pen while the turn rotates, the
+ * next player Awakens, holds score and a card is drawn — and only finalizes onto
+ * the chain after all of it. Every listener for such an event must therefore take
+ * whose turn it was from the EVENT, never from `state.activePlayerIndex`, and must
+ * settle any "am I still here" condition in `applies` at fire time. The divergence
+ * this leaves (the End Phase's abilities resolve at the start of the next turn
+ * rather than within the End Phase) is recorded in docs/rules-conformance.md, and
+ * `test/turn-boundary-triggers.test.ts` pins the behaviour across the rotation.
  */
-export type HeldEventKind = "unitBuffed" | "battlefieldConquered" | "cardPlayed" | "unitMoved";
+export type HeldEventKind =
+  | "unitBuffed"
+  | "battlefieldConquered"
+  | "cardPlayed"
+  | "unitMoved"
+  | "endOfTurn"
+  | "unitReadied"
+  | "battlefieldHeld";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;

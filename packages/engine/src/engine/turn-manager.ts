@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase, dispatchLegendEndOfTurn } from "./legend-abilities.js";
 import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
-import { dispatchEvent, killGear } from "./triggers.js";
+import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -45,6 +45,18 @@ export function runAwaken(state: GameState): GameState {
   }
   const active = state.activePlayerIndex;
 
+  // Captured BEFORE the mass ready, because that is the only moment "was it
+  // exhausted" is still answerable — rule 415 makes readying an already-Ready
+  // unit a no-op, so a unit that was standing Ready must NOT produce a
+  // `unitReadied` event. Ids rather than units: each of the holds below reads a
+  // board this function has already rebuilt.
+  const awakened = [
+    ...state.players[active].baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[state.players[active].id] ?? []),
+  ]
+    .filter((u) => u.exhausted)
+    .map((u) => u.instanceId);
+
   const battlefields = state.battlefields.map((bf) => ({
     ...bf,
     units: {
@@ -62,7 +74,23 @@ export function runAwaken(state: GameState): GameState {
     scoredBattlefieldsThisTurn: [],
   }));
 
-  return { ...next, phase: "Beginning" };
+  // One `unitReadied` PER UNIT, not one for the phase. Pirate's Haven reads
+  // "give IT +1 Might this turn", so the event has to name a unit; a single
+  // Awaken-shaped event could not say which. Rule 415 is what makes the Awaken a
+  // readying at all — see the event's own note and docs/rules-calls-resolved.md.
+  //
+  // These are HELD, so a player with N exhausted units and a Pirate's Haven in
+  // play puts N Pending Items on the chain at the top of every turn. That is the
+  // rules' own shape (383 places each triggered ability separately) and it is why
+  // probes/chain-depth.ts now carries an Awaken positive control — N triggers per
+  // turn is the first thing in this engine that can make the chain deep by
+  // routine play rather than by a combo.
+  const held = awakened.reduce(
+    (current, unitInstanceId) => holdEventTrigger(current, { kind: "unitReadied", ownerIndex: active, unitInstanceId }),
+    next,
+  );
+
+  return { ...held, phase: "Beginning" };
 }
 
 /**
@@ -229,6 +257,25 @@ export function runEnd(state: GameState): GameState {
   // map below: it's an ability firing, not a field reset.
   const afterLegend = dispatchLegendEndOfTurn(state, state.activePlayerIndex);
 
+  // Permanents watch the same moment (Sona - Harmonious). HELD, not dispatched
+  // (383): a triggered ability is a Chain Pending Item from the instant it fires
+  // and becomes respondable when the Cleanup finalizes it.
+  //
+  // **Fired here, before every reset below, and that is the whole point of the
+  // position.** The resets clear exactly the "this turn" state an end-of-turn
+  // ability is about, so a trigger fired after them would be asked its question
+  // about a turn that had already been erased — the same reasoning the Legend
+  // dispatch immediately above already follows.
+  //
+  // The event carries the ending player rather than leaving listeners to read
+  // `state.activePlayerIndex`, because it does NOT resolve here. `submit`'s Pass
+  // is `runStartOfTurn(runEnd(state))` with a single Cleanup at the end, so this
+  // entry sits in the pen across the rotation below, across the next player's
+  // Awaken, hold scoring and draw, and finalizes onto the chain only after all of
+  // it. By then `activePlayerIndex` is the OTHER player. See HeldEventKind's
+  // turn-boundary note and test/turn-boundary-triggers.test.ts, which pins it.
+  const afterTriggers = holdEventTrigger(afterLegend, { kind: "endOfTurn", playerIndex: state.activePlayerIndex });
+
   // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
   // +1 Might that carries into later turns — which is what makes the eight
@@ -249,7 +296,7 @@ export function runEnd(state: GameState): GameState {
     ...("movesThisTurn" in u ? { movesThisTurn: 0 } : {}),
   });
 
-  const players = afterLegend.players.map((p) => ({
+  const players = afterTriggers.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireMightThisTurn),
     floatingEnergy: 0,
@@ -267,7 +314,7 @@ export function runEnd(state: GameState): GameState {
     unitsLostThisTurn: 0,
   })) as [PlayerState, PlayerState];
 
-  const battlefields = afterLegend.battlefields.map((bf) => {
+  const battlefields = afterTriggers.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
       units[playerId] = list.map(expireMightThisTurn);
@@ -281,7 +328,7 @@ export function runEnd(state: GameState): GameState {
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.
   return healAllUnits({
-    ...afterLegend,
+    ...afterTriggers,
     players,
     battlefields,
     activePlayerIndex: nextIndex,

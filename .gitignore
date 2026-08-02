@@ -39,5 +39,6 @@ npm-debug.log*
 
 # Screenshots written by tools/ui-probes — evidence for one run, not artefacts.
 tools/ui-probes/.shots/
-# Generated decklist for live-triggers.mjs — rebuilt from the registry, not authored.
+# Generated decklists for live-triggers.mjs — rebuilt from the registry, not authored.
 tools/ui-probes/.buffdeck.txt
+tools/ui-probes/.calmdeck.txt

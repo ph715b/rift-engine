@@ -62,16 +62,32 @@ first run of this probe reported `triggerRowStates: 0` and said **OK** — the
 a purpose-built Sett buff deck through the real lobby UI (paste → Parse → Save)
 and uses it for BOTH seats, and it **fails** when it sees no trigger row.
 
-Regenerate the deck when the card pool changes:
+Regenerate the decks when the card pool changes:
 
 ```
-node tools/ui-probes/make-buffdeck.mjs
+node tools/ui-probes/make-buffdeck.mjs            # .buffdeck.txt — Sett, Body + Order
+DECK=calm node tools/ui-probes/make-buffdeck.mjs  # .calmdeck.txt — Ahri, Calm + Mind
 ```
 
-Its `PRIORITY` list is the point: filling by registry order alone produced a deck
-containing none of the cards the probe exists to observe, so the probe honestly
-reported that their prompts never rendered. **Anything whose live behaviour you
-are checking has to go in that list.** The generator also encodes three things the
+and run either with the matching `DECK`:
+
+```
+PORT=5173 ACTIVE=1 node tools/ui-probes/live-triggers.mjs
+PORT=5173 ACTIVE=1 DECK=calm node tools/ui-probes/live-triggers.mjs
+```
+
+**Two decks, because a domain pair is a hard ceiling on what one deck can reach.**
+The Body/Order deck cannot contain a single Calm card, so Sona - Harmonious, Ahri
+- Alluring and Blitzcrank - Impassive were unreachable by any run of this probe —
+and unreachable looks exactly like broken from here, since both report the trigger
+as never observed. The Calm deck's legend is chosen so that its eligible champion
+IS Ahri - Alluring: a champion has guaranteed Champion-Zone access, so her hold
+trigger is reachable every game rather than on a draw.
+
+Each deck's `priority` list is the point: filling by registry order alone produced
+a deck containing none of the cards the probe exists to observe, so the probe
+honestly reported that their prompts never rendered. **Anything whose live
+behaviour you are checking has to go in that list.** The generator also encodes three things the
 deck text must get right, each of which cost a run: the champion the parser picks
 is itself a card (Sett - Brawler), so adding 3 more copies makes 4 and validation
 refuses; the main deck needs **39** lines because `cardIds = [...mainDeck,

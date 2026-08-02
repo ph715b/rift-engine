@@ -51,10 +51,12 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // on-spell-cast listeners to notify, so it takes its own short path and never
   // reaches the Spell handling below (which reads `poppedEntry.card`).
   //
-  // Nothing pushes one of these yet — see TriggerChainEntry — so this branch is
-  // currently unreachable. It exists so that converting the 14 dispatch sites is
-  // a series of small changes against a resolution path that already works,
-  // rather than one change that moves the type and the behaviour together.
+  // This branch was written before anything could reach it, so that converting
+  // the dispatch sites would be a series of small changes against a resolution
+  // path that already worked. Seven event kinds now push here (see
+  // `HeldEventKind`), including three fired from the turn machinery itself — so
+  // an ordinary turn with a Pirate's Haven on the board comes through this line
+  // once per unit that Awakened.
   if (!isSpellChainEntry(poppedEntry)) {
     const afterTrigger = resolvePendingTrigger(state, poppedEntry);
     const remaining = afterTrigger.spellChain.slice(0, -1);
