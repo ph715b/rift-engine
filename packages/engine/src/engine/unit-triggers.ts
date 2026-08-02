@@ -18,6 +18,8 @@ import {
   stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
+import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { dispatchLegendOnEnemyAttack, dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
@@ -65,17 +67,28 @@ export interface UnitTriggerDefinition {
   resolve: (state: GameState, ctx: EffectContext, unitInstanceId: string, event: UnitTriggerEvent) => GameState;
 }
 
-/** Cards whose entire printed ability is [Vision] ("look at the top card
- *  of your Main Deck. You may recycle it.") — fanned into two distinct
- *  legal PlayCard actions (visionRecycle true/false) by legal-actions.ts,
- *  since the choice must be decided in the submitted action, not asked
- *  mid-resolution. Exported as its own small set rather than folded into
- *  TargetingSpec, since it's an orthogonal axis (Mystic Poro/Sai Scout's
- *  targeting is otherwise "none"). */
-const VISION_UNIT_DEF_IDS = new Set(["OGN-171", "OGN-174"]); // Mystic Poro, Sai Scout
-
-export function unitTriggerHasVisionChoice(defId: string): boolean {
-  return VISION_UNIT_DEF_IDS.has(defId);
+/**
+ * Will this card predict as it enters — fanned into two distinct legal PlayCard
+ * actions (visionRecycle true/false) by legal-actions.ts, since the choice must
+ * be decided in the submitted action rather than asked mid-resolution. Kept as
+ * its own axis rather than folded into TargetingSpec, since it is orthogonal
+ * (Mystic Poro's targeting is otherwise "none").
+ *
+ * **Was a hardcoded set of two defIds, and that was the shape of the bug.**
+ * `[Vision]` is a keyword, not two cards' text: the rules make it "functionally
+ * short for 'When this is played, predict'" with the trigger being *"the permanent
+ * entering the Board"*, and Gemcraft Seer grants it to other friendly units. A set
+ * keyed by the printed card could never see a granted one, so her aura would have
+ * been silently inert — the card resolves, the unit arrives, and nothing looks
+ * wrong.
+ *
+ * Now asks `keywordOnEntry`, which reads the printed keyword AND the auras in
+ * play. The same function answers for `validate-play-card`, so the enumerator and
+ * the validator cannot drift.
+ */
+export function unitTriggerHasVisionChoice(state: GameState, playerIndex: 0 | 1, defId: string): boolean {
+  const def = defaultCardRegistry().tryGet(defId);
+  return def !== undefined && keywordOnEntry(state, playerIndex, def, "Vision");
 }
 
 /**
@@ -189,16 +202,12 @@ const placeTokenAtDestination = placeRecruitToken;
  * defId instead of printed name like card-effects.ts's CARD_EFFECTS.
  */
 const UNIT_TRIGGERS: Record<string, UnitTriggerDefinition> = {
-  "OGN-171": {
-    // Mystic Poro — [Vision]
-    targeting: { kind: "none" },
-    resolve: (state, ctx, _unitId, event) => applyVision(state, ctx.casterIndex, event.visionRecycle),
-  },
-  "OGN-174": {
-    // Sai Scout — [Vision] (also open-battlefield placement, handled in validate-play-card.ts)
-    targeting: { kind: "none" },
-    resolve: (state, ctx, _unitId, event) => applyVision(state, ctx.casterIndex, event.visionRecycle),
-  },
+  // Mystic Poro (OGN-171) and Sai Scout (OGN-174) used to sit here, each a
+  // `targeting: "none"` entry whose whole body was `applyVision`. They are gone
+  // because [Vision] is a KEYWORD and is now fired by `dispatchOnPlayUnit` for
+  // any unit that has one — printed or granted. Leaving them would have made
+  // those two predict TWICE. Sai Scout's open-battlefield placement is unaffected;
+  // it lives in PLACEMENT_GRANTS above.
   "OGS-018": {
     // Tibbers — deal 3 to all units at battlefields, both owners.
     targeting: { kind: "none" },
@@ -356,14 +365,33 @@ export function dispatchOnPlayUnit(
   // forgets is invisible, because the unit still deploys.
   const withLegend = dispatchLegendOnUnitPlayed(state, { unit, casterIndex });
 
+  // `[Vision]` fires HERE, for any unit that has it, rather than from a
+  // per-card entry in the table below.
+  //
+  // It was two `UNIT_TRIGGERS` entries (Mystic Poro and Sai Scout) calling
+  // `applyVision`, which is the wrong shape for a keyword and became wrong in
+  // practice the moment Gemcraft Seer granted it: a granted Vision belongs to a
+  // card with no entry in that table, or to one whose entry is about something
+  // else entirely. Fired from the funnel, it reaches every unit that enters with
+  // the keyword however it got it — which is what rule 818's "the trigger is the
+  // permanent entering the Board" says.
+  //
+  // Read off the DEPLOYED unit, so the aura's own source is already in play and
+  // the entering unit is already on the board — the moment the rules name. The
+  // recycle choice rode in on the action, because this engine cannot pause
+  // mid-resolution to ask.
+  const withVision = hasKeyword(withLegend, unit, casterIndex, "Vision")
+    ? applyVision(withLegend, casterIndex, extra?.visionRecycle)
+    : withLegend;
+
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
   // straight to the inline one, so a Unit registered in a per-domain effects
   // file validated, cost runes, deployed — and then its ability silently never
   // ran. Nothing caught it because no per-domain file had registered a Unit yet,
   // which is exactly when a per-card implementation pass would have hit it.
   const trigger = allUnitTriggers()[unit.defId];
-  if (!trigger) return withLegend;
-  return trigger.resolve(withLegend, contextFor(casterIndex), unit.instanceId, {
+  if (!trigger) return withVision;
+  return trigger.resolve(withVision, contextFor(casterIndex), unit.instanceId, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.secondTargetUnitInstanceId !== undefined

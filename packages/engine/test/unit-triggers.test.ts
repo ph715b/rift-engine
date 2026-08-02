@@ -33,9 +33,14 @@ describe("Vision (Mystic Poro, Sai Scout): look at top card, optionally recycle"
   });
 
   it("both cards are flagged as having a Vision choice", () => {
-    expect(unitTriggerHasVisionChoice("OGN-171")).toBe(true);
-    expect(unitTriggerHasVisionChoice("OGN-174")).toBe(true);
-    expect(unitTriggerHasVisionChoice("OGN-210")).toBe(false); // Daring Poro — no Vision
+    // Asked of the BOARD now, not of a hardcoded set of two defIds: [Vision] is a
+    // keyword and Gemcraft Seer grants it, so the question is "will this card have
+    // Vision as it enters" rather than "is it one of the two that print it". An
+    // empty board is the control — these two still answer yes on their own text.
+    const empty = makeState();
+    expect(unitTriggerHasVisionChoice(empty, 0, "OGN-171")).toBe(true);
+    expect(unitTriggerHasVisionChoice(empty, 0, "OGN-174")).toBe(true);
+    expect(unitTriggerHasVisionChoice(empty, 0, "OGN-210")).toBe(false); // Daring Poro — no Vision
   });
 });
 

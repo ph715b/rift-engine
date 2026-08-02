@@ -336,14 +336,32 @@ describe("a partial note says how much is left", () => {
    * half that IS live — the hand-maintained `PARTIALLY_IMPLEMENTED` map — because
    * the optimistic-note hole reopens the moment the next pending keyword lands.
    */
-  it("reports a hand-listed partial, and says WHY", () => {
-    // Spirit's Refuge is the live case: its buff half is implemented and its
-    // "friendly buffed units have [Deflect]" aura is not — a keyword aura from a
-    // GEAR source, which nothing expresses. [Deflect] itself works now, so the
-    // note can no longer be derived from the keyword and has to be stated.
+  it("keeps its two answers consistent: a card with a partial note is never implemented", () => {
+    // Spirit's Refuge was the last hand-listed partial and its aura has landed,
+    // so `PARTIALLY_IMPLEMENTED` is empty and there is no longer a specific card
+    // to point at. The INVARIANT is what survives, and it is the one that matters:
+    // `partialImplementationNote` and `isCardImplemented` read the same two
+    // sources (the hand-written map and the derived unimplemented keywords), and
+    // the whole value of this module is that they cannot disagree.
+    //
+    // Written as a sweep rather than pinned to one card deliberately — it holds
+    // while both lists are empty, and starts doing real work the moment the next
+    // two-clause card is written by halves, which is exactly when nobody will
+    // remember to add a test.
+    for (const def of registry.all()) {
+      const note = partialImplementationNote(def);
+      if (note === undefined) continue;
+      expect(isCardImplemented(def), `${def.id} (${def.name}) has a partial note but reports implemented: ${note}`).toBe(false);
+    }
+  });
+
+  it("says NOTHING about Spirit's Refuge — the entry was deleted, not reworded", () => {
+    // The direction nobody checks. An entry left behind after its gap closed
+    // would grey a working card forever, and the map's own doc comment says
+    // entries are deleted rather than amended; this is what holds it to that.
     const refuge = registry.get("OGN-063");
-    expect(isCardImplemented(refuge)).toBe(false);
-    expect(partialImplementationNote(refuge)).toMatch(/aura|not written/i);
+    expect(partialImplementationNote(refuge)).toBeUndefined();
+    expect(isCardImplemented(refuge)).toBe(true);
   });
 
   it("says nothing about a card that is genuinely finished", () => {

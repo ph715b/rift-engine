@@ -36,10 +36,186 @@ const BILGEWATER_BULLY = "OGN-125";
  *  CURRENT Might. */
 const FIORA_VICTORIOUS = "OGN-232";
 
+/**
+ * Captain Farron: "Other friendly units here have [Assault]." The first keyword
+ * aura in the pool whose SOURCE is a different card from the unit that gets the
+ * keyword — every grant above is a card's own text about itself.
+ */
+const CAPTAIN_FARRON = "OGN-015";
+/** Taric - Protector: "[Shield][Tank] Other friendly units here have [Shield]."
+ *  The printed two are the card frame's; only the aura is written here. */
+const TARIC_PROTECTOR = "OGN-074";
+/**
+ * Spirit's Refuge: "Friendly buffed units have [Deflect] if they didn't already."
+ *
+ * Two firsts, and both are why the aura table below needs more than a defId and a
+ * keyword list. Its source is a **GEAR**, which is never at a battlefield in this
+ * pool — so it can only be an unpositioned aura, which is also what its text says
+ * (no "here"). And it carries a **per-target condition**: "buffed" is a property
+ * of each receiving unit, re-asked as buffs are placed and spent.
+ *
+ * "If they didn't already" is not a third thing to implement — it is the
+ * non-stacking that `Math.max` below already gives, and it is what stops the
+ * grant LOWERING a printed `[Deflect 2]` to 1.
+ */
+const SPIRITS_REFUGE = "OGN-063";
+/**
+ * Gemcraft Seer: "[Vision] Other friendly units have [Vision]."
+ *
+ * **The rules use this exact sentence as their own worked example** of layer 2
+ * (477): *"A permanent has the ability 'Other friendly units have [Vision].'
+ * Other friendly units gain the Vision keyword in this layer."* So there is
+ * nothing to guess about whether the aura is real.
+ *
+ * What it MEANS took the keyword's own definition: *"Vision is a Triggered
+ * Ability keyword… functionally short for 'When this is played, predict.' **The
+ * trigger is the permanent entering the Board.**"* That last sentence is the
+ * whole card. Read as a "when you play me" ability the grant would be inert —
+ * every unit already in play has had its play moment — but the trigger condition
+ * is the ENTRY, so a unit arriving while the Seer stands predicts on arrival.
+ *
+ * `scope: "anywhere"`, because her text names no battlefield, unlike Farron's and
+ * Taric's. That is also what makes her implementable without knowing where the
+ * entering unit is going: see `unitEntersWithVision`.
+ */
+const GEMCRAFT_SEER = "OGN-100";
+
 /** The cards whose printed text this module implements — for coverage.ts, which
  *  would otherwise report them inert. */
 export function grantedKeywordDefIds(): string[] {
-  return [RAGING_SOUL, BILGEWATER_BULLY, FIORA_VICTORIOUS];
+  return [RAGING_SOUL, BILGEWATER_BULLY, FIORA_VICTORIOUS, ...Object.keys(KEYWORD_AURAS)];
+}
+
+/**
+ * A keyword granted to OTHER permanents by a source card — rule 477's layer 2,
+ * "Ability-Altering Effects", which the rules identify by the words "have"/"has"
+ * and whose own worked example is one of these very cards ("A permanent has the
+ * ability 'Other friendly units have [Vision].' Other friendly units gain the
+ * Vision keyword in this layer").
+ *
+ * Structurally different from `CONDITIONAL_GRANTS` above, which is keyed by the
+ * RECEIVING unit's own defId because every entry there is a card talking about
+ * itself. An aura is keyed by its SOURCE and has to be looked up from the other
+ * end, which is why it could not be expressed as another `Grant`.
+ *
+ * Deliberately a small keyed table rather than a general continuous-ability
+ * engine, the same convention `effective-might.ts`'s aura list follows and for the
+ * same reason: three confirmed cards, no speculation.
+ */
+interface KeywordAura {
+  /** Where the source lives. Gear is never at a battlefield here, so a gear
+   *  source can only ever be `scope: "anywhere"`. */
+  source: "unit" | "gear";
+  /** `"here"` is the source's own battlefield and nothing else — so a source
+   *  sitting in BASE reaches nobody, the same positional reading Lee Sin -
+   *  Centered's and Leona - Zealot's Might auras take. */
+  scope: "here" | "anywhere";
+  /** "OTHER friendly units" — printed on both unit sources, and load-bearing:
+   *  without it Taric grants himself a [Shield] he already has and Farron gives
+   *  himself an [Assault] he does not print. */
+  excludesSelf: boolean;
+  /** A condition on the RECEIVING unit — Spirit's Refuge's "buffed". Asked fresh
+   *  on every read, so it comes and goes with the buff. */
+  appliesTo?: (unit: UnitInstance) => boolean;
+  keywords: Keyword[];
+}
+
+const KEYWORD_AURAS: Record<string, KeywordAura> = {
+  [CAPTAIN_FARRON]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Assault"] },
+  [TARIC_PROTECTOR]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Shield"] },
+  [GEMCRAFT_SEER]: { source: "unit", scope: "anywhere", excludesSelf: true, keywords: ["Vision"] },
+  [SPIRITS_REFUGE]: {
+    source: "gear",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesTo: (unit) => unit.buffed,
+    keywords: ["Deflect"],
+  },
+};
+
+/** Where a unit in play stands, as the aura scopes express it. `undefined` for a
+ *  unit that is not on the board at all — a card still in hand reaches here
+ *  through `effectiveKeywords`, and it is nobody's neighbour. */
+function locationOf(state: GameState, unit: UnitInstance): string | "base" | undefined {
+  const found = findUnitAnywhere(state, unit.instanceId);
+  if (!found) return undefined;
+  return found.zone === "base" ? "base" : state.battlefields[found.zone.battlefieldIndex]?.id;
+}
+
+/**
+ * Does `ownerIndex` have a copy of `defId` standing at `location`, OTHER than
+ * `exceptInstanceId`?
+ *
+ * Asked this way round rather than through `effective-might.ownUnitLocation`,
+ * which returns where the FIRST copy is. That is fine for the champion-tier cards
+ * it serves, and wrong here: Captain Farron and Taric - Protector are ordinary
+ * units, three copies to a deck, and two of them at two battlefields is an
+ * ordinary board. Asking "is one HERE" cannot miss the second.
+ *
+ * **"Other" is a different OBJECT, not a different card.** Two Captain Farrons at
+ * one battlefield each satisfy the other's "other friendly units", so each has
+ * [Assault] and neither grants it to itself — which a defId comparison gets
+ * exactly backwards, excluding both. That is why the exclusion is by instanceId
+ * and lives here rather than as a check on the card's name.
+ */
+function ownUnitAtLocation(
+  state: GameState,
+  ownerIndex: 0 | 1,
+  defId: string,
+  location: string | "base",
+  exceptInstanceId?: string,
+): boolean {
+  const owner = state.players[ownerIndex];
+  const here = location === "base" ? owner.baseUnits : (state.battlefields.find((bf) => bf.id === location)?.units[owner.id] ?? []);
+  return here.some((u) => u.defId === defId && u.instanceId !== exceptInstanceId);
+}
+
+/** Is a copy of `defId` in play for `ownerIndex` anywhere — base or any
+ *  battlefield — other than `exceptInstanceId`? The unpositioned counterpart to
+ *  `ownUnitAtLocation`, and instance-excluded for the same "other means a
+ *  different object" reason. */
+function ownUnitAnywhereExcept(state: GameState, ownerIndex: 0 | 1, defId: string, exceptInstanceId?: string): boolean {
+  const owner = state.players[ownerIndex];
+  const matches = (u: UnitInstance) => u.defId === defId && u.instanceId !== exceptInstanceId;
+  if (owner.baseUnits.some(matches)) return true;
+  return state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some(matches));
+}
+
+/** Every keyword an aura is currently granting `unit`. Empty for the overwhelming
+ *  majority of reads, and it costs a board lookup only when a source is actually
+ *  in play — `effectiveKeywords` runs per unit per damage step in combat. */
+function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): Keyword[] {
+  const owner = state.players[ownerIndex];
+  const granted: Keyword[] = [];
+  let location: string | "base" | undefined;
+  let located = false;
+
+  for (const [sourceDefId, aura] of Object.entries(KEYWORD_AURAS)) {
+    if (aura.appliesTo && !aura.appliesTo(unit)) continue;
+    // "OTHER friendly units" excludes this unit as an OBJECT, never as a card —
+    // see ownUnitAtLocation. The exclusion is therefore applied to the SOURCE
+    // search below rather than by comparing defIds here.
+    const except = aura.excludesSelf ? unit.instanceId : undefined;
+
+    if (aura.source === "gear") {
+      if (!owner.activeGear.some((g) => g.defId === sourceDefId)) continue;
+    } else if (aura.scope === "here") {
+      if (!located) {
+        location = locationOf(state, unit);
+        located = true;
+      }
+      // A unit that is not on the board, or that is in BASE, is out of reach of
+      // a "here" aura: a base is not a battlefield, so no source can share one
+      // with it. Same reading, for the same reason, as Lee Sin - Centered's
+      // positional Might aura.
+      if (location === undefined || location === "base") continue;
+      if (!ownUnitAtLocation(state, ownerIndex, sourceDefId, location, except)) continue;
+    } else if (!ownUnitAnywhereExcept(state, ownerIndex, sourceDefId, except)) {
+      continue; // an unpositioned aura still needs its source in play
+    }
+    granted.push(...aura.keywords);
+  }
+  return granted;
 }
 
 /** A grant condition, evaluated fresh on every read. */
@@ -92,7 +268,8 @@ export function effectiveKeywords(
 ): Partial<Record<Keyword, number>> {
   const grant = CONDITIONAL_GRANTS[unit.defId];
   const hasThisTurn = Object.keys(unit.keywordsThisTurn).length > 0;
-  if (!hasThisTurn && (!grant || !grant.when(state, unit, ownerIndex))) return unit.keywords;
+  const fromAuras = auraGrantedKeywords(state, unit, ownerIndex);
+  if (!hasThisTurn && fromAuras.length === 0 && (!grant || !grant.when(state, unit, ownerIndex))) return unit.keywords;
 
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
   // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
@@ -104,7 +281,67 @@ export function effectiveKeywords(
   if (grant && grant.when(state, unit, ownerIndex)) {
     for (const kw of grant.keywords) out[kw] = Math.max(out[kw] ?? 0, 1);
   }
+  // Another permanent's aura, folded in on the same terms as the card's own
+  // grants — every reader wants "does it have this NOW", and nothing downstream
+  // should be able to tell where a keyword came from. `Math.max` is what makes
+  // Spirit's Refuge's "if they didn't already" true: a printed `[Deflect 2]` is
+  // never lowered to the granted 1.
+  //
+  // **Multiple instances of the same keyword collapse to one**, because this map
+  // holds a VALUE per keyword and not a COUNT. That is right for the valued
+  // keywords ([Assault], [Shield], [Deflect]) — two sources granting [Shield] is
+  // still [Shield 1], and the rules' redundancy rule (817.1.a) says so. It is a
+  // real divergence for [Vision], whose rules text says "multiple instances of
+  // Vision trigger separately"; see docs/rules-conformance.md.
+  for (const kw of fromAuras) out[kw] = Math.max(out[kw] ?? 0, 1);
   return out;
+}
+
+/**
+ * Will a unit `playerIndex` is about to play have `keyword` at the moment it
+ * ENTERS the board?
+ *
+ * The question `[Vision]` needs and that `effectiveKeywords` cannot answer: the
+ * card is still in hand, so it is on nobody's battlefield and is not yet anyone's
+ * "other friendly unit". Vision's trigger condition is the permanent entering the
+ * Board, so what matters is whether an aura will be granting it one instant later.
+ *
+ * Asked by BOTH `legal-actions` (which fans out the recycle choice) and
+ * `validate-play-card` (which requires it), so the enumerator and the validator
+ * cannot disagree about whether a play needs the choice — the drift that has
+ * produced three offered-then-refused bugs in this codebase.
+ *
+ * **Only unpositioned auras are consulted.** A `scope: "here"` aura would depend
+ * on the destination, which is part of the action being built and not settled
+ * when this is asked; no Vision aura in this pool is positional, and the
+ * assertion below makes a future one a loud failure rather than a silent
+ * half-answer.
+ */
+export function keywordOnEntry(state: GameState, playerIndex: 0 | 1, def: { id: string; keywords?: Partial<Record<Keyword, number>> }, keyword: Keyword): boolean {
+  if (def.keywords && keyword in def.keywords) return true;
+  for (const [sourceDefId, aura] of Object.entries(KEYWORD_AURAS)) {
+    if (!aura.keywords.includes(keyword)) continue;
+    if (aura.source === "unit" && aura.scope === "here") {
+      throw new Error(
+        `keywordOnEntry: ${keyword} is granted by a positional aura (${sourceDefId}), whose reach depends on ` +
+          `a destination this question does not carry. See this function's scope note.`,
+      );
+    }
+    // `appliesTo` is deliberately not consulted: it reads the entering unit,
+    // which does not exist yet. No Vision aura has one, and a future conditional
+    // grant of an entry-triggered keyword would need the card instance rather
+    // than the definition.
+    if (aura.source === "gear") {
+      if (state.players[playerIndex].activeGear.some((g) => g.defId === sourceDefId)) return true;
+    } else if (ownUnitAnywhereExcept(state, playerIndex, sourceDefId)) {
+      // No instance exclusion: the card being played is not on the board yet, so
+      // it cannot be the source it is asking about. A SECOND Gemcraft Seer played
+      // while the first stands is genuinely "another friendly unit" to that first
+      // one, and predicts on arrival — which a defId comparison would have refused.
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Does this unit have `keyword` right now, printed or granted? The question

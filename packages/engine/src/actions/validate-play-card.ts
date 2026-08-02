@@ -272,7 +272,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
   }
 
-  if (card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId) && action.visionRecycle === undefined) {
+  // Board-aware, and it must stay the SAME question `legal-actions` asks: a
+  // Gemcraft Seer in play makes every other unit's play need a recycle choice,
+  // and an enumerator and a validator disagreeing about that is the
+  // offered-then-refused shape this codebase has shipped three times.
+  if (card.kind === "Unit" && unitTriggerHasVisionChoice(state, action.playerIndex, card.defId) && action.visionRecycle === undefined) {
     return fail(`${card.name}'s [Vision] requires a recycle choice (true or false)`);
   }
 

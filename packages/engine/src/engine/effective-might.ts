@@ -27,7 +27,14 @@ export interface MightContext {
  *  practice, but this returns the first match either way) — "base" or a
  *  battlefield id, or undefined if it isn't in play at all. Used by
  *  Garen - Commander's positional aura to find ITS OWN location before
- *  comparing it to the unit being evaluated. */
+ *  comparing it to the unit being evaluated.
+ *
+ *  **Returning the FIRST match is a known under-report with two copies in play**
+ *  at different battlefields: a second Garen - Commander standing elsewhere is
+ *  invisible to the unit beside him. Unreachable for the champion-tier cards here
+ *  (one copy at a time in practice) and left alone rather than changed on
+ *  speculation — `granted-keywords.ownUnitAtLocation` asks the question the other
+ *  way round, "is a source HERE", for the auras where it is reachable. */
 function ownUnitLocation(state: GameState, ownerIndex: 0 | 1, defId: string): string | "base" | undefined {
   const owner = state.players[ownerIndex];
   if (owner.baseUnits.some((u) => u.defId === defId)) return "base";

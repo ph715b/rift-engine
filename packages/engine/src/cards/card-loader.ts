@@ -136,6 +136,46 @@ const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
 ]);
 
 /**
+ * Keywords a card's text mentions only because it GRANTS them to other
+ * permanents — "Other friendly units here have [Assault]" is a statement about
+ * the neighbours, and the parser can only see the brackets.
+ *
+ * Per KEYWORD rather than per card, which `CONDITIONAL_KEYWORD_DEF_IDS` above
+ * could not be: **Taric - Protector prints `[Shield]` AND grants `[Shield]`** in
+ * the same text, so stripping the card wholesale would take his real one with it.
+ * The same reason Gemcraft Seer is absent here — her `[Vision]` is printed and
+ * granted, and both are true of her.
+ *
+ * Measured across the whole pool rather than assumed, by scanning for text that
+ * grants a bracketed keyword to other objects: **four cards match and exactly two
+ * are false positives.** Captain Farron's was a live bug — he has been swinging
+ * with an `[Assault]` he does not print, which is the third instance of this
+ * shape after `HIDDEN_KEYWORD_FALSE_POSITIVES` and `CONDITIONAL_KEYWORD_DEF_IDS`,
+ * and the second found by writing a test rather than by reading the card.
+ *
+ * Spirit's Refuge's is inert today — `deflectSurchargeForTargets` looks up units
+ * and a gear is not one, so nothing charges for choosing it — but it is a lie in
+ * the data either way, and `coverage.ts`'s own comment has been noting that it
+ * "parses a `Deflect` it does not have and only grants" without anything acting
+ * on it.
+ *
+ * The grants themselves live in engine/granted-keywords.ts's `KEYWORD_AURAS`.
+ */
+const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
+  "OGN-015": ["Assault"], // Captain Farron — "Other friendly units here have [Assault]"
+  "OGN-063": ["Deflect"], // Spirit's Refuge — "Friendly buffed units have [Deflect]"
+};
+
+/** A card's printed keywords: what the brackets say, minus the ones it only
+ *  grants, and nothing at all for a card whose keywords are conditional. */
+function printedKeywords(id: string, plain: string): Partial<Record<Keyword, number>> {
+  if (CONDITIONAL_KEYWORD_DEF_IDS.has(id)) return {};
+  const parsed = parseKeywords(plain);
+  for (const keyword of GRANTED_ONLY_KEYWORDS[id] ?? []) delete parsed[keyword];
+  return parsed;
+}
+
+/**
  * The cards whose printed text the LOADER implements, by turning it into a
  * keyword the rules engine already honors.
  *
@@ -193,7 +233,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         might: card.attributes.might ?? 0,
         isChampion: card.classification.supertype === "Champion",
         keywords: {
-          ...(CONDITIONAL_KEYWORD_DEF_IDS.has(id) ? {} : parseKeywords(plain)),
+          ...printedKeywords(id, plain),
           ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}),
         },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
@@ -230,7 +270,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         imageUrl,
         energyCost,
         powerCost,
-        keywords: CONDITIONAL_KEYWORD_DEF_IDS.has(id) ? {} : parseKeywords(plain),
+        keywords: printedKeywords(id, plain),
         isReaction: plain.includes("[Reaction]"),
         hidden: isGenuinelyHidden(plain, name),
         text: plain,

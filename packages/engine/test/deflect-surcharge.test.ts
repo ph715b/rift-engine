@@ -160,12 +160,17 @@ describe("[Deflect] is a real surcharge, priced per target", () => {
     expect(after.players[0]!.floatingEnergy).toBe(0);
   });
 
-  it("finishes the four cards whose only gap it was", () => {
-    for (const id of [POUTY_PORO, "OGN-155", "OGN-161", "OGN-232"]) {
+  it("finishes the five cards whose only gap it was", () => {
+    // Spirit's Refuge joined the four once `KEYWORD_AURAS` gave its GEAR-source
+    // grant somewhere to live — the fifth card, and the one the original survey
+    // predicted `[Deflect]` would finish.
+    for (const id of [POUTY_PORO, "OGN-155", "OGN-161", "OGN-232", "OGN-063"]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(true);
     }
-    // And NOT the two that carry unwritten text of their own.
-    for (const id of [VOLIBEAR_FURIOUS, "OGN-231", "OGN-063"]) {
+    // And NOT the two that carry unwritten text of their own — Volibear's split
+    // damage and OGN-231's kill-N-with-a-discount. Kept as the negative control:
+    // without it, "every card is implemented" would pass this test too.
+    for (const id of [VOLIBEAR_FURIOUS, "OGN-231"]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(false);
     }
   });

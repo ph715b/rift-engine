@@ -521,13 +521,19 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  cardNeedsTarget), a [Vision] recycle decision, or Meditation's optional
    *  exhaust cost? The two non-targeting axes are deliberately separate
    *  registries in the engine (they're orthogonal to TargetingSpec — see
-   *  unit-triggers.ts's VISION_UNIT_DEF_IDS and card-effects.ts's
+   *  unit-triggers.ts's `unitTriggerHasVisionChoice` and card-effects.ts's
    *  OPTIONAL_EXHAUST_COST_DEF_IDS), and the `card.kind` guards here mirror
-   *  exactly how legal-actions.ts:196/208 gates its own fan-out for them. */
+   *  exactly how legal-actions.ts gates its own fan-out for them.
+   *
+   *  The Vision question takes the BOARD as well as the card: `[Vision]` is a
+   *  keyword rather than two cards' text, and Gemcraft Seer grants it to other
+   *  friendly units — so whether a play needs a recycle step depends on what is
+   *  already in play. Asking the engine's own function rather than re-deriving
+   *  is what keeps the board's step list and the validator agreeing. */
   function cardNeedsChoice(card: CardInstance): boolean {
     return (
       cardNeedsTarget(card) ||
-      (card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId)) ||
+      (card.kind === "Unit" && unitTriggerHasVisionChoice(state, HUMAN_INDEX, card.defId)) ||
       (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId))
     );
   }
@@ -746,7 +752,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (targeting.kind === "ownTrashCard" && pending.trashCardInstanceId === undefined) {
       if (offers("trashCardInstanceId")) return "trashCard";
     }
-    if (pending.card.kind === "Unit" && unitTriggerHasVisionChoice(pending.card.defId) && pending.visionRecycle === undefined) {
+    if (pending.card.kind === "Unit" && unitTriggerHasVisionChoice(state, HUMAN_INDEX, pending.card.defId) && pending.visionRecycle === undefined) {
       return "vision";
     }
     return null;

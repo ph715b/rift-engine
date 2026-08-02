@@ -321,21 +321,19 @@ describe("Spirit's Refuge (OGN-063): buff a friendly unit when it is played", ()
     expect(after.players[0]!.activeGear).toHaveLength(1);
   });
 
-  it("is still reported PARTIAL — but for a DIFFERENT reason since [Deflect] landed", () => {
-    // The reason changed and the assertion did not, which is worth saying out
-    // loud. This used to hold because `[Deflect]` had no implementation, so
-    // granting it would have been a no-op; the surcharge is now real. What is
-    // still unwritten is the GRANT itself — "friendly buffed units have
-    // [Deflect]" is a continuous keyword aura from a GEAR source with a
-    // per-target condition, and `CONDITIONAL_GRANTS` is keyed by the RECEIVING
-    // unit while no aura lookup walks `activeGear`.
+  it("is WHOLE — it was the last card on the partial list, and the list is now empty", () => {
+    // This assertion has been inverted twice and the history is the point. It
+    // first held because `[Deflect]` had no implementation at all, so granting it
+    // would have been a no-op. Then it held for a different reason — the
+    // surcharge was real but the GRANT was not, carried by a hand-written
+    // `coverage.PARTIALLY_IMPLEMENTED` entry.
     //
-    // So this is now carried by a hand-written `coverage.PARTIALLY_IMPLEMENTED`
-    // entry rather than derived from the keyword. If it ever flips to `true`
-    // without that aura landing, the measure has started lying about this card
-    // again — which it briefly did, when deleting the keyword entry swept this
-    // card up with the four it genuinely finished.
-    expect(isCardImplemented(registry.get(SPIRITS_REFUGE))).toBe(false);
+    // Both gaps are closed: `granted-keywords.KEYWORD_AURAS` gives a GEAR-source
+    // aura with a per-target condition somewhere to live, and the entry was
+    // DELETED rather than reworded. See keyword-auras.test.ts, which asserts the
+    // grant actually reaches `deflectSurcharge` — flipping this to `true` on its
+    // own would only mean the map had been emptied.
+    expect(isCardImplemented(registry.get(SPIRITS_REFUGE))).toBe(true);
   });
 });
 

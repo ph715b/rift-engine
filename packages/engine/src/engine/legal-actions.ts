@@ -519,7 +519,10 @@ export function legalActions(state: GameState): PlayerAction[] {
     // recycle-true and recycle-false copy, since the choice must already be
     // decided in the submitted action (this engine can't pause mid-resolution
     // to ask).
-    const hasVision = card.kind === "Unit" && unitTriggerHasVisionChoice(card.defId);
+    // Asked of the BOARD, not just the card: Gemcraft Seer grants [Vision] to
+    // other friendly units, so whether this play needs a recycle choice depends
+    // on what is already in play. `validate-play-card` asks the same function.
+    const hasVision = card.kind === "Unit" && unitTriggerHasVisionChoice(state, playerIndex, card.defId);
     const afterVision: Partial<PlayCardAction>[] = hasVision
       ? effectVariants.flatMap((v) => [
           { ...v, visionRecycle: true },

@@ -62,6 +62,8 @@ const DECKS = {
       "OGN-067", // Blitzcrank - Impassive — battlefieldHeld bounce + the on-play grab decision
       "OGN-073", // Sona - Harmonious — endOfTurn, the first turn-boundary trigger
       "OGN-063", // Spirit's Refuge — grants [Deflect] to buffed friendlies
+      "OGN-100", // Gemcraft Seer — grants [Vision], so OTHER units' plays gain a recycle step
+      "OGN-074", // Taric - Protector — grants [Shield] to units at his battlefield
       "OGN-072", // Solari Shrine — "you may exhaust this to draw 1"
       "OGN-071", // Party Favors — the OPPONENT answers
     ],

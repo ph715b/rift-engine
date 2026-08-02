@@ -218,16 +218,17 @@ export function implementingModule(defId: string): string | undefined {
  * when the rest lands. A card is either finished or it is on this list.
  */
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // Entries are DELETED when the rest lands, never reworded. Sett - The Boss lived
-  // here while only his on-conquer clause worked; Convergent Mutation lived here
+  // EMPTY as of 2026-08-02, and that is the shape working rather than an
+  // omission. Entries are DELETED when the rest lands, never reworded: Sett - The
+  // Boss lived here while only his on-conquer clause worked, Convergent Mutation
   // for the hours between its enumeration gap being found and `asymmetricSlots`
-  // landing. A card is either finished or it is on this list.
-  [
-    "OGN-063",
-    "its second sentence — 'friendly buffed units have [Deflect] if they didn't already' — is not written. " +
-      "That is a continuous keyword aura from a GEAR source with a per-target condition, and nothing expresses it: " +
-      "CONDITIONAL_GRANTS is keyed by the RECEIVING unit's defId and no aura lookup walks activeGear",
-  ],
+  // landing, and Spirit's Refuge until `granted-keywords.KEYWORD_AURAS` gave a
+  // GEAR-source aura with a per-target condition somewhere to live.
+  //
+  // Keep the mechanism rather than deleting it, for the reason
+  // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
+  // defId, so the next two-clause card written by halves reports DONE on the
+  // first half, and this list is the only thing that says otherwise.
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

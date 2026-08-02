@@ -70,7 +70,7 @@ needing to pay ENERGY inside a decision (OGN-035, OGN-062) has to build it.
 | 2 | **`unitMoved` event + `movesThisTurn` counter** (one edit to `execute-move-unit`) | **2** (177, 205) | 189, 158 |
 | 3 | ~~**Four new permanent events**, each `holdEventTrigger`: `unitReadied`, `endOfTurn`, `battlefieldHeld`~~ **DONE 2026-08-02** — all three landed, finishing **143, 073, 066 and 067** (Blitzcrank's on-play grab was written too, so he is whole rather than partial). `cardsRecycled` is NOT built: 235 is one of the nine unguessed rules calls. **160 Dazzling Aurora still needs the banish helper (#7) and play-from-banished-ignoring-cost**, which is the only remaining `endOfTurn` card | **4** (143, 073, 066, 067) | 160, 235 |
 | 4 | **Chain-item targeting spine** (`counterSpell`) | **2** (064, 045) | 080 |
-| 5 | **Keyword auras from another source** | **3** (015, 074, 100) | 063 |
+| 5 | ~~**Keyword auras from another source**~~ **DONE 2026-08-02** — one `KEYWORD_AURAS` table keyed by the SOURCE, which finished **all four**: the GEAR-source variant with a per-target predicate landed with the rest rather than separately, so 063 is whole and `PARTIALLY_IMPLEMENTED` is now empty | **4** (015, 074, 100, 063) | — |
 | 6 | **Per-variant payment restructure** (X-costs, `modifiedPowerCost`) | **3** (150, 231, 268) | converges with #1 |
 | 7 | **Banish helper** (`banished` still has zero writers) | **1** (102) | 115, 122, 194 |
 | 8 | **Computed Hide cost** | **1** (264) | 263 |
