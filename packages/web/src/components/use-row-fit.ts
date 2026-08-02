@@ -27,7 +27,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 // Return type left to inference: annotating the ref widened it to
 // `RefObject<HTMLDivElement | null>`, which this React version's `ref` prop does
 // not accept.
-export function useRowFit(count: number, gapPx = DEFAULT_ROW_GAP_PX) {
+export function useRowFit(count: number, gapPx = DEFAULT_ROW_GAP_PX, rotatedCount = 0) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [marginLeft, setMarginLeft] = useState(gapPx);
 
@@ -44,18 +44,25 @@ export function useRowFit(count: number, gapPx = DEFAULT_ROW_GAP_PX) {
       // getBoundingClientRect, not offsetWidth: offsetWidth is rounded to whole
       // pixels and these are sized in container units, so the real width is
       // fractional. Rounding up half a pixel per card made the fit under-reserve.
-      const itemWidth = firstItem.getBoundingClientRect().width;
+      const rect = firstItem.getBoundingClientRect();
+      const itemWidth = rect.width;
       if (count <= 1 || itemWidth === 0) {
         setMarginLeft(gapPx);
         return;
       }
 
-      const naturalTotal = count * itemWidth + (count - 1) * gapPx;
+      // A TAPPED item is rotated 90deg, so it lies on its side and takes its HEIGHT
+      // across instead of its width. Reserving that difference is what lets a tapped
+      // card stay full size: the alternative is scaling it down to fit its upright
+      // slot, which made spent runes visibly smaller than every other card.
+      const rotatedExtra = Math.max(0, rotatedCount * (rect.height - itemWidth));
+
+      const naturalTotal = count * itemWidth + rotatedExtra + (count - 1) * gapPx;
       if (naturalTotal <= containerWidth) {
         setMarginLeft(gapPx);
         return;
       }
-      setMarginLeft((containerWidth - count * itemWidth) / (count - 1));
+      setMarginLeft((containerWidth - count * itemWidth - rotatedExtra) / (count - 1));
     }
 
     recompute();
@@ -66,7 +73,7 @@ export function useRowFit(count: number, gapPx = DEFAULT_ROW_GAP_PX) {
     const firstItem = row.firstElementChild;
     if (firstItem) observer.observe(firstItem);
     return () => observer.disconnect();
-  }, [count, gapPx]);
+  }, [count, gapPx, rotatedCount]);
 
   return { rowRef, marginLeft };
 }

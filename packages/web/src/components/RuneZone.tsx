@@ -68,7 +68,11 @@ export function RuneZone({ runes, mode }: RuneZoneProps) {
 
   // The fan that keeps any channelled count in one row is shared with the board's
   // other card rows now — see use-row-fit.ts, which this logic was extracted into.
-  const { rowRef, marginLeft: tileOffsetPx } = useRowFit(runes.length, DEFAULT_TILE_GAP_PX);
+  // Exhausted runes are TAPPED (rotated 90deg), so they lie on their side and need
+  // their height's worth of room. Counted here so the fan reserves it and a spent
+  // rune can stay the same size as a ready one.
+  const exhaustedCount = runes.filter((r) => r.state === "Exhausted").length;
+  const { rowRef, marginLeft: tileOffsetPx } = useRowFit(runes.length, DEFAULT_TILE_GAP_PX, exhaustedCount);
 
   return (
     <div className="zone card-zone">

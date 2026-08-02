@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useRowFit } from "./use-row-fit.js";
+import { useBoardCardSize } from "./use-board-card-size.js";
 import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
@@ -378,8 +379,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // One per card row. Each fans its cards to fit the width it actually has, so no
   // row wraps onto a second line and grows a scrollbar — the same measured fit
   // RuneZone has always used, now shared (see use-row-fit.ts).
-  const aiBaseFit = useRowFit(ai.activeGear.length + ai.baseUnits.length);
-  const yourBaseFit = useRowFit(human.activeGear.length + human.baseUnits.length);
+  // One card size for the entire board, measured from the tightest row.
+  const boardCardSize = useBoardCardSize();
+
+  // The third argument is how many of the row's cards are TAPPED — rotated, so they
+  // lie on their side and need their height's worth of room. Reserving it is what
+  // lets an exhausted card stay the same size as a ready one. A hand card is never
+  // exhausted, hence none there.
+  const exhaustedIn = (p: typeof human) =>
+    p.baseUnits.filter((u) => u.exhausted).length + p.activeGear.filter((g) => g.exhausted).length;
+  const aiBaseFit = useRowFit(ai.activeGear.length + ai.baseUnits.length, undefined, exhaustedIn(ai));
+  const yourBaseFit = useRowFit(human.activeGear.length + human.baseUnits.length, undefined, exhaustedIn(human));
   const handFit = useRowFit(human.hand.length);
 
   function playCardActionsFor(cardInstanceId: string): PlayCardAction[] {
@@ -1799,7 +1809,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         </ChoiceOverlay>
       )}
 
-      <div className="board-main">
+      <div className="board-main" ref={boardCardSize.boardRef} style={boardCardSize.style}>
         <PlayerSideColumn
           label="AI Opponent"
           points={ai.points}

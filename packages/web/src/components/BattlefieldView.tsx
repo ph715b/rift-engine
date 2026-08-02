@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { CardView, type DragPoint } from "./CardView.js";
+import { useRowFit } from "./use-row-fit.js";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
 
 interface BattlefieldViewProps {
@@ -94,6 +95,14 @@ export function BattlefieldView({
   if (isDragOver) classes.push("drag-over");
   if (isShowdownActive) classes.push("showdown");
 
+  // Same measured fan as every other card row: the CSS-only tuck this replaced
+  // could not know the row's width, so a crowded battlefield spilled past its box
+  // (measured at 225px once cards became full board size). Exhausted units are
+  // TAPPED — rotated, so they lie on their side — and their extra width is
+  // reserved rather than absorbed by shrinking them.
+  const aiFit = useRowFit(aiUnits.length, undefined, aiUnits.filter((u) => u.exhausted).length);
+  const humanFit = useRowFit(humanUnits.length, undefined, humanUnits.filter((u) => u.exhausted).length);
+
   return (
     <div className={classes.join(" ")} onClick={isClickable ? onMoveHere : undefined} data-dropzone-id={battlefield.id}>
       <div className="battlefield-name">
@@ -131,10 +140,11 @@ export function BattlefieldView({
           })}
         </div>
       )}
-      {/* `--unit-count` drives the fan in styles.css — the row tucks its cards
-          under each other instead of scrolling once they stop fitting. Passed as
-          data rather than measured, so it cannot disagree with what is rendered. */}
-      <div className="battlefield-side" style={{ "--unit-count": aiUnits.length } as CSSProperties}>
+      <div
+        className="battlefield-side"
+        ref={aiFit.rowRef}
+        style={{ "--row-fit-margin": `${aiFit.marginLeft}px` } as CSSProperties}
+      >
         {aiUnits.map((unit) => (
           <CardView
             key={unit.instanceId}
@@ -148,7 +158,11 @@ export function BattlefieldView({
           />
         ))}
       </div>
-      <div className="battlefield-side" style={{ "--unit-count": humanUnits.length } as CSSProperties}>
+      <div
+        className="battlefield-side"
+        ref={humanFit.rowRef}
+        style={{ "--row-fit-margin": `${humanFit.marginLeft}px` } as CSSProperties}
+      >
         {humanUnits.map((unit) => (
           <CardView
             key={unit.instanceId}
