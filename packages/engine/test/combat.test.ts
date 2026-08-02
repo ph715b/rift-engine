@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { UnitInstance } from "../src/model/card.js";
 import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
 import { resolveShowdown, claimBattlefieldControl } from "../src/engine/combat.js";
+import { recallUnitToBase } from "../src/engine/effect-helpers.js";
 import { scoreHolds, recordConquest } from "../src/engine/scoring.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
 import { executeMoveUnit } from "../src/actions/execute-move-unit.js";
@@ -172,13 +173,23 @@ describe("combat resolution (resolveShowdown)", () => {
     expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(0); // healed after combat
   });
 
-  it("no-ops when only one side has units (nothing to fight)", () => {
+  it("one side alone exchanges no damage but still TAKES the battlefield (466.5.a / 466.7)", () => {
+    // This used to assert `result === state` — a genuine no-op. That premise was
+    // the bug: with nobody to fight there is no damage, but 466.5.a still makes
+    // the only player with units remaining the winner, and 466.7 has them
+    // establish Control (a Conquer under 466.7.c). Asserting the no-op was
+    // asserting that a player who is handed a battlefield gets nothing for it.
     const attacker = makeUnit({ might: 5 });
     let state = makeState();
     state.battlefields[0]!.units = { p1: [attacker] };
 
     const result = resolveShowdown(state, "bf1", 0);
-    expect(result).toBe(state); // same reference — genuinely a no-op
+
+    expect(result.battlefields[0]!.controllerId).toBe("p1");
+    expect(result.players[0]!.points).toBe(1);
+    // No exchange happened: the unit standing alone is untouched.
+    expect(result.battlefields[0]!.units["p1"]).toHaveLength(1);
+    expect(result.players[1]!.trash).toHaveLength(0);
   });
 });
 
@@ -630,5 +641,95 @@ describe("Focus/Showdown priority window", () => {
 
     const secondPass = submit(firstPass.state, { type: "PassFocus", playerIndex: 1 });
     expect(secondPass.result).toEqual({ type: "GameOver", winnerId: "p1" });
+  });
+  it("a defender who LEAVES the Combat Showdown hands the attacker the battlefield (466.5.a / 466.7)", () => {
+    // The reported bug: the AI casts Flash (OGS-011, "Move up to 2 friendly
+    // units to base") to pull its unit out of a Showdown, and the human — left
+    // standing alone at the battlefield — was not credited with scoring.
+    //
+    // Rule 466.5.a: a player has WON the combat if they "are the only Player
+    // that has units remaining at this battlefield during this step". 466.5.d
+    // reserves "No Result" for units recalled in step 3d, BOTH players present,
+    // or NEITHER present — not for this. 466.7 then has the player with units
+    // remaining establish Control, and 466.7.c makes that a Conquer.
+    const attacker = makeUnit({ might: 3 });
+    const defender = makeUnit({ might: 3 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [attacker];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+
+    state = submit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [attacker.instanceId],
+      destinationBattlefieldId: "bf1",
+    }).state;
+    expect(state.showdownKind).toBe("Combat");
+
+    // Flash resolves: the defender goes home mid-Showdown. This is exactly what
+    // the card's own effect does (card-effects.ts OGS-011 -> recallUnitToBase).
+    state = recallUnitToBase(state, defender.instanceId);
+    expect(state.battlefields[0]!.units["p2"] ?? []).toHaveLength(0);
+
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+    state = submit(state, { type: "PassFocus", playerIndex: 1 }).state;
+
+    expect(state.battlefields[0]!.controllerId).toBe("p1");
+    expect(state.players[0]!.points).toBe(1);
+    expect(state.players[0]!.scoredBattlefieldsThisTurn).toContain("bf1");
+  });
+
+  it("an ATTACKER who leaves hands the battlefield back to the defender, symmetrically", () => {
+    // Same rule read from the other side — 466.5.a names "either the attacker or
+    // defender designation", so the early return was costing both players, not
+    // just the human. Here the defender did not already control it, so this is a
+    // Conquer for them too.
+    const attacker = makeUnit({ might: 3 });
+    const defender = makeUnit({ might: 3 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [attacker];
+    state.battlefields[0]!.units = { p2: [defender] };
+
+    state = submit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [attacker.instanceId],
+      destinationBattlefieldId: "bf1",
+    }).state;
+    expect(state.showdownKind).toBe("Combat");
+
+    state = recallUnitToBase(state, attacker.instanceId);
+
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+    state = submit(state, { type: "PassFocus", playerIndex: 1 }).state;
+
+    expect(state.battlefields[0]!.controllerId).toBe("p2");
+    expect(state.players[1]!.points).toBe(1);
+  });
+
+  it("BOTH sides leaving is No Result and leaves the battlefield Uncontrolled (466.5.d / 466.7.b)", () => {
+    const attacker = makeUnit({ might: 3 });
+    const defender = makeUnit({ might: 3 });
+    let state = makeState();
+    state.players[0]!.baseUnits = [attacker];
+    state.battlefields[0]!.units = { p2: [defender] };
+    state.battlefields[0]!.controllerId = "p2";
+
+    state = submit(state, {
+      type: "MoveUnit",
+      playerIndex: 0,
+      unitInstanceIds: [attacker.instanceId],
+      destinationBattlefieldId: "bf1",
+    }).state;
+    state = recallUnitToBase(state, defender.instanceId);
+    state = recallUnitToBase(state, attacker.instanceId);
+
+    state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
+    state = submit(state, { type: "PassFocus", playerIndex: 1 }).state;
+
+    expect(state.battlefields[0]!.controllerId).toBeNull();
+    expect(state.players[0]!.points).toBe(0);
+    expect(state.players[1]!.points).toBe(0);
   });
 });

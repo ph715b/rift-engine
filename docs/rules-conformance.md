@@ -38,7 +38,8 @@ are `Unverified`, not `Conformant`.
 |---|---|---|---|
 | Damage healing timing | Heals at two moments only: end of each player's turn, and Combat Cleanup | 143.3 / 317.2 / 466.1 | `turn-manager.runEnd`, `combat.resolveShowdown` |
 | Healing scope | Global — Combat Cleanup step 3c is literally "Heal all Units", not just combatants | 466 step 3c | `effect-helpers.healAllUnits` |
-| Uncontested showdown | No Combat Cleanup, so no healing | 352 / 466 | `resolveShowdown` early return |
+| One-sided Combat Showdown | A Combat Showdown that only one player still occupies exchanges no damage, but still runs the Resolution Step: the occupier **wins the combat** and Establishes Control (a Conquer if unscored). Only Step 2 is conditional on "both Attacking and Defending units remain"; 351.1 has Combat "proceed with the remaining steps" regardless, so the Combat Cleanup — and its global 3c heal — happens too | 351.1 / 466.5.a / 466.5.d / 466.7 | `combat.resolveShowdown`'s one-sided branch → `healAllUnits` + `establishControlAfterCombat` |
+| Non-Combat showdown | A Non-Combat Showdown is not a Combat at all, so no Combat Cleanup and no healing | 352 | `combat.resolveNonCombatShowdown` |
 | "Do as much as you can" | Execute card text as far as possible, ignoring impossible instructions | ~100 | on-play triggers with no target; Back to Back at `min: 0` |
 | Scoring: two methods | Hold (Beginning Phase) and Conquer, one score per battlefield per turn | 471.1 / 471.1.b | `scoring.scoreHolds`, `scoring.recordConquest` |
 | Final point | Through a Conquer at Victory−1, only if every battlefield was **Scored** this turn (holds count); else draw 1 | 473 / 474 | `scoring.recordConquest` |

@@ -223,7 +223,34 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   const defender = state.players[defenderIndex];
   const attackerUnits = bf.units[attacker.id] ?? [];
   const defenderUnits = bf.units[defender.id] ?? [];
-  if (attackerUnits.length === 0 || defenderUnits.length === 0) return state;
+
+  // ── One side is gone: no fight, but emphatically not nothing ────────────
+  //
+  // This used to `return state` untouched, on the reading that with nobody to
+  // fight there is nothing to resolve. The rules disagree, and it cost real
+  // points: an opponent who Flashes their unit out of a Showdown (OGS-011,
+  // "Move up to 2 friendly units to base") left the other player standing alone
+  // at the battlefield and NOT credited with taking it.
+  //
+  //   - 466.5.a: a player has WON the combat if they "are the only Player that
+  //     has units remaining at this battlefield during this step".
+  //   - 466.5.d: "No Result" is only for units recalled in step 3d, BOTH players
+  //     present, or NEITHER present. One side leaving is none of those.
+  //   - 466.7 / 466.7.c: the player with units remaining Establishes Control,
+  //     and that is a Conquer if they have not yet scored it this turn.
+  //
+  // Step 2 (the Combat Damage Step) is the only part that is conditional — it
+  // opens with "If both Attacking and Defending units remain at this
+  // battlefield" — so the exchange is skipped and everything after it still
+  // runs. Step 3's heal included; step 3d ("Recall Attackers if Defenders are
+  // still present") is a no-op in both one-sided shapes, since whichever side
+  // would be recalled or would trigger the recall is the side that left.
+  //
+  // `establishControlAfterCombat` also covers the empty-empty case on its own
+  // terms: nobody present makes the battlefield Uncontrolled (466.7.b).
+  if (attackerUnits.length === 0 || defenderUnits.length === 0) {
+    return establishControlAfterCombat(healAllUnits(state), bfIndex);
+  }
 
   const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(state, u, attackerIndex, battlefieldId, true), 0);
   const defenderPool = defenderUnits.reduce((sum, u) => sum + outgoingMight(state, u, defenderIndex, battlefieldId, false), 0);

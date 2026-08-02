@@ -124,7 +124,23 @@ describe("combat cleanup heals GLOBALLY, not just the units that fought", () => 
     expect(state.battlefields[0]!.units["p2"] ?? []).toHaveLength(0);
   });
 
-  it("an UNCONTESTED showdown heals nothing — no combat, no cleanup", () => {
+  it("a one-sided COMBAT showdown still runs the Combat Cleanup, so it heals (351.1 / 466 step 3c)", () => {
+    // This asserted the opposite — "no combat, no cleanup", and a `result ===
+    // state` no-op. Both were wrong, and they were the same wrong reading that
+    // cost a player their conquest when the opponent Flashed a unit out of a
+    // Showdown (see combat.test.ts).
+    //
+    // 351.1: "If it is a Combat Showdown, proceed with the remaining steps of
+    // Combat to resolve the phase." Only Step 2 is conditional ("If both
+    // Attacking and Defending units remain at this battlefield"), so the damage
+    // exchange is skipped while Step 3, the Resolution Step, still performs a
+    // Combat Cleanup — which inserts "3c. Heal all Units", and 3c is global
+    // rather than limited to the units that fought.
+    //
+    // `resolveShowdown` is only ever reached from `closeShowdown` with
+    // showdownKind === "Combat", so one side being absent here means a Combat
+    // Showdown was staged and someone left it — by a Flash, or by their last
+    // unit there being killed mid-window. It does not mean no combat occurred.
     const lone = makeUnit({ might: 5 });
     const damagedElsewhere = makeUnit({ might: 9, damage: 3 });
     const state = makeState();
@@ -133,7 +149,8 @@ describe("combat cleanup heals GLOBALLY, not just the units that fought", () => 
 
     const result = resolveShowdown(state, "bf1", 0);
 
-    expect(result).toBe(state); // same reference — genuinely a no-op
-    expect(result.battlefields[1]!.units["p2"]![0]!.damage).toBe(3);
+    expect(result.battlefields[1]!.units["p2"]![0]!.damage).toBe(0);
+    // And the player left standing takes the battlefield (466.5.a / 466.7).
+    expect(result.battlefields[0]!.controllerId).toBe("p1");
   });
 });
