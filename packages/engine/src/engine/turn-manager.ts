@@ -316,6 +316,7 @@ export function runEnd(state: GameState): GameState {
     // both "this turn" and end with it, exactly like the fields above.
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
+    cannotPlayCardsThisTurn: false,
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 

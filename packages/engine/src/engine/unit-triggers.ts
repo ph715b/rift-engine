@@ -20,6 +20,7 @@ import {
 import { placeRecruitToken, type TokenDestination } from "./token.js";
 import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
+import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { dispatchLegendOnEnemyAttack, dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
@@ -125,6 +126,13 @@ export function canPlayToOpenBattlefield(defId: string): boolean {
   return PLACEMENT_GRANTS[defId] === "openBattlefield";
 }
 
+/** May this player put ANY friendly unit on an open battlefield — the per-card
+ *  grant above, OR Miss Fortune - Buccaneer's board-wide one. Hers is not about
+ *  which card is being played, which is why it cannot live in that table. */
+function anyUnitMayTakeOpenBattlefield(state: GameState, playerIndex: 0 | 1, defId: string): boolean {
+  return canPlayToOpenBattlefield(defId) || grantsOpenBattlefieldPlacement(state, playerIndex);
+}
+
 /** Is the OPPONENT standing here? Deadbloom Predator's "occupied enemy
  *  battlefield" — occupancy by the enemy specifically, not occupancy in general,
  *  so a battlefield holding only your own units is not a legal destination for
@@ -179,7 +187,13 @@ export function mayPlaceWithoutPresence(
     case "occupiedEnemyBattlefield":
       return isOccupiedByEnemy(state, playerIndex, battlefield);
     default:
-      return false;
+      // Miss Fortune - Buccaneer grants the open-battlefield placement to EVERY
+      // friendly unit while she is in play, so a card with no grant of its own
+      // can still take one. Asked last, so a card that names its own kind of
+      // place keeps getting that one — Deadbloom Predator wants an OCCUPIED
+      // enemy battlefield, and her grant must not quietly widen him to open ones
+      // as well.
+      return anyUnitMayTakeOpenBattlefield(state, playerIndex, defId) && isOpenBattlefield(battlefield);
   }
 }
 

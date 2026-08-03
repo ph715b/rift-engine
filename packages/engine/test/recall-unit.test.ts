@@ -73,6 +73,7 @@ function makePlayer(id: string): PlayerState {
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
+    cannotPlayCardsThisTurn: false,
     preventsSpellDamageThisTurn: false,
   };
 }

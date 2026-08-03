@@ -234,6 +234,11 @@ export interface PlayerState {
    *  the discount is consumed when the spell is PAID for, this one when the spell
    *  finishes RESOLVING, because that is where its damage happens. */
   nextSpellBonusDamage: number;
+  /** Brynhir Thundersong's "opponents can't play cards this turn", set on the
+   *  player who is locked out. A fact about the TURN rather than a continuous
+   *  ability, so it survives her death — killing her in response must not undo
+   *  it — and `runEnd` clears it with the rest. */
+  cannotPlayCardsThisTurn: boolean;
   /** Unyielding Spirit's "prevent all spell and ability damage this turn" —
    *  whose damage is prevented, not who cast it. Global in effect, stored on
    *  the player because the card says "this turn" and turns belong to players. */

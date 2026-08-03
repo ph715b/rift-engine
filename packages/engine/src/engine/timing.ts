@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
+import { mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./board-restrictions.js";
 
 /**
  * Who may act right now.
@@ -101,6 +102,10 @@ export function mayPlayCardNow(
   fromHidden = false,
 ): boolean {
   if (playerIndex !== actingPlayerIndex(state)) return false;
+  // Brynhir Thundersong's lock. Before the tier switch, because it bars EVERY
+  // card however it is timed — including a [Reaction], which is the whole point
+  // of a card that shuts a turn down.
+  if (!mayPlayCardsAtAll(state, playerIndex)) return false;
 
   switch (fromHidden ? "Reaction" : timingTierOf(card)) {
     case "Reaction":
@@ -132,6 +137,10 @@ export function mayPlayCardNow(
  * executor directly — threw on it.
  */
 export function mayPlayUnitToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: string): boolean {
+  // Mageseeker Warden bars every battlefield destination, in every turn state —
+  // composed WITH rule 813's own restriction below rather than replacing it, so
+  // both have to allow a destination for it to be offered.
+  if (!mayPlayUnitToBattlefieldUnderRestrictions(state, playerIndex)) return false;
   if (state.turnState === "Neutral") return true;
   const destination = state.battlefields.find((bf) => bf.id === battlefieldId);
   return destination === undefined || destination.controllerId === state.players[playerIndex].id;

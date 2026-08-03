@@ -14,6 +14,7 @@ import { dispatchLegendOnUnitsStunned, offerDeathReplacement } from "./legend-ab
 import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
+import { mayReadyPermanent } from "./board-restrictions.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -1127,6 +1128,13 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
 export function readyUnit(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location || !location.unit.exhausted) return state;
+  // Mageseeker Warden — "spells and abilities can't ready enemy units and gear."
+  // Read here rather than at each of the thirteen call sites, and that is exactly
+  // what makes the exemption structural: `runAwaken` readies by its own inline
+  // map and combat never calls this, so everything that DOES reach here is a
+  // spell, an ability or a trigger. The survey said this needed source
+  // attribution across the call sites; measured, it does not.
+  if (!mayReadyPermanent(state, location.ownerIndex)) return state;
   const readied = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
   return holdEventTrigger(readied, { kind: "unitReadied", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
 }
@@ -1150,6 +1158,9 @@ export function readyUnit(state: GameState, targetInstanceId: string): GameState
 export function readyPermanent(state: GameState, playerIndex: 0 | 1, instanceId: string): GameState {
   const asUnit = findUnitAnywhere(state, instanceId);
   if (asUnit && asUnit.ownerIndex === playerIndex) return readyUnit(state, instanceId);
+  // The GEAR and Legend half of the Warden's lock — "enemy units AND GEAR".
+  // Units come through `readyUnit` above, which asks the same question.
+  if (!mayReadyPermanent(state, playerIndex)) return state;
 
   const ready = <T extends { instanceId: string; exhausted: boolean }>(c: T): T =>
     c.instanceId === instanceId ? { ...c, exhausted: false } : c;

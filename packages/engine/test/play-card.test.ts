@@ -40,6 +40,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
+    cannotPlayCardsThisTurn: false,
     preventsSpellDamageThisTurn: false,
   };
 }

@@ -222,6 +222,25 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-026": {
+    // Brynhir Thundersong — "When you play me, opponents can't play cards this
+    // turn."
+    //
+    // A one-shot lock on the TURN, not a continuous ability: set here and cleared
+    // by `runEnd`, so killing her in response does not unlock it. That is the
+    // printed reading — "this turn" is a duration, and nothing in the sentence
+    // ties it to her staying alive.
+    //
+    // Read in `timing.mayPlayCardNow` BEFORE the tier switch, so it bars a
+    // [Reaction] too. A lock that a Reaction could step around would not be a
+    // lock at all, and Reactions are precisely what an opponent reaches for.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.opponentIndex] = { ...players[ctx.opponentIndex], cannotPlayCardsThisTurn: true };
+      return { ...state, players };
+    },
+  },
   "OGN-031": {
     // Raging Firebrand — "When you play me, the NEXT spell you play this turn
     // costs [5] less."
