@@ -96,7 +96,7 @@ describe("the fixture's own premises", () => {
   // The whole card is a count of `[Hidden]` cards, so a test whose "hidden" pile
   // is not actually hidden would measure nothing. Asked of the same helper the
   // implementation asks, which is the point: the loader's
-  // HIDDEN_KEYWORD_FALSE_POSITIVES is what makes the Saboteur answer false.
+  // HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS is what makes the Saboteur answer false.
   it.each(HIDDEN_DEF_IDS)("%s really carries [Hidden]", (defId) => {
     expect(isHiddenCard(registry.tryGet(defId))).toBe(true);
   });

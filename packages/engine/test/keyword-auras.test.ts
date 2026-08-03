@@ -98,7 +98,7 @@ describe("Captain Farron (OGN-015): other friendly units HERE have [Assault]", (
     // `effectiveKeywords`, because the two failure modes are different: an aura
     // that wrongly excluded him would also make the test above pass.
     //
-    // Third instance of this shape after HIDDEN_KEYWORD_FALSE_POSITIVES and
+    // Third instance of this shape after HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS and
     // CONDITIONAL_KEYWORD_DEF_IDS; the strip is `GRANTED_ONLY_KEYWORDS`, and it is
     // per-keyword because Taric below prints AND grants the same one.
     const farronDef = registry.get(CAPTAIN_FARRON);

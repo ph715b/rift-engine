@@ -555,7 +555,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // `[Hidden]` on a revealed card is asked of the DEFINITION through
     // `isHiddenCard`, never of the printed text: Noxus Saboteur, Ava Achiever,
     // Ember Monk and Guerilla Warfare all MENTION "[Hidden]" without carrying it,
-    // and card-loader.ts's HIDDEN_KEYWORD_FALSE_POSITIVES is where that is
+    // and card-loader.ts's HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS is where that is
     // already settled. A text scan would count them and still look like a working
     // card.
     //

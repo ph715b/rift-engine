@@ -165,7 +165,7 @@ function zealotPenaltyApplies(state: GameState, unit: UnitInstance, ownerIndex: 
  * Continuous, always-on Might modifiers — deliberately NOT a general aura
  * system, just the handful of confirmed cards that need one, hardcoded by defId
  * (matches this codebase's existing POWER_DOMAIN_ALT_OVERRIDES/
- * HIDDEN_KEYWORD_FALSE_POSITIVES precedent for "a small, precise, non-
+ * HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS precedent for "a small, precise, non-
  * speculative table" over a generic engine). Unlike `.mightThisTurn` (a "this
  * turn" value turn-manager.ts's runEnd resets unconditionally), these are
  * recomputed fresh every time effectiveMight runs — nothing ever writes

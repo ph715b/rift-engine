@@ -25,14 +25,36 @@ const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw];
 const KW_PATTERN = /\[([A-Za-z][a-zA-Z]*)(?: (\d+))?\]/g;
 
 /**
- * Playtesting fix ported from CardLoader.java:188-213 — Guerilla Warfare,
- * Ava Achiever, Ember Monk, and Noxus Saboteur each MENTION "[Hidden]" in
- * reference to other cards, rather than carrying the keyword themselves.
- * Confirmed present in the OGN/OGS pool (checked directly against both
- * files); every genuine [Hidden] card's text starts with "[Hidden] (Hide
+ * Playtesting fix ported from CardLoader.java:188-213 — four cards MENTION
+ * "[Hidden]" in reference to other cards rather than carrying the keyword
+ * themselves. Confirmed present in the OGN/OGS pool (checked directly against
+ * both files); every genuine [Hidden] card's text starts with "[Hidden] (Hide
  * now for...".
+ *
+ * **Keyed by defId, like every other per-card table here.** It was keyed by
+ * NAME — the only one that was — which is safe exactly while no two cards in
+ * the pool share a name, and there is nothing in the loader that says so or
+ * would notice. A reprint or a cross-set name collision in an unseen set would
+ * have silently mis-flagged the newcomer's `[Hidden]`: it would parse as not
+ * having a keyword it prints, which reads in play as the card simply not
+ * working, with nothing to see. `CONDITIONAL_KEYWORD_DEF_IDS`,
+ * `GRANTED_ONLY_KEYWORDS` and `QUICK_TEXT_OVERRIDES` were already defId-keyed;
+ * this is now the same shape as all three.
  */
-const HIDDEN_KEYWORD_FALSE_POSITIVES = new Set(["Guerilla Warfare", "Ava Achiever", "Ember Monk", "Noxus Saboteur"]);
+const HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS = new Set([
+  "OGN-018", // Noxus Saboteur — "Your opponents' [Hidden] cards can't be revealed here."
+  "OGN-107", // Ava Achiever — "...play a card with [Hidden] from your hand, ignoring its cost."
+  "OGN-167", // Ember Monk — "When you play a card from [Hidden], give me +2 Might this turn."
+  "OGN-264", // Guerilla Warfare — "Return up to two cards with [Hidden] from your trash..."
+]);
+
+/** The four cards above, for the test that pins each entry to a real card whose
+ *  text really does mention `[Hidden]`. Exported rather than the Set itself, on
+ *  the same reasoning as `loaderHandledDefIds` below: the table stays private
+ *  and only its contents are readable. */
+export function hiddenKeywordFalsePositiveDefIds(): string[] {
+  return [...HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS];
+}
 
 const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
 
@@ -121,7 +143,7 @@ const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009", "OGN-159"]); // Vang
  * The keywords are granted at runtime instead, under the real condition, by
  * engine/granted-keywords.ts. A named per-card set rather than a parser that
  * tries to understand conditions — the same choice, for the same reason, as
- * HIDDEN_KEYWORD_FALSE_POSITIVES above.
+ * HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS above.
  */
 const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
   "OGN-019", // Raging Soul — [Assault] and [Ganking] only once you've discarded
@@ -150,7 +172,7 @@ const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
  * grants a bracketed keyword to other objects: **four cards match and exactly two
  * are false positives.** Captain Farron's was a live bug — he has been swinging
  * with an `[Assault]` he does not print, which is the third instance of this
- * shape after `HIDDEN_KEYWORD_FALSE_POSITIVES` and `CONDITIONAL_KEYWORD_DEF_IDS`,
+ * shape after `HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS` and `CONDITIONAL_KEYWORD_DEF_IDS`,
  * and the second found by writing a test rather than by reading the card.
  *
  * Spirit's Refuge's is inert today — `deflectSurchargeForTargets` looks up units
@@ -189,8 +211,17 @@ export function loaderHandledDefIds(): string[] {
   return [...QUICK_TEXT_OVERRIDES];
 }
 
-function isGenuinelyHidden(plain: string, name: string): boolean {
-  return plain.includes("[Hidden]") && !HIDDEN_KEYWORD_FALSE_POSITIVES.has(name);
+/**
+ * Does this card CARRY `[Hidden]`, as opposed to merely mentioning it?
+ *
+ * Exported for the test that pins the defId key. That key's whole value is a
+ * case the loaded pool cannot show — a card at a new defId carrying a name one
+ * of the four false positives already uses — so the only way to exercise it is
+ * to call this with a synthetic pair. Under the old NAME key that case was
+ * unrepresentable, which is why it went unnoticed.
+ */
+export function isGenuinelyHidden(plain: string, id: string): boolean {
+  return plain.includes("[Hidden]") && !HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS.has(id);
 }
 
 function parseCardDefinition(card: RawCard): CardDefinition {
@@ -237,7 +268,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
           ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}),
         },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
-        hidden: isGenuinelyHidden(plain, name),
+        hidden: isGenuinelyHidden(plain, id),
         isReaction: plain.includes("[Reaction]"),
         tags: card.tags ?? [],
         text: plain,
@@ -256,7 +287,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerCost,
         isReaction: plain.includes("[Reaction]"),
         isAction: plain.includes("[Action]"),
-        hidden: isGenuinelyHidden(plain, name),
+        hidden: isGenuinelyHidden(plain, id),
         text: plain,
       };
     case "Gear":
@@ -272,7 +303,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerCost,
         keywords: printedKeywords(id, plain),
         isReaction: plain.includes("[Reaction]"),
-        hidden: isGenuinelyHidden(plain, name),
+        hidden: isGenuinelyHidden(plain, id),
         text: plain,
       };
     case "Rune":
