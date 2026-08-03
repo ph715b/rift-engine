@@ -19,6 +19,8 @@ import {
 } from "./effect-helpers.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
 import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
+import { effectiveMight } from "./effective-might.js";
+import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
@@ -448,6 +450,51 @@ export function dispatchOnPlayUnit(
  *  Java oracle's own OriginEffects.java admits doing the same for at least
  *  one card: "Full 'choose 2' targeting arrives with the Part 2 UI"). */
 const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
+  // Volibear - Furious — "[Deflect 2] When I attack, deal 5 damage SPLIT among any
+  // number of enemy units here."
+  //
+  // The rules spec the split completely (the "Splitting" section): each unit
+  // chosen is Targeted, the targets are chosen when the ability is finalized on
+  // the chain, and the number of targets is capped at the damage available — so
+  // "split 5" reaches at most 5 units. That is a specification, not a design
+  // problem, and the survey filed it as a missing subsystem.
+  //
+  // **AUTO-SELECTED, like every other attack trigger here**, and for the same
+  // structural reason Crackshot Corsair and Twisted Fate record: an attack
+  // trigger fires inside the move/play executor, with no action left to hang a
+  // choice on. Recorded Unverified in docs/rules-conformance.md alongside the
+  // others.
+  //
+  // The SPLIT itself is lethal-first in board order — each unit is assigned
+  // exactly what kills it until the 5 runs out, with any remainder going to the
+  // last one touched. That is the same model `combat.distribute` uses for damage
+  // assignment (465.2.c), which is the closest thing the rules give to "how a
+  // reasonable player splits", and it maximises bodies removed rather than
+  // spreading uselessly. Also Unverified: a player might prefer to finish one big
+  // unit instead.
+  "OGN-041": (state, ctx, unit, battlefieldId) => {
+    const bf = state.battlefields.find((b) => b.id === battlefieldId);
+    if (!bf) return state;
+    const casterId = state.players[ctx.casterIndex].id;
+    const enemies = Object.entries(bf.units)
+      .filter(([ownerId]) => ownerId !== casterId)
+      .flatMap(([, units]) => units);
+
+    let remaining = 5;
+    let next = state;
+    for (const target of enemies) {
+      if (remaining <= 0) break;
+      // Read fresh each time: an earlier kill can change an aura and therefore
+      // what the next unit needs.
+      const alive = findUnitOnBattlefield(next, target.instanceId);
+      if (!alive) continue;
+      const lethal = Math.max(1, effectiveMight(next, alive.unit, alive.ownerIndex, { isCombat: false, battlefieldId }) - alive.unit.damage);
+      const hit = Math.min(remaining, lethal);
+      next = dealDamage(next, ctx.casterIndex, target.instanceId, hit);
+      remaining -= hit;
+    }
+    return next;
+  },
   "OGN-130": (state, ctx, unit, battlefieldId) => {
     // Crackshot Corsair — deal 1 to an enemy unit here (auto-selects the first one found).
     const bf = state.battlefields.find((b) => b.id === battlefieldId);

@@ -6,6 +6,7 @@ import {
   addBuff,
   dealDamage,
   destroyUnit,
+  dealDamageToEnemyUnitsAtBattlefield,
   discardCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
@@ -41,6 +42,69 @@ import type { PlayerState } from "../../model/game-state.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-258": {
+    // Dragon's Rage (Calm + Body) — "Move an enemy unit. Then do this: Choose
+    // another enemy unit at its destination. They deal damage equal to their
+    // Mights to each other."
+    //
+    // Two enemy targets and a destination, and the relationship between them is
+    // what makes the card: the second is chosen at the FIRST one's destination,
+    // not where either currently stands. `secondAtDestination` is that — distinct
+    // from `sameBattlefield`, which compares present locations, because here the
+    // first unit is about to move somewhere the board does not yet reflect.
+    //
+    // `min: 2`: both choices are mandatory (355), so the card is uncastable
+    // without a second enemy somewhere to send the first into. That is the card
+    // rather than a limitation — it is a way to make an opponent's own units
+    // fight, and one unit cannot.
+    //
+    // BOTH Mights are read before EITHER damage is dealt, the same ordering
+    // Gentlemen's Duel and Challenge record: the first to die still deals its
+    // full Might on the way out, where deal-then-read would silently reduce the
+    // damage coming back.
+    //
+    // The move happens FIRST, printed order, so the duel is fought at the
+    // destination — and `forceMoveToBattlefield` applies Contested for the MOVED
+    // unit's controller, which can open a Showdown the caster never joined.
+    targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 2, asymmetricSlots: true, secondAtDestination: true },
+    resolve: (state, ctx, event) => {
+      const { targetUnitInstanceId: movedId, secondTargetUnitInstanceId: otherId, destinationBattlefieldId } = event;
+      if (!movedId || !otherId || !destinationBattlefieldId) return state;
+      const moved = forceMoveToBattlefield(state, movedId, destinationBattlefieldId);
+
+      const first = findUnitAnywhere(moved, movedId);
+      const second = findUnitAnywhere(moved, otherId);
+      if (!first || !second) return moved;
+      const ctxFor = (loc: typeof first) =>
+        loc.zone === "base" ? { isCombat: false as const } : { isCombat: false as const, battlefieldId: moved.battlefields[loc.zone.battlefieldIndex]!.id };
+      const firstMight = effectiveMight(moved, first.unit, first.ownerIndex, ctxFor(first));
+      const secondMight = effectiveMight(moved, second.unit, second.ownerIndex, ctxFor(second));
+
+      const hurt = dealDamage(moved, ctx.casterIndex, otherId, firstMight);
+      return dealDamage(hurt, ctx.casterIndex, movedId, secondMight);
+    },
+  },
+  "OGN-268": {
+    // Bullet Time (Body + Chaos) — "Pay any amount of [rainbow] to deal that much
+    // damage to all enemy units at a battlefield."
+    //
+    // The pool's only X cost. X rides on the action as `xAmount` rather than
+    // being counted off `payment.rainbowRunes.length`, because that bucket ALSO
+    // holds a [Deflect] surcharge — a Bullet Time aimed at a battlefield holding
+    // a Deflect unit would otherwise read its own X as the tax plus the payment.
+    // (The two cannot actually collide today: this targets a BATTLEFIELD, and
+    // Deflect taxes choosing a UNIT. Carrying X explicitly is what keeps that an
+    // observation rather than a dependency.)
+    //
+    // "ALL ENEMY units at a battlefield" — the caster's own units there are
+    // untouched, which is what makes it castable into a fight you are losing.
+    targeting: { kind: "battlefield" },
+    resolve: (state, ctx, event) => {
+      const amount = event.xAmount ?? 0;
+      if (amount <= 0 || !event.targetBattlefieldId) return state;
+      return dealDamageToEnemyUnitsAtBattlefield(state, ctx.casterIndex, event.targetBattlefieldId, amount);
+    },
+  },
   "OGN-264": {
     // Guerilla Warfare (Mind + Chaos) — "Return up to two cards with [Hidden]
     // from your trash to your hand. You can hide cards ignoring costs this turn."

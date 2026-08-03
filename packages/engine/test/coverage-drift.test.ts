@@ -279,12 +279,24 @@ describe("the unimplemented-keyword mechanism, now that the pool has none", () =
     expect(volibear.keywords.Deflect).toBe(2);
   });
 
-  it("a card whose OTHER text is unwritten is still not finished", () => {
-    // Volibear carries the working keyword AND an unwritten attack trigger, so
-    // he must stay open — the keyword landing must not sweep him up with the
-    // cards it genuinely finished.
-    expect(isCardImplemented(registry.get(VOLIBEAR_FURIOUS))).toBe(false);
-    expect(implementableText(registry.get(VOLIBEAR_FURIOUS))).toContain("split");
+  it("Volibear is finished now that BOTH halves are written", () => {
+    // He stood here as the negative control while his split-damage attack trigger
+    // was unwritten — the case proving that a working keyword must not sweep up a
+    // card with unwritten text of its own. The trigger has since landed, so the
+    // premise is fixed rather than the assertion weakened, and the invariant that
+    // control existed for is asserted directly below instead.
+    expect(isCardImplemented(registry.get(VOLIBEAR_FURIOUS))).toBe(true);
+  });
+
+  it("a card is never finished while ANY of its text is unwritten", () => {
+    // The invariant, swept rather than pinned to one card — which is what keeps
+    // it working as cards land. `partialImplementationNote` is the only thing that
+    // can say a REGISTERED card is unfinished, so the two must agree everywhere.
+    const partial = registry.all().filter((def) => partialImplementationNote(def) !== undefined);
+    expect(partial.length, "no partial cards at all, so this proves nothing").toBeGreaterThan(0);
+    for (const def of partial) {
+      expect(isCardImplemented(def), `${def.id} (${def.name})`).toBe(false);
+    }
   });
 
   it("Fiora, who GRANTS it conditionally, is finished now that it has a consumer", () => {

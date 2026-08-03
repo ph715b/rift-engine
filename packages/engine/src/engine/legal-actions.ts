@@ -27,6 +27,7 @@ import {
   cardMovesTarget,
   cardPlacesTokens,
   discardChoiceOf,
+  hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
   slotOwner,
@@ -54,6 +55,26 @@ import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
+
+/**
+ * Does a `secondAtDestination` spec's second target actually stand at the
+ * destination the first is being moved to? True for every other spec.
+ *
+ * Shared by the enumerator and `validate-play-card` so a Dragon's Rage variant
+ * can never be offered and then refused — the drift this codebase has shipped
+ * three times.
+ */
+export function secondTargetIsAtDestination(
+  state: GameState,
+  targeting: { kind: string; secondAtDestination?: true },
+  action: { secondTargetUnitInstanceId?: string; destinationBattlefieldId?: string },
+): boolean {
+  if (targeting.kind !== "unitSlots" || targeting.secondAtDestination !== true) return true;
+  if (action.secondTargetUnitInstanceId === undefined) return true; // nothing chosen yet
+  if (action.destinationBattlefieldId === undefined) return false;
+  const at = findUnitOnBattlefield(state, action.secondTargetUnitInstanceId);
+  return at !== undefined && state.battlefields[at.battlefieldIndex]!.id === action.destinationBattlefieldId;
+}
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
  *  per Ready rune, one Power-mode (recycle) candidate per rune regardless
@@ -647,7 +668,8 @@ export function legalActions(state: GameState): PlayerAction[] {
             v.targetUnitInstanceId !== undefined ? findUnitOnBattlefield(state, v.targetUnitInstanceId)?.battlefieldIndex : undefined;
           return state.battlefields
             .filter((_bf, index) => index !== currentBattlefieldIndex)
-            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }));
+            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }))
+            .filter((withDest) => secondTargetIsAtDestination(state, targeting, withDest));
         })
       : variants;
 
@@ -740,6 +762,30 @@ export function legalActions(state: GameState): PlayerAction[] {
       // discounted cost, then refused at 1. Found by the first test to enumerate
       // and validate the same action, which is the only way this class of bug
       // ever shows up.
+      // Bullet Time's X. One variant per affordable amount, priced through the
+      // SAME `rainbowRunes` bucket [Deflect] built — the one bucket whose runes
+      // are not domain-checked against the card, which is what "any amount of
+      // rainbow Power" needs.
+      //
+      // X = 0 is deliberately included: the card is castable for nothing and
+      // deals nothing, which is what "any amount" means and is occasionally what
+      // a player wants (it still costs its printed Energy). Capped by the pool
+      // rather than by a number, so the fan-out is at most one per rune.
+      if (hasXRainbowCost(card.defId) && !fromHidden) {
+        for (let x = 0; x <= actor.channeled.length; x += 1) {
+          const priced = computeAutoPayment(
+            actor.channeled,
+            effectiveCost.energyCost,
+            effectiveCost.powerCost,
+            card.powerDomain,
+            card.powerDomainAlt,
+            x,
+          );
+          if (!priced) break; // pools only get tighter as X grows
+          actions.push({ type: "PlayCard", playerIndex, card, payment: priced, ...variant, ...hiddenFields, xAmount: x });
+        }
+        continue; // the X variants ARE this card's plays; no plain one beside them
+      }
       // Clockwork Keeper's optional Power cost — a second candidate priced one
       // Power higher, exactly as [Accelerate] is, and on its own flag so the two
       // cannot be confused (that one also means "enters ready").

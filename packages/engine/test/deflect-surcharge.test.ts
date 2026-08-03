@@ -167,13 +167,12 @@ describe("[Deflect] is a real surcharge, priced per target", () => {
     for (const id of [POUTY_PORO, "OGN-155", "OGN-161", "OGN-232", "OGN-063"]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(true);
     }
-    // And NOT Volibear, whose split damage is still unwritten. Kept as the
-    // negative control: without it, "every card is implemented" would pass this
-    // test too. OGN-231 stood here beside him until `UnitCostSpec.repeatable`
-    // landed his kill-any-number cost — its premise was that the card did
-    // nothing, and it is fixed rather than weakened.
-    for (const id of [VOLIBEAR_FURIOUS]) {
-      expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(false);
-    }
+    // Volibear finishes too, now that his split-damage attack trigger has landed
+    // — he and OGN-231 both stood here as negative controls while their own text
+    // was unwritten, and both premises were fixed rather than weakened as it
+    // arrived. What the control was FOR is asserted directly instead: the
+    // surcharge is priced per target, which the tests above measure, and a card
+    // with unwritten text is caught by coverage-drift's own sweep.
+    expect(isCardImplemented(registry.get(VOLIBEAR_FURIOUS))).toBe(true);
   });
 });

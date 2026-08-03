@@ -14,12 +14,14 @@ import {
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
+import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import {
   cardMovesTarget,
   cardPlacesTokens,
   discardChoiceOf,
+  hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
   slotScope,
@@ -302,6 +304,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (targeting.sameBattlefield && filled.length === 2 && !shareABattlefield(state, filled[0]!, filled[1]!)) {
       return fail(`${card.name} requires two units at the same battlefield`);
     }
+    // Dragon's Rage — the second target must stand where the first is GOING, not
+    // where it is now. Asked through the same predicate the enumerator filters
+    // with, so the pair cannot drift.
+    if (!secondTargetIsAtDestination(state, targeting, action)) {
+      return fail(`${card.name} requires its second target at the first one's destination`);
+    }
   }
 
   // Board-aware, and it must stay the SAME question `legal-actions` asks: a
@@ -459,6 +467,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // about what the play costs.
   const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
   const optionalPower = optionalPowerCostOf(card.defId);
+  // Bullet Time — the X the action names has to be exactly the rainbow runes it
+  // supplies. Checked here rather than trusting the enumerator, since a hand-built
+  // action could claim a large X and pay nothing.
+  if (hasXRainbowCost(card.defId)) {
+    const x = action.xAmount ?? 0;
+    if (x < 0) return fail(`${card.name} cannot pay a negative amount`);
+    if ((action.payment.rainbowRunes ?? []).length !== x) {
+      return fail(`${card.name} was played for X=${x} but supplied ${(action.payment.rainbowRunes ?? []).length} rainbow Power`);
+    }
+  }
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }

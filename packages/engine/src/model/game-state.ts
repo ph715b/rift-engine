@@ -33,6 +33,8 @@ export interface SpellChainEntry {
   /** Only meaningful for a `chainSpell`-kind TargetingSpec — the spell BELOW
    *  this one that it counters or takes control of. */
   targetChainCardInstanceId?: string;
+  /** The X of an X-cost card, chosen when it was announced (Bullet Time). */
+  xAmount?: number;
   /** Only meaningful for a "battlefield"-kind TargetingSpec. */
   targetBattlefieldId?: string;
   /** Only meaningful for an "ownTrashCard"-kind TargetingSpec. */

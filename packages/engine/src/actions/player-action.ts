@@ -105,6 +105,11 @@ export interface PlayCardAction {
    *  whether the caster took the option. Its OWN field rather than
    *  `acceleratePaid`, which additionally means "enters ready". */
   optionalPowerPaid?: true;
+  /** Bullet Time's "pay ANY AMOUNT of rainbow Power to deal that much damage" —
+   *  the X the caster chose. Carried explicitly rather than derived from
+   *  `payment.rainbowRunes.length`, because that bucket also holds a [Deflect]
+   *  surcharge and the two must never be confused for one another. */
+  xAmount?: number;
 }
 
 /**

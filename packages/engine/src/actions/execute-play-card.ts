@@ -417,6 +417,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           ...(action.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId } : {}),
           ...(action.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: action.targetUnitInstanceIds } : {}),
           ...(action.targetChainCardInstanceId !== undefined ? { targetChainCardInstanceId: action.targetChainCardInstanceId } : {}),
+          ...(action.xAmount !== undefined ? { xAmount: action.xAmount } : {}),
           ...(action.targetBattlefieldId !== undefined ? { targetBattlefieldId: action.targetBattlefieldId } : {}),
           ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
       ...(action.additionalCostUnitInstanceId !== undefined

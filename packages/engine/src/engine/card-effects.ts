@@ -118,6 +118,18 @@ export type TargetingSpec =
        * its slots pays for both orderings.
        */
       asymmetricSlots?: true;
+      /**
+       * The SECOND slot is chosen at the FIRST target's DESTINATION — Dragon's
+       * Rage's "move an enemy unit. Then do this: choose another enemy unit at
+       * its destination."
+       *
+       * Distinct from `sameBattlefield`, which compares where the two units
+       * already stand. Here the first unit is about to be moved, so the
+       * relationship is to a battlefield that is part of the ACTION rather than
+       * part of the board — `destinationBattlefieldId`, which `cardMovesTarget`
+       * already puts on every variant of a moving card.
+       */
+      secondAtDestination?: true;
     }
   /**
    * "A unit at a battlefield **or a gear**" — Fading Memories. One choice over
@@ -278,6 +290,9 @@ export interface ResolveEvent {
    *  announcing and resolving and an index would silently come to mean a
    *  different item. */
   targetChainCardInstanceId?: string;
+  /** The X of an X-cost card (Bullet Time). See PlayCardAction's own field for
+   *  why it is carried rather than counted off the payment. */
+  xAmount?: number;
 }
 
 export interface EffectDefinition {
@@ -403,6 +418,24 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain: Domain; count: num
   "OGN-044": { domain: "Calm", count: 1 }, // Clockwork Keeper — "you may pay [1 Calm] as an additional cost"
 };
 
+/**
+ * Cards with an X RAINBOW POWER cost — Bullet Time's "pay any amount of
+ * [rainbow] to deal that much damage to all enemy units at a battlefield".
+ *
+ * A set rather than a per-card amount, because X is by definition the caster's
+ * choice: `legal-actions` fans out one variant per affordable X and
+ * `validate-play-card` re-derives the price from the X the action names.
+ *
+ * RAINBOW, so it rides the `rainbowRunes` bucket `[Deflect]` already built — the
+ * one bucket whose runes are not domain-checked against the card.
+ */
+const X_RAINBOW_COST_DEF_IDS = new Set(["OGN-268"]); // Bullet Time
+
+/** Does this card ask the caster for an X of rainbow Power? */
+export function hasXRainbowCost(defId: string): boolean {
+  return X_RAINBOW_COST_DEF_IDS.has(defId);
+}
+
 /** What extra Power this card MAY be played for, or undefined. */
 export function optionalPowerCostOf(defId: string): { domain: Domain; count: number } | undefined {
   return OPTIONAL_POWER_COSTS[defId];
@@ -479,6 +512,10 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // The destination is doing double duty here: it names both what is damaged and
   // where the unit ends up. One field, because the card names one battlefield.
   "OGN-250",
+  // Dragon's Rage — "Move an enemy unit. Then do this: choose ANOTHER enemy unit
+  // at its destination." The only card here whose destination also constrains a
+  // SECOND target — see `secondAtDestination` on the targeting spec.
+  "OGN-258",
 ]);
 
 export function cardMovesTarget(defId: string): boolean {
