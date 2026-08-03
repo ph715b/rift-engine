@@ -72,9 +72,35 @@ DECK=calm node tools/ui-probes/make-buffdeck.mjs  # .calmdeck.txt — Ahri, Calm
 and run either with the matching `DECK`:
 
 ```
-PORT=5173 ACTIVE=1 node tools/ui-probes/live-triggers.mjs
-PORT=5173 ACTIVE=1 DECK=calm node tools/ui-probes/live-triggers.mjs
+PORT=5173 SPECTATE=1 node tools/ui-probes/live-triggers.mjs
+PORT=5173 SPECTATE=1 DECK=calm node tools/ui-probes/live-triggers.mjs
+PORT=5173 ACTIVE=1 node tools/ui-probes/live-triggers.mjs            # the older, brittler way in
 ```
+
+## Reaching DECISIONS: `SPECTATE=1` beats `ACTIVE=1`
+
+A passing human never reaches a decision prompt — it plays nothing, and the AI
+answers its own questions with no prompt — so the default run reports
+`decisionsSeen: 0` meaning **not reached**, never "no decisions render".
+
+There are two ways past that, and they are not equal:
+
+- **`SPECTATE=1`** turns on the app's own AI-vs-AI mode, so BOTH seats are played
+  by `chooseAction` — engine code with its own tests. Measured over 6 games:
+  **52 decision states across 7 distinct prompts**, including King's Edict, which
+  this probe had listed as never-seen since it was written. The driver answers
+  nothing; the prompts render read-only and the bot answers a beat later.
+- **`ACTIVE=1`** clicks the human's hand through a measured-pixel flow. It works,
+  and it is the only way to check that a prompt is ANSWERABLE by a person — but
+  it is ~60 lines of actionability workarounds that this file's own history
+  records failing silently once, reporting `playAttempts: 0`.
+
+Use SPECTATE to ask "does this render, and does play continue"; use ACTIVE to ask
+"can a human answer it". The stranded-question check differs accordingly:
+ACTIVE gates on `raised == answered`, SPECTATE on the RATIO — a prompt that could
+never be dismissed would be counted by every subsequent sample, so
+`decisionsSeen` approaching `stepsTaken` is its signature (3.2% measured, 25%
+gated).
 
 **Two decks, because a domain pair is a hard ceiling on what one deck can reach.**
 The Body/Order deck cannot contain a single Calm card, so Sona - Harmonious, Ahri

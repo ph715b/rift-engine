@@ -27,6 +27,22 @@ export interface MatchConfig {
   humanDeck: DeckList;
   aiDeck: DeckList;
   format: MatchFormat;
+  /**
+   * SPECTATE — both seats are driven by the AI and the board is watched rather
+   * than played.
+   *
+   * A dev/observability mode, not a game mode, and deliberately a flag on the
+   * existing config rather than a third seat model: seat 0 stays "you" for every
+   * purpose the board has (its hand is the one rendered face-up, its questions
+   * are the ones that raise a prompt), and only WHO CHOOSES its actions changes.
+   * That is what keeps `GameBoard`'s twenty-odd `HUMAN_INDEX` sites correct
+   * unchanged, and it is why this is a flag rather than a refactor.
+   *
+   * `chooseAction` derives the seat it is choosing for and masks that seat's
+   * hidden information itself, so driving seat 0 with it is information-safe by
+   * construction rather than by care.
+   */
+  spectate?: boolean;
 }
 
 /** How many game wins take the match. */

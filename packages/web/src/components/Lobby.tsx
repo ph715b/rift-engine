@@ -73,6 +73,10 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
   // Best of 1 is the default because it's the shorter commitment, and because
   // it's what every match up to now has implicitly been.
   const [format, setFormat] = useState<MatchFormat>("bo1");
+  // SPECTATE — both seats driven by the AI. Off by default and deliberately not
+  // remembered in the profile: it is a mode you opt into for one match to watch
+  // or to instrument, never one you should find yourself in by accident.
+  const [spectate, setSpectate] = useState(false);
 
   function refreshProfile() {
     setProfileDecks(getProfileDecks());
@@ -96,7 +100,7 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
       </div>
 
       <div className="zone">
-        <div className="zone-label">Your deck</div>
+        <div className="zone-label">{spectate ? "First bot's deck" : "Your deck"}</div>
         <DeckListPicker label="" decks={PRESET_DECK_LISTS} selectedName={humanDeck?.name ?? null} onSelect={setHumanDeck} />
         <DeckListPicker
           label="Your saved decks"
@@ -114,7 +118,7 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
 
       <div className="zone">
         <DeckListPicker
-          label="Opponent's deck"
+          label={spectate ? "Second bot's deck" : "Opponent's deck"}
           decks={PRESET_DECK_LISTS}
           selectedName={aiDeck?.name ?? null}
           onSelect={setAiDeck}
@@ -173,13 +177,28 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
         </div>
       </div>
 
+      {/* Spectate rides in the ACTIONS row rather than taking a zone of its own,
+          and that is a layout constraint rather than a style preference: `.board`
+          is a fixed `100dvh` with `overflow: hidden` and the zones are
+          `flex: 0 1 auto`, so a fifth zone shrinks all of them — measured, it
+          took the deck zone from 526px to 379px and pushed its own Parse button
+          out under the zone below, where a click hits the wrong element. Anything
+          added to this screen has to cost no vertical space. */}
       <div className="actions">
+        <button
+          className={`spectate-toggle${spectate ? " selected" : ""}`}
+          aria-pressed={spectate}
+          title="Both seats play themselves and the board is watched, not played."
+          onClick={() => setSpectate((on) => !on)}
+        >
+          Spectate · AI vs AI
+        </button>
         <button
           className="menu-primary-button"
           disabled={!humanDeck || !aiDeck}
-          onClick={() => humanDeck && aiDeck && onStartMatch({ humanDeck, aiDeck, format })}
+          onClick={() => humanDeck && aiDeck && onStartMatch({ humanDeck, aiDeck, format, spectate })}
         >
-          Start Match
+          {spectate ? "Watch Match" : "Start Match"}
         </button>
       </div>
     </div>

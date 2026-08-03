@@ -235,6 +235,11 @@ interface GameBoardProps {
 
 export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const [config, setConfig] = useState(initialConfig);
+  // SPECTATE — the AI drives BOTH seats and nothing on the board is clickable.
+  // Read off the config rather than held as its own state: it is a property of
+  // the match, and a rematch that reused the config while dropping this would
+  // silently hand a half-played game back to a human who is not there.
+  const spectate = config.spectate === true;
   // Match-level state, above any single game. A Best of 1 leaves it at zeroes
   // and never reads it; a Best of 3 needs all of it — the score to know when
   // the MATCH is over (rule 487.4's two game wins) and the used-battlefield
@@ -244,7 +249,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // of 3 adds a battlefield selection ahead of the mulligan — rule 487.2 puts
   // that selection in Setup, so it runs before EVERY game, not only between
   // them.
-  const [pregame, setPregame] = useState<PregameStep>(initialConfig.format === "bo3" ? "selectBattlefield" : "mulligan");
+  // Spectate skips the battlefield step even in a Best of 3: 487.2's selection is
+  // a PLAYER's choice, and with nobody at the seat the honest stand-in is the
+  // roll `createNewGame` already makes for both sides — the same thing 1v1 Duel
+  // does. Recorded as a deliberate narrowing rather than an oversight: a
+  // spectated Bo3 is not a rules-faithful Bo3 on that one point.
+  const [pregame, setPregame] = useState<PregameStep>(
+    initialConfig.format === "bo3" && initialConfig.spectate !== true ? "selectBattlefield" : "mulligan",
+  );
   // The seed for the CURRENT game, held rather than re-derived so a Best of 3's
   // battlefield choice can rebuild this game's state (with the chosen
   // battlefields) off the same shuffle the roll used.
@@ -322,6 +334,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // the only way those can't drift.
   const actingIndex = actingPlayerIndex(state);
   const isHumanTurn = actingIndex === HUMAN_INDEX;
+  // Is the person LOOKING at the board allowed to act? Distinct from
+  // `isHumanTurn`, which is a fact about the game — under spectate it is still
+  // true for half the turns, and the board would happily offer a passer-by a
+  // Pass button and a selectable hand while a bot is mid-decision.
+  //
+  // Every interaction below is gated on THIS; only the header prose ("your
+  // priority" / "the AI's Focus") still reads `isHumanTurn`, because that
+  // describes the game rather than what you may click.
+  const canAct = isHumanTurn && !spectate;
   const isGameOver = result.type === "GameOver";
   const isShowdownOpen = state.turnState === "Showdown";
   const showdownBattlefield = isShowdownOpen
@@ -338,7 +359,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // at all.
   const chainItems = useMemo(() => describeChain(state), [state]);
 
-  const legal = useMemo(() => (isHumanTurn && !isGameOver ? legalActions(state) : []), [state, isHumanTurn, isGameOver]);
+  // Empty under spectate, which is what makes the board unclickable: every
+  // affordance on it — an armable hand card, a selectable unit, the Pass button
+  // — is derived from this list, so one guard here disables all of them rather
+  // than each needing to learn about the mode.
+  const legal = useMemo(
+    () => (canAct && !isGameOver ? legalActions(state) : []),
+    [state, canAct, isGameOver],
+  );
 
   // A question the engine has stopped to ask, and it is yours to answer. It
   // outranks everything else on screen: while one is open, `legalActions` offers
@@ -359,15 +387,36 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setUnplayableNotice(null);
   }
 
-  // The AI's turn plays itself, one action at a time, with a short delay for feel.
+  // The AI's turn plays itself, one action at a time, with a short delay for feel
+  // — and under SPECTATE it plays the other seat's turns too.
+  //
+  // `chooseAction` derives the acting seat itself (and masks that seat's hidden
+  // information for its own lookahead), so driving both seats is the absence of
+  // the `isHumanTurn` guard rather than any new code. That is the whole feature:
+  // everything else here is about not offering a human affordances.
   useEffect(() => {
-    if (isHumanTurn || isGameOver) return;
+    if (isGameOver) return;
+    if (canAct) return;
     const timer = setTimeout(() => {
       const action = chooseAction(state);
       setGame(submit(state, action));
     }, AI_MOVE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [state, isHumanTurn, isGameOver]);
+  }, [state, canAct, isGameOver]);
+
+  // SPECTATE's pregame: nobody is at the seat to keep or mulligan a hand, so it
+  // keeps it — which is exactly what the AI already does at the other seat
+  // (execute-mulligan.ts: the AI never mulligans), so both seats are treated
+  // alike rather than one getting a free look the other never had.
+  //
+  // An effect rather than a branch in the initial state, because it has to run
+  // AFTER the hands are dealt and it has to survive `resetForNewGame` starting
+  // the next game's pregame the same way.
+  useEffect(() => {
+    if (!spectate || pregame !== "mulligan" || !pregameState) return;
+    setGame(beginFirstTurn(pregameState));
+    setPregame("playing");
+  }, [spectate, pregame, pregameState]);
 
   // The resolution beat. A chain entry vanishes from `state.spellChain` in the
   // same tick its effect is applied, so without this a spell resolved as an
@@ -900,7 +949,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }
 
   function canDragUnit(unit: UnitInstance): boolean {
-    return isHumanTurn && !unit.exhausted;
+    return canAct && !unit.exhausted;
   }
 
   /** Every currently-selected unit, resolved from ids to live instances —
@@ -1498,7 +1547,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   }, [pendingPlay, legal]);
 
   const isBaseZoneTarget =
-    isHumanTurn && (selectedUnitIds.size > 0 ? isGroupRecallTarget() : Boolean(placementActionAt(BASE_ZONE_ID)));
+    canAct && (selectedUnitIds.size > 0 ? isGroupRecallTarget() : Boolean(placementActionAt(BASE_ZONE_ID)));
 
   function handleBattlefieldClick(battlefieldId: string) {
     if (selectedUnitIds.size > 0) {
@@ -1626,7 +1675,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setGameSeed(seed);
     bankedGameRef.current = false;
     setPregameState(dealOpeningHands(createNewGame(newConfig, seed)));
-    setPregame(newConfig.format === "bo3" ? "selectBattlefield" : "mulligan");
+    // Same narrowing as the initial state above: a spectated Bo3 rolls its
+    // battlefields rather than stopping at a chooser nobody is sitting at.
+    setPregame(newConfig.format === "bo3" && newConfig.spectate !== true ? "selectBattlefield" : "mulligan");
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setPendingAbility(null);
@@ -1782,7 +1833,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // a targeted Spell before its target is picked), and floating then would
   // silently clear the armed card (applyAction always resets pendingPlay),
   // which would be a surprising regression, not a feature.
-  const floatModeActive = isHumanTurn && !isGameOver && !pendingPlay;
+  const floatModeActive = canAct && !isGameOver && !pendingPlay;
 
   /**
    * Is the hand fan barred from opening on hover right now?
@@ -1917,6 +1968,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         <DecisionPrompt
           state={state}
           decision={awaitingHuman}
+          readOnly={spectate}
           onAnswer={(optionId) =>
             applyAction({ type: "AnswerDecision", playerIndex: HUMAN_INDEX, decisionId: awaitingHuman.id, optionId })
           }
@@ -2029,7 +2081,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               resolving={resolvingChainItem}
               humanIndex={HUMAN_INDEX}
               chainPasses={state.chainPasses}
-              isHumanResponse={isChainPending && isHumanTurn}
+              isHumanResponse={isChainPending && canAct}
               onHoverItem={setHoveredChainIndex}
             />
           )}
@@ -2112,9 +2164,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 onPlayHidden={playHiddenCard}
                 selectedUnitIds={selectedUnitIds}
                 isMoveTarget={
-                  isHumanTurn && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
+                  canAct && (selectedUnitIds.size > 0 ? isGroupMoveTarget(bf.id) : Boolean(placementActionAt(bf.id)))
                 }
-                isTargetable={isHumanTurn && isBattlefieldLegalTarget(bf.id)}
+                isTargetable={canAct && isBattlefieldLegalTarget(bf.id)}
                 isChainTargeted={chainTargets.battlefields.has(bf.id)}
                 isDragOver={dragOverZoneId === bf.id}
                 isShowdownActive={state.showdownBattlefieldId === bf.id}
@@ -2191,7 +2243,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       // battlefield-only "unit" target — see
                       // validate-play-card.ts:136-148), so a base unit has to
                       // be able to answer a pending step too.
-                      isSelectable={isHumanTurn && isFriendlyUnitSelectable(unit)}
+                      isSelectable={canAct && isFriendlyUnitSelectable(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
                       isChainTargeted={chainTargets.units.has(unit.instanceId)}
                       isSelected={selectedUnitIds.has(unit.instanceId) || pendingChosenUnitIds().has(unit.instanceId)}
@@ -2242,15 +2294,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 >
                   <CardView
                     card={card}
-                    isSelectable={isHumanTurn && isCardInteractable(card.instanceId)}
-                    isUnplayable={isHumanTurn && !isCardInteractable(card.instanceId)}
+                    isSelectable={canAct && isCardInteractable(card.instanceId)}
+                    isUnplayable={canAct && !isCardInteractable(card.instanceId)}
                     isSelected={pendingPlay?.card.instanceId === card.instanceId}
                     onClick={() => handleHandCardClick(card.instanceId)}
                     onUnavailableClick={() => setUnplayableNotice(unplayableReason(card))}
                     unavailableNote={() => unplayableReason(card)}
-                    onDrag={isHumanTurn && isCardInteractable(card.instanceId) ? trackDragZone : undefined}
+                    onDrag={canAct && isCardInteractable(card.instanceId) ? trackDragZone : undefined}
                     onDragEnd={
-                      isHumanTurn && isCardInteractable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
+                      canAct && isCardInteractable(card.instanceId) ? () => handleHandCardDragEnd(card.instanceId) : undefined
                     }
                   />
                 </div>
@@ -2275,21 +2327,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           activeGear={human.activeGear}
           pilesOnBoard
           legendAtBottom
-          isChampionSelectable={isHumanTurn && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
-          // Gated on isHumanTurn exactly like the hand above — without it the
+          isChampionSelectable={canAct && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}
+          // Gated on canAct exactly like the hand above — without it the
           // champion was the one card that dimmed during the AI's turn, when
           // NOTHING is playable and singling it out says nothing useful.
-          isChampionUnplayable={isHumanTurn && Boolean(human.championZone && !isCardInteractable(human.championZone.instanceId))}
+          isChampionUnplayable={canAct && Boolean(human.championZone && !isCardInteractable(human.championZone.instanceId))}
           onChampionClick={() => human.championZone && handleHandCardClick(human.championZone.instanceId)}
           onChampionUnavailableClick={() =>
             human.championZone && setUnplayableNotice(unplayableReason(human.championZone))
           }
           championUnavailableNote={() => (human.championZone ? unplayableReason(human.championZone) : "")}
           onChampionDrag={
-            isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId) ? trackDragZone : undefined
+            canAct && human.championZone && isCardInteractable(human.championZone.instanceId) ? trackDragZone : undefined
           }
           onChampionDragEnd={
-            isHumanTurn && human.championZone && isCardInteractable(human.championZone.instanceId)
+            canAct && human.championZone && isCardInteractable(human.championZone.instanceId)
               ? () => human.championZone && handleHandCardDragEnd(human.championZone.instanceId)
               : undefined
           }
@@ -2298,11 +2350,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
       <div className="actions">
         {showPassFocus ? (
-          <button onClick={handlePassFocus} disabled={!isHumanTurn || isGameOver}>
+          <button onClick={handlePassFocus} disabled={!canAct || isGameOver}>
             Pass Focus
           </button>
         ) : (
-          <button onClick={handlePass} disabled={!isHumanTurn || isGameOver}>
+          <button onClick={handlePass} disabled={!canAct || isGameOver}>
             Pass
           </button>
         )}

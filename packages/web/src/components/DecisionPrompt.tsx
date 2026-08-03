@@ -8,6 +8,16 @@ interface DecisionPromptProps {
   state: GameState;
   decision: PendingDecision;
   onAnswer: (optionId: string) => void;
+  /**
+   * SPECTATE — show the question and its options, but let nobody answer it: the
+   * bot sitting at this seat will, a beat later.
+   *
+   * Rendered rather than suppressed, and that is the point. A spectated game is
+   * the one place the questions this engine asks can be WATCHED being asked, and
+   * a mode that hid them would make the most interesting thing on the board
+   * invisible for the sake of tidiness.
+   */
+  readOnly?: boolean;
 }
 
 /**
@@ -26,7 +36,7 @@ interface DecisionPromptProps {
  * miserable. Everything else falls back to a button, which is what a plain
  * yes/no like Flame Chompers' offer wants anyway.
  */
-export function DecisionPrompt({ state, decision, onAnswer }: DecisionPromptProps) {
+export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: DecisionPromptProps) {
   const options = optionsFor(state, decision);
   const owner = state.players[decision.playerIndex];
 
@@ -48,18 +58,28 @@ export function DecisionPrompt({ state, decision, onAnswer }: DecisionPromptProp
   const buttonOptions = options.filter((option) => !cardOptions.some((entry) => entry.option.id === option.id));
 
   return (
-    <ChoiceOverlay title={promptFor(state, decision)} subtitle="This has to be answered before play can continue.">
+    <ChoiceOverlay
+      title={promptFor(state, decision)}
+      subtitle={readOnly ? "Waiting for the bot to answer." : "This has to be answered before play can continue."}
+    >
       {cardOptions.length > 0 && (
         <div className="choice-overlay-cards">
           {cardOptions.map(({ option, card }) => (
-            <CardView key={option.id} card={card} isSelectable isTargetable inPile onClick={() => onAnswer(option.id)} />
+            <CardView
+              key={option.id}
+              card={card}
+              isSelectable={!readOnly}
+              isTargetable={!readOnly}
+              inPile
+              {...(readOnly ? {} : { onClick: () => onAnswer(option.id) })}
+            />
           ))}
         </div>
       )}
       {buttonOptions.length > 0 && (
         <div className="choice-overlay-actions">
           {buttonOptions.map((option) => (
-            <button key={option.id} onClick={() => onAnswer(option.id)}>
+            <button key={option.id} disabled={readOnly} onClick={() => onAnswer(option.id)}>
               {option.label}
             </button>
           ))}

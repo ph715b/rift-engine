@@ -20,7 +20,18 @@
  * or an uncaught throw is never acceptable and is the thing most likely to be
  * caused by a card whose resolver returns a shape the board cannot render.
  *
- * **DECISIONS need `ACTIVE=1`.** Passing alone can never reach one: the human
+ * **DECISIONS need `ACTIVE=1` or `SPECTATE=1`.** `SPECTATE=1` is the better of
+ * the two and the cheaper: the app's AI-vs-AI mode drives BOTH seats through
+ * `chooseAction`, so cards are played by engine code with its own tests rather
+ * than by this file's measured-pixel hand-clicking. Measured over 6 games it
+ * reaches **52 decision states across 7 distinct prompts** — including King's
+ * Edict, which the "still not seen rendered" list below had been carrying since
+ * this probe was written. The driver answers NOTHING in that mode (the prompts
+ * render read-only and the bot answers a beat later), so `decisionsAnswered`
+ * stays 0 by design and the stranded-question check is the ratio gate at the
+ * bottom of this file instead.
+ *
+ * **The ACTIVE notes below still apply to ACTIVE.** Passing alone can never reach one: the human
  * plays nothing, and the AI answers its own questions with no prompt, so the
  * default run reports `decisionsSeen: 0` meaning "not reached" — never "no
  * decisions render". With `ACTIVE=1` the driver plays from hand and the prompts
@@ -41,10 +52,12 @@
  * first turn-boundary trigger — it is fired in one player's End Phase and shown
  * on the chain during the other player's turn.
  *
- * Still NOT seen rendered: the decision prompts of Albus Ferros, Spectral Matron,
- * King's Edict and Overt Operation. They are in the deck (see
- * `make-buffdeck.mjs`'s priority list) and reached play, but their own conditions
- * did not come up.
+ * Still NOT seen rendered: the decision prompts of Albus Ferros, Spectral Matron
+ * and Overt Operation. They are in the deck (see `make-buffdeck.mjs`'s priority
+ * list) and reached play, but their own conditions did not come up. **King's
+ * Edict came off this list under `SPECTATE=1`** — it was never a rendering
+ * problem, only a reachability one, which is exactly what a second way of
+ * driving the board is for.
  */
 import { chromium, ORIGIN, OUT, PORT, sleep, step } from "./lib.mjs";
 import { join, dirname } from "node:path";
@@ -68,6 +81,22 @@ const STEPS = Number(process.env.STEPS ?? 320);
  *  measurement above stays comparable between runs; ACTIVE=1 is what reaches
  *  decisions. */
 const ACTIVE = process.env.ACTIVE === '1';
+/**
+ * SPECTATE=1 — the app's AI-vs-AI mode drives BOTH seats.
+ *
+ * The second way to reach a board where cards are actually played, and the
+ * cheaper one. `ACTIVE=1` gets there by clicking the human's hand through a
+ * measured-pixel flow (`tryPlayFromHand` below) that this file's own history
+ * records failing silently once; spectate gets there through `chooseAction`,
+ * which is engine code with its own tests. What it buys beyond ACTIVE is that
+ * BOTH seats play, so seat 0's questions are raised by real plays rather than by
+ * whatever a driver managed to click.
+ *
+ * Nothing is answered by the driver here: the prompts render read-only and the
+ * bot answers them a beat later. So `decisionsAnswered` stays 0 by design and
+ * the "stranded question" check is a different one — see the gate at the bottom.
+ */
+const SPECTATE = process.env.SPECTATE === '1';
 
 /**
  * The preset decks CANNOT reach this feature, and finding that out is half the
@@ -169,8 +198,20 @@ async function bootWithImportedDeck(p) {
   await sleep(150);
   await mine.last().click();
   await sleep(150);
-  await p.getByRole("button", { name: /start match/i }).first().click();
+  if (SPECTATE) {
+    const toggle = p.getByRole("button", { name: /spectate/i });
+    if ((await toggle.count()) === 0) throw new Error("SPECTATE=1 but the lobby has no Spectate toggle");
+    await toggle.first().click();
+    await sleep(150);
+  }
+  // "Watch Match" under spectate, "Start Match" otherwise — matched together so
+  // the driver does not have to know which, but the toggle above is asserted
+  // rather than assumed, since a missing toggle would silently run an ordinary
+  // game and report it as a spectated one.
+  await p.getByRole("button", { name: /watch match|start match/i }).first().click();
   await sleep(1500);
+  // The mulligan auto-advances under spectate (nobody is at the seat to keep a
+  // hand), so the button is simply absent — skipped rather than waited for.
   for (const label of [/keep hand/i, /keep/i]) {
     const btn = p.getByRole("button", { name: label });
     if (await btn.count()) {
@@ -288,12 +329,16 @@ for (let g = 0; g < GAMES; g += 1) {
       decisionsSeen += 1;
       const title = (await page.locator(".choice-overlay-title").first().textContent().catch(() => "")) ?? "";
       decisionTitles.set(title.trim(), (decisionTitles.get(title.trim()) ?? 0) + 1);
-      const buttons = overlay.locator("button");
-      const n = await buttons.count();
-      if (n > 0) {
-        await buttons.nth(n - 1).click({ timeout: 1500 }).catch(() => {});
-        await sleep(200);
-        if ((await page.locator(".choice-overlay-panel").count()) === 0) decisionsAnswered += 1;
+      // Under spectate the options are deliberately disabled — the bot answers.
+      // Clicking anyway would be a no-op that scored as a failure to answer.
+      if (!SPECTATE) {
+        const buttons = overlay.locator("button");
+        const n = await buttons.count();
+        if (n > 0) {
+          await buttons.nth(n - 1).click({ timeout: 1500 }).catch(() => {});
+          await sleep(200);
+          if ((await page.locator(".choice-overlay-panel").count()) === 0) decisionsAnswered += 1;
+        }
       }
     }
 
@@ -332,7 +377,9 @@ for (let g = 0; g < GAMES; g += 1) {
     // decision-parking cards landed today were unreachable by a passive driver.
     // This is the "drive the rare state deliberately" half of gating on
     // `tried > 0`: counting a branch that cannot occur is not measurement.
-    if (ACTIVE) {
+    // Never under spectate: nothing on the board is clickable, so every attempt
+    // would fail and the count would read as the mode being broken.
+    if (ACTIVE && !SPECTATE) {
       const played = await tryPlayFromHand(page);
       if (played) playAttempts += 1;
     }
@@ -353,13 +400,28 @@ await browser.close();
 // zero here means either the row does not render or the probe never reached the
 // state, and both are failures. Without this gate the first version of this file
 // reported OK having seen none.
+/**
+ * SPECTATE's own gates, and the second one is the stranded-question check this
+ * mode needs in place of `raised == answered`.
+ *
+ * The driver answers nothing here, so a prompt that could never be dismissed
+ * would not show up as `seen > answered` — it would sit on screen for the rest
+ * of the run, and EVERY subsequent sample would count it. So the shape of a
+ * stranded question is `decisionsSeen` approaching `stepsTaken`, and a healthy
+ * run is a small fraction. Measured over 6 games: 52 of 1613 samples, 3.2%.
+ * A quarter is the ceiling — generous against seed variance, and nowhere near
+ * the ~100% a stuck prompt would produce.
+ */
+const spectateOk = !SPECTATE || (decisionsSeen > 0 && decisionsSeen * 4 < stepsTaken);
+
 const ok =
   boardsReached === GAMES &&
   stepsTaken > GAMES * 10 &&
   consoleErrors.length === 0 &&
   pageErrors.length === 0 &&
   chainItemStates > 0 &&
-  triggerRowStates > 0;
+  triggerRowStates > 0 &&
+  spectateOk;
 
 console.log(
   JSON.stringify(

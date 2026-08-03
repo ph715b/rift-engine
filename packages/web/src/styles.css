@@ -1197,6 +1197,20 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* The lobby's Spectate toggle. Sits in the actions row beside Start Match
+   because that row already exists and costs no extra height — see Lobby.tsx for
+   why a new zone is not an option on this screen. Pressed state matches
+   `.format-option.selected` so the two controls read as the same kind of
+   choice. */
+.spectate-toggle {
+  margin-right: auto;
+}
+
+.spectate-toggle.selected {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-elevated));
+}
+
 .banner {
   text-align: center;
   padding: 0.6rem;
