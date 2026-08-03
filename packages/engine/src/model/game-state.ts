@@ -206,6 +206,22 @@ export interface PlayerState {
    */
   restrictedSpellPower: number;
   /**
+   * Malzahar - Fanatic's "Kill a friendly unit or gear, Exhaust: → rainbow
+   * rainbow" — Power that pays a pip of ANY domain, with no Spells-only
+   * restriction.
+   *
+   * Its own field for the same reason `restrictedSpellPower` above is: keyed by
+   * nothing, because rainbow matches every domain, and `floatingPower` is keyed
+   * by Domain. It is NOT the same pool as that one — this pays for a Unit or a
+   * Gear too, so folding the two together would silently let Kai'Sa's Spells-only
+   * Power buy a body.
+   *
+   * Drained after `floatingPower` and before `restrictedSpellPower`: fungible
+   * before restricted, the ordering both other pairs already follow. Cleared at
+   * runEnd if unused, same as the rest.
+   */
+  floatingRainbowPower: number;
+  /**
    * Sun Disc's "the NEXT unit you play this turn enters ready" — a charge, not a
    * flag, and the difference is the whole card.
    *
@@ -628,6 +644,15 @@ export interface GameState {
    *  "this turn" lifetime as GameState.java's own set
    *  (TurnManager.java:287-290). */
   deathWardedUnitInstanceIds: string[];
+  /**
+   * Units carrying Unlicensed Armory's ward — the same "next time it would die
+   * this turn" window as the list above, but the replacement is OPTIONAL and
+   * costs 1 Fury Power, so it stops to ask rather than simply happening.
+   *
+   * Kept apart from the free list for exactly that reason; see
+   * engine/death-ward.ts. Cleared every runEnd alongside it.
+   */
+  paidDeathWardUnitInstanceIds: string[];
   /**
    * Deaths waiting on a replacement offer — see PendingDeath above. Empty
    * except for the instant between Sett - The Boss's question being raised and

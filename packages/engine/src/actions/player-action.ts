@@ -247,6 +247,20 @@ export interface ActivateAbilityAction {
    *  Wonders). Separate from `targetUnitInstanceId` for the same reason a Spell's
    *  is: a gear is not a unit and must never reach a reader expecting one. */
   targetPermanentInstanceId?: string;
+  /**
+   * The friendly permanent killed to PAY for the ability — Malzahar - Fanatic's
+   * "Kill a friendly unit or gear, Exhaust:".
+   *
+   * Deliberately not `targetPermanentInstanceId` above, which names what the
+   * ability DOES something to. These are two different questions that a modal
+   * card could one day ask at once, and a cost paid by killing what you were
+   * also targeting is a different line from either.
+   */
+  costPermanentInstanceId?: string;
+  /** The card discarded to PAY for the ability — Unlicensed Armory's
+   *  "Discard 1, Exhaust:". Separate from `discardCardInstanceId`-style effect
+   *  fields for the reason above: cost and effect are different questions. */
+  costDiscardCardInstanceId?: string;
 }
 
 /**

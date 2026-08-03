@@ -12,6 +12,7 @@ import {
   readyRunes,
 } from "./effect-helpers.js";
 import { computeAutoPayment } from "./rune-payment.js";
+import { pendingDeathFor, releasePendingDeath } from "./death-ward.js";
 import { RAINBOW } from "./hidden.js";
 // Rule 711's "Might 5 or greater", already defined once for Fiora - Victorious.
 // Imported rather than restated so Volibear and Fiora can never disagree about
@@ -360,12 +361,7 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
     resolve: (state, d, optionId) => {
       const held = pendingDeathFor(state, d.targetInstanceId);
       if (!held) return state;
-      const released: GameState = {
-        ...state,
-        unitsAwaitingDeathReplacement: state.unitsAwaitingDeathReplacement.filter(
-          (p) => p.unit.instanceId !== held.unit.instanceId,
-        ),
-      };
+      const released = releasePendingDeath(state, held.unit.instanceId);
       if (optionId !== "save") return completeDeath(released, held);
 
       // Pay first, and bail to the ordinary death if it cannot be paid after all
@@ -389,12 +385,6 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
     },
   },
 };
-
-/** The held death this decision is about, if it is still waiting. */
-function pendingDeathFor(state: GameState, unitInstanceId: string | undefined): PendingDeath | undefined {
-  if (unitInstanceId === undefined) return undefined;
-  return state.unitsAwaitingDeathReplacement.find((p) => p.unit.instanceId === unitInstanceId);
-}
 
 function abilitiesFor(state: GameState, ownerIndex: 0 | 1): LegendAbilityDefinition | undefined {
   return LEGEND_ABILITIES[state.players[ownerIndex].legend.defId];

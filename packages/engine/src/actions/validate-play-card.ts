@@ -496,6 +496,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
         card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+        actor.floatingRainbowPower,
       );
 
   if (payment.energyRunes.length !== effectiveCost.energyCost) {

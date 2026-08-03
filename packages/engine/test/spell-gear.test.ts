@@ -40,6 +40,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     points: 0,
     floatingEnergy: 0,
     floatingPower: {},
+    floatingRainbowPower: 0,
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
@@ -102,6 +103,7 @@ function buildSpellFixture() {
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
@@ -148,6 +150,7 @@ function buildGearFixture() {
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };
@@ -455,6 +458,7 @@ describe("legalActions: Spell and Gear candidates", () => {
     extraTurns: 0,
     extraTurnsForIndex: 0,
       deathWardedUnitInstanceIds: [],
+      paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
       pendingDecisions: [],
     };

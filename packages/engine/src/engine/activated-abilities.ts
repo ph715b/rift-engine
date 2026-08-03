@@ -108,6 +108,29 @@ export interface ActivationCost {
    * and needs nothing on the action.
    */
   power?: { domain: Domain; count: number };
+  /**
+   * Kill a friendly permanent to pay — Malzahar - Fanatic's "Kill a friendly unit
+   * or gear, Exhaust:".
+   *
+   * The FIRST activation cost that carries a CHOICE. Every other cost here is
+   * paid from state (an exhaust, a Recycle, a Power) or from a payment the action
+   * already carries, so nothing had to be picked. This one names a permanent, so
+   * it rides on the action as `costPermanentInstanceId` and `legal-actions` fans
+   * out one candidate per eligible target — the same shape a targeted ability
+   * already takes, one field over.
+   *
+   * Distinct from `killSelf` above, which destroys the SOURCE and so needs no
+   * choice at all.
+   */
+  killFriendlyPermanent?: true;
+  /**
+   * Discard cards from hand to pay — Unlicensed Armory's "Discard 1, Exhaust:".
+   *
+   * A count rather than a boolean, matching `recycleFromTrash` above. WHICH card
+   * goes is a real choice and rides on the action as `costDiscardCardInstanceId`,
+   * for the same reason the kill above does.
+   */
+  discard?: number;
 }
 
 /**
@@ -309,8 +332,63 @@ function retrieveTeemo(state: GameState, playerIndex: 0 | 1): GameState {
   return { ...state, players };
 }
 
+/** Malzahar - Fanatic's yield — two rainbow Power for one friendly permanent. */
+const MALZAHAR_POWER = 2;
+
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "OGN-113": {
+    // Malzahar - Fanatic — "Kill a friendly unit or gear, Exhaust: [Action] ->
+    // Add [rainbow][rainbow]."
+    //
+    // A ritual: a body for two Power of any colour. The Power is RAINBOW, so it
+    // cannot land in `floatingPower` (keyed by Domain) and gets its own pool —
+    // see PlayerState.floatingRainbowPower for why that is not Kai'Sa's.
+    //
+    // The kill is a COST, not an effect, and that is the whole card: it is paid
+    // before the ability resolves, so a unit killed this way is already dead when
+    // anything responds, and paying with the last friendly permanent is legal.
+    kind: "Unit",
+    cost: { killFriendlyPermanent: true, exhaust: true },
+    targeting: { kind: "none" },
+    // Banks a resource and changes nothing the board evaluator can price — the
+    // same flag the Seals carry. (The kill DOES change the board, but it is the
+    // price rather than the point.)
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingRainbowPower: actor.floatingRainbowPower + MALZAHAR_POWER };
+      return { ...state, players };
+    },
+  },
+  "OGN-023": {
+    // Unlicensed Armory — "Discard 1, Exhaust: Choose a friendly unit. The next
+    // time it would die this turn, you may pay [Fury] to heal it, exhaust it, and
+    // recall it instead."
+    //
+    // Two prices at two different moments, and both are real: a card and an
+    // exhaust NOW to arm the ward, 1 Fury Power LATER only if the unit actually
+    // dies. Arming it costs the discard whether or not the unit ever dies, which
+    // is what makes it a gamble rather than insurance.
+    //
+    // The ward itself lives in death-ward.ts beside Highlander's free one; only
+    // the arming is here.
+    kind: "Gear",
+    cost: { discard: 1, exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : {
+            ...state,
+            // Not de-duplicated: arming the same unit twice with two Armories is
+            // two wards, and the second survives the first death — "the NEXT
+            // time" consumes one entry, and the rules never merge two
+            // replacement effects into one.
+            paidDeathWardUnitInstanceIds: [...state.paidDeathWardUnitInstanceIds, event.targetUnitInstanceId],
+          },
+  },
   "OGN-181": {
     // Pack of Wonders — "Exhaust: Return ANOTHER friendly gear, unit, or facedown
     // card to its owner's hand."
@@ -869,6 +947,28 @@ export function activationCostOf(defId: string): ActivationCost {
  * completed for the cost to be paid". Shared by the validator and the
  * enumerator so an ability is never offered and then refused.
  */
+/**
+ * The friendly permanents an ability could kill to pay — units anywhere plus
+ * active gear, EXCLUDING the source itself.
+ *
+ * Excluding the source is not printed on Malzahar and is the right reading
+ * anyway: `killSelf` is the cost that destroys the source, and an ability that
+ * both exhausted and killed its own unit could never be used twice. The rules'
+ * own separation of the two cost kinds is what says these are different things.
+ */
+export function killableFriendlyPermanents(
+  state: GameState,
+  playerIndex: 0 | 1,
+  sourceInstanceId: string,
+): { instanceId: string; name: string; isGear: boolean }[] {
+  const owner = state.players[playerIndex];
+  return [
+    ...owner.baseUnits.map((u) => ({ instanceId: u.instanceId, name: u.name, isGear: false })),
+    ...state.battlefields.flatMap((bf) => (bf.units[owner.id] ?? []).map((u) => ({ instanceId: u.instanceId, name: u.name, isGear: false }))),
+    ...owner.activeGear.map((g) => ({ instanceId: g.instanceId, name: g.name, isGear: true })),
+  ].filter((p) => p.instanceId !== sourceInstanceId);
+}
+
 export function canPayActivationCost(
   state: GameState,
   playerIndex: 0 | 1,
@@ -891,6 +991,11 @@ export function canPayActivationCost(
   // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
+  // The two costs that carry a CHOICE. Affordability is "is there anything to
+  // choose", asked here so an ability with nothing to pay with is never offered
+  // — 416.3's "a cost that cannot be completed is not one you may choose to pay".
+  if (cost.killFriendlyPermanent && killableFriendlyPermanents(state, playerIndex, card.instanceId).length === 0) return false;
+  if (cost.discard !== undefined && state.players[playerIndex].hand.length < cost.discard) return false;
   // `killSelf` needs no check here: the source was found in play by
   // resolveActivation before this was called, and unlike an exhaust there is no
   // second state it could be in — a Forge that has paid is gone, not spent.
@@ -943,6 +1048,9 @@ export function payActivationCost(
   instanceId: string,
   defId: string,
   payment?: RunePayment,
+  /** What the action named for a cost that carries a CHOICE — Malzahar's kill,
+   *  Unlicensed Armory's discard. Absent for every cost paid from state. */
+  chosen?: { costPermanentInstanceId?: string; costDiscardCardInstanceId?: string },
 ): GameState | undefined {
   const cost = activationCostOf(defId);
   let next = state;
@@ -968,6 +1076,30 @@ export function payActivationCost(
     // killing it, so its own "when I am killed" self-trigger must fire — the
     // same reasoning Cruel Patron's kill-as-a-cost already follows.
     next = killGear(next, gear, playerIndex);
+  }
+  // The two costs that carry a CHOICE, paid from what the action named.
+  if (cost.killFriendlyPermanent) {
+    if (!chosen?.costPermanentInstanceId) return undefined;
+    const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === chosen.costPermanentInstanceId);
+    // Routed through the real funnels for the reason Cruel Patron's kill records:
+    // paying a cost with a permanent is still killing it, so a unit's [Deathknell]
+    // and a gear's "when I am killed" both fire. No `killerIndex` — paying a cost
+    // with your own permanent is not "you killing it" in Solari Shrine's sense.
+    next = gear ? killGear(next, gear, playerIndex) : destroyUnit(next, chosen.costPermanentInstanceId);
+  }
+  if (cost.discard !== undefined) {
+    if (!chosen?.costDiscardCardInstanceId) return undefined;
+    const actor = next.players[playerIndex];
+    const card = actor.hand.find((c) => c.instanceId === chosen.costDiscardCardInstanceId);
+    if (!card) return undefined;
+    const players = [...next.players] as [PlayerState, PlayerState];
+    players[playerIndex] = {
+      ...actor,
+      hand: actor.hand.filter((c) => c.instanceId !== card.instanceId),
+      trash: [...actor.trash, card],
+      discardedThisTurn: true,
+    };
+    next = { ...next, players };
   }
   if (cost.energy !== undefined) {
     const paid = payActivationEnergy(next, playerIndex, cost.energy, payment);

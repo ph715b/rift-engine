@@ -49,6 +49,7 @@ function buildInitialGameState(): GameState {
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };

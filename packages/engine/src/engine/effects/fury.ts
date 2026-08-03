@@ -4,6 +4,7 @@ import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTr
 import type { DecisionDefinition } from "../decisions.js";
 import {
   dealDamage,
+  completeDeath,
   discardCards,
   discardThenDraw,
   drawCards,
@@ -18,6 +19,13 @@ import {
   returnUnitToHand,
 } from "../effect-helpers.js";
 import { isMighty } from "../granted-keywords.js";
+import {
+  ARMORY_WARD_POWER,
+  clearPaidDeathWard,
+  pendingDeathFor,
+  releasePendingDeath,
+  reviveToBase,
+} from "../death-ward.js";
 import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
@@ -588,6 +596,46 @@ export const decisions: Record<string, DecisionDefinition> = {
   // reason: recycling a Ready rune for Power banks the Energy it could have paid,
   // so pricing Energy against the pre-Power pool would let one rune be spent
   // twice.
+  /**
+   * Unlicensed Armory's armed ward — "the next time it would die this turn, you
+   * MAY PAY [Fury] to heal it, exhaust it, and recall it instead."
+   *
+   * Raised by `offerPaidDeathWard`, which has already checked the Fury can be
+   * paid. The two branches differ exactly as Sett's do: saving REPLACES the
+   * death (809.1.b.1), so no [Deathknell] fires and no death-watch sees it;
+   * declining resumes the ordinary death at `completeDeath` rather than
+   * re-entering killUnit, which would offer the same save forever.
+   *
+   * The ward is spent EITHER WAY — "the NEXT time it would die" names one death,
+   * and declining is still that death happening.
+   */
+  "OGN-023-save": {
+    prompt: (state, d) => {
+      const held = pendingDeathFor(state, d.targetInstanceId);
+      return `Unlicensed Armory: pay 1 Fury to save ${held?.unit.name ?? "your unit"} instead of letting it die?`;
+    },
+    options: (state, d) =>
+      pendingDeathFor(state, d.targetInstanceId)
+        ? [
+            { id: "die", label: "Let it die" },
+            { id: "save", label: "Pay 1 Fury: heal, exhaust and recall it" },
+          ]
+        : [],
+    resolve: (state, d, optionId) => {
+      const held = pendingDeathFor(state, d.targetInstanceId);
+      if (!held) return state;
+      const released = clearPaidDeathWard(releasePendingDeath(state, held.unit.instanceId), held.unit.instanceId);
+      if (optionId !== "save") return completeDeath(released, held);
+
+      // Pay first and fall back to the ordinary death if the Fury has gone since
+      // the offer — a half-paid replacement would hand over the save for free.
+      const paid = payPowerFromChanneled(released, d.playerIndex, ARMORY_WARD_POWER.domain, ARMORY_WARD_POWER.count);
+      if (paid === undefined) return completeDeath(released, held);
+      // Unlike Sett's save this does NOT spend the unit's buff: his text prices
+      // the save partly in the buff, the Armory's does not mention one.
+      return reviveToBase(paid, held.unit, held.ownerIndex);
+    },
+  },
   "OGN-037-return": {
     prompt: () => "Immortal Phoenix: pay 1 Energy and 1 Fury to play him from your trash?",
     options: () => [

@@ -1,5 +1,7 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
+import { computeAutoPayment } from "./rune-payment.js";
+import { parkDecision } from "./decisions.js";
 
 /**
  * Highlander's death ward — "the next time it would die this turn, heal
@@ -54,5 +56,69 @@ export function reviveWithDeathWard(state: GameState, unit: UnitInstance, ownerI
   return {
     ...reviveToBase(state, unit, ownerIndex),
     deathWardedUnitInstanceIds: state.deathWardedUnitInstanceIds.filter((id) => id !== unit.instanceId),
+  };
+}
+
+/**
+ * Unlicensed Armory's ward — the same three words as Highlander's, but OPTIONAL
+ * and PAID: "the next time it would die this turn, you MAY PAY [Fury] to heal
+ * it, exhaust it, and recall it instead."
+ *
+ * Its own list rather than a flag on `deathWardedUnitInstanceIds`, because the
+ * two behave differently at the moment of death: the free ward simply replaces
+ * the death, this one has to stop and ask. Reading a paid ward out of the free
+ * list would silently save units nobody paid for.
+ */
+export const UNLICENSED_ARMORY = "OGN-023";
+export const ARMORY_WARD_POWER = { domain: "Fury", count: 1 } as const;
+
+/**
+ * Offers an armed Armory ward, or undefined when there is none to offer.
+ *
+ * Checks payability BEFORE parking, the same 416.3 discipline
+ * `offerDeathReplacement` follows — a player with no Fury is not asked a
+ * question whose only answer is "no".
+ */
+export function offerPaidDeathWard(state: GameState, death: PendingDeath): GameState | undefined {
+  if (!state.paidDeathWardUnitInstanceIds.includes(death.unit.instanceId)) return undefined;
+  const owner = state.players[death.ownerIndex];
+  // `null`, not undefined — computeAutoPayment's own failure value, the same
+  // comparison Sett's offer records having got wrong once.
+  if (computeAutoPayment(owner.channeled, 0, ARMORY_WARD_POWER.count, ARMORY_WARD_POWER.domain) === null) return undefined;
+
+  const held: GameState = {
+    ...state,
+    unitsAwaitingDeathReplacement: [...state.unitsAwaitingDeathReplacement, death],
+  };
+  return parkDecision(held, {
+    kind: "OGN-023-save",
+    playerIndex: death.ownerIndex,
+    targetInstanceId: death.unit.instanceId,
+  });
+}
+
+/** The held death a replacement decision is about, if it is still waiting.
+ *  Shared by every optional replacement — Sett's and the Armory's — so "which
+ *  death is this question about" has one answer. */
+export function pendingDeathFor(state: GameState, unitInstanceId: string | undefined): PendingDeath | undefined {
+  if (unitInstanceId === undefined) return undefined;
+  return state.unitsAwaitingDeathReplacement.find((p) => p.unit.instanceId === unitInstanceId);
+}
+
+/** Releases a held death from the waiting list — called by both branches of a
+ *  replacement decision, since either way the question is now answered. */
+export function releasePendingDeath(state: GameState, unitInstanceId: string): GameState {
+  return {
+    ...state,
+    unitsAwaitingDeathReplacement: state.unitsAwaitingDeathReplacement.filter((p) => p.unit.instanceId !== unitInstanceId),
+  };
+}
+
+/** Consumes an Armory ward — "the NEXT time", so it is spent whether or not the
+ *  save was taken. */
+export function clearPaidDeathWard(state: GameState, unitInstanceId: string): GameState {
+  return {
+    ...state,
+    paidDeathWardUnitInstanceIds: state.paidDeathWardUnitInstanceIds.filter((id) => id !== unitInstanceId),
   };
 }

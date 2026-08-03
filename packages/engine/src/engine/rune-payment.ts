@@ -84,11 +84,19 @@ export function computeEffectiveCost(
    *  floating Energy: the fungible resource is spent before the restricted one.
    *  Rainbow, so it needs no domain match — any leftover Power cost takes it. */
   restrictedSpellPower = 0,
+  /** Malzahar - Fanatic's rainbow, ANY card kind. Rainbow like the pool above,
+   *  but unrestricted, so it is drained FIRST of the two — fungible before
+   *  restricted, the same order floating Energy precedes Lux's Spells-only pool. */
+  floatingRainbowPower = 0,
 ): { energyCost: number; powerCost: number } {
   const afterFloat = energyAfterFloat(floatingEnergy, energyCost);
+  const powerAfterFloatingPools = Math.max(
+    0,
+    powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt) - floatingRainbowPower,
+  );
   return {
     energyCost: Math.max(0, afterFloat - restrictedSpellEnergy),
-    powerCost: Math.max(0, powerAfterFloat(floatingPower, powerCost, powerDomain, powerDomainAlt) - restrictedSpellPower),
+    powerCost: Math.max(0, powerAfterFloatingPools - restrictedSpellPower),
   };
 }
 

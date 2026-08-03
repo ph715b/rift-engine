@@ -301,6 +301,7 @@ export function runEnd(state: GameState): GameState {
     baseUnits: p.baseUnits.map(expireMightThisTurn),
     floatingEnergy: 0,
     floatingPower: {},
+    floatingRainbowPower: 0,
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
@@ -353,6 +354,7 @@ export function runEnd(state: GameState): GameState {
     // Highlander's ward only lasts "this turn" — cleared here same as every
     // other "this turn" field above (TurnManager.java:335's own reset).
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
     // Imperial Decree's sweep and Noxian Guillotine's death sentences are the
     // same shape and expire the same way — a delayed effect that outlived its
     // turn would kill on a board the caster never saw.

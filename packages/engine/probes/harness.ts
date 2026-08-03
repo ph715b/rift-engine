@@ -116,6 +116,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     extraTurnsForIndex: 0,
     chainOpenedByTrigger: false,
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };

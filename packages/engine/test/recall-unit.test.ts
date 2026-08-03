@@ -61,6 +61,7 @@ function makePlayer(id: string): PlayerState {
     points: 0,
     floatingEnergy: 0,
     floatingPower: {},
+    floatingRainbowPower: 0,
     cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
@@ -104,6 +105,7 @@ function makeState(): GameState {
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
+    paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     pendingDecisions: [],
   };

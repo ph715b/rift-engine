@@ -39,6 +39,7 @@ import {
   activationPayment,
   availableModes,
   canPayActivationCost,
+  killableFriendlyPermanents,
 } from "./activated-abilities.js";
 import {
   ACCELERATE_ENERGY,
@@ -139,6 +140,13 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         ...(payment !== undefined ? { payment } : {}),
       };
 
+      // A cost that carries a CHOICE fans out its own axis, crossed with the
+      // mode/target axes below — Malzahar - Fanatic names WHICH friendly
+      // permanent he kills to pay, Unlicensed Armory WHICH card it discards. A
+      // single `[{}]` for every other ability, so their actions are unchanged.
+      const costChoices = activationCostChoices(state, playerIndex, permanent.instanceId, cost);
+      const variants: ActivateAbilityAction[] = [];
+
       // One candidate per MODE still available — Udyr's four are four separate
       // choices, and one he has already taken this turn is not offered again.
       for (const mode of availableModes(abilityDefId, permanent)) {
@@ -158,12 +166,12 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
             ...(mode.targeting.excludesSelf ? { excludeInstanceId: permanent.instanceId } : {}),
             ...(mode.targeting.includesFacedown !== undefined ? { includesFacedown: mode.targeting.includesFacedown } : {}),
           })) {
-            out.push({ ...withMode, targetPermanentInstanceId: t.instanceId });
+            variants.push({ ...withMode, targetPermanentInstanceId: t.instanceId });
           }
           continue;
         }
         if (mode.targeting.kind !== "unit") {
-          out.push(withMode);
+          variants.push(withMode);
           continue;
         }
         // Fan out one action per legal target, exactly as the PlayCard path does
@@ -174,7 +182,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
           if (mode.targeting.exhaustedOnly && !target.exhausted) continue;
           if (!mode.movesTarget) {
-            out.push({ ...withMode, targetUnitInstanceId: target.instanceId });
+            variants.push({ ...withMode, targetUnitInstanceId: target.instanceId });
             continue;
           }
           // A mode that MOVES its target needs a destination too, so the fan-out
@@ -184,13 +192,50 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           const from = findUnitOnBattlefield(state, target.instanceId);
           for (const bf of state.battlefields) {
             if (from !== undefined && state.battlefields[from.battlefieldIndex]!.id === bf.id) continue;
-            out.push({ ...withMode, targetUnitInstanceId: target.instanceId, destinationBattlefieldId: bf.id });
+            variants.push({ ...withMode, targetUnitInstanceId: target.instanceId, destinationBattlefieldId: bf.id });
           }
         }
+      }
+
+      for (const variant of variants) {
+        for (const choice of costChoices) out.push({ ...variant, ...choice });
       }
     }
   }
   return out;
+}
+
+/**
+ * The ways an activation cost that carries a CHOICE could be paid, as action
+ * fields — one entry per way, or a single empty entry for the costs that need
+ * no choice at all.
+ *
+ * Fanned out here rather than asked at resolution for the reason every other
+ * choice in this engine is: the submitted action carries the whole decision, so
+ * a replay of the action log is deterministic without a decision transcript.
+ */
+function activationCostChoices(
+  state: GameState,
+  playerIndex: 0 | 1,
+  sourceInstanceId: string,
+  cost: ReturnType<typeof activationCostOf>,
+): Partial<ActivateAbilityAction>[] {
+  let choices: Partial<ActivateAbilityAction>[] = [{}];
+  if (cost.killFriendlyPermanent) {
+    choices = choices.flatMap((c) =>
+      killableFriendlyPermanents(state, playerIndex, sourceInstanceId).map((p) => ({ ...c, costPermanentInstanceId: p.instanceId })),
+    );
+  }
+  if (cost.discard !== undefined) {
+    // One per DISTINCT card in hand rather than per copy: two copies of the same
+    // card are the same discard, and offering both doubles the AI's branching
+    // for a choice that cannot differ. The same de-duplication the hand-play
+    // enumerator already does.
+    const seen = new Set<string>();
+    const hand = state.players[playerIndex].hand.filter((c) => !seen.has(c.defId) && seen.add(c.defId));
+    choices = choices.flatMap((c) => hand.map((card) => ({ ...c, costDiscardCardInstanceId: card.instanceId })));
+  }
+  return choices;
 }
 
 /**
@@ -427,6 +472,9 @@ export function legalActions(state: GameState): PlayerAction[] {
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
         card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+        // Malzahar's rainbow, unlike Kai'Sa's, has no Spells-only clause — so no
+        // kind check, and a Unit may be bought with it.
+        actor.floatingRainbowPower,
       );
     const payment = computeAutoPayment(
       actor.channeled,
@@ -451,6 +499,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             card.powerDomainAlt,
             card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
             card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+            actor.floatingRainbowPower,
           )
         : undefined;
     const discountedPayment = discountedEffective

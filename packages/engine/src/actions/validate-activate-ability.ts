@@ -1,6 +1,12 @@
 import type { GameState } from "../model/game-state.js";
 import type { ActivateAbilityAction } from "./player-action.js";
-import { activationCostOf, canPayActivationCost, resolveActivation, resolveMode } from "../engine/activated-abilities.js";
+import {
+  activationCostOf,
+  canPayActivationCost,
+  killableFriendlyPermanents,
+  resolveActivation,
+  resolveMode,
+} from "../engine/activated-abilities.js";
 import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets } from "../engine/target-lookup.js";
@@ -73,6 +79,21 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     );
     if (named.length < owed) {
       return fail(`${card.name}'s ability needs ${owed} more Energy than the runes named cover`);
+    }
+  }
+
+  // The two costs that carry a CHOICE, re-derived from the same walks the
+  // enumerator fans out from — a hand-built action could otherwise kill an
+  // ENEMY unit "to pay", or discard a card it does not hold.
+  if (cost.killFriendlyPermanent) {
+    const legal = killableFriendlyPermanents(state, action.playerIndex, action.permanentInstanceId);
+    if (!legal.some((p) => p.instanceId === action.costPermanentInstanceId)) {
+      return fail(`${card.name}'s ability must kill a friendly permanent to pay, and ${action.costPermanentInstanceId ?? "nothing"} is not one`);
+    }
+  }
+  if (cost.discard !== undefined) {
+    if (!actor.hand.some((c) => c.instanceId === action.costDiscardCardInstanceId)) {
+      return fail(`${card.name}'s ability must discard a card from hand to pay`);
     }
   }
 

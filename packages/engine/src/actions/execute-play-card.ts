@@ -228,8 +228,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // restrictedSpellPower (Kai'Sa's rainbow, Spells only) drains AFTER floating
   // Power, exactly as the Energy pair above does and in the same order
   // computeEffectiveCost applies them — fungible first, restricted second.
+  // Malzahar's rainbow drains between the two — after domain-matched floating
+  // Power, before Kai'Sa's Spells-only pool — because it is fungible across
+  // domains but usable for any card, so spending it before the more restricted
+  // pool would strand the restricted one. Same order computeEffectiveCost prices.
+  const rainbowPowerSpent = Math.min(actor.floatingRainbowPower, powerToPay - floatingPowerSpent);
   const restrictedPowerSpent =
-    card.kind === "Spell" ? Math.min(actor.restrictedSpellPower, powerToPay - floatingPowerSpent) : 0;
+    card.kind === "Spell" ? Math.min(actor.restrictedSpellPower, powerToPay - floatingPowerSpent - rainbowPowerSpent) : 0;
 
   // A from-hidden card was never in hand; it comes off the battlefield instead,
   // which happens on `battlefields` further down.
@@ -241,6 +246,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
     restrictedSpellPower: actor.restrictedSpellPower - restrictedPowerSpent,
+    floatingRainbowPower: actor.floatingRainbowPower - rainbowPowerSpent,
     floatingPower:
       floatingPowerSpent > 0
         ? {

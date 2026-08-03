@@ -29,7 +29,10 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
 
   // The cost belongs to the ABILITY, the exhaust to the SOURCE (416.1) — which
   // are the same card for everything except a borrowed ability.
-  const paid = payActivationCost(state, action.playerIndex, action.permanentInstanceId, found.abilityDefId, action.payment);
+  const paid = payActivationCost(state, action.playerIndex, action.permanentInstanceId, found.abilityDefId, action.payment, {
+    ...(action.costPermanentInstanceId !== undefined ? { costPermanentInstanceId: action.costPermanentInstanceId } : {}),
+    ...(action.costDiscardCardInstanceId !== undefined ? { costDiscardCardInstanceId: action.costDiscardCardInstanceId } : {}),
+  });
   if (paid === undefined) throw new Error(`${found.card.name}'s activation cost cannot be paid`);
 
   const mode = resolveMode(found.abilityDefId, found.card, action.modeId);

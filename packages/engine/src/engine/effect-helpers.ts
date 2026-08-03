@@ -5,7 +5,7 @@ import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
-import { ZHONYAS_HOURGLASS, isDeathWarded, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
+import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
 import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, holdEventTrigger, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
@@ -137,6 +137,16 @@ export function killUnit(
   // the trash step for the same reason the ward is checked before it: 809.1.b.1
   // makes a replaced death not a death, so the card must not reach the trash and
   // the Deathknell must not fire while the answer is outstanding.
+  // Unlicensed Armory's armed ward, asked BEFORE Sett's: it is the one the
+  // controller paid a card and a discard to set up in advance, and offering the
+  // legend's free-standing save first would let the cheaper answer consume a
+  // death the armed one was bought for. Both are optional, so unlike the
+  // Hourglass above neither can be preferred on "it isn't a choice" grounds —
+  // recorded in docs/rules-conformance.md as a simplification of the rules'
+  // let-the-controller-order-them.
+  const wardOffer = offerPaidDeathWard(state, death);
+  if (wardOffer) return wardOffer;
+
   const offer = offerDeathReplacement(state, death);
   if (offer) return offer;
 
