@@ -305,6 +305,22 @@ function mightContext(state: GameState, location: AnyUnitLocation): { isCombat: 
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-044": {
+    // Clockwork Keeper — "You may pay [1 Calm] as an additional cost to play me.
+    // When you play me, if you paid the additional cost, draw 1."
+    //
+    // The pool's first OPTIONAL POWER additional cost, and it is the whole card:
+    // a 2-Energy body, or a 2-Energy body and a card. The cost itself lives in
+    // the cost pipeline (`OPTIONAL_POWER_COSTS`, enumerated as a second variant
+    // and re-derived by the validator); all that is here is the payoff.
+    //
+    // Gated on the cost having been PAID, not on the card merely having the
+    // option — the same reading Tasty Faefolk's `acceleratePaid` takes, and read
+    // from the action for the same reason: by the time this runs, nothing about
+    // the board records how the Keeper was paid for.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => (event.optionalPowerPaid ? drawCards(state, ctx.casterIndex, 1) : state),
+  },
   "OGN-075": {
     // Tasty Faefolk — "[Accelerate] — Channel 2 runes exhausted and draw 1."
     //

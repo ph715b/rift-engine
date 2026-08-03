@@ -23,7 +23,15 @@ import {
   unitWithinMaxMight,
 } from "./target-lookup.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
-import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotOwner, slotScope } from "./card-effects.js";
+import {
+  cardMovesTarget,
+  cardPlacesTokens,
+  discardChoiceOf,
+  optionalPowerCostOf,
+  optionalUnitCostOf,
+  slotOwner,
+  slotScope,
+} from "./card-effects.js";
 import {
   abilitiesAvailableTo,
   activationCostOf,
@@ -730,6 +738,26 @@ export function legalActions(state: GameState): PlayerAction[] {
       // discounted cost, then refused at 1. Found by the first test to enumerate
       // and validate the same action, which is the only way this class of bug
       // ever shows up.
+      // Clockwork Keeper's optional Power cost — a second candidate priced one
+      // Power higher, exactly as [Accelerate] is, and on its own flag so the two
+      // cannot be confused (that one also means "enters ready").
+      const optionalPower = optionalPowerCostOf(card.defId);
+      if (optionalPower && !fromHidden) {
+        // Priced against the cost's OWN domain, not the card's `powerDomain` —
+        // Clockwork Keeper prints no Power at all, so that field is null and
+        // pricing through it accepted any rune.
+        const paid = computeAutoPayment(
+          actor.channeled,
+          effectiveCost.energyCost,
+          effectiveCost.powerCost + optionalPower.count,
+          optionalPower.domain,
+        );
+        // Offered only when the bigger payment is really payable — a card you can
+        // afford plainly but not with the extra simply has no paid variant.
+        if (paid) {
+          actions.push({ type: "PlayCard", playerIndex, card, payment: paid, ...variant, ...hiddenFields, optionalPowerPaid: true });
+        }
+      }
       const acceleratedForVariant =
         repeatableSpend > 0 && hasAccelerate(card) && !fromHidden
           ? computeAutoPayment(

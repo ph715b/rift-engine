@@ -101,6 +101,10 @@ export interface PlayCardAction {
    *  unit and must never reach a reader expecting one. */
   targetPermanentInstanceId?: string;
   acceleratePaid?: true;
+  /** Clockwork Keeper's "you may pay [1 Calm] as an additional cost to play me" —
+   *  whether the caster took the option. Its OWN field rather than
+   *  `acceleratePaid`, which additionally means "enters ready". */
+  optionalPowerPaid?: true;
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   returnUnitToHand,
   swapUnitLocations,
   takeOneFromTopAndRecycleRest,
+  takeControlOfUnit,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
@@ -54,6 +55,21 @@ import type { UnitInstance } from "../../model/card.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-203": {
+    // Possession — "Choose an enemy unit at a battlefield. Take control of it and
+    // recall it."
+    //
+    // The pool's first change of a UNIT's controller. In this engine control IS
+    // which player's list the unit sits in, so taking it and recalling it are one
+    // operation — see `takeControlOfUnit`.
+    //
+    // "AT A BATTLEFIELD" is printed, so the default scope stands and a unit
+    // sitting in the opponent's base is safe from it. At 8 Energy and 3 Power
+    // that restriction is most of what keeps the card honest.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? takeControlOfUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
   "OGN-173": {
     // Ride The Wind — "[Action] Move a friendly unit and ready it."
     //

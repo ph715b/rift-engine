@@ -1083,6 +1083,34 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
   }));
 }
 
+/**
+ * Moves a unit into `newControllerIndex`'s BASE and makes it theirs —
+ * Possession's "take control of it and recall it".
+ *
+ * The pool's first change of a UNIT's controller, and the reason it is one
+ * operation rather than a move plus a flag: control in this engine is WHICH
+ * PLAYER'S LIST the unit sits in, so taking control IS relocating it, and doing
+ * the two separately would leave a state where it is in nobody's.
+ *
+ * Note what that model implies and what the card gets away with: it takes
+ * control permanently, and the unit stays the taker's for the rest of the game.
+ * The rules' more general "gain control until end of turn" would need a real
+ * controller field and a way back; this card says neither, so nothing here has to
+ * express it.
+ *
+ * Recalled to base rather than left where it stood, which is the printed order —
+ * and it matters, because leaving it at the battlefield would hand the taker a
+ * body already contesting a fight it was defending an instant ago.
+ */
+export function takeControlOfUnit(state: GameState, targetInstanceId: string, newControllerIndex: 0 | 1): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location || location.ownerIndex === newControllerIndex) return state;
+  const removed = removeUnitAnywhere(state, targetInstanceId);
+  // Buffs survive (709 removes them only on LEAVING PLAY, and this never does),
+  // and so does damage — the unit changes hands, it is not reprinted.
+  return updatePlayer(removed, newControllerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, location.unit] }));
+}
+
 /** Moves a unit from its battlefield to its OWNER's base, exhausted —
  *  "retreating costs your readiness," the same rule execute-recall-unit.ts
  *  already applies for the player-initiated RecallUnit action. Unlike that

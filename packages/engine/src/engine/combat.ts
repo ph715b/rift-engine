@@ -87,6 +87,11 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
  */
 const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling
 
+/** Symbol of the Solari: "If a combat where you are the attacker ends in a tie,
+ *  recall ALL units instead." A Gear that changes rule 466's step 3d, so it is
+ *  read here rather than registered as an effect. */
+const SYMBOL_OF_THE_SOLARI = "OGN-227";
+
 /**
  * Rule 465.2.c's assignment order: Tanks first, Backline last, everyone else
  * between.
@@ -116,7 +121,7 @@ function assignmentOrder(state: GameState, units: readonly UnitInstance[], owner
 /** The cards whose printed text this module implements, for coverage.ts — the
  *  same reason effective-might.ts and granted-keywords.ts export theirs. */
 export function combatAssignmentDefIds(): string[] {
-  return [...ASSIGNED_LAST_DEF_IDS];
+  return [...ASSIGNED_LAST_DEF_IDS, SYMBOL_OF_THE_SOLARI];
 }
 
 /**
@@ -341,7 +346,25 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // Merchant must not discard/draw and Noxian Drummer must not make a token.
   const defendersRemain = survivingDefenders.length > 0;
   if (defendersRemain && survivingAttackers.length > 0) {
-    for (const unit of survivingAttackers) next = relocateToBaseUnchanged(next, unit.instanceId);
+    // Symbol of the Solari — "If a combat where you are the attacker ends in a
+    // tie, recall ALL units instead."
+    //
+    // **A "tie" IS rule 466.5.d's No Result**, and this is the branch that
+    // produces it: both sides still standing after the damage step, which is
+    // exactly when 3d recalls the attackers. The survey filed the card as needing
+    // a concept the engine lacked; it does not — the branch was already here, and
+    // the card's own reminder text confirms the timing ("ties are calculated
+    // after combat damage is dealt").
+    //
+    // "ALL units" replaces the attacker-only recall, so the DEFENDERS go home
+    // too and the battlefield empties. That is what makes it worth a card: it
+    // turns a failed attack into a cleared battlefield.
+    //
+    // "Where YOU are the attacker" — the gear only helps its own controller's
+    // attacks, so it is asked against `attackerIndex` rather than either side.
+    const solari = state.players[attackerIndex].activeGear.some((g) => g.defId === SYMBOL_OF_THE_SOLARI);
+    const recalled = solari ? [...survivingAttackers, ...survivingDefenders] : survivingAttackers;
+    for (const unit of recalled) next = relocateToBaseUnchanged(next, unit.instanceId);
   }
 
   // Rule 466.5.d ("if No Result and both players have units remaining, stage a

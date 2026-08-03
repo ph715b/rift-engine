@@ -1,4 +1,5 @@
 import type { CardInstance } from "../model/card.js";
+import type { Domain } from "../model/domain.js";
 import { domainCardEffects, mergeRegistries } from "./effects/index.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { EffectContext } from "./effect-context.js";
@@ -377,6 +378,35 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // `repeatable` is a flag rather than one card's special case.
   "OGN-231": { kind: "killFriendly", repeatable: true },
 };
+
+/**
+ * Cards with an optional POWER additional cost — Clockwork Keeper's "you may pay
+ * [1 Calm] as an additional cost to play me. When you play me, if you paid the
+ * additional cost, draw 1."
+ *
+ * Distinct from `OPTIONAL_UNIT_COSTS` above, which is paid with a chosen
+ * PERMANENT: this is paid with runes, so there is nothing to choose and nothing
+ * to ride on the action except whether it was paid. That is `[Accelerate]`'s
+ * shape (805) — one boolean, two enumerated variants, priced apart — but it gets
+ * its OWN action field rather than borrowing `acceleratePaid`: that flag also
+ * means "this unit enters ready", is gated on the printed keyword, and is read
+ * by `unitEntersReady`. Sharing it would have made a Clockwork Keeper enter ready
+ * for free.
+ *
+ * **The DOMAIN is recorded here, not taken from `card.powerDomain`**, and that is
+ * not tidiness: Clockwork Keeper prints ZERO Power, so its `powerDomain` is null
+ * and pricing against it accepted a rune of any domain — the optional cost was
+ * offered to a player holding nothing but Fury. The domain the pip shows is the
+ * card's own, and the only place that survives a 0-Power printing is a table.
+ */
+const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain: Domain; count: number }>> = {
+  "OGN-044": { domain: "Calm", count: 1 }, // Clockwork Keeper — "you may pay [1 Calm] as an additional cost"
+};
+
+/** What extra Power this card MAY be played for, or undefined. */
+export function optionalPowerCostOf(defId: string): { domain: Domain; count: number } | undefined {
+  return OPTIONAL_POWER_COSTS[defId];
+}
 
 /**
  * Cards that make the caster pick a card from hand to discard.

@@ -65,6 +65,9 @@ export interface UnitTriggerEvent {
    *  card is paid for — long before the trigger runs — so it has to ride here
    *  rather than be re-derived from a board that no longer remembers. */
   acceleratePaid?: boolean;
+  /** Clockwork Keeper's optional Power cost — "if you PAID the additional cost,
+   *  draw 1", so the trigger has to know, and only the action does. */
+  optionalPowerPaid?: boolean;
 }
 
 export interface UnitTriggerDefinition {
@@ -379,6 +382,7 @@ export function dispatchOnPlayUnit(
     additionalCostUnitInstanceIds?: readonly string[];
     discardCardInstanceId?: string;
     acceleratePaid?: boolean;
+    optionalPowerPaid?: boolean;
   },
 ): GameState {
   // The LEGEND watches every unit played (Volibear), whether or not that unit
@@ -431,6 +435,7 @@ export function dispatchOnPlayUnit(
       : {}),
     ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
+    ...(extra?.optionalPowerPaid !== undefined ? { optionalPowerPaid: extra.optionalPowerPaid } : {}),
   });
 }
 

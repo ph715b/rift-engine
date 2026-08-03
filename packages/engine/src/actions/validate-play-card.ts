@@ -16,7 +16,14 @@ import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
-import { cardMovesTarget, cardPlacesTokens, discardChoiceOf, optionalUnitCostOf, slotScope } from "../engine/card-effects.js";
+import {
+  cardMovesTarget,
+  cardPlacesTokens,
+  discardChoiceOf,
+  optionalPowerCostOf,
+  optionalUnitCostOf,
+  slotScope,
+} from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import {
@@ -451,6 +458,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // here from the SAME action the enumerator priced, so the two cannot disagree
   // about what the play costs.
   const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
+  const optionalPower = optionalPowerCostOf(card.defId);
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
@@ -459,8 +467,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         actor.floatingPower,
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
           accelerateEnergy,
-        Math.max(0, card.powerCost - repeatableDiscount) + acceleratePower,
-        action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
+        // The optional Power cost is ADDED, unlike the repeatable discount above
+        // which is subtracted — re-derived from the same action the enumerator
+        // priced, so the two cannot disagree about what the play costs.
+        Math.max(0, card.powerCost - repeatableDiscount) + acceleratePower + (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
+        // The optional cost's own domain wins when it was paid, for the reason
+        // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so
+        // `card.powerDomain` is null and would accept any rune.
+        action.optionalPowerPaid && optionalPower ? optionalPower.domain : action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
         card.kind === "Spell" ? actor.restrictedSpellPower : 0,
