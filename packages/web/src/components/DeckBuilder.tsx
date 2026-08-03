@@ -25,6 +25,8 @@ import {
 import { DOMAIN_COLORS } from "../domain-colors.js";
 import { downloadTextFile } from "../download-file.js";
 import { saveProfileDeck } from "../profile.js";
+import { DecklistTextImport } from "./DecklistTextImport.js";
+import { DeckPanel } from "./DeckPanel.js";
 
 interface DeckBuilderProps {
   /** Present => editing that saved deck (prefills every field); absent => building fresh. */
@@ -227,6 +229,9 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
   const [searchText, setSearchText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [warningDismissed, setWarningDismissed] = useState(false);
+  /** Names a paste referenced that this pool does not have — the same report the
+   *  lobby route shows as a banner, for a paste made from in here. */
+  const [importedUnresolved, setImportedUnresolved] = useState<string[]>([]);
 
   const legendDef = legendId ? (registry.tryGet(legendId) as LegendDefinition | undefined) ?? null : null;
 
@@ -312,6 +317,27 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
   function incrementCard(id: string) {
     if (combinedCount(id) >= MAX_COPIES || totalCount >= DECK_SIZE) return;
     setCardIds((prev) => [...prev, id]);
+  }
+
+  /**
+   * Replaces everything the builder is holding with a pasted list.
+   *
+   * Deliberately a REPLACE rather than a merge: a decklist is a whole deck, and
+   * merging one into a half-built deck produces something the player did not ask
+   * for and cannot easily undo. The button says "Replace deck" whenever there is
+   * anything to lose — see DecklistTextImport's `replaces`.
+   */
+  function applyImportedDeck(deck: DeckList, unresolved: string[]) {
+    setName(deck.name);
+    setLegendId(deck.legendId);
+    setChampionId(deck.championId);
+    setCardIds(deck.cardIds);
+    setSideboardCardIds(deck.sideboardCardIds ?? []);
+    setRuneDomainACount(deck.runeDomainACount);
+    setRuneDomainBCount(deck.runeDomainBCount);
+    setBattlefieldNames(Array.from({ length: BATTLEFIELD_COUNT }, (_, i) => deck.battlefieldNames[i] ?? ""));
+    setImportedUnresolved(unresolved);
+    setSaveError(null);
   }
 
   function decrementCard(id: string) {
@@ -413,6 +439,21 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
           <p>{unresolvedNames.join(", ")}</p>
         </div>
       )}
+
+      {/* Importing a pasted list from INSIDE the builder, not only from the
+          lobby. The lobby route (paste -> Parse -> lands here) only works if you
+          knew to start there; arriving in the builder and wanting to paste a list
+          meant backing out and starting again. Same parser, same partial-result
+          behaviour — see DecklistTextImport. */}
+      <div className="deck-builder-section">
+        <div className="zone-label">Import a decklist</div>
+        <DecklistTextImport onParsed={applyImportedDeck} replaces={cardIds.length > 0 || legendId !== null} />
+        {importedUnresolved.length > 0 && (
+          <p className="deck-builder-inert-note">
+            Couldn&apos;t find these in the card pool — pick something else for them below: {importedUnresolved.join(", ")}
+          </p>
+        )}
+      </div>
 
       <div className="deck-builder-section">
         <div className="zone-label">Deck name</div>
@@ -522,7 +563,8 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
           </div>
         )}
         {legendDef ? (
-          <>
+          <div className="deck-builder-split">
+            <div className="deck-builder-browse">
             <input
               className="deck-builder-search-input"
               value={searchText}
@@ -552,7 +594,10 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
                 );
               })}
             </div>
-          </>
+            </div>
+            {/* The deck itself, beside the browser — see DeckPanel. */}
+            <DeckPanel cardIds={cardIds} championId={championId} deckSize={DECK_SIZE} onRemove={decrementCard} />
+          </div>
         ) : (
           <p className="deck-list-empty">Pick a legend to browse its legal cards.</p>
         )}

@@ -1526,6 +1526,143 @@ button:disabled {
 /* The deck-level figure — the one that answers "is a playtest of this list
    meaningful". Counts COPIES, not distinct cards: a 3-of that does nothing is
    three dead draws. */
+/* The builder's main-deck section is two columns: browse on the left, the deck
+   itself on the right. `.deck-builder` is the ONE screen with `overflow-y: auto`,
+   which is what makes a sticky side panel safe here and not in the lobby — see
+   Lobby.tsx on what a fixed-height column does to an extra child. */
+.deck-builder-split {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.deck-builder-browse {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.deck-panel {
+  flex: 0 0 17rem;
+  position: sticky;
+  top: 0.5rem;
+  max-height: calc(100dvh - 6rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg);
+}
+
+/* Below the two-column threshold the panel goes UNDER the browser rather than
+   squeezing it — a 17rem sidebar next to a card grid on a narrow screen leaves
+   neither usable. */
+@media (max-width: 1100px) {
+  .deck-builder-split {
+    flex-direction: column;
+  }
+  .deck-panel {
+    position: static;
+    flex: 0 0 auto;
+    width: 100%;
+    max-height: none;
+  }
+}
+
+.deck-panel-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.deck-panel-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.15rem 0.25rem;
+  border-radius: 5px;
+  font-size: 0.85rem;
+}
+
+.deck-panel-row:hover {
+  background: var(--color-bg-elevated);
+}
+
+.deck-panel-row.inert .deck-panel-name {
+  color: var(--color-text-dim);
+  font-style: italic;
+}
+
+.deck-panel-count {
+  color: var(--color-text-dim);
+  min-width: 1.6rem;
+}
+
+.deck-panel-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-panel-champion {
+  color: var(--color-accent);
+}
+
+.deck-panel-cost {
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-panel-remove {
+  padding: 0 0.35rem;
+  line-height: 1.2;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-dim);
+}
+
+.deck-panel-row:hover .deck-panel-remove {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+/* The curve: a shape to glance at while building, not a chart to read. */
+.deck-curve {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.2rem;
+  height: 3.2rem;
+  flex: 0 0 auto;
+}
+
+.deck-curve-column {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  gap: 0.15rem;
+}
+
+.deck-curve-bar {
+  width: 100%;
+  min-height: 1px;
+  background: var(--color-accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.deck-curve-cost {
+  font-size: 0.65rem;
+  color: var(--color-text-dim);
+}
+
 .deck-builder-inert-note {
   flex: 0 0 auto;
   margin-bottom: 0.5rem;

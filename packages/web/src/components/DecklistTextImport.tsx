@@ -3,6 +3,12 @@ import { defaultCardRegistry, parseDecklistText, type DeckList } from "@rift-eng
 
 interface DecklistTextImportProps {
   onParsed: (deckList: DeckList, unresolvedNames: string[]) => void;
+  /** Would parsing THROW AWAY work in progress? Used from inside the deck
+   *  builder, where the paste replaces whatever is already there — the button
+   *  label is the warning, since a confirm dialog for a reversible-by-undo
+   *  action is worse than a clear verb. From the lobby there is nothing to lose
+   *  and the label stays "Parse". */
+  replaces?: boolean;
 }
 
 /**
@@ -16,7 +22,7 @@ interface DecklistTextImportProps {
  * DeckList to the DeckBuilder screen for the user to review/complete,
  * rather than rejecting the whole paste over a few unresolved names.
  */
-export function DecklistTextImport({ onParsed }: DecklistTextImportProps) {
+export function DecklistTextImport({ onParsed, replaces = false }: DecklistTextImportProps) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +46,7 @@ export function DecklistTextImport({ onParsed }: DecklistTextImportProps) {
         placeholder={"Legend:\n1 Master Yi, Wuju Bladesman\n\nChampion:\n..."}
       />
       <button onClick={handleParse} disabled={!text.trim()}>
-        Parse
+        {replaces ? "Replace deck" : "Parse"}
       </button>
       {error && <p className="deck-import-error">{error}</p>}
     </div>

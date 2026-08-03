@@ -42,3 +42,11 @@ tools/ui-probes/.shots/
 # Generated decklists for live-triggers.mjs — rebuilt from the registry, not authored.
 tools/ui-probes/.buffdeck.txt
 tools/ui-probes/.calmdeck.txt
+
+# Playwright screenshots. The shared probes write into tools/ui-probes/.shots
+# (see lib.mjs's OUT), but a one-off driver run from the repo root drops PNGs
+# beside package.json — two of those were committed by accident before this
+# line existed.
+*.png
+!docs/**/*.png
+tools/ui-probes/.shots/

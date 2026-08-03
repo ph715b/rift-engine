@@ -6,6 +6,7 @@ import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
   cardNeedsTarget,
+  cardMovesTarget,
   cardPlacesTokens,
   chooseAction,
   computeAutoPayment,
@@ -50,6 +51,7 @@ import { ChainView } from "./ChainView.js";
 import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
 import { listTargetHint } from "../target-hint.js";
+import { cardHasDestination } from "../card-destination.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -556,9 +558,6 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  no destination at all, and must not be offered one: an ordinary Spell's
    *  candidates all carry an absent destination, which normalizes to base
    *  and would otherwise read as a real choice. */
-  function cardHasDestination(card: CardInstance): boolean {
-    return card.kind === "Unit" || (card.kind === "Spell" && cardPlacesTokens(card.defId));
-  }
 
   /** True for a card with more than one distinct legal destination — keyed
    *  off distinct destinations, not a raw action count, so a future
@@ -1794,7 +1793,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       case "battlefieldTarget":
         return ` — choose a battlefield for ${name}`;
       case "placement":
-        return ` — choose where to play ${name}`;
+        // A move spell is not placing ITSELF, and saying "where to play Charm"
+        // when the answer is where the enemy unit goes is how the step reads as
+        // broken even once it exists.
+        return cardMovesTarget(pendingPlay.card.defId)
+          ? ` — choose where to move the unit ${name} targets`
+          : ` — choose where to play ${name}`;
       case "additionalCost":
         return ` — exhaust a ready friendly unit to boost ${name}, or Decline`;
       default:
