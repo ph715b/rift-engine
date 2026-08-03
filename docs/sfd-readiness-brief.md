@@ -150,6 +150,40 @@ quietly. Check each and report what you find; only fix what is actually broken.
    tools/ui-probes/live-triggers.mjs` (add `SPECTATE=1` to reach decision
    prompts). Never hardcode 5173.
 
+---
+
+## DONE — 2026-08-03, `25f6f48`
+
+All three tasks and the sweep landed. 1711 → **1748 engine tests**, 53 web,
+typecheck + both builds + all four probes green. Four commits, pushed.
+
+**Where the brief's own figures were wrong, measured:**
+
+- **12 bracketed keywords, not 13.** 15 distinct bracketed words, 12 in
+  `KEYWORDS` and the 3 non-keywords named above. **`Quick` appears in no bracket
+  at all** — every card that has it prints it as prose, which is what
+  `QUICK_TEXT_OVERRIDES` exists for. So "every bracket is a keyword" is a claim
+  satisfied by twelve.
+- **A variant print does NOT arrive as a duplicate defId.** Un-skipping all 54
+  Showcase entries adds 54 definitions with 54 distinct ids, zero collisions —
+  each variant carries its own card number. So sweep item 1's detector had to be
+  a census of the markers, not a duplicate check.
+- **The per-set split is 248 + 22, not 246 + 24.** The first guess written into
+  the test failed, which is the test working.
+- **The probe figures in `probe-instruments` are stale, and it is not this
+  session.** walkout is 137 walkouts / 83 points and chain-depth's Awaken
+  Mistfall is 50 — confirmed identical at `582bede`, before any of this work.
+
+**One live bug found by the sweep, in a test rather than in the engine:** the
+decklist collision check carried a hand-copy of the parser's fold that had
+already drifted, omitting the curly-quote normalisation — in a pool holding
+Kai'Sa, Kog'Maw, Zhonya's Hourglass and Spirit's Refuge. `foldCardName` is now
+exported and shared.
+
+**What SFD landing costs, now:** one JSON file, one `CARD_FILES` entry, and the
+completeness gates report progress instead of failing. Finishing it is one line
+in `COMPLETE_SETS` — and `finishedButUndeclared` is what tells you to write it.
+
 ## Out of scope this session
 
 The chain conversion's remaining 30 cards, the AI, and anything in the deck
