@@ -46,6 +46,11 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
     contextFor(action.playerIndex),
     {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+      // Pack of Wonders' unit-or-gear-or-facedown target. Forwarded for the
+      // reason this codebase has now recorded four times: a field that exists on
+      // the action, is enumerated and is validated, and is then dropped on the
+      // dispatch hop, leaves the ability paying its cost and doing nothing.
+      ...(action.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: action.targetPermanentInstanceId } : {}),
       ...(action.destinationBattlefieldId !== undefined
         ? { destinationBattlefieldId: action.destinationBattlefieldId }
         : {}),

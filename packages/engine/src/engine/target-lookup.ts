@@ -425,7 +425,13 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // own "targeting IS the effect" rule for Spells requires.
       return counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower).length > 0;
     case "unitOrGear":
-      return unitOrGearTargets(state).length > 0;
+      return (
+        unitOrGearTargets(state, {
+          playerIndex,
+          ...(targeting.owner !== undefined ? { owner: targeting.owner } : {}),
+          ...(targeting.includesFacedown !== undefined ? { includesFacedown: targeting.includesFacedown } : {}),
+        }).length > 0
+      );
   }
 }
 
@@ -438,7 +444,12 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
  * `activeGear` rather than on the board and there is otherwise no way back to
  * whose it is.
  */
-export function unitOrGearTargets(state: GameState): { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] {
+export function unitOrGearTargets(
+  state: GameState,
+  /** Pack of Wonders' three narrowings — all default to off, so Fading Memories
+   *  gets exactly the walk it always had. */
+  opts: { playerIndex?: 0 | 1; owner?: "friendly"; excludeInstanceId?: string; includesFacedown?: true } = {},
+): { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] {
   const out: { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] = [];
   for (const bf of state.battlefields) {
     for (const [ownerId, units] of Object.entries(bf.units)) {
@@ -451,7 +462,22 @@ export function unitOrGearTargets(state: GameState): { instanceId: string; name:
       out.push({ instanceId: g.instanceId, name: g.name, ownerIndex: index, isGear: true });
     }
   }
-  return out;
+  // A FACEDOWN card is neither a unit nor a gear — it is a card at a battlefield
+  // whose identity is hidden — so it is added only when the spec asks. Its NAME is
+  // deliberately withheld: `hiddenCards` holds the real card and nothing may leak
+  // it, which is the same rule `BattlefieldView` follows by rendering "Facedown".
+  if (opts.includesFacedown) {
+    for (const bf of state.battlefields) {
+      for (const hidden of bf.hiddenCards) {
+        out.push({ instanceId: hidden.card.instanceId, name: "Facedown card", ownerIndex: hidden.ownerIndex, isGear: false });
+      }
+    }
+  }
+  return out.filter(
+    (t) =>
+      t.instanceId !== opts.excludeInstanceId &&
+      !(opts.owner === "friendly" && opts.playerIndex !== undefined && t.ownerIndex !== opts.playerIndex),
+  );
 }
 
 export function findUnitOnBattlefield(state: GameState, instanceId: string): BattlefieldUnitLocation | undefined {

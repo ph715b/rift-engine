@@ -219,7 +219,19 @@ export type TargetingSpec =
    * they cost to play, are still judged at what they print.
    */
   | { kind: "chainSpell"; maxPrintedEnergy?: number; maxPrintedPower?: number }
-  | { kind: "unitOrGear" };
+  /**
+   * `owner`, `excludesSelf` and `includesFacedown` are Pack of Wonders' — "Return
+   * ANOTHER FRIENDLY gear, unit, OR FACEDOWN CARD to its owner's hand."
+   *
+   * Fading Memories, the kind's original card, wanted neither: "a unit at a
+   * battlefield or a gear" names no owner and cannot mean itself (a Spell is not
+   * on the board). All three default to off, so it is unchanged.
+   *
+   * A facedown card is neither a unit nor a gear — it is a card at a battlefield
+   * whose identity is hidden — so it needs its own opt-in rather than falling out
+   * of the existing walk.
+   */
+  | { kind: "unitOrGear"; owner?: "friendly"; excludesSelf?: true; includesFacedown?: true };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
  *  `"any"` is the absence of a constraint, which is `undefined` there. */

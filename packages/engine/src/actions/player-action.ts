@@ -243,6 +243,10 @@ export interface ActivateAbilityAction {
    * unnamed mode, so an ordinary activation's action is unchanged.
    */
   modeId?: string;
+  /** The unit OR gear an ability's `unitOrGear`-kind spec named (Pack of
+   *  Wonders). Separate from `targetUnitInstanceId` for the same reason a Spell's
+   *  is: a gear is not a unit and must never reach a reader expecting one. */
+  targetPermanentInstanceId?: string;
 }
 
 /**

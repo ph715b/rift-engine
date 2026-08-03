@@ -15,6 +15,7 @@ import { legendAbilityDefIds } from "./legend-abilities.js";
 import { deathReplacementDefIds } from "./death-ward.js";
 import { combatAssignmentDefIds } from "./combat.js";
 import { boardRestrictionDefIds } from "./board-restrictions.js";
+import { hideCostDefIds } from "./hidden.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -180,6 +181,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "death replacements", defIds: deathReplacementDefIds },
   { label: "combat assignment", defIds: combatAssignmentDefIds },
   { label: "board restrictions", defIds: boardRestrictionDefIds },
+  { label: "hide costs", defIds: hideCostDefIds },
 ];
 
 /**

@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { HideCardAction } from "./player-action.js";
-import { RAINBOW, hideCostFor, isHiddenCard } from "../engine/hidden.js";
+import { RAINBOW, hideCostFor, isHiddenCard, mayHideWithEnergy } from "../engine/hidden.js";
 import { matchesPowerDomain } from "../engine/rune-payment.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -62,6 +62,12 @@ export function validateHideCard(state: GameState, action: HideCardAction): Vali
     return fail("Hiding costs Power only, never Energy");
   }
   const cost = hideCostFor(state, action.playerIndex);
+  // Teemo - Swift Scout's alternative — the same-sized price paid in Energy. An
+  // Energy payment carries no domain, so the rainbow check below is skipped
+  // rather than satisfied: the runes are exhausted, not recycled.
+  if (mayHideWithEnergy(state, action.playerIndex) && action.payment.powerRunes.length === 0) {
+    return action.payment.energyRunes.length === cost ? ok() : fail(`Hiding costs exactly ${cost} Energy for Teemo - Swift Scout`);
+  }
   if (action.payment.powerRunes.length !== cost) {
     return fail(`Hiding costs exactly ${cost} Power`);
   }

@@ -15,6 +15,7 @@ import {
   readyUnit,
   recallUnitToBase,
   recycleFromTrash,
+  returnPermanentToHand,
   spendBuff,
   stunUnits,
 } from "./effect-helpers.js";
@@ -54,6 +55,10 @@ export interface ActivatedAbilityEvent {
   /** Where the target is moved to, for a mode that declares `movesTarget` —
    *  Yasuo - Unforgiven's "from its base". */
   destinationBattlefieldId?: string;
+  /** The unit OR gear OR facedown card a `unitOrGear`-kind spec named (Pack of
+   *  Wonders). Separate from `targetUnitInstanceId` because a gear is not a unit
+   *  and a facedown card is neither. */
+  targetPermanentInstanceId?: string;
 }
 
 /**
@@ -278,8 +283,76 @@ function sealAbility(domain: Domain): ActivatedAbilityDefinition {
   };
 }
 
+/** Is this card one of Teemo's own units? A name-prefix match, the same idea
+ *  `isEligibleChampion` uses to decide which champion belongs to which legend —
+ *  one definition of "a Teemo" rather than a second tag nobody would maintain. */
+function isTeemoUnit(card: { name: string; kind: string }): boolean {
+  return card.kind === "Unit" && card.name.startsWith("Teemo - ");
+}
+
+/** Teemo - Swift Scout's retrieval: Champion Zone first, then the trash. */
+function retrieveTeemo(state: GameState, playerIndex: 0 | 1): GameState {
+  const actor = state.players[playerIndex];
+  const players = [...state.players] as [PlayerState, PlayerState];
+
+  if (actor.championZone && isTeemoUnit(actor.championZone)) {
+    players[playerIndex] = { ...actor, championZone: null, hand: [...actor.hand, actor.championZone] };
+    return { ...state, players };
+  }
+  const fromTrash = actor.trash.find((c) => isTeemoUnit(c));
+  if (!fromTrash) return state; // nothing to fetch — 422's do as much as you can
+  players[playerIndex] = {
+    ...actor,
+    trash: actor.trash.filter((c) => c.instanceId !== fromTrash.instanceId),
+    hand: [...actor.hand, fromTrash],
+  };
+  return { ...state, players };
+}
+
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "OGN-181": {
+    // Pack of Wonders — "Exhaust: Return ANOTHER friendly gear, unit, or facedown
+    // card to its owner's hand."
+    //
+    // Three narrowings on one spec, all printed and all separately load-bearing.
+    // **ANOTHER**: it cannot bounce itself, which would otherwise be its best
+    // line — exhaust, return the Pack, replay it. **FRIENDLY**: it is a rescue,
+    // not removal; bouncing an enemy body would make a 2-Energy gear a repeatable
+    // Gust. **OR FACEDOWN CARD**: a facedown card is neither a unit nor a gear,
+    // so it needed its own opt-in rather than falling out of the existing walk.
+    //
+    // A facedown card's NAME is deliberately withheld from the candidate list —
+    // `hiddenCards` holds the real card and nothing may leak it, the same rule
+    // the board follows by rendering "Facedown".
+    kind: "Gear",
+    targeting: { kind: "unitOrGear", owner: "friendly", excludesSelf: true, includesFacedown: true },
+    resolve: (state, _ctx, event) => (event.targetPermanentInstanceId ? returnPermanentToHand(state, event.targetPermanentInstanceId) : state),
+  },
+  "OGN-263": {
+    // Teemo - Swift Scout (Legend) — "[1 Energy], Exhaust: Put a Teemo unit you
+    // own into your hand from your Champion Zone or the trash."
+    //
+    // His other sentence — "you may pay [1 Energy] to hide a card instead of
+    // [1 rainbow]" — is a COST alternative and lives with the hide pricing in
+    // hidden.ts, the same split every card whose two clauses touch different
+    // layers takes.
+    //
+    // "A TEEMO unit YOU OWN" is a name match, not a tag: the pool's Teemo units
+    // are named "Teemo - …", the same prefix `isEligibleChampion` already uses to
+    // decide which champion belongs to which legend. Reusing that idea rather than
+    // adding a tag keeps one definition of what makes a card "a Teemo".
+    //
+    // **The Champion Zone FIRST, then the trash** — the zone holds at most one
+    // card and it is the one a player is most likely to want back, and taking it
+    // from there is what makes the Legend a repeatable engine rather than a
+    // graveyard rummage. Recorded Unverified: the card offers a choice of zone and
+    // this takes them in a fixed order.
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => retrieveTeemo(state, ctx.casterIndex),
+  },
   "OGN-078": {
     // Lee Sin - Ascetic — "Exhaust: Buff me. I can have any number of buffs."
     //

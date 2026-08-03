@@ -3,7 +3,7 @@ import type { ActivateAbilityAction } from "./player-action.js";
 import { activationCostOf, canPayActivationCost, resolveActivation, resolveMode } from "../engine/activated-abilities.js";
 import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
-import { eligibleTargets, findUnitOnBattlefield } from "../engine/target-lookup.js";
+import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets } from "../engine/target-lookup.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
@@ -97,6 +97,24 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     );
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {
       return fail(`${action.targetUnitInstanceId} is not a legal target for ${card.name}'s ability`);
+    }
+  }
+
+  // Pack of Wonders' unit-or-gear-or-facedown target, asked through the same walk
+  // the enumerator fans out from — including its three narrowings, or a player
+  // could name the Pack itself and bounce the card that is paying for the ability.
+  if (targeting.kind === "unitOrGear") {
+    if (action.targetPermanentInstanceId === undefined) {
+      return fail(`${card.name}'s ability needs a target`);
+    }
+    const legal = unitOrGearTargets(state, {
+      playerIndex: action.playerIndex,
+      ...(targeting.owner !== undefined ? { owner: targeting.owner } : {}),
+      ...(targeting.excludesSelf ? { excludeInstanceId: action.permanentInstanceId } : {}),
+      ...(targeting.includesFacedown !== undefined ? { includesFacedown: targeting.includesFacedown } : {}),
+    });
+    if (!legal.some((t) => t.instanceId === action.targetPermanentInstanceId)) {
+      return fail(`${action.targetPermanentInstanceId} is not a legal target for ${card.name}'s ability`);
     }
   }
 

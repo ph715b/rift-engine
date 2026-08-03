@@ -49,7 +49,7 @@ import {
   mayPlayCardNow,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
-import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard } from "./hidden.js";
+import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
 import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
@@ -145,6 +145,23 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // `modeId` is omitted for a plain ability's single unnamed mode, so an
         // ordinary activation's action is exactly what it always was.
         const withMode = mode.id === "" ? base : { ...base, modeId: mode.id };
+        // Pack of Wonders is the first ABILITY to target a unit-or-gear, and this
+        // branch is why it could not simply reuse the spec: ability enumeration
+        // fanned out only `"unit"` and pushed everything else target-less, so a
+        // `unitOrGear` ability would have been offered with nothing chosen and
+        // then done nothing. Rides `targetPermanentInstanceId`, the same field a
+        // Spell's unitOrGear uses, so nothing expecting a unit is handed a gear.
+        if (mode.targeting.kind === "unitOrGear") {
+          for (const t of unitOrGearTargets(state, {
+            playerIndex,
+            ...(mode.targeting.owner !== undefined ? { owner: mode.targeting.owner } : {}),
+            ...(mode.targeting.excludesSelf ? { excludeInstanceId: permanent.instanceId } : {}),
+            ...(mode.targeting.includesFacedown !== undefined ? { includesFacedown: mode.targeting.includesFacedown } : {}),
+          })) {
+            out.push({ ...withMode, targetPermanentInstanceId: t.instanceId });
+          }
+          continue;
+        }
         if (mode.targeting.kind !== "unit") {
           out.push(withMode);
           continue;
@@ -217,11 +234,23 @@ function hideCardCandidates(state: GameState, actor: PlayerState, playerIndex: 0
   // Priced through the shared helper so Guerilla Warfare's free-hide turn is
   // seen here as well as by the validator.
   const payment = computeAutoPayment(actor.channeled, 0, hideCostFor(state, playerIndex), RAINBOW);
-  if (!payment) return [];
+  // Teemo - Swift Scout's alternative: the same-sized price in Energy instead of
+  // rainbow Power. A second candidate rather than a replacement — the rainbow
+  // route stays available, and which one a player wants depends on what else the
+  // turn has to pay for.
+  const energyPayment = mayHideWithEnergy(state, playerIndex)
+    ? computeAutoPayment(actor.channeled, hideCostFor(state, playerIndex), 0, null)
+    : undefined;
+  // Either route will do — a Teemo player who cannot afford the rainbow can still
+  // hide off Energy, which is most of what the alternative is for.
+  const payments = [payment, energyPayment].filter((p): p is RunePayment => p !== undefined);
+  if (payments.length === 0) return [];
 
   const destinations = state.battlefields.filter((bf) => bf.controllerId === actor.id && bf.hiddenCards.length === 0);
   return hideable.flatMap((card) =>
-    destinations.map((bf): HideCardAction => ({ type: "HideCard", playerIndex, card, battlefieldId: bf.id, payment })),
+    destinations.flatMap((bf) =>
+      payments.map((p): HideCardAction => ({ type: "HideCard", playerIndex, card, battlefieldId: bf.id, payment: p })),
+    ),
   );
 }
 

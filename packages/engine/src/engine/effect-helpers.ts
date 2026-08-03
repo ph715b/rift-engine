@@ -1056,6 +1056,46 @@ export function payEnergyFromPool(state: GameState, playerIndex: 0 | 1, amount: 
   return updatePlayer(state, playerIndex, (p) => ({ ...p, floatingEnergy: p.floatingEnergy - fromFloating, channeled }));
 }
 
+/**
+ * Returns a unit, a GEAR or a FACEDOWN card to its owner's hand — Pack of
+ * Wonders' one instruction across three kinds of thing.
+ *
+ * Dispatches on where the id is actually found rather than being told, because
+ * the card does not distinguish them either: "another friendly gear, unit, or
+ * facedown card" is one choice over three zones.
+ *
+ * A unit routes through `returnUnitToHand`, which strips its Buff (709) and
+ * resets damage — leaving play is leaving play. A gear and a facedown card carry
+ * no such state, so they simply move.
+ */
+export function returnPermanentToHand(state: GameState, instanceId: string): GameState {
+  if (findUnitAnywhere(state, instanceId)) return returnUnitToHand(state, instanceId);
+
+  for (const index of [0, 1] as const) {
+    const owner = state.players[index];
+    const gear = owner.activeGear.find((g) => g.instanceId === instanceId);
+    if (gear) {
+      return updatePlayer(state, index, (p) => ({
+        ...p,
+        activeGear: p.activeGear.filter((g) => g.instanceId !== instanceId),
+        hand: [...p.hand, gear],
+      }));
+    }
+  }
+
+  // A facedown card lives on the BATTLEFIELD, not in a player's zones, so it is
+  // the one case that touches `battlefields`. Its owner takes it back — that is
+  // whose card it is, however contested the battlefield.
+  for (const [bfIndex, bf] of state.battlefields.entries()) {
+    const hidden = bf.hiddenCards.find((h) => h.card.instanceId === instanceId);
+    if (!hidden) continue;
+    const battlefields = [...state.battlefields];
+    battlefields[bfIndex] = { ...bf, hiddenCards: bf.hiddenCards.filter((h) => h.card.instanceId !== instanceId) };
+    return updatePlayer({ ...state, battlefields }, hidden.ownerIndex, (p) => ({ ...p, hand: [...p.hand, hidden.card] }));
+  }
+  return state;
+}
+
 /** Removes a unit from its battlefield and adds it to its OWNER's hand
  *  (not necessarily the caster's) — resets damage/this-turn Might/exhausted
  *  and removes any Buff (rule 709, "if a Unit leaves play, remove all Buffs

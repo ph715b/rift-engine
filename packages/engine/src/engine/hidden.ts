@@ -32,6 +32,29 @@ export function hideCostFor(state: GameState, playerIndex: 0 | 1): number {
   return state.players[playerIndex].hideIgnoresCostThisTurn ? 0 : HIDE_POWER_COST;
 }
 
+/** Teemo - Swift Scout: "You may pay [1 Energy] to hide a card instead of
+ *  [1 rainbow]." A legend the player controls, so it is a property of the seat
+ *  rather than of the board. */
+const TEEMO_SWIFT_SCOUT = "OGN-263";
+
+/**
+ * May this player hide by paying ENERGY instead of rainbow Power?
+ *
+ * A cost ALTERNATIVE, not a discount — the price is the same size, in a different
+ * currency — which is why it is a separate question from `hideCostFor` above
+ * rather than a number it returns. Being able to hide off Energy matters because
+ * a rainbow Power costs a rune from the pool while Energy can come from floating,
+ * so it changes what a turn can afford rather than what it costs.
+ */
+export function mayHideWithEnergy(state: GameState, playerIndex: 0 | 1): boolean {
+  return state.players[playerIndex].legend.defId === TEEMO_SWIFT_SCOUT;
+}
+
+/** The cards this module implements beyond the keyword itself, for coverage.ts. */
+export function hideCostDefIds(): string[] {
+  return [TEEMO_SWIFT_SCOUT];
+}
+
 /** Rainbow: `computeAutoPayment(channeled, 0, HIDE_POWER_COST, RAINBOW)` already
  *  means "any domain" — `matchesPowerDomain` treats a null domain as matching
  *  every rune, so no new cost machinery was needed for this. */
