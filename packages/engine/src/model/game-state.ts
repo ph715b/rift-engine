@@ -592,6 +592,19 @@ export interface GameState {
    */
   killDamagedUnitsThisTurn: boolean;
   /**
+   * Whose SPELL is resolving right now, or null.
+   *
+   * Immortal Phoenix reads "when you kill a unit **with a spell**", and nothing
+   * else in the engine could answer that: `killerIndex` says WHO, never with
+   * what. Set by `resolveCardEffect` around a Spell's own resolution and cleared
+   * immediately after, so it is a fact about the current call rather than
+   * anything that persists — which is why `runEnd` does not clear it.
+   *
+   * Combat damage and activated abilities leave it null, which is exactly the
+   * distinction the card draws.
+   */
+  spellResolvingForIndex: 0 | 1 | null;
+  /**
    * Noxian Guillotine's "kill it the next time it takes damage this turn" —
    * units under a delayed, single-use death sentence.
    *

@@ -26,10 +26,14 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
     return { ...next, players };
   };
   if (!effect) return clearCharge(state);
+  // Immortal Phoenix's "with a SPELL". Marked around the resolution and cleared
+  // straight after, so nothing outside this call can see it — `killerIndex`
+  // already says who killed, and this is the only place that knows with what.
+  const marked: GameState = { ...state, spellResolvingForIndex: entry.playerIndex };
   // The resolving card names itself through the context — Time Warp's
   // "Banish this" is the first text that needs it.
-  return clearCharge(
-    effect.resolve(state, contextFor(entry.playerIndex, entry.card.instanceId), {
+  const resolved = clearCharge(
+    effect.resolve(marked, contextFor(entry.playerIndex, entry.card.instanceId), {
     ...(entry.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: entry.targetUnitInstanceId } : {}),
     ...(entry.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: entry.secondTargetUnitInstanceId } : {}),
     ...(entry.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: entry.targetUnitInstanceIds } : {}),
@@ -43,4 +47,5 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
       ...(entry.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: entry.targetPermanentInstanceId } : {}),
     }),
   );
+  return { ...resolved, spellResolvingForIndex: null };
 }

@@ -12,8 +12,10 @@ import {
   grantKeywordThisTurn,
   legionActive,
   ownUnitsEverywhere,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
+  returnUnitToHand,
 } from "../effect-helpers.js";
 import { isMighty } from "../granted-keywords.js";
 import { killGear } from "../triggers.js";
@@ -21,6 +23,7 @@ import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
+import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
 
 /**
@@ -412,6 +415,73 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-035": {
+    // Vayne - Hunter — "[Assault 3] If an opponent controls a battlefield, I
+    // enter ready. When I conquer, you may pay [1 Energy] to return me to my
+    // owner's hand."
+    //
+    // Her enter-ready clause is a board condition and lives in deploy.ts with the
+    // other overrides; only the conquer half is here.
+    //
+    // "When I CONQUER" is positional — she has to be AT the battlefield taken,
+    // the same reading Adaptatron and Kai'Sa - Evolutionary take. Asked in
+    // `applies` so the window this hold opens cannot be used to move her off it
+    // and cancel a trigger that already fired.
+    //
+    // The card is a tempo loop: take a battlefield, buy her back, replay her for
+    // her [Assault 3] body again. Nothing is asked when the Energy cannot be
+    // paid — 416.3.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      payEnergyFromPool(state, listener.ownerIndex, 1) !== undefined,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (payEnergyFromPool(state, listener.ownerIndex, 1) === undefined) return state;
+      return parkDecision(state, {
+        kind: "OGN-035-return",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "OGN-037": {
+    // Immortal Phoenix — "[Assault 2] When you kill a unit with a spell, you may
+    // pay [1 Energy][1 Fury] to play me from your trash."
+    //
+    // The pool's first TRASH listener: `allListeningPermanents` now walks a small
+    // named set of trash cards alongside the board, because a card that says
+    // "from your trash" is watching from somewhere no permanent walk reaches.
+    //
+    // "WITH A SPELL" is `unitKilledBySpell`, the one event about HOW a death
+    // happened. Combat damage and activated abilities never fire it, which is the
+    // distinction the card draws and the reason it could not just watch a death.
+    //
+    // "You MAY pay" — a real cost, so it parks a question rather than firing, and
+    // it is not asked at all when the cost cannot be met (416.3: a cost that
+    // cannot be completed is not one you may choose to pay). That is also what
+    // stops the question appearing every time a spell kills anything.
+    on: "unitKilledBySpell",
+    applies: (state, listener, event) =>
+      event.kind === "unitKilledBySpell" &&
+      event.killerIndex === listener.ownerIndex &&
+      listener.zone === "trash" &&
+      canPayPhoenix(state, listener.ownerIndex),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitKilledBySpell") return state;
+      // Re-asked here as well as in `applies`, and deliberately: the response
+      // window this hold opens is exactly when the runes could be spent on
+      // something else, and paying is a cost rather than a trigger condition.
+      if (!canPayPhoenix(state, listener.ownerIndex)) return state;
+      return parkDecision(state, {
+        kind: "OGN-037-return",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
   "OGN-027": {
     // Darius - Trifarian — "When you play your SECOND card in a turn, give me
     // +2 Might this turn and ready me."
@@ -501,7 +571,61 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/** Can this player still afford Immortal Phoenix's `[1 Energy][1 Fury]`? Asked
+ *  through the very helpers that will pay it, so affordability and payment cannot
+ *  disagree — the same discipline `canPayActivationCost` follows. */
+function canPayPhoenix(state: GameState, playerIndex: 0 | 1): boolean {
+  const withPower = payPowerFromChanneled(state, playerIndex, "Fury", 1);
+  return withPower !== undefined && payEnergyFromPool(withPower, playerIndex, 1) !== undefined;
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  // Immortal Phoenix's "you may pay [1 Energy][1 Fury] to play me from your
+  // trash", raised by his spell-kill trigger.
+  //
+  // Declining leads, as everywhere a "you may" is asked. Power is paid FIRST and
+  // Energy second, the same order `payActivationCost` uses and for the same
+  // reason: recycling a Ready rune for Power banks the Energy it could have paid,
+  // so pricing Energy against the pre-Power pool would let one rune be spent
+  // twice.
+  "OGN-037-return": {
+    prompt: () => "Immortal Phoenix: pay 1 Energy and 1 Fury to play him from your trash?",
+    options: () => [
+      { id: "decline", label: "Decline" },
+      { id: "pay", label: "Pay and return him" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || !d.cardInstanceId) return state;
+      const withPower = payPowerFromChanneled(state, d.playerIndex, "Fury", 1);
+      if (!withPower) return state;
+      const paid = payEnergyFromPool(withPower, d.playerIndex, 1);
+      if (!paid) return state;
+
+      const actor = paid.players[d.playerIndex];
+      const phoenix = actor.trash.find((c) => c.instanceId === d.cardInstanceId);
+      if (!phoenix) return paid;
+      // Out of the trash before playing, so `playCardIgnoringCost` puts him in
+      // exactly one zone.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...actor, trash: actor.trash.filter((c) => c.instanceId !== d.cardInstanceId) };
+      return playCardIgnoringCost({ ...paid, players }, d.playerIndex, phoenix);
+    },
+  },
+  // Vayne - Hunter's "when I conquer, you may pay [1 Energy] to return me to my
+  // owner's hand" — a way to re-use her on-play tempo, at the price of the body.
+  "OGN-035-return": {
+    prompt: () => "Vayne - Hunter: pay 1 Energy to return her to your hand?",
+    options: () => [
+      { id: "decline", label: "Decline" },
+      { id: "pay", label: "Pay 1 Energy and return her" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || !d.cardInstanceId) return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, 1);
+      if (!paid) return state;
+      return returnUnitToHand(paid, d.cardInstanceId);
+    },
+  },
   // Shakedown's "unless its controller has you draw 2" — answered by the
   // VICTIM'S controller, whose seat is `d.playerIndex`.
   //

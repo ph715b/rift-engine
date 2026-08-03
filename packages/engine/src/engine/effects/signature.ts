@@ -2,10 +2,20 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
-import { addBuff, dealDamage, destroyUnit, forceMoveToBattlefield, giveMightThisTurn, readyUnit, stunUnits } from "../effect-helpers.js";
+import {
+  addBuff,
+  dealDamage,
+  destroyUnit,
+  discardCards,
+  forceMoveToBattlefield,
+  giveMightThisTurn,
+  readyUnit,
+  stunUnits,
+} from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { isHiddenCard } from "../hidden.js";
+import { parkDecision } from "../decisions.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
 import type { PlayerState } from "../../model/game-state.js";
 
@@ -348,7 +358,41 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-252": {
+    // Super Mega Death Rocket! (Fury + Chaos) — "Deal 5 to a unit. When you
+    // conquer, you may discard 1 to return this from your trash to your hand."
+    //
+    // The second sentence fires FROM THE TRASH, which is why `Listener` had to
+    // reach beyond the board at all — no walk of permanents can see a spell in a
+    // graveyard. `zone === "trash"` is asserted rather than assumed: the same
+    // card sitting in HAND must not fire, and nothing else distinguishes them.
+    //
+    // "When YOU conquer" is the LEGEND's reading, not a unit's — a spell in the
+    // trash is at no battlefield, so there is no "here" for it to be at. That is
+    // the difference between this and Kai'Sa - Survivor's "when I conquer", and
+    // it is why the two cannot share a condition.
+    //
+    // "You may DISCARD 1" is a cost, so nothing is asked with an empty hand
+    // (416.3) — and that check is what stops the question appearing on every
+    // conquest for the rest of the game.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.zone === "trash" &&
+      state.players[listener.ownerIndex].hand.length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (state.players[listener.ownerIndex].hand.length === 0) return state;
+      return parkDecision(state, {
+        kind: "OGN-252-return",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -359,4 +403,35 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
-export const decisions: Record<string, DecisionDefinition> = {};
+export const decisions: Record<string, DecisionDefinition> = {
+  // Super Mega Death Rocket's "you may discard 1 to return this from your trash
+  // to your hand", raised by its conquer trigger.
+  //
+  // Declining leads. The discard goes through `discardCards`, so anything
+  // watching a discard (Jinx - Rebel's "when you discard one or more cards")
+  // still fires — being spent as a cost is still a discard, the same reasoning
+  // Cruel Patron's kill records.
+  "OGN-252-return": {
+    prompt: () => "Super Mega Death Rocket!: discard 1 to return it from your trash to your hand?",
+    options: () => [
+      { id: "decline", label: "Decline" },
+      { id: "discard", label: "Discard 1 and return it" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "discard" || !d.cardInstanceId) return state;
+      const discarded = discardCards(state, d.playerIndex, 1);
+      const actor = discarded.players[d.playerIndex];
+      const rocket = actor.trash.find((c) => c.instanceId === d.cardInstanceId);
+      // Gone from the trash between the trigger and the answer — a second copy
+      // of this same question, or anything that churned the trash. The discard
+      // has already been paid, which is the rules' own order for a cost.
+      if (!rocket) return discarded;
+      const players = [...discarded.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...actor,
+        trash: actor.trash.filter((c) => c.instanceId !== d.cardInstanceId),
+        hand: [...actor.hand, rocket],
+      };
+      return { ...discarded, players };
+    },
+  },};

@@ -50,6 +50,11 @@ function otherFriendlyUnitsEnterReady(state: GameState, playerIndex: 0 | 1, excl
  */
 const LEONA_ZEALOT = "OGN-079";
 
+/** Vayne - Hunter (OGN-035): "If an opponent controls a battlefield, I enter
+ *  ready." A comeback clause like Leona's, measured off the BOARD rather than the
+ *  score. Her conquer trigger is unrelated and lives in effects/fury.ts. */
+const VAYNE_HUNTER = "OGN-035";
+
 /**
  * Gear that prints "This enters exhausted" — Iron Ballista, whose whole cost of
  * being a 3-Energy repeatable 2 damage is that it cannot fire the turn it lands.
@@ -70,7 +75,7 @@ export function gearEntersExhausted(defId: string): boolean {
  *  half, and coverage merges both), and Iron Ballista's enters-exhausted clause
  *  (its ability is in activated-abilities.ts). */
 export function playCardDefIds(): string[] {
-  return [MAGMA_WURM, LEONA_ZEALOT, ...GEAR_ENTERING_EXHAUSTED];
+  return [MAGMA_WURM, LEONA_ZEALOT, VAYNE_HUNTER, ...GEAR_ENTERING_EXHAUSTED];
 }
 
 /**
@@ -98,7 +103,14 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId) ||
     // A property of THIS card and the score, unlike the three above — the only
     // override that depends on who is winning.
-    (card.defId === LEONA_ZEALOT && opponentNearVictory(state, playerIndex))
+    (card.defId === LEONA_ZEALOT && opponentNearVictory(state, playerIndex)) ||
+    // Vayne - Hunter: "If an opponent CONTROLS A BATTLEFIELD, I enter ready."
+    // A property of the board rather than of the score, and the second override
+    // that depends on how the game is going. `controllerId` is the whole test —
+    // an opponent standing at an uncontrolled battlefield does not count, which
+    // is what separates "controls" from "is present at".
+    (card.defId === VAYNE_HUNTER &&
+      state.battlefields.some((bf) => bf.controllerId === state.players[playerIndex === 0 ? 1 : 0].id))
   );
 }
 

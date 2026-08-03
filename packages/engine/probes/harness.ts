@@ -110,6 +110,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     spellChain: [],
     pendingTriggers: [],
     killDamagedUnitsThisTurn: false,
+    spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,

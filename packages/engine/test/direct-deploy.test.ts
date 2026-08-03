@@ -108,6 +108,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     spellChain: [],
     pendingTriggers: [],
     killDamagedUnitsThisTurn: false,
+    spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,

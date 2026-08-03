@@ -152,6 +152,11 @@ export function killUnit(
  */
 export function completeDeath(state: GameState, death: PendingDeath): GameState {
   const { unit, ownerIndex } = death;
+  // "When you kill a unit WITH A SPELL" — the one event about HOW a death
+  // happened. Held before the trash step below for the same reason every other
+  // trigger here is held after it is decided: the fact is about the kill, and the
+  // response window belongs to the chain.
+  const bySpell = state.spellResolvingForIndex !== null && death.killerIndex === state.spellResolvingForIndex;
   const trashed: UnitInstance = unit.buffed ? { ...unit, buffed: false } : unit;
   // The per-turn tally is bumped HERE rather than in killUnit, so a death that
   // was replaced (Sett) or warded (Highlander) does not count — neither of those
@@ -161,7 +166,12 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
     trash: [...p.trash, trashed],
     unitsLostThisTurn: p.unitsLostThisTurn + 1,
   }));
-  return dispatchOnUnitDied(inTrash, death);
+  const withDeaths = dispatchOnUnitDied(inTrash, death);
+  // HELD, like every other converted event, and fired AFTER the death funnel so a
+  // listener sees a board the unit has already left.
+  return bySpell && death.killerIndex !== undefined
+    ? holdEventTrigger(withDeaths, { kind: "unitKilledBySpell", killerIndex: death.killerIndex, unitInstanceId: unit.instanceId })
+    : withDeaths;
 }
 
 /**
@@ -1009,6 +1019,41 @@ export function readyRunes(state: GameState, ownerIndex: 0 | 1, max: number): Ga
   });
   if (readied === 0) return state;
   return updatePlayer(state, ownerIndex, (p) => ({ ...p, channeled }));
+}
+
+/**
+ * Pays `amount` Energy from a player's pool mid-resolution — floating Energy
+ * first, then Ready runes exhausted — or undefined when it cannot be paid.
+ *
+ * The counterpart to `payPowerFromChanneled` for the Energy half of a
+ * decision-time cost (Immortal Phoenix's "you may pay [1 Energy][1 Fury] to play
+ * me from your trash", Vayne - Hunter's "you may pay [1 Energy]").
+ *
+ * **WHICH runes go is not offered as a choice**, and unlike `readyRunes`' version
+ * of that call this one is a genuine simplification rather than a non-decision:
+ * Energy is domain-free, so any Ready rune pays it equally — but which one goes
+ * decides which DOMAINS remain for a later Power cost, and a player might care.
+ * Taking them in pool order is deterministic and is recorded Unverified in
+ * docs/rules-conformance.md. `DecisionOption.payment` — the field that would let
+ * a player choose — has zero producers and zero consumers to this day.
+ *
+ * Floating first, exactly as `computeEffectiveCost` prices a card, so an
+ * activation and a play agree about what a player can afford.
+ */
+export function payEnergyFromPool(state: GameState, playerIndex: 0 | 1, amount: number): GameState | undefined {
+  if (amount <= 0) return state;
+  const actor = state.players[playerIndex];
+  const fromFloating = Math.min(actor.floatingEnergy, amount);
+  let owed = amount - fromFloating;
+
+  const channeled = actor.channeled.map((rune) => {
+    if (owed <= 0 || rune.state !== "Ready") return rune;
+    owed -= 1;
+    return { ...rune, state: "Exhausted" as const };
+  });
+  if (owed > 0) return undefined; // not enough Ready runes, even after floating
+
+  return updatePlayer(state, playerIndex, (p) => ({ ...p, floatingEnergy: p.floatingEnergy - fromFloating, channeled }));
 }
 
 /** Removes a unit from its battlefield and adds it to its OWNER's hand

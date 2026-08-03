@@ -38,11 +38,23 @@ import {
 /** A permanent that could be listening, with enough location context for the
  *  triggers that care where things are. */
 export interface Listener {
-  card: UnitInstance | GearInstance;
+  /**
+   * The permanent — or, for a TRASH listener, the card sitting in a trash.
+   *
+   * Widened from `UnitInstance | GearInstance` for Super Mega Death Rocket,
+   * whose "when you conquer" fires from the trash and whose card is a SPELL. The
+   * four places that read more than an id/defId/name narrow first; `zone` below
+   * is what tells them which shape they have.
+   */
+  card: CardInstance;
   ownerIndex: 0 | 1;
   /** undefined for a unit in base and for Gear (Gear is never at a
    *  battlefield in this pool — rule 323 step 5 recalls unattached gear). */
   battlefieldId?: string;
+  /** Where the listener is. `"board"` for everything the permanent walk finds;
+   *  `"trash"` for the cards `listeningTrashCards` adds. A trigger that only
+   *  makes sense in one of them says so rather than inferring it. */
+  zone?: "board" | "trash";
 }
 
 /**
@@ -54,11 +66,11 @@ export interface Listener {
  */
 export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Listener[] {
   const owner = state.players[playerIndex];
-  const out: Listener[] = owner.baseUnits.map((card) => ({ card, ownerIndex: playerIndex }));
+  const out: Listener[] = owner.baseUnits.map((card) => ({ card, ownerIndex: playerIndex, zone: "board" as const }));
   for (const bf of state.battlefields) {
-    for (const card of bf.units[owner.id] ?? []) out.push({ card, ownerIndex: playerIndex, battlefieldId: bf.id });
+    for (const card of bf.units[owner.id] ?? []) out.push({ card, ownerIndex: playerIndex, battlefieldId: bf.id, zone: "board" });
   }
-  for (const card of owner.activeGear) out.push({ card, ownerIndex: playerIndex });
+  for (const card of owner.activeGear) out.push({ card, ownerIndex: playerIndex, zone: "board" });
   return out;
 }
 
@@ -83,8 +95,43 @@ export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Liste
 export function allListeningPermanents(state: GameState): Listener[] {
   const active = state.activePlayerIndex;
   const other: 0 | 1 = active === 0 ? 1 : 0;
-  return [...listeningPermanents(state, active), ...listeningPermanents(state, other)];
+  return [
+    ...listeningPermanents(state, active),
+    ...listeningTrashCards(state, active),
+    ...listeningPermanents(state, other),
+    ...listeningTrashCards(state, other),
+  ];
 }
+
+/**
+ * Cards in `playerIndex`'s TRASH that can trigger from there — Super Mega Death
+ * Rocket's "when you conquer, you may discard 1 to return this from your trash to
+ * your hand".
+ *
+ * A NAMED SET rather than every card in the trash, and the difference is not
+ * tidiness: a trash holds dozens of cards by mid-game, and walking all of them for
+ * every event would make the listener scan proportional to the game's length
+ * rather than to the board. Only the cards whose printed text says "from your
+ * trash" can fire from there, and there are two.
+ *
+ * Kept beside the permanent walk rather than inside it because the two answer
+ * different questions — "what is in play" and "what is watching from a graveyard"
+ * — and only the first is what `resolvePendingTrigger`'s "did it leave play"
+ * re-lookup is about.
+ */
+export function listeningTrashCards(state: GameState, playerIndex: 0 | 1): Listener[] {
+  const owner = state.players[playerIndex];
+  return owner.trash
+    .filter((card) => TRASH_LISTENER_DEF_IDS.has(card.defId))
+    .map((card) => ({ card, ownerIndex: playerIndex, zone: "trash" as const }));
+}
+
+/** Cards whose printed text triggers while they sit in a trash. Two in this pool,
+ *  and both say "from your trash" out loud. */
+const TRASH_LISTENER_DEF_IDS = new Set([
+  "OGN-252", // Super Mega Death Rocket! — "when you conquer, you may discard 1 to return this from your trash"
+  "OGN-037", // Immortal Phoenix — "when you kill a unit with a spell, you may pay ... to play me from your trash"
+]);
 
 /**
  * Where a unit was when it died. Rule 809.1.b.3 is explicit that this has to be
@@ -206,7 +253,10 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
     if (death.killerIndex !== listener.ownerIndex) return state; // not YOUR kill
     if (death.ownerIndex === listener.ownerIndex) return state; // not an ENEMY unit
     if (!death.unit.stunned) return state;
-    if (listener.card.exhausted) return state;
+    // A Gear in play, so the narrowing is a formality — but `Listener.card` is a
+    // CardInstance now that trash listeners share the type, and a Spell has no
+    // `exhausted`.
+    if (listener.card.kind === "Spell" || listener.card.exhausted) return state;
     return parkDecision(state, {
       kind: "OGN-072-draw",
       playerIndex: listener.ownerIndex,
@@ -340,6 +390,17 @@ export type GameEvent =
    * meant when two are held at once.
    */
   | { kind: "battlefieldHeld"; holderIndex: 0 | 1; battlefieldId: string }
+  /**
+   * `killerIndex` killed a unit WITH A SPELL — Immortal Phoenix's condition, and
+   * the only event in the union that is about HOW a death happened rather than
+   * that it happened.
+   *
+   * Fired from `completeDeath` while `state.spellResolvingForIndex` names the
+   * killer, which is the one place that knows both facts. Combat damage and
+   * activated abilities never set that, so they never fire this — which is the
+   * distinction the card draws.
+   */
+  | { kind: "unitKilledBySpell"; killerIndex: 0 | 1; unitInstanceId: string }
   /** A Buff was PLACED on a unit (Mistfall). `ownerIndex` is whose unit it is,
    *  which is what "a FRIENDLY unit" is measured against — not who caused it, so
    *  buffing an enemy unit does not offer their gear its trigger. Fired only when
@@ -459,7 +520,8 @@ export type HeldEventKind =
   | "unitMoved"
   | "endOfTurn"
   | "unitReadied"
-  | "battlefieldHeld";
+  | "battlefieldHeld"
+  | "unitKilledBySpell";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
