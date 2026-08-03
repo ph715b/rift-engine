@@ -140,14 +140,30 @@ describe("coverage: telling implemented cards from silently-inert ones", () => {
   });
 
   it("reports a card with real text and no registration as unimplemented", () => {
-    // Deliberately not a named card. This used to pin Scrapheap, and the day
-    // Scrapheap was implemented the test failed for the one reason a coverage
-    // test should never fail: the coverage got better. What is being pinned is
-    // the pairing — text that needs an implementation, and no registration for
-    // it — so the subject is whichever card currently fits.
+    // **The pool reached zero unimplemented cards**, which is the moment this
+    // test's own note said to retire it — it used to pick "whichever card
+    // currently fits" and there is no longer one. Retiring it outright would
+    // delete the invariant, so the subject is now a SYNTHETIC definition: a real
+    // card shape with text that needs implementing and a defId no registry
+    // claims. That is exactly the pairing being pinned, and unlike a real card
+    // it cannot be implemented out from under the test.
+    const invented = {
+      ...registry.get("OGN-024"),
+      id: "OGN-999",
+      name: "Invented Card",
+      text: "Deal 4 to a unit at a battlefield. Draw 1.",
+    };
+    expect(needsImplementation(invented)).toBe(true);
+    expect(isCardImplemented(invented), "an unregistered defId reported as implemented").toBe(false);
+  });
+
+  it("...and every real card in the pool is now implemented", () => {
+    // The other half of what the check above used to assert, stated directly
+    // rather than as a side effect of picking a victim. It fails the day a new
+    // card is added to the data without an implementation, which is when it
+    // should.
     const unimplemented = registry.all().filter((c) => needsImplementation(c) && !isCardImplemented(c));
-    expect(unimplemented.length, "the pool is fully implemented — retire this test").toBeGreaterThan(0);
-    expect(isCardImplemented(unimplemented[0]!)).toBe(false);
+    expect(unimplemented.map((c) => `${c.id} (${c.name})`)).toEqual([]);
   });
 
   it("counts a Legend ability as an implementation", () => {

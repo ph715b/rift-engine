@@ -292,8 +292,14 @@ describe("the unimplemented-keyword mechanism, now that the pool has none", () =
     // The invariant, swept rather than pinned to one card — which is what keeps
     // it working as cards land. `partialImplementationNote` is the only thing that
     // can say a REGISTERED card is unfinished, so the two must agree everywhere.
+    //
+    // **The list is EMPTY now**, so the sweep is vacuous and used to fail on its
+    // own "this proves nothing" gate. The gate is replaced rather than deleted:
+    // an empty list is the pool being finished, which is worth asserting in its
+    // own right, and the agreement below still fails the moment an entry is
+    // added for a card that reports implemented.
     const partial = registry.all().filter((def) => partialImplementationNote(def) !== undefined);
-    expect(partial.length, "no partial cards at all, so this proves nothing").toBeGreaterThan(0);
+    expect(partial.map((def) => def.id), "a partial entry exists — the sweep below is what checks it").toEqual([]);
     for (const def of partial) {
       expect(isCardImplemented(def), `${def.id} (${def.name})`).toBe(false);
     }

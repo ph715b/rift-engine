@@ -8,7 +8,8 @@ import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
 import { isSpellChainEntry } from "../src/model/game-state.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 
 /**
  * Countering a spell — the first thing in this engine that reaches INTO the
@@ -81,6 +82,22 @@ function passToOpponent(state: GameState): GameState {
   const pass = legalActions(state).find((a) => a.type === "PassFocus" && a.playerIndex === 1);
   expect(pass, "the caster was not offered a pass on their own spell").toBeDefined();
   return accept(state, pass!);
+}
+
+/** Passes until the TOP item has resolved — the Reversal itself — leaving the
+ *  spell it stole still waiting. Two passes close a chain item (345), and a
+ *  question parked by that resolution stops the loop, because while one is
+ *  pending an answer is the only legal action. */
+function resolveTopOfChain(state: GameState): GameState {
+  const before = state.spellChain.length;
+  let current = state;
+  for (let guard = 0; guard < 6; guard += 1) {
+    if (current.pendingDecisions.length > 0 || current.spellChain.length < before) return current;
+    const pass = legalActions(current).find((a) => a.type === "PassFocus");
+    expect(pass, "nobody could pass on the chain").toBeDefined();
+    current = accept(current, pass!);
+  }
+  return current;
 }
 
 /** Drives a closed chain to empty. */
@@ -277,12 +294,53 @@ describe("Mystic Reversal (OGN-080): gain control of a spell", () => {
     expect(spellEntries(stolen)).toHaveLength(2);
   });
 
-  it("is reported PARTIAL — 'you may make new choices for it' is unwritten", () => {
-    // Registration is per defId, so its working first sentence would otherwise
-    // report the whole card done. The entry names exactly what is missing and is
-    // DELETED, not reworded, when the rest lands.
-    expect(partialImplementationNote(registry.get(MYSTIC_REVERSAL))).toMatch(/new choices/i);
-    expect(isCardImplemented(registry.get(MYSTIC_REVERSAL))).toBe(false);
+  it("offers NEW CHOICES for the stolen spell, from the thief's seat", () => {
+    // The second sentence. Hextech Ray targets "a unit at a battlefield", so the
+    // candidates are rebuilt from its own spec — and asked of the THIEF, which is
+    // what makes "an enemy unit" mean a different set than it did a moment ago.
+    const chained = chainWith(HEXTECH_RAY, MYSTIC_REVERSAL);
+    const withSecond = {
+      ...chained,
+      battlefields: chained.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { ...bf.units, p2: [...(bf.units["p2"] ?? []), makeUnit({ instanceId: "other", might: 9 })] } } : bf,
+      ),
+    };
+    const stolen = resolveTopOfChain(accept(withSecond, playsFor(withSecond, MYSTIC_REVERSAL)[0]!));
+
+    const decision = pendingDecision(stolen);
+    expect(decision?.kind, "no re-choice was offered").toBe("OGN-080-retarget");
+    const offered = optionsFor(stolen, decision!).map((o) => o.id);
+    expect(offered[0], "keeping the original choice does not lead").toBe("keep");
+    expect(offered, "the unit it already names was re-offered").not.toContain("victim");
+    expect(offered).toContain("other");
+  });
+
+  it("re-aims the stolen spell when a new choice is made", () => {
+    const chained = chainWith(HEXTECH_RAY, MYSTIC_REVERSAL);
+    const withSecond = {
+      ...chained,
+      battlefields: chained.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { ...bf.units, p2: [...(bf.units["p2"] ?? []), makeUnit({ instanceId: "other", might: 9 })] } } : bf,
+      ),
+    };
+    const stolen = resolveTopOfChain(accept(withSecond, playsFor(withSecond, MYSTIC_REVERSAL)[0]!));
+    const answered = answerDecisions(stolen, (options) => options.find((o) => o.id === "other")?.id ?? options[0]!.id);
+
+    const ray = spellEntries(answered).find((e) => e.card.defId === HEXTECH_RAY)!;
+    expect(ray.targetUnitInstanceId, "the re-choice did not reach the chain entry").toBe("other");
+  });
+
+  it("asks nothing when the stolen spell has no other legal target", () => {
+    // One enemy unit on the board is the target it already names, so there is no
+    // choice to re-make and no prompt.
+    const chained = chainWith(HEXTECH_RAY, MYSTIC_REVERSAL);
+    const stolen = resolveTopOfChain(accept(chained, playsFor(chained, MYSTIC_REVERSAL)[0]!));
+    expect(stolen.pendingDecisions).toHaveLength(0);
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(partialImplementationNote(registry.get(MYSTIC_REVERSAL))).toBeUndefined();
+    expect(isCardImplemented(registry.get(MYSTIC_REVERSAL))).toBe(true);
   });
 });
 

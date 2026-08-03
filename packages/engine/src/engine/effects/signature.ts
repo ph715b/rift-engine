@@ -6,6 +6,7 @@ import {
   addBuff,
   dealDamage,
   destroyUnit,
+  legionActive,
   dealDamageToEnemyUnitsAtBattlefield,
   discardCards,
   forceMoveToBattlefield,
@@ -139,13 +140,20 @@ export const cardEffects: Record<string, EffectDefinition> = {
   },
   "OGN-254": {
     // Noxian Guillotine (Fury + Order) — "Choose a unit. Kill it the next time it
-    // takes damage this turn. [Repeat] Kill it now instead."
+    // takes damage this turn. [Legion] -> Kill it now instead."
     //
-    // Only the base instruction is here. The `[Repeat]` half ("kill it now
-    // instead") is a paid repeat cost, which this engine does not model at all —
-    // recorded in docs/rules-conformance.md, and the card carries a
-    // PARTIALLY_IMPLEMENTED entry so its working half cannot report the whole
-    // card done.
+    // **This card's second half was recorded as `[Repeat]` — a paid additional
+    // cost this engine models nowhere — and it is `[Legion]`, which has been
+    // implemented since Darius.** The card's own text says so ("Get the effect
+    // if you've played another card this turn"); the note that blocked it was a
+    // misreading, and the fix was two lines rather than a subsystem. Worth
+    // stating plainly: a PARTIALLY_IMPLEMENTED entry is a claim about a card,
+    // and this one was wrong for as long as nobody re-read the card.
+    //
+    // `countingSelf: true` — the Guillotine itself is already counted by the
+    // time it resolves, since `execute-play-card` increments
+    // `cardsPlayedThisTurn` when the card goes on the chain. "ANOTHER card"
+    // therefore needs 2, which is exactly what the flag means.
     //
     // A DEATH SENTENCE, not damage: the unit is marked, and the next damage of
     // any size kills it however much Might it has left. Marked by instance id on
@@ -156,10 +164,19 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // "A unit", no owner and no battlefield named, so scope "anywhere".
     targeting: { kind: "unit", scope: "anywhere" },
-    resolve: (state, _ctx, event) =>
-      event.targetUnitInstanceId && !state.markedForDeathOnDamageInstanceIds.includes(event.targetUnitInstanceId)
-        ? { ...state, markedForDeathOnDamageInstanceIds: [...state.markedForDeathOnDamageInstanceIds, event.targetUnitInstanceId] }
-        : state,
+    resolve: (state, ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      // "Kill it NOW **instead**" — the two halves are alternatives, so a Legion
+      // kill never also marks. A unit that dies here is killed BY THE CASTER, so
+      // "when you kill a unit" (Solari Shrine) and "with a spell" (Immortal
+      // Phoenix) both see it, which the delayed half cannot promise.
+      if (legionActive(state, ctx.casterIndex, true)) {
+        return destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex);
+      }
+      return state.markedForDeathOnDamageInstanceIds.includes(event.targetUnitInstanceId)
+        ? state
+        : { ...state, markedForDeathOnDamageInstanceIds: [...state.markedForDeathOnDamageInstanceIds, event.targetUnitInstanceId] };
+    },
   },
   "OGN-248": {
     // Icathian Rain (Fury + Mind) — "Deal 2 to a unit." x6.

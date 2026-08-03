@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { runEnd } from "../src/engine/turn-manager.js";
+import { resolveCardEffect } from "../src/engine/card-effect-resolution.js";
 import { dealDamage } from "../src/engine/effect-helpers.js";
 import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance } from "../src/model/card.js";
-import type { GameState } from "../src/model/game-state.js";
+import type { GameState, SpellChainEntry } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
 import { makeState, makeUnit, spellInstance } from "./fixtures.js";
@@ -194,6 +195,16 @@ describe("Imperial Decree (OGN-221): any damage this turn is lethal", () => {
   });
 });
 
+/** Resolves the Guillotine at a named unit, the way a popped chain entry would. */
+function castGuillotine(state: GameState, targetUnitInstanceId: string): GameState {
+  return resolveCardEffect(state, {
+    card: spellInstance(NOXIAN_GUILLOTINE),
+    playerIndex: 0,
+    payment: { energyRunes: [], powerRunes: [] },
+    targetUnitInstanceId,
+  } as SpellChainEntry);
+}
+
 describe("Noxian Guillotine (OGN-254): a death sentence on one unit", () => {
   function sentenced(): GameState {
     const state = makeState({ phase: "Action" });
@@ -213,8 +224,38 @@ describe("Noxian Guillotine (OGN-254): a death sentence on one unit", () => {
     expect(runEnd(sentenced()).markedForDeathOnDamageInstanceIds).toHaveLength(0);
   });
 
-  it("is reported PARTIAL — its [Repeat] half is unwritten", () => {
-    expect(partialImplementationNote(registry.get(NOXIAN_GUILLOTINE))).toMatch(/repeat/i);
-    expect(isCardImplemented(registry.get(NOXIAN_GUILLOTINE))).toBe(false);
+  it("kills it NOW instead when [Legion] is on — and does not also mark it", () => {
+    // The premise this test used to carry was that the card's second half is
+    // `[Repeat]`, a cost this engine models nowhere. It is `[Legion]`, which has
+    // worked since Darius: the note was a misreading of the card, not a gap.
+    //
+    // `cardsPlayedThisTurn` is 2 because the Guillotine itself is already
+    // counted when it resolves — "ANOTHER card" is one besides it.
+    const state = { ...sentenced(), markedForDeathOnDamageInstanceIds: [] };
+    const legion: GameState = {
+      ...state,
+      players: [{ ...state.players[0]!, cardsPlayedThisTurn: 2 }, state.players[1]!],
+    };
+    const after = castGuillotine(legion, "doomed");
+
+    expect(unitAt(after, "doomed"), "it survived a Legion Guillotine").toBeUndefined();
+    expect(after.markedForDeathOnDamageInstanceIds, "it was killed AND marked").toHaveLength(0);
+  });
+
+  it("only MARKS it without [Legion] — one other card is the whole condition", () => {
+    const state = { ...sentenced(), markedForDeathOnDamageInstanceIds: [] };
+    const alone: GameState = {
+      ...state,
+      players: [{ ...state.players[0]!, cardsPlayedThisTurn: 1 }, state.players[1]!],
+    };
+    const after = castGuillotine(alone, "doomed");
+
+    expect(unitAt(after, "doomed"), "it died without [Legion]").toBeDefined();
+    expect(after.markedForDeathOnDamageInstanceIds).toEqual(["doomed"]);
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(partialImplementationNote(registry.get(NOXIAN_GUILLOTINE))).toBeUndefined();
+    expect(isCardImplemented(registry.get(NOXIAN_GUILLOTINE))).toBe(true);
   });
 });

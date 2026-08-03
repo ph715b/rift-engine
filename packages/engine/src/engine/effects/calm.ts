@@ -27,6 +27,9 @@ import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
+import { effectForCard } from "../card-effects.js";
+import { spellsOnChain } from "../counter-spell.js";
+import { eligibleTargets } from "../target-lookup.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 
@@ -138,15 +141,37 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // its on-spell-cast listeners fire for the thief's Legend, and the thief gets
     // priority for the fresh round of passes on it (345).
     //
-    // "You may make new choices for it" needs a question asked WHILE a resolution
-    // is suspended — the targets were fixed when the spell was announced, and
-    // re-making them means offering the new controller the original spec's
-    // candidate list mid-chain. Recorded in docs/rules-conformance.md rather than
-    // guessed at; the card is registered because its main clause works, and
-    // coverage carries a PARTIALLY_IMPLEMENTED entry saying what is missing.
+    // "You may make new choices for it" is the second sentence, and it is a
+    // question asked WHILE a resolution is suspended: the targets were fixed when
+    // the spell was announced, so re-making them means offering the NEW
+    // controller the original spec's candidate list mid-chain. That is what
+    // `OGN-080-retarget` does, rebuilt from the stolen spell's own
+    // `TargetingSpec` so a re-choice can never be something the spell could not
+    // have chosen in the first place.
+    //
+    // **Scoped, and the scope is stated rather than implied:** only a spec of
+    // kind `unit` is re-offered. The other kinds either name no choice at all
+    // (`none`), or carry choices with their own group constraints (`unitList`'s
+    // `maxTotalMight`, `unitSlots`' second-at-destination, `chainSpell`'s cost
+    // filter) that are enforced at announce time by machinery this question
+    // cannot reach. Offering those without the constraints would let a stolen
+    // Fox-Fire kill a set it was never allowed to choose, which is worse than not
+    // offering them. Recorded Unverified in docs/rules-conformance.md.
     targeting: { kind: "chainSpell" },
-    resolve: (state, ctx, event) =>
-      event.targetChainCardInstanceId ? gainControlOfSpell(state, event.targetChainCardInstanceId, ctx.casterIndex) : state,
+    resolve: (state, ctx, event) => {
+      if (!event.targetChainCardInstanceId) return state;
+      const stolen = gainControlOfSpell(state, event.targetChainCardInstanceId, ctx.casterIndex);
+      // Asked only when there is a choice to re-make: a spell with no `unit`
+      // target, or one whose only legal target is the one it already names, is
+      // not a question.
+      return retargetCandidates(stolen, ctx.casterIndex, event.targetChainCardInstanceId).length > 0
+        ? parkDecision(stolen, {
+            kind: "OGN-080-retarget",
+            playerIndex: ctx.casterIndex,
+            cardInstanceId: event.targetChainCardInstanceId,
+          })
+        : stolen;
+    },
   },
   "OGN-043": {
     // Charm — "Move an enemy unit."
@@ -739,6 +764,39 @@ function reinforceCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Mystic Reversal's "you may make new choices for it" — see her effect above
+   * for what is and is not re-offered.
+   *
+   * The candidates are rebuilt from the STOLEN spell's own spec against LIVE
+   * state, not from whatever was legal when it was announced: the board has
+   * moved on (that is why the Reversal was cast), and a re-choice has to be one
+   * the spell could make now.
+   */
+  "OGN-080-retarget": {
+    prompt: (state, d) => {
+      const stolen = d.cardInstanceId ? spellOnChain(state, d.cardInstanceId) : undefined;
+      return `Mystic Reversal: make new choices for ${stolen?.entry.card.name ?? "the stolen spell"}?`;
+    },
+    options: (state, d) => {
+      if (!d.cardInstanceId) return [];
+      const candidates = retargetCandidates(state, d.playerIndex, d.cardInstanceId);
+      if (candidates.length === 0) return [];
+      // "You MAY" — keeping the original choice leads, as everywhere else.
+      return [
+        { id: "keep", label: "Keep its original choices" },
+        ...candidates.map((u) => ({ id: u.instanceId, label: `Re-aim at ${u.name}`, instanceId: u.instanceId })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "keep" || !d.cardInstanceId) return state;
+      const stolen = spellOnChain(state, d.cardInstanceId);
+      if (!stolen) return state;
+      const spellChain = [...state.spellChain];
+      spellChain[stolen.index] = { ...stolen.entry, targetUnitInstanceId: optionId };
+      return { ...state, spellChain };
+    },
+  },
   // Reinforce's "you may banish a unit from among them, then play it".
   //
   // Declining leads, as everywhere else. The recycle happens either way — "recycle
@@ -899,3 +957,35 @@ export const decisions: Record<string, DecisionDefinition> = {
     },
   },
 };
+
+/** The chain entry a stolen spell is sitting in, if it is still there — a
+ *  Reversal answered after its target resolved has nothing to re-aim.
+ *
+ *  Through `spellsOnChain` rather than a raw find, because the chain also holds
+ *  TRIGGER entries, which have no card at all. */
+function spellOnChain(state: GameState, cardInstanceId: string) {
+  return spellsOnChain(state).find(({ entry }) => entry.card.instanceId === cardInstanceId);
+}
+
+/**
+ * The units a stolen spell could be re-aimed at — its OWN spec's candidate list,
+ * minus the one it already names.
+ *
+ * Excluding the current target is what makes "is there a choice to make" a real
+ * question: re-choosing the same unit is not a new choice, and offering it would
+ * put a prompt in front of a player with nothing to decide.
+ *
+ * Returns nothing for every spec kind but `unit`, deliberately — see the card's
+ * own note.
+ */
+function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId: string) {
+  const stolen = spellOnChain(state, cardInstanceId);
+  if (!stolen) return [];
+  const spec = effectForCard(stolen.entry.card)?.targeting;
+  if (!spec || spec.kind !== "unit") return [];
+  // Asked from the NEW controller's seat: "friendly" and "enemy" are relative to
+  // whoever controls the spell now, which is the whole point of stealing it.
+  return eligibleTargets(state, playerIndex, spec.owner, spec.scope).filter(
+    (u) => u.instanceId !== stolen.entry.targetUnitInstanceId,
+  );
+}
