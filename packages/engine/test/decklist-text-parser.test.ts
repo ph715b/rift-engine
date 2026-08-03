@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { validateDeckList } from "../src/decks/deck-validation.js";
-import { parseDecklistText } from "../src/decks/decklist-text-parser.js";
+import { foldCardName, parseDecklistText } from "../src/decks/decklist-text-parser.js";
 
 // Verbatim from a real piltoverarchive.com-style export the user pasted in.
 // Deliberately references several cards outside this engine's Origins-only
@@ -269,14 +269,44 @@ Side Board:
       // The assumption the fold rests on. If the pool ever gained two cards
       // differing only by case or spacing, folding would silently pick one —
       // and a human pasting a list could not have told them apart either.
+      //
+      // Asks the PARSER's own `foldCardName`. This test used to carry a
+      // hand-written copy of it, and the copy had already drifted: it omitted
+      // the curly-quote normalisation, so two cards differing only by a curly
+      // versus straight apostrophe would have collided in the parser and passed
+      // here. A pool with Kai'Sa, Kog'Maw, Zhonya's Hourglass and Spirit's
+      // Refuge in it is not the pool to check that on a copy.
       const seen = new Map<string, string>();
       const collisions: string[] = [];
       for (const def of registry.all()) {
-        const key = def.name.replace(/\s+/g, " ").trim().toLowerCase();
+        const key = foldCardName(def.name);
         if (seen.has(key)) collisions.push(`${seen.get(key)} vs ${def.name}`);
         seen.set(key, def.name);
       }
       expect(collisions).toEqual([]);
+    });
+
+    it("the fold really does normalise a curly apostrophe", () => {
+      // The positive control for the drift above: without it, the sweep is the
+      // same check it was before, silently.
+      expect(foldCardName("Kai’Sa - Survivor")).toBe(foldCardName("Kai'Sa - Survivor"));
+      expect(foldCardName("  Ride  The   Wind ")).toBe("ride the wind");
+    });
+
+    it("no two cards collide once the comma/dash retry is applied either", () => {
+      // The second resolution path. `resolve` falls back to swapping ", " for
+      // " - ", so a later set printing a name with a comma where an existing
+      // card has a dash would make one of them unreachable by that spelling.
+      // Wider than the fold sweep above, and empty for the same reason.
+      const keys = new Map<string, string>();
+      const shadowed: string[] = [];
+      for (const def of registry.all()) {
+        const swapped = foldCardName(def.name).replace(", ", " - ");
+        const prior = keys.get(swapped);
+        if (prior !== undefined && prior !== def.name) shadowed.push(`${prior} vs ${def.name}`);
+        keys.set(swapped, def.name);
+      }
+      expect(shadowed).toEqual([]);
     });
   });
 });

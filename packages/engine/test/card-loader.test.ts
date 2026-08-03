@@ -6,7 +6,11 @@ import {
   loadCardDefinitions,
 } from "../src/cards/card-loader.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { extractCardItems } from "../src/cards/raw-card-schema.js";
+import { DOMAINS, isDomain, lowestOrdinalDomain } from "../src/model/domain.js";
 import { allPresetDecks } from "../src/decks/deck-presets.js";
+import ognRaw from "../src/cards/ogn.json" with { type: "json" };
+import ogsRaw from "../src/cards/ogs.json" with { type: "json" };
 
 describe("card loader", () => {
   it("loads a non-trivial number of Origins + Proving Grounds cards", () => {
@@ -92,6 +96,88 @@ describe("loadBattlefieldDefinitions", () => {
   });
 });
 
+/**
+ * `shouldSkip` decides which raw entries never become playable cards, and two
+ * of the four markers it reads are FREE STRINGS.
+ *
+ * `classification.type` is a closed zod enum, so a card type an unseen set
+ * invents fails loudly at parse — that half is safe by construction.
+ * `supertype` and `rarity` are `z.string()`, so a new variant marker (a rarity
+ * beside "Showcase", a supertype beside "Token") sails straight through.
+ *
+ * **A variant does NOT arrive as a duplicate defId** — measured, because that
+ * was the obvious guess and it is wrong. Every Showcase and alternate-art entry
+ * in this data carries its OWN card number: un-skipping all 54 Showcase entries
+ * adds 54 definitions with 54 distinct ids and zero collisions. So the
+ * detector cannot be "no two cards share an id"; it has to be the markers
+ * themselves. Hence a census, which forces a decision on a new value.
+ *
+ * The defId sweep below is kept anyway as its own invariant: `CardRegistry`
+ * indexes with `byId.set`, so a pair that DID collide would not error — the
+ * later one silently wins, and the count barely moves.
+ */
+describe("shouldSkip: the markers a new set could quietly step outside", () => {
+  const raw = [...extractCardItems(ognRaw), ...extractCardItems(ogsRaw)];
+  const census = (pick: (c: (typeof raw)[number]) => string | null) =>
+    [...new Set(raw.map(pick))].sort((a, b) => String(a).localeCompare(String(b)));
+
+  it("finds the raw entries at all", () => {
+    // Without this the three censuses below would all pass on an empty list.
+    expect(raw.length).toBeGreaterThan(300);
+  });
+
+  it("every supertype in the data is one shouldSkip has an answer for", () => {
+    // "Token" is skipped; the rest are real cards. A sixth value here is a new
+    // kind of entry, and the question it forces is whether it is playable.
+    expect(census((c) => c.classification.supertype)).toEqual(["Basic", "Champion", null, "Signature", "Token"]);
+  });
+
+  it("every rarity in the data is one shouldSkip has an answer for", () => {
+    // "Showcase" is the variant-print marker and is skipped. A new one — a
+    // serialised or foil treatment filed under its own rarity — would import a
+    // second, deckbuildable entry for a card already in the pool, under its own
+    // defId, which is indistinguishable from a genuinely new card.
+    expect(census((c) => c.classification.rarity)).toEqual(["Common", "Epic", "Rare", "Showcase", "Uncommon"]);
+  });
+
+  it("loads no two definitions sharing a defId", () => {
+    // A separate registry invariant, asked of the loader's OUTPUT because the
+    // registry's Map is what would swallow it: `byId.set` keeps whichever came
+    // last, with no error and almost no change in the count.
+    const ids = loadCardDefinitions().map((def) => def.id);
+    const duplicates = [...new Set(ids.filter((id, i) => ids.indexOf(id) !== i))];
+    expect(duplicates, "two definitions share a defId — the registry keeps whichever came last").toEqual([]);
+    expect(new Set(ids).size).toBe(defaultCardRegistry().all().length);
+  });
+});
+
+/**
+ * `DOMAINS` is a closed 7-value union, and the two things that could go wrong
+ * with a new set's domain point in opposite directions.
+ *
+ * A domain the union does not contain fails LOUDLY: `parseDomains` throws
+ * "Unknown domain in card data" at load, so the whole pool refuses rather than
+ * defaulting. That is the right behaviour and needs no guard.
+ *
+ * The ORDER is the quiet one. `lowestOrdinalDomain` picks every multi-domain
+ * card's `powerDomain` from it, and `sortByDomainOrdinal` decides which of a
+ * legend's two domains a deck's rune split calls "A" — so inserting a domain
+ * anywhere but the end silently re-points existing cards' Power costs and
+ * existing decks' rune decks. Pinned so that insertion is a visible decision.
+ */
+describe("DOMAINS: a closed union whose ORDER is load-bearing", () => {
+  it("keeps its ordinal order — inserting a domain mid-list re-points existing cards", () => {
+    expect([...DOMAINS]).toEqual(["Fury", "Calm", "Mind", "Body", "Chaos", "Order", "Colorless"]);
+  });
+
+  it("refuses a domain it does not model, rather than defaulting", () => {
+    // The loud half, proved rather than assumed: this is what makes a new set's
+    // domain a compiler-and-loader-guided change instead of a silent one.
+    expect(isDomain("Spirit")).toBe(false);
+    expect(lowestOrdinalDomain(["Order", "Fury"])).toBe("Fury");
+  });
+});
+
 describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not just [bracket] tags", () => {
   it("Vanguard Attendant (OGS-016) gets Quick despite no [Quick] bracket in its text", () => {
     const def = defaultCardRegistry().get("OGS-016");
@@ -106,6 +192,81 @@ describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not ju
     if (def.type !== "Unit") throw new Error("unreachable");
     expect(def.keywords.Ganking).toBe(1);
     expect(def.keywords.Quick).toBe(1);
+  });
+
+  it("every card printing 'I enter ready' is accounted for, one way or the other", () => {
+    // The way to NOTICE that a new set needs its own entry.
+    //
+    // `QUICK_TEXT_OVERRIDES` is a hand-maintained per-defId list, and a card it
+    // misses is not an error — it is a unit that quietly enters exhausted while
+    // its text says otherwise. Expect SFD to print more of these.
+    //
+    // Scoped to "I enter ready" rather than /enters? ready/, which matches 18
+    // cards: nine are `[Accelerate]` reminder text (the keyword handles it) and
+    // four grant readiness to OTHER units, so a wider sweep would need a
+    // 15-entry allow-list and would be noise. The narrow form is exactly five
+    // cards, and every one of them is a real decision.
+    const CONDITIONAL = new Map([
+      // Not overrides, and must not become them — the condition is inside the
+      // sentence, which is the `CONDITIONAL_KEYWORD_DEF_IDS` shape. Both are
+      // implemented in engine/deploy.ts, where the condition can be read.
+      ["OGN-035", "Vayne - Hunter — only if an opponent controls a battlefield"],
+      ["OGN-079", "Leona - Zealot — only within 3 points of the Victory Score"],
+    ]);
+    const printing = defaultCardRegistry()
+      .all()
+      .filter((def) => /I enter ready/.test(def.text ?? ""));
+    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(5);
+    const unaccounted = printing
+      .filter((def) => !CONDITIONAL.has(def.id))
+      .filter((def) => !(def.type === "Unit" && def.keywords.Quick === 1))
+      .map((def) => `${def.id} (${def.name})`);
+    expect(
+      unaccounted,
+      "this card says it enters ready and does not — add it to QUICK_TEXT_OVERRIDES, " +
+        "or to the CONDITIONAL list here if its readiness is conditional",
+    ).toEqual([]);
+  });
+});
+
+/**
+ * `POWER_DOMAIN_ALT_OVERRIDES` corrects a card whose printed Power pip is
+ * VISUALLY split between two domains — data no parser can reach, because it is
+ * in the art. Every uncorrected multi-domain card silently takes
+ * `lowestOrdinalDomain`, and a wrong Power domain reads in play as a cost that
+ * cannot be paid off runes that should cover it.
+ *
+ * There is no way to DERIVE the answer, so this is a census of the candidates
+ * rather than a claim about them: which cards could need an entry. Ten of the
+ * twelve are OGN's dual-domain Signature spells and one is Tibbers, which has
+ * the only entry. The list is asserted so a new set's arrivals show up as a
+ * failure with the cards named, and someone looks at the art.
+ */
+describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art", () => {
+  it("names every card that could need a split-pip entry", () => {
+    const candidates = defaultCardRegistry()
+      .all()
+      .filter((def) => def.domains.length > 1 && "powerCost" in def && def.powerCost > 0)
+      .map((def) => `${def.id} ${def.powerDomainAlt ?? "-"}`)
+      .sort();
+    expect(
+      candidates,
+      "a multi-domain card with a Power cost — check whether its printed pip is a SPLIT one, " +
+        "then add it to POWER_DOMAIN_ALT_OVERRIDES or extend this list to record that it is not",
+    ).toEqual([
+      "OGN-248 -", // Icathian Rain
+      "OGN-250 -", // Stormbringer
+      "OGN-252 -", // Super Mega Death Rocket!
+      "OGN-254 -", // Noxian Guillotine
+      "OGN-258 -", // Dragon's Rage
+      "OGN-260 -", // Last Breath
+      "OGN-262 -", // Zenith Blade
+      "OGN-264 -", // Guerilla Warfare
+      "OGN-266 -", // Siphon Power
+      "OGN-270 -", // Showstopper
+      "OGS-018 Chaos", // Tibbers — the one confirmed split pip
+      "OGS-024 -", // Decisive Strike — confirmed NOT hybrid by inspection
+    ]);
   });
 });
 

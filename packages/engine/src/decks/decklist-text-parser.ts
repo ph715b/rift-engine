@@ -31,6 +31,22 @@ function normalizeQuotes(s: string): string {
 }
 
 /**
+ * The name key this parser resolves on — quotes normalised, whitespace
+ * collapsed, lowercased.
+ *
+ * Exported because the fold rests on an assumption about the POOL: that no two
+ * cards fold to the same key. The test that pins that had its own hand-written
+ * copy of this function, and the copy had already drifted — it omitted
+ * `normalizeQuotes`, so two cards differing only by a curly versus straight
+ * apostrophe would have collided here and passed there. This pool is full of
+ * apostrophes (Kai'Sa, Zhonya's Hourglass, Kog'Maw, Spirit's Refuge), and a
+ * collision would make one of the pair silently unreachable by name.
+ */
+export function foldCardName(name: string): string {
+  return normalizeQuotes(name).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
  * Parses the plain-text decklist format sites like piltoverarchive.com and
  * riftdecks.com export — a different, name-based format from this engine's
  * own `.deck` KEY=value format (deck-file-parser.ts). Card names there use
@@ -61,7 +77,7 @@ export function parseDecklistText(text: string, registry: CardRegistry): Decklis
    * case or spacing would already be indistinguishable to a human pasting a
    * list, and the assertion below pins that no such collision exists.
    */
-  const fold = (name: string) => normalizeQuotes(name).replace(/\s+/g, " ").trim().toLowerCase();
+  const fold = foldCardName;
   const byName = new Map(registry.all().map((def) => [fold(def.name), def]));
 
   function resolve(rawName: string) {
