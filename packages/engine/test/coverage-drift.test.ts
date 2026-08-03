@@ -14,7 +14,13 @@ import {
 } from "../src/engine/coverage.js";
 import { decisionDefIds } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { KEYWORDS } from "../src/model/keyword.js";
+import {
+  KEYWORDS,
+  NON_KEYWORD_BRACKETS,
+  isKnownBracketToken,
+  keywordFromBracketText,
+} from "../src/model/keyword.js";
+import type { CardDefinition } from "../src/model/card-definition.js";
 
 /**
  * coverage.ts answers "does this card's printed text actually do something?",
@@ -333,6 +339,132 @@ describe("the unimplemented-keyword mechanism, now that the pool has none", () =
     // And the reader is still reachable: a bracket that IS a modelled keyword
     // parses, which is the half that would break silently if the parser rotted.
     expect(KEYWORDS).toContain("Deflect");
+  });
+});
+
+/**
+ * The mirror of the test above, and the half nothing checked: a bracketed token
+ * in the card DATA that nothing in the engine knows about.
+ *
+ * `parseKeywords` reads any `[Word]` into `keywords` and drops the ones it does
+ * not recognise — "not one of our modeled keywords", which is true and is also
+ * exactly how a card parses, decks, plays and does nothing. `[Deflect]` shipped
+ * inert that way for a while. It is the most expensive gap this pool can have,
+ * because there is nothing to see: the card costs runes, goes to the trash, and
+ * quietly changes nothing.
+ *
+ * The existing check runs one way — every keyword FLAGGED as unimplemented must
+ * be real, so a typo cannot flag nothing. This one runs the other: every token
+ * PRINTED on a card must be one the engine has an answer for. The two together
+ * are what make a new set's keyword impossible to miss, which matters because
+ * `KEYWORDS`' own doc comment already names four the later sets bring
+ * (EQUIP/WEAPONMASTER/QUICK_DRAW in SFD, and HUNT/LEVEL/AMBUSH/BACKLINE in UNL).
+ */
+describe("a bracketed token nothing knows about", () => {
+  const registry = defaultCardRegistry();
+
+  /** Every `[...]` in a card's printed text, mapped to the cards printing it.
+   *  Deliberately scans ALL brackets rather than `parseKeywords`' narrower
+   *  `[A-Za-z][a-zA-Z]*` grammar: a token that grammar cannot even see (`[E]`,
+   *  `[1]`, a hyphenated word) is MORE hidden, not less, so it must land here
+   *  too. */
+  function bracketTokens(defs: readonly CardDefinition[]): Map<string, string[]> {
+    const byToken = new Map<string, string[]>();
+    for (const def of defs) {
+      const text = "text" in def && typeof def.text === "string" ? def.text : "";
+      for (const [, inner] of text.matchAll(/\[([^\]]*)\]/g)) {
+        const cards = byToken.get(inner!);
+        if (cards) cards.push(`${def.id} (${def.name})`);
+        else byToken.set(inner!, [`${def.id} (${def.name})`]);
+      }
+    }
+    return byToken;
+  }
+
+  it("every bracketed token in the pool is a keyword or an allow-listed non-keyword", () => {
+    const unknown = [...bracketTokens(registry.all())]
+      .filter(([token]) => !isKnownBracketToken(token))
+      .map(([token, cards]) => `[${token}] on ${cards.join(", ")}`);
+    expect(
+      unknown,
+      "a bracketed token nothing consumes — implement it as a keyword, or add it to NON_KEYWORD_BRACKETS with what reads it",
+    ).toEqual([]);
+  });
+
+  it("NAMES the token and the cards, for a token an unseen set could print", () => {
+    // The positive control. The sweep above is vacuous today by construction —
+    // it is asserting an empty list — so the half that has to be proved is that
+    // it can still see something.
+    const invented: CardDefinition = {
+      ...registry.get("OGN-024"),
+      id: "SFD-001",
+      name: "Spiritforged Newcomer",
+      text: "[Weaponmaster] (Reminder text nobody has written yet.) Deal 4 to a unit at a battlefield.",
+    };
+    const unknown = [...bracketTokens([invented])].filter(([token]) => !isKnownBracketToken(token));
+    expect(unknown).toEqual([["Weaponmaster", ["SFD-001 (Spiritforged Newcomer)"]]]);
+  });
+
+  it("sees a token the keyword parser's own grammar cannot", () => {
+    // `parseKeywords`' `[A-Za-z][a-zA-Z]*` cannot match `[Quick Draw]` or `[E]`
+    // at all, so those would slip past a guard that reused it — the more hidden
+    // a token is, the more this has to catch it.
+    const invented: CardDefinition = {
+      ...registry.get("OGN-024"),
+      id: "SFD-002",
+      name: "Two-Word Keyword",
+      text: "[Quick Draw] Deal 4 to a unit at a battlefield.",
+    };
+    const unknown = [...bracketTokens([invented])].map(([token]) => token).filter((t) => !isKnownBracketToken(t));
+    expect(unknown).toEqual(["Quick Draw"]);
+  });
+
+  it("accepts the VALUED form of a keyword without a separate entry", () => {
+    // `[Assault 2]` and `[Deflect 2]` are the same keyword at a magnitude, and
+    // both are read through `keywordFromBracketText` rather than a second copy
+    // of the bracket grammar — so the guard cannot come to a different answer
+    // than the parser it guards.
+    expect(isKnownBracketToken("Assault 2")).toBe(true);
+    expect(isKnownBracketToken("Deflect 2")).toBe(true);
+    expect(isKnownBracketToken("Assault")).toBe(true);
+  });
+
+  it("keeps the allow-list explicit — each entry is a token the pool really prints", () => {
+    // An allow-list is the easy way to defeat this check, so an entry that
+    // matches nothing is an entry nobody has had to justify. Every one of the
+    // three is on real cards today.
+    const printed = new Set([...bracketTokens(registry.all()).keys()]);
+    for (const token of NON_KEYWORD_BRACKETS) {
+      expect(printed.has(token), `${token} is allow-listed but no card in the pool prints [${token}]`).toBe(true);
+      expect(keywordFromBracketText(token), `${token} is allow-listed AND a modelled keyword`).toBeUndefined();
+    }
+  });
+
+  it("the pool's token census, stated rather than assumed", () => {
+    // 15 distinct bracketed words: 12 keywords and these 3. `Quick` is the
+    // thirteenth keyword and appears in NO bracket — every card that has it
+    // prints it as prose, which is what QUICK_TEXT_OVERRIDES exists for. So
+    // "every bracket is a keyword" is a claim satisfied by twelve, and the
+    // brief for this session recorded thirteen.
+    const words = new Set([...bracketTokens(registry.all()).keys()].map((t) => t.replace(/\s+\d+$/, "")));
+    expect([...words].sort()).toEqual([
+      "Accelerate",
+      "Action",
+      "Add",
+      "Assault",
+      "Deathknell",
+      "Deflect",
+      "Ganking",
+      "Hidden",
+      "Legion",
+      "Mighty",
+      "Reaction",
+      "Shield",
+      "Tank",
+      "Temporary",
+      "Vision",
+    ]);
+    expect(KEYWORDS.filter((k) => !words.has(k))).toEqual(["Quick"]);
   });
 });
 
