@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EFFECT_SOURCES, mergeRegistries } from "../src/engine/effects/index.js";
 import { cardEffectDefIds, effectForCard } from "../src/engine/card-effects.js";
 import { dispatchOnPlayUnit, unitTriggerDefIds } from "../src/engine/unit-triggers.js";
-import { implementableText, isCardImplemented, needsImplementation } from "../src/engine/coverage.js";
+import { coverageBySet, implementableText, isCardImplemented, needsImplementation } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import { makeState, makeUnit, playUnitTrigger } from "./fixtures.js";
@@ -157,13 +157,26 @@ describe("coverage: telling implemented cards from silently-inert ones", () => {
     expect(isCardImplemented(invented), "an unregistered defId reported as implemented").toBe(false);
   });
 
-  it("...and every real card in the pool is now implemented", () => {
+  it("...and every real card in a FINISHED set is implemented", () => {
     // The other half of what the check above used to assert, stated directly
-    // rather than as a side effect of picking a victim. It fails the day a new
-    // card is added to the data without an implementation, which is when it
+    // rather than as a side effect of picking a victim. It fails the day a card
+    // is added to a finished set without an implementation, which is when it
     // should.
-    const unimplemented = registry.all().filter((c) => needsImplementation(c) && !isCardImplemented(c));
-    expect(unimplemented.map((c) => `${c.id} (${c.name})`)).toEqual([]);
+    //
+    // Scoped to COMPLETE_SETS rather than the whole pool. Asserting over the
+    // pool was correct exactly while the pool was finished, and would have gone
+    // red the day a new set's JSON landed and stayed red for weeks — a gate
+    // expected to be red reports nothing when it is. A set under construction
+    // reports progress in test/set-coverage.test.ts instead.
+    //
+    // The assertion itself is unchanged: it still NAMES the cards. Only the
+    // scope moved.
+    const declared = coverageBySet(registry.all()).filter((set) => set.declaredComplete);
+    expect(declared.length, "no set is declared complete — this gate is checking nothing").toBeGreaterThan(0);
+    for (const set of declared) {
+      expect(set.needing, `${set.set} gates 0 cards, which reads exactly like a pass`).toBeGreaterThan(0);
+      expect(set.unimplemented, `${set.set} is declared finished in COMPLETE_SETS`).toEqual([]);
+    }
   });
 
   it("counts a Legend ability as an implementation", () => {

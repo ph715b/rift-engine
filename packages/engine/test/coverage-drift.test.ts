@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  coverageBySet,
   implementableText,
   implementingModule,
   isCardImplemented,
@@ -298,8 +299,19 @@ describe("the unimplemented-keyword mechanism, now that the pool has none", () =
     // an empty list is the pool being finished, which is worth asserting in its
     // own right, and the agreement below still fails the moment an entry is
     // added for a card that reports implemented.
+    //
+    // The emptiness half is per SET now, for the reason
+    // `coverage.COMPLETE_SETS` records: a set under construction is EXPECTED to
+    // accumulate partial notes, and holding the whole pool to zero would make
+    // this red for the weeks after a new set lands. A finished set is still held
+    // to zero, by name. The agreement below stays pool-wide — a partial note has
+    // to make its card report unimplemented wherever that card is from.
     const partial = registry.all().filter((def) => partialImplementationNote(def) !== undefined);
-    expect(partial.map((def) => def.id), "a partial entry exists — the sweep below is what checks it").toEqual([]);
+    const declared = coverageBySet(registry.all()).filter((set) => set.declaredComplete);
+    expect(declared.length, "no set is declared complete — this gate is checking nothing").toBeGreaterThan(0);
+    for (const set of declared) {
+      expect(set.partial, `${set.set} is declared finished in COMPLETE_SETS`).toEqual([]);
+    }
     for (const def of partial) {
       expect(isCardImplemented(def), `${def.id} (${def.name})`).toBe(false);
     }

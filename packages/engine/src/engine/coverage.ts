@@ -280,6 +280,127 @@ export function partialImplementationNote(def: CardDefinition): string | undefin
 }
 
 /**
+ * A defId's set code — "OGN-001" -> "OGN".
+ *
+ * `card-loader.deriveId` builds every id as `<SET>-<number>` out of the raw
+ * `riftbound_id`, and does it for an unseen set with no change at all
+ * ("sfd-001-298" -> "SFD-001"), so the prefix IS the set and needs no table.
+ */
+export function setCodeOf(defId: string): string {
+  const dash = defId.indexOf("-");
+  return dash === -1 ? defId : defId.slice(0, dash);
+}
+
+/**
+ * The sets whose implementation is FINISHED, and which the completeness gates
+ * therefore hold to zero unimplemented cards, by name.
+ *
+ * This list is the whole reason those gates are per set. Both of them used to
+ * assert over the entire pool, which is correct exactly while the pool is
+ * finished — and turns red the day a new set's JSON lands, then stays red for
+ * the weeks it takes to implement it. That is a wall of noise arriving at the
+ * one moment the suite most needs to say what is left.
+ *
+ * So: a set NAMED here is a hard gate (a regression in OGN or OGS still fails
+ * loudly, naming the cards), and a set absent from here reports PROGRESS
+ * instead. Adding a set here is one line, and it is the moment the gate starts
+ * protecting it.
+ *
+ * That moment is not left to anyone's memory either — `coverageBySet` flags a
+ * set that is fully implemented but still undeclared (`finishedButUndeclared`),
+ * and test/set-coverage.test.ts fails on it. Finishing a set is what tells you
+ * to promote it.
+ *
+ * What did NOT change: the gates still name the cards. A count or a percentage
+ * would be cheaper to compute and useless to act on.
+ */
+export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS"];
+
+/** How much of one set is implemented. `unimplemented`/`partial` hold
+ *  "OGN-001 (Name)" strings rather than counts, because naming the cards is
+ *  the part of these gates worth keeping. */
+export interface SetCoverage {
+  /** "OGN". */
+  readonly set: string;
+  /** Named in COMPLETE_SETS, i.e. hard-gated. */
+  readonly declaredComplete: boolean;
+  /** Cards in this set carrying printed text that needs an implementation. */
+  readonly needing: number;
+  /** How many of those are implemented — the "270/270" figure, per set. */
+  readonly implemented: number;
+  /** Every card with real text and nothing registered for it, named. */
+  readonly unimplemented: string[];
+  /** Every card carrying a partial-implementation note, named. */
+  readonly partial: string[];
+  /** Fully implemented and NOT declared complete: it has earned its line in
+   *  COMPLETE_SETS, and until it gets one nothing guards it against a
+   *  regression. */
+  readonly finishedButUndeclared: boolean;
+}
+
+function describeCard(def: CardDefinition): string {
+  return `${def.id} (${def.name})`;
+}
+
+/**
+ * Per-set coverage over any collection of definitions.
+ *
+ * Takes the definitions and the complete-set list as arguments rather than
+ * reading the shared registry and the constant, so both directions of the gate
+ * can be proved on synthetic input: a set under construction cannot otherwise
+ * be exercised until one exists, which is exactly the kind of check that is
+ * written, never run, and wrong when it finally matters.
+ */
+export function coverageBySet(
+  defs: readonly CardDefinition[],
+  completeSets: readonly string[] = COMPLETE_SETS,
+): SetCoverage[] {
+  const bySet = new Map<string, CardDefinition[]>();
+  for (const def of defs) {
+    const set = setCodeOf(def.id);
+    const cards = bySet.get(set);
+    if (cards) cards.push(def);
+    else bySet.set(set, [def]);
+  }
+
+  return [...bySet.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([set, cards]) => {
+      const needing = cards.filter(needsImplementation);
+      const unimplemented = needing.filter((def) => !isCardImplemented(def));
+      const partial = cards.filter((def) => partialImplementationNote(def) !== undefined);
+      const declaredComplete = completeSets.includes(set);
+      return {
+        set,
+        declaredComplete,
+        needing: needing.length,
+        implemented: needing.length - unimplemented.length,
+        unimplemented: unimplemented.map(describeCard),
+        partial: partial.map(describeCard),
+        finishedButUndeclared:
+          !declaredComplete && needing.length > 0 && unimplemented.length === 0 && partial.length === 0,
+      };
+    });
+}
+
+/**
+ * One line of progress for a set under construction — what a gate reports
+ * INSTEAD of failing while the set is being built.
+ *
+ * Names the first few cards left rather than only counting them, and says how
+ * many it did not name. A silently truncated list reads as "that's all of
+ * them", which is the same lie as a bare percentage.
+ */
+export function setProgressLine(coverage: SetCoverage): string {
+  const named = coverage.unimplemented.slice(0, 5);
+  const rest = coverage.unimplemented.length - named.length;
+  const remaining =
+    named.length > 0 ? ` — left: ${named.join(", ")}${rest > 0 ? `, and ${rest} more` : ""}` : "";
+  const partial = coverage.partial.length > 0 ? ` — partial: ${coverage.partial.join(", ")}` : "";
+  return `${coverage.set}: ${coverage.implemented}/${coverage.needing} implemented${remaining}${partial}`;
+}
+
+/**
  * Is this card's printed text actually implemented?
  *
  * True for a card needing no implementation (vanilla or keyword-only) — those
