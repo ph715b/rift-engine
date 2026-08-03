@@ -52,6 +52,7 @@ import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
 import { listTargetHint } from "../target-hint.js";
 import { cardHasDestination } from "../card-destination.js";
+import { matchesPendingChoices } from "../pending-match.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -132,6 +133,10 @@ interface PendingPlay {
   /** Gentlemen's Duel's second ("unitPair") target — always chosen after
    *  `targetUnitInstanceId`, never before. */
   secondTargetUnitInstanceId?: string;
+  /** How much rainbow Power an X-cost card is paying — Bullet Time's "any
+   *  amount". `0` is a real choice (cast it for nothing), so this is compared
+   *  against `undefined` rather than falsily. */
+  xAmount?: number;
   /** A `unitList` card's targets so far, in CLICK order and including repeats.
    *  Grows one entry per click rather than filling named slots, which is what
    *  lets one step serve two targets or six. */
@@ -193,6 +198,10 @@ type PendingStep =
    *  Icathian Rain, Fox-Fire) — one step that repeats rather than one step per
    *  slot, because the slots are interchangeable and there can be six of them. */
   | "listTarget"
+  /** An X-cost card choosing how much to pay (Bullet Time). Its variants differ
+   *  ONLY by `xAmount`, so without a step of its own the board could not tell
+   *  them apart and silently took the first — X = 0. */
+  | "xAmount"
   | "battlefieldTarget"
   | "placement"
   | "additionalCost"
@@ -753,6 +762,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // starts with it live, which is what leaves the next click something to
       // highlight. The same subset reasoning the symmetric-slots branch above
       // uses, applied to an ordered list.
+      // The X variants are otherwise identical, so this is the only thing that
+      // separates them — see pending-match.ts on why it was missing.
+      if (!matchesPendingChoices(a, pending)) return false;
       const chosenList = pending.targetUnitInstanceIds;
       if (chosenList !== undefined) {
         const candidateList = a.targetUnitInstanceIds ?? [];
@@ -829,6 +841,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (targeting.kind === "unitSlots" && pending.secondTargetUnitInstanceId === undefined && stillChoosing) {
       if (offers("secondTargetUnitInstanceId")) return "secondTarget";
     }
+    // Asked BEFORE the target: X is what the card costs, and a player picking a
+    // battlefield first would be choosing a target for a spell whose size they
+    // have not set.
+    if (pending.xAmount === undefined && candidates.some((a) => a.xAmount !== undefined)) return "xAmount";
     if (targeting.kind === "battlefield" && pending.targetBattlefieldId === undefined) {
       if (offers("targetBattlefieldId")) return "battlefieldTarget";
     }
@@ -901,6 +917,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // is settled, and a three-target choice resolving to a six-target candidate
       // would size the payment against one action and submit another — the
       // failure this whole function's doc comment is about.
+      matchesPendingChoices(a, pending) &&
       sameTargetList(a.targetUnitInstanceIds, pending.targetUnitInstanceIds) &&
       (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
@@ -1790,6 +1807,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // total silence. See target-hint.ts.
       case "listTarget":
         return listTargetHint(pendingPlay.card, pendingChosenTargetCount());
+      case "xAmount":
+        return ` — how much rainbow Power for ${name}? It deals that much.`;
       case "battlefieldTarget":
         return ` — choose a battlefield for ${name}`;
       case "placement":
@@ -2369,6 +2388,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           </button>
         )}
         {currentStep === "additionalCost" && <button onClick={declineAdditionalCost}>Decline</button>}
+        {/* X, as one button per affordable amount. A stepper would need its own
+            bounds; the engine already enumerated exactly the amounts this pool
+            can pay for, so the buttons ARE the candidate list. */}
+        {currentStep === "xAmount" && pendingPlay && (
+          <div className="chip-group x-amount-picker">
+            {[...new Set(pendingCandidates().map((a) => a.xAmount))]
+              .filter((x): x is number => x !== undefined)
+              .sort((a, b) => a - b)
+              .map((x) => (
+                <button key={x} className="filter-chip" onClick={() => setPendingPlay({ ...pendingPlay, xAmount: x })}>
+                  {x}
+                </button>
+              ))}
+          </div>
+        )}
         {canFinishTargeting() && (
           <button onClick={finishTargeting}>
             {pendingChosenTargetCount() === 0 ? "Choose no targets" : `Done (${pendingChosenTargetCount()})`}

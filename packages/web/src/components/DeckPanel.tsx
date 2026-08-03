@@ -8,6 +8,13 @@ interface DeckPanelProps {
   championId: string | null;
   deckSize: number;
   onRemove: (defId: string) => void;
+  /** Adding a copy from the LIST, without hunting the card down in the grid —
+   *  the row already names it, so the grid round-trip was pure friction. */
+  onAdd?: (defId: string) => void;
+  /** Can another copy be added right now (3-copy limit, deck full)? Asked per
+   *  card rather than assumed, so the button disables instead of silently
+   *  doing nothing. */
+  canAdd?: (defId: string) => boolean;
   /** "Deck" unless something else — the sideboard renders the same panel. */
   title?: string;
   /** The sideboard is 8 cards and has no curve worth drawing. */
@@ -35,7 +42,7 @@ interface DeckPanelProps {
  * (`overflow-y: auto`), so the panel follows the browser down instead of taking
  * a fixed slice of a fixed-height column — the mistake that broke the lobby.
  */
-export function DeckPanel({ cardIds, championId, deckSize, onRemove, title = "Deck", showCurve = true }: DeckPanelProps) {
+export function DeckPanel({ cardIds, championId, deckSize, onRemove, onAdd, canAdd, title = "Deck", showCurve = true }: DeckPanelProps) {
   const registry = useMemo(() => defaultCardRegistry(), []);
   const rows = useMemo(() => deckRows(cardIds, registry), [cardIds, registry]);
   const curve = useMemo(() => deckCurve(rows), [rows]);
@@ -80,6 +87,30 @@ export function DeckPanel({ cardIds, championId, deckSize, onRemove, title = "De
               }}
               onMouseLeave={() => setHovered(null)}
             >
+              {/* The steppers sit on the LEFT, before the name.
+                  On the right they were under the hover preview, which opens
+                  toward the pane and covered exactly the button you were reaching
+                  for — reported from playtesting. Anything clickable in this row
+                  has to be on the side the preview does not cover. */}
+              <div className="deck-panel-steppers">
+                <button
+                  className="deck-panel-step"
+                  onClick={() => onRemove(row.defId)}
+                  title={`Remove one copy of ${row.name}`}
+                  aria-label={`Remove one copy of ${row.name}`}
+                >
+                  −
+                </button>
+                <button
+                  className="deck-panel-step"
+                  onClick={() => onAdd?.(row.defId)}
+                  disabled={!onAdd || (canAdd ? !canAdd(row.defId) : false)}
+                  title={`Add one copy of ${row.name}`}
+                  aria-label={`Add one copy of ${row.name}`}
+                >
+                  +
+                </button>
+              </div>
               <span className="deck-panel-count">{row.count}×</span>
               <span className="deck-panel-name">
                 {row.name}
@@ -89,16 +120,6 @@ export function DeckPanel({ cardIds, championId, deckSize, onRemove, title = "De
                 {row.energyCost}
                 {row.powerCost > 0 ? `/${row.powerCost}` : ""}
               </span>
-              {/* Removing from the list is the whole point of showing it — the
-                  browser can only remove a card you can still find in the grid. */}
-              <button
-                className="deck-panel-remove"
-                onClick={() => onRemove(row.defId)}
-                title={`Remove one copy of ${row.name}`}
-                aria-label={`Remove one copy of ${row.name}`}
-              >
-                −
-              </button>
             </li>
           ))}
         </ul>

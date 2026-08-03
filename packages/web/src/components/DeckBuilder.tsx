@@ -729,13 +729,22 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
                     {inertNames.length > 0 && <span className="deck-builder-inert-names"> — {inertNames.join(", ")}</span>}
                   </div>
                 )}
-                <DeckPanel cardIds={cardIds} championId={championId} deckSize={DECK_SIZE} onRemove={decrementCard} />
+                <DeckPanel
+                  cardIds={cardIds}
+                  championId={championId}
+                  deckSize={DECK_SIZE}
+                  onRemove={decrementCard}
+                  onAdd={incrementCard}
+                  canAdd={(id) => combinedCount(id) < MAX_COPIES && totalCount < DECK_SIZE}
+                />
                 {sideboardTotal > 0 && (
                   <DeckPanel
                     cardIds={sideboardCardIds}
                     championId={null}
                     deckSize={SIDEBOARD_SIZE}
                     onRemove={decrementSideboardCard}
+                    onAdd={incrementSideboardCard}
+                    canAdd={(id) => combinedCount(id) < MAX_COPIES && sideboardTotal < SIDEBOARD_SIZE}
                     title="Sideboard"
                     showCurve={false}
                   />
