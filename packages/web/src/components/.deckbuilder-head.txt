@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState } from "react";
 import {
   BATTLEFIELD_COUNT,
   DECK_SIZE,
@@ -27,27 +27,6 @@ import { downloadTextFile } from "../download-file.js";
 import { saveProfileDeck } from "../profile.js";
 import { DecklistTextImport } from "./DecklistTextImport.js";
 import { DeckPanel } from "./DeckPanel.js";
-import { CardBrowserFilters } from "./CardBrowserFilters.js";
-import { DeckStatsView, SampleHandView } from "./DeckStatsView.js";
-import { EMPTY_FILTERS, filterAndSortCards, type CardFilters } from "../card-filters.js";
-
-/** The left pane's tabs. `cards` first and default: it is the only one you
- *  return to, and every other step is a once-per-deck decision that used to sit
- *  above it as a permanent 1,150px of scroll. */
-const LEFT_TABS = [
-  { id: "cards", label: "Cards" },
-  { id: "setup", label: "Setup" },
-  { id: "battlefields", label: "Battlefields" },
-  { id: "import", label: "Import" },
-] as const;
-type LeftTab = (typeof LEFT_TABS)[number]["id"];
-
-const RIGHT_TABS = [
-  { id: "deck", label: "Deck" },
-  { id: "stats", label: "Stats" },
-  { id: "hand", label: "Sample hand" },
-] as const;
-type RightTab = (typeof RIGHT_TABS)[number]["id"];
 
 interface DeckBuilderProps {
   /** Present => editing that saved deck (prefills every field); absent => building fresh. */
@@ -247,13 +226,7 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
   );
   const [focusedBattlefieldIndex, setFocusedBattlefieldIndex] = useState(0);
   const [sideboardCardIds, setSideboardCardIds] = useState<string[]>(initialDeck?.sideboardCardIds ?? []);
-  const [leftTab, setLeftTab] = useState<LeftTab>("cards");
-  const [rightTab, setRightTab] = useState<RightTab>("deck");
-  const [filters, setFilters] = useState<CardFilters>(EMPTY_FILTERS);
-  /** Which list a browser click adds to. Replaces the second, identical card
-   *  grid the sideboard used to render — see the render. */
-  const [addTarget, setAddTarget] = useState<"main" | "sideboard">("main");
-  const [columns, setColumns] = useState(6);
+  const [searchText, setSearchText] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [warningDismissed, setWarningDismissed] = useState(false);
   /** Names a paste referenced that this pool does not have — the same report the
@@ -292,14 +265,14 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
     return (copyCounts.get(id) ?? 0) + (sideboardCopyCounts.get(id) ?? 0);
   }
 
-  /** Every card legal for this legend — the denominator the filter row reports
-   *  against, so "9 of 121 cards" means something. */
-  const legalCards = useMemo(() => {
+  const browsableCards = useMemo(() => {
     if (!legendDef) return [];
-    return registry.all().filter((c) => isCardLegalForLegend(c, legendDef.domains));
-  }, [registry, legendDef]);
-
-  const visibleCards = useMemo(() => filterAndSortCards(legalCards, filters), [legalCards, filters]);
+    const query = searchText.trim().toLowerCase();
+    return registry
+      .all()
+      .filter((c) => isCardLegalForLegend(c, legendDef.domains))
+      .filter((c) => (query ? c.name.toLowerCase().includes(query) : true));
+  }, [registry, legendDef, searchText]);
 
   const totalCount = cardIds.length;
   const sideboardTotal = sideboardCardIds.length;
@@ -365,21 +338,6 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
     setBattlefieldNames(Array.from({ length: BATTLEFIELD_COUNT }, (_, i) => deck.battlefieldNames[i] ?? ""));
     setImportedUnresolved(unresolved);
     setSaveError(null);
-  }
-
-  /** Add/remove against whichever list the browser is pointed at. One pair of
-   *  handlers rather than two grids' worth: the tile does not need to know which
-   *  list it is editing, and neither does the limit check. */
-  const activeCounts = addTarget === "main" ? copyCounts : sideboardCopyCounts;
-
-  function addCard(id: string) {
-    if (addTarget === "main") incrementCard(id);
-    else incrementSideboardCard(id);
-  }
-
-  function removeCard(id: string) {
-    if (addTarget === "main") decrementCard(id);
-    else decrementSideboardCard(id);
   }
 
   function decrementCard(id: string) {
@@ -465,288 +423,3 @@ export function DeckBuilder({ initialDeck, unresolvedNames, onSaved, onCancel }:
     downloadTextFile(`${deckList.name}.deck`, serializeDeckFile(deckList));
   }
 
-  return (
-    <div className="board deck-builder">
-      <div className="header">
-        <h1>Rift-Engine</h1>
-        <div className="deck-builder-header-actions">
-          {saveError && <span className="deck-import-error">{saveError}</span>}
-          <button onClick={handleDownload}>Download .deck</button>
-          <button className="menu-primary-button" onClick={handleSave}>
-            Save deck
-          </button>
-          <button onClick={onCancel}>Back</button>
-        </div>
-      </div>
-
-      {unresolvedNames && unresolvedNames.length > 0 && !warningDismissed && (
-        <div className="deck-import-warning">
-          <button className="deck-import-warning-dismiss" onClick={() => setWarningDismissed(true)} title="Dismiss">
-            ✕
-          </button>
-          <p>Couldn&apos;t find these in the card pool — pick something else for them:</p>
-          <p>{unresolvedNames.join(", ")}</p>
-        </div>
-      )}
-
-      {/* TWO PANES, each scrolling internally, instead of one long column.
-          Measured before the change: a full 40-card deck stacked ~2290px of
-          sections into an ~890px pane — 2.6 screens — with the card browser and
-          the deck at the BOTTOM, under setup you touch once. Now the two things
-          you use constantly are the only two things on screen, and each setup
-          step costs 0px until you open its tab. */}
-      <div className="builder-panes">
-        <section className="builder-pane builder-left">
-          <nav className="builder-tabs" role="tablist" aria-label="What to edit">
-            {LEFT_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={leftTab === tab.id}
-                className={`builder-tab${leftTab === tab.id ? " on" : ""}`}
-                onClick={() => setLeftTab(tab.id)}
-              >
-                {tab.label}
-                {/* A dot on Setup while no legend is chosen: the browser is empty
-                    until one is, and "pick a legend first" is easy to miss when
-                    it is on a tab you are not looking at. */}
-                {tab.id === "setup" && !legendDef ? " •" : ""}
-              </button>
-            ))}
-          </nav>
-
-          <div className="builder-pane-body">
-            {leftTab === "cards" &&
-              (legendDef ? (
-                <>
-                  <CardBrowserFilters
-                    filters={filters}
-                    onChange={setFilters}
-                    domains={legendDef.domains}
-                    resultCount={visibleCards.length}
-                    poolCount={legalCards.length}
-                  />
-                  {/* WHERE a click adds to. Replaces the second full card grid the
-                      sideboard used to render — two identical ~520px grids on one
-                      page, one of which you touch once a tournament. */}
-                  <div className="browser-target">
-                    <span>Adding to</span>
-                    <div className="chip-group">
-                      <button
-                        className={`filter-chip${addTarget === "main" ? " on" : ""}`}
-                        aria-pressed={addTarget === "main"}
-                        onClick={() => setAddTarget("main")}
-                      >
-                        Main deck ({totalCount}/{DECK_SIZE})
-                      </button>
-                      <button
-                        className={`filter-chip${addTarget === "sideboard" ? " on" : ""}`}
-                        aria-pressed={addTarget === "sideboard"}
-                        onClick={() => setAddTarget("sideboard")}
-                      >
-                        Sideboard ({sideboardTotal}/{SIDEBOARD_SIZE})
-                      </button>
-                    </div>
-                  </div>
-                  {visibleCards.some((def) => !isCardImplemented(def)) && (
-                    <div className="card-browser-legend">
-                      Greyed-out cards have no effect implemented yet — they can still be added, but their printed text does nothing in
-                      play. Hover one to see what it should do.
-                    </div>
-                  )}
-                  <div className="card-browser-grid" style={{ "--browser-cols": String(columns) } as CSSProperties}>
-                    {visibleCards.map((def) => {
-                      const count = activeCounts.get(def.id) ?? 0;
-                      const atLimit = addTarget === "main" ? totalCount >= DECK_SIZE : sideboardTotal >= SIDEBOARD_SIZE;
-                      return (
-                        <CardBrowserTile
-                          key={def.id}
-                          def={def}
-                          count={count}
-                          isChampion={addTarget === "main" && def.id === championId}
-                          onIncrement={() => addCard(def.id)}
-                          onDecrement={() => removeCard(def.id)}
-                          canIncrement={combinedCount(def.id) < MAX_COPIES && !atLimit}
-                          canDecrement={count > 0 && !(addTarget === "main" && def.id === championId && count <= 1)}
-                        />
-                      );
-                    })}
-                  </div>
-                  {visibleCards.length === 0 && <p className="deck-list-empty">No cards match those filters.</p>}
-                </>
-              ) : (
-                <p className="deck-list-empty">Pick a legend on the Setup tab to browse its legal cards.</p>
-              ))}
-
-            {leftTab === "setup" && (
-              <div className="builder-setup">
-                <div className="deck-builder-section">
-                  <div className="zone-label">Deck name</div>
-                  <input
-                    className="deck-builder-name-input"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="My hypothetical build"
-                  />
-                </div>
-
-                <div className="deck-builder-section">
-                  <SingleSelectList
-                    label="Legend"
-                    items={legendOptions}
-                    selectedId={legendId}
-                    onSelect={selectLegend}
-                    emptyText="No legends available."
-                    markUnimplemented={unimplementedNote}
-                  />
-                </div>
-
-                <div className="deck-builder-section">
-                  <SingleSelectList
-                    label="Champion"
-                    items={championOptions}
-                    selectedId={championId}
-                    onSelect={selectChampion}
-                    emptyText={legendDef ? "No eligible champions found." : "Pick a legend first."}
-                    markUnimplemented={unimplementedNote}
-                  />
-                </div>
-
-                {legendDef && orderedDomains && (
-                  <div className="deck-builder-section">
-                    <div className="zone-label">
-                      Rune deck ({runeTotal}/{RUNE_DECK_SIZE})
-                    </div>
-                    <div className="rune-stepper-row">
-                      <div className="rune-stepper">
-                        <span style={{ color: DOMAIN_COLORS[orderedDomains[0]!] }}>{orderedDomains[0]}</span>
-                        <button className="stepper-button" onClick={() => setRuneDomainACount(clampRune(runeDomainACount - 1))}>
-                          −
-                        </button>
-                        <span>{runeDomainACount}</span>
-                        <button className="stepper-button" onClick={() => setRuneDomainACount(clampRune(runeDomainACount + 1))}>
-                          +
-                        </button>
-                      </div>
-                      <div className="rune-stepper">
-                        <span style={{ color: DOMAIN_COLORS[orderedDomains[1]!] }}>{orderedDomains[1]}</span>
-                        <button className="stepper-button" onClick={() => setRuneDomainBCount(clampRune(runeDomainBCount - 1))}>
-                          −
-                        </button>
-                        <span>{runeDomainBCount}</span>
-                        <button className="stepper-button" onClick={() => setRuneDomainBCount(clampRune(runeDomainBCount + 1))}>
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {leftTab === "battlefields" && (
-              <div className="builder-setup">
-                <div className="deck-builder-section">
-                  <div className="zone-label">Battlefields</div>
-                  <div className="battlefield-inputs">
-                    {battlefieldNames.map((value, i) => (
-                      <input
-                        // eslint-disable-next-line react/no-array-index-key
-                        key={i}
-                        className={`deck-builder-name-input${focusedBattlefieldIndex === i ? " focused" : ""}`}
-                        value={value}
-                        onFocus={() => setFocusedBattlefieldIndex(i)}
-                        onChange={(e) => setBattlefieldName(i, e.target.value)}
-                        placeholder={LEGACY_BATTLEFIELDS[i] ?? "Battlefield name"}
-                      />
-                    ))}
-                  </div>
-                  <p className="deck-list-empty">Click a card below to fill the focused slot above, or type a custom name directly.</p>
-                  <div className="battlefield-picker-grid">
-                    {battlefieldDefs.map((def) => (
-                      <BattlefieldTile
-                        key={def.id}
-                        def={def}
-                        selected={battlefieldNames.includes(def.name)}
-                        onClick={() => {
-                          setBattlefieldName(focusedBattlefieldIndex, def.name);
-                          setFocusedBattlefieldIndex((focusedBattlefieldIndex + 1) % BATTLEFIELD_COUNT);
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {leftTab === "import" && (
-              <div className="builder-setup">
-                <div className="deck-builder-section">
-                  <div className="zone-label">Import a decklist</div>
-                  <DecklistTextImport onParsed={applyImportedDeck} replaces={cardIds.length > 0 || legendId !== null} />
-                  {importedUnresolved.length > 0 && (
-                    <p className="deck-builder-inert-note">
-                      Couldn&apos;t find these in the card pool — pick something else for them: {importedUnresolved.join(", ")}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="builder-pane builder-right">
-          <nav className="builder-tabs" role="tablist" aria-label="Deck view">
-            {RIGHT_TABS.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={rightTab === tab.id}
-                className={`builder-tab${rightTab === tab.id ? " on" : ""}`}
-                onClick={() => setRightTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            ))}
-            <label className="browser-cols">
-              Cols
-              <select value={columns} onChange={(e) => setColumns(Number(e.target.value))}>
-                {[4, 5, 6, 7, 8].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </nav>
-
-          <div className="builder-pane-body">
-            {rightTab === "deck" && (
-              <>
-                {inertCopies > 0 && (
-                  <div className="deck-builder-inert-note">
-                    {inertCopies} of {totalCount} cards have no effect implemented yet
-                    {inertNames.length > 0 && <span className="deck-builder-inert-names"> — {inertNames.join(", ")}</span>}
-                  </div>
-                )}
-                <DeckPanel cardIds={cardIds} championId={championId} deckSize={DECK_SIZE} onRemove={decrementCard} />
-                {sideboardTotal > 0 && (
-                  <DeckPanel
-                    cardIds={sideboardCardIds}
-                    championId={null}
-                    deckSize={SIDEBOARD_SIZE}
-                    onRemove={decrementSideboardCard}
-                    title="Sideboard"
-                    showCurve={false}
-                  />
-                )}
-              </>
-            )}
-            {rightTab === "stats" && <DeckStatsView cardIds={cardIds} />}
-            {rightTab === "hand" && <SampleHandView cardIds={cardIds} />}
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}

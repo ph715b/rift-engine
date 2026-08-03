@@ -8,6 +8,10 @@ interface DeckPanelProps {
   championId: string | null;
   deckSize: number;
   onRemove: (defId: string) => void;
+  /** "Deck" unless something else — the sideboard renders the same panel. */
+  title?: string;
+  /** The sideboard is 8 cards and has no curve worth drawing. */
+  showCurve?: boolean;
 }
 
 /**
@@ -31,7 +35,7 @@ interface DeckPanelProps {
  * (`overflow-y: auto`), so the panel follows the browser down instead of taking
  * a fixed slice of a fixed-height column — the mistake that broke the lobby.
  */
-export function DeckPanel({ cardIds, championId, deckSize, onRemove }: DeckPanelProps) {
+export function DeckPanel({ cardIds, championId, deckSize, onRemove, title = "Deck", showCurve = true }: DeckPanelProps) {
   const registry = useMemo(() => defaultCardRegistry(), []);
   const rows = useMemo(() => deckRows(cardIds, registry), [cardIds, registry]);
   const curve = useMemo(() => deckCurve(rows), [rows]);
@@ -43,11 +47,12 @@ export function DeckPanel({ cardIds, championId, deckSize, onRemove }: DeckPanel
   return (
     <aside className="deck-panel">
       <div className="zone-label">
-        Deck ({cardIds.length}/{deckSize})
+        {title} ({cardIds.length}/{deckSize})
       </div>
 
       {/* The curve. Deliberately tiny and unlabelled beyond the cost digits —
           it is a shape to glance at, not a chart to read. */}
+      {showCurve && (
       <div className="deck-curve" aria-label="Energy curve">
         {curve.map((count, cost) => (
           <div key={cost} className="deck-curve-column" title={`${count} card${count === 1 ? "" : "s"} at ${cost} Energy`}>
@@ -59,6 +64,7 @@ export function DeckPanel({ cardIds, championId, deckSize, onRemove }: DeckPanel
           </div>
         ))}
       </div>
+      )}
 
       {rows.length === 0 ? (
         <p className="deck-list-empty">Nothing in the deck yet.</p>

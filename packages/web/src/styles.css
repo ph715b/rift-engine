@@ -1374,9 +1374,287 @@ button:disabled {
   margin-bottom: 0.4rem;
 }
 
+/* The builder is a fixed-height WORKSPACE, not a scrolling form.
+   It used to be `overflow-y: auto` on the whole column, which measured at 2.6
+   screens with a full deck — and put the card browser and the deck, the only two
+   things you use continuously, at the BOTTOM under setup you touch once. Now
+   `.builder-panes` takes the remaining height and each pane scrolls on its own,
+   so neither can ever leave the screen. */
 .deck-builder {
-  overflow-y: auto;
+  overflow: hidden;
   align-items: stretch;
+}
+
+.deck-builder-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.builder-panes {
+  display: flex;
+  gap: 0.75rem;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.builder-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-elevated);
+}
+
+.builder-left {
+  flex: 1 1 0;
+}
+
+/* Wide enough for a card name plus its counts without wrapping, and no wider:
+   every pixel here comes off the card grid. */
+.builder-right {
+  flex: 0 0 22rem;
+}
+
+.builder-pane-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0.6rem;
+}
+
+.builder-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.builder-tab {
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--color-text-dim);
+  font-size: 0.85rem;
+}
+
+.builder-tab.on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.builder-setup .deck-builder-section:last-child {
+  margin-bottom: 0;
+}
+
+/* ── Filter row ─────────────────────────────────────────────────────────── */
+
+.browser-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.browser-filters-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.browser-search {
+  flex: 1 1 14rem;
+  margin-bottom: 0;
+}
+
+.browser-sort,
+.browser-cols {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+.browser-sort select,
+.browser-cols select {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.2rem 0.3rem;
+  font-size: 0.8rem;
+}
+
+.browser-cols {
+  margin-left: auto;
+}
+
+.chip-group {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.filter-chip {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.78rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-text-dim);
+}
+
+.filter-chip.cost {
+  min-width: 1.9rem;
+  padding: 0.2rem 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-chip.on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+}
+
+.filter-chip.clear {
+  color: var(--color-danger);
+}
+
+.browser-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.browser-target {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-text-dim);
+}
+
+/* ── Stats + sample hand ────────────────────────────────────────────────── */
+
+.deck-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.deck-stats-figures {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.deck-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+
+.deck-stat.warn {
+  border-color: var(--color-accent-dim);
+}
+
+.deck-stat-value {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.deck-stat-label {
+  font-size: 0.7rem;
+  color: var(--color-text-dim);
+}
+
+.deck-stats-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.deck-stats-bars li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.deck-stats-bar-label {
+  flex: 0 0 4.5rem;
+  color: var(--color-text-dim);
+}
+
+.deck-stats-bar {
+  height: 0.55rem;
+  min-width: 2px;
+  border-radius: 3px;
+  background: var(--color-accent);
+}
+
+.deck-stats-bar-count {
+  color: var(--color-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.sample-hand-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.sample-hand-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem;
+}
+
+.sample-hand-card {
+  width: 100%;
+  aspect-ratio: 744 / 1039;
+}
+
+/* Below the two-pane threshold the deck panel goes UNDER the browser: a 22rem
+   sidebar beside a card grid on a narrow screen leaves neither usable. */
+@media (max-width: 1100px) {
+  .builder-panes {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .builder-pane {
+    flex: 0 0 auto;
+  }
+  .builder-right {
+    flex: 0 0 auto;
+  }
+  /* `flex: 0 0 auto` here as well as on the pane, and it is not redundant: the
+     body's two-pane rule is `flex: 1 1 0`, which in a `flex: 0 0 auto` column
+     gives it a ZERO basis and refuses to grow — so the pane collapsed to its
+     tab bar (measured: 58px) while its content overflowed underneath the pane
+     below, where a card grid sat on top of the buttons and swallowed clicks.
+     A stacked pane has to be as tall as what is in it. */
+  .builder-pane-body {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
 }
 
 .deck-builder-section {
@@ -1470,10 +1748,25 @@ button:disabled {
   overflow-y: auto;
 }
 
+/* A GRID with an explicit column count now, not a wrapping flex row: the count
+   is a control (see `.browser-cols`), and "how many cards across" is the single
+   biggest lever on whether the browser is readable or dense. */
 .card-browser-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(var(--browser-cols, 6), minmax(0, 1fr));
   gap: 0.6rem;
+  align-content: start;
+}
+
+/* A tile in the grid FILLS its cell rather than keeping the fixed `--card-w` the
+   in-game board needs — otherwise the column count would change the spacing and
+   not the card size, which is the opposite of what the control is for. The
+   aspect ratio is the printed card's, so nothing distorts. */
+.card-browser-grid .card-tile,
+.battlefield-picker-grid .card-tile {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 744 / 1039;
 }
 
 .card-tile {
@@ -1526,57 +1819,26 @@ button:disabled {
 /* The deck-level figure — the one that answers "is a playtest of this list
    meaningful". Counts COPIES, not distinct cards: a 3-of that does nothing is
    three dead draws. */
-/* The builder's main-deck section is two columns: browse on the left, the deck
-   itself on the right. `.deck-builder` is the ONE screen with `overflow-y: auto`,
-   which is what makes a sticky side panel safe here and not in the lobby — see
-   Lobby.tsx on what a fixed-height column does to an extra child. */
-.deck-builder-split {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  min-width: 0;
-}
-
-.deck-builder-browse {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
+/* The deck panel now lives INSIDE `.builder-right`, which owns the sizing and
+   the scrolling. It was briefly a `position: sticky` sidebar with its own
+   `flex: 0 0 17rem` and a `max-height` — and when the panes landed, those rules
+   made it OVERLAP the left pane and swallow clicks meant for the card grid
+   (Playwright: "deck-list-empty ... intercepts pointer events"). A child of a
+   pane should size to the pane, not to the viewport. */
 .deck-panel {
-  flex: 0 0 17rem;
-  position: sticky;
-  top: 0.5rem;
-  max-height: calc(100dvh - 6rem);
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  padding: 0.5rem 0.6rem;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-bg);
+  min-width: 0;
 }
 
-/* Below the two-column threshold the panel goes UNDER the browser rather than
-   squeezing it — a 17rem sidebar next to a card grid on a narrow screen leaves
-   neither usable. */
-@media (max-width: 1100px) {
-  .deck-builder-split {
-    flex-direction: column;
-  }
-  .deck-panel {
-    position: static;
-    flex: 0 0 auto;
-    width: 100%;
-    max-height: none;
-  }
-}
-
+/* No scroll of its own: `.builder-pane-body` already scrolls, and a nested
+   scroll region inside it traps the wheel — you would scroll the deck list to
+   its end and the pane behind it would not move. */
 .deck-panel-rows {
   list-style: none;
   margin: 0;
   padding: 0;
-  overflow-y: auto;
-  min-height: 0;
 }
 
 .deck-panel-row {
