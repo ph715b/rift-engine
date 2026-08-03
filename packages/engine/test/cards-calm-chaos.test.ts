@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit, targetingForUnitTrigger } from "../src/engine/unit-
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /**
  * Discipline (OGN-058, Calm) and Cemetery Attendant (OGN-165, Chaos) — the two
@@ -117,7 +117,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     let state = makeState();
     state.players[0]!.trash = [corpse];
 
-    state = dispatchOnPlayUnit(state, attendant, 0, "base", { trashCardInstanceId: corpse.instanceId });
+    state = playUnitTrigger(state, attendant, 0, "base", { trashCardInstanceId: corpse.instanceId });
 
     expect(state.players[0]!.trash).toHaveLength(0);
     const returned = state.players[0]!.hand[0]!;
@@ -141,7 +141,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     const action = playAction(state, attendant);
     expect(validatePlayCard(state, action).ok).toBe(true);
 
-    const resolved = dispatchOnPlayUnit(state, attendant, 0, "base", {});
+    const resolved = playUnitTrigger(state, attendant, 0, "base", {});
     expect(resolved.players[0]!.hand.map((c) => c.instanceId)).toEqual([attendant.instanceId]);
     expect(resolved.players[0]!.trash).toHaveLength(0);
   });
@@ -161,7 +161,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     expect(offered.every((a) => a.trashCardInstanceId === undefined)).toBe(true);
     expect(validatePlayCard(state, playAction(state, attendant, { trashCardInstanceId: trashedSpell.instanceId })).ok).toBe(false);
 
-    const resolved = dispatchOnPlayUnit(state, attendant, 0, "base", {});
+    const resolved = playUnitTrigger(state, attendant, 0, "base", {});
     expect(resolved.players[0]!.trash.map((c) => c.instanceId)).toEqual([trashedSpell.instanceId]);
   });
 
@@ -171,7 +171,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     let state = makeState();
     state.players[1]!.trash = [enemyCorpse];
 
-    state = dispatchOnPlayUnit(state, attendant, 0, "base", { trashCardInstanceId: enemyCorpse.instanceId });
+    state = playUnitTrigger(state, attendant, 0, "base", { trashCardInstanceId: enemyCorpse.instanceId });
 
     expect(state.players[1]!.trash.map((c) => c.instanceId)).toEqual([enemyCorpse.instanceId]);
     expect(state.players[0]!.hand).toHaveLength(0);
@@ -184,7 +184,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     let state = makeState();
     state.players[0]!.trash = [first, wanted];
 
-    state = dispatchOnPlayUnit(state, attendant, 0, "base", { trashCardInstanceId: wanted.instanceId });
+    state = playUnitTrigger(state, attendant, 0, "base", { trashCardInstanceId: wanted.instanceId });
 
     expect(state.players[0]!.hand.map((c) => c.instanceId)).toEqual([wanted.instanceId]);
     expect(state.players[0]!.trash.map((c) => c.instanceId)).toEqual([first.instanceId]);

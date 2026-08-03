@@ -14,7 +14,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /**
  * The eleven cards that read "stun", and the two events they needed.
@@ -76,7 +76,7 @@ function playUnit(defId: string, casterIndex: 0 | 1, state: GameState, extra: Pa
       b.id === bf.id ? { ...b, units: { ...b.units, [ownerId]: [...(b.units[ownerId] ?? []), unit] } } : b,
     ),
   };
-  return { state: dispatchOnPlayUnit(withUnit, unit, casterIndex, { battlefieldId: bf.id }, extra), unit };
+  return { state: playUnitTrigger(withUnit, unit, casterIndex, { battlefieldId: bf.id }, extra), unit };
 }
 
 const unitsAt = (state: GameState, playerId: string, bf = 0) => state.battlefields[bf]!.units[playerId] ?? [];

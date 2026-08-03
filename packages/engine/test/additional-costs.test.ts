@@ -10,7 +10,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
-import { answerDecisions, makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Additional costs paid AS YOU PLAY a card — rule 805's `[Accelerate]` and the
@@ -143,7 +143,7 @@ describe("Cruel Patron (OGN-208): a MANDATORY additional cost", () => {
     const victim = makeUnit({ name: "Victim" });
     state.players[0]!.baseUnits = [victim];
 
-    const after = executePlayCard(state, playsOf(state, patron)[0]! as never);
+    const after = resolveHeldTriggers(executePlayCard(state, playsOf(state, patron)[0]! as never));
 
     expect(after.players[0]!.baseUnits.some((u) => u.name === "Victim")).toBe(false);
     expect(after.players[0]!.trash.map((c) => c.name)).toContain("Victim");
@@ -168,7 +168,7 @@ describe("the two Accelerate cards' other printed text", () => {
 
     // Three cards left and "discard 2" — a real choice, so the play stops to ask
     // twice. Which two go is now up to the player; that it is two is not.
-    const after = answerDecisions(executePlayCard(state, playsOf(state, jinx)[0]! as never));
+    const after = answerDecisions(resolveHeldTriggers(executePlayCard(state, playsOf(state, jinx)[0]! as never)));
 
     expect(after.players[0]!.hand).toHaveLength(1); // 4 - jinx - 2 discarded
     expect(after.players[0]!.trash).toHaveLength(2);

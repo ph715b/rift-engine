@@ -9,7 +9,7 @@ import { createCardInstance, type CardInstance, type GearInstance, type SpellIns
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The Chaos half of the "READY" cluster in docs/dead-card-survey.md — cards that
@@ -598,7 +598,9 @@ describe("Soulgorger (OGN-196): on play, you may play a unit from your trash for
     const { state, soulgorger } = soulgorgerTable([yordle], 0);
     state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
 
-    const after = answerAll(play(state, soulgorger), pickInstance(yordle.instanceId));
+    // Settled twice over: Soulgorger's own trigger is held, and so is the
+    // on-play trigger of the unit it plays out of the trash.
+    const after = resolveHeldTriggers(answerAll(play(state, soulgorger), pickInstance(yordle.instanceId)));
 
     expect(after.players[0]!.baseUnits.map((u) => u.defId)).toEqual([SOULGORGER, "OGN-087"]);
     expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);

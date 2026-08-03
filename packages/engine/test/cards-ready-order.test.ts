@@ -177,11 +177,16 @@ describe("Spectral Matron (OGN-226): play a cheap unit out of your trash", () =>
   const tooExpensive = () => makeUnit({ name: "Pricey", energyCost: 4, powerCost: 0 });
   const tooMuchPower = () => makeUnit({ name: "Heavy", energyCost: 1, powerCost: 2 });
 
-  /** Plays the Matron itself (a Unit resolves on play, not on the chain). */
+  /** Plays the Matron and resolves what that puts on the chain.
+   *
+   *  This used to read "a Unit resolves on play, not on the chain", which was
+   *  true until on-play triggers became Chain Pending Items — the unit still
+   *  arrives immediately, but its ABILITY waits like a spell, so the same
+   *  pass-until-resolved loop a Spell needs applies here too. */
   const play = (state: GameState, matronId: string) => {
     const action = castsOf(state, matronId)[0];
     expect(action, "the Matron was never enumerated as playable").toBeDefined();
-    return submit(state, action!).state;
+    return castAndResolve(state, action);
   };
 
   it("offers only the units within BOTH cost limits", () => {
@@ -254,10 +259,12 @@ describe("Albus Ferros (OGN-230): spend any number of buffs, channel one rune ea
     return { state, albusId: albus.instanceId };
   }
 
+  // Through `castAndResolve` for the reason the Matron's helper records: his
+  // on-play ability is a Chain Pending Item now, so it resolves a pass later.
   const play = (state: GameState, albusId: string) => {
     const action = castsOf(state, albusId)[0];
     expect(action, "Albus was never enumerated as playable").toBeDefined();
-    return submit(state, action!).state;
+    return castAndResolve(state, action);
   };
 
   /** The runes channeled by Albus — the ones that came out of the rune deck. */

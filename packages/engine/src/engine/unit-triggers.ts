@@ -1,4 +1,4 @@
-import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
+import type { TriggerChainEntry, BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 import { targetingForCard, type TargetingSpec } from "./card-effects.js";
@@ -419,9 +419,25 @@ export function dispatchOnPlayUnit(
   // file validated, cost runes, deployed — and then its ability silently never
   // ran. Nothing caught it because no per-domain file had registered a Unit yet,
   // which is exactly when a per-card implementation pass would have hit it.
+  // ── HELD, not resolved (383 / 809.1.b.3) ────────────────────────────────
+  //
+  // A unit's own "when you play me" ability goes onto the Chain as a Pending
+  // Item, becomes respondable when the Cleanup finalizes it, and resolves
+  // through `execute-pass-focus` like any other chain item. 48 cards.
+  //
+  // **The Legend hook and `[Vision]` above stay INLINE, deliberately.** Both are
+  // separate families (the 7 legend hooks are their own row in the conformance
+  // doc; Vision is a keyword whose "predict" the rules describe as its own
+  // trigger), and converting a family at a time is what makes a termination
+  // regression bisectable. Recorded as a divergence rather than left implicit.
+  //
+  // **No card in this pool has BOTH an on-play and an on-attack trigger** —
+  // measured, all eight on-attack cards checked — so the ordering inversion this
+  // creates (on-attack still resolves inline, i.e. BEFORE a held on-play) is
+  // unobservable today. It becomes real for the first card with both.
   const trigger = allUnitTriggers()[unit.defId];
   if (!trigger) return withVision;
-  return trigger.resolve(withVision, contextFor(casterIndex), unit.instanceId, {
+  return holdUnitTrigger(withVision, unit, casterIndex, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.secondTargetUnitInstanceId !== undefined
@@ -439,6 +455,56 @@ export function dispatchOnPlayUnit(
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
     ...(extra?.optionalPowerPaid !== undefined ? { optionalPowerPaid: extra.optionalPowerPaid } : {}),
   });
+}
+
+/**
+ * Puts one on-play unit trigger in the holding pen, as `holdEventTrigger` does
+ * for the event-registry kinds.
+ *
+ * The listener IS the unit that was just played, so `listenerInstanceId` names
+ * it and `battlefieldId` is where it landed — a positional trigger ("an enemy
+ * unit HERE") reads that rather than asking the board again, since the unit can
+ * be moved or killed while the response window is open.
+ *
+ * The whole `UnitTriggerEvent` rides along, because every choice it carries was
+ * made when the card was ANNOUNCED and must not be re-derived from a board that
+ * has since changed — the same reason a SpellChainEntry carries its targets.
+ */
+function holdUnitTrigger(
+  state: GameState,
+  unit: UnitInstance,
+  casterIndex: 0 | 1,
+  event: UnitTriggerEvent,
+): GameState {
+  const entry: TriggerChainEntry = {
+    kind: "trigger",
+    source: "unitOnPlay",
+    playerIndex: casterIndex,
+    listenerInstanceId: unit.instanceId,
+    listenerDefId: unit.defId,
+    listenerName: unit.name,
+    ...(typeof event.destination === "object" ? { battlefieldId: event.destination.battlefieldId } : {}),
+    event,
+  };
+  return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
+}
+
+/**
+ * Resolves a held on-play trigger when the chain pops it.
+ *
+ * **The unit is NOT required to still be in play.** Once a triggered ability is
+ * on the Chain it is independent of its source (809.1.b), so an opponent who
+ * kills the unit during the response window does not cancel the ability — they
+ * only remove what it might have referred to, and each resolver already answers
+ * for a unit it cannot find. That is the opposite of `resolvePendingTrigger`'s
+ * event-registry branch, which bails when the LISTENER has gone, and the
+ * difference is real: there the listener is a bystander that must still be in
+ * play to act, here it is the ability's own source.
+ */
+export function resolveHeldOnPlayTrigger(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = allUnitTriggers()[entry.listenerDefId];
+  if (!trigger) return state;
+  return trigger.resolve(state, contextFor(entry.playerIndex), entry.listenerInstanceId, entry.event as UnitTriggerEvent);
 }
 
 /** On-attack triggers — fired once per unit that just landed on a battlefield

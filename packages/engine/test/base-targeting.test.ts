@@ -8,7 +8,7 @@ import { dealDamage, destroyUnit, readyUnit, giveMightThisTurn, returnUnitToHand
 import { hasAnyLegalEffectChoice, unitWithinMaxMight, findUnitAnywhere } from "../src/engine/target-lookup.js";
 import { targetingForCard } from "../src/engine/card-effects.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /**
  * Riftbound distinguishes "a unit" from "a unit at a battlefield", and the
@@ -148,7 +148,7 @@ describe("the other widened cards", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [exhausted];
 
-    const result = dispatchOnPlayUnit(state, realUnitInstance("OGN-132"), 0, "base", {
+    const result = playUnitTrigger(state, realUnitInstance("OGN-132"), 0, "base", {
       targetUnitInstanceId: exhausted.instanceId,
     });
 

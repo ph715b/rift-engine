@@ -3,6 +3,7 @@ import { createCardInstance, type SpellInstance, type UnitInstance } from "../sr
 import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
+import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import type { PendingDecision } from "../src/model/game-state.js";
 import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
 
@@ -173,6 +174,26 @@ export function resolveHeldTriggers(state: GameState): GameState {
  * reads exactly as it did before this mechanism existed, and only the tests
  * about the choice itself have to say anything about it.
  */
+/**
+ * `dispatchOnPlayUnit` and then settle — an on-play unit trigger is a Chain
+ * Pending Item now, so the dispatcher only HOLDS it and the effect lands a
+ * chain-pop later.
+ *
+ * For the many tests that are about WHAT a card does rather than WHEN: they
+ * assert the card's effect and should not each have to re-assert the chain
+ * machinery. `test/on-play-chain.test.ts` is where the timing itself is pinned,
+ * and it deliberately does NOT use this.
+ */
+export function playUnitTrigger(
+  state: GameState,
+  unit: UnitInstance,
+  casterIndex: 0 | 1,
+  destination: Parameters<typeof dispatchOnPlayUnit>[3],
+  extra?: Parameters<typeof dispatchOnPlayUnit>[4],
+): GameState {
+  return resolveHeldTriggers(dispatchOnPlayUnit(state, unit, casterIndex, destination, extra));
+}
+
 export function answerDecisions(
   state: GameState,
   pick: (options: DecisionOption[], decision: PendingDecision) => string = (options) => options[0]!.id,

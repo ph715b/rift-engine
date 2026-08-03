@@ -3,7 +3,7 @@ import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { eligibleTargets } from "../src/engine/target-lookup.js";
-import { answerDecisions, makeState, makeUnit, pickCard, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, pickCard, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /** Fury cards implemented in src/engine/effects/fury.ts. Everything here goes
  *  through the COMPOSED registries (effectForCard / dispatchOnPlayUnit) rather
@@ -99,7 +99,7 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     state.players[0]!.hand = [...mine];
     state.players[1]!.hand = [...theirs];
 
-    const after = answerDecisions(dispatchOnPlayUnit(state, enforcer, 0, "base"));
+    const after = answerDecisions(playUnitTrigger(state, enforcer, 0, "base"));
 
     expect(after.players[0]!.hand).toHaveLength(1);
     expect(after.players[0]!.trash.map((c) => c.instanceId)).toEqual([mine[0]!.instanceId]);
@@ -117,7 +117,7 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     const state = makeState();
     state.players[0]!.hand = [first, second];
 
-    const asked = dispatchOnPlayUnit(state, enforcer, 0, "base");
+    const asked = playUnitTrigger(state, enforcer, 0, "base");
     expect(asked.pendingDecisions[0]!.playerIndex).toBe(0);
 
     const keptFirst = answerDecisions(asked, pickCard(second.instanceId));
@@ -133,7 +133,7 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     const enforcer = realUnitInstance("OGN-003");
     const state = makeState();
 
-    const after = dispatchOnPlayUnit(state, enforcer, 0, "base");
+    const after = playUnitTrigger(state, enforcer, 0, "base");
 
     expect(after.players[0]!.hand).toHaveLength(0);
     expect(after.players[0]!.trash).toHaveLength(0);
@@ -145,7 +145,7 @@ describe("Chemtech Enforcer (OGN-003): when you play me, discard 1", () => {
     state.players[0]!.hand = [makeUnit()];
     state.players[1]!.hand = [makeUnit(), makeUnit()];
 
-    const asked = dispatchOnPlayUnit(state, enforcer, 1, "base");
+    const asked = playUnitTrigger(state, enforcer, 1, "base");
     // The question is asked of player 1, not of whoever's turn it is.
     expect(asked.pendingDecisions[0]!.playerIndex).toBe(1);
     const after = answerDecisions(asked);

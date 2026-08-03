@@ -7,7 +7,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The Harrowing (OGN-198) — "Play a unit from your trash, ignoring its Energy
@@ -169,7 +169,9 @@ describe("The Harrowing (OGN-198): play a unit from your trash for its Power onl
     const kogmaw = unit(KOGMAW_CAUSTIC);
     const { state, harrowing } = harrowingTable([yordle, kogmaw]);
 
-    const after = answer(cast(state, harrowing), yordle.instanceId);
+    // Settled again after the answer: the unit The Harrowing plays has an
+    // on-play trigger of its OWN, and that is now a second Chain Pending Item.
+    const after = resolveHeldTriggers(answer(cast(state, harrowing), yordle.instanceId));
 
     expect(after.players[0]!.baseUnits.map((u) => u.defId)).toEqual([LECTURING_YORDLE]);
     expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);
@@ -260,9 +262,12 @@ describe("The Harrowing (OGN-198): play a unit from your trash for its Power onl
 
     const played = submit(state, offeredPlay(state, soulgorger));
     expect(played.result).toEqual({ type: "Ok" });
+    // His on-play ability waits on the chain, so the question it parks is one
+    // pop away rather than immediate.
+    const asked = resolveHeldTriggers(played.state);
 
-    const options = optionsFor(played.state, pendingDecision(played.state)!);
-    expect(pendingDecision(played.state)!.kind).toBe("OGN-196-play");
+    const options = optionsFor(asked, pendingDecision(asked)!);
+    expect(pendingDecision(asked)!.kind).toBe("OGN-196-play");
     expect(options[0]!.id).toBe("decline");
     expect(options.map((o) => o.instanceId)).toContain(kogmaw.instanceId);
   });

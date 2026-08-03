@@ -8,7 +8,7 @@ import { grantKeywordThisTurn } from "../src/engine/effect-helpers.js";
 import { createCardInstance } from "../src/model/card.js";
 import type { UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Cards in the four Proving Grounds precons whose printed text did nothing.
@@ -26,7 +26,9 @@ const LECTURING_YORDLE = "OGN-087"; // [Tank], "When you play me, draw 1."
 const STORMCLAW_URSINE = "OGN-137"; // [Tank], "When you play me, channel 1 rune exhausted."
 
 function playToBase(state: GameState, unit: ReturnType<typeof card>): GameState {
-  return executePlayCard(state, {
+  // Settled: an on-play trigger is a Chain Pending Item, so `executePlayCard`
+  // only holds it.
+  return resolveHeldTriggers(executePlayCard(state, {
     type: "PlayCard",
     playerIndex: 0,
     card: unit,
@@ -36,7 +38,7 @@ function playToBase(state: GameState, unit: ReturnType<typeof card>): GameState 
       energyRunes: state.players[0]!.channeled.slice(0, unit.kind === "Legend" ? 0 : unit.energyCost).map((r) => r.id),
       powerRunes: [],
     },
-  });
+  }));
 }
 
 /** A caster with enough Ready runes to pay anything in this pool, plus a deck

@@ -9,7 +9,7 @@ import { createCardInstance, type GearInstance, type UnitInstance } from "../src
 import type { Domain } from "../src/model/domain.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The four cluster-1 cards implemented in effects/calm.ts and effects/fury.ts:
@@ -49,7 +49,7 @@ const runes = (domain: Domain, n = 14) =>
 function accept(state: GameState, action: unknown): GameState {
   const { state: next, result } = submit(state, action as never);
   expect(result, `action was refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
-  return next;
+  return resolveHeldTriggers(next);
 }
 
 /** Finds the enumerated action matching `match`, failing loudly if the enumerator

@@ -7,7 +7,7 @@ import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /**
  * Body-domain card implementations (src/engine/effects/body.ts).
@@ -134,7 +134,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     const state = makeState();
     state.players[0]!.baseUnits = [donor, shaman];
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
+    const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false); // rule 704.1: the buff is spent
     expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // rule 702.3.a: and placed here
@@ -148,7 +148,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     state.players[0]!.baseUnits = [shaman];
     state.battlefields[0]!.units = { p1: [donor] };
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
+    const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
 
     expect(after.battlefields[0]!.units["p1"]![0]!.buffed).toBe(false);
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
@@ -170,11 +170,15 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     const state = makeState();
     state.players[0]!.baseUnits = [unbuffed, shaman];
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", { additionalCostUnitInstanceId: unbuffed.instanceId });
+    const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: unbuffed.instanceId });
 
-    expect(after).toBe(state);
+    // Asserted on the BOARD rather than by object identity: settling a held
+    // trigger runs a Cleanup, which always returns a fresh state, so `toBe`
+    // stopped meaning "nothing happened" the moment on-play triggers went on
+    // the chain. What it was standing in for is asserted directly instead.
     expect(after.players[0]!.baseUnits[1]!.buffed).toBe(false);
     expect(after.players[0]!.baseUnits[1]!.exhausted).toBe(true); // stayed exhausted
+    expect(after.players[0]!.baseUnits[0]!.buffed, "the unpayable cost was taken anyway").toBe(false);
   });
 
   it("cannot spend an ENEMY unit's buff (rule 705.1)", () => {
@@ -184,7 +188,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     state.players[0]!.baseUnits = [shaman];
     state.players[1]!.baseUnits = [enemyBuffed];
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", { additionalCostUnitInstanceId: enemyBuffed.instanceId });
+    const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: enemyBuffed.instanceId });
 
     expect(after.players[1]!.baseUnits[0]!.buffed).toBe(true); // not touched
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false);
@@ -196,10 +200,11 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     const state = makeState();
     state.players[0]!.baseUnits = [shaman];
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", {});
+    const after = playUnitTrigger(state, shaman, 0, "base", {});
 
-    expect(after).toBe(state);
+    // Board, not identity — see the note above.
     expect(after.players[0]!.baseUnits[0]!.exhausted).toBe(true);
+    expect(after.players[0]!.baseUnits[0]!.buffed, "it buffed itself with nothing named").toBe(false);
   });
 
   it("still readies itself when it somehow already carries a buff (rule 708 makes the buff a no-op)", () => {
@@ -211,7 +216,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     const state = makeState();
     state.players[0]!.baseUnits = [donor, shaman];
 
-    const after = dispatchOnPlayUnit(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
+    const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false); // donor paid
     expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // still exactly one buff (707)

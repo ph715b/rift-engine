@@ -11,7 +11,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * Fires a HELD event and drives it to resolution.
@@ -76,7 +76,7 @@ function playUnit(
             bf.id === destination.battlefieldId ? { ...bf, units: { ...bf.units, p1: [...(bf.units["p1"] ?? []), unit] } } : bf,
           ),
         };
-  return { state: dispatchOnPlayUnit(withUnit, unit, 0, destination, extra), unit };
+  return { state: playUnitTrigger(withUnit, unit, 0, destination, extra), unit };
 }
 
 function gear(defId: string, instanceId = "g1"): GearInstance {

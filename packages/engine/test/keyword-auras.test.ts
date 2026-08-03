@@ -7,7 +7,7 @@ import { isCardImplemented, partialImplementationNote } from "../src/engine/cove
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger } from "./fixtures.js";
 
 /**
  * Keyword auras — a keyword granted to OTHER permanents by a source card.
@@ -191,7 +191,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
     const { state, plain } = seerState(true);
     const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, plain] }, state.players[1]!] } as GameState;
 
-    const predicted = dispatchOnPlayUnit(entered, plain, 0, "base", { visionRecycle: true });
+    const predicted = playUnitTrigger(entered, plain, 0, "base", { visionRecycle: true });
     expect(predicted.players[0]!.deck.map((c) => c.instanceId), "the top card was not recycled").toEqual(["next", "top"]);
   });
 
@@ -199,7 +199,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
     const { state, plain } = seerState(false);
     const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [plain] }, state.players[1]!] } as GameState;
 
-    const after = dispatchOnPlayUnit(entered, plain, 0, "base", { visionRecycle: true });
+    const after = playUnitTrigger(entered, plain, 0, "base", { visionRecycle: true });
     expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["top", "next"]);
   });
 
@@ -211,7 +211,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
       players: [state.players[0]!, { ...state.players[1]!, baseUnits: [enemy], deck: [makeUnit({ instanceId: "their-top" })] }],
     } as GameState;
 
-    const after = dispatchOnPlayUnit(withEnemy, enemy, 1, "base", { visionRecycle: true });
+    const after = playUnitTrigger(withEnemy, enemy, 1, "base", { visionRecycle: true });
     expect(after.players[1]!.deck.map((c) => c.instanceId)).toEqual(["their-top"]);
   });
 
@@ -225,7 +225,7 @@ describe("Gemcraft Seer (OGN-100): other friendly units have [Vision]", () => {
     const { state } = seerState(true);
     const entered = { ...state, players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, poro] }, state.players[1]!] } as GameState;
 
-    const after = dispatchOnPlayUnit(entered, poro, 0, "base", { visionRecycle: true });
+    const after = playUnitTrigger(entered, poro, 0, "base", { visionRecycle: true });
     expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["next", "top"]);
   });
 

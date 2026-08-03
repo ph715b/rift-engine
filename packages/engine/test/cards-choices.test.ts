@@ -15,7 +15,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The batch whose cards each needed one new mechanism: a decision over a zone
@@ -63,7 +63,7 @@ function playUnit(defId: string, state: GameState, extra: Parameters<typeof disp
     ...state,
     players: [{ ...actor, baseUnits: [...actor.baseUnits, unit], cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1 }, state.players[1]!],
   };
-  return { state: dispatchOnPlayUnit(withUnit, unit, 0, "base", extra), unit };
+  return { state: playUnitTrigger(withUnit, unit, 0, "base", extra), unit };
 }
 
 function gear(defId: string, instanceId: string): GearInstance {

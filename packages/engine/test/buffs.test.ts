@@ -7,7 +7,7 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * A Buff and "+N Might this turn" were the same field until now, which made
@@ -179,7 +179,7 @@ describe("the first two cards that use Buffs", () => {
       ],
     });
 
-    const after = executePlayCard(state, {
+    const after = resolveHeldTriggers(executePlayCard(state, {
       type: "PlayCard",
       playerIndex: 0,
       card: rookie,
@@ -188,7 +188,7 @@ describe("the first two cards that use Buffs", () => {
         powerRunes: state.players[0]!.channeled.slice(rookie.energyCost, rookie.energyCost + rookie.powerCost).map((r) => r.id),
       },
       targetUnitInstanceId: ally.instanceId,
-    });
+    }));
 
     const buffedAlly = after.players[0]!.baseUnits.find((u) => u.instanceId === ally.instanceId)!;
     expect(buffedAlly.buffed).toBe(true);

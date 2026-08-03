@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit, unitTriggerDefIds } from "../src/engine/unit-trigge
 import { implementableText, isCardImplemented, needsImplementation } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger } from "./fixtures.js";
 
 const registry = defaultCardRegistry();
 
@@ -87,7 +87,7 @@ describe("cards registered in a domain file are actually reachable", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [ally, pitRookie];
 
-    const after = dispatchOnPlayUnit(state, pitRookie, 0, "base", { targetUnitInstanceId: ally.instanceId });
+    const after = playUnitTrigger(state, pitRookie, 0, "base", { targetUnitInstanceId: ally.instanceId });
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
     expect(after).not.toBe(state); // an unregistered defId returns the state unchanged

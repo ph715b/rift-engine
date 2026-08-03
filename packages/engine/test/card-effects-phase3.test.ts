@@ -6,7 +6,7 @@ import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 describe("Morbid Return: return a unit from your trash to your hand", () => {
   it("moves the trashed unit to hand, reset", () => {
@@ -74,7 +74,7 @@ describe("Annie - Stubborn: on-play, return a spell from your trash to your hand
     let state = makeState();
     state.players[0]!.trash = [trashedSpell];
 
-    state = dispatchOnPlayUnit(state, annieStubborn, 0, "base", { trashCardInstanceId: trashedSpell.instanceId });
+    state = playUnitTrigger(state, annieStubborn, 0, "base", { trashCardInstanceId: trashedSpell.instanceId });
 
     expect(state.players[0]!.trash).toHaveLength(0);
     expect(state.players[0]!.hand.map((c) => c.instanceId)).toContain(trashedSpell.instanceId);
@@ -116,7 +116,7 @@ describe("Annie - Stubborn: on-play, return a spell from your trash to your hand
     };
     expect(validatePlayCard(state, action).ok).toBe(true);
 
-    const next = executePlayCard(state, action);
+    const next = resolveHeldTriggers(executePlayCard(state, action));
 
     expect(next.players[0]!.trash).toHaveLength(0);
     expect(next.players[0]!.hand.map((c) => c.instanceId)).toContain(trashedSpell.instanceId);

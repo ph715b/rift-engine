@@ -30,6 +30,10 @@ const BLITZCRANK_IMPASSIVE = "OGN-067";
 function accept(state: GameState, action: unknown): GameState {
   const { state: next, result } = submit(state, action as never);
   expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+  // NOT settled here, unlike the other card files' `accept` helpers: this file
+  // is about WHEN a held trigger resolves, so a helper that quietly resolved it
+  // would erase the thing under test. The tests that want the effect call
+  // `resolveHeldTriggers` themselves, visibly.
   return next;
 }
 
@@ -145,7 +149,9 @@ describe("Blitzcrank - Impassive (OGN-067)", () => {
 
     const play = legalActions(state).find((a) => a.type === "PlayCard" && a.destinationBattlefieldId === "bf1");
     expect(play, "playing Blitzcrank to bf1 was never enumerated").toBeDefined();
-    const played = accept(state, play!);
+    // Settled explicitly: his ON-PLAY half is a Chain Pending Item like the hold
+    // half, so the question it parks is a chain-pop away rather than immediate.
+    const played = resolveHeldTriggers(accept(state, play!));
 
     const decision = played.pendingDecisions[0];
     expect(decision?.kind, "the 'you may' was never asked").toBe("OGN-067-grab");
@@ -167,7 +173,7 @@ describe("Blitzcrank - Impassive (OGN-067)", () => {
     state.players[1]!.baseUnits = [prey];
 
     const play = legalActions(state).find((a) => a.type === "PlayCard" && a.destinationBattlefieldId === "bf1");
-    const grabbed = answerDecisions(accept(state, play!), pickCard("prey"));
+    const grabbed = answerDecisions(resolveHeldTriggers(accept(state, play!)), pickCard("prey"));
 
     expect(grabbed.players[1]!.baseUnits, "the enemy unit is still at home").toHaveLength(0);
     expect((grabbed.battlefields[0]!.units["p2"] ?? []).map((u) => u.instanceId)).toEqual(["prey"]);

@@ -10,7 +10,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * The [Legion], [Accelerate] and draw/discard batch.
@@ -65,7 +65,11 @@ function playUnit(
       state.players[1]!,
     ],
   };
-  return { state: dispatchOnPlayUnit(withUnit, unit, 0, "base", extra), unit };
+  // Settled, because an on-play trigger is now a Chain Pending Item: the
+  // dispatcher HOLDS it and it resolves a chain-pop later. Every test here is
+  // about what the card does rather than when, so the helper absorbs the timing
+  // — `test/on-play-chain.test.ts` is where the timing itself is asserted.
+  return { state: (playUnitTrigger(withUnit, unit, 0, "base", extra)), unit };
 }
 
 const ownUnits = (s: GameState) => s.players[0]!.baseUnits;

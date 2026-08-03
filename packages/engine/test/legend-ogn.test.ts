@@ -16,7 +16,7 @@ import { implementingModule, isCardImplemented, partialImplementationNote } from
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
 
 /**
  * The OGN Legends whose printed text had no implementation.
@@ -308,7 +308,7 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
       ...state,
       players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, unit] }, state.players[1]!],
     };
-    return dispatchOnPlayUnit(withUnit, unit, 0, "base", {});
+    return playUnitTrigger(withUnit, unit, 0, "base", {});
   }
 
   it("asks when a 5-Might unit is played, and channels 1 exhausted when accepted", () => {
@@ -359,7 +359,7 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
       players: [state.players[0]!, { ...state.players[1]!, baseUnits: [enemy] }],
     };
 
-    expect(dispatchOnPlayUnit(withEnemy, enemy, 1, "base", {}).pendingDecisions).toHaveLength(0);
+    expect(playUnitTrigger(withEnemy, enemy, 1, "base", {}).pendingDecisions).toHaveLength(0);
   });
 });
 

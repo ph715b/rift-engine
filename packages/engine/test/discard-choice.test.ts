@@ -7,7 +7,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * A discard the CASTER chooses, carried on the action.
@@ -140,7 +140,7 @@ describe("Brazen Buccaneer (OGN-002): an OPTIONAL discard that buys a discount",
     const { state, bucc, spare } = buccaneerState(8);
     const paid = playsOf(state, bucc).find((a) => a.type === "PlayCard" && a.discardCardInstanceId === spare.instanceId)!;
 
-    const after = executePlayCard(state, paid as never);
+    const after = resolveHeldTriggers(executePlayCard(state, paid as never));
 
     expect(after.players[0]!.hand).toHaveLength(0);
     expect(after.players[0]!.trash.map((c) => c.instanceId)).toEqual([spare.instanceId]);

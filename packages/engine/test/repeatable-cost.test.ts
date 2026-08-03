@@ -8,7 +8,7 @@ import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * A REPEATABLE additional cost — "you may spend ANY NUMBER of X as an additional
@@ -34,7 +34,7 @@ const rune = (id: string, domain: RuneCard["domain"]): RuneCard => ({ id, domain
 function accept(state: GameState, action: unknown): GameState {
   const { state: next, result } = submit(state, action as never);
   expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
-  return next;
+  return resolveHeldTriggers(next);
 }
 
 const playsFor = (state: GameState, defId: string) =>

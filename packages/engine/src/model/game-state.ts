@@ -112,6 +112,20 @@ export interface TriggerChainEntry {
    *  "noted before it moves to the Trash" applied generally. Typed loosely here
    *  to keep model/ free of an import from engine/; triggers.ts narrows it. */
   event: unknown;
+  /**
+   * WHICH registry resolves this entry — and therefore how to read `event`.
+   *
+   * Absent (or `"event"`) is the original shape: an EventTrigger-registry
+   * ability, `event` a `GameEvent`. `"unitOnPlay"` is a unit's own "when you
+   * play me" ability, where the listener IS the played unit and `event` is a
+   * `UnitTriggerEvent` carrying the destination and the choices that rode in on
+   * the PlayCard action.
+   *
+   * A discriminant rather than a second event field, so an entry can never carry
+   * both and no existing literal has to change — the absent case is exactly what
+   * every producer wrote before on-play triggers were held.
+   */
+  source?: "event" | "unitOnPlay";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */

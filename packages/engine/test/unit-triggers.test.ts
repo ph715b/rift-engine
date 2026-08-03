@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dispatchOnPlayUnit, targetingForUnitTrigger, unitTriggerHasVisionChoice } from "../src/engine/unit-triggers.js";
-import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
 
 describe("Vision (Mystic Poro, Sai Scout): look at top card, optionally recycle", () => {
   it("recycle=true moves the top card to the bottom of the deck", () => {
@@ -10,7 +10,7 @@ describe("Vision (Mystic Poro, Sai Scout): look at top card, optionally recycle"
     let state = makeState();
     state.players[0]!.deck = [top, rest];
 
-    state = dispatchOnPlayUnit(state, mysticPoro, 0, "base", { visionRecycle: true });
+    state = playUnitTrigger(state, mysticPoro, 0, "base", { visionRecycle: true });
 
     expect(state.players[0]!.deck.map((c) => c.instanceId)).toEqual([rest.instanceId, top.instanceId]);
   });
@@ -21,7 +21,7 @@ describe("Vision (Mystic Poro, Sai Scout): look at top card, optionally recycle"
     state.players[0]!.deck = [realUnitInstance("OGN-210"), realUnitInstance("OGN-215")];
     const before = state.players[0]!.deck.map((c) => c.instanceId);
 
-    state = dispatchOnPlayUnit(state, saiScout, 0, "base", { visionRecycle: false });
+    state = playUnitTrigger(state, saiScout, 0, "base", { visionRecycle: false });
 
     expect(state.players[0]!.deck.map((c) => c.instanceId)).toEqual(before);
   });
@@ -55,7 +55,7 @@ describe("Tibbers: deal 3 to all units at battlefields, both owners", () => {
     state.battlefields[0]!.units = { p1: [friendlyBf], p2: [enemyBf] };
     state.players[0]!.baseUnits = [friendlyBase];
 
-    state = dispatchOnPlayUnit(state, tibbers, 0, "base");
+    state = playUnitTrigger(state, tibbers, 0, "base");
 
     expect(state.battlefields[0]!.units["p1"]![0]!.damage).toBe(3);
     expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(3);
@@ -70,7 +70,7 @@ describe("First Mate: ready another unit", () => {
     let state = makeState();
     state.battlefields[0]!.units = { p1: [target] };
 
-    state = dispatchOnPlayUnit(state, firstMate, 0, "base", { targetUnitInstanceId: target.instanceId });
+    state = playUnitTrigger(state, firstMate, 0, "base", { targetUnitInstanceId: target.instanceId });
 
     expect(state.battlefields[0]!.units["p1"]![0]!.exhausted).toBe(false);
   });
@@ -86,7 +86,7 @@ describe("Faithful Manufactor: play a 1-Might Recruit token at its own destinati
     const manufactor = realUnitInstance("OGN-211");
     let state = makeState();
 
-    state = dispatchOnPlayUnit(state, manufactor, 0, "base");
+    state = playUnitTrigger(state, manufactor, 0, "base");
 
     expect(state.players[0]!.baseUnits).toHaveLength(1);
     expect(state.players[0]!.baseUnits[0]!.isToken).toBe(true);
@@ -96,7 +96,7 @@ describe("Faithful Manufactor: play a 1-Might Recruit token at its own destinati
     const manufactor = realUnitInstance("OGN-211");
     let state = makeState();
 
-    state = dispatchOnPlayUnit(state, manufactor, 0, { battlefieldId: "bf1" });
+    state = playUnitTrigger(state, manufactor, 0, { battlefieldId: "bf1" });
 
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
     expect(state.battlefields[0]!.units["p1"]![0]!.isToken).toBe(true);
@@ -110,7 +110,7 @@ describe("Maddened Marauder: move a unit from a battlefield to its own base (eit
     let state = makeState();
     state.battlefields[0]!.units = { p1: [friendly] };
 
-    state = dispatchOnPlayUnit(state, marauder, 0, "base", { targetUnitInstanceId: friendly.instanceId });
+    state = playUnitTrigger(state, marauder, 0, "base", { targetUnitInstanceId: friendly.instanceId });
 
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(0);
     expect(state.players[0]!.baseUnits).toHaveLength(1);
@@ -123,7 +123,7 @@ describe("Maddened Marauder: move a unit from a battlefield to its own base (eit
     let state = makeState();
     state.battlefields[0]!.units = { p2: [enemy] };
 
-    state = dispatchOnPlayUnit(state, marauder, 0, "base", { targetUnitInstanceId: enemy.instanceId });
+    state = playUnitTrigger(state, marauder, 0, "base", { targetUnitInstanceId: enemy.instanceId });
 
     expect(state.battlefields[0]!.units["p2"]).toHaveLength(0);
     expect(state.players[1]!.baseUnits).toHaveLength(1); // p2's own base, not p1's

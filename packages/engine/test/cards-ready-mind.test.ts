@@ -75,6 +75,9 @@ function play(
     "powerDomain" in played ? played.powerDomain : null,
   );
   const pool = actor.channeled.filter((r) => r.state === "Ready");
+  // NOT settled: this helper plays SPELLS too, and settling would resolve one
+  // off the chain before a test that wants it waiting there could look. The two
+  // unit tests that need their on-play trigger resolved settle it themselves.
   return executePlayCard(state, {
     type: "PlayCard",
     playerIndex,
@@ -454,7 +457,8 @@ describe("Sprite Mother (OGN-106): play a ready 3-Might [Temporary] Sprite here"
   it("makes the token in your base when she is played to base", () => {
     const { state, mother } = motherState();
 
-    const after = play(state, 0, mother);
+    // Settled: her on-play trigger is a Chain Pending Item now.
+    const after = resolveHeldTriggers(play(state, 0, mother));
 
     const tokens = after.players[0]!.baseUnits.filter((u) => u.isToken);
     expect(tokens).toHaveLength(1);
@@ -470,7 +474,7 @@ describe("Sprite Mother (OGN-106): play a ready 3-Might [Temporary] Sprite here"
     const { state, mother } = motherState();
     state.battlefields[0]!.units = { p1: [makeUnit()] }; // presence, so a reinforce play is legal
 
-    const after = play(state, 0, mother, { destinationBattlefieldId: "bf1" });
+    const after = resolveHeldTriggers(play(state, 0, mother, { destinationBattlefieldId: "bf1" }));
 
     const there = unitAt(after, "bf1", "p1");
     expect(there.filter((u) => u.isToken)).toHaveLength(1);

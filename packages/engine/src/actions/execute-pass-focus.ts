@@ -2,7 +2,7 @@ import { isSpellChainEntry, type GameState } from "../model/game-state.js";
 import { resolvePendingTrigger } from "../engine/triggers.js";
 import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
-import { dispatchOnSpellCast } from "../engine/unit-triggers.js";
+import { dispatchOnSpellCast, resolveHeldOnPlayTrigger } from "../engine/unit-triggers.js";
 import { dispatchLegendOnSpellCast } from "../engine/legend-abilities.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
@@ -58,7 +58,15 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // an ordinary turn with a Pirate's Haven on the board comes through this line
   // once per unit that Awakened.
   if (!isSpellChainEntry(poppedEntry)) {
-    const afterTrigger = resolvePendingTrigger(state, poppedEntry);
+    // Two registries can produce a held trigger now, and `source` says which —
+    // an EventTrigger-registry ability (a bystander watching the board) or a
+    // unit's own "when you play me". They resolve differently enough to need
+    // separate functions: see resolveHeldOnPlayTrigger on why a dead source
+    // still resolves while a dead LISTENER does not.
+    const afterTrigger =
+      poppedEntry.source === "unitOnPlay"
+        ? resolveHeldOnPlayTrigger(state, poppedEntry)
+        : resolvePendingTrigger(state, poppedEntry);
     const remaining = afterTrigger.spellChain.slice(0, -1);
     return finishChainPop(afterTrigger, remaining);
   }
