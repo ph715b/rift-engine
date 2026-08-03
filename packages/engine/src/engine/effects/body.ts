@@ -241,6 +241,22 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-150": {
+    // Kraken Hunter — "As you play me, you may spend ANY NUMBER of buffs as an
+    // additional cost. Reduce my cost by [1 Body] for each buff you spend."
+    //
+    // The card is nothing BUT its cost, which is why `targeting` is "none" and
+    // this resolver only spends. The discount is priced per variant in the cost
+    // pipeline (see `UnitCostSpec.repeatable`).
+    //
+    // `spendBuff` per unit, and its `undefined` return — the unit was not buffed
+    // after all — falls back to the unchanged state rather than throwing: between
+    // enumeration and resolution nothing can move here, but the helper's contract
+    // is the same one Wildclaw Shaman already leans on.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) =>
+      (event.additionalCostUnitInstanceIds ?? []).reduce((next, id) => spendBuff(next, ctx.casterIndex, id) ?? next, state),
+  },
   "OGN-141": {
     // Kinkou Monk — "When you play me, buff up to two OTHER friendly units."
     //

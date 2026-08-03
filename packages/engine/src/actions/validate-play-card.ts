@@ -90,6 +90,30 @@ function isAtBattlefield(state: GameState, unitInstanceId: string, battlefieldId
   return Object.values(bf?.units ?? {}).some((list) => list.some((u) => u.instanceId === unitInstanceId));
 }
 
+/** Why this unit cannot pay an additional cost of `kind`, or null when it can.
+ *
+ *  Extracted so the single-unit and the REPEATABLE branches ask exactly the same
+ *  three questions — ownership, then the eligibility that differs per kind. Two
+ *  copies is how a repeatable Kraken Hunter would come to accept an unbuffed
+ *  unit that the single-unit path already rejects. */
+function additionalCostRejection(
+  state: GameState,
+  action: PlayCardAction,
+  cardName: string,
+  kind: "exhaustReadyFriendly" | "spendBuffFriendly" | "killFriendly",
+  id: string,
+): string | null {
+  const actor = state.players[action.playerIndex]!;
+  const inBase = actor.baseUnits.find((u) => u.instanceId === id);
+  const atBattlefield = inBase ? undefined : findUnitOnBattlefield(state, id);
+  const owned = inBase !== undefined || (atBattlefield !== undefined && atBattlefield.ownerIndex === action.playerIndex);
+  const unit = inBase ?? atBattlefield?.unit;
+  if (!unit || !owned) return `${cardName}'s additional cost requires a friendly unit you control`;
+  if (kind === "exhaustReadyFriendly" && unit.exhausted) return `${cardName}'s additional cost requires a READY friendly unit`;
+  if (kind === "spendBuffFriendly" && !unit.buffed) return `${cardName}'s additional cost requires a BUFFED friendly unit (rule 705)`;
+  return null;
+}
+
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (state.phase !== "Action") {
     return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
@@ -295,6 +319,27 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (optionalCost?.mandatory && action.additionalCostUnitInstanceId === undefined) {
     return fail(`${card.name} requires a friendly unit as an additional cost`);
   }
+  // A REPEATABLE cost names a SET, and every member has to be separately
+  // eligible — the same three checks the single-unit branch below makes, applied
+  // per unit rather than once. Accepts any legal set, not only the ones
+  // `legal-actions` sampled: the sampler picks weakest-first, and a player
+  // deliberately killing a big body must not be refused for it.
+  if (optionalCost?.repeatable && action.additionalCostUnitInstanceIds !== undefined) {
+    const chosen = action.additionalCostUnitInstanceIds;
+    if (new Set(chosen).size !== chosen.length) {
+      return fail(`${card.name} cannot spend the same unit twice`);
+    }
+    for (const id of chosen) {
+      const rejection = additionalCostRejection(state, action, card.name, optionalCost.kind, id);
+      if (rejection !== null) return fail(rejection);
+    }
+    // "Reduce my cost by [1 Power] for each" cannot take a cost below zero, so
+    // spending past the printed Power buys nothing — and offering it would be
+    // offering a strictly worse play the enumerator never emits.
+    if (chosen.length > card.powerCost) {
+      return fail(`${card.name} can only be discounted down to zero Power (${card.powerCost})`);
+    }
+  }
   if (optionalCost !== undefined && action.additionalCostUnitInstanceId !== undefined) {
     const id = action.additionalCostUnitInstanceId;
     const inBase = actor.baseUnits.find((u) => u.instanceId === id);
@@ -402,6 +447,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // rule 811 gives a from-hidden play, and gated on the additional cost having
   // ACTUALLY been named, since declining leaves the printed cost standing.
   const costIgnored = optionalCost?.ignoresCostWhenPaid === true && action.additionalCostUnitInstanceId !== undefined;
+  // A REPEATABLE cost takes 1 Power off per unit spent, floored at 0 — re-derived
+  // here from the SAME action the enumerator priced, so the two cannot disagree
+  // about what the play costs.
+  const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
@@ -410,7 +459,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         actor.floatingPower,
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
           accelerateEnergy,
-        card.powerCost + acceleratePower,
+        Math.max(0, card.powerCost - repeatableDiscount) + acceleratePower,
         action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,

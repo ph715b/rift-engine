@@ -252,6 +252,27 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-231": {
+    // Commander Ledros — "As you play me, you may kill ANY NUMBER of friendly
+    // units as an additional cost. Reduce my cost by [1 Order] for each killed
+    // this way."
+    //
+    // Cruel Patron below, made repeatable and made to pay for itself. The
+    // discount lives in the COST pipeline (`UnitCostSpec.repeatable`, priced per
+    // variant in legal-actions and re-derived in validate-play-card); all that is
+    // left here is spending what was named.
+    //
+    // `destroyUnit` per unit, for the reason Cruel Patron records: paying a cost
+    // with a unit is still a death, so each fires its own [Deathknell] and can be
+    // replaced by a death ward. Killing four bodies to land a free 6/4 is meant
+    // to be expensive, and a quieter removal would make it cheaper than printed.
+    //
+    // No `killerIndex`, same as Cruel Patron — paying a cost with your own unit
+    // is not "you killing it" in the sense Solari Shrine asks about.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _unitId, event) =>
+      (event.additionalCostUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
+  },
   "OGN-208": {
     // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
     //

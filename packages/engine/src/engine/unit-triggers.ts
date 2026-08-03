@@ -48,6 +48,10 @@ export interface UnitTriggerEvent {
    *  Wildclaw Shaman needed it, which forced its "you may" onto the ordinary
    *  target field and lost the decline whenever every friendly unit was buffed. */
   additionalCostUnitInstanceId?: string;
+  /** The units spent for a REPEATABLE additional cost (Kraken Hunter's buffs,
+   *  Commander Ledros' kills) — a list, so nothing reading the single field
+   *  above can be handed four of them. */
+  additionalCostUnitInstanceIds?: readonly string[];
   /** The card from hand this play discards — a MANDATORY part of the effect for
    *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
    *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
@@ -358,6 +362,7 @@ export function dispatchOnPlayUnit(
     visionRecycle?: boolean;
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
+    additionalCostUnitInstanceIds?: readonly string[];
     discardCardInstanceId?: string;
     acceleratePaid?: boolean;
   },
@@ -406,6 +411,9 @@ export function dispatchOnPlayUnit(
     ...(extra?.trashCardInstanceId !== undefined ? { trashCardInstanceId: extra.trashCardInstanceId } : {}),
     ...(extra?.additionalCostUnitInstanceId !== undefined
       ? { additionalCostUnitInstanceId: extra.additionalCostUnitInstanceId }
+      : {}),
+    ...(extra?.additionalCostUnitInstanceIds !== undefined
+      ? { additionalCostUnitInstanceIds: extra.additionalCostUnitInstanceIds }
       : {}),
     ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),

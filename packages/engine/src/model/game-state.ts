@@ -40,6 +40,11 @@ export interface SpellChainEntry {
   /** Only meaningful for a card with an optional exhaust-cost (Meditation)
    *  — see card-effects.ts's cardHasOptionalExhaustCost. */
   additionalCostUnitInstanceId?: string;
+  /** The units spent for a REPEATABLE additional cost (Kraken Hunter's buffs,
+   *  Commander Ledros' kills). A list rather than more of the single field
+   *  above, so nothing that reads "the one unit this cost named" can be handed
+   *  four of them. */
+  additionalCostUnitInstanceIds?: readonly string[];
   /** Where a token-creating Spell deploys what it creates (Recruit the
    *  Vanguard); absent means base — see card-effects.ts's cardPlacesTokens. */
   destinationBattlefieldId?: string;

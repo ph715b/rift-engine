@@ -42,6 +42,7 @@ import {
 } from "./timing.js";
 import { HIDE_POWER_COST, RAINBOW, hiddenCardIsPlayable, isHiddenCard } from "./hidden.js";
 import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
+import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
@@ -409,7 +410,14 @@ export function legalActions(state: GameState): PlayerAction[] {
     // exactly when it matters most — the same mistake the discount path already
     // records having made with Brazen Buccaneer.
     const canIgnoreCost = optionalUnitCostOf(card.defId)?.ignoresCostWhenPaid === true;
-    if (!payment && !discountedPayment && !canIgnoreCost) continue; // can't afford it any way
+    // A REPEATABLE cost can make an otherwise-unaffordable card castable —
+    // Commander Ledros prints 4 Power and can be played for none of it by killing
+    // four units. Bailing on the printed price here would have made exactly the
+    // variants the card exists for unreachable, which is the mistake this line
+    // already records making twice (Brazen Buccaneer's discount, Call to Glory's
+    // ignore).
+    const canDiscountByRepeating = optionalUnitCostOf(card.defId)?.repeatable === true;
+    if (!payment && !discountedPayment && !canIgnoreCost && !canDiscountByRepeating) continue; // can't afford it any way
 
     // [Accelerate] (805) is an OPTIONAL additional cost, so it is a second
     // candidate rather than a replacement — declining must stay available even
@@ -577,6 +585,29 @@ export function legalActions(state: GameState): PlayerAction[] {
               : optionalCost.kind === "spendBuffFriendly"
                 ? own.filter((u) => u.buffed)
                 : own; // killFriendly — any unit you control can be the price
+          // A REPEATABLE cost (Kraken Hunter, Commander Ledros) is fanned out by
+          // COUNT rather than by unit, and the count is capped by the printed
+          // Power cost — "reduce my cost by [1 Power] for each" buys nothing once
+          // the cost is zero. That is what keeps this to a handful of variants
+          // instead of the powerset of the caster's own board.
+          //
+          // WHICH units are spent is chosen by a deterministic heuristic —
+          // weakest first, since Ledros is choosing what to kill and Kraken
+          // Hunter what to strip a buff from, and in both the cheapest bodies are
+          // the ones a player almost always picks. `validate-play-card` accepts
+          // ANY legal set, so a human clicking their own choice is not limited to
+          // this sample; the same split `unitList` targeting makes.
+          if (optionalCost.repeatable) {
+            const byCheapest = [...eligible].sort(
+              (a, b) => effectiveMight(state, a, playerIndex, { isCombat: false }) - effectiveMight(state, b, playerIndex, { isCombat: false }),
+            );
+            const maxSpend = Math.min(byCheapest.length, card.powerCost);
+            const counts: Partial<PlayCardAction>[] = [];
+            for (let n = 1; n <= maxSpend; n += 1) {
+              counts.push({ ...v, additionalCostUnitInstanceIds: byCheapest.slice(0, n).map((u) => u.instanceId) });
+            }
+            return [v, ...counts];
+          }
           const paid = eligible.map((u) => ({ ...v, additionalCostUnitInstanceId: u.instanceId }));
           // The decline variant leads, and is what makes "you may" mean may —
           // but ONLY for an optional cost. A mandatory one has no decline, so a
@@ -618,10 +649,28 @@ export function legalActions(state: GameState): PlayerAction[] {
       // A variant that PAID the cost-ignoring additional cost pays nothing else.
       // Empty rather than small — the validator re-derives exactly this, and the
       // two must agree or the UI offers a click validation then refuses.
+      // A REPEATABLE cost DISCOUNTS rather than replaces: each unit spent takes
+      // 1 Power off, floored at 0. Re-priced per variant for the same reason
+      // [Deflect] is — the price now depends on the choice, so one variant can be
+      // affordable while another is not, and a single payment computed once per
+      // card cannot say so.
+      const repeatableSpend = variant.additionalCostUnitInstanceIds?.length ?? 0;
+      const repeatablePayment =
+        repeatableSpend > 0
+          ? computeAutoPayment(
+              actor.channeled,
+              effectiveCost.energyCost,
+              Math.max(0, effectiveCost.powerCost - repeatableSpend),
+              card.powerDomain,
+              card.powerDomainAlt,
+            )
+          : undefined;
       const variantPayment =
         canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
           ? { energyRunes: [], powerRunes: [] }
-          : payment;
+          : repeatableSpend > 0
+            ? repeatablePayment
+            : payment;
       // One candidate per discardable card, priced against the DISCOUNTED cost.
       if (discardChoice && discountedPayment) {
         for (const c of discardable) {
@@ -673,8 +722,33 @@ export function legalActions(state: GameState): PlayerAction[] {
       }
 
       const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment: variantPaymentForTargets, ...variant, ...hiddenFields };
-      if (accelerated) {
-        actions.push({ type: "PlayCard", playerIndex, card, payment: accelerated, ...variant, ...hiddenFields, acceleratePaid: true });
+      // [Accelerate] is priced once per card, which is wrong the moment anything
+      // else about the variant changes the price. Kraken Hunter is both
+      // accelerable and repeatable-discounted, and the shared `accelerated`
+      // payment ignored the discount entirely — so the enumerator offered a
+      // 3-Power accelerated play that the validator, which re-derives from the
+      // discounted cost, then refused at 1. Found by the first test to enumerate
+      // and validate the same action, which is the only way this class of bug
+      // ever shows up.
+      const acceleratedForVariant =
+        repeatableSpend > 0 && hasAccelerate(card) && !fromHidden
+          ? computeAutoPayment(
+              actor.channeled,
+              effectiveCost.energyCost + ACCELERATE_ENERGY,
+              Math.max(0, effectiveCost.powerCost - repeatableSpend) + ACCELERATE_POWER,
+              acceleratePowerDomain(card),
+            )
+          : accelerated;
+      if (acceleratedForVariant) {
+        actions.push({
+          type: "PlayCard",
+          playerIndex,
+          card,
+          payment: acceleratedForVariant,
+          ...variant,
+          ...hiddenFields,
+          acceleratePaid: true,
+        });
       }
       // The default candidate puts a token-placing Spell's tokens in BASE. Rule
       // 811 forbids that for a from-hidden play: "if a hidden spell ... causes

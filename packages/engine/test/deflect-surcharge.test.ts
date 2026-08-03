@@ -167,10 +167,12 @@ describe("[Deflect] is a real surcharge, priced per target", () => {
     for (const id of [POUTY_PORO, "OGN-155", "OGN-161", "OGN-232", "OGN-063"]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(true);
     }
-    // And NOT the two that carry unwritten text of their own — Volibear's split
-    // damage and OGN-231's kill-N-with-a-discount. Kept as the negative control:
-    // without it, "every card is implemented" would pass this test too.
-    for (const id of [VOLIBEAR_FURIOUS, "OGN-231"]) {
+    // And NOT Volibear, whose split damage is still unwritten. Kept as the
+    // negative control: without it, "every card is implemented" would pass this
+    // test too. OGN-231 stood here beside him until `UnitCostSpec.repeatable`
+    // landed his kill-any-number cost — its premise was that the card did
+    // nothing, and it is fixed rather than weakened.
+    for (const id of [VOLIBEAR_FURIOUS]) {
       expect(isCardImplemented(registry.get(id)), `${id} (${registry.get(id).name})`).toBe(false);
     }
   });

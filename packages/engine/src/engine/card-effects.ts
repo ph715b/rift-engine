@@ -238,6 +238,11 @@ export interface ResolveEvent {
    *  ("you may exhaust a friendly unit... if you do, draw 2") — absent means
    *  the caster declined it. See cardHasOptionalExhaustCost below. */
   additionalCostUnitInstanceId?: string;
+  /** The units spent for a REPEATABLE additional cost (Kraken Hunter's buffs,
+   *  Commander Ledros' kills). A list rather than more of the single field
+   *  above, so nothing that reads "the one unit this cost named" can be handed
+   *  four of them. */
+  additionalCostUnitInstanceIds?: readonly string[];
   /** Where a token-creating Spell puts what it creates (Recruit the
    *  Vanguard) — absent means base. Distinct from a "battlefield"-kind
    *  TARGET: nothing is being targeted, the caster is choosing a deployment
@@ -312,6 +317,24 @@ export interface UnitCostSpec {
    *  the card is castable with no runes at all, which is the whole point — so
    *  affordability must be judged per variant, not once per card. */
   ignoresCostWhenPaid?: true;
+  /**
+   * Kraken Hunter's and Commander Ledros' "any NUMBER of" — the cost may be paid
+   * several times over, each payment discounting the card by 1 Power.
+   *
+   * The count is bounded by the printed Power cost rather than by the board:
+   * "reduce my cost by [1 Power] for each" cannot take a cost below zero, so
+   * spending a fifth buff on a 4-Power Ledros buys nothing. That is what keeps
+   * the enumeration to at most six variants per card instead of the powerset of
+   * your own units — and it is a property of the card, not a cap this engine
+   * invented.
+   *
+   * WHICH units are spent still matters (Ledros is choosing what to kill), so
+   * `legal-actions` samples by a deterministic heuristic and
+   * `validate-play-card` accepts any legal set — the same split `unitList`
+   * targeting makes, and for the same reason: a human clicking their own choice
+   * must not be limited to what the AI's sampler happened to emit.
+   */
+  repeatable?: true;
 }
 
 /**
@@ -345,6 +368,14 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // printed cost rather than discount it, which is why `ignoresCostWhenPaid`
   // was built as a flag rather than as one card's special case.
   "OGN-146": { kind: "spendBuffFriendly", ignoresCostWhenPaid: true },
+  // Kraken Hunter — "As you play me, you may spend ANY NUMBER of buffs as an
+  // additional cost. Reduce my cost by [1 Body] for each buff you spend."
+  "OGN-150": { kind: "spendBuffFriendly", repeatable: true },
+  // Commander Ledros — "As you play me, you may kill ANY NUMBER of friendly
+  // units as an additional cost. Reduce my cost by [1 Order] for each killed
+  // this way." Same shape as Kraken Hunter with a harsher price, and it is why
+  // `repeatable` is a flag rather than one card's special case.
+  "OGN-231": { kind: "killFriendly", repeatable: true },
 };
 
 /**

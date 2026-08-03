@@ -289,6 +289,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
+      ...(action.additionalCostUnitInstanceIds !== undefined
+        ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
+        : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then
@@ -296,6 +299,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // nothing. That exact bug has happened here once already.
         ...(action.additionalCostUnitInstanceId !== undefined
           ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+          : {}),
+        ...(action.additionalCostUnitInstanceIds !== undefined
+          ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
           : {}),
         ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Tasty Faefolk's whole ability is gated on Accelerate having been PAID
@@ -330,6 +336,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+        : {}),
+      ...(action.additionalCostUnitInstanceIds !== undefined
+        ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
         : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
       // Same Accelerate forwarding as the base branch — a reinforce play pays
@@ -399,6 +408,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceId !== undefined
         ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
         : {}),
+      ...(action.additionalCostUnitInstanceIds !== undefined
+        ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
+        : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then
@@ -407,9 +419,15 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         ...(action.additionalCostUnitInstanceId !== undefined
           ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
           : {}),
+        ...(action.additionalCostUnitInstanceIds !== undefined
+          ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
+          : {}),
         ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
           ...(action.additionalCostUnitInstanceId !== undefined
             ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+            : {}),
+          ...(action.additionalCostUnitInstanceIds !== undefined
+            ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
             : {}),
           // A Spell's destination is only ever a token-deployment zone
           // (Recruit the Vanguard); it rides the chain so the choice made at

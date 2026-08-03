@@ -56,6 +56,11 @@ export interface PlayCardAction {
    *  additional cost (Meditation only) — absent means the caster declined
    *  it. See card-effects.ts's cardHasOptionalExhaustCost. */
   additionalCostUnitInstanceId?: string;
+  /** The units spent for a REPEATABLE additional cost (Kraken Hunter's buffs,
+   *  Commander Ledros' kills). A list rather than more of the single field
+   *  above, so nothing that reads "the one unit this cost named" can be handed
+   *  four of them. */
+  additionalCostUnitInstanceIds?: readonly string[];
   /** For a Unit card only: deploy directly to this battlefield instead of
    *  base. Legal only when the acting player already has a unit of their
    *  own there — mirrors ActionValidator.validateUnitDirectToBattlefield's
