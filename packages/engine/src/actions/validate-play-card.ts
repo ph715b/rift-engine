@@ -149,8 +149,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Rule 813's destination restriction for a Unit played outside a Neutral Open
   // state — shared with legal-actions so enumeration can't offer a destination
   // this then refuses (see mayPlayUnitToBattlefield).
+  // 811 exempts a from-hidden unit from 813 — see the enumerator, which applies
+  // the same exemption, and the placement check further down for the rest of it.
   if (
     card.kind === "Unit" &&
+    action.fromHiddenBattlefieldId === undefined &&
     action.destinationBattlefieldId !== undefined &&
     !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId)
   ) {
@@ -386,7 +389,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // battlefield, Deadbloom Predator to an OCCUPIED ENEMY one), mirroring
   // ActionValidator's own small named-card exception list
   // (ActionValidator.java:1306-1319).
-  if (card.kind === "Unit" && action.destinationBattlefieldId !== undefined) {
+  // Rule 811 again, from the other side: a hidden PERMANENT must be played at
+  // the battlefield it was hidden at — not into base, and not somewhere else —
+  // and that requirement replaces the presence rule rather than joining it.
+  if (card.kind === "Unit" && action.fromHiddenBattlefieldId !== undefined) {
+    if (action.destinationBattlefieldId !== action.fromHiddenBattlefieldId) {
+      return fail(`${card.name} was hidden at ${action.fromHiddenBattlefieldId} and must be played there`);
+    }
+  } else if (card.kind === "Unit" && action.destinationBattlefieldId !== undefined) {
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
     const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;

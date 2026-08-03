@@ -914,7 +914,14 @@ export function legalActions(state: GameState): PlayerAction[] {
       // that-battlefield one below is offered — without this the player was
       // handed a choice the rules don't give them, and the UI stalled waiting
       // for a placement decision that should never have been asked.
-      const baseVariantForbidden = fromHidden && card.kind === "Spell" && cardPlacesTokens(card.defId);
+      // Rule 811's placement clause, and it covers a hidden PERMANENT as well as
+      // a hidden spell that makes one: "you must choose to play that unit at
+      // that battlefield". A hidden UNIT therefore has no base play either —
+      // which is what the doc had recorded as unreachable on the strength of the
+      // PRESET decks, while the pool holds six hidden units and a hidden gear.
+      // Every one of them was playable straight into base for free.
+      const baseVariantForbidden =
+        fromHidden && ((card.kind === "Spell" && cardPlacesTokens(card.defId)) || card.kind === "Unit");
       if (!baseVariantForbidden) actions.push(play);
 
       // A Unit may ALSO be played directly to a battlefield where the actor
@@ -926,18 +933,28 @@ export function legalActions(state: GameState): PlayerAction[] {
       // just ones they already occupy.
       if (card.kind === "Unit") {
         for (const bf of state.battlefields) {
-          const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
-          // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
-          // this is asked per battlefield rather than once per card. Same shared
-          // predicate the validator uses.
-          if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf)) continue;
-          // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
-          // your base or a battlefield you control. Checked here as well as in the
-          // validator, via the same shared predicate: without it, enumeration
-          // offered a [Reaction] Unit a reinforce destination the validator then
-          // refused, and the AI (which trusts legalActions and calls the executor
-          // directly) threw on it mid-game.
-          if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id)) continue;
+          // A from-hidden unit goes to ITS battlefield and nowhere else (811),
+          // and that clause overrides both of the checks below: the presence
+          // requirement (the card being there IS the reason it may be played
+          // there) and 813's Showdown narrowing (a hidden card is played at
+          // Reaction speed, so 813 would otherwise forbid the one destination
+          // 811 requires — the more specific rule wins, recorded Unverified).
+          if (fromHidden) {
+            if (bf.id !== fromHiddenBattlefieldId) continue;
+          } else {
+            const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
+            // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
+            // this is asked per battlefield rather than once per card. Same shared
+            // predicate the validator uses.
+            if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf)) continue;
+            // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
+            // your base or a battlefield you control. Checked here as well as in the
+            // validator, via the same shared predicate: without it, enumeration
+            // offered a [Reaction] Unit a reinforce destination the validator then
+            // refused, and the AI (which trusts legalActions and calls the executor
+            // directly) threw on it mid-game.
+            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id)) continue;
+          }
           const reinforce: PlayCardAction = {
             type: "PlayCard",
             playerIndex,
