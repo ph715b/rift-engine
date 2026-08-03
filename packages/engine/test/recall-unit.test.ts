@@ -104,6 +104,7 @@ function makeState(): GameState {
     markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
+    lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],

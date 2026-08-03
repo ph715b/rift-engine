@@ -1,6 +1,13 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type {
+  DeathknellEffect,
+  DeathWatchEffect,
+  EventTriggerDefinition,
+  GameEvent,
+  Listener,
+  SelfTriggerDefinition,
+} from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   channelRunesExhausted,
@@ -21,6 +28,7 @@ import {
   takeOneFromTopAndRecycleRest,
   takeControlOfUnit,
 } from "../effect-helpers.js";
+import { findUnitAnywhere } from "../target-lookup.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -477,6 +485,43 @@ function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefiel
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-177": {
+    // Stealthy Pursuer — "When a friendly unit moves FROM MY LOCATION, I may be
+    // moved with it."
+    //
+    // Three conditions, and the first two are what make him a follower rather
+    // than a second [Ganking] unit: the mover must be FRIENDLY, and it must have
+    // left where he is standing. He does not follow an enemy, and he does not
+    // teleport to a fight two battlefields away.
+    //
+    // **DIVERGENCE, and it is the unguessed rules call this card was blocked
+    // on.** "Moved WITH it" reads as simultaneous, and this cannot be: the event
+    // is a Chain Pending Item (383), so his move happens when the trigger
+    // resolves — which `runCleanup` reaches AFTER `stageShowdowns`. He therefore
+    // arrives at a battlefield whose Showdown is already staged, joining the
+    // fight as an extra body rather than as part of the attack that opened it.
+    // The alternative reading — that "with it" forbids being a held trigger at
+    // all — would make him the only unit trigger in the pool resolved inline.
+    // Recorded Unverified in docs/rules-conformance.md.
+    //
+    // He is deliberately NOT excluded from following a move he made himself:
+    // nothing in this pool can move him and another friendly unit in one action
+    // except a group MoveUnit, where the event fires per unit, and "a friendly
+    // unit" includes his companions. `applies` does exclude the mover BEING him,
+    // which is the one case that would let him chase his own move.
+    on: "unitMoved",
+    applies: (state, listener, event) => pursuerFollows(state, listener, event),
+    resolve: (state, listener, event) => {
+      if (!pursuerFollows(state, listener, event) || event.kind !== "unitMoved") return state;
+      // "I MAY be moved" — a real choice, and one only its controller makes.
+      return parkDecision(state, {
+        kind: "OGN-177-follow",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.to,
+      });
+    },
+  },
   "OGN-205": {
     // Yasuo - Windrider — "[Ganking] The third time I move in a turn, you score
     // 1 point."
@@ -591,6 +636,30 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
 const NOCTURNE_POWER = 1;
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /** Stealthy Pursuer's "I may be moved with it" — see his trigger above for the
+   *  timing divergence this question inherits. */
+  "OGN-177-follow": {
+    prompt: () => "Stealthy Pursuer: follow the unit that just left?",
+    options: (state, d) => {
+      // Moot if he has since died or already been moved away — a question about
+      // a board that no longer exists is dropped rather than answered.
+      const location = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId) : undefined;
+      if (!location || location.zone === "base") return [];
+      if (state.battlefields[location.zone.battlefieldIndex]!.id === d.battlefieldId) return [];
+      return [
+        { id: "stay", label: "Stay" },
+        { id: "follow", label: "Follow it" },
+      ];
+    },
+    resolve: (state, d, optionId) =>
+      optionId === "follow" && d.cardInstanceId && d.battlefieldId
+        ? // Through the real move funnel, so arriving contests the battlefield
+          // and stages a Showdown exactly as a walk-in would. It fires no
+          // on-move trigger, which `forceMoveToBattlefield`'s own note already
+          // records as this engine's reading of a spell-driven move.
+          forceMoveToBattlefield(state, d.cardInstanceId, d.battlefieldId)
+        : state,
+  },
   // Stacked Deck's "put 1 into your hand and recycle the rest".
   //
   // The options are the top 3 read from LIVE state when the question reaches the
@@ -845,4 +914,17 @@ function playLabel(card: UnitInstance): string {
   return card.powerCost <= 0
     ? `Play ${card.name} (free)`
     : `Play ${card.name} (pay ${card.powerCost} ${card.powerDomain ?? "any"} Power)`;
+}
+
+/** Stealthy Pursuer's three conditions, asked once so `applies` and `resolve`
+ *  cannot disagree — a held trigger that re-derives them separately is how a
+ *  response window turns into a trigger firing on a board that no longer
+ *  qualifies. */
+function pursuerFollows(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "unitMoved") return false;
+  if (event.moverIndex !== listener.ownerIndex) return false; // "a FRIENDLY unit"
+  if (event.unitInstanceId === listener.card.instanceId) return false; // not his own move
+  // "FROM MY LOCATION" — where he is standing NOW, which is where he was when
+  // the mover left, since nothing resolves in between.
+  return listener.battlefieldId === event.from && event.to !== event.from;
 }

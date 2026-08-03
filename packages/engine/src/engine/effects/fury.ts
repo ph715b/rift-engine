@@ -1,6 +1,13 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type {
+  DeathknellEffect,
+  DeathWatchEffect,
+  EventTriggerDefinition,
+  GameEvent,
+  Listener,
+  SelfTriggerDefinition,
+} from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   dealDamage,
@@ -423,6 +430,40 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-034": {
+    // Tryndamere - Barbarian — "When I conquer AFTER AN ATTACK, if you assigned
+    // 5 or more EXCESS damage to enemy units, you score 1 point."
+    //
+    // Three separate conditions, and each one is a different kind of check:
+    //  - **"When I conquer"** is positional, like Vayne's and Qiyana's — he has
+    //    to be standing at the battlefield that was taken.
+    //  - **"AFTER AN ATTACK"** is what `lastShowdownExcessDamage` carries a
+    //    battlefield and an attacking side for. A conquest by walking into an
+    //    empty battlefield never wrote it, and a conquest at a different
+    //    battlefield does not match it, so neither can borrow another fight's
+    //    number.
+    //  - **"5 or more excess damage"** is a term the rules never define — see
+    //    `combat.excessAssigned`, where all three candidate readings coincide.
+    //
+    // The point is a plain `points + 1`, deliberately NOT routed through
+    // `recordConquest`: rule 474's Final Point restriction applies to a point
+    // gained by CONQUERING, and this is a separate payout that happens to be
+    // triggered by one. Same call, and the same reasoning, as Yasuo - Windrider.
+    on: "battlefieldConquered",
+    // Asked in `applies` as well as in `resolve`, because the event is HELD: the
+    // response window this opens must not be usable to move him off the
+    // battlefield and cancel a trigger that already fired.
+    applies: (state, listener, event) => tryndamereQualifies(state, listener, event),
+    resolve: (state, listener, event) => {
+      if (!tryndamereQualifies(state, listener, event)) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = {
+        ...players[listener.ownerIndex],
+        points: players[listener.ownerIndex].points + 1,
+      };
+      return { ...state, players };
+    },
+  },
   "OGN-035": {
     // Vayne - Hunter — "[Assault 3] If an opponent controls a battlefield, I
     // enter ready. When I conquer, you may pay [1 Energy] to return me to my
@@ -732,3 +773,21 @@ export const decisions: Record<string, DecisionDefinition> = {
     },
   },
 };
+
+/** Tryndamere - Barbarian's three conditions, asked once so `applies` and
+ *  `resolve` cannot disagree — the split that has produced a held trigger firing
+ *  on a board that no longer qualifies before. */
+function tryndamereQualifies(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "battlefieldConquered") return false;
+  if (event.conquerorIndex !== listener.ownerIndex) return false;
+  if (listener.battlefieldId !== event.battlefieldId) return false;
+  const excess = state.lastShowdownExcessDamage;
+  return (
+    excess !== null &&
+    excess.battlefieldId === event.battlefieldId &&
+    excess.attackerIndex === listener.ownerIndex &&
+    excess.amount >= TRYNDAMERE_EXCESS_REQUIRED
+  );
+}
+
+const TRYNDAMERE_EXCESS_REQUIRED = 5;

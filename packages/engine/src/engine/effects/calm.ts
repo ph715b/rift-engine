@@ -26,6 +26,7 @@ import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
+import { holdCardsRecycled } from "../effect-helpers.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 
@@ -762,7 +763,9 @@ export const decisions: Record<string, DecisionDefinition> = {
         ...players[d.playerIndex],
         deck: [...players[d.playerIndex].deck.slice(top5.length), ...rest],
       };
-      const recycled: GameState = { ...state, players };
+      // Karma - Channeler watches every recycle in this engine, including the
+      // ones written inline like this one — `rest` is what actually moved.
+      const recycled = holdCardsRecycled({ ...state, players }, d.playerIndex, rest.length);
       return chosen ? playCardIgnoringCost(recycled, d.playerIndex, chosen) : recycled;
     },
   },

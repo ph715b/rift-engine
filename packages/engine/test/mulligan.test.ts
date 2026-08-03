@@ -105,6 +105,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
+    lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],

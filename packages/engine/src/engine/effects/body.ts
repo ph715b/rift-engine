@@ -20,6 +20,7 @@ import {
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBase } from "../deploy.js";
+import { holdCardsRecycled } from "../effect-helpers.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -430,7 +431,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 
       const players = [...state.players] as [PlayerState, PlayerState];
       players[listener.ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
-      const recycled: GameState = { ...state, players };
+      const recycled = holdCardsRecycled({ ...state, players }, listener.ownerIndex, rest.length);
       const played = found ? playUnitToBase(recycled, listener.ownerIndex, found) : recycled;
       // "As you look at or REVEAL me" — every card turned over on the way here
       // was revealed, so a Nocturne among them gets his offer. After the reveal

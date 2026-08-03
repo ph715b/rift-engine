@@ -52,7 +52,7 @@ export function mayHideWithEnergy(state: GameState, playerIndex: 0 | 1): boolean
 
 /** The cards this module implements beyond the keyword itself, for coverage.ts. */
 export function hideCostDefIds(): string[] {
-  return [TEEMO_SWIFT_SCOUT];
+  return [TEEMO_SWIFT_SCOUT, NOXUS_SABOTEUR];
 }
 
 /** Rainbow: `computeAutoPayment(channeled, 0, HIDE_POWER_COST, RAINBOW)` already
@@ -90,8 +90,33 @@ export function controlsAnyFacedownCard(state: GameState, playerIndex: 0 | 1): b
  * turn can end and come back to you — so it compares turn NUMBERS, which
  * `turn-manager.runEnd` only advances on wrapping back to the First Player.
  */
-export function hiddenCardIsPlayable(state: GameState, hidden: HiddenCard): boolean {
-  return state.turnNumber > hidden.hiddenOnTurn;
+export function hiddenCardIsPlayable(state: GameState, hidden: HiddenCard, battlefieldId?: string): boolean {
+  if (state.turnNumber <= hidden.hiddenOnTurn) return false;
+  return battlefieldId === undefined || !saboteurBlocks(state, hidden.ownerIndex, battlefieldId);
+}
+
+/**
+ * Noxus Saboteur — "Your opponents' [Hidden] cards can't be revealed here."
+ *
+ * **The rules never define "revealed" for a facedown card being played**, and
+ * three readings are available: it cannot be PLAYED from Hidden here; it cannot
+ * change zones at all (which would freeze it in place, including at Cleanup);
+ * or `Revealed` is a status this pool never grants, which would make the card
+ * inert by design. Recorded UNGUESSED in docs/rules-calls-resolved.md and
+ * implemented as the first: playing from Hidden is the one moment the card is
+ * turned face up, so it is the only reading with a game effect, and it is the
+ * narrowest of the three. Recorded Unverified.
+ *
+ * "HERE" is the Saboteur's own location, so he blocks exactly the battlefield he
+ * stands on — a Saboteur at base blocks nothing.
+ */
+export const NOXUS_SABOTEUR = "OGN-018";
+
+function saboteurBlocks(state: GameState, ownerIndex: 0 | 1, battlefieldId: string): boolean {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return false;
+  const enemyId = state.players[ownerIndex === 0 ? 1 : 0].id;
+  return (bf.units[enemyId] ?? []).some((u) => u.defId === NOXUS_SABOTEUR);
 }
 
 /**

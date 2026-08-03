@@ -281,11 +281,52 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
  * Highlander's ward or Zhonya's Hourglass) never reaches this function at all,
  * so its trigger is never added — which is exactly what 809.1.b.1 requires.
  */
+/** Karthus - Eternal — "Your [Deathknell] effects trigger an additional time."
+ *
+ *  Counted from the board rather than registered as a listener: he is a
+ *  CONTINUOUS effect on how another trigger resolves, not a trigger of his own,
+ *  and a listener would fire alongside the Deathknell instead of multiplying it.
+ *  He counts himself, so a dying Karthus's own Deathknell — if he had one —
+ *  would already be gone from the board by the time this is asked, which is the
+ *  right answer: he is not there to double it. */
+export const KARTHUS_ETERNAL = "OGN-236";
+
+/** For coverage.ts — the card this rule implements. Its own source rather than a
+ *  line in `deathTriggerDefIds`, because Karthus has no death trigger: he
+ *  changes how OTHER cards' triggers resolve, and filing him with them would
+ *  make the coverage report say something untrue about where to look. */
+export function deathknellModifierDefIds(): string[] {
+  return [KARTHUS_ETERNAL];
+}
+
+function karthusCount(state: GameState, ownerIndex: 0 | 1): number {
+  const owner = state.players[ownerIndex];
+  return [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])].filter(
+    (u) => u.defId === KARTHUS_ETERNAL,
+  ).length;
+}
+
 export function dispatchOnUnitDied(state: GameState, death: DeathContext): GameState {
   let next = state;
 
   const deathknell = allDeathknells()[death.unit.defId];
-  if (deathknell) next = deathknell(next, contextFor(death.ownerIndex), death);
+  if (deathknell) {
+    // Karthus - Eternal's "your [Deathknell] effects trigger an additional time".
+    // One base execution plus one per Karthus, which is the model the rules
+    // themselves give for "an additional time" under [Repeat]: "the spell or
+    // ability's instructions will be executed an additional time on resolution
+    // for EACH instance". Two Karthuses is 1 + 2 = 3, settled in
+    // docs/rules-calls-resolved.md §6.
+    //
+    // "YOUR Deathknell effects" is possessive of the EFFECT, and an effect is
+    // yours if you control its source — so it is the DYING unit's controller
+    // that matters, read at the moment of death, which is what `death` carries.
+    // A Karthus on the opponent's board does nothing for you.
+    const times = 1 + karthusCount(next, death.ownerIndex);
+    for (let i = 0; i < times; i += 1) {
+      next = deathknell(next, contextFor(death.ownerIndex), death);
+    }
+  }
 
   // Listeners are re-walked AFTER the Deathknell, not captured before it: a
   // Deathknell that kills things (Kog'Maw - Caustic) can remove a listener, and
@@ -439,6 +480,21 @@ export type GameEvent =
        *  the response window may have changed. */
       movesThisTurn: number;
     }
+  /**
+   * One or more cards were recycled to `ownerIndex`'s Main Deck — Karma -
+   * Channeler's "when you recycle one or more cards to your Main Deck".
+   *
+   * ONE event per recycle INSTRUCTION however many cards it moved, the same
+   * shape (and for the same reason) as `cardsDiscarded`: the card pays out once
+   * for "one or more".
+   *
+   * **`ownerIndex` is whose DECK received the cards, not who performed the
+   * recycle.** The rules leave "when YOU recycle" genuinely ambiguous — 1928
+   * makes the two come apart, and this engine has a site that recycles the
+   * opponent's trash at a caster's instruction — and the card's own wording
+   * settles it as far as anything can: "to YOUR Main Deck". Recorded Unverified.
+   */
+  | { kind: "cardsRecycled"; ownerIndex: 0 | 1; count: number }
   | { kind: "combatBegan"; battlefieldId: string }
   /**
    * `stunnerIndex` just stunned these units (rule 422) — ONE event per
@@ -521,7 +577,8 @@ export type HeldEventKind =
   | "endOfTurn"
   | "unitReadied"
   | "battlefieldHeld"
-  | "unitKilledBySpell";
+  | "unitKilledBySpell"
+  | "cardsRecycled";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;

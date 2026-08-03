@@ -643,6 +643,19 @@ export interface GameState {
    *  trashing it, then cleared for that unit. Reset every runEnd, same
    *  "this turn" lifetime as GameState.java's own set
    *  (TurnManager.java:287-290). */
+  /**
+   * What the last Combat Showdown's attacking pool spent BEYOND what it took to
+   * kill what it was assigned to — Tryndamere - Barbarian's "if you assigned 5
+   * or more excess damage to enemy units".
+   *
+   * On the state because the card that reads it is a HELD conquer trigger: it
+   * resolves in the Cleanup after combat has returned, and the number exists
+   * nowhere else by then. Carries the battlefield and the attacking side so a
+   * conquest at a DIFFERENT battlefield, or one that was not an attack at all,
+   * cannot read it — "when I conquer AFTER AN ATTACK" is the clause that check
+   * implements.
+   */
+  lastShowdownExcessDamage: { battlefieldId: string; attackerIndex: 0 | 1; amount: number } | null;
   deathWardedUnitInstanceIds: string[];
   /**
    * Units carrying Unlicensed Armory's ward — the same "next time it would die

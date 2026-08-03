@@ -10,6 +10,7 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
   legionActive,
+  holdCardsRecycled,
   ownUnitsEverywhere,
   readyUnit,
   recycleCardFromHand,
@@ -595,7 +596,33 @@ export const deathWatchTriggers: Record<string, DeathWatchEffect> = {
   },
 };
 
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-235": {
+    // Karma - Channeler — "[Vision] When you recycle one or more cards to your
+    // Main Deck, buff a friendly unit."
+    //
+    // Her [Vision] is printed and handled by the play funnel; only this half is
+    // here. The event is `cardsRecycled`, held like every other Pending Item,
+    // and it exists because recycling happens in nine unrelated places — a
+    // per-card table keyed by the recycling card could never see her.
+    //
+    // "ONE OR MORE cards" pays out ONCE per instruction however many moved,
+    // which is what the event's own shape already guarantees, and why she does
+    // not read `event.count` at all.
+    on: "cardsRecycled",
+    applies: (state, listener, event) =>
+      event.kind === "cardsRecycled" &&
+      // "to YOUR Main Deck" — the deck that RECEIVED the cards, which is the
+      // reading the event carries; see its own note for why it is Unverified.
+      event.ownerIndex === listener.ownerIndex &&
+      // Nothing to buff is nothing to do (422), and a held trigger with no
+      // effect is a response window opened for nothing.
+      ownUnits(state, listener.ownerIndex).length > 0,
+    resolve: (state, listener, event) =>
+      event.kind === "cardsRecycled" && ownUnits(state, listener.ownerIndex).length > 0
+        ? parkDecision(state, { kind: "OGN-235-buff", playerIndex: listener.ownerIndex })
+        : state,
+  },};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -628,6 +655,14 @@ export const decisions: Record<string, DecisionDefinition> = {
   // makes a second buff a no-op rather than an illegal choice, and filtering
   // them would quietly change "another friendly unit" into "another UNBUFFED
   // friendly unit", which matters when everything you control is already buffed.
+  /** Karma - Channeler's "buff a friendly unit" — Vanguard Helm's question with
+   *  her name on it, and no "another" narrowing, so she may buff herself. */
+  "OGN-235-buff": {
+    prompt: () => "Karma - Channeler: buff a friendly unit",
+    options: (state, d) =>
+      ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
   "OGN-228-buff": {
     prompt: () => "Vanguard Helm: buff another friendly unit",
     options: (state, d) =>
@@ -758,7 +793,7 @@ export const decisions: Record<string, DecisionDefinition> = {
         deck: [...players[d.playerIndex].deck.slice(top5.length), ...rest],
         ...(chosen ? { cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1 } : {}),
       };
-      const recycled: GameState = { ...state, players };
+      const recycled = holdCardsRecycled({ ...state, players }, d.playerIndex, rest.length);
       // The banish is transient — the card is banished and played in the same
       // instruction, and nothing can observe the intermediate zone — so it goes
       // straight to play rather than through `PlayerState.banished`, which still
@@ -877,7 +912,7 @@ function recycleJudgmentItem(
       // spells out for units.
       deck: [...actor.deck, gear],
     };
-    return { ...state, players };
+    return holdCardsRecycled({ ...state, players }, playerIndex, 1);
   }
   const rune = actor.channeled.find((r) => r.id === instanceId);
   if (!rune) return state;

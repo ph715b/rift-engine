@@ -107,6 +107,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
+    lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],

@@ -429,7 +429,10 @@ export function legalActions(state: GameState): PlayerAction[] {
     ...(actor.championZone ? [{ card: actor.championZone as CardInstance }] : []),
     ...state.battlefields.flatMap((bf) =>
       bf.hiddenCards
-        .filter((h) => h.ownerIndex === playerIndex && hiddenCardIsPlayable(state, h))
+        // The battlefield is passed so Noxus Saboteur's "can't be revealed HERE"
+        // is asked at enumeration too — the validator asks the same question of
+        // the same function, so a blocked card is never offered and then refused.
+        .filter((h) => h.ownerIndex === playerIndex && hiddenCardIsPlayable(state, h, bf.id))
         .map((h) => ({ card: h.card, fromHiddenBattlefieldId: bf.id })),
     ),
   ];

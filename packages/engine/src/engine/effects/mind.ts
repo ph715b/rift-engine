@@ -21,6 +21,7 @@ import {
   exhaustAllFriendlyUnits,
   giveMightThisTurn,
   giveMightThisTurnToAllEnemies,
+  holdCardsRecycled,
   payPowerFromChanneled,
   readyUnit,
   recycleUnitFromPlayToDeck,
@@ -626,7 +627,8 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         ...after,
         deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
       };
-      return offerTopOfDeckBanish({ ...damaged, players }, listener.ownerIndex, revealed);
+      const shuffled = holdCardsRecycled({ ...damaged, players }, listener.ownerIndex, survivors.length);
+      return offerTopOfDeckBanish(shuffled, listener.ownerIndex, revealed);
     },
   },
   "OGN-119": {
@@ -820,7 +822,8 @@ export const decisions: Record<string, DecisionDefinition> = {
         // caster is still choosing.
         banished: [...players[d.playerIndex].banished, chosen],
       };
-      return { ...state, players };
+      // "then RECYCLES the rest" — the four that were not banished.
+      return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length - 1);
     },
   },
   /**

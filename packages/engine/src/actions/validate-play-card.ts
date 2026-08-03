@@ -75,8 +75,8 @@ function hiddenPlayRejection(state: GameState, action: PlayCardAction): string |
   }
   // "Beginning on the NEXT turn" — 811. Hiding and playing in one turn would
   // make the keyword a pure discount rather than a commitment.
-  if (!hiddenCardIsPlayable(state, hidden)) {
-    return `${action.card.name} was hidden this turn and can only be played from the next turn onward`;
+  if (!hiddenCardIsPlayable(state, hidden, action.fromHiddenBattlefieldId!)) {
+    return `${action.card.name} cannot be played from hidden here — it was hidden this turn, or an enemy Noxus Saboteur is at that battlefield`;
   }
   // Every target must come from that battlefield, PER TARGET (811). Checked
   // against the same predicate legal-actions enumerates from, so a from-hidden

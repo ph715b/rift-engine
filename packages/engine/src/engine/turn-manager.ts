@@ -353,6 +353,7 @@ export function runEnd(state: GameState): GameState {
     phase: "Awaken",
     // Highlander's ward only lasts "this turn" — cleared here same as every
     // other "this turn" field above (TurnManager.java:335's own reset).
+    lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     // Imperial Decree's sweep and Noxian Guillotine's death sentences are the

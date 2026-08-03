@@ -2,6 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
+import { takesNoDamage } from "./damage-modifiers.js";
 import { hasKeyword } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
@@ -164,9 +165,39 @@ function distribute(
   return pending;
 }
 
+/**
+ * How much of the attacking pool was EXCESS — assigned beyond what it took to
+ * kill what it was assigned to.
+ *
+ * **"Excess damage" is not a defined term anywhere in the rules** (`excess`
+ * appears only under Burn Out), and the survey recorded three candidate
+ * readings: `distribute`'s overkill dump onto the last target; the attacker's
+ * pool minus the total lethal need; or per-unit `assigned − remainingMight`
+ * summed. Under this engine's lethal-first assignment **all three give the same
+ * number** — every unit but the last is assigned exactly its remaining Might, so
+ * the only surplus anywhere is the leftover — which is why this could be
+ * implemented without picking one. It is computed as the second reading, the
+ * clearest of the three, and stays true if the assignment order ever changes.
+ * Recorded Unverified.
+ */
+function excessAssigned(
+  state: GameState,
+  pool: number,
+  targets: readonly UnitInstance[],
+  ownerIndex: 0 | 1,
+  battlefieldId: string,
+): number {
+  const totalLethalNeed = targets.reduce((sum, u) => sum + remainingMight(state, u, ownerIndex, battlefieldId, false), 0);
+  return Math.max(0, pool - totalLethalNeed);
+}
+
 function applyDamage(units: readonly UnitInstance[], pending: Map<string, number>): UnitInstance[] {
   return units.map((u) => {
     const dmg = pending.get(u.instanceId);
+    // Kayn - Unleashed after his second move takes none of what was assigned to
+    // him — assignment above is untouched, so he still absorbs a lethal
+    // allocation and shields whoever is behind him. See `takesNoDamage`.
+    if (dmg && takesNoDamage(u)) return u;
     return dmg ? { ...u, damage: u.damage + dmg } : u;
   });
 }
@@ -308,6 +339,10 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // Tank-first on BOTH sides — the keyword is about a unit's own controller's
   // assignment order, so it applies whichever side is being assigned damage.
   const damageToDefenders = distribute(state, attackerPool, assignmentOrder(state, defenderUnits, defenderIndex), defenderIndex, battlefieldId, false);
+  // Tryndamere - Barbarian's "if you assigned 5 or more EXCESS damage to enemy
+  // units". See `excessAssigned` for why the three readings of a word the rules
+  // never define all give this same number.
+  const excessToDefenders = excessAssigned(state, attackerPool, defenderUnits, defenderIndex, battlefieldId);
   const damageToAttackers = distribute(state, defenderPool, assignmentOrder(state, attackerUnits, attackerIndex), attackerIndex, battlefieldId, true);
 
   const survivingAttackers = removeDefeated(state, applyDamage(attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
@@ -326,7 +361,17 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     },
   };
 
-  let next: GameState = { ...state, battlefields: nextBattlefields };
+  let next: GameState = {
+    ...state,
+    battlefields: nextBattlefields,
+    // Recorded on the state rather than passed down, because the card that reads
+    // it is a HELD `battlefieldConquered` listener: it resolves in the Cleanup
+    // after this function has returned, and nothing else survives that gap. One
+    // slot rather than a per-battlefield map — a held conquer trigger is
+    // finalized by the Cleanup that immediately follows its own combat, so two
+    // combats can never both be waiting on it.
+    lastShowdownExcessDamage: { battlefieldId, attackerIndex, amount: excessToDefenders },
+  };
   next = processDefeated(next, defeatedAttackers, attackerIndex, battlefieldId);
   next = processDefeated(next, defeatedDefenders, defenderIndex, battlefieldId);
 

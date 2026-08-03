@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
-import { modifiedDamageAmount } from "./damage-modifiers.js";
+import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
 import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, holdEventTrigger, killGear } from "./triggers.js";
@@ -209,6 +209,10 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // Prevention is measured against the DAMAGED unit's controller, not the
   // caster: "prevent all damage this turn" protects the player who cast it.
   if (state.players[ownerIndex].preventsSpellDamageThisTurn) return state;
+  // Kayn - Unleashed after his second move. Checked before the amount is
+  // modified rather than after: a prevented 0 is still prevented, and Annie's
+  // bonus damage has nothing to add to.
+  if (takesNoDamage(unit)) return state;
 
   const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount);
 
@@ -840,11 +844,29 @@ export function recycleFromTrash(state: GameState, playerIndex: 0 | 1, count: nu
   if (actor.trash.length < count) return undefined;
 
   const recycled = actor.trash.slice(0, count);
-  return updatePlayer(state, playerIndex, (p) => ({
-    ...p,
-    trash: p.trash.slice(count),
-    deck: [...p.deck, ...recycled], // bottom of the deck, per 416
-  }));
+  return holdCardsRecycled(
+    updatePlayer(state, playerIndex, (p) => ({
+      ...p,
+      trash: p.trash.slice(count),
+      deck: [...p.deck, ...recycled], // bottom of the deck, per 416
+    })),
+    playerIndex,
+    recycled.length,
+  );
+}
+
+/**
+ * Holds Karma - Channeler's "when you recycle one or more cards to your Main
+ * Deck" — one event per instruction, and none at all when nothing moved.
+ *
+ * A helper rather than an inline `holdEventTrigger` at each site, because there
+ * are nine places in this engine that recycle cards and the guard ("did anything
+ * actually move?") is the same at all of them. RUNES are deliberately not a
+ * caller: the card's own reminder text says so.
+ */
+export function holdCardsRecycled(state: GameState, ownerIndex: 0 | 1, count: number): GameState {
+  if (count <= 0) return state;
+  return holdEventTrigger(state, { kind: "cardsRecycled", ownerIndex, count });
 }
 
 /**
@@ -861,11 +883,15 @@ export function recycleCardFromHand(state: GameState, playerIndex: 0 | 1, cardIn
   const actor = state.players[playerIndex];
   const card = actor.hand.find((c) => c.instanceId === cardInstanceId);
   if (!card) return state;
-  return updatePlayer(state, playerIndex, (p) => ({
-    ...p,
-    hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
-    deck: [...p.deck, card], // bottom, per 416
-  }));
+  return holdCardsRecycled(
+    updatePlayer(state, playerIndex, (p) => ({
+      ...p,
+      hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
+      deck: [...p.deck, card], // bottom, per 416
+    })),
+    playerIndex,
+    1,
+  );
 }
 
 /**
@@ -888,11 +914,15 @@ export function takeOneFromTopAndRecycleRest(
   const looked = actor.deck.slice(0, count);
   const kept = looked.find((c) => c.instanceId === keptInstanceId);
   if (!kept) return state;
-  return updatePlayer(state, playerIndex, (p) => ({
-    ...p,
-    deck: [...p.deck.slice(looked.length), ...looked.filter((c) => c.instanceId !== keptInstanceId)],
-    hand: [...p.hand, kept],
-  }));
+  return holdCardsRecycled(
+    updatePlayer(state, playerIndex, (p) => ({
+      ...p,
+      deck: [...p.deck.slice(looked.length), ...looked.filter((c) => c.instanceId !== keptInstanceId)],
+      hand: [...p.hand, kept],
+    })),
+    playerIndex,
+    looked.length - 1,
+  );
 }
 
 /**
@@ -920,7 +950,11 @@ export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, 
     movesThisTurn: 0,
   };
   const removed = removeUnitAnywhere(state, unitInstanceId);
-  return updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] }));
+  return holdCardsRecycled(
+    updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] })),
+    playerIndex,
+    1,
+  );
 }
 
 /**

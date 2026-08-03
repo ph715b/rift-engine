@@ -8,7 +8,7 @@ import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
 import { grantedKeywordDefIds } from "./granted-keywords.js";
-import { deathTriggerDefIds, eventTriggerDefIds, selfTriggerDefIds } from "./triggers.js";
+import { deathTriggerDefIds, deathknellModifierDefIds, eventTriggerDefIds, selfTriggerDefIds } from "./triggers.js";
 import { decisionDefIds } from "./decisions.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
@@ -184,6 +184,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "board restrictions", defIds: boardRestrictionDefIds },
   { label: "hide costs", defIds: hideCostDefIds },
   { label: "top-of-deck looks", defIds: topOfDeckDefIds },
+  { label: "deathknell modifiers", defIds: deathknellModifierDefIds },
 ];
 
 /**
