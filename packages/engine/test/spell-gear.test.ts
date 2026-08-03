@@ -51,6 +51,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
+    nextSpellBonusDamage: 0,
     preventsSpellDamageThisTurn: false,
   };
 }

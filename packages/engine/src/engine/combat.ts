@@ -74,11 +74,49 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
  * — Block (OGN-057) is the card, and it grants for the turn via
  * `keywordsThisTurn` — reordered nothing while the card reported implemented.
  */
+/**
+ * Cards printing `[Backline]` as PLAIN PROSE — "I must be assigned combat damage
+ * last".
+ *
+ * A per-card set rather than a keyword, and the rules are why: Caitlyn -
+ * Patrolling prints the sentence rather than the bracket, so `parseKeywords`
+ * sees nothing and "Backline" is absent from `KEYWORDS` entirely. Adding it there
+ * would mean teaching the keyword parser a word no card in this pool brackets.
+ * The conformance row that called Backline "a keyword with no card in this pool"
+ * was wrong about her, and this is the correction.
+ */
+const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling
+
+/**
+ * Rule 465.2.c's assignment order: Tanks first, Backline last, everyone else
+ * between.
+ *
+ * **The old `tanks.length === 0` early return had to go.** With only two tiers,
+ * "no tanks" really did mean "nothing to reorder"; with a third it is false —
+ * a lone Caitlyn among ordinary units still goes last.
+ *
+ * 465.2.c's exclusionary clause — a unit with BOTH Tank and Backline has its
+ * assigner pick ONE of the two abilities, never both — is reachable in this pool
+ * today, since Block grants `[Tank]`. Resolved here in Tank's favour, which is
+ * the assigner's choice and is recorded Unverified in docs/rules-conformance.md:
+ * the rules give the choice to the player assigning damage, and this engine has
+ * no interactive assignment to ask through.
+ */
 function assignmentOrder(state: GameState, units: readonly UnitInstance[], ownerIndex: 0 | 1): readonly UnitInstance[] {
   const isTank = (u: UnitInstance) => hasKeyword(state, u, ownerIndex, "Tank");
+  // Tank wins the tie, so a Tank+Backline unit is never also counted as last.
+  const isBackline = (u: UnitInstance) => !isTank(u) && ASSIGNED_LAST_DEF_IDS.has(u.defId);
   const tanks = units.filter(isTank);
-  if (tanks.length === 0 || tanks.length === units.length) return units; // nothing to reorder
-  return [...tanks, ...units.filter((u) => !isTank(u))];
+  const backline = units.filter(isBackline);
+  if (tanks.length === 0 && backline.length === 0) return units; // nothing to reorder
+  const middle = units.filter((u) => !isTank(u) && !isBackline(u));
+  return [...tanks, ...middle, ...backline];
+}
+
+/** The cards whose printed text this module implements, for coverage.ts — the
+ *  same reason effective-might.ts and granted-keywords.ts export theirs. */
+export function combatAssignmentDefIds(): string[] {
+  return [...ASSIGNED_LAST_DEF_IDS];
 }
 
 /**

@@ -229,6 +229,11 @@ export interface PlayerState {
    *  than a flag that is read. Cleared by `runEnd` with the rest of the
    *  this-turn state, and consumed by the first Spell played. */
   nextSpellEnergyDiscount: number;
+  /** Ravenborn Tome's "the NEXT spell you play this turn deals 1 Bonus Damage" —
+   *  a charge like `nextSpellEnergyDiscount` above, but spent one layer later:
+   *  the discount is consumed when the spell is PAID for, this one when the spell
+   *  finishes RESOLVING, because that is where its damage happens. */
+  nextSpellBonusDamage: number;
   /** Unyielding Spirit's "prevent all spell and ability damage this turn" —
    *  whose damage is prevented, not who cast it. Global in effect, stored on
    *  the player because the card says "this turn" and turns belong to players. */

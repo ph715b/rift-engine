@@ -75,6 +75,20 @@ export interface UnitInstance extends CardInstanceBase {
    */
   buffed: boolean;
   /**
+   * Buffs BEYOND the first — Lee Sin - Ascetic's "I can have any number of buffs".
+   *
+   * A separate count rather than turning `buffed` into a number, and that is what
+   * keeps the change contained: rule 708 makes a second buff on an ordinary unit a
+   * no-op, so every other card in the pool is a boolean question ("is it buffed")
+   * and every reader of `buffed` — Sett - Kingpin's count, Lee Sin - Centered's
+   * aura, Wildclaw Shaman's cost, `spendBuff` — keeps working untouched. Only
+   * `effectiveMight` adds this, and only the one card ever raises it.
+   *
+   * Spending a buff (705) takes the extras first and clears `buffed` only when the
+   * last one goes, which is what "any number of buffs" means when one is spent.
+   */
+  extraBuffs?: number;
+  /**
    * Stunned — rule 422's Stun section.
    *
    * A binary state, deliberately, because the rules say so outright: "Stunned is

@@ -89,6 +89,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
+    nextSpellBonusDamage: 0,
     preventsSpellDamageThisTurn: false,
     ...overrides,
   };

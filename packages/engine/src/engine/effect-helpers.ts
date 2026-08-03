@@ -466,6 +466,11 @@ export function payPowerFromChanneled(
  * buff, I get a +1 Might buff.)" — the reminder text is describing the no-op.
  * Returns the state unchanged when the unit is already buffed or isn't in play.
  */
+/** Units whose printed text overrides rule 708's one-buff cap. Lee Sin - Ascetic
+ *  is the pool's only one, and naming him here keeps `addBuff`'s contract
+ *  unchanged for every other caller. */
+const STACKING_BUFF_DEF_IDS = new Set(["OGN-078"]); // Lee Sin - Ascetic
+
 export function addBuff(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   // "When you BUFF a friendly unit" (Mistfall) is about a buff actually being
@@ -473,6 +478,14 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
   // event has to agree — otherwise re-buffing a buffed unit would offer the
   // ready-me trigger over and over for nothing. Checked before the update, since
   // updateUnitAnywhere rebuilds the state either way.
+  // 708 makes a second buff on an already-buffed unit a no-op — EXCEPT for a unit
+  // whose own text says otherwise. Lee Sin - Ascetic's "I can have any number of
+  // buffs" is the only such card, so the exception is a named set rather than a
+  // flag every caller has to pass.
+  if (location?.unit.buffed && STACKING_BUFF_DEF_IDS.has(location.unit.defId)) {
+    const stacked = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) + 1 }));
+    return holdEventTrigger(stacked, { kind: "unitBuffed", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
+  }
   if (!location || location.unit.buffed) return updateUnitAnywhere(state, targetInstanceId, (u) => u);
 
   const buffed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
@@ -673,6 +686,13 @@ export function spendBuff(state: GameState, playerIndex: 0 | 1, targetInstanceId
 
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location?.unit.buffed) return undefined;
+  // "Any number of buffs" (Lee Sin - Ascetic): spending takes an EXTRA first and
+  // leaves the unit buffed, so a stack of three survives two spends. Only when
+  // the last one goes does `buffed` clear — which is what keeps every other
+  // reader of that boolean correct.
+  if ((location.unit.extraBuffs ?? 0) > 0) {
+    return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) - 1 }));
+  }
 
   return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: false }));
 }

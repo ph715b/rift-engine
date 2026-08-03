@@ -13,6 +13,7 @@ import { decisionDefIds } from "./decisions.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
 import { deathReplacementDefIds } from "./death-ward.js";
+import { combatAssignmentDefIds } from "./combat.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -176,6 +177,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "borrowed abilities", defIds: borrowedAbilityDefIds },
   { label: "card-loader keywords", defIds: loaderHandledDefIds },
   { label: "death replacements", defIds: deathReplacementDefIds },
+  { label: "combat assignment", defIds: combatAssignmentDefIds },
 ];
 
 /**

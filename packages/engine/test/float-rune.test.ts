@@ -46,6 +46,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
+    nextSpellBonusDamage: 0,
     preventsSpellDamageThisTurn: false,
     ...overrides,
   };

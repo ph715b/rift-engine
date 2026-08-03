@@ -21,7 +21,7 @@ import {
 import { placeRecruitToken } from "./token.js";
 import { destroyUnit } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
-import { findUnitAnywhere } from "./target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { parkDecision } from "./decisions.js";
 import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
@@ -165,6 +165,16 @@ export interface ActivatedAbilityDefinition {
    *  TargetingSpec so legal-actions' existing fan-out and the web UI's existing
    *  target picker both apply unchanged. */
   targeting?: TargetingSpec;
+  /**
+   * A restriction on ACTIVATING rather than on resolving — Caitlyn - Patrolling's
+   * "use this ability only while I'm at a battlefield".
+   *
+   * Has to be here rather than as a guard inside `resolve`: a resolver that
+   * refused would already have taken the exhaust, so the player would pay for
+   * nothing. Asked by `canPayActivationCost`, which both the enumerator and the
+   * validator go through, so the ability cannot be offered and then refused.
+   */
+  availableWhile?: (state: GameState, playerIndex: 0 | 1, sourceInstanceId: string) => boolean;
   /** `sourceInstanceId` is the permanent being activated — needed by any ability
    *  whose text says "me" rather than naming a target. Omitted for a modal
    *  ability, whose modes each carry their own. */
@@ -270,6 +280,76 @@ function sealAbility(domain: Domain): ActivatedAbilityDefinition {
 
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "OGN-078": {
+    // Lee Sin - Ascetic — "Exhaust: Buff me. I can have any number of buffs."
+    //
+    // The second sentence is the card: rule 708 makes a second buff on an
+    // already-buffed unit a no-op, so without it this would be an exhaust for
+    // nothing after the first use. `addBuff` names him in its own
+    // `STACKING_BUFF_DEF_IDS` exception, and the stack lives in `extraBuffs`
+    // rather than turning `buffed` into a number — which is what keeps every
+    // other reader of that boolean (Sett - Kingpin's count, Lee Sin - Centered's
+    // aura, Wildclaw Shaman's cost) correct and untouched.
+    //
+    // He readies at every Awaken, so this is +1 Might a turn, permanently. Each
+    // buff is also a real Buff for every card that cares about one, and spending
+    // one (705) takes an extra first and leaves him buffed.
+    kind: "Unit",
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _event, sourceInstanceId) => addBuff(state, sourceInstanceId),
+  },
+  "OGN-068": {
+    // Caitlyn - Patrolling — "Exhaust: Deal damage equal to my Might to a unit at
+    // a battlefield. Use this ability only while I'm at a battlefield."
+    //
+    // Her other sentence — "I must be assigned combat damage last" — is Backline
+    // printed as prose, and lives in `combat.assignmentOrder`'s third tier.
+    //
+    // **"Only while I'm at a battlefield"** is a restriction on ACTIVATING, so it
+    // has to be asked where the ability is offered rather than inside the
+    // resolver: a resolver that refused would have taken her exhaust for nothing.
+    // `availableWhile` is that hook.
+    //
+    // "Damage equal to MY Might" is read at RESOLUTION, through `effectiveMight`
+    // in her own location — so an aura or a this-turn pump makes the shot bigger,
+    // the same reading Yasuo - Remorseful and Last Stand take.
+    kind: "Unit",
+    targeting: { kind: "unit" },
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      findUnitOnBattlefield(state, sourceInstanceId)?.ownerIndex === playerIndex,
+    resolve: (state, ctx, event, sourceInstanceId) => {
+      if (!event.targetUnitInstanceId) return state;
+      const self = findUnitOnBattlefield(state, sourceInstanceId);
+      if (!self) return state;
+      const might = effectiveMight(state, self.unit, ctx.casterIndex, {
+        isCombat: false,
+        battlefieldId: state.battlefields[self.battlefieldIndex]!.id,
+      });
+      return dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, might);
+    },
+  },
+  "OGN-032": {
+    // Ravenborn Tome — "Exhaust: The next spell you play this turn deals 1 Bonus
+    // Damage."
+    //
+    // A CHARGE on the player, read by `modifiedDamageAmount` and cleared when a
+    // Spell finishes resolving — which is where "the next spell" ends. Raging
+    // Firebrand's discount takes the same shape one layer up, in the cost
+    // pipeline; this one is on the damage side.
+    //
+    // "BONUS DAMAGE" is Annie - Fiery's wording, and it stacks with hers rather
+    // than replacing it: two separate +1s, which is what two effects each saying
+    // "1 Bonus Damage" means.
+    kind: "Gear",
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, nextSpellBonusDamage: actor.nextSpellBonusDamage + 1 };
+      return { ...state, players };
+    },
+  },
   "OGN-098": {
     // Energy Conduit — "Exhaust: Add 1 Energy."
     //
@@ -719,11 +799,16 @@ export function activationCostOf(defId: string): ActivationCost {
 export function canPayActivationCost(
   state: GameState,
   playerIndex: 0 | 1,
-  card: { defId: string; exhausted: boolean; buffed?: boolean },
+  card: { instanceId: string; defId: string; exhausted: boolean; buffed?: boolean },
   /** The ability being used, when it is not the source's own — Heimerdinger
    *  pays somebody else's cost with his own exhaust. Defaults to the source. */
   abilityDefId: string = card.defId,
 ): boolean {
+  const ability = ACTIVATED_ABILITIES[abilityDefId];
+  // A printed restriction on USING the ability, asked before any cost — see
+  // `availableWhile`. Checked here so the enumerator and the validator, which
+  // both come through this function, cannot disagree about whether it is legal.
+  if (ability?.availableWhile && !ability.availableWhile(state, playerIndex, card.instanceId)) return false;
   const cost = activationCostOf(abilityDefId);
   if (cost.exhaust && card.exhausted) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;

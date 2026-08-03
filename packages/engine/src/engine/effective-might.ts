@@ -270,7 +270,11 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
   // Its VALUE can be raised for a turn (Stand United), which is why this reads
   // a per-player modifier rather than the literal 1 — and why the modifier
   // belongs to the unit's OWNER, not to whoever is asking.
-  const buffValue = unit.buffed ? 1 + state.players[ownerIndex].extraMightPerBuffThisTurn : 0;
+  // Each buff is worth 1 (710), plus whatever Stand United has made a buff worth
+  // this turn. `extraBuffs` is the count BEYOND the first — Lee Sin - Ascetic is
+  // the only card that can raise it, and every other unit leaves it undefined.
+  const buffCount = unit.buffed ? 1 + (unit.extraBuffs ?? 0) : 0;
+  const buffValue = buffCount * (1 + state.players[ownerIndex].extraMightPerBuffThisTurn);
   let m = unit.might + unit.mightThisTurn + buffValue;
   if (ctx.isCombat) {
     // Granted keywords count: Raging Soul's [Assault] arrives from its own text

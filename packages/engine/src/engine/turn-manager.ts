@@ -315,6 +315,7 @@ export function runEnd(state: GameState): GameState {
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.
     nextSpellEnergyDiscount: 0,
+    nextSpellBonusDamage: 0,
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 
