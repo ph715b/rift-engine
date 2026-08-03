@@ -28,6 +28,30 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-254": {
+    // Noxian Guillotine (Fury + Order) — "Choose a unit. Kill it the next time it
+    // takes damage this turn. [Repeat] Kill it now instead."
+    //
+    // Only the base instruction is here. The `[Repeat]` half ("kill it now
+    // instead") is a paid repeat cost, which this engine does not model at all —
+    // recorded in docs/rules-conformance.md, and the card carries a
+    // PARTIALLY_IMPLEMENTED entry so its working half cannot report the whole
+    // card done.
+    //
+    // A DEATH SENTENCE, not damage: the unit is marked, and the next damage of
+    // any size kills it however much Might it has left. Marked by instance id on
+    // GameState — the same shape `deathWardedUnitInstanceIds` uses for the exact
+    // opposite effect, and for the same reasons: per-unit, expires with the turn,
+    // and keeping it off the unit means no helper that rebuilds a unit has to
+    // remember to carry it.
+    //
+    // "A unit", no owner and no battlefield named, so scope "anywhere".
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId && !state.markedForDeathOnDamageInstanceIds.includes(event.targetUnitInstanceId)
+        ? { ...state, markedForDeathOnDamageInstanceIds: [...state.markedForDeathOnDamageInstanceIds, event.targetUnitInstanceId] }
+        : state,
+  },
   "OGN-248": {
     // Icathian Rain (Fury + Mind) — "Deal 2 to a unit." x6.
     //

@@ -312,6 +312,10 @@ export function runEnd(state: GameState): GameState {
     // itself from — both are "this turn" state, so both end with the turn.
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
+    // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
+    // both "this turn" and end with it, exactly like the fields above.
+    nextSpellEnergyDiscount: 0,
+    preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 
   const battlefields = afterTriggers.battlefields.map((bf) => {
@@ -346,5 +350,10 @@ export function runEnd(state: GameState): GameState {
     // Highlander's ward only lasts "this turn" — cleared here same as every
     // other "this turn" field above (TurnManager.java:335's own reset).
     deathWardedUnitInstanceIds: [],
+    // Imperial Decree's sweep and Noxian Guillotine's death sentences are the
+    // same shape and expire the same way — a delayed effect that outlived its
+    // turn would kill on a board the caster never saw.
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
   });
 }

@@ -71,6 +71,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     restrictedSpellPower: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
+    nextSpellEnergyDiscount: 0,
+    preventsSpellDamageThisTurn: false,
     ...overrides,
   };
 }
@@ -94,6 +96,8 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],

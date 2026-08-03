@@ -92,5 +92,7 @@ export function buildPlayerFromDeckList(
     restrictedSpellPower: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
+    nextSpellEnergyDiscount: 0,
+    preventsSpellDamageThisTurn: false,
   };
 }

@@ -50,6 +50,18 @@ import type { PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-014": {
+    // Sky Splitter — "This spell's Energy cost is reduced by the highest Might
+    // among units you control. Deal 5 to a unit at a battlefield."
+    //
+    // Only the damage is here; the self-scaling discount is a COST and lives in
+    // cost-modifiers.ts, the same split Spoils of War and Find Your Center take.
+    // Printed at 8 Energy it is unplayable without a board, and free with an
+    // 8-Might unit — which is the card.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, 5) : state,
+  },
   "OGN-029": {
     // Falling Star — "Deal 3 to a unit. Deal 3 to a unit."
     //
@@ -210,6 +222,27 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "OGN-031": {
+    // Raging Firebrand — "When you play me, the NEXT spell you play this turn
+    // costs [5] less."
+    //
+    // A CHARGE, not a standing discount: it is spent by the first Spell played
+    // and does nothing for the second. That is why `nextSpellEnergyDiscount` is a
+    // number that is decremented rather than a flag that is read — the same shape
+    // `nextUnitsEnterReady` already takes for Sun Disc, and for the same reason.
+    //
+    // Two Firebrands stack to 10, which is the literal reading of two separate
+    // charges and matches how `nextUnitsEnterReady` accumulates.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = {
+        ...players[ctx.casterIndex],
+        nextSpellEnergyDiscount: players[ctx.casterIndex].nextSpellEnergyDiscount + 5,
+      };
+      return { ...state, players };
+    },
+  },
   "OGN-016": {
     // Dangerous Duo — "[Legion] — When you play me, give a unit +2 Might this
     // turn."

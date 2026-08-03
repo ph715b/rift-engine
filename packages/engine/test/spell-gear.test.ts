@@ -50,6 +50,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     restrictedSpellPower: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
+    nextSpellEnergyDiscount: 0,
+    preventsSpellDamageThisTurn: false,
   };
 }
 
@@ -91,6 +93,8 @@ function buildSpellFixture() {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
@@ -134,6 +138,8 @@ function buildGearFixture() {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],
@@ -438,6 +444,8 @@ describe("legalActions: Spell and Gear candidates", () => {
       chainOpenedByTrigger: false,
       spellChain: [],
       pendingTriggers: [],
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
       deathWardedUnitInstanceIds: [],

@@ -224,6 +224,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
       "implemented (which moves who 'you' is for the whole resolution); re-choosing its targets needs a question " +
       "asked while a resolution is suspended, offering the original spec's candidate list mid-chain",
   ],
+  [
+    "OGN-254",
+    "its [Repeat] half — 'kill it now instead' — is not written. Repeat is a paid additional cost that " +
+      "re-executes the instruction, and this engine models no repeat costs at all; the base 'kill it the next " +
+      "time it takes damage this turn' works",
+  ],
   // The list above was EMPTY for a while, and that is the shape working rather
   // than an omission. Entries are DELETED when the rest lands, never reworded: Sett - The
   // Boss lived here while only his on-conquer clause worked, Convergent Mutation

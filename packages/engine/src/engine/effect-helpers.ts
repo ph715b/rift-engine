@@ -180,13 +180,33 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   const { ownerIndex, zone, unit } = location;
+  // Unyielding Spirit — "prevent ALL spell and ability damage this turn." Every
+  // caller of this function is a spell or an ability; combat damage never comes
+  // through here (combat.ts does its own Might arithmetic), which is what makes
+  // the card's own distinction hold without a flag saying which kind this is.
+  //
+  // Prevention is measured against the DAMAGED unit's controller, not the
+  // caster: "prevent all damage this turn" protects the player who cast it.
+  if (state.players[ownerIndex].preventsSpellDamageThisTurn) return state;
+
   const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount);
 
   const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + modifiedAmount };
   // A base unit has no battlefield id — continuous auras keyed on location
   // (Garen - Commander) resolve it as "base" from the omitted field.
   const mightCtx = zone === "base" ? { isCombat: false } : { isCombat: false, battlefieldId: state.battlefields[zone.battlefieldIndex]!.id };
-  const isLethal = effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
+  // Imperial Decree ("when ANY unit takes damage this turn, kill it") and Noxian
+  // Guillotine ("kill it the next time it takes damage this turn") are the same
+  // shape — a delayed kill that fires on the NEXT damage rather than on lethal
+  // arithmetic — so both are asked here, where damage is actually dealt.
+  //
+  // Asked AFTER the amount is modified and BEFORE the lethal test, which is the
+  // only order that works: a unit that dies to the damage anyway must die by the
+  // ordinary path (so the killer is attributed and the Deathknell reads the right
+  // damage), and one that survives must still be killed.
+  const sentenced =
+    state.killDamagedUnitsThisTurn || state.markedForDeathOnDamageInstanceIds.includes(targetInstanceId);
+  const isLethal = sentenced || effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
 
   if (isLethal) {
     const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);

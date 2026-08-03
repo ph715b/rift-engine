@@ -51,6 +51,19 @@ import type { GameState, PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-221": {
+    // Imperial Decree — "When ANY unit takes damage this turn, kill it."
+    //
+    // A board wipe on a delay, and the delay is the card: it kills nothing on
+    // resolution, and then every point of damage this turn is lethal — including
+    // the caster's own units, since "any unit" names no owner. On GameState
+    // rather than on a player for exactly that reason.
+    //
+    // Read at `dealDamage`, so it covers spells, abilities and combat's own
+    // damage step alike wherever those funnel through it.
+    targeting: { kind: "none" },
+    resolve: (state) => ({ ...state, killDamagedUnitsThisTurn: true }),
+  },
   "OGN-207": {
     // Call to Glory — "As you play this, you may spend a buff as an additional
     // cost. If you do, ignore this spell's cost. Give a unit +3 Might this turn."

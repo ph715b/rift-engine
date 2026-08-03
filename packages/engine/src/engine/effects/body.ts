@@ -54,6 +54,24 @@ import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-145": {
+    // Unyielding Spirit — "Prevent all spell and ability damage this turn."
+    //
+    // Read at `dealDamage`, which every spell and ability damages through and
+    // which COMBAT never touches — combat.ts does its own Might arithmetic. So
+    // the card's own distinction between kinds of damage holds without anything
+    // having to say which kind is being dealt.
+    //
+    // Prevention belongs to the unit's CONTROLLER, not to the caster: "prevent
+    // all damage this turn" protects the player who cast it, so casting it does
+    // not also switch off your own removal against the opponent.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = { ...players[ctx.casterIndex], preventsSpellDamageThisTurn: true };
+      return { ...state, players };
+    },
+  },
   "OGN-133": {
     // Flurry of Blades — "Deal 1 to all units at battlefields."
     //

@@ -224,6 +224,15 @@ export interface PlayerState {
    * discounts their Spoils of War during it.
    */
   unitsLostThisTurn: number;
+  /** Raging Firebrand's "the NEXT spell you play this turn costs [5] less" — a
+   *  charge, not a standing discount, so it is a number that is spent rather
+   *  than a flag that is read. Cleared by `runEnd` with the rest of the
+   *  this-turn state, and consumed by the first Spell played. */
+  nextSpellEnergyDiscount: number;
+  /** Unyielding Spirit's "prevent all spell and ability damage this turn" —
+   *  whose damage is prevented, not who cast it. Global in effect, stored on
+   *  the player because the card says "this turn" and turns belong to players. */
+  preventsSpellDamageThisTurn: boolean;
   /**
    * Has this player's "first time a friendly unit dies each turn" already
    * fired? Wraith of Echoes is the only card that asks, and the Java oracle
@@ -559,6 +568,24 @@ export interface GameState {
    * Read once, in `runEnd`'s rotation. Everything else about a turn is unchanged
    * — an extra turn is a normal turn, with its own Awaken, scoring and draw.
    */
+  /**
+   * Imperial Decree's "when ANY unit takes damage this turn, kill it".
+   *
+   * On the STATE rather than on a player, and that is the card: it says *any*
+   * unit, so it reaches both boards including the caster's own, and a per-player
+   * field could not say that without being set on both.
+   */
+  killDamagedUnitsThisTurn: boolean;
+  /**
+   * Noxian Guillotine's "kill it the next time it takes damage this turn" —
+   * units under a delayed, single-use death sentence.
+   *
+   * A list of instance ids, the same shape `deathWardedUnitInstanceIds` uses for
+   * the opposite effect, and for the same reasons: it is per-unit, it expires
+   * with the turn, and putting it on the unit would mean every helper that
+   * rebuilds a unit had to remember to carry it.
+   */
+  markedForDeathOnDamageInstanceIds: string[];
   extraTurns: number;
   /** Whose extra turns those are. Meaningless while `extraTurns` is 0. */
   extraTurnsForIndex: 0 | 1;

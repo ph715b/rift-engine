@@ -250,6 +250,18 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
+    // Raging Firebrand's charge is SPENT here, on the Spell that used it, and
+    // only on a Spell — the card says "the next SPELL you play this turn". Spent
+    // in the executor rather than in `modifiedEnergyCost` for the reason that
+    // function's own note gives: a cost modifier is asked several times per play
+    // (enumeration, validation, the float math) and has to give the same answer
+    // each time, so it cannot also be the thing that consumes the charge. Sun
+    // Disc's `consumeNextUnitEntersReady` makes the same split.
+    //
+    // Zeroed rather than decremented: the charge is "the next spell", so a single
+    // Spell consumes the whole standing discount however many Firebrands built
+    // it, and the second Spell this turn gets nothing.
+    nextSpellEnergyDiscount: card.kind === "Spell" ? 0 : actor.nextSpellEnergyDiscount,
   };
 
   if (card.kind === "Unit") {

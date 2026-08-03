@@ -49,6 +49,8 @@ function buildInitialGameState(): GameState {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    killDamagedUnitsThisTurn: false,
+    markedForDeathOnDamageInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     deathWardedUnitInstanceIds: [],

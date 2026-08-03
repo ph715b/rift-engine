@@ -2,6 +2,25 @@ import type { GameState } from "../model/game-state.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { opponentNearVictory } from "./constants.js";
 import { legionActive } from "./effect-helpers.js";
+import { effectiveMight } from "./effective-might.js";
+import type { UnitInstance } from "../model/card.js";
+
+/** Every unit a player controls, each with the MightContext its location
+ *  implies — a base unit has no battlefield id, so a positional aura resolves it
+ *  as "base". Written out here because Sky Splitter is the first COST that has
+ *  to read effective Might, and cost time is before any target is chosen. */
+function ownUnitsWithLocation(
+  state: GameState,
+  playerIndex: 0 | 1,
+): { unit: UnitInstance; ctx: { isCombat: false; battlefieldId?: string } }[] {
+  const owner = state.players[playerIndex];
+  return [
+    ...owner.baseUnits.map((unit) => ({ unit, ctx: { isCombat: false as const } })),
+    ...state.battlefields.flatMap((bf) =>
+      (bf.units[owner.id] ?? []).map((unit) => ({ unit, ctx: { isCombat: false as const, battlefieldId: bf.id } })),
+    ),
+  ];
+}
 
 /**
  * Cross-cutting cost modifiers — checked at every cost-computation call
@@ -21,6 +40,14 @@ const EAGER_APPRENTICE = "OGN-084";
  *  shape in the pool, which is why it keys off the card being played rather than
  *  off the board. */
 const RHASA_THE_SUNDERER = "OGN-195";
+
+/** Sky Splitter: "This spell's Energy cost is reduced by the highest Might among
+ *  units you control." Self-scaling off the BOARD rather than off a zone — the
+ *  same shape as Rhasa above, reading the biggest body instead of a trash — and
+ *  it reads EFFECTIVE Might, so an aura or a this-turn pump makes the spell
+ *  cheaper. Printed at 8 Energy, so it is a dead card on an empty board and free
+ *  behind an 8-Might unit. */
+const SKY_SPLITTER = "OGN-014";
 
 /**
  * `[Legion] — I cost N less.` (Noxus Hopeful)
@@ -128,7 +155,7 @@ function isDragon(defId: string | undefined): boolean {
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
-  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, FIND_YOUR_CENTER, SPOILS_OF_WAR, HERALD_OF_SCALES, ...legionDiscountDefIds()];
+  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, SKY_SPLITTER, FIND_YOUR_CENTER, SPOILS_OF_WAR, HERALD_OF_SCALES, ...legionDiscountDefIds()];
 }
 
 /**
@@ -162,6 +189,16 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);
   }
 
+  if (defId === SKY_SPLITTER) {
+    // "The HIGHEST Might among units you control" — one unit's Might, not a sum,
+    // and read through `effectiveMight` so an aura or a this-turn pump counts.
+    // Non-combat context, matching every other cost- and target-side Might
+    // question: auras count, [Assault]/[Shield] do not.
+    const own = ownUnitsWithLocation(state, playerIndex);
+    const highest = own.reduce((best, { unit, ctx }) => Math.max(best, effectiveMight(state, unit, playerIndex, ctx)), 0);
+    cost = Math.max(0, cost - highest);
+  }
+
   if (defId === RHASA_THE_SUNDERER) {
     // "For EACH card in your trash" — your own trash only, and every card in it,
     // not just units. A long game makes this free, which is the card's point.
@@ -175,6 +212,17 @@ export function modifiedEnergyCost(
   if (isDragon(defId)) {
     const heralds = heraldCount(state, playerIndex);
     if (heralds > 0) cost = Math.max(HERALD_FLOOR, cost - HERALD_DISCOUNT * heralds);
+  }
+
+  // Raging Firebrand's charge. Applied to SPELLS only ("the next SPELL you play")
+  // and before Eager Apprentice's floor below, so a discount that only sometimes
+  // applies comes off the printed cost and the printed floor clamps what is left.
+  //
+  // Read here and SPENT in execute-play-card — a cost modifier is asked several
+  // times per play (enumeration, validation, the float math) and must give the
+  // same answer each time, so it cannot be the thing that consumes the charge.
+  if (cardKind === "Spell" && player.nextSpellEnergyDiscount > 0) {
+    cost = Math.max(0, cost - player.nextSpellEnergyDiscount);
   }
 
   if (cardKind === "Spell") {
