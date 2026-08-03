@@ -41,6 +41,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
   };
 }

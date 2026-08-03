@@ -23,6 +23,7 @@ import {
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
+import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
@@ -55,6 +56,35 @@ import { parkDecision, type DecisionOption } from "../decisions.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-062": {
+    // Reinforce — "Look at the top 5 cards of your Main Deck. You may banish a
+    // unit from among them, then play it, reducing its cost by [5 Energy].
+    // Recycle the remaining cards."
+    //
+    // Baited Hook's shape (a decision over the top five, banish-and-play, recycle
+    // the rest) with one difference that is the whole card: the unit is played at
+    // a REDUCED cost rather than a free one.
+    //
+    // **DIVERGENCE, and it is the honest one to record**: the reduction is applied
+    // as a THRESHOLD rather than as a payment. Only units whose Energy cost is
+    // 5 or less are offered, and those are played for nothing; a 6-Energy unit is
+    // not offered at all, where the rules would let it be played for 1.
+    //
+    // Paying a real cost inside a resolution is the thing this engine cannot do:
+    // `DecisionOption.payment` is a declared field with zero producers and zero
+    // consumers, and every decision-time payment in the pool is Power through
+    // `payPowerFromChanneled`, which needs no choice. Reinforce is the first card
+    // that would need Energy chosen mid-resolution. Recorded in
+    // docs/rules-conformance.md; the threshold reading is strictly narrower than
+    // the card, never wider, which is the safe direction.
+    //
+    // The POWER half of an expensive unit's cost is likewise waived rather than
+    // paid — "reducing its cost by 5 Energy" says nothing about Power, so a unit
+    // with a Power pip is genuinely being under-charged. Both halves of the
+    // divergence point the same way and are recorded together.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-062-banish", playerIndex: ctx.casterIndex }),
+  },
   "OGN-064": {
     // Wind Wall — "[Reaction] Counter a spell."
     //
@@ -690,7 +720,44 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/** The units among the top five that Reinforce could play — those whose printed
+ *  Energy cost the card's 5-Energy reduction covers entirely. See the card's own
+ *  note for why this is a threshold rather than a discount. */
+function reinforceCandidates(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].deck
+    .slice(0, 5)
+    .filter((c) => c.kind === "Unit" && c.energyCost <= 5);
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  // Reinforce's "you may banish a unit from among them, then play it".
+  //
+  // Declining leads, as everywhere else. The recycle happens either way — "recycle
+  // the remaining cards" is a separate instruction from the banish-and-play, the
+  // same structure Baited Hook has.
+  "OGN-062-banish": {
+    prompt: () => "Reinforce: banish a unit from the top 5 and play it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...reinforceCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      const top5 = state.players[d.playerIndex].deck.slice(0, 5);
+      const chosen = optionId === "decline" ? undefined : reinforceCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+
+      // Recycle FIRST, so the deck arithmetic is done against the five that were
+      // actually looked at — whatever was banished-and-played is simply not among
+      // them. Baited Hook's decision makes the same call.
+      const rest = top5.filter((c) => c.instanceId !== chosen?.instanceId);
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [...players[d.playerIndex].deck.slice(top5.length), ...rest],
+      };
+      const recycled: GameState = { ...state, players };
+      return chosen ? playCardIgnoringCost(recycled, d.playerIndex, chosen) : recycled;
+    },
+  },
   // Blitzcrank - Impassive's "you may move an enemy unit to here", raised by his
   // on-play trigger, which has already established that he was played TO a
   // battlefield and that some enemy unit exists.

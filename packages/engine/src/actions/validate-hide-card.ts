@@ -1,6 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { HideCardAction } from "./player-action.js";
-import { HIDE_POWER_COST, RAINBOW, isHiddenCard } from "../engine/hidden.js";
+import { RAINBOW, hideCostFor, isHiddenCard } from "../engine/hidden.js";
 import { matchesPowerDomain } from "../engine/rune-payment.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -61,8 +61,9 @@ export function validateHideCard(state: GameState, action: HideCardAction): Vali
   if (action.payment.energyRunes.length > 0) {
     return fail("Hiding costs Power only, never Energy");
   }
-  if (action.payment.powerRunes.length !== HIDE_POWER_COST) {
-    return fail(`Hiding costs exactly ${HIDE_POWER_COST} Power`);
+  const cost = hideCostFor(state, action.playerIndex);
+  if (action.payment.powerRunes.length !== cost) {
+    return fail(`Hiding costs exactly ${cost} Power`);
   }
   for (const runeId of action.payment.powerRunes) {
     const rune = actor.channeled.find((r) => r.id === runeId);

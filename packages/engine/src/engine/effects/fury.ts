@@ -20,6 +20,7 @@ import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
+import { playCardIgnoringCost } from "../play-free.js";
 import type { PlayerState } from "../../model/game-state.js";
 
 /**
@@ -50,6 +51,35 @@ import type { PlayerState } from "../../model/game-state.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-025": {
+    // Blind Fury — "[Action] Each opponent reveals the top card of their Main
+    // Deck. Choose one and banish it, then play it, ignoring its cost. Then
+    // recycle the rest."
+    //
+    // In a 2-player game there is exactly ONE opponent and therefore exactly one
+    // revealed card, so "choose one" chooses itself and "recycle the rest"
+    // recycles nothing. Written to the 2-player shape deliberately rather than
+    // building a multiplayer choice the mode cannot reach — the same call this
+    // engine makes everywhere else it says "each opponent".
+    //
+    // The banish is TRANSIENT (banished and played in one instruction), so the
+    // card goes straight to play; see `playCardIgnoringCost`, which also carries
+    // the divergence for a revealed SPELL — it resolves immediately rather than
+    // going on a chain this card is in the middle of.
+    //
+    // **The CASTER plays it, not its owner.** "Choose one and play it" with no
+    // owner named, off a card whose whole point is stealing the top of an enemy
+    // deck. A unit played this way therefore joins the caster's base.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const victimIndex = ctx.opponentIndex;
+      const top = state.players[victimIndex].deck[0];
+      if (!top) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[victimIndex] = { ...players[victimIndex], deck: players[victimIndex].deck.slice(1) };
+      return playCardIgnoringCost({ ...state, players }, ctx.casterIndex, top);
+    },
+  },
   "OGN-014": {
     // Sky Splitter — "This spell's Energy cost is reduced by the highest Might
     // among units you control. Deal 5 to a unit at a battlefield."

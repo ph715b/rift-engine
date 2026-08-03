@@ -48,7 +48,7 @@ import {
   mayPlayCardNow,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
-import { HIDE_POWER_COST, RAINBOW, hiddenCardIsPlayable, isHiddenCard } from "./hidden.js";
+import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard } from "./hidden.js";
 import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
 import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
@@ -193,7 +193,9 @@ function hideCardCandidates(state: GameState, actor: PlayerState, playerIndex: 0
 
   // A flat 1 Power in ANY domain — RAINBOW is null, which computeAutoPayment
   // already understands as "any rune matches".
-  const payment = computeAutoPayment(actor.channeled, 0, HIDE_POWER_COST, RAINBOW);
+  // Priced through the shared helper so Guerilla Warfare's free-hide turn is
+  // seen here as well as by the validator.
+  const payment = computeAutoPayment(actor.channeled, 0, hideCostFor(state, playerIndex), RAINBOW);
   if (!payment) return [];
 
   const destinations = state.battlefields.filter((bf) => bf.controllerId === actor.id && bf.hiddenCards.length === 0);

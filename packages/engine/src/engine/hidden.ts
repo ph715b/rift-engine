@@ -21,6 +21,17 @@ import type { CardInstance } from "../model/card.js";
 /** The Power cost to Hide, in ANY domain (rule 811's rainbow pip). */
 export const HIDE_POWER_COST = 1;
 
+/** What a Hide costs `playerIndex` RIGHT NOW — the flat 1 rainbow Power of 811,
+ *  or nothing while Guerilla Warfare's "you can hide cards ignoring costs this
+ *  turn" is up.
+ *
+ *  One function rather than the constant read directly, because the enumerator,
+ *  the validator and the executor all price a Hide and all three have to agree —
+ *  the same discipline `deflectSurchargeForTargets` enforces for the surcharge. */
+export function hideCostFor(state: GameState, playerIndex: 0 | 1): number {
+  return state.players[playerIndex].hideIgnoresCostThisTurn ? 0 : HIDE_POWER_COST;
+}
+
 /** Rainbow: `computeAutoPayment(channeled, 0, HIDE_POWER_COST, RAINBOW)` already
  *  means "any domain" — `matchesPowerDomain` treats a null domain as matching
  *  every rune, so no new cost machinery was needed for this. */

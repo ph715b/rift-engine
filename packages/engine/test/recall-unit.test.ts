@@ -74,6 +74,7 @@ function makePlayer(id: string): PlayerState {
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
   };
 }

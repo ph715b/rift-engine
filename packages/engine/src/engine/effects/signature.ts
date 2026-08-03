@@ -5,6 +5,9 @@ import type { DecisionDefinition } from "../decisions.js";
 import { addBuff, dealDamage, destroyUnit, forceMoveToBattlefield, giveMightThisTurn, readyUnit, stunUnits } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
+import { isHiddenCard } from "../hidden.js";
+import { defaultCardRegistry } from "../../cards/card-registry.js";
+import type { PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -28,6 +31,38 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
  * or oracle citation, and an engine test.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-264": {
+    // Guerilla Warfare (Mind + Chaos) — "Return up to two cards with [Hidden]
+    // from your trash to your hand. You can hide cards ignoring costs this turn."
+    //
+    // The second sentence is a this-turn WAIVER, not a charge: it says "cards",
+    // plural, so it is not spent by the first Hide. Read through
+    // `hidden.hideCostFor`, which the enumerator, the validator and the executor
+    // all price through — three sites that must agree about what a Hide costs.
+    //
+    // "UP TO two" is 0-2, so the spell is castable with an empty trash and does
+    // only its second half. The return is taken from the front of the matching
+    // cards rather than offered as a choice: every `[Hidden]` card in the trash is
+    // interchangeable for the purpose ("return up to two", no restriction on
+    // which), and this engine's convention is to ask only where the choice is
+    // real. Recorded Unverified — a player might prefer a specific one.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const actor = state.players[ctx.casterIndex];
+      // `isHiddenCard` takes a DEFINITION (the keyword is printed, not per
+      // instance), so the trash card is resolved through the registry first.
+      const returning = actor.trash.filter((c) => isHiddenCard(defaultCardRegistry().get(c.defId))).slice(0, 2);
+      const ids = new Set(returning.map((c) => c.instanceId));
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = {
+        ...actor,
+        trash: actor.trash.filter((c) => !ids.has(c.instanceId)),
+        hand: [...actor.hand, ...returning],
+        hideIgnoresCostThisTurn: true,
+      };
+      return { ...state, players };
+    },
+  },
   "OGN-254": {
     // Noxian Guillotine (Fury + Order) — "Choose a unit. Kill it the next time it
     // takes damage this turn. [Repeat] Kill it now instead."

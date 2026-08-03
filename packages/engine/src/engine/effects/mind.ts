@@ -27,6 +27,8 @@ import {
   returnUnitToHand,
 } from "../effect-helpers.js";
 import { playUnitToBase } from "../deploy.js";
+import { playCardIgnoringCost } from "../play-free.js";
+import { parkDecision } from "../decisions.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -451,6 +453,36 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "OGN-112": {
+    // Kai'Sa - Evolutionary — "[Ganking] When I conquer, you may play a spell
+    // from your trash with Energy cost less than your points without paying its
+    // Energy cost. Then recycle it."
+    //
+    // "When I CONQUER" is the positional reading Adaptatron and Sett - Brawler
+    // take: she has to be AT the battlefield taken, which is what separates a
+    // unit's conquer trigger from a Legend's "when you conquer".
+    //
+    // **"Less than your points" is read at RESOLUTION, not at fire time**, and
+    // that is deliberate rather than an oversight: `scoreHolds` and
+    // `recordConquest` award the point BEFORE this trigger is held, so the
+    // conquest that fired her has already raised the threshold she reads. That is
+    // the card working — a first conquest makes 0-cost spells available, a fourth
+    // makes most of the pool available.
+    //
+    // "You MAY", so it parks a question rather than firing. Nothing is asked when
+    // no spell in the trash qualifies — 422's do-as-much-as-you-can, and the same
+    // shape Adaptatron's gear check uses.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (evolutionaryCandidates(state, listener.ownerIndex).length === 0) return state;
+      return parkDecision(state, { kind: "OGN-112-play", playerIndex: listener.ownerIndex });
+    },
+  },
   "OGN-121": {
     // Teemo - Strategist — "[Hidden] When I defend, choose an enemy unit here and
     // reveal the top 5 cards of your Main Deck. Deal 1 to that unit for each card
@@ -700,4 +732,49 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
-export const decisions: Record<string, DecisionDefinition> = {};
+/** The spells in `playerIndex`'s trash that Kai'Sa - Evolutionary could play —
+ *  "a spell ... with Energy cost less than your points". Read from the PRINTED
+ *  cost, which is what every other effect asking about a card's cost uses, and
+ *  strictly less than, as printed. */
+function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
+  const actor = state.players[playerIndex];
+  return actor.trash.filter((c) => c.kind === "Spell" && c.energyCost < actor.points);
+}
+
+export const decisions: Record<string, DecisionDefinition> = {
+  // Kai'Sa - Evolutionary's "you may play a spell from your trash ... then
+  // recycle it", raised by her conquer trigger.
+  //
+  // Declining leads, as everywhere else a "you may" is asked. "THEN RECYCLE IT"
+  // is the card's own answer to the loop it would otherwise be: the spell goes to
+  // the BOTTOM OF THE DECK rather than back to the trash, so a second conquest
+  // cannot replay the same one.
+  "OGN-112-play": {
+    prompt: () => "Kai'Sa - Evolutionary: play a spell from your trash for free?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...evolutionaryCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const chosen = evolutionaryCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (!chosen) return state;
+      // Out of the trash BEFORE playing, so the spell is not in two zones at once
+      // and `playCardIgnoringCost`'s own trash step lands it exactly once.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+      };
+      const played = playCardIgnoringCost({ ...state, players }, d.playerIndex, chosen);
+      // "Then RECYCLE it" — bottom of the Main Deck (1924), taken back out of the
+      // trash that `playCardIgnoringCost` just put it in.
+      const after = [...played.players] as [PlayerState, PlayerState];
+      after[d.playerIndex] = {
+        ...after[d.playerIndex],
+        trash: after[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+        deck: [...after[d.playerIndex].deck, chosen],
+      };
+      return { ...played, players: after };
+    },
+  },};

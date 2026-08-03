@@ -317,6 +317,7 @@ export function runEnd(state: GameState): GameState {
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 

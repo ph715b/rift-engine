@@ -239,6 +239,11 @@ export interface PlayerState {
    *  ability, so it survives her death — killing her in response must not undo
    *  it — and `runEnd` clears it with the rest. */
   cannotPlayCardsThisTurn: boolean;
+  /** Guerilla Warfare's "you can hide cards ignoring costs this turn" — the
+   *  flat 1 rainbow Power a Hide normally costs (811) is waived. A this-turn
+   *  flag rather than a charge: it says "cards", plural, so it is not spent by
+   *  the first one. */
+  hideIgnoresCostThisTurn: boolean;
   /** Unyielding Spirit's "prevent all spell and ability damage this turn" —
    *  whose damage is prevented, not who cast it. Global in effect, stored on
    *  the player because the card says "this turn" and turns belong to players. */

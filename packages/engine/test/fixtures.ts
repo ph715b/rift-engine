@@ -91,6 +91,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
     ...overrides,
   };
