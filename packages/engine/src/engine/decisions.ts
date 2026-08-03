@@ -229,7 +229,7 @@ export function parkDecision(state: GameState, seed: DecisionSeed): GameState {
  * a single discard, which is exactly the ordering the follow-up exists to
  * protect.
  */
-function repeatDecision(state: GameState, seed: DecisionSeed): GameState {
+export function repeatDecision(state: GameState, seed: DecisionSeed): GameState {
   const decision: PendingDecision = { ...seed, id: nextDecisionId() };
   return { ...state, pendingDecisions: [decision, ...state.pendingDecisions] };
 }

@@ -2,7 +2,7 @@ import type { CardInstance, GearInstance, SpellInstance, UnitInstance } from "..
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { contextFor } from "./effect-context.js";
 import { effectForCard } from "./card-effects.js";
-import { gearEntersExhausted, playUnitToBase } from "./deploy.js";
+import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { dispatchSelfEvent, holdEventTrigger } from "./triggers.js";
 
 /**
@@ -28,8 +28,21 @@ import { dispatchSelfEvent, holdEventTrigger } from "./triggers.js";
  * docs/rules-conformance.md. The practical cost is one missing response window on
  * a spell the opponent could not have seen coming anyway.
  */
-export function playCardIgnoringCost(state: GameState, playerIndex: 0 | 1, card: CardInstance): GameState {
-  if (card.kind === "Unit") return playUnitToBase(state, playerIndex, card as UnitInstance);
+export function playCardIgnoringCost(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: CardInstance,
+  /** Where a UNIT lands, when the card that played it says so — Ava Achiever's
+   *  "if it's a unit, play it here". Ignored for a Gear or a Spell, neither of
+   *  which is ever at a battlefield. Absent means base, as every earlier caller
+   *  wanted. */
+  destinationBattlefieldId?: string,
+): GameState {
+  if (card.kind === "Unit") {
+    return destinationBattlefieldId === undefined
+      ? playUnitToBase(state, playerIndex, card as UnitInstance)
+      : playUnitToBattlefield(state, playerIndex, card as UnitInstance, destinationBattlefieldId);
+  }
   if (card.kind === "Gear") return playGear(state, playerIndex, card as GearInstance);
   if (card.kind === "Spell") return playSpellImmediately(state, playerIndex, card as SpellInstance);
   // A Legend is never in a deck or a trash, so nothing can reach here — and a

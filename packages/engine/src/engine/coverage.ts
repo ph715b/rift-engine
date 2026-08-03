@@ -16,6 +16,7 @@ import { deathReplacementDefIds } from "./death-ward.js";
 import { combatAssignmentDefIds } from "./combat.js";
 import { boardRestrictionDefIds } from "./board-restrictions.js";
 import { hideCostDefIds } from "./hidden.js";
+import { topOfDeckDefIds } from "./top-of-deck.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -182,6 +183,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "combat assignment", defIds: combatAssignmentDefIds },
   { label: "board restrictions", defIds: boardRestrictionDefIds },
   { label: "hide costs", defIds: hideCostDefIds },
+  { label: "top-of-deck looks", defIds: topOfDeckDefIds },
 ];
 
 /**

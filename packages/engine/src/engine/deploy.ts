@@ -160,6 +160,43 @@ export function consumeNextUnitEntersReady(
  * `cardsPlayedThisTurn` — those belong to whatever agreed the price, which for a
  * card whose text replaces its own cost is not the printed one.
  */
+/**
+ * The same free play, but landing at a BATTLEFIELD — Ava Achiever's "if it's a
+ * unit, play it HERE".
+ *
+ * Beside `playUnitToBase` rather than a parameter on it, because the two
+ * genuinely differ after the unit is placed: arriving at a battlefield can make
+ * it Contested and can be an ATTACK, and neither is possible at a base. The
+ * caller applies those — this only places and fires what a play fires — for the
+ * same reason this module does not pay: the card that played it knows whether
+ * its arrival is an attack, and this does not.
+ */
+export function playUnitToBattlefield(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: UnitInstance,
+  battlefieldId: string,
+): GameState {
+  const bfIndex = state.battlefields.findIndex((bf) => bf.id === battlefieldId);
+  if (bfIndex === -1) return playUnitToBase(state, playerIndex, card);
+
+  const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card) };
+  const spent = consumeNextUnitEntersReady(state, playerIndex, card);
+  const ownerId = spent.players[playerIndex].id;
+  const battlefields = [...spent.battlefields];
+  const bf = battlefields[bfIndex]!;
+  battlefields[bfIndex] = { ...bf, units: { ...bf.units, [ownerId]: [...(bf.units[ownerId] ?? []), deployed] } };
+
+  const arrived = dispatchOnPlayUnit({ ...spent, battlefields }, deployed, playerIndex, { battlefieldId }, {});
+  const self = dispatchSelfEvent(arrived, "played", deployed, playerIndex);
+  return holdEventTrigger(self, {
+    kind: "cardPlayed",
+    casterIndex: playerIndex,
+    playedKind: deployed.kind,
+    playedInstanceId: deployed.instanceId,
+  });
+}
+
 export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState {
   const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card) };
   const spent = consumeNextUnitEntersReady(state, playerIndex, card);

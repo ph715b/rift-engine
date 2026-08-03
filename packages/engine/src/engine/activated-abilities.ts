@@ -24,6 +24,7 @@ import { destroyUnit } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { parkDecision } from "./decisions.js";
+import { offerTopOfDeckBanish } from "./top-of-deck.js";
 import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
@@ -899,7 +900,10 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         ? effectiveMight(state, victim.unit, victim.ownerIndex, { isCombat: false }) + 1
         : null;
       const killed = victim ? destroyUnit(state, victimId, ctx.casterIndex) : state;
-      return parkDecision(killed, {
+      // "Look at the top 5" is a look, so Nocturne sees it — offered before the
+      // Hook's own question for the FIFO reason Reinforce's resolve records.
+      const looked = offerTopOfDeckBanish(killed, ctx.casterIndex, killed.players[ctx.casterIndex].deck.slice(0, 5));
+      return parkDecision(looked, {
         kind: "OGN-242-banish",
         playerIndex: ctx.casterIndex,
         cardInstanceId: sourceInstanceId,

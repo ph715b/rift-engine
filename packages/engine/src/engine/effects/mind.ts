@@ -8,7 +8,7 @@ import type {
   Listener,
   SelfTriggerDefinition,
 } from "../triggers.js";
-import type { DecisionDefinition } from "../decisions.js";
+import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
@@ -21,6 +21,7 @@ import {
   exhaustAllFriendlyUnits,
   giveMightThisTurn,
   giveMightThisTurnToAllEnemies,
+  payPowerFromChanneled,
   readyUnit,
   recycleUnitFromPlayToDeck,
   removeUnitAnywhere,
@@ -29,6 +30,7 @@ import {
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision } from "../decisions.js";
+import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -99,6 +101,41 @@ function isDefendingAt(state: GameState, listener: Listener, event: GameEvent): 
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-115": {
+    // Promising Future — "Each player looks at the top 5 cards of their Main
+    // Deck, banishes one of them, then recycles the rest. Starting with the next
+    // player, each player plays those cards, ignoring Energy costs. (They must
+    // still pay Power costs.)"
+    //
+    // Four questions in one spell, and their ORDER is the card: both players
+    // choose before either plays, so neither is choosing against a board the
+    // other has already changed. FIFO parking is the whole of that, the same way
+    // it is the whole of Cull the Weak's APNAP.
+    //
+    // Two different orderings in one sentence, and they are not the same one.
+    // The LOOK is APNAP — active player first, this engine's convention for
+    // "each player" — while the PLAY is explicitly "starting with the NEXT
+    // player", so the caster plays last. Reading both as APNAP would hand the
+    // caster the tempo the card deliberately gives away.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const caster = ctx.casterIndex;
+      const next = (1 - caster) as 0 | 1;
+      const first = state.activePlayerIndex;
+      const second = (1 - first) as 0 | 1;
+      // Both players look, so both looks can wake a Nocturne — and his offer is
+      // parked ahead of the banish questions for the FIFO reason Reinforce's
+      // resolve records.
+      const looked = [first, second].reduce(
+        (acc, playerIndex) => offerTopOfDeckBanish(acc, playerIndex, acc.players[playerIndex].deck.slice(0, 5)),
+        state,
+      );
+      return [
+        ...[first, second].map((playerIndex) => ({ kind: "OGN-115-banish", playerIndex }) as const),
+        ...[next, caster].map((playerIndex) => ({ kind: "OGN-115-play", playerIndex }) as const),
+      ].reduce((acc, seed) => parkDecision(acc, seed), looked);
+    },
+  },
   "OGN-122": {
     // Time Warp — "Take a turn after this one. Banish this."
     //
@@ -550,6 +587,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (revealed.length === 0) return state; // nothing revealed, nothing to recycle
       const registry = defaultCardRegistry();
       const hiddenCount = revealed.filter((c) => isHiddenCard(registry.tryGet(c.defId))).length;
+      // "As you look at or REVEAL me" — this is the reveal half of Nocturne's
+      // trigger, and the only two sites where it fires are this and Grasping
+      // Roots' reveal-until-a-unit. Offered AFTER the reveal rather than before
+      // it, because unlike the four look sites nothing here stops to ask: the
+      // count and the recycle are both done by the time a player could answer.
+      // His decision names the card instance for exactly that reason.
 
       // "An enemy unit HERE" — the first at this battlefield in board order,
       // auto-selected rather than asked. Same simplification, and the same
@@ -583,7 +626,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         ...after,
         deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
       };
-      return { ...damaged, players };
+      return offerTopOfDeckBanish({ ...damaged, players }, listener.ownerIndex, revealed);
     },
   },
   "OGN-119": {
@@ -742,6 +785,146 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Promising Future's first half — one player banishing one of their own top 5.
+   *
+   * Asked of BOTH players (the caster has no say over the opponent's pick), and
+   * "looks at" is exactly the moment Nocturne - Horrifying's own text watches
+   * for, which is why this goes through `lookAtTopOfDeck` rather than slicing
+   * the deck itself.
+   */
+  "OGN-115-banish": {
+    prompt: () => "Promising Future: banish one of the top 5 of your deck (the rest are recycled)",
+    options: (state, d) =>
+      state.players[d.playerIndex].deck.slice(0, 5).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      const looked = state.players[d.playerIndex].deck.slice(0, 5);
+      const chosen = looked.find((c) => c.instanceId === optionId);
+      if (!chosen) return state;
+      // Off the top FIRST, recycling the other four to the bottom in the order
+      // they were looked at (416) — so the banish and the recycle are reckoned
+      // against the same five, and a deck shorter than five simply looks at what
+      // it has (422).
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [
+          ...players[d.playerIndex].deck.slice(looked.length),
+          ...looked.filter((c) => c.instanceId !== chosen.instanceId),
+        ],
+        // Only the second real writer of the banished zone (Time Warp's "banish
+        // this" is the other), and the first whose banish is OBSERVABLE for more
+        // than an instant: every other banish here is transient — banished and
+        // played in one instruction — while these sit banished until the second
+        // half of the card plays them, the opponent's waiting there while the
+        // caster is still choosing.
+        banished: [...players[d.playerIndex].banished, chosen],
+      };
+      return { ...state, players };
+    },
+  },
+  /**
+   * Promising Future's second half — one player playing what they banished,
+   * "ignoring Energy costs. (They must still pay Power costs.)"
+   *
+   * A decision with exactly ONE option, which `advanceDecisions` resolves without
+   * ever prompting. That is not a question dressed up as one: the step is
+   * mandatory, and the queue is the only thing in this engine that can say
+   * "after both players have finished choosing". Parked for the next player and
+   * the caster behind the two banish questions, which is the whole of "starting
+   * with the next player".
+   *
+   * **Unverified, and it is the card's one real gap:** a Spell played this way
+   * resolves immediately with no targets, per `play-free`'s recorded divergence,
+   * so a targeted Spell banished here does as much as it can and no more.
+   */
+  "OGN-115-play": {
+    prompt: () => "Promising Future: play the card you banished, ignoring its Energy cost",
+    options: () => [{ id: "play", label: "Play it" }],
+    resolve: (state, d) => {
+      const actor = state.players[d.playerIndex];
+      // The LAST banished card is the one this player just banished. Safe
+      // because a pending decision is the ONLY thing a player may act on
+      // (legal-actions returns answers and nothing else while one is queued), so
+      // no other card — not even Time Warp, the zone's other writer — can reach
+      // the zone between the question above and this one.
+      const card = actor.banished[actor.banished.length - 1];
+      if (!card) return state;
+      // "They must still pay Power costs" — and a player who cannot is a player
+      // who does not play it (422). The card stays banished rather than being
+      // played free, which is the difference between this and every other
+      // ignoring-its-cost card in the pool.
+      // A Legend is never in a Main Deck, so it can never be one of the five —
+      // but `CardInstance` includes it and only the other three kinds print a
+      // Power cost, so the narrowing is the compiler asking a real question.
+      const powerCost = card.kind === "Legend" ? 0 : card.powerCost;
+      const paid =
+        powerCost > 0 && card.kind !== "Legend"
+          ? payPowerFromChanneled(state, d.playerIndex, card.powerDomain, powerCost)
+          : state;
+      if (paid === undefined) return state;
+
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        banished: players[d.playerIndex].banished.filter((c) => c.instanceId !== card.instanceId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      return playCardIgnoringCost({ ...paid, players }, d.playerIndex, card);
+    },
+  },
+  /**
+   * Ava Achiever's "when I attack, you may pay [Mind] to play a card with
+   * [Hidden] from your hand, ignoring its cost. If it's a unit, play it here."
+   *
+   * ONE question, not two: which card and whether to pay are the same decision,
+   * because paying without naming a card buys nothing. Every option carries its
+   * own price, so a pool that cannot afford the [Mind] offers only "decline" and
+   * `advanceDecisions` retires the question without a prompt.
+   *
+   * `[Hidden]` is asked of the DEFINITION, never of the printed text — Ava
+   * herself is one of the four cards that MENTION the keyword without carrying
+   * it, so a text scan would let her play herself out of hand.
+   */
+  "OGN-107-play": {
+    prompt: () => "Ava Achiever: pay 1 Mind to play a [Hidden] card from your hand, ignoring its cost?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Payability is asked once, of the pool, rather than per card: the price is
+      // the same [Mind] whichever card is named.
+      if (payPowerFromChanneled(state, d.playerIndex, "Mind", 1) === undefined) return options;
+      const registry = defaultCardRegistry();
+      for (const card of state.players[d.playerIndex].hand) {
+        if (!isHiddenCard(registry.tryGet(card.defId))) continue;
+        options.push({ id: card.instanceId, label: `Pay 1 Mind: play ${card.name}`, instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const chosen = state.players[d.playerIndex].hand.find((c) => c.instanceId === optionId);
+      if (!chosen) return state;
+      // Pay first, and do nothing if the Mind has gone since the offer — a
+      // half-paid free play is the card without its price.
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Mind", 1);
+      if (paid === undefined) return state;
+
+      // Out of hand BEFORE playing, so the card is never in two zones at once.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        hand: players[d.playerIndex].hand.filter((c) => c.instanceId !== chosen.instanceId),
+        // "PLAY a card" — this one IS a card you played, unlike the free plays
+        // that a card's own text performs on itself, so [Legion] and Viktor -
+        // Innovator both see it.
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      // "If it's a unit, play it HERE" — the battlefield she attacked, captured
+      // when the question was raised. A Gear or a Spell ignores it, neither
+      // being a thing that stands anywhere.
+      return playCardIgnoringCost({ ...paid, players }, d.playerIndex, chosen, d.battlefieldId);
+    },
+  },
   // Kai'Sa - Evolutionary's "you may play a spell from your trash ... then
   // recycle it", raised by her conquer trigger.
   //

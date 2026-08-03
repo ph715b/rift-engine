@@ -26,6 +26,7 @@ import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
+import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 
 /**
@@ -83,7 +84,14 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // with a Power pip is genuinely being under-charged. Both halves of the
     // divergence point the same way and are recorded together.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-062-banish", playerIndex: ctx.casterIndex }),
+    // Nocturne's offer FIRST, then the look question: the queue is FIFO, so "as
+    // you look at me" is answered before "which of these do you banish", which
+    // is the order the two texts read in.
+    resolve: (state, ctx) =>
+      parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, state.players[ctx.casterIndex].deck.slice(0, 5)), {
+        kind: "OGN-062-banish",
+        playerIndex: ctx.casterIndex,
+      }),
   },
   "OGN-064": {
     // Wind Wall — "[Reaction] Counter a spell."

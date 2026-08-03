@@ -23,6 +23,9 @@ import {
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
+import { playCardIgnoringCost } from "../play-free.js";
+import { RAINBOW } from "../hidden.js";
+import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
@@ -129,7 +132,12 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // deck order that a human casting the same spell would only learn on
     // resolution.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => parkDecision(state, { kind: "OGN-183-keep", playerIndex: ctx.casterIndex }),
+    resolve: (state, ctx) =>
+      // Nocturne's offer first, for the reason Reinforce's own resolve gives.
+      parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, state.players[ctx.casterIndex].deck.slice(0, 3)), {
+        kind: "OGN-183-keep",
+        playerIndex: ctx.casterIndex,
+      }),
   },
   "OGN-180": {
     // Fading Memories — "Give a unit at a battlefield or a gear [Temporary]."
@@ -579,12 +587,80 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/** Nocturne - Horrifying's alternative price — "play me for [rainbow]". */
+const NOCTURNE_POWER = 1;
+
 export const decisions: Record<string, DecisionDefinition> = {
   // Stacked Deck's "put 1 into your hand and recycle the rest".
   //
   // The options are the top 3 read from LIVE state when the question reaches the
   // front of the queue, not captured when it was raised — a question queued
   // behind another must not offer a card the earlier answer has since drawn.
+  /**
+   * Nocturne - Horrifying's "as you look at or reveal me from the top of your
+   * deck, you may banish me. If you do, you may play me for [rainbow]."
+   *
+   * Two nested "you may"s, offered as THREE options rather than two questions:
+   * banishing without playing is a real (if rare) line — it thins the deck and
+   * denies a mill — and asking the second question separately would need a way
+   * to remember that the first was answered yes.
+   *
+   * `cardInstanceId` names the copy that was seen. Not "the top card": half the
+   * effects that look at a top-5 recycle it before this can be answered, so by
+   * the time the offer resolves he may be at the BOTTOM of the deck — see
+   * engine/top-of-deck.ts.
+   *
+   * **Unverified:** when the looking effect goes on to ask its own question about
+   * the same cards (Reinforce, Stacked Deck, Baited Hook, Promising Future),
+   * banishing him here means that question re-slices a top-N that has moved up
+   * by one, so it sees a card the player never looked at. The rules would keep
+   * the looked-at set fixed. Recorded in docs/rules-conformance.md.
+   */
+  "OGN-194-banish": {
+    prompt: () => "Nocturne - Horrifying: banish him from the top of your deck?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Moot if he has left the deck since the offer was raised — no options is
+      // how a question that no longer applies is dropped.
+      if (!state.players[d.playerIndex].deck.some((c) => c.instanceId === d.cardInstanceId)) return [];
+      options.push({ id: "banish", label: "Banish him" });
+      if (payPowerFromChanneled(state, d.playerIndex, RAINBOW, NOCTURNE_POWER) !== undefined) {
+        options.push({ id: "play", label: "Banish him and play him for 1 rainbow Power" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || !d.cardInstanceId) return state;
+      const actor = state.players[d.playerIndex];
+      const card = actor.deck.find((c) => c.instanceId === d.cardInstanceId);
+      if (!card) return state;
+
+      // Out of the deck either way — the banish is what both live options share,
+      // and it is what the play is conditional on ("IF YOU DO, you may play me").
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...actor,
+        deck: actor.deck.filter((c) => c.instanceId !== card.instanceId),
+        banished: [...actor.banished, card],
+      };
+      const banished: GameState = { ...state, players };
+      if (optionId !== "play") return banished;
+
+      // Pay first, and stop at the banish if the Power has gone since the offer.
+      const paid = payPowerFromChanneled(banished, d.playerIndex, RAINBOW, NOCTURNE_POWER);
+      if (paid === undefined) return banished;
+      const after = [...paid.players] as [PlayerState, PlayerState];
+      after[d.playerIndex] = {
+        ...after[d.playerIndex],
+        banished: after[d.playerIndex].banished.filter((c) => c.instanceId !== card.instanceId),
+        // "PLAY me" — a card you played, so [Legion] and the play-watchers see it.
+        cardsPlayedThisTurn: after[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      // "Play me FOR [rainbow]" — the rainbow Power is the whole price, so his
+      // 4 Energy and his Chaos pip are both waived.
+      return playCardIgnoringCost({ ...paid, players: after }, d.playerIndex, card);
+    },
+  },
   "OGN-183-keep": {
     prompt: () => "Stacked Deck: put one into your hand, recycle the rest",
     options: (state, d) =>

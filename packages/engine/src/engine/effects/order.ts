@@ -12,16 +12,23 @@ import {
   legionActive,
   ownUnitsEverywhere,
   readyUnit,
+  recycleCardFromHand,
+  recycleUnitFromPlayToDeck,
   spendBuff,
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { placeRecruitToken } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
-import { parkDecision, type DecisionOption } from "../decisions.js";
+import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
 import type { UnitInstance } from "../../model/card.js";
-import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
+
+/** Divine Judgment's four categories, in the order the card names them. */
+const JUDGMENT_CATEGORIES = ["units", "gear", "runes", "hand"] as const;
+type JudgmentCategory = (typeof JUDGMENT_CATEGORIES)[number];
+const JUDGMENT_KEEP = 2;
 
 /**
  * Card implementations for **Order** — one file, one owner.
@@ -120,6 +127,44 @@ export const cardEffects: Record<string, EffectDefinition> = {
       const second = (1 - first) as 0 | 1;
       return [first, second].reduce(
         (next, playerIndex) => parkDecision(next, { kind: "OGN-209-kill", playerIndex }),
+        state,
+      );
+    },
+  },
+  "OGN-244": {
+    // Divine Judgment — "Each player chooses 2 units, 2 gear, 2 runes, and 2
+    // cards in their hands. Recycle the rest."
+    //
+    // The pool's only symmetrical board wipe, and like Cull the Weak the choices
+    // belong to the player they are about — so nothing is fanned out onto the
+    // action and all eight questions are asked at resolution.
+    //
+    // **Asked as "which one goes", repeated until 2 remain, rather than "which
+    // two stay".** The two are the same set of outcomes, and this needs no
+    // accumulator: a multi-select answer would have to be carried on the pending
+    // decision and validated against itself, while a one-at-a-time cut is
+    // rebuilt from live state each time like every other question here. What the
+    // player sees differs (they name victims, not survivors) and that is
+    // recorded Unverified.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      // APNAP, and per PLAYER rather than per category: one player makes all
+      // four of their choices before the other starts, which is what "each
+      // player chooses ..." reads as. FIFO parking is the whole implementation.
+      const first = state.activePlayerIndex;
+      const second = (1 - first) as 0 | 1;
+      return [first, second].reduce(
+        (next, playerIndex) =>
+          JUDGMENT_CATEGORIES.reduce(
+            (afterCategory, category) =>
+              // Nothing to ask when the player is already at or under the keep
+              // count — 422's do-as-much-as-you-can, and a question with nothing
+              // to cut is not a question.
+              judgmentPool(afterCategory, playerIndex, category).length > JUDGMENT_KEEP
+                ? parkDecision(afterCategory, { kind: `OGN-244-cut-${category}`, playerIndex })
+                : afterCategory,
+            next,
+          ),
         state,
       );
     },
@@ -752,7 +797,97 @@ export const decisions: Record<string, DecisionDefinition> = {
       return parkDecision(channelled, { kind: "OGN-230-spend", playerIndex: d.playerIndex });
     },
   },
+  // Divine Judgment's eight questions, one definition — the four categories
+  // differ only in what they list and what "recycle" means for it, and writing
+  // them out four times would be four chances to paste the wrong pool.
+  ...Object.fromEntries(
+    JUDGMENT_CATEGORIES.map((category) => [
+      `OGN-244-cut-${category}`,
+      {
+        prompt: (state: GameState, d: PendingDecision) =>
+          `Divine Judgment: recycle one of your ${category} (keep ${JUDGMENT_KEEP}, ${judgmentPool(state, d.playerIndex, category).length} left)`,
+        options: (state: GameState, d: PendingDecision) =>
+          judgmentPool(state, d.playerIndex, category).map((item) => ({
+            id: item.instanceId,
+            label: item.name,
+            instanceId: item.instanceId,
+          })),
+        resolve: (state: GameState, d: PendingDecision, optionId: string) => {
+          const cut = recycleJudgmentItem(state, d.playerIndex, category, optionId);
+          // Ask again from LIVE state rather than counting down: the pool is what
+          // decides, and a unit that left play between two answers must not still
+          // be owed a cut. Onto the FRONT, so this player finishes a category
+          // before their next one starts.
+          return judgmentPool(cut, d.playerIndex, category).length > JUDGMENT_KEEP
+            ? repeatDecision(cut, { kind: `OGN-244-cut-${category}`, playerIndex: d.playerIndex })
+            : cut;
+        },
+      },
+    ]),
+  ),
 };
+
+/** What one category holds for one player, as { instanceId, name } — a rune has
+ *  no name of its own, so it is labelled by its domain. */
+function judgmentPool(
+  state: GameState,
+  playerIndex: 0 | 1,
+  category: JudgmentCategory,
+): { instanceId: string; name: string }[] {
+  const actor = state.players[playerIndex];
+  switch (category) {
+    case "units":
+      return ownUnits(state, playerIndex).map((u) => ({ instanceId: u.instanceId, name: u.name }));
+    case "gear":
+      return actor.activeGear.map((g) => ({ instanceId: g.instanceId, name: g.name }));
+    case "runes":
+      return actor.channeled.map((r) => ({ instanceId: r.id, name: `${r.domain} rune` }));
+    case "hand":
+      return actor.hand.map((c) => ({ instanceId: c.instanceId, name: c.name }));
+  }
+}
+
+/**
+ * Recycles one named item out of one category.
+ *
+ * "Recycle" means the bottom of the owning deck (416) — the Main Deck for a
+ * unit, a gear or a card in hand, the RUNE deck for a rune, which is the one
+ * place the four categories genuinely differ. A recycled rune goes back Ready:
+ * `state` is a rune's position in the turn, not a property of the card, and
+ * every other path that returns a rune to its deck resets it the same way.
+ */
+function recycleJudgmentItem(
+  state: GameState,
+  playerIndex: 0 | 1,
+  category: JudgmentCategory,
+  instanceId: string,
+): GameState {
+  if (category === "units") return recycleUnitFromPlayToDeck(state, playerIndex, instanceId);
+  if (category === "hand") return recycleCardFromHand(state, playerIndex, instanceId);
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const actor = players[playerIndex];
+  if (category === "gear") {
+    const gear = actor.activeGear.find((g) => g.instanceId === instanceId);
+    if (!gear) return state;
+    players[playerIndex] = {
+      ...actor,
+      activeGear: actor.activeGear.filter((g) => g.instanceId !== instanceId),
+      // Not a death and not a trash: a Recycle is a zone change, so no
+      // "when I am killed" fires — the same split `recycleUnitFromPlayToDeck`
+      // spells out for units.
+      deck: [...actor.deck, gear],
+    };
+    return { ...state, players };
+  }
+  const rune = actor.channeled.find((r) => r.id === instanceId);
+  if (!rune) return state;
+  players[playerIndex] = {
+    ...actor,
+    channeled: actor.channeled.filter((r) => r.id !== instanceId),
+    runeDeck: [...actor.runeDeck, { ...rune, state: "Ready" as const }],
+  };
+  return { ...state, players };
+}
 
 /** Every unit a player has in play, base and battlefields alike. */
 function ownUnits(state: GameState, playerIndex: 0 | 1) {

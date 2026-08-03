@@ -563,6 +563,17 @@ const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, 
       .map((u) => u.instanceId);
     return damagedEnemyIds.reduce((next, id) => destroyUnit(next, id, ctx.casterIndex), state);
   },
+  "OGN-107": (state, ctx, _unit, battlefieldId) =>
+    // Ava Achiever — "When I attack, you may pay [Mind] to play a card with
+    // [Hidden] from your hand, ignoring its cost. If it's a unit, play it here."
+    //
+    // The one on-attack trigger in this file that ASKS rather than auto-selecting,
+    // and it can: the thing being chosen is a card in hand and a payment, not a
+    // target, so `decisions.ts` can carry it and nothing has to be committed to
+    // the move action that triggered it. `battlefieldId` rides on the decision
+    // because "here" means where she attacked, not wherever she stands when the
+    // answer arrives.
+    parkDecision(state, { kind: "OGN-107-play", playerIndex: ctx.casterIndex, battlefieldId }),
   "OGN-200": (state, ctx, unit, battlefieldId) => {
     // Twisted Fate - Gambler — "When I attack, reveal the top rune of your rune
     // deck, then recycle it. Do one of the following based on its domain:

@@ -20,6 +20,7 @@ import {
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBase } from "../deploy.js";
+import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
@@ -430,7 +431,13 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       const players = [...state.players] as [PlayerState, PlayerState];
       players[listener.ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
       const recycled: GameState = { ...state, players };
-      return found ? playUnitToBase(recycled, listener.ownerIndex, found) : recycled;
+      const played = found ? playUnitToBase(recycled, listener.ownerIndex, found) : recycled;
+      // "As you look at or REVEAL me" — every card turned over on the way here
+      // was revealed, so a Nocturne among them gets his offer. After the reveal
+      // rather than before it, because nothing here stops to ask: he may be the
+      // unit that was just played, in which case his own offer finds him gone
+      // from the deck and drops itself.
+      return offerTopOfDeckBanish(played, listener.ownerIndex, revealed);
     },
   },
   "OGN-143": {
