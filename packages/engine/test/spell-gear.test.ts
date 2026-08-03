@@ -106,6 +106,7 @@ function buildSpellFixture() {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 
@@ -154,6 +155,7 @@ function buildGearFixture() {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 
@@ -463,6 +465,7 @@ describe("legalActions: Spell and Gear candidates", () => {
       deathWardedUnitInstanceIds: [],
       paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
       pendingDecisions: [],
     };
 

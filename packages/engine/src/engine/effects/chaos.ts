@@ -31,6 +31,7 @@ import {
 import { findUnitAnywhere } from "../target-lookup.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
+import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
@@ -884,7 +885,7 @@ function playUnitFromTrash(state: GameState, playerIndex: 0 | 1, optionId: strin
     trash: players[playerIndex].trash.filter((c) => c.instanceId !== optionId),
     cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1,
   };
-  return playUnitToBase({ ...paid, players }, playerIndex, card);
+  return playUnitFree({ ...paid, players }, playerIndex, card);
 }
 
 /** Every unit in play, both players, base and battlefields — Whirlwind's "a

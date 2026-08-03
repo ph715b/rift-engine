@@ -108,6 +108,7 @@ function makeState(): GameState {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
+    unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 }

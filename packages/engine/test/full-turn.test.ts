@@ -52,6 +52,7 @@ function buildInitialGameState(): GameState {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
+    unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 }

@@ -23,6 +23,7 @@ import { placeRecruitToken } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
+import { playUnitFree } from "../free-play.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
 
@@ -745,7 +746,7 @@ export const decisions: Record<string, DecisionDefinition> = {
       // Through the shared deploy funnel, so it enters exhausted (143.4.a) unless
       // something on the board says otherwise and both events a real play fires
       // go off. The card says "play a unit"; this is what playing one means.
-      return playUnitToBase({ ...state, players }, d.playerIndex, card);
+      return playUnitFree({ ...state, players }, d.playerIndex, card);
     },
   },
   /**
@@ -798,7 +799,7 @@ export const decisions: Record<string, DecisionDefinition> = {
       // instruction, and nothing can observe the intermediate zone — so it goes
       // straight to play rather than through `PlayerState.banished`, which still
       // has no writers. Recorded in docs/rules-conformance.md.
-      return chosen ? playUnitToBase(recycled, d.playerIndex, chosen as UnitInstance) : recycled;
+      return chosen ? playUnitFree(recycled, d.playerIndex, chosen as UnitInstance) : recycled;
     },
   },
   // Albus Ferros' "spend any number of buffs". Asked once per buff, with a

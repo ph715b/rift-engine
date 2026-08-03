@@ -49,6 +49,7 @@ import { MulliganScreen } from "./MulliganScreen.js";
 import { ChainView } from "./ChainView.js";
 import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
+import { listTargetHint } from "../target-hint.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -1785,6 +1786,11 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           ? ` — choose ${slot === 0 ? "up to 2 units" : `another ${who}`} for ${name}, or press Done${progress}`
           : ` — choose ${slot === 0 ? "a" : "an"} ${who} for ${name}${progress}`;
       }
+      // A `unitList` card had NO case here and fell through to `default: null`,
+      // so Falling Star and its four siblings asked for two-to-six targets in
+      // total silence. See target-hint.ts.
+      case "listTarget":
+        return listTargetHint(pendingPlay.card, pendingChosenTargetCount());
       case "battlefieldTarget":
         return ` — choose a battlefield for ${name}`;
       case "placement":

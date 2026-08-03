@@ -127,6 +127,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
+    unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 }

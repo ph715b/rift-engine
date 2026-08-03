@@ -38,19 +38,31 @@ interface DecisionPromptProps {
  */
 export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: DecisionPromptProps) {
   const options = optionsFor(state, decision);
-  const owner = state.players[decision.playerIndex];
 
-  /** Wherever this instance currently is — hand, base, a battlefield, gear or
-   *  the trash. Flame Chompers is offered FROM the trash, so a hand-only lookup
-   *  would silently render it as a bare button. */
+  /**
+   * Wherever this instance currently is — ANY zone of EITHER player.
+   *
+   * It used to search five zones of the ANSWERING player only, and two cards in
+   * the pool ask about cards that lookup could never reach, so both rendered as
+   * bare buttons after a playtest asked for their images:
+   *  - **Stacked Deck** offers the top 3 of your own **DECK**, which was not
+   *    among the zones searched at all.
+   *  - **Mindsplitter** offers the **OPPONENT's** hand — "they reveal their
+   *    hand, choose a card from it" — so the cards are real and visible by the
+   *    card's own instruction, but they belong to the other player.
+   *
+   * **Searching both players' private zones is safe HERE and nowhere else**, and
+   * the reason is worth stating: this only ever looks up an instance the ENGINE
+   * has already put on the option list. A decision's options are built by the
+   * card that asked, so if an id is offered, that card has decided the answering
+   * player may see it. This function cannot widen what is shown; it can only
+   * find what was already going to be named.
+   */
   const findCard = (instanceId: string): CardInstance | undefined =>
-    [
-      ...owner.hand,
-      ...owner.baseUnits,
-      ...owner.activeGear,
-      ...owner.trash,
-      ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? []),
-    ].find((c) => c.instanceId === instanceId);
+    state.players
+      .flatMap((p) => [...p.hand, ...p.deck, ...p.baseUnits, ...p.activeGear, ...p.trash, ...p.banished])
+      .concat(state.battlefields.flatMap((bf) => Object.values(bf.units).flat()))
+      .find((c) => c.instanceId === instanceId);
 
   const cardOptions = options
     .map((option) => ({ option, card: option.instanceId ? findCard(option.instanceId) : undefined }))

@@ -117,6 +117,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
+    unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
     ...overrides,
   };

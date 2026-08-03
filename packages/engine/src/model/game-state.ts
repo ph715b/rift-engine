@@ -692,6 +692,17 @@ export interface GameState {
    */
   unitsAwaitingDeathReplacement: PendingDeath[];
   /**
+   * Units played FOR FREE that are waiting on a placement answer — see
+   * engine/free-play.ts.
+   *
+   * A holding pen for the same reason `unitsAwaitingDeathReplacement` is one:
+   * the card has left wherever it came from, and it must not be on the board
+   * yet, because ARRIVING is what fires its on-play trigger and what contests a
+   * battlefield. Deploying it at base first and moving it afterwards would fire
+   * both for the wrong place.
+   */
+  unitsAwaitingFreePlacement: { unit: UnitInstance; playerIndex: 0 | 1 }[];
+  /**
    * Questions the engine has stopped to ask, oldest first.
    *
    * Empty in every settled state — a non-empty queue means a resolution is

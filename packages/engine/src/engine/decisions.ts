@@ -2,6 +2,7 @@ import type { GameState, PendingDecision } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
 import { legendDecisions } from "./legend-abilities.js";
+import { freePlayDecisions } from "./free-play.js";
 import { discardCards, drawCards } from "./effect-helpers.js";
 import { dispatchEvent } from "./triggers.js";
 
@@ -124,6 +125,9 @@ let composed: Record<string, DecisionDefinition> | null = null;
 function allDecisions(): Record<string, DecisionDefinition> {
   composed ??= mergeRegistries<DecisionDefinition>("decision", [
     { name: "engine/decisions.ts", entries: GENERIC },
+    // The shared placement step for a unit played free — owned by no card, so it
+    // sits beside the generic questions rather than in a per-domain file.
+    { name: "engine/free-play.ts", entries: freePlayDecisions },
     // Legends' questions live with their abilities rather than in a per-domain
     // file — every Legend is dual-domain, so filing one by domain is meaningless
     // (see legend-abilities.ts's own note).

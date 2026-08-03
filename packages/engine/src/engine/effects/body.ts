@@ -20,6 +20,7 @@ import {
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBase } from "../deploy.js";
+import { playUnitFree } from "../free-play.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
@@ -432,7 +433,10 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       const players = [...state.players] as [PlayerState, PlayerState];
       players[listener.ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
       const recycled = holdCardsRecycled({ ...state, players }, listener.ownerIndex, rest.length);
-      const played = found ? playUnitToBase(recycled, listener.ownerIndex, found) : recycled;
+      // "Play it, ignoring its cost" names no destination, so the controller
+      // chooses one — see engine/free-play.ts. It is base-only in the common
+      // case and asks nothing then.
+      const played = found ? playUnitFree(recycled, listener.ownerIndex, found) : recycled;
       // "As you look at or REVEAL me" — every card turned over on the way here
       // was revealed, so a Nocturne among them gets his offer. After the reveal
       // rather than before it, because nothing here stops to ask: he may be the

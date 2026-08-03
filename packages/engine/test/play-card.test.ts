@@ -97,6 +97,7 @@ function buildFixture() {
     deathWardedUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
     pendingDecisions: [],
   };
 
@@ -569,6 +570,7 @@ describe("PlayCard: Tibbers' hybrid Fury/Chaos Power cost (OGS-018)", () => {
       deathWardedUnitInstanceIds: [],
       paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
       pendingDecisions: [],
     };
 
@@ -705,6 +707,7 @@ describe("Open-battlefield placement carve-out (Sneaky Deckhand, Sai Scout)", ()
       deathWardedUnitInstanceIds: [],
       paidDeathWardUnitInstanceIds: [],
       unitsAwaitingDeathReplacement: [],
+      unitsAwaitingFreePlacement: [],
       pendingDecisions: [],
     };
     return { state, unit };

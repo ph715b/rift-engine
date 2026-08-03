@@ -3,6 +3,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { contextFor } from "./effect-context.js";
 import { effectForCard } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
+import { playUnitFree } from "./free-play.js";
 import { dispatchSelfEvent, holdEventTrigger } from "./triggers.js";
 
 /**
@@ -40,7 +41,7 @@ export function playCardIgnoringCost(
 ): GameState {
   if (card.kind === "Unit") {
     return destinationBattlefieldId === undefined
-      ? playUnitToBase(state, playerIndex, card as UnitInstance)
+      ? playUnitFree(state, playerIndex, card as UnitInstance)
       : playUnitToBattlefield(state, playerIndex, card as UnitInstance, destinationBattlefieldId);
   }
   if (card.kind === "Gear") return playGear(state, playerIndex, card as GearInstance);

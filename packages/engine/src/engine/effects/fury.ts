@@ -37,6 +37,7 @@ import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
+import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
@@ -769,7 +770,7 @@ export const decisions: Record<string, DecisionDefinition> = {
         trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== d.cardInstanceId),
         cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
       };
-      return playUnitToBase({ ...paid, players }, d.playerIndex, card);
+      return playUnitFree({ ...paid, players }, d.playerIndex, card);
     },
   },
 };
