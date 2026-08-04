@@ -176,3 +176,95 @@ describe("[Deflect] is a real surcharge, priced per target", () => {
     expect(isCardImplemented(registry.get(VOLIBEAR_FURIOUS))).toBe(true);
   });
 });
+
+/**
+ * The third instance of the offered-then-refused bug this file's header warns
+ * about, found by self-play on a generated deck rather than by reading.
+ *
+ * `legal-actions` prices `[Deflect]` per variant — but it does so AFTER the
+ * discard-choice branch has already pushed its candidates. Get Excited! is the
+ * card that exposes it, because its discard is MANDATORY: the plain variant is
+ * skipped ("a mandatory discard has no undiscarded candidate"), so every candidate
+ * it ever produces comes out of the branch that never reaches the re-pricing. The
+ * result was an enumerated play naming 0 rainbow Power for a `[Deflect]` target,
+ * which `submit` refuses and the AI — which trusts `legalActions` and calls the
+ * executor directly — throws on outright, killing the game.
+ *
+ * Brazen Buccaneer is the same branch with an OPTIONAL discard and an Energy
+ * discount, so it covers the case where the surcharge has to be added on top of a
+ * reduced cost rather than the printed one.
+ */
+describe("[Deflect] survives the discard-choice branch", () => {
+  const GET_EXCITED = "OGN-008"; // mandatory discard, 2 Energy + 1 Fury Power
+  const BRAZEN_BUCCANEER = "OGN-002"; // optional discard, -2 Energy
+
+  /** Player 0 holds `spellDefId` plus a card to discard; player 1 holds a
+   *  `[Deflect]` unit at bf1. */
+  function boardWithDiscard(
+    spellDefId: string,
+    defenderDefId: string,
+    pool: RuneCard[],
+  ): { state: GameState; spellId: string; defenderId: string } {
+    const spell = spellInstance(spellDefId);
+    const fodder = spellInstance(INCINERATE); // the card that gets discarded
+    const defender = realUnitInstance(defenderDefId);
+    const state = makeState({
+      phase: "Action",
+      players: [makePlayer("p1", { hand: [spell, fodder], channeled: pool }), makePlayer("p2")],
+    });
+    state.battlefields[0]!.units = { p2: [defender] };
+    return { state, spellId: spell.instanceId, defenderId: defender.instanceId };
+  }
+
+  it("taxes a MANDATORY-discard spell — Get Excited! at a [Deflect 1] unit", () => {
+    const { state, spellId, defenderId } = boardWithDiscard(GET_EXCITED, POUTY_PORO, runes("Fury", 6));
+    const play = playsOf(state, spellId).find((p) => p.targetUnitInstanceId === defenderId);
+
+    expect(play, "the play was not offered at all").toBeDefined();
+    expect(play!.discardCardInstanceId, "a mandatory discard must name its card").toBeDefined();
+    expect(play!.payment.rainbowRunes ?? []).toHaveLength(1);
+  });
+
+  it("never offers a discard-variant play the validator then refuses", () => {
+    // The invariant that actually matters, and the one that was broken: every
+    // enumerated action must survive validation. Asserted over EVERY candidate,
+    // not just the one targeting the [Deflect] unit, so an untaxed variant hiding
+    // behind a legal one cannot pass.
+    for (const defenderDefId of [POUTY_PORO, VOLIBEAR_FURIOUS]) {
+      const { state, spellId } = boardWithDiscard(GET_EXCITED, defenderDefId, runes("Fury", 6));
+      const plays = playsOf(state, spellId);
+      expect(plays.length, `${defenderDefId}: nothing enumerated`).toBeGreaterThan(0);
+      for (const play of plays) {
+        expect(validatePlayCard(state, play), `${defenderDefId}: ${JSON.stringify(play.payment)}`).toMatchObject({
+          ok: true,
+        });
+      }
+    }
+  });
+
+  it("adds the tax ON TOP of the Energy discount — Brazen Buccaneer", () => {
+    const { state, spellId, defenderId } = boardWithDiscard(BRAZEN_BUCCANEER, POUTY_PORO, runes("Fury", 8));
+    const plays = playsOf(state, spellId);
+    for (const play of plays) {
+      expect(validatePlayCard(state, play), JSON.stringify(play.payment)).toMatchObject({ ok: true });
+    }
+    // The discounted variant is the one carrying a discard; it still owes the tax
+    // if it chose the [Deflect] unit.
+    const discounted = plays.filter((p) => p.discardCardInstanceId !== undefined && p.targetUnitInstanceId === defenderId);
+    for (const play of discounted) {
+      expect(play.payment.rainbowRunes ?? [], "discounted variant skipped the tax").toHaveLength(1);
+    }
+  });
+
+  it("skips the variant, not the card, when the tax makes it unaffordable", () => {
+    // Enough for Get Excited!'s own 2 Energy + 1 Power but not the surcharge.
+    // The card must still be offered at an untaxed target, and nothing offered
+    // may be invalid.
+    const { state, spellId, defenderId } = boardWithDiscard(GET_EXCITED, VOLIBEAR_FURIOUS, runes("Fury", 3));
+    const plays = playsOf(state, spellId);
+    for (const play of plays) {
+      expect(validatePlayCard(state, play), JSON.stringify(play.payment)).toMatchObject({ ok: true });
+    }
+    expect(plays.some((p) => p.targetUnitInstanceId === defenderId), "unaffordable target still offered").toBe(false);
+  });
+});

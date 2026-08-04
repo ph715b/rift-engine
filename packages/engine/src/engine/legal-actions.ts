@@ -784,18 +784,58 @@ export function legalActions(state: GameState): PlayerAction[] {
           : repeatableSpend > 0
             ? repeatablePayment
             : payment;
-      // One candidate per discardable card, priced against the DISCOUNTED cost.
+      // **[Deflect]: what THIS variant's target choice costs on top.** Computed
+      // here rather than beside its use below, because the discard branch
+      // immediately after emits its own candidates and owes the same tax — see
+      // that branch for why it cannot simply fall through to the re-pricing.
+      const deflected = deflectSurchargeForTargets(state, playerIndex, [
+        variant.targetUnitInstanceId,
+        variant.secondTargetUnitInstanceId,
+      ]);
+
+      // One candidate per discardable card, priced against the DISCOUNTED cost —
+      // and taxed for [Deflect] like every other variant.
+      //
+      // This branch emits BEFORE the per-variant re-pricing below, so for a while
+      // it was the one path that skipped the surcharge. A MANDATORY discard makes
+      // that unreachable-looking gap the only path the card has: Get Excited!
+      // `continue`s three lines down, so every candidate it ever produces comes
+      // out of here. Self-play on a generated deck threw "Get Excited! must pay 1
+      // rainbow Power for [Deflect] on its target, but named 0" the first time it
+      // met a Pouty Poro — the third instance of this file's offered-then-refused
+      // bug, after Maddened Marauder's reinforce variant and Brazen Buccaneer's
+      // floating-Energy mispricing.
       if (discardChoice && discountedPayment) {
-        for (const c of discardable) {
-          actions.push({
-            type: "PlayCard",
-            playerIndex,
-            card,
-            payment: discountedPayment,
-            ...variant,
-            ...hiddenFields,
-            discardCardInstanceId: c.instanceId,
-          });
+        // The discounted cost when a discount applies, the printed one otherwise —
+        // whichever `discountedPayment` itself was derived from.
+        const discardBase = discountedEffective ?? effectiveCost;
+        const discardPaymentForTargets =
+          deflected > 0
+            ? computeAutoPayment(
+                actor.channeled,
+                discardBase.energyCost,
+                discardBase.powerCost,
+                card.powerDomain,
+                card.powerDomainAlt,
+                deflected,
+              )
+            : discountedPayment;
+        // Unaffordable ONCE THE TAX IS ADDED skips this variant, not the card —
+        // the same rule the untaxed path below applies, and the reason a
+        // [Deflect] unit simply drops off the target list rather than making the
+        // card unplayable.
+        if (discardPaymentForTargets) {
+          for (const c of discardable) {
+            actions.push({
+              type: "PlayCard",
+              playerIndex,
+              card,
+              payment: discardPaymentForTargets,
+              ...variant,
+              ...hiddenFields,
+              discardCardInstanceId: c.instanceId,
+            });
+          }
         }
       }
       // A MANDATORY discard has no undiscarded candidate — Get Excited! without a
@@ -812,12 +852,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       // restructure the conformance row called for, and Call to Glory's
       // `ignoresCostWhenPaid` was its first, smaller instance.
       //
-      // Skipped entirely when nothing targeted has [Deflect], so the ordinary card
-      // keeps the single shared payment object it always had.
-      const deflected = deflectSurchargeForTargets(state, playerIndex, [
-        variant.targetUnitInstanceId,
-        variant.secondTargetUnitInstanceId,
-      ]);
+      // `deflected` is computed above, before the discard branch that also needs
+      // it. Zero when nothing targeted has [Deflect], so the ordinary card keeps
+      // the single shared payment object it always had.
       let variantPaymentForTargets: RunePayment = variantPayment;
       if (deflected > 0) {
         const taxed = computeAutoPayment(
