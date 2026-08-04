@@ -108,6 +108,50 @@ export function BattlefieldView({
   const aiFit = useRowFit(aiUnits.length, undefined, aiUnits.filter((u) => u.exhausted).length);
   const humanFit = useRowFit(humanUnits.length, undefined, humanUnits.filter((u) => u.exhausted).length);
 
+  /**
+   * Facedown cards, rendered card-sized IN the unit row rather than as a strip.
+   *
+   * The strip existed for a real reason, recorded in styles.css: the board is a
+   * fixed-height 100dvh column and "giving [a facedown card] card-sized real
+   * estate would push the battlefield rows into the overflow this project keeps
+   * having to defend against". Putting the back INSIDE the row it belongs to
+   * settles that — `useRowFit` already fans that row to whatever width it has, so
+   * a back costs exactly what one more unit costs and adds no new row. It is also
+   * what was actually asked for: a card back where a unit would be.
+   *
+   * **The `mine` branch is load-bearing and must not be collapsed.** Nothing masks
+   * this state — `h.card` carries the real identity for BOTH players — so this
+   * branch IS what keeps the opponent's facedown card secret, in the label, the
+   * title and the alt text alike.
+   */
+  function facedownCards(ownerIndex: 0 | 1) {
+    return battlefield.hiddenCards
+      .filter((h) => h.ownerIndex === ownerIndex)
+      .map((h) => {
+        const mine = h.ownerIndex === humanIndex;
+        const playable = mine && onPlayHidden !== undefined && playableHiddenIds?.has(h.card.instanceId);
+        return (
+          <button
+            key={h.card.instanceId}
+            type="button"
+            className={`facedown-card${mine ? " mine" : ""}${playable ? " selectable" : ""}`}
+            disabled={!playable}
+            title={
+              mine
+                ? playable
+                  ? `${h.card.name} — hidden here. Click to play it for free.`
+                  : `${h.card.name} — hidden here. Playable from your next turn (rule 811).`
+                : "A facedown card. You can see it is there, not what it is."
+            }
+            onClick={playable ? () => onPlayHidden!(h.card.instanceId, battlefield.id) : undefined}
+          >
+            <span className="facedown-back" aria-hidden="true" />
+            <span className="facedown-label">{mine ? h.card.name : "Facedown"}</span>
+          </button>
+        );
+      });
+  }
+
   return (
     <div className={classes.join(" ")} onClick={isClickable ? onMoveHere : undefined} data-dropzone-id={battlefield.id}>
       <div className="battlefield-name">
@@ -129,47 +173,12 @@ export function BattlefieldView({
           <span className="battlefield-card-text">{card.text}</span>
         </div>
       )}
-      {/* Facedown cards (rule 811). Presence is public and changes how the
-          battlefield reads — there is a trick waiting here — while identity is
-          not, so the opponent's shows only a back.
-          NOTE: this used to claim the state arrives "already masked", so the
-          component "cannot leak what it was never given". That is false —
-          nothing in the web package masks anything, and `h.card` carries the
-          real identity for BOTH players. The `mine` branch below is not a
-          convenience over already-safe data, it IS the thing keeping the
-          opponent's facedown card secret, in the label and in the title alike.
-          Do not collapse it. */}
-      {battlefield.hiddenCards.length > 0 && (
-        <div className="battlefield-hidden-row">
-          {battlefield.hiddenCards.map((h) => {
-            const mine = h.ownerIndex === humanIndex;
-            const playable = mine && onPlayHidden !== undefined && playableHiddenIds?.has(h.card.instanceId);
-            return (
-              <button
-                key={h.card.instanceId}
-                type="button"
-                className={`facedown-card${mine ? " mine" : ""}${playable ? " selectable" : ""}`}
-                disabled={!playable}
-                title={
-                  mine
-                    ? playable
-                      ? `${h.card.name} — hidden here. Click to play it for free.`
-                      : `${h.card.name} — hidden here. Playable from your next turn.`
-                    : "A facedown card. You can see it is there, not what it is."
-                }
-                onClick={playable ? () => onPlayHidden!(h.card.instanceId, battlefield.id) : undefined}
-              >
-                {mine ? h.card.name : "Facedown"}
-              </button>
-            );
-          })}
-        </div>
-      )}
       <div
         className="battlefield-side"
         ref={aiFit.rowRef}
         style={{ "--row-fit-margin": `${aiFit.marginLeft}px` } as CSSProperties}
       >
+        {facedownCards(humanIndex === 0 ? 1 : 0)}
         {aiUnits.map((unit) => (
           <CardView
             key={unit.instanceId}
@@ -188,6 +197,7 @@ export function BattlefieldView({
         ref={humanFit.rowRef}
         style={{ "--row-fit-margin": `${humanFit.marginLeft}px` } as CSSProperties}
       >
+        {facedownCards(humanIndex)}
         {humanUnits.map((unit) => (
           <CardView
             key={unit.instanceId}

@@ -2750,34 +2750,77 @@ button:disabled {
 
 /* ── facedown cards (rule 811) ──────────────────────────────────────────────
    Presence is public, identity is not. The opponent's reads as a back with no
-   name; yours shows what it is, because you are allowed to know. Rendered as a
-   thin strip under the battlefield's name rather than as a full CardView: the
-   board is a fixed-height 100dvh column, and a facedown card is a marker rather
-   than a unit — giving it card-sized real estate would push the battlefield
-   rows into the overflow this project keeps having to defend against. */
-.battlefield-hidden-row {
-  display: flex;
-  gap: 0.3rem;
-  padding: 0 0.35rem 0.25rem;
-  flex-wrap: wrap;
-}
+   name; yours shows what it is, because you are allowed to know.
+
+   These used to be a thin pill strip under the battlefield name, because the
+   board is a fixed-height 100dvh column and card-sized real estate would have
+   pushed the rows into the overflow this project keeps defending against. They
+   are now card-sized and live INSIDE the owner's unit row instead, which costs
+   nothing extra: use-row-fit.ts already fans that row to its available width, so
+   a back costs exactly what one more unit costs and adds no new row.
+
+   The back is drawn in CSS rather than fetched. Every card image here comes from
+   Riot's CMS and there is no back among them, so an <img> would be a guessed URL
+   that breaks silently; a drawn back cannot 404. */
 .facedown-card {
-  font-size: 0.7rem;
-  padding: 0.12rem 0.4rem;
-  border-radius: 999px;
+  width: var(--card-w);
+  height: var(--card-h);
+  flex: 0 0 auto;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.2rem;
+  border-radius: 0.4rem;
   border: 1px dashed var(--color-border);
-  background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 4px, transparent 4px 8px);
+  background: transparent;
   color: var(--color-text-dim);
   cursor: default;
+  overflow: hidden;
 }
+
+/* The back itself — a rift-ish diamond weave, domain-neutral on purpose: the
+   opponent must not be able to read a domain off the back. */
+.facedown-back {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.07) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.07) 0 6px, transparent 6px 12px),
+    radial-gradient(circle at 50% 45%, rgba(140, 120, 200, 0.35), rgba(20, 18, 34, 0.9) 70%);
+}
+
+.facedown-label {
+  position: relative;
+  font-size: 0.62rem;
+  line-height: 1.15;
+  text-align: center;
+  padding: 0.1rem 0.2rem;
+  border-radius: 0.2rem;
+  background: rgba(0, 0, 0, 0.55);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Yours reads as a solid, named thing rather than an unknown. */
 .facedown-card.mine {
   border-style: solid;
   color: var(--color-text);
 }
+
 /* Playable now — same affordance the rest of the board uses for "click this". */
 .facedown-card.selectable {
   cursor: pointer;
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+
+/* Yours but not yet playable (811's "beginning on the next turn") stays legible
+   rather than greyed to nothing: the reason is in the title, and a card the
+   player cannot find is worse than one they cannot click. */
+.facedown-card.mine:disabled {
+  opacity: 0.85;
 }
