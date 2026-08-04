@@ -15,6 +15,7 @@ import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
+import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -216,7 +217,10 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // bonus damage has nothing to add to.
   if (takesNoDamage(unit)) return state;
 
-  const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount);
+  // The DAMAGED unit's battlefield, for Void Gate — the first damage modifier
+  // that is about where the target stands rather than about the caster.
+  const targetBattlefieldId = zone === "base" ? undefined : state.battlefields[zone.battlefieldIndex]!.id;
+  const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount, targetBattlefieldId);
 
   const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + modifiedAmount };
   // A base unit has no battlefield id — continuous auras keyed on location
@@ -1266,6 +1270,14 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
   const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
 
   const bf = state.battlefields[battlefieldIndex]!;
+  // Vilemaw's Lair — "units can't move from here to base". Both cards that reach
+  // this helper say MOVE (Flash: "move up to 2 friendly units to base"; Maddened
+  // Marauder: "move a unit from a battlefield to its base"), which is exactly
+  // what the Lair forbids. Doing as much as it can and no more is 422; the spell
+  // still resolves. Combat's own step-3d recall goes through
+  // `relocateToBaseUnchanged` and is deliberately NOT blocked — that is a step of
+  // the Combat Cleanup rather than a move a player makes.
+  if (!mayMoveToBaseFrom(state, bf.id)) return state;
   const battlefields = [...state.battlefields];
   battlefields[battlefieldIndex] = {
     ...bf,

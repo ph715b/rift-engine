@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
+import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -243,6 +244,13 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const aloneHere = (bf?.units[ownerId]?.length ?? 0) === 1;
     if (aloneHere) bonus += 2;
   }
+
+  // The BATTLEFIELD itself can grant one — Trifarian War Camp's "units here have
+  // +1 Might. (This includes attackers.)". It is not filtered by owner because
+  // the card is not: "units here" is both sides, unlike every unit aura above.
+  // The parenthetical is free here — the bonus is unconditional, so it lands in
+  // the outgoing-damage context as well as the remaining one.
+  bonus += battlefieldMightBonusAt(state, ctx.battlefieldId);
 
   // The owner's LEGEND can grant a continuous bonus too (Master Yi - Wuju
   // Bladesman's defend-alone +2). Kept in its own registry rather than

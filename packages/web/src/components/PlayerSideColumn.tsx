@@ -6,6 +6,8 @@ import { PointTracker } from "./PointTracker.js";
 interface PlayerSideColumnProps {
   label: string;
   points: number;
+  /** This game's Victory Score — see PointTracker's own note. */
+  victoryScore: number;
   handCount?: number;
   legend: LegendInstance;
   champion: UnitInstance | null;
@@ -65,6 +67,7 @@ interface PlayerSideColumnProps {
 export function PlayerSideColumn({
   label,
   points,
+  victoryScore,
   handCount,
   legend,
   champion,
@@ -120,7 +123,7 @@ export function PlayerSideColumn({
           {label} — <strong>{points} pts</strong>
           {handCount !== undefined && <span className="side-column-hand-count"> · hand: {handCount}</span>}
         </span>
-        <PointTracker points={points} />
+        <PointTracker points={points} threshold={victoryScore} />
       </div>
 
       {!legendAtBottom && legendAndChampion}

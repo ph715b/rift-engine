@@ -23,6 +23,7 @@ import {
   targetingForAnyCard,
   timingRejection,
   unitTriggerHasVisionChoice,
+  victoryScore,
   type CardInstance,
   type ChainItemDescription,
   type DeckList,
@@ -2073,6 +2074,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           <PlayerSideColumn
             label="AI Opponent"
             points={ai.points}
+            victoryScore={victoryScore(state)}
             handCount={ai.hand.length}
             legend={ai.legend}
             champion={ai.championZone}
@@ -2350,6 +2352,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         <PlayerSideColumn
           label="You"
           points={human.points}
+          victoryScore={victoryScore(state)}
           legend={human.legend}
           isLegendSelectable={canActivate(human.legend.instanceId)}
           isLegendSelected={pendingAbility === human.legend.instanceId}

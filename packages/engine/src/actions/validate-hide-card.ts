@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { HideCardAction } from "./player-action.js";
 import { RAINBOW, hideCostFor, isHiddenCard, mayHideWithEnergy } from "../engine/hidden.js";
 import { matchesPowerDomain } from "../engine/rune-payment.js";
+import { hiddenCardLimitAt } from "../engine/battlefield-continuous.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -52,8 +53,13 @@ export function validateHideCard(state: GameState, action: HideCardAction): Vali
   if (bf.controllerId !== actor.id) {
     return fail(`You can only hide a card at a battlefield you control`);
   }
-  if (bf.hiddenCards.length > 0) {
-    return fail(`${bf.name} already has a facedown card hidden there`);
+  // "…that doesn't already have a facedown card hidden there" — one per
+  // battlefield, unless the battlefield itself says otherwise. Bandle Tree's
+  // "you may hide an ADDITIONAL card here" raises the limit rather than removing
+  // it, and `legal-actions` asks the same function so the two cannot disagree.
+  const limit = hiddenCardLimitAt(state, bf.id);
+  if (bf.hiddenCards.length >= limit) {
+    return fail(`${bf.name} already has ${limit === 1 ? "a facedown card" : `${limit} facedown cards`} hidden there`);
   }
 
   // The cost is a flat 1 Power in ANY domain — the card's own printed cost is

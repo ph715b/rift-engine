@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
+import { battlefieldBonusDamageAt } from "./battlefield-continuous.js";
 
 /**
  * Cross-cutting damage modifiers — checked at dealDamage's own choke point
@@ -52,12 +53,30 @@ export function takesNoDamage(unit: UnitInstance): boolean {
   return unit.defId === KAYN_UNLEASHED && (unit.movesThisTurn ?? 0) >= KAYN_MOVES_REQUIRED;
 }
 
-export function modifiedDamageAmount(state: GameState, casterIndex: 0 | 1, baseAmount: number): number {
+/**
+ * `targetBattlefieldId` is where the DAMAGED unit stands, or undefined in base —
+ * Void Gate's "spells and abilities deal 1 Bonus Damage to units HERE" is the
+ * first modifier in this module that is about the target rather than the caster.
+ */
+export function modifiedDamageAmount(
+  state: GameState,
+  casterIndex: 0 | 1,
+  baseAmount: number,
+  targetBattlefieldId?: string,
+): number {
   const caster = state.players[casterIndex];
   const hasAnnieFiery =
     caster.baseUnits.some((u) => u.defId === ANNIE_FIERY) ||
     state.battlefields.some((bf) => (bf.units[caster.id] ?? []).some((u) => u.defId === ANNIE_FIERY));
   // Ravenborn Tome's armed charge STACKS with Annie's aura rather than replacing
   // it: two effects each saying "1 Bonus Damage" are two separate +1s.
-  return baseAmount + (hasAnnieFiery ? 1 : 0) + caster.nextSpellBonusDamage;
+  // The battlefield's own bonus STACKS with both, for the reason those two
+  // already stack with each other: two effects each saying "1 Bonus Damage" are
+  // two separate +1s.
+  return (
+    baseAmount +
+    (hasAnnieFiery ? 1 : 0) +
+    caster.nextSpellBonusDamage +
+    battlefieldBonusDamageAt(state, targetBattlefieldId)
+  );
 }

@@ -1,5 +1,5 @@
 import type { GameState } from "../model/game-state.js";
-import { WIN_THRESHOLD_1V1 } from "./constants.js";
+import { victoryScore } from "./constants.js";
 
 /**
  * Returns the winning player's index, or null if no one has won yet.
@@ -23,5 +23,6 @@ export function winner(state: GameState): 0 | 1 | null {
   if (a.points === b.points) return null; // a tie at/above threshold is deliberately not a win
 
   const [maxIndex, maxPoints] = a.points > b.points ? ([0, a.points] as const) : ([1, b.points] as const);
-  return maxPoints >= WIN_THRESHOLD_1V1 ? maxIndex : null;
+  // THIS game's Victory Score — Aspirant's Climb raises it by 1.
+  return maxPoints >= victoryScore(state) ? maxIndex : null;
 }

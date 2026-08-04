@@ -1,5 +1,5 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
-import { WIN_THRESHOLD_1V1 } from "./constants.js";
+import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 
@@ -144,7 +144,9 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   if (alreadyScored) return next;
 
   const player = next.players[playerIndex];
-  if (player.points === WIN_THRESHOLD_1V1 - 1) {
+  // 474's Final Point rule, measured against THIS game's Victory Score rather
+  // than the printed 8 — Aspirant's Climb moves the point at which it bites.
+  if (player.points === victoryScore(next) - 1) {
     const allBattlefieldIds = next.battlefields.map((bf) => bf.id);
     const scoredAll = allBattlefieldIds.every((id) => player.scoredBattlefieldsThisTurn.includes(id));
     if (!scoredAll) {

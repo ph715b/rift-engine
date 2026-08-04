@@ -1,3 +1,6 @@
+import type { GameState } from "../model/game-state.js";
+import { winThreshold } from "./battlefield-continuous.js";
+
 /** 2-player Victory Score — model/GameState.java:17 (`WIN_THRESHOLD_1V1 = 8`).
  *  The multiplayer threshold (11) and the Aspirant's Climb battlefield's +1
  *  modifier (model/GameState.java:852-856) don't apply — this engine is
@@ -5,6 +8,24 @@
  *  yet (battlefields currently carry no passive effects at all). Shared by
  *  scoring.ts and win-condition.ts (was two separately-declared copies). */
 export const WIN_THRESHOLD_1V1 = 8;
+
+/**
+ * The Victory Score for THIS game — the constant above plus whatever the
+ * battlefields in play add to it.
+ *
+ * Aspirant's Climb ("increase the points needed to win the game by 1") is why
+ * this is a function of state: the constant's own comment used to say the card
+ * "isn't a battlefield mechanic yet (battlefields currently carry no passive
+ * effects at all)", which was true and is the sentence shape this codebase has
+ * learned to read as "here is a hook that does not exist".
+ *
+ * Both readers must ask it: `win-condition.winner` and `scoring.recordConquest`'s
+ * final-point rule (474). One of them using the bare constant is how a game ends
+ * a point early.
+ */
+export function victoryScore(state: GameState): number {
+  return winThreshold(state, WIN_THRESHOLD_1V1);
+}
 
 /**
  * "If an opponent's score is within 3 points of the Victory Score" — the
@@ -20,10 +41,10 @@ export const WIN_THRESHOLD_1V1 = 8;
  */
 export const COMEBACK_SCORE_GAP = 3;
 
-export function opponentNearVictory(
-  state: { players: readonly { points: number }[] },
-  playerIndex: 0 | 1,
-): boolean {
+export function opponentNearVictory(state: GameState, playerIndex: 0 | 1): boolean {
   const opponentIndex = playerIndex === 0 ? 1 : 0;
-  return WIN_THRESHOLD_1V1 - state.players[opponentIndex]!.points <= COMEBACK_SCORE_GAP;
+  // Measured against THIS game's Victory Score, not the printed 8: with
+  // Aspirant's Climb in play the comeback clause has one more point to cover,
+  // and both cards that read it say "within 3 points of the Victory Score".
+  return victoryScore(state) - state.players[opponentIndex]!.points <= COMEBACK_SCORE_GAP;
 }

@@ -52,6 +52,7 @@ import {
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
+import { hiddenCardLimitAt, mayMoveToBaseFrom } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
@@ -291,7 +292,11 @@ function hideCardCandidates(state: GameState, actor: PlayerState, playerIndex: 0
   const payments = [payment, energyPayment].filter((p): p is RunePayment => p !== undefined);
   if (payments.length === 0) return [];
 
-  const destinations = state.battlefields.filter((bf) => bf.controllerId === actor.id && bf.hiddenCards.length === 0);
+  // 811's one-facedown-per-battlefield limit, raised by Bandle Tree's "you may
+  // hide an ADDITIONAL card here". The same function `validate-hide-card` asks.
+  const destinations = state.battlefields.filter(
+    (bf) => bf.controllerId === actor.id && bf.hiddenCards.length < hiddenCardLimitAt(state, bf.id),
+  );
   return hideable.flatMap((card) =>
     destinations.flatMap((bf) =>
       payments.map((p): HideCardAction => ({ type: "HideCard", playerIndex, card, battlefieldId: bf.id, payment: p })),
@@ -1064,8 +1069,12 @@ export function legalActions(state: GameState): PlayerAction[] {
     for (const unit of unitsHere) {
       if (unit.exhausted) continue;
 
-      const recall: RecallUnitAction = { type: "RecallUnit", playerIndex, unitInstanceIds: [unit.instanceId] };
-      actions.push(recall);
+      // Vilemaw's Lair — the same gate `validate-recall-unit` reads, so the two
+      // cannot disagree about whether a retreat from here is legal.
+      if (mayMoveToBaseFrom(state, bf.id)) {
+        const recall: RecallUnitAction = { type: "RecallUnit", playerIndex, unitInstanceIds: [unit.instanceId] };
+        actions.push(recall);
+      }
 
       // Same grant layer the validator uses, so a conditionally-Ganking unit is
       // never offered a move the validator would then refuse (or vice versa).

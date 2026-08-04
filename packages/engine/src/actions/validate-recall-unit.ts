@@ -1,6 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { RecallUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
+import { mayMoveToBaseFrom } from "../engine/battlefield-continuous.js";
 
 /**
  * Validates a RecallUnit action (battlefield -> base). Mirrors
@@ -39,6 +40,11 @@ export function validateRecallUnit(state: GameState, action: RecallUnitAction): 
     }
     if (unit.exhausted) {
       return fail(`${unit.name} is exhausted and cannot be recalled`);
+    }
+    // Vilemaw's Lair — "units can't move from here to base". The same function
+    // `legal-actions` asks, so the recall can never be offered and then refused.
+    if (!mayMoveToBaseFrom(state, originBattlefield.id)) {
+      return fail(`${unit.name} cannot move from ${originBattlefield.name} to base`);
     }
   }
 

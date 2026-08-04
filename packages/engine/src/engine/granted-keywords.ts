@@ -3,6 +3,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
+import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
 
 /**
  * Keywords a unit has RIGHT NOW, printed ones plus any it is currently being
@@ -269,7 +270,18 @@ export function effectiveKeywords(
   const grant = CONDITIONAL_GRANTS[unit.defId];
   const hasThisTurn = Object.keys(unit.keywordsThisTurn).length > 0;
   const fromAuras = auraGrantedKeywords(state, unit, ownerIndex);
-  if (!hasThisTurn && fromAuras.length === 0 && (!grant || !grant.when(state, unit, ownerIndex))) return unit.keywords;
+  // Windswept Hillock's `[Ganking]` — the BATTLEFIELD a unit stands at can grant
+  // a keyword, and it grants to BOTH sides, so it is looked up from the location
+  // rather than from a source card someone controls.
+  const fromBattlefield = battlefieldKeywordsAt(state, locationOf(state, unit));
+  if (
+    !hasThisTurn &&
+    fromAuras.length === 0 &&
+    fromBattlefield.length === 0 &&
+    (!grant || !grant.when(state, unit, ownerIndex))
+  ) {
+    return unit.keywords;
+  }
 
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
   // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
@@ -294,6 +306,10 @@ export function effectiveKeywords(
   // real divergence for [Vision], whose rules text says "multiple instances of
   // Vision trigger separately"; see docs/rules-conformance.md.
   for (const kw of fromAuras) out[kw] = Math.max(out[kw] ?? 0, 1);
+  // Folded in on the same terms — a keyword a battlefield grants must behave
+  // exactly like a printed one, and nothing downstream should be able to tell
+  // where it came from.
+  for (const kw of fromBattlefield) out[kw] = Math.max(out[kw] ?? 0, 1);
   return out;
 }
 
