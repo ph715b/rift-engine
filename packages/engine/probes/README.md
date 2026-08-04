@@ -23,8 +23,25 @@ which is the entire reason they are TypeScript.
 | `passive-human.ts` | a game where the human only passes still ends | 16/16, 0 stalled |
 | `chain-depth.ts` | triggers are held, reach the chain, and strand nothing | held > 0, onChain > 0, strandedPen === 0 |
 | `walkout.ts` | a Combat Showdown one side leaves still awards the battlefield | walkouts > 0 **and** every one awards control |
+| `exercised.ts` | which cards have ever actually *run*, as opposed to being registered | instrument health only — all three signals fired, nothing unresolved, something still unexercised |
 
 All take `GAMES=<n>`.
+
+### `exercised.ts` is a report, not a threshold
+
+`coverage.ts` answers "is this card implemented"; this answers "has it ever run".
+They are different questions and only the first had an answer, so "270/270
+implemented" sat beside an unknown number of cards no automated run had played.
+
+Read its three numbers together. `exercised / inDecks` measures the engine and the
+AI; `inDecks / inPool` measures the **decks**, and that is the one that is low — at
+`9105527` the seven preset decks contain 105 of 288 definitions, so **189 of the 270
+cards needing code cannot be reached by any probe at all.** A low `exercised` almost
+always means a deck problem, and reporting it without `inDecks` beside it would
+invite the same misreading `make-buffdeck.mjs` once invited.
+
+Deliberately **not** gated on a coverage percentage — any threshold would be a
+number picked to pass. The gate is that the instrument still works.
 
 ## Why these are TypeScript
 
