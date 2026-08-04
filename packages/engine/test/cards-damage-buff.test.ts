@@ -188,7 +188,9 @@ describe("straight damage and kill", () => {
     state.players[0]!.runeDeck = [{ id: "rd", domain: "Chaos", state: "Ready" }];
     state.players[1]!.activeGear = [mkGear("OGN-090", "orb")];
 
-    const after = resolveSpell(THERMO_BEAM, 0, state);
+    // Settled: a gear's "when this leaves the board" is a Chain Pending Item now,
+    // so the spell only PLACES it and the draw lands a chain-pop later.
+    const after = resolveHeldTriggers(resolveSpell(THERMO_BEAM, 0, state));
 
     expect(after.players[0]!.activeGear).toHaveLength(0);
     expect(after.players[1]!.activeGear).toHaveLength(0);

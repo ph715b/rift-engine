@@ -8,7 +8,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type GearInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, pickCard, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Scrapheap (OGN-182) — "When this is played, discarded, or killed, draw 1."
@@ -22,6 +22,12 @@ import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fi
  * It also forced gear to have a death funnel at all. Until now a gear could only
  * leave play via the Temporary sweep, which put it straight in the trash — fine
  * while nothing watched, invisibly wrong the moment something did.
+ *
+ * **Self-triggers are Chain Pending Items since 2026-08-03**, so every test here
+ * settles the chain before asking what happened: the play, discard or kill only
+ * PLACES the ability now. These tests are about WHAT each branch does;
+ * `test/self-triggers-held.test.ts` pins the waiting itself and deliberately does
+ * not settle.
  */
 
 const registry = defaultCardRegistry();
@@ -50,7 +56,7 @@ describe("played", () => {
     const state = holder([scrap]);
     const play = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === scrap.instanceId)!;
 
-    const after = executePlayCard(state, play as never);
+    const after = resolveHeldTriggers(executePlayCard(state, play as never));
 
     expect(after.players[0]!.activeGear.map((g) => g.defId)).toContain(SCRAPHEAP);
     expect(after.players[0]!.hand).toHaveLength(1); // played the only card, drew one back
@@ -62,7 +68,7 @@ describe("played", () => {
     const state = holder([orb]);
     const play = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === orb.instanceId)!;
 
-    expect(executePlayCard(state, play as never).players[0]!.deck).toHaveLength(5);
+    expect(resolveHeldTriggers(executePlayCard(state, play as never)).players[0]!.deck).toHaveLength(5);
   });
 });
 
@@ -73,7 +79,7 @@ describe("discarded", () => {
     const scrap = gear(SCRAPHEAP);
     const state = holder([scrap]);
 
-    const after = discardCards(state, 0, 1);
+    const after = resolveHeldTriggers(discardCards(state, 0, 1));
 
     expect(after.players[0]!.trash.map((c) => c.defId)).toEqual([SCRAPHEAP]);
     expect(after.players[0]!.hand).toHaveLength(1); // the discard left, the draw arrived
@@ -83,7 +89,7 @@ describe("discarded", () => {
   it("draws once per copy discarded", () => {
     const state = holder([gear(SCRAPHEAP), gear(SCRAPHEAP)]);
 
-    const after = discardCards(state, 0, 2);
+    const after = resolveHeldTriggers(discardCards(state, 0, 2));
 
     expect(after.players[0]!.hand).toHaveLength(2);
     expect(after.players[0]!.deck).toHaveLength(3);
@@ -96,7 +102,7 @@ describe("discarded", () => {
 
     // Two cards and "discard 1" is a real choice now, so name the card: the
     // point is that discarding something ELSE leaves Scrapheap unfired.
-    const after = answerDecisions(discardCards(state, 0, 1), pickCard(other.instanceId));
+    const after = answerDecisions(resolveHeldTriggers(discardCards(state, 0, 1)), pickCard(other.instanceId));
 
     expect(after.players[0]!.trash.map((c) => c.defId)).toEqual([ORB_OF_REGRET]);
     expect(after.players[0]!.deck).toHaveLength(5);
@@ -106,7 +112,7 @@ describe("discarded", () => {
   it("draws for the card's OWNER, not whoever caused the discard", () => {
     const state = holder([gear(SCRAPHEAP)]);
 
-    const after = discardCards(state, 0, 1);
+    const after = resolveHeldTriggers(discardCards(state, 0, 1));
 
     expect(after.players[1]!.deck).toHaveLength(5); // the opponent drew nothing
   });
@@ -119,7 +125,7 @@ describe("killed", () => {
       players: [makePlayer("p1", { activeGear: [scrap], deck: [makeUnit(), makeUnit()] }), makePlayer("p2")],
     });
 
-    const after = killGear(state, scrap, 0);
+    const after = resolveHeldTriggers(killGear(state, scrap, 0));
 
     expect(after.players[0]!.activeGear).toHaveLength(0);
     expect(after.players[0]!.trash.map((c) => c.instanceId)).toEqual([scrap.instanceId]);
@@ -137,7 +143,7 @@ describe("killed", () => {
       players: [makePlayer("p1", { activeGear: [scrap], deck: [makeUnit(), makeUnit()] }), makePlayer("p2")],
     });
 
-    const after = runBeginning(grantTemporary(state, scrap.instanceId));
+    const after = resolveHeldTriggers(runBeginning(grantTemporary(state, scrap.instanceId)));
 
     expect(after.players[0]!.activeGear).toHaveLength(0);
     expect(after.players[0]!.trash.map((c) => c.defId)).toContain(SCRAPHEAP);

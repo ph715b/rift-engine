@@ -11,7 +11,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The Gear activated abilities.
@@ -70,8 +70,11 @@ function withGear(defId: string, overrides: (s: GameState) => void = () => {}): 
 const abilityActions = (state: GameState) =>
   legalActions(state).filter((a) => a.type === "ActivateAbility" && a.permanentInstanceId === "g1");
 
+/** Activate an ability and settle the chain — a gear's "when this leaves the
+ *  board" is a Chain Pending Item now, so an ability that kills it only places
+ *  the payout. */
 const activate = (state: GameState, pick = (as: ReturnType<typeof abilityActions>) => as[0]!) =>
-  executeActivateAbility(state, pick(abilityActions(state)) as never);
+  resolveHeldTriggers(executeActivateAbility(state, pick(abilityActions(state)) as never));
 
 describe("The six Seals: exhaust to add 1 Power of their domain", () => {
   for (const [defId, domain] of SEALS) {
@@ -293,7 +296,9 @@ describe("Spirit's Refuge (OGN-063): buff a friendly unit when it is played", ()
   const playRefuge = (state: GameState) => {
     const action = legalActions(state).find((a) => a.type === "PlayCard" && a.card.defId === SPIRITS_REFUGE);
     expect(action, "Spirit's Refuge was never enumerated as playable").toBeDefined();
-    return executePlayCard(state, action as never);
+    // Settled: Spirit's Refuge's "when you play this" is held, so the question it
+    // parks arrives a chain-pop after the play.
+    return resolveHeldTriggers(executePlayCard(state, action as never));
   };
 
   it("asks which friendly unit to buff, and buffs the one chosen", () => {

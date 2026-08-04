@@ -6,7 +6,7 @@ import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, holdEventTrigger, killGear } from "./triggers.js";
+import { dispatchEvent, dispatchOnUnitDied, holdEventTrigger, holdSelfTrigger, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
@@ -795,7 +795,10 @@ export function discardCards(
   // in the trash rather than in play — so it is dispatched by its own defId, not
   // found by walking the board. Fired after the move, so the trigger sees the
   // finished zones.
-  const selfTriggered = chosen.reduce((next, c) => dispatchSelfEvent(next, "discarded", c, playerIndex), moved);
+  // HELD (383), one entry per discarded card — a card that pays out on being
+  // discarded is in HAND at that moment and in the trash immediately after, so
+  // the entry carries it rather than looking it up.
+  const selfTriggered = chosen.reduce((next, c) => holdSelfTrigger(next, "discarded", c, playerIndex), moved);
 
   // Then the board event, ONCE for the whole instruction (Jinx - Rebel's "one or
   // more cards"). After the per-card self-triggers, so a card that plays itself

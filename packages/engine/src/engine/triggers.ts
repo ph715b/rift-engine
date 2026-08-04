@@ -853,11 +853,50 @@ export function selfTriggerDefIds(): string[] {
   return Object.keys(allSelfTriggers());
 }
 
-/** Fires `card`'s own trigger for this moment, if it has one for it. */
-export function dispatchSelfEvent(state: GameState, kind: SelfEventKind, card: CardInstance, ownerIndex: 0 | 1): GameState {
+/**
+ * Puts `card`'s own trigger for this moment in the holding pen (383), if it has
+ * one — the counterpart to `holdUnitTrigger` and `holdMoveTrigger`.
+ *
+ * **The whole CARD rides on the entry**, which is what unblocked this family.
+ * The old `dispatchSelfEvent` resolved inline with a comment explaining why it
+ * had to: "it fires for a card that has just LEFT play or never entered it, so
+ * `allListeningPermanents` cannot find it and `resolvePendingTrigger` could not
+ * re-look it up". That is the right diagnosis of the wrong mechanism — the
+ * unit-sourced entries had already stopped re-looking anything up. Carrying the
+ * card is 809.1.b.3's "note its attributes before the card is moved to the
+ * Trash" applied to all of them.
+ *
+ * Returns the state unchanged when the card has no trigger for this moment, so
+ * every site can call it unconditionally.
+ */
+export function holdSelfTrigger(state: GameState, kind: SelfEventKind, card: CardInstance, ownerIndex: 0 | 1): GameState {
   const trigger = allSelfTriggers()[card.defId];
   if (!trigger || !trigger.on.includes(kind)) return state;
-  return trigger.resolve(state, { kind, card, ownerIndex });
+  const event: SelfEvent = { kind, card, ownerIndex };
+  const entry: TriggerChainEntry = {
+    kind: "trigger",
+    source: "selfTrigger",
+    playerIndex: ownerIndex,
+    listenerInstanceId: card.instanceId,
+    listenerDefId: card.defId,
+    listenerName: card.name,
+    event,
+  };
+  return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
+}
+
+/**
+ * Resolves a held self-trigger when the chain pops it.
+ *
+ * Nothing is looked up: the card is on the entry, and by now it is in a trash
+ * (killed, discarded) or in play (played) — the ability does not care, and could
+ * not find it in two of those three cases anyway. 809.1.b again: an ability on
+ * the Chain is independent of the card that made it.
+ */
+export function resolveHeldSelfTrigger(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = allSelfTriggers()[entry.listenerDefId];
+  if (!trigger) return state;
+  return trigger.resolve(state, entry.event as SelfEvent);
 }
 
 /**
@@ -883,6 +922,7 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
     trash: [...owner.trash, gear],
   };
   // Trash first, then trigger — the trigger has to see a board the gear has
-  // already left, the same ordering killUnit uses.
-  return dispatchSelfEvent({ ...state, players }, "killed", gear, ownerIndex);
+  // already left, the same ordering killUnit uses. HELD (383) rather than
+  // dispatched, so the gear's payout is respondable like everything else.
+  return holdSelfTrigger({ ...state, players }, "killed", gear, ownerIndex);
 }

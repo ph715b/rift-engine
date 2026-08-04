@@ -4,7 +4,7 @@ import { contextFor } from "./effect-context.js";
 import { effectForCard } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { playUnitFree } from "./free-play.js";
-import { dispatchSelfEvent, holdEventTrigger } from "./triggers.js";
+import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 
 /**
  * Playing a card for free FROM INSIDE another card's resolution — Blind Fury's
@@ -97,11 +97,12 @@ function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellI
  * cards that do it read differently.
  */
 function firePlayed(state: GameState, playerIndex: 0 | 1, card: CardInstance): GameState {
-  const withSelf = dispatchSelfEvent(state, "played", card, playerIndex);
-  return holdEventTrigger(withSelf, {
+  const withEvent = holdEventTrigger(state, {
     kind: "cardPlayed",
     casterIndex: playerIndex,
     playedKind: card.kind,
     playedInstanceId: card.instanceId,
   });
+  // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
+  return holdSelfTrigger(withEvent, "played", card, playerIndex);
 }

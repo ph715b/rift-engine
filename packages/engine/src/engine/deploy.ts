@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { dispatchOnPlayUnit } from "./unit-triggers.js";
-import { dispatchSelfEvent, holdEventTrigger } from "./triggers.js";
+import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 import { opponentNearVictory } from "./constants.js";
 
 /**
@@ -188,13 +188,15 @@ export function playUnitToBattlefield(
   battlefields[bfIndex] = { ...bf, units: { ...bf.units, [ownerId]: [...(bf.units[ownerId] ?? []), deployed] } };
 
   const arrived = dispatchOnPlayUnit({ ...spent, battlefields }, deployed, playerIndex, { battlefieldId }, {});
-  const self = dispatchSelfEvent(arrived, "played", deployed, playerIndex);
-  return holdEventTrigger(self, {
+  const withEvent = holdEventTrigger(arrived, {
     kind: "cardPlayed",
     casterIndex: playerIndex,
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
   });
+  // Last, so LIFO resolves it first — see execute-play-card for why the position
+  // is chosen rather than incidental.
+  return holdSelfTrigger(withEvent, "played", deployed, playerIndex);
 }
 
 export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState {
@@ -204,17 +206,18 @@ export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitI
   players[playerIndex] = { ...spent.players[playerIndex], baseUnits: [...spent.players[playerIndex].baseUnits, deployed] };
 
   const arrived = dispatchOnPlayUnit({ ...spent, players }, deployed, playerIndex, "base", {});
-  const self = dispatchSelfEvent(arrived, "played", deployed, playerIndex);
   // A token deployed straight to base is still a Unit being played, and Cithria
   // of Cloudfield's "another unit" makes no exception for one.
   //
   // HELD, matching execute-play-card: `cardPlayed` is a Chain Pending Item, and
   // an event kind has to be converted at EVERY producer at once or the same event
   // resolves one way from one call site and another way from the other.
-  return holdEventTrigger(self, {
+  const withEvent = holdEventTrigger(arrived, {
     kind: "cardPlayed",
     casterIndex: playerIndex,
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
   });
+  // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
+  return holdSelfTrigger(withEvent, "played", deployed, playerIndex);
 }

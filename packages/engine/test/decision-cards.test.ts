@@ -54,7 +54,7 @@ describe("Flame Chompers (OGN-006): when you discard me, you may pay [Fury] to p
 
     // answerDecisions answers the discard AND would answer this, so stop short:
     // discard by hand and inspect the question that follows.
-    const afterDiscard = discardCards(state, 0, 1, [chompers.instanceId]);
+    const afterDiscard = resolveHeldTriggers(discardCards(state, 0, 1, [chompers.instanceId]));
 
     expect(afterDiscard.players[0]!.trash.map((c) => c.defId)).toEqual([FLAME_CHOMPERS]);
     expect(pendingDecision(afterDiscard)!.kind).toBe("OGN-006-play");
@@ -64,7 +64,7 @@ describe("Flame Chompers (OGN-006): when you discard me, you may pay [Fury] to p
 
   it("declining leaves it in the trash and spends nothing", () => {
     const { state, chompers } = chompersState(2);
-    const asked = discardCards(state, 0, 1, [chompers.instanceId]);
+    const asked = resolveHeldTriggers(discardCards(state, 0, 1, [chompers.instanceId]));
 
     const after = answerDecisions(asked, () => "decline");
 
@@ -75,7 +75,7 @@ describe("Flame Chompers (OGN-006): when you discard me, you may pay [Fury] to p
 
   it("paying puts it into play from the trash, exhausted (143.4.a)", () => {
     const { state, chompers } = chompersState(2);
-    const asked = discardCards(state, 0, 1, [chompers.instanceId]);
+    const asked = resolveHeldTriggers(discardCards(state, 0, 1, [chompers.instanceId]));
 
     const after = answerDecisions(asked, () => "play");
 
@@ -91,7 +91,7 @@ describe("Flame Chompers (OGN-006): when you discard me, you may pay [Fury] to p
   it("does not charge the printed 3 Energy — the text replaces the cost", () => {
     const { state, chompers } = chompersState(2);
     state.players[0]!.floatingEnergy = 3;
-    const asked = discardCards(state, 0, 1, [chompers.instanceId]);
+    const asked = resolveHeldTriggers(discardCards(state, 0, 1, [chompers.instanceId]));
 
     const after = answerDecisions(asked, () => "play");
 
@@ -123,10 +123,19 @@ describe("Flame Chompers (OGN-006): when you discard me, you may pay [Fury] to p
 
     // Two in hand and "discard 2" is not a choice, so both go at once — and each
     // gets its own offer, because the trigger is keyed to the card, not the act.
-    const asked = discardCards(state, 0, 2);
-    expect(asked.pendingDecisions.filter((d) => d.kind === "OGN-006-play")).toHaveLength(2);
+    //
+    // **They arrive ONE AT A TIME now**, and that is the conversion rather than a
+    // regression: each copy places its own Pending Item, the chain resolves LIFO
+    // one entry per pass, and a parked question stops the settle. Before, both
+    // fired inside the discard and both sat in the queue together. The claim the
+    // test is making — one offer per copy — is unchanged; when they are asked is.
+    const firstOffer = resolveHeldTriggers(discardCards(state, 0, 2));
+    expect(firstOffer.pendingDecisions.filter((d) => d.kind === "OGN-006-play")).toHaveLength(1);
 
-    const after = answerDecisions(asked, () => "play");
+    const secondOffer = resolveHeldTriggers(answerDecisions(firstOffer, () => "play"));
+    expect(secondOffer.pendingDecisions.filter((d) => d.kind === "OGN-006-play"), "the second copy never asked").toHaveLength(1);
+
+    const after = answerDecisions(secondOffer, () => "play");
     expect(after.players[0]!.baseUnits).toHaveLength(2);
   });
 });

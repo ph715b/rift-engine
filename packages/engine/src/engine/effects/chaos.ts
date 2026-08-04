@@ -615,7 +615,7 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
     on: ["killed"],
     resolve: (state, event) => channelRunesExhausted(drawCards(state, event.ownerIndex, 1), event.ownerIndex, 1),
   },
-  // Scrapheap � "When this is played, discarded, or killed, draw 1."
+  // Scrapheap — "When this is played, discarded, or killed, draw 1."
   //
   // The only card in the pool that watches its OWN three-way fate, and the
   // reason self-triggers are keyed by defId rather than found by walking the
@@ -623,7 +623,7 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
   // (and in the trash immediately after), so no listener walk over permanents in
   // play would ever reach it.
   //
-  // Not "when this ENTERS play" � a discarded Scrapheap was never in play at
+  // Not "when this ENTERS play" — a discarded Scrapheap was never in play at
   // all, and the printed text still pays. All three branches read the same, and
   // the draw goes to the card's owner in every one of them.
   "OGN-182": {

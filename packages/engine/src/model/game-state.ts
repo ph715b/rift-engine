@@ -141,18 +141,22 @@ export interface TriggerChainEntry {
    * `UnitTriggerEvent` carrying the destination and the choices that rode in on
    * the PlayCard action. `"unitOnMove"` is the same shape for "when I move",
    * where `event` is a `UnitMoveTriggerEvent` carrying the destination and
-   * whether this was the unit's first move of the turn.
+   * whether this was the unit's first move of the turn. `"selfTrigger"` is a
+   * card's ability about ITSELF (Scrapheap's "when this is played, discarded or
+   * killed"), where `event` is a `SelfEvent` carrying the whole CARD — because at
+   * two of those three moments it sits in a hand or a trash and no walk over
+   * permanents in play would reach it.
    *
    * A discriminant rather than a second event field, so an entry can never carry
    * both and no existing literal has to change — the absent case is exactly what
    * every producer wrote before on-play triggers were held.
    *
-   * **The two unit-sourced kinds share a rule the event kind does not**: their
-   * ability resolves even though its source has left play (809.1.b), because the
-   * unit IS the ability's source rather than a bystander watching. See
-   * `resolveHeldOnPlayTrigger`.
+   * **Every non-`event` source shares a rule the event one does not**: the ability
+   * resolves even though its source has left play (809.1.b), because the card IS
+   * the ability's source rather than a bystander watching. An event-registry
+   * listener is the bystander, and bails. See `resolveHeldOnPlayTrigger`.
    */
-  source?: "event" | "unitOnPlay" | "unitOnMove";
+  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */

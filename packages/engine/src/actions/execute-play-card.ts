@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
-import { dispatchSelfEvent, holdEventTrigger } from "../engine/triggers.js";
+import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -95,15 +95,15 @@ import { validatePlayCard } from "./validate-play-card.js";
  */
 export function executePlayCard(state: GameState, action: PlayCardAction): GameState {
   const played = executePlayCardInner(state, action);
-  // Two dispatches, and they are not redundant. `cardPlayed` is for OTHER
+  // Two triggers, and they are not redundant. `cardPlayed` is for OTHER
   // permanents watching (Viktor - Innovator); the self-trigger is for the card
   // itself (Scrapheap's "when this is played"), which a listener walk would also
   // reach but only by accident of it happening to be in play — a Spell wouldn't be.
-  const withSelf = dispatchSelfEvent(played, "played", action.card, action.playerIndex);
-  // HELD as a Chain Pending Item (383 / 809.1.b.3), not resolved here. The
-  // self-trigger above stays inline: it fires for a card that has just LEFT play
-  // or never entered it, so `allListeningPermanents` cannot find it and
-  // `resolvePendingTrigger` could not re-look it up.
+  //
+  // BOTH are HELD as Chain Pending Items (383 / 809.1.b.3). The self-trigger used
+  // to resolve inline, on the grounds that `allListeningPermanents` cannot find a
+  // card that has left play — true, and answered by `source: "selfTrigger"`, which
+  // carries the card on the entry and never looks it up.
   //
   // Every condition that decides whether a listener TRIGGERED now lives in its
   // `applies` predicate rather than only in `resolve`. Darius - Trifarian is the
@@ -111,7 +111,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // `cardsPlayedThisTurn`, a counter that the response window this hold opens can
   // itself change — a [Reaction] cast in answer makes it 3, and a `resolve` that
   // re-checked would refuse a trigger that had already fired.
-  return holdEventTrigger(withSelf, {
+  const withEvent = holdEventTrigger(played, {
     kind: "cardPlayed",
     casterIndex: action.playerIndex,
     playedKind: action.card.kind,
@@ -121,6 +121,11 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     // a hidden play as the play it is.
     ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
   });
+  // Placed LAST so that under the chain's LIFO resolution (343) it resolves
+  // FIRST — which is exactly where it sat while it was dispatched inline. Any
+  // other position would silently reorder every card that watches its own play
+  // against the permanents watching the same moment.
+  return holdSelfTrigger(withEvent, "played", action.card, action.playerIndex);
 }
 
 /** Takes a from-hidden card off its battlefield. A no-op for an ordinary play. */
