@@ -52,6 +52,7 @@ import { ChainView } from "./ChainView.js";
 import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
 import { listTargetHint } from "../target-hint.js";
+import { autoPayFill } from "../auto-payment.js";
 import { cardHasDestination } from "../card-destination.js";
 import { matchesPendingChoices } from "../pending-match.js";
 
@@ -1472,30 +1473,46 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     });
   }
 
-  /** Fills whatever's still owed using the remaining (not-yet-proposed)
-   *  channeled pool. The remainder can be infeasible even though the full
-   *  pool would've worked (e.g. the player manually claimed the only
-   *  domain-matching rune for Energy, leaving nothing for a Power slot) —
-   *  computeAutoPayment correctly returns null there, and this simply no-ops
-   *  rather than erroring. */
+  /**
+   * Fills whatever's still owed, PER BUCKET — see `auto-payment.ts`.
+   *
+   * This used to build one remaining pool by removing every rune already
+   * proposed in EITHER bucket, which cannot express rule 164.2's double duty:
+   * a Ready rune pays one Energy AND one Power, and the engine's own payment
+   * for Falling Star (2 Energy + 2 Fury Power) is two Fury runes listed twice.
+   * So a player who left-clicked their two Fury runes for the Energy half — the
+   * gesture the header asks for first — emptied the pool, the fill came back
+   * null, and the button did NOTHING. Reported from play as "I have the
+   * resources but nothing happens, even using Auto Pay".
+   *
+   * A genuine refusal now SAYS so. The old silent no-op made an unpayable
+   * remainder and a dead button indistinguishable, which is the same failure
+   * this file's own comment records for a silently-waiting target step.
+   */
   function handleAutoPay() {
     if (!pendingPlay || pendingPlay.card.kind === "Legend") return;
     const required = pendingLegalAction();
     if (!required) return;
-    const remainingEnergy = required.payment.energyRunes.length - pendingPlay.payment.energyRunes.length;
-    const remainingPower = required.payment.powerRunes.length - pendingPlay.payment.powerRunes.length;
-    if (remainingEnergy <= 0 && remainingPower <= 0) return;
 
-    const proposedIds = new Set([...pendingPlay.payment.energyRunes, ...pendingPlay.payment.powerRunes]);
-    const remainingPool = human.channeled.filter((r) => !proposedIds.has(r.id));
-    const fill = computeAutoPayment(
-      remainingPool,
-      Math.max(remainingEnergy, 0),
-      Math.max(remainingPower, 0),
+    const fill = autoPayFill(
+      human.channeled,
+      pendingPlay.payment,
+      required.payment,
       pendingPlay.card.powerDomain,
       pendingPlay.card.powerDomainAlt,
     );
-    if (!fill) return; // infeasible remainder — no-op
+    if (!fill) {
+      // Nothing owed is not a failure; anything else is one worth naming.
+      const owesEnergy = required.payment.energyRunes.length > pendingPlay.payment.energyRunes.length;
+      const owesPower = required.payment.powerRunes.length > pendingPlay.payment.powerRunes.length;
+      if (owesEnergy || owesPower) {
+        setUnplayableNotice(
+          `Your channeled runes can't cover the rest of ${pendingPlay.card.name}'s cost. ` +
+            `Right-click a rune to un-propose it and try again.`,
+        );
+      }
+      return;
+    }
 
     setPendingPlay((prev) =>
       prev
@@ -1844,7 +1861,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       energy > 0 ? `${energy} Energy (left-click)` : null,
       power > 0 ? `${power} Power (right-click)` : null,
     ].filter(Boolean);
-    return `${owed.join(" + ")} still owed, or Auto Pay`;
+    // Rule 164.2's double duty, said out loud. The SAME rune pays one Energy
+    // and one Power, so a 2+2 card is paid by two runes clicked twice each —
+    // and that is invisible from the board, because a rune already proposed
+    // looks spent. Exactly the gap `listTargetHint` exists to close for
+    // targets: a player who cannot see the rule reads the second click as a
+    // mistake and reaches for Auto Pay instead.
+    const bothHalves = resolved.payment.energyRunes.length > 0 && resolved.payment.powerRunes.length > 0;
+    const doubleDuty = bothHalves ? " — the same rune can pay one of each" : "";
+    return `${owed.join(" + ")} still owed${doubleDuty}, or Auto Pay`;
   }
 
   const pendingStillOwesPayment = Boolean(
