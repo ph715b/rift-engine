@@ -242,6 +242,19 @@ export interface PlayerState {
    * silent in exactly the states used to test the card.
    */
   chosenChampionDefId: string;
+  /**
+   * Runes this player will ready AT THE END OF THIS TURN — Targon's Peak's
+   * "when you conquer here, ready up to 2 runes at the end of this turn".
+   *
+   * A COUNT rather than a flag, because the trigger is on CONQUERING and not on
+   * scoring: 471.1.b withholds the second point for a battlefield taken twice in
+   * a turn, not the second trigger, so a battlefield lost and retaken arms four.
+   *
+   * "This turn" state, cleared by `runEnd` with the rest — which is exactly why
+   * the delayed ability CAPTURES it at fire time rather than reading it at
+   * resolution. See `BattlefieldTriggerDefinition.capture`.
+   */
+  readyRunesAtEndOfTurn: number;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

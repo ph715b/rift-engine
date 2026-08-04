@@ -132,6 +132,12 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   //    permanents on the chain together. The Legend still resolves first, by
   //    being placed last — see listeningPermanents.
   next = holdEventTrigger(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
+  // The BATTLEFIELD's own "when you conquer here" (Zaun Warrens, Targon's Peak,
+  // three more), placed after the permanents so it resolves before them under
+  // LIFO — see holdBattlefieldTrigger. Before the withheld-point branch below for
+  // the same reason the permanents are: "when you conquer" is about taking the
+  // battlefield, not about the point.
+  next = holdBattlefieldTrigger(next, "conquer", battlefieldId, playerIndex);
 
   // Already scored here this turn — the battlefield changed hands, and the
   // Conquer trigger above still fired, but no second point.

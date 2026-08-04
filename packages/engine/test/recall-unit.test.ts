@@ -51,6 +51,7 @@ function makePlayer(id: string): PlayerState {
     },
     championZone: null,
     chosenChampionDefId: "TEST-CHAMPION",
+    readyRunesAtEndOfTurn: 0,
     deck: [],
     hand: [],
     trash: [],

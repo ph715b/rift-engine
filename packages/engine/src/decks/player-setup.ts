@@ -74,6 +74,7 @@ export function buildPlayerFromDeckList(
     // Recorded here because this is the only place that knows it: the zone goes
     // empty the moment the champion is played, and Hallowed Tomb asks after that.
     chosenChampionDefId: deckList.championId,
+    readyRunesAtEndOfTurn: 0,
     deck,
     hand: [],
     trash: [],

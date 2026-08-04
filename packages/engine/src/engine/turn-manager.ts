@@ -4,6 +4,7 @@ import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
 import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
+import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -272,7 +273,21 @@ export function runEnd(state: GameState): GameState {
   // Awaken, hold scoring and draw, and finalizes onto the chain only after all of
   // it. By then `activePlayerIndex` is the OTHER player. See HeldEventKind's
   // turn-boundary note and test/turn-boundary-triggers.test.ts, which pins it.
-  const afterTriggers = holdEventTrigger(state, { kind: "endOfTurn", playerIndex: state.activePlayerIndex });
+  const withPermanents = holdEventTrigger(state, { kind: "endOfTurn", playerIndex: state.activePlayerIndex });
+
+  // The BATTLEFIELDS' own delayed abilities — Targon's Peak's "ready up to 2
+  // runes AT THE END OF THIS TURN", armed by a conquest earlier in the turn.
+  //
+  // Fired for EVERY battlefield, and it is each ability's `applies` that keeps
+  // this from placing a Pending Item every turn for a battlefield that did
+  // nothing. Held rather than resolved inline, like every other trigger, which
+  // means it resolves in the next player's Action phase along with `endOfTurn` —
+  // the recorded turn-boundary divergence, and the reason the delayed ability
+  // CAPTURES its count here rather than reading it after the resets below.
+  const afterTriggers = state.battlefields.reduce(
+    (next, bf) => holdBattlefieldTrigger(next, "endOfTurn", bf.id, state.activePlayerIndex),
+    withPermanents,
+  );
 
   // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
@@ -304,6 +319,10 @@ export function runEnd(state: GameState): GameState {
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
     discardedThisTurn: false,
+    // Targon's Peak's armed ready is 'this turn' state and ends with the turn.
+    // The trigger fired above already CAPTURED the count, so clearing it here
+    // cannot take the effect away — see BattlefieldTriggerDefinition.capture.
+    readyRunesAtEndOfTurn: 0,
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,

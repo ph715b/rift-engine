@@ -1,7 +1,15 @@
-import type { BattlefieldState, GameState, TriggerChainEntry } from "../model/game-state.js";
+import type { BattlefieldState, GameState, PlayerState, TriggerChainEntry } from "../model/game-state.js";
 import type { DecisionDefinition } from "./decisions.js";
-import { parkDecision } from "./decisions.js";
-import { channelRunesExhausted, addBuff, drawCards } from "./effect-helpers.js";
+import { parkDecision, repeatDecision } from "./decisions.js";
+import {
+  addBuff,
+  channelRunesExhausted,
+  discardThenDraw,
+  drawCards,
+  holdCardsRecycled,
+  readyRunes,
+  spendBuff,
+} from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 
@@ -56,7 +64,12 @@ export type BattlefieldMoment =
   | "unitMovedFrom"
   /** A Spell chose a unit standing here. `playerIndex` is the CHOOSING player
    *  and `unitInstanceId` is the unit that was chosen. */
-  | "unitChosenBySpell";
+  | "unitChosenBySpell"
+  /** `playerIndex`'s turn is ending — the moment a DELAYED battlefield ability
+   *  fires (Targon's Peak's "…at the end of this turn"). Fired by
+   *  `turn-manager.runEnd` for every battlefield, so only an `applies` keeps it
+   *  from placing a Pending Item every turn for a battlefield that did nothing. */
+  | "endOfTurn";
 
 /**
  * The moment, as the entry carries it.
@@ -87,7 +100,18 @@ export interface BattlefieldTriggerDefinition {
    * trigger that fires and finds nothing is 422 working.
    */
   applies?: (state: GameState, event: BattlefieldTriggerEvent) => boolean;
-  resolve: (state: GameState, event: BattlefieldTriggerEvent) => GameState;
+  /**
+   * What this ability has to note about the BOARD at the moment it triggered,
+   * carried on the chain entry and handed back to `resolve` — the same slot, for
+   * the same reason, as `EventTriggerDefinition.capture`.
+   *
+   * Targon's Peak is why it exists here: "ready up to 2 runes at the end of this
+   * turn" arms a per-turn counter, and `runEnd` clears every "this turn" field
+   * BEFORE the trigger it fired resolves (the recorded turn-boundary divergence).
+   * Re-reading the counter at resolution would therefore always find 0.
+   */
+  capture?: (state: GameState, event: BattlefieldTriggerEvent) => unknown;
+  resolve: (state: GameState, event: BattlefieldTriggerEvent, captured?: unknown) => GameState;
 }
 
 /** The battlefield `event` happened at, or undefined if it has somehow gone.
@@ -129,67 +153,192 @@ const THE_GRAND_PLAZA = "OGN-293";
 /** How many units The Grand Plaza wants standing there. */
 const GRAND_PLAZA_UNITS_TO_WIN = 7;
 
-export const BATTLEFIELD_TRIGGERS: Record<string, BattlefieldTriggerDefinition> = {
-  [ALTAR_TO_UNITY]: {
-    on: "hold",
-    // In your BASE, not here — the card says so, and it matters: a token placed
-    // at the battlefield would be a unit arriving somewhere its controller
-    // already holds, which contests nothing but does change what the next
-    // Showdown fights over.
-    resolve: (state, event) => placeRecruitToken(state, event.playerIndex, "base"),
-  },
+/** Monastery of Hirana — "When you conquer here, you may spend a buff to draw 1." */
+const MONASTERY_OF_HIRANA = "OGN-282";
+/** Sigil of the Storm — "When you conquer here, you must recycle one of your
+ *  runes. (This doesn't choose anything.)" */
+const SIGIL_OF_THE_STORM = "OGN-287";
+/** Targon's Peak — "When you conquer here, ready up to 2 runes at the end of
+ *  this turn." */
+const TARGONS_PEAK = "OGN-289";
+/** How many runes Targon's Peak arms per conquest. */
+const TARGONS_PEAK_RUNES = 2;
+/** The Candlelit Sanctum — "When you conquer here, look at the top two cards of
+ *  your Main Deck. You may recycle one or both of them. Put those you don't back
+ *  in any order." */
+const THE_CANDLELIT_SANCTUM = "OGN-291";
+/** How deep The Candlelit Sanctum looks. */
+const CANDLELIT_LOOK = 2;
+/** Zaun Warrens — "When you conquer here, discard 1, then draw 1." */
+const ZAUN_WARRENS = "OGN-298";
 
-  [GROVE_OF_THE_GOD_WILLOW]: {
-    on: "hold",
-    resolve: (state, event) => drawCards(state, event.playerIndex, 1),
-  },
-
-  [HALLOWED_TOMB]: {
-    on: "hold",
-    // "If it is empty" is a question about the Champion Zone at RESOLUTION, and
-    // so is "from your trash" — a response window can play the champion out of
-    // the zone or recycle it out of the trash. Both stay here rather than in
-    // `applies`; a trigger that fires and finds nothing is 422 working.
-    resolve: (state, event) =>
-      parkDecision(state, { kind: `${HALLOWED_TOMB}-return`, playerIndex: event.playerIndex }),
-  },
-
-  [NAVORI_FIGHTING_PIT]: {
-    on: "hold",
-    // Not a "you may", so the buff is mandatory — but WHICH unit is a real
-    // choice, and with one unit standing there `advanceDecisions` executes it
-    // without ever prompting.
-    resolve: (state, event) =>
-      parkDecision(state, {
-        kind: `${NAVORI_FIGHTING_PIT}-buff`,
-        playerIndex: event.playerIndex,
-        battlefieldId: event.battlefieldId,
-      }),
-  },
-
-  [RECKONERS_ARENA]: {
-    on: "hold",
-    resolve: (state, event) => activateConquerEffectsHere(state, event),
-  },
-
-  [STARTIPPED_PEAK]: {
-    on: "hold",
-    resolve: (state, event) =>
-      parkDecision(state, { kind: `${STARTIPPED_PEAK}-channel`, playerIndex: event.playerIndex }),
-  },
-
-  [THE_GRAND_PLAZA]: {
-    on: "hold",
-    // "If you have 7+ units HERE" is counted at RESOLUTION rather than at the
-    // hold. A response window can kill a unit standing there, and a win the
-    // opponent could no longer prevent by removing the seventh unit would be a
-    // stronger card than the one printed.
-    resolve: (state, event) => {
-      if (ownUnitsHere(state, event).length < GRAND_PLAZA_UNITS_TO_WIN) return state;
-      // Declared rather than scored — see GameState.declaredWinnerIndex.
-      return { ...state, declaredWinnerIndex: event.playerIndex };
+/**
+ * Every printed Battlefield's abilities, keyed by its card id.
+ *
+ * A LIST per card rather than one definition, because a battlefield can print
+ * two abilities at two different moments — Targon's Peak is "when you conquer
+ * here, ready up to 2 runes AT THE END OF THIS TURN", which is a conquer trigger
+ * that arms a delayed one. A single-definition table could only have expressed
+ * that by resolving the delayed half somewhere outside this registry, where
+ * nothing would report it as part of the card.
+ */
+export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDefinition[]> = {
+  [ALTAR_TO_UNITY]: [
+    {
+      on: "hold",
+      // In your BASE, not here — the card says so, and it matters: a token placed
+      // at the battlefield would be a unit arriving somewhere its controller
+      // already holds, which contests nothing but does change what the next
+      // Showdown fights over.
+      resolve: (state, event) => placeRecruitToken(state, event.playerIndex, "base"),
     },
-  },
+  ],
+
+  [GROVE_OF_THE_GOD_WILLOW]: [
+    {
+      on: "hold",
+      resolve: (state, event) => drawCards(state, event.playerIndex, 1),
+    },
+  ],
+
+  [HALLOWED_TOMB]: [
+    {
+      on: "hold",
+      // "If it is empty" is a question about the Champion Zone at RESOLUTION, and
+      // so is "from your trash" — a response window can play the champion out of
+      // the zone or recycle it out of the trash. Both stay here rather than in
+      // `applies`; a trigger that fires and finds nothing is 422 working.
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${HALLOWED_TOMB}-return`, playerIndex: event.playerIndex }),
+    },
+  ],
+
+  [NAVORI_FIGHTING_PIT]: [
+    {
+      on: "hold",
+      // Not a "you may", so the buff is mandatory — but WHICH unit is a real
+      // choice, and with one unit standing there `advanceDecisions` executes it
+      // without ever prompting.
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${NAVORI_FIGHTING_PIT}-buff`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
+
+  [RECKONERS_ARENA]: [
+    {
+      on: "hold",
+      resolve: (state, event) => activateConquerEffectsHere(state, event),
+    },
+  ],
+
+  [STARTIPPED_PEAK]: [
+    {
+      on: "hold",
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${STARTIPPED_PEAK}-channel`, playerIndex: event.playerIndex }),
+    },
+  ],
+
+  [THE_GRAND_PLAZA]: [
+    {
+      on: "hold",
+      // "If you have 7+ units HERE" is counted at RESOLUTION rather than at the
+      // hold. A response window can kill a unit standing there, and a win the
+      // opponent could no longer prevent by removing the seventh unit would be a
+      // stronger card than the one printed.
+      resolve: (state, event) => {
+        if (ownUnitsHere(state, event).length < GRAND_PLAZA_UNITS_TO_WIN) return state;
+        // Declared rather than scored — see GameState.declaredWinnerIndex.
+        return { ...state, declaredWinnerIndex: event.playerIndex };
+      },
+    },
+  ],
+
+  [MONASTERY_OF_HIRANA]: [
+    {
+      on: "conquer",
+      // The buff is the COST of the draw, so an unbuffed board is nothing to offer
+      // and nothing is asked — 416.3, and the shape `canPayActivationCost` uses.
+      // Asked at resolution rather than in `applies`, because "do I control a
+      // buffed unit" is a question about the BOARD, and the response window this
+      // hold opens can buff one or spend the only one there was.
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${MONASTERY_OF_HIRANA}-spend`, playerIndex: event.playerIndex }),
+    },
+  ],
+
+  [SIGIL_OF_THE_STORM]: [
+    {
+      on: "conquer",
+      // "You MUST recycle one of your runes. (This doesn't choose anything.)" —
+      // the parenthesis is the card telling you it is not a choice, so no decision
+      // is parked and the rune is taken in pool order. The same call, and the same
+      // reasoning, as `payEnergyFromPool`'s: deterministic, and recorded Unverified
+      // because which rune goes decides which DOMAINS remain.
+      resolve: (state, event) => {
+        const rune = state.players[event.playerIndex].channeled[0];
+        return rune ? recycleRuneToRuneDeck(state, event.playerIndex, rune.id) : state;
+      },
+    },
+  ],
+
+  [TARGONS_PEAK]: [
+    {
+      on: "conquer",
+      // A DELAYED effect: the conquest arms it, `runEnd` is what fires it. Two
+      // conquests here in one turn arm four, because the trigger is on conquering
+      // and not on scoring — 471.1.b withholds the second POINT, not the trigger.
+      resolve: (state, event) =>
+        updatePlayer(state, event.playerIndex, (p) => ({
+          ...p,
+          readyRunesAtEndOfTurn: p.readyRunesAtEndOfTurn + TARGONS_PEAK_RUNES,
+        })),
+    },
+    {
+      // The delayed half — "…at the end of this turn". It is a second ability of
+      // the same card, which is the whole reason a battlefield's entry is a LIST:
+      // resolving it anywhere outside this registry would leave nothing able to
+      // report it as part of Targon's Peak.
+      on: "endOfTurn",
+      // Nothing armed, nothing to hold — otherwise every end of turn would put a
+      // Pending Item on the chain for a battlefield that did nothing this turn.
+      applies: (state, event) => state.players[event.playerIndex].readyRunesAtEndOfTurn > 0,
+      // CAPTURED, and this is the one ability in the table that has to be. `runEnd`
+      // clears every "this turn" field before the trigger it fired resolves — the
+      // recorded turn-boundary divergence — so re-reading the counter at
+      // resolution would always find 0 and the card would silently do nothing.
+      capture: (state, event) => state.players[event.playerIndex].readyRunesAtEndOfTurn,
+      resolve: (state, event, captured) => readyRunes(state, event.playerIndex, captured as number),
+    },
+  ],
+
+  [THE_CANDLELIT_SANCTUM]: [
+    {
+      on: "conquer",
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${THE_CANDLELIT_SANCTUM}-look`,
+          playerIndex: event.playerIndex,
+          count: CANDLELIT_LOOK,
+        }),
+    },
+  ],
+
+  [ZAUN_WARRENS]: [
+    {
+      on: "conquer",
+      // "Discard 1, THEN draw 1" — the order is load-bearing and `discardThenDraw`
+      // is the funnel that keeps it: the discard stops to ask, so the draw has to
+      // be queued behind the question rather than composed around it, or a card
+      // just drawn could be one of the cards discarded.
+      resolve: (state, event) => discardThenDraw(state, event.playerIndex, 1, 1),
+    },
+  ],
+
 };
 
 /**
@@ -303,7 +452,129 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
           ],
     resolve: (state, d, optionId) => (optionId === "channel" ? channelRunesExhausted(state, d.playerIndex, 1) : state),
   },
+
+  [`${MONASTERY_OF_HIRANA}-spend`]: {
+    prompt: () => "Monastery of Hirana: spend a buff to draw 1?",
+    options: (state, d) => {
+      const buffed = ownUnitsOf(state, d.playerIndex).filter((u) => u.buffed);
+      // Nothing to pay with is not a question — the decision is dropped whole
+      // rather than offered as a lone "Decline", which would be theatre.
+      if (buffed.length === 0) return [];
+      return [
+        ...buffed.map((u) => ({ id: u.instanceId, label: `Spend ${u.name}'s buff`, instanceId: u.instanceId })),
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Pay FIRST: `spendBuff` returns undefined when the spend is illegal (705),
+      // and handing over the draw for a cost that could not be paid is the shape
+      // this codebase already records for Solari Shrine's exhaust.
+      const paid = spendBuff(state, d.playerIndex, optionId);
+      return paid === undefined ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
+
+  /**
+   * The Candlelit Sanctum's look — "you may recycle one or both of them".
+   *
+   * Asked ONE card at a time, like the generic `discard`, rather than as a
+   * multi-select: an answer naming a set would have to be carried on the decision
+   * and validated against itself, where a one-at-a-time cut is rebuilt from live
+   * state like every other question here. `count` is how many of the top of the
+   * deck are still under consideration — recycling sends a card to the BOTTOM, so
+   * the ones still being looked at stay on top and the count simply drops.
+   */
+  [`${THE_CANDLELIT_SANCTUM}-look`]: {
+    prompt: (state, d) => `The Candlelit Sanctum: recycle any of the top ${d.count ?? 0}?`,
+    options: (state, d) => {
+      const looked = state.players[d.playerIndex].deck.slice(0, d.count ?? 0);
+      if (looked.length === 0) return [];
+      return [
+        ...looked.map((c) => ({ id: c.instanceId, label: `Recycle ${c.name}`, instanceId: c.instanceId })),
+        { id: "keep", label: "Put the rest back" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      const remaining = d.count ?? 0;
+      if (optionId === "keep") return orderKeptCards(state, d.playerIndex, remaining);
+      const looked = state.players[d.playerIndex].deck.slice(0, remaining);
+      if (!looked.some((c) => c.instanceId === optionId)) return state;
+      const recycled = holdCardsRecycled(
+        updatePlayer(state, d.playerIndex, (p) => ({
+          ...p,
+          deck: [...p.deck.filter((c) => c.instanceId !== optionId), p.deck.find((c) => c.instanceId === optionId)!],
+        })),
+        d.playerIndex,
+        1,
+      );
+      // Re-parked onto the FRONT: this is a continuation of the same look, not a
+      // new question, so nothing raised later may run between the two halves.
+      if (remaining - 1 <= 0) return recycled;
+      return repeatDecision(recycled, { ...d, count: remaining - 1 });
+    },
+  },
+
+  /** "Put those you don't back in any ORDER" — asked only when two survive, since
+   *  one card has no order. The answer goes on TOP. */
+  [`${THE_CANDLELIT_SANCTUM}-order`]: {
+    prompt: () => "The Candlelit Sanctum: which goes back on top?",
+    options: (state, d) =>
+      state.players[d.playerIndex].deck
+        .slice(0, d.count ?? 0)
+        .map((c) => ({ id: c.instanceId, label: `${c.name} on top`, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) =>
+      updatePlayer(state, d.playerIndex, (p) => {
+        const top = p.deck.slice(0, d.count ?? 0);
+        const chosen = top.find((c) => c.instanceId === optionId);
+        if (!chosen) return p;
+        return { ...p, deck: [chosen, ...top.filter((c) => c.instanceId !== optionId), ...p.deck.slice(top.length)] };
+      }),
+  },
 };
+
+/** The Candlelit Sanctum's last step: the cards the player kept go back "in any
+ *  order", which is a real question only when two of them survived. */
+function orderKeptCards(state: GameState, playerIndex: 0 | 1, kept: number): GameState {
+  if (kept < 2) return state;
+  return parkDecision(state, { kind: `${THE_CANDLELIT_SANCTUM}-order`, playerIndex, count: kept });
+}
+
+/** Every unit a player has in play, base and battlefields alike. */
+function ownUnitsOf(state: GameState, playerIndex: 0 | 1) {
+  const owner = state.players[playerIndex];
+  return [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+}
+
+/**
+ * Recycles one rune out of the pool to the bottom of its owner's RUNE deck,
+ * Ready — Sigil of the Storm's "you must recycle one of your runes".
+ *
+ * The rune deck, not the Main Deck, so this fires no `cardsRecycled`: Karma -
+ * Channeler reads "when you recycle one or more cards **to your Main Deck**",
+ * and a rune never goes there. Same shape as `execute-float-rune`'s Power mode
+ * and `order.ts`'s activation-cost recycle, minus the floating credit — those
+ * two are the player spending a rune on something, and this is a battlefield
+ * taking one.
+ */
+function recycleRuneToRuneDeck(state: GameState, playerIndex: 0 | 1, runeId: string): GameState {
+  const owner = state.players[playerIndex];
+  const rune = owner.channeled.find((r) => r.id === runeId);
+  if (!rune) return state;
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    channeled: p.channeled.filter((r) => r.id !== runeId),
+    runeDeck: [...p.runeDeck, { ...rune, state: "Ready" as const }],
+  }));
+}
+
+/** The one-player update every resolver here needs. Local rather than shared,
+ *  for the same reason `scoring.ts` and `turn-manager.ts` each keep their own. */
+function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[index] = update(players[index]);
+  return { ...state, players };
+}
 
 // ---------------------------------------------------------------------------
 // Holding and resolving
@@ -332,8 +603,8 @@ export function holdBattlefieldTrigger(
 ): GameState {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   if (!bf?.defId) return state;
-  const trigger = BATTLEFIELD_TRIGGERS[bf.defId];
-  if (trigger?.on !== moment) return state;
+  const trigger = BATTLEFIELD_TRIGGERS[bf.defId]?.find((t) => t.on === moment);
+  if (!trigger) return state;
   const event: BattlefieldTriggerEvent = {
     moment,
     battlefieldId,
@@ -341,6 +612,9 @@ export function holdBattlefieldTrigger(
     ...(unitInstanceId !== undefined ? { unitInstanceId } : {}),
   };
   if (trigger.applies && !trigger.applies(state, event)) return state;
+  // Captured against the board as it stands NOW — the moment of the event (383),
+  // before anything else this same call fires has resolved.
+  const captured = trigger.capture?.(state, event);
   const entry: TriggerChainEntry = {
     kind: "trigger",
     source: "battlefield",
@@ -352,6 +626,7 @@ export function holdBattlefieldTrigger(
     listenerDefId: bf.defId,
     listenerName: bf.name,
     battlefieldId,
+    ...(captured !== undefined ? { captured } : {}),
     event,
   };
   return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
@@ -369,9 +644,12 @@ export function holdBattlefieldTrigger(
  * data rather than a registration bug.
  */
 export function resolveHeldBattlefieldTrigger(state: GameState, entry: TriggerChainEntry): GameState {
-  const trigger = BATTLEFIELD_TRIGGERS[entry.listenerDefId];
+  const event = entry.event as BattlefieldTriggerEvent;
+  // By MOMENT as well as by card, because a battlefield can print two abilities
+  // (Targon's Peak). The entry says which one fired.
+  const trigger = BATTLEFIELD_TRIGGERS[entry.listenerDefId]?.find((t) => t.on === event.moment);
   if (!trigger) return state;
-  return trigger.resolve(state, entry.event as BattlefieldTriggerEvent);
+  return trigger.resolve(state, event, entry.captured);
 }
 
 /** Every printed Battlefield card this module implements — the subject of the

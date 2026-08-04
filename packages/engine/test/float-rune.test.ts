@@ -25,6 +25,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     },
     championZone: null,
     chosenChampionDefId: "TEST-CHAMPION",
+    readyRunesAtEndOfTurn: 0,
     deck: [],
     hand: [],
     trash: [],
