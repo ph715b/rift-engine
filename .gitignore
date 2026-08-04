@@ -51,3 +51,6 @@ tools/ui-probes/.combatdeck.txt
 *.png
 !docs/**/*.png
 tools/ui-probes/.shots/
+
+# Python bytecode from scratch tooling — never part of the build.
+__pycache__/
