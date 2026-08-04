@@ -179,3 +179,47 @@ fails first.
 **Every AI gate is blind to SFD until a deck contains SFD cards** — the presets are
 pinned. Expect green gates to prove nothing about the new set, and build a
 purpose-built deck when you need to see one work.
+
+## What to leave behind — write this before you stop
+
+Whatever you finish, end by writing **`docs/handoff-<the date>.md`** and committing
+it with the last change. This repo runs on those handoffs; the one you were told to
+read first is the reason you know any of the above. Write it from **measurements
+taken at the final commit, not from memory of what you did** — say so at the top,
+and note the sha and branch. Where a figure contradicts an existing memory note,
+say which one is later.
+
+It must carry:
+
+- **What the session actually did**, one line per commit, in order — so a
+  regression stays bisectable by reading rather than by guessing.
+- **A figures table**, re-run at the end, not copied from mid-session: engine and
+  web test counts, per-set coverage from `coverageBySet`, the four probe results,
+  and any live-probe counts. If a probe MOVED, say whether you verified it against
+  the previous sha by checking out, rebuilding and re-running — that check is the
+  only thing separating "the world moved" from "the instrument broke", and an
+  unverified delta is worth nothing to the next session.
+- **What you decided and why**, especially every census red you resolved and every
+  rules call you took. If you recorded anything **Unverified**, name it here too,
+  not only in `docs/rules-conformance.md`.
+- **What is left, and what it is blocked on.** Distinguish "not started" from
+  "blocked on X" — the current handoff's "the one big thing left" section is the
+  shape to copy: it explains why 402 steps 2-4 are unstarted, which saves the next
+  session from discovering the blocker for itself.
+- **Suggestions for what to do next**, as a short **"Pick one"** list of
+  independent options, each with enough context to choose between them: what it
+  unblocks, roughly how big it is, and whether it is speculative. Mark anything
+  speculative as such — the current brief's option B says outright that nothing in
+  the pool can tell the difference yet, which is more useful than a confident
+  recommendation would have been.
+- **Anything a note told you that turned out to be FALSE.** Correct it at the
+  source in the same change — the doc, the conformance table, or the memory file —
+  and record the correction. Stale guidance is this project's most expensive defect:
+  `docs/sfd-readiness-brief.md`'s card-authoring section is itself stale on trigger
+  timing, written at `017752e` when the conversion was 80/30 rather than 110/3.
+
+Then update the memory files under
+`~/.claude/projects/a--Projects-Rift-Engine/memory/` that the new work
+contradicts, and add a one-line pointer to the new handoff from `project_status.md`.
+Do not duplicate the handoff into memory — memory holds what is not derivable from
+the repo.
