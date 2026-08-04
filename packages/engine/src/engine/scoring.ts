@@ -1,6 +1,5 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { WIN_THRESHOLD_1V1 } from "./constants.js";
-import { dispatchLegendOnConquer } from "./legend-abilities.js";
 import { holdEventTrigger } from "./triggers.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
@@ -96,13 +95,16 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
     scoredBattlefieldsThisTurn: alreadyScored ? p.scoredBattlefieldsThisTurn : [...p.scoredBattlefieldsThisTurn, battlefieldId],
   }));
 
-  // The conqueror's Legend fires on the conquest itself, independently of
-  // whether the POINT below is awarded or withheld by the final-point rule —
-  // "when you conquer" is about taking the battlefield, not about scoring
-  // (Garen - Might of Demacia; ScoringSystem.java dispatches from this same
-  // spot). Placed before the withheld-point branch so the trigger can't be
-  // skipped by an early return.
-  next = dispatchLegendOnConquer(next, playerIndex, battlefieldId);
+  // The conqueror's LEGEND watches this moment too (Garen - Might of Demacia,
+  // Sett - The Boss), and is now held by the same call rather than dispatched
+  // just above it — `allListeningPermanents` walks the Legend zone, so a Legend
+  // is an ordinary listener. It is placed LAST in that walk and so resolves
+  // FIRST under LIFO, which is exactly where the inline dispatch used to sit.
+  //
+  // "When you conquer" is about taking the battlefield, not about scoring, so
+  // this stays before the withheld-point branch and cannot be skipped by an early
+  // return — the same reason ScoringSystem.java dispatches from this spot.
+  //
   // Permanents watch the same moment (Kai'Sa - Survivor), and so does a card in
   // the trash (Super Mega Death Rocket). Placed beside the Legend dispatch and
   // before the withheld-point branch for the same reason: "when you conquer" is
@@ -120,10 +122,11 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   //    listener in this pool awards points, so nothing observable changes today —
   //    and 383's "on the chain the instant it fires, resolved later" is what makes
   //    the new order the correct one rather than merely a different one.
-  //  - **The caster's LEGEND still fires inline, immediately above.** Those seven
-  //    hooks cannot be held yet (`allListeningPermanents` never walks
-  //    `players[i].legend`), so a conquer now resolves the Legend first and the
-  //    permanents on the chain. That was already the order; only the window is new.
+  //  - **The Legend is held by this same call now (2026-08-03).** It used to fire
+  //    inline immediately above, because nothing could re-find it at resolution;
+  //    the walk reaches the Legend zone, so a conquer puts the Legend and the
+  //    permanents on the chain together. The Legend still resolves first, by
+  //    being placed last — see listeningPermanents.
   next = holdEventTrigger(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
 
   // Already scored here this turn — the battlefield changed hands, and the

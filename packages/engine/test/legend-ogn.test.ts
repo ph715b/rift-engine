@@ -3,7 +3,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
-import { dispatchLegendOnConquer } from "../src/engine/legend-abilities.js";
+import { recordConquest } from "../src/engine/scoring.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
 import { addBuff, dealDamage, destroyUnit } from "../src/engine/effect-helpers.js";
@@ -16,7 +16,15 @@ import { implementingModule, isCardImplemented, partialImplementationNote } from
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  beginCombatAt,
+  makeState,
+  makeUnit,
+  playUnitTrigger,
+  realUnitInstance,
+  resolveHeldTriggers,
+} from "./fixtures.js";
 
 /**
  * The OGN Legends whose printed text had no implementation.
@@ -388,19 +396,40 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
   });
 });
 
+/**
+ * A conquest, driven through the real `recordConquest` and then settled.
+ *
+ * These used to call `dispatchLegendOnConquer` directly; there is no such
+ * dispatcher any more. A Legend's "when you conquer" is a Chain Pending Item like
+ * the permanents watching the same moment (383), so it is held by
+ * `recordConquest` and resolves a chain-pop later — see
+ * `test/legend-triggers-held.test.ts` for the timing itself.
+ */
+const conquer = (state: GameState, index: 0 | 1 = 0, battlefieldId = "bf1") =>
+  resolveHeldTriggers(recordConquest(state, index, battlefieldId));
+
 describe("Sett - The Boss (OGN-269): when you conquer, ready me", () => {
   it("readies the legend on a conquest", () => {
     const state = withLegend(SETT);
     state.players[0]!.legend.exhausted = true;
 
-    const after = dispatchLegendOnConquer(state, 0, "bf1");
+    const after = conquer(state);
 
     expect(after.players[0]!.legend.exhausted).toBe(false);
   });
 
   it("is a no-op when he is already ready", () => {
+    // Was `expect(after).toBe(state)`. Identity cannot survive this path — the
+    // conquest awards a point and the settle runs a Cleanup, both of which return
+    // fresh objects — and it was only ever standing in for "he is still ready".
+    // 415: readying an already-ready permanent does nothing. He still TRIGGERS,
+    // because "when you conquer, ready me" carries no other requirement, and a
+    // trigger that resolves to nothing is the rules working.
     const state = withLegend(SETT);
-    expect(dispatchLegendOnConquer(state, 0, "bf1")).toBe(state);
+
+    const after = conquer(state);
+
+    expect(after.players[0]!.legend.exhausted).toBe(false);
   });
 });
 
@@ -561,7 +590,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
     const { state, victim } = settState({ legendReady: false });
     expect(destroyUnit(state, victim.instanceId, 1).pendingDecisions).toHaveLength(0);
 
-    const readied = dispatchLegendOnConquer(state, 0, "bf1");
+    const readied = conquer(state);
     expect(destroyUnit(readied, victim.instanceId, 1).pendingDecisions).toHaveLength(1);
   });
 

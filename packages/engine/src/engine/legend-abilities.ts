@@ -1,6 +1,6 @@
 import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
-import type { GameEvent } from "./triggers.js";
+import type { EventTriggerDefinition, GameEvent } from "./triggers.js";
 import type { DecisionDefinition } from "./decisions.js";
 import {
   addBuff,
@@ -61,6 +61,24 @@ export interface LegendAbilityDefinition {
   /** "When you conquer..." — fires after the conquest is recorded, with the
    *  battlefield just taken. */
   onConquer?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
+  /**
+   * Garen's "**if** you have 4+ units at that battlefield" — the requirement
+   * BESIDES conquering, asked when the event happens rather than when the ability
+   * resolves.
+   *
+   * Separate from `onConquer` rather than a guard inside it, because the two are
+   * different questions once the trigger is held: this one decides whether a
+   * Pending Item is placed at all, and 383.4 settles it at the moment of the
+   * event ("if those requirements are not fulfilled when the unit gains the
+   * designation, it will not trigger"). Asked once, here — re-asking it in the
+   * body would let an opponent cancel a fired trigger by killing a unit inside
+   * the response window.
+   *
+   * Named for its own hook because it is the only one that needs a condition
+   * today. The day a second does, this becomes a per-hook shape rather than a
+   * second field beside it.
+   */
+  conquerCondition?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => boolean;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -110,14 +128,16 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     // Garen - Might of Demacia — "When you conquer, if you have 4+ units at
     // that battlefield, draw 2." Counts the units still standing AFTER the
     // fight that took the battlefield, which is what "you have ... at that
-    // battlefield" reads as at the moment the trigger resolves (and what
+    // battlefield" reads as at the moment of the conquest (and what
     // ScoringSystem's own dispatch point gives it — LegendAbilities.java:301).
-    onConquer: (state, ownerIndex, battlefieldId) => {
-      const bf = state.battlefields.find((b) => b.id === battlefieldId);
-      if (!bf) return state;
-      const ownUnits = bf.units[state.players[ownerIndex].id] ?? [];
-      return ownUnits.length >= 4 ? drawCards(state, ownerIndex, 2) : state;
-    },
+    //
+    // The count is the trigger's CONDITION, so it lives in `conquerCondition`
+    // and is asked once, when the conquest happens. It used to be a guard inside
+    // the body, which was the same instant while this resolved inline and is a
+    // full response window later now that it does not.
+    conquerCondition: (state, ownerIndex, battlefieldId) =>
+      (state.battlefields.find((b) => b.id === battlefieldId)?.units[state.players[ownerIndex].id] ?? []).length >= 4,
+    onConquer: (state, ownerIndex) => drawCards(state, ownerIndex, 2),
   },
   "OGN-251": {
     // Jinx - Loose Cannon — "At start of your Beginning Phase, draw 1 if you have
@@ -398,8 +418,114 @@ export function legendAbilityDefIds(): string[] {
   return Object.keys(LEGEND_ABILITIES);
 }
 
-export function dispatchLegendEndOfTurn(state: GameState, ownerIndex: 0 | 1): GameState {
-  return abilitiesFor(state, ownerIndex)?.onEndOfTurn?.(state, ownerIndex) ?? state;
+/**
+ * The Legend hooks whose moment is ALREADY a held event, presented to
+ * triggers.ts as ordinary listeners — so a Legend's triggered ability is a Chain
+ * Pending Item (383) like every other one, respondable before it resolves.
+ *
+ * **What this needed was not a registry but a WALK.** `resolvePendingTrigger`
+ * re-looks its listener up by instance id through `allListeningPermanents`, and
+ * that walk covered base units, battlefield units, active Gear and two trash
+ * cards — never `players[i].legend`. A held Legend trigger would therefore have
+ * resolved to nothing, silently, which is why this conversion was blocked and
+ * said so in three separate source comments. `listeningPermanents` now ends with
+ * the Legend; everything here follows from that.
+ *
+ * **Four of the eight Legend trigger hooks convert, and the other four are
+ * blocked by their EVENT rather than by being on a Legend** — each is recorded in
+ * docs/rules-conformance.md:
+ *   - `onBeginningPhase` (Jinx) — `beginningPhase` must stay inline, because
+ *     holding it would resolve Beginning-Phase abilities after `scoreHolds`.
+ *   - `onSpellCast` (Lux) — there is no held on-spell-cast event kind yet, and
+ *     the moment is a chain POP rather than a play.
+ *   - `onUnitsStunned` (Leona) — `unitsStunned` is not a `HeldEventKind` yet.
+ *   - `onUnitPlayed` (Volibear) — needs the unit that was played, which
+ *     `cardPlayed` deliberately does not carry.
+ *
+ * `mightBonus` is not a trigger at all — it is a continuous modifier recomputed
+ * inside effective-might.ts — so Master Yi is not in this adapter and is not a
+ * Legend "still inline" either. Counting the table's KEYS reports him as one,
+ * which is the count-by-dispatch-shape mistake in miniature.
+ */
+export function legendEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
+  const entries: Record<string, EventTriggerDefinition> = {};
+  const add = (defId: string, entry: EventTriggerDefinition) => {
+    // A Legend with two convertible hooks would need two registry entries under
+    // one defId, which this shape cannot express. None has two today; the throw
+    // is so the day one does is the day it is noticed, rather than the day one
+    // of its two abilities quietly stops firing.
+    if (entries[defId]) throw new Error(`legendEventTriggers: ${defId} has more than one convertible hook`);
+    entries[defId] = entry;
+  };
+
+  for (const [defId, ability] of Object.entries(LEGEND_ABILITIES)) {
+    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks } = ability;
+
+    if (onEndOfTurn) {
+      add(defId, {
+        on: "endOfTurn",
+        // Whose turn ended is taken from the EVENT, never from
+        // `state.activePlayerIndex`: a turn-boundary trigger sits in the pen
+        // across the rotation and resolves under the next player.
+        applies: (_state, listener, event) => event.kind === "endOfTurn" && event.playerIndex === listener.ownerIndex,
+        resolve: (state, listener, event) => (event.kind === "endOfTurn" ? onEndOfTurn(state, listener.ownerIndex) : state),
+      });
+    }
+
+    if (onConquer) {
+      add(defId, {
+        on: "battlefieldConquered",
+        applies: (state, listener, event) =>
+          event.kind === "battlefieldConquered" &&
+          event.conquerorIndex === listener.ownerIndex &&
+          (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
+        resolve: (state, listener, event) =>
+          event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onEnemyUnitAttacks) {
+      add(defId, {
+        on: "combatBegan",
+        // "When an ENEMY unit attacks a battlefield YOU CONTROL" — both halves
+        // are requirements besides attacking, so 383.4.f settles them when the
+        // designation is handed out, not when the ability resolves. Without this
+        // the Legend would place a Pending Item at every combat on the board.
+        applies: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event).length > 0,
+        // WHICH units attacked, noted at fire time. 465 designates every unit of
+        // the attacking side present at that moment, and the response window can
+        // add or remove units before this resolves — a reinforcement arriving
+        // then did not attack, and must not be debuffed.
+        capture: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event),
+        resolve: (state, listener, event, captured) => {
+          if (event.kind !== "combatBegan" || !Array.isArray(captured)) return state;
+          return (captured as string[]).reduce(
+            (next, unitInstanceId) =>
+              onEnemyUnitAttacks(next, listener.ownerIndex, { unitInstanceId, attackerIndex: listener.ownerIndex === 0 ? 1 : 0, battlefieldId: event.battlefieldId }),
+            state,
+          );
+        },
+      });
+    }
+  }
+  return { name: "engine/legend-abilities.ts", entries };
+}
+
+/**
+ * The enemy units attacking `ownerIndex`'s battlefield at this combat — the
+ * subject of "when an enemy unit attacks a battlefield you control".
+ *
+ * Empty unless BOTH printed conditions hold: the attacker is someone else, and
+ * the battlefield is one `ownerIndex` CONTROLS rather than merely has units at.
+ * A contested battlefield with no controller gives nothing, which is what makes
+ * Ahri a defensive Legend rather than a general attack tax.
+ */
+function attackersAgainst(state: GameState, ownerIndex: 0 | 1, event: GameEvent): string[] {
+  if (event.kind !== "combatBegan") return [];
+  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+  if (!bf || bf.controllerId !== state.players[ownerIndex].id) return [];
+  if (bf.contestedByIndex === null || bf.contestedByIndex === ownerIndex) return [];
+  return (bf.units[state.players[bf.contestedByIndex].id] ?? []).map((u) => u.instanceId);
 }
 
 /** Fires the caster's Legend spell-cast ability, if any. `totalCost` is
@@ -408,11 +534,6 @@ export function dispatchLegendEndOfTurn(state: GameState, ownerIndex: 0 | 1): Ga
  *  (UnitAbilities.java:66, LegendAbilities.java:47). */
 export function dispatchLegendOnSpellCast(state: GameState, ownerIndex: 0 | 1, totalCost: number): GameState {
   return abilitiesFor(state, ownerIndex)?.onSpellCast?.(state, ownerIndex, totalCost) ?? state;
-}
-
-/** Fires the conquering player's Legend conquest ability, if any. */
-export function dispatchLegendOnConquer(state: GameState, ownerIndex: 0 | 1, battlefieldId: string): GameState {
-  return abilitiesFor(state, ownerIndex)?.onConquer?.(state, ownerIndex, battlefieldId) ?? state;
 }
 
 /** This unit's owner's Legend's continuous Might contribution, if any. */
@@ -442,21 +563,6 @@ export function dispatchLegendBeginningPhase(state: GameState, ownerIndex: 0 | 1
  */
 export function dispatchLegendOnUnitsStunned(state: GameState, event: StunEvent): GameState {
   return bothLegends(state, (next, ownerIndex) => abilitiesFor(next, ownerIndex)?.onUnitsStunned?.(next, ownerIndex, event));
-}
-
-/**
- * Fires both players' Legend on-attack abilities — Ahri's, which belongs to the
- * DEFENDER rather than to the unit's controller.
- *
- * Called from the same two executors `dispatchOnAttack` is (move and play), so a
- * unit walking into a battlefield and one played straight onto it are the same
- * attack, which is already how every on-attack trigger in this engine behaves.
- */
-export function dispatchLegendOnEnemyAttack(
-  state: GameState,
-  attack: { unitInstanceId: string; attackerIndex: 0 | 1; battlefieldId: string },
-): GameState {
-  return bothLegends(state, (next, ownerIndex) => abilitiesFor(next, ownerIndex)?.onEnemyUnitAttacks?.(next, ownerIndex, attack));
 }
 
 /** Fires both players' Legend on-unit-played abilities — Volibear's. */

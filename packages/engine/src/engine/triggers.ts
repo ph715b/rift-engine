@@ -10,6 +10,7 @@ import { parkDecision } from "./decisions.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
 import { attackEventTriggers } from "./unit-triggers.js";
+import { legendEventTriggers } from "./legend-abilities.js";
 import {
   domainDeathTriggers,
   domainDeathWatch,
@@ -52,20 +53,39 @@ export interface Listener {
   card: CardInstance;
   ownerIndex: 0 | 1;
   /** undefined for a unit in base and for Gear (Gear is never at a
-   *  battlefield in this pool — rule 323 step 5 recalls unattached gear). */
+   *  battlefield in this pool — rule 323 step 5 recalls unattached gear), and
+   *  for the Legend, which is in its own zone and at no battlefield. */
   battlefieldId?: string;
   /** Where the listener is. `"board"` for everything the permanent walk finds;
-   *  `"trash"` for the cards `listeningTrashCards` adds. A trigger that only
-   *  makes sense in one of them says so rather than inferring it. */
-  zone?: "board" | "trash";
+   *  `"trash"` for the cards `listeningTrashCards` adds; `"legend"` for the
+   *  player's Legend. A trigger that only makes sense in one of them says so
+   *  rather than inferring it. */
+  zone?: "board" | "trash" | "legend";
 }
 
 /**
  * Every permanent `playerIndex` controls that an event could reach: units in
- * base, units at each battlefield, and active Gear. Order is deliberate and
- * stable — base, then battlefields in board order, then gear — because several
- * triggers auto-select a target and a stable order is what makes their tests
- * meaningful rather than incidental.
+ * base, units at each battlefield, active Gear, and their LEGEND. Order is
+ * deliberate and stable — base, then battlefields in board order, then gear,
+ * then the legend — because several triggers auto-select a target and a stable
+ * order is what makes their tests meaningful rather than incidental.
+ *
+ * **The Legend is last, and that is a choice about resolution order.** The chain
+ * resolves LIFO (343), so placing it last makes it resolve FIRST among its
+ * controller's simultaneous triggers — which is exactly where the inline Legend
+ * dispatches used to sit (`scoring.recordConquest` fired the Legend, then held
+ * the permanents). Putting it anywhere else would have silently reordered every
+ * board that has a Legend and a permanent watching the same moment. 383 in fact
+ * lets a player CHOOSE the order among their own simultaneous triggers, and this
+ * engine fixes it; the fixed order is now base -> battlefields -> gear -> legend,
+ * recorded in docs/rules-conformance.md with the rest of that divergence.
+ *
+ * **A Legend is the one listener that can never leave play.** `resolvePendingTrigger`
+ * bails when it cannot re-find a listener, which is right for a bystander that
+ * has been killed and is simply unreachable for a Legend — it sits in its own
+ * zone from turn 1 to the end of the game. That is a fact about the zone, not
+ * luck, and it is why Legend abilities need no equivalent of the on-play
+ * triggers' "resolves even though its source is gone" branch.
  */
 export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Listener[] {
   const owner = state.players[playerIndex];
@@ -74,6 +94,7 @@ export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Liste
     for (const card of bf.units[owner.id] ?? []) out.push({ card, ownerIndex: playerIndex, battlefieldId: bf.id, zone: "board" });
   }
   for (const card of owner.activeGear) out.push({ card, ownerIndex: playerIndex, zone: "board" });
+  out.push({ card: owner.legend, ownerIndex: playerIndex, zone: "legend" });
   return out;
 }
 
@@ -663,6 +684,10 @@ function allEventTriggers(): Record<string, EventTriggerDefinition> {
     // card registered in both places is the same named duplicate error as any
     // other — see attackEventTriggers for why the bodies did not move here.
     attackEventTriggers(),
+    // The LEGEND hooks whose moment is already a held event. A merge source like
+    // any other, so a Legend defId colliding with a card's is the same named
+    // error — see legendEventTriggers for why only four of the eight convert.
+    legendEventTriggers(),
     ...domainEventTriggers(),
   ]);
   return composedEventTriggers;

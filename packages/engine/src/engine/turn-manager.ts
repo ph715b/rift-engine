@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
-import { dispatchLegendBeginningPhase, dispatchLegendEndOfTurn } from "./legend-abilities.js";
+import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
 import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 
@@ -250,13 +250,12 @@ export function runEnd(state: GameState): GameState {
     throw new Error(`runEnd requires Action phase, currently: ${state.phase}`);
   }
 
-  // The ending player's Legend fires FIRST, while it's still their turn and
-  // before any of the resets below — Annie - Dark Child's "at the end of your
-  // turn, ready up to 2 runes" has to see (and leave) a rune pool that the
-  // opponent's upcoming turn will not touch. Deliberately not folded into the
-  // map below: it's an ability firing, not a field reset.
-  const afterLegend = dispatchLegendEndOfTurn(state, state.activePlayerIndex);
-
+  // **No separate Legend dispatch here.** Annie - Dark Child's "at the end of
+  // your turn, ready up to 2 runes" used to fire inline, immediately before the
+  // hold below, because `allListeningPermanents` did not walk the Legend zone and
+  // so nothing could re-find her at resolution. It does now, and she is an
+  // ordinary `endOfTurn` listener — held with Sona and respondable like her.
+  //
   // Permanents watch the same moment (Sona - Harmonious). HELD, not dispatched
   // (383): a triggered ability is a Chain Pending Item from the instant it fires
   // and becomes respondable when the Cleanup finalizes it.
@@ -264,8 +263,7 @@ export function runEnd(state: GameState): GameState {
   // **Fired here, before every reset below, and that is the whole point of the
   // position.** The resets clear exactly the "this turn" state an end-of-turn
   // ability is about, so a trigger fired after them would be asked its question
-  // about a turn that had already been erased — the same reasoning the Legend
-  // dispatch immediately above already follows.
+  // about a turn that had already been erased.
   //
   // The event carries the ending player rather than leaving listeners to read
   // `state.activePlayerIndex`, because it does NOT resolve here. `submit`'s Pass
@@ -274,7 +272,7 @@ export function runEnd(state: GameState): GameState {
   // Awaken, hold scoring and draw, and finalizes onto the chain only after all of
   // it. By then `activePlayerIndex` is the OTHER player. See HeldEventKind's
   // turn-boundary note and test/turn-boundary-triggers.test.ts, which pins it.
-  const afterTriggers = holdEventTrigger(afterLegend, { kind: "endOfTurn", playerIndex: state.activePlayerIndex });
+  const afterTriggers = holdEventTrigger(state, { kind: "endOfTurn", playerIndex: state.activePlayerIndex });
 
   // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting

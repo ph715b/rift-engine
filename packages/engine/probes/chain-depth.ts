@@ -257,6 +257,25 @@ const havenName = registry.get(PIRATES_HAVEN).name;
 const awakenTriggers = awaken.byListener[havenName] ?? 0;
 
 /**
+ * The LEGEND reaching the chain — the control for the 2026-08-03 conversion that
+ * put `players[i].legend` into `allListeningPermanents`.
+ *
+ * Free, and that is the argument for reading it here rather than building a
+ * fourth scenario: both of these decks already run Sett - The Boss, whose "when
+ * you conquer, ready me" is one of the four hooks that converted, and conquests
+ * are the whole point of the game. Nothing had to be forced in.
+ *
+ * It is a real gate rather than a reported number because the failure it guards
+ * against is silent by construction: `resolvePendingTrigger` returns the state
+ * unchanged when it cannot re-find a listener, so a Legend left out of the walk
+ * loses every one of these 300-odd abilities per 100 games with no error, no
+ * stranded pen and no termination change. Proved by mutation — removing the
+ * legend from `listeningPermanents` takes this to 0 and fails 19 unit tests.
+ */
+const legendName = registry.get(SETT_LEGEND).name;
+const legendTriggers = (buff.byListener[legendName] ?? 0) + (awaken.byListener[legendName] ?? 0);
+
+/**
  * The `combat` scenario's own claim: an Attack Trigger really reached the chain in
  * self-play, per card.
  *
@@ -289,7 +308,12 @@ report(
   {
     buff: {
       ...buff,
-      positiveControls: { heldStates: buff.heldStates, maxHeldAtOnce: buff.maxHeldAtOnce, triggerOnChainStates: buff.triggerOnChainStates },
+      positiveControls: {
+        heldStates: buff.heldStates,
+        maxHeldAtOnce: buff.maxHeldAtOnce,
+        triggerOnChainStates: buff.triggerOnChainStates,
+        legendTriggers,
+      },
     },
     awaken: {
       ...awaken,
@@ -314,5 +338,9 @@ report(
     // A combat really happened AND an Attack Trigger really became a Pending Item
     // in it. Without these the whole `combatBegan` conversion is unmeasured here.
     attackTriggers > 0 &&
-    combatBeganTriggers > 0,
+    combatBeganTriggers > 0 &&
+    // A LEGEND's triggered ability really became a Pending Item. Counted across
+    // both Sett decks, since the claim is about the Legend zone being in the
+    // listener walk at all, not about either scenario.
+    legendTriggers > 0,
 );

@@ -198,9 +198,18 @@ describe("killUnit, the one funnel", () => {
 });
 
 describe("the shared listener walk", () => {
-  it("includes base units, battlefield units AND active Gear", () => {
-    // Gear was the gap: none of the four older dispatch tables looked at
-    // activeGear, so a gear-only event had nowhere to be heard.
+  it("includes base units, battlefield units, active Gear AND the Legend, in that order", () => {
+    // Gear was the first gap: none of the four older dispatch tables looked at
+    // activeGear, so a gear-only event had nowhere to be heard. The LEGEND was
+    // the second, and it blocked the whole Legend-trigger conversion — a held
+    // ability is re-looked-up through this walk at resolution, so an ability
+    // belonging to a card the walk could not reach would have resolved to
+    // nothing, silently.
+    //
+    // **The order is asserted, not incidental.** The chain resolves LIFO (343),
+    // so the last listener placed resolves first: the Legend is last here
+    // precisely so it still resolves before its controller's permanents, which
+    // is where the old inline Legend dispatches sat.
     const inBase = makeUnit({ name: "Base" });
     const atBf = makeUnit({ name: "Field" });
     const gear = createCardInstance(registry.get("OGN-090")); // Orb of Regret
@@ -211,9 +220,11 @@ describe("the shared listener walk", () => {
 
     const listeners = listeningPermanents(state, 0);
 
-    expect(listeners.map((l) => l.card.name)).toEqual(["Base", "Field", "Orb of Regret"]);
+    expect(listeners.map((l) => l.card.name)).toEqual(["Base", "Field", "Orb of Regret", "Test Legend"]);
     expect(listeners[0]!.battlefieldId).toBeUndefined();
     expect(listeners[1]!.battlefieldId).toBe("bf2");
+    expect(listeners[3]!.zone).toBe("legend");
+    expect(listeners[3]!.battlefieldId, "a Legend is in its own zone, at no battlefield").toBeUndefined();
   });
 
   it("sees only the given player's permanents", () => {
@@ -222,8 +233,11 @@ describe("the shared listener walk", () => {
     const state = makeState({
       players: [makePlayer("p1", { baseUnits: [mine] }), makePlayer("p2", { baseUnits: [theirs] })],
     });
-    expect(listeningPermanents(state, 0).map((l) => l.card.name)).toEqual(["Mine"]);
-    expect(listeningPermanents(state, 1).map((l) => l.card.name)).toEqual(["Theirs"]);
+    // Each player's own Legend rides along, which is the point of it being in the
+    // walk — and it is THEIRS, so an event never offers one player's Legend to
+    // the other's.
+    expect(listeningPermanents(state, 0).map((l) => l.card.instanceId)).toEqual([mine.instanceId, "p1-legend"]);
+    expect(listeningPermanents(state, 1).map((l) => l.card.instanceId)).toEqual([theirs.instanceId, "p2-legend"]);
   });
 });
 

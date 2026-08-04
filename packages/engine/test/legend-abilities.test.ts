@@ -3,12 +3,21 @@ import { runEnd } from "../src/engine/turn-manager.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { dispatchLegendOnSpellCast } from "../src/engine/legend-abilities.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 import type { GameState } from "../src/model/game-state.js";
 
 /**
  * The four Proving Grounds Legends. Every deck has exactly one in play from
  * turn 1, so before this each side was playing with a blank card.
+ *
+ * **Annie's and Garen's abilities are Chain Pending Items (2026-08-03)**, so the
+ * action that fires them only PLACES them and the effect lands a chain-pop later
+ * — hence the `resolveHeldTriggers` around `runEnd` and `recordConquest`. These
+ * tests are about WHAT each Legend does; `test/legend-triggers-held.test.ts` is
+ * where the waiting itself is pinned, and it deliberately does not settle.
+ *
+ * Lux's is still dispatched inline: on-spell-cast is not a held event kind, so
+ * `dispatchLegendOnSpellCast` is still the way in.
  */
 function withLegend(state: GameState, playerIndex: 0 | 1, defId: string): GameState {
   const players = [...state.players] as GameState["players"];
@@ -25,7 +34,7 @@ describe("Annie - Dark Child (OGS-017): at end of your turn, ready up to 2 runes
     let state = withLegend(makeState(), 0, "OGS-017");
     state.players[0]!.channeled = runes(["E", "E", "E", "R"]);
 
-    state = runEnd(state);
+    state = resolveHeldTriggers(runEnd(state));
 
     const readied = state.players[0]!.channeled.filter((r) => r.state === "Ready");
     expect(readied).toHaveLength(3); // the 2 it readied + the 1 already ready
@@ -36,7 +45,7 @@ describe("Annie - Dark Child (OGS-017): at end of your turn, ready up to 2 runes
     let state = withLegend(makeState(), 0, "OGS-017");
     state.players[0]!.channeled = runes(["R", "E"]);
 
-    state = runEnd(state);
+    state = resolveHeldTriggers(runEnd(state));
 
     expect(state.players[0]!.channeled.every((r) => r.state === "Ready")).toBe(true);
   });
@@ -47,7 +56,7 @@ describe("Annie - Dark Child (OGS-017): at end of your turn, ready up to 2 runes
     state.players[1]!.channeled = runes(["E", "E"]);
     state.activePlayerIndex = 0;
 
-    state = runEnd(state);
+    state = resolveHeldTriggers(runEnd(state));
 
     expect(state.players[0]!.channeled.every((r) => r.state === "Ready")).toBe(true);
     expect(state.players[1]!.channeled.every((r) => r.state === "Exhausted")).toBe(true);
@@ -57,7 +66,7 @@ describe("Annie - Dark Child (OGS-017): at end of your turn, ready up to 2 runes
     let state = withLegend(makeState(), 0, "OGS-021");
     state.players[0]!.channeled = runes(["E", "E"]);
 
-    state = runEnd(state);
+    state = resolveHeldTriggers(runEnd(state));
 
     expect(state.players[0]!.channeled.every((r) => r.state === "Exhausted")).toBe(true);
   });
@@ -94,7 +103,7 @@ describe("Garen - Might of Demacia (OGS-023): conquer with 4+ units there, draw 
     state.players[0]!.deck = [makeUnit(), makeUnit(), makeUnit()];
     state.battlefields[0]!.units = { p1: [makeUnit(), makeUnit(), makeUnit(), makeUnit()] };
 
-    const next = recordConquest(state, 0, "bf1");
+    const next = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
 
     expect(next.players[0]!.hand).toHaveLength(2);
     expect(next.players[0]!.points).toBe(1);
@@ -105,7 +114,7 @@ describe("Garen - Might of Demacia (OGS-023): conquer with 4+ units there, draw 
     state.players[0]!.deck = [makeUnit(), makeUnit()];
     state.battlefields[0]!.units = { p1: [makeUnit(), makeUnit(), makeUnit()] };
 
-    expect(recordConquest(state, 0, "bf1").players[0]!.hand).toHaveLength(0);
+    expect(resolveHeldTriggers(recordConquest(state, 0, "bf1")).players[0]!.hand).toHaveLength(0);
   });
 
   it("still fires when the conquest POINT is withheld by the final-point rule", () => {
@@ -116,7 +125,7 @@ describe("Garen - Might of Demacia (OGS-023): conquer with 4+ units there, draw 
     state.players[0]!.deck = [makeUnit(), makeUnit(), makeUnit()];
     state.battlefields[0]!.units = { p1: [makeUnit(), makeUnit(), makeUnit(), makeUnit()] };
 
-    const next = recordConquest(state, 0, "bf1");
+    const next = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
 
     expect(next.players[0]!.points).toBe(7); // withheld, as before
     expect(next.players[0]!.hand.length).toBeGreaterThanOrEqual(2); // but Garen still drew
