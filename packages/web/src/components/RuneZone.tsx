@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useRowFit } from "./use-row-fit.js";
-import { loadRuneArt, type RuneCard } from "@rift-engine/engine";
+import { loadRuneArt, type Domain, type RuneCard } from "@rift-engine/engine";
 import { DOMAIN_COLORS } from "../domain-colors.js";
 
 /** Active while the human has a card armed that still owes a rune payment
@@ -39,6 +39,85 @@ export interface FloatMode {
  *  have to maintain by hand. */
 export type RuneInteractionMode = PaymentMode | FloatMode;
 
+/**
+ * The resources a player has already banked but not yet spent.
+ *
+ * Every one of these was invisible until now, and that is the whole reason this
+ * exists: `GameBoard` read `floatingEnergy`/`floatingPower` only to price
+ * affordability and rendered neither, so a Seal of Rage correctly adding 1 Fury
+ * Power looked exactly like an ability that did nothing. The engine was right and
+ * the board simply never said so — reported as "using Seals doesn't add power".
+ *
+ * Mirrors `PlayerState`'s own fields rather than flattening them, because the
+ * three Power pools are genuinely different and a player has to be able to tell
+ * them apart: `power` is per-domain and pays a matching pip, `rainbow` pays any
+ * pip, and the two `restricted*` pools are spendable only on Spells.
+ */
+export interface FloatingResources {
+  energy: number;
+  power: Partial<Record<Domain, number>>;
+  rainbow: number;
+  restrictedEnergy: number;
+  restrictedPower: number;
+}
+
+/** The banked-resource readout. Rendered ALWAYS, not only when something is
+ *  floating: a counter that appears out of nowhere teaches nothing about where
+ *  the resource went, and the empty state is what makes the filled one legible. */
+function FloatingReadout({ floating }: { floating: FloatingResources }) {
+  const powerChips = (Object.entries(floating.power) as [Domain, number | undefined][]).filter(
+    ([, n]) => (n ?? 0) > 0,
+  );
+  const empty =
+    floating.energy === 0 &&
+    powerChips.length === 0 &&
+    floating.rainbow === 0 &&
+    floating.restrictedEnergy === 0 &&
+    floating.restrictedPower === 0;
+
+  return (
+    <div className="floating-readout" title="Resources you have banked but not yet spent. They persist until spent or the turn ends.">
+      <span className="floating-label">Floating</span>
+      {empty ? (
+        <span className="floating-chip empty">nothing</span>
+      ) : (
+        <>
+          {floating.energy > 0 && (
+            <span className="floating-chip energy" title={`${floating.energy} floating Energy`}>
+              {floating.energy} Energy
+            </span>
+          )}
+          {floating.restrictedEnergy > 0 && (
+            <span className="floating-chip energy restricted" title={`${floating.restrictedEnergy} Energy usable only for Spells`}>
+              {floating.restrictedEnergy} Energy (spells)
+            </span>
+          )}
+          {powerChips.map(([domain, n]) => (
+            <span
+              key={domain}
+              className="floating-chip power"
+              style={{ borderColor: DOMAIN_COLORS[domain], color: DOMAIN_COLORS[domain] }}
+              title={`${n} floating ${domain} Power`}
+            >
+              {n} {domain}
+            </span>
+          ))}
+          {floating.rainbow > 0 && (
+            <span className="floating-chip rainbow" title={`${floating.rainbow} rainbow Power — pays a pip of any domain`}>
+              {floating.rainbow} Rainbow
+            </span>
+          )}
+          {floating.restrictedPower > 0 && (
+            <span className="floating-chip power restricted" title={`${floating.restrictedPower} Power usable only for Spells`}>
+              {floating.restrictedPower} Power (spells)
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 interface RuneZoneProps {
   runes: RuneCard[];
   mode?: RuneInteractionMode;
@@ -46,6 +125,9 @@ interface RuneZoneProps {
    *  use-zone-flights.ts). Set only on the human's zone — a rune channelled or
    *  recycled by the AI is not something this board draws a path for. */
   flightAnchor?: string;
+  /** Banked-but-unspent resources. Omitted for the AI's zone, whose floating
+   *  pools are its own business and are not something the human plays against. */
+  floating?: FloatingResources;
 }
 
 const DEFAULT_TILE_GAP_PX = 6;
@@ -66,7 +148,7 @@ const DEFAULT_TILE_GAP_PX = 6;
  * the tiles out with a computed overlap, so any count always fits in one
  * row without ever scrolling.
  */
-export function RuneZone({ runes, mode, flightAnchor }: RuneZoneProps) {
+export function RuneZone({ runes, mode, flightAnchor, floating }: RuneZoneProps) {
   const runeArt = useMemo(() => loadRuneArt(), []);
   const readyCount = runes.filter((r) => r.state === "Ready").length;
 
@@ -83,6 +165,7 @@ export function RuneZone({ runes, mode, flightAnchor }: RuneZoneProps) {
       <div className="zone-label">
         Runes ({readyCount}/{runes.length} ready)
       </div>
+      {floating && <FloatingReadout floating={floating} />}
       <div className="rune-row" ref={rowRef}>
         {runes.map((rune, index) => {
           const art = runeArt[rune.domain];

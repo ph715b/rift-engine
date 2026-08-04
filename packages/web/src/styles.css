@@ -341,6 +341,64 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* Banked-but-unspent resources, under the Runes zone label.
+
+   These were rendered nowhere at all until now, which is why a Seal correctly
+   adding 1 Power read as an ability that did nothing. `flex: 0 0 auto` and
+   `flex-wrap` matter: this sits inside `.card-zone`, whose rune row measures its
+   own available width to fan the tiles (see use-row-fit.ts) — a readout that grew
+   or shrank the row's box would change that measurement and move the cards. */
+.floating-readout {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.4rem;
+  flex: 0 0 auto;
+  min-height: 1.4rem;
+}
+
+.floating-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-dim);
+}
+
+.floating-chip {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--color-text-dim);
+  color: var(--color-text-dim);
+  white-space: nowrap;
+}
+
+/* The empty state is deliberately quiet but PRESENT — it is what makes the
+   filled state legible as a change rather than as a thing that was always there. */
+.floating-chip.empty {
+  opacity: 0.45;
+  border-style: dashed;
+}
+
+.floating-chip.energy {
+  border-color: #d8b45a;
+  color: #e6c877;
+}
+
+.floating-chip.rainbow {
+  border-color: #b98cd8;
+  color: #cfa8e8;
+}
+
+/* Spell-only pools read as the ordinary pool with a caveat, not as a fourth
+   colour — the chip text already says "(spells)". */
+.floating-chip.restricted {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
 /* The generic row: wraps, and scrolls if it must. Still used by the mulligan
    screen, which sets its own much larger --card-h and lays out a single hand of
    four — it must NOT inherit the board's fit-to-row sizing. */

@@ -2216,6 +2216,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             <RuneZone
               runes={human.channeled}
               flightAnchor="runes"
+              floating={{
+                energy: human.floatingEnergy,
+                power: human.floatingPower,
+                rainbow: human.floatingRainbowPower,
+                restrictedEnergy: human.restrictedSpellEnergy,
+                restrictedPower: human.restrictedSpellPower,
+              }}
               mode={
                 pendingResolvedAction
                   ? {
