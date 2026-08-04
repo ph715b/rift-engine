@@ -185,26 +185,43 @@ purpose-built deck when you need to see one work.
 Read the paragraph above again, because for SFD it is not a caveat, it is the
 condition: **every card in the set starts unexercised by definition.**
 
-There is a distinction the repo does not currently draw. `coverage.ts` measures
-**implemented** — `isCardImplemented` is a static check that a `defId` is
-registered. Nothing measures **exercised**: whether a card has ever actually
-resolved in a game. So `coverageBySet` will happily report SFD at 100% while a
-large fraction of it has never been drawn by any probe. That is not a
-hypothetical failure mode for this repo; it is the `make-buffdeck.mjs` defect —
-an instrument reporting its INPUT as its output — one level up.
+`coverage.ts` measures **implemented** — `isCardImplemented` is a static check that
+a `defId` is registered. It says nothing about whether a card has ever run, so
+`coverageBySet` will happily report SFD at 100% while most of the set has never
+been drawn by any probe. That is the `make-buffdeck.mjs` defect — an instrument
+reporting its INPUT as its output — one level up.
 
-**Build the instrument before you trust the number.** In rough order of value:
+**`probes/exercised.ts` now measures the second question, and you should run it
+first.** Its baseline on OGN+OGS, at `e107958`, 40 games, battlefields pinned:
 
-1. **Exercised coverage.** Instrument `probes/harness.ts` to record every `defId`
-   that resolves, run the existing probes, and print `exercised / implemented` per
-   set. Small, self-contained, and it turns "we should test more" into a figure
-   that moves. Put it in the handoff's figures table.
-2. **A coverage-driven deck generator.** Given the never-exercised list, build
-   legal decks that REACH those cards. This generalises `make-buffdeck.mjs` — and
-   keep its hard-won assertion: it throws, naming what did not fit, because it
-   once printed "priority present" for cards its 39-card fill loop had silently
-   dropped.
-3. **An invariant soak** over those decks. These need no oracle and are the checks
+| | |
+|---|---|
+| definitions in the registry | 288 (270 of which `needsImplementation`) |
+| reachable — in one of the 7 preset decks | **105** |
+| exercised | **96** |
+| cards needing code that NO probe can reach | **189** |
+
+Read `exercised` and `inDecks` together or not at all. `exercised / inDecks` was
+91% for OGN and 83% for OGS — of what the decks CAN reach, nearly everything runs.
+`inDecks / inPool` is 31% for OGN, and that is the real gap. **A low `exercised` is
+almost always a deck problem, not an engine problem**, and the two are fixed by
+different work.
+
+Note what this means for you concretely: **every SFD card starts in that 189.**
+Adding the set will move `inPool` and leave `exercised` flat until a deck contains
+SFD cards. Run `exercised.ts` before and after each wave; it is the only figure
+that distinguishes "implemented" from "demonstrated".
+
+What is still missing, in order of value:
+
+1. **A coverage-driven deck generator.** Given `exercised.ts`'s
+   `inDeckButNeverExercised` and the never-reachable list, build legal decks that
+   REACH those cards. This generalises `make-buffdeck.mjs` — and keep its hard-won
+   assertion: it throws, naming what did not fit, because it once printed
+   "priority present" for cards its 39-card fill loop had silently dropped. Note
+   deck validation caps a card at 3 copies across main + sideboard, so a
+   "guarantee it gets drawn" deck is built from many subjects, not many copies.
+2. **An invariant soak** over those decks. These need no oracle and are the checks
    worth automating: zero invalid actions, zero stranded Chain items, resources
    never negative, no decision with a blank title, and the walkout invariant
    (walkouts == control awarded, exact at every measurement so far).
@@ -229,12 +246,19 @@ split the job:
   SUSPECTS. Deterministic code cannot make that judgement and nothing else in this
   repo does. This is the one place a playtest team earns its cost.
 
-Fan those agents out over **disjoint card batches**, drawn from the
+Fan those agents out over **disjoint card batches**, drawn from `exercised.ts`'s
 never-exercised list rather than from a decklist. Treat every suspect as a lead,
 not a finding: confirm it by hand with a test that fails first, exactly as with
-any other bug. And make the report lead with **reachability, not pass/fail** — "47
-cards resolved, 223 never drawn" is the honest headline; "200 games, no failures"
-is the same sentence with the important half deleted.
+any other bug. And make the report lead with **reachability, not pass/fail** — "96
+cards resolved, 189 never reachable" is the honest headline; "200 games, no
+failures" is the same sentence with the important half deleted.
+
+`exercised.ts` produced a lead of exactly this shape on its first run, without any
+agents: **OGN-004 Cleave**, a 1-energy in-domain Fury `[Action]` reading "Give a
+unit [Assault 3] this turn", was never played across 8 games holding the legal
+maximum of 3 copies, while dearer cards sitting beside it in the same deck were
+played repeatedly. Unchased — it is either an AI valuation gap or an enumeration
+gap, and it is a good first subject for whatever runs this.
 
 ## What to leave behind — write this before you stop
 
