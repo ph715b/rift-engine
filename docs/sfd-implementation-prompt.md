@@ -1,0 +1,181 @@
+# Prompt — implement Spiritforged (SFD)
+
+Paste the block below into a fresh session. Everything in it was measured on
+2026-08-04 at `8a8af5d`, not recalled.
+
+---
+
+Read `docs/handoff-2026-08-04.md` first — it is the whole brief for the state you
+are inheriting. Then read the memory files it names, and `docs/rules-conformance.md`'s
+**Divergent** table plus the **Log**'s top ten rows. Then read
+`docs/sfd-readiness-brief.md`'s DONE section, which records what the set-readiness
+work actually put in place.
+
+Your job is to bring **Spiritforged (SFD)** into the engine.
+
+## Before anything else: check the data is here
+
+Adding a set is one JSON file in `packages/engine/src/cards/` plus one entry in
+`CARD_FILES` (`card-loader.ts:23`). `deriveId` already turns `"sfd-001-298"` into
+`"SFD-001"` unchanged.
+
+**As of 2026-08-04 there is no SFD data in the repo** — `CARD_FILES` is
+`[ognRaw, ogsRaw]` and the only match for "sfd" anywhere is the readiness brief.
+If it is still absent, stop and say so; do not scaffold around a file that does
+not exist.
+
+## The finding that should shape your plan
+
+**The risk in Spiritforged is not 250 card bodies. It is the subsystems the cards
+will need and the engine does not have.** Measured by cross-referencing
+`docs/Riftbound Core Rules Updated 2026-07-16.pdf` (39MB, gitignored, extract with
+`pdftotext -q "<file>" -`) against `model/keyword.ts` and the current pool:
+
+**Keywords the rules define that the engine does not model, and that ZERO cards in
+OGN+OGS print** — so they are almost certainly SFD's:
+
+| keyword | what it is | what it needs |
+|---|---|---|
+| `[Ambush]` | Passive. "I may be played to a battlefield where you control Units", and gains `[Reaction]` while being played there | See the framing question below — this one is not additive |
+| `[Hunt X]` | Triggered. "When I Conquer or Hold, my controller gains X XP" | **The whole XP resource (rule 728)**, which does not exist |
+| `[Weaponmaster]` | Triggered, on play. Choose a Card you control with the Equipment tag, pay its Equip ability's cost reduced by X, attach it | **The whole Equipment/attachment subsystem** |
+| `[Quick-Draw]` | "`[Reaction]`" + "when you play this, attach it to a Unit you control" | Equipment/attachment again |
+| `[Backline]` | Passive. "must be assigned lethal damage after any other unit with the same controller that does not have `[Backline]`" | Already implemented per-card as `combat.ASSIGNED_LAST_DEF_IDS`, because Caitlyn prints it as PROSE. If SFD prints it bracketed, promote it to a real keyword |
+
+**Two subsystems, neither of which exists:**
+
+- **XP (rule 728)** — a per-player resource that is gained and spent, and is Public
+  Information. `PlayerState` has no such field. `[Hunt]` alone requires it.
+- **Equipment / attachment** — the rules have a Gear "Equipment tag", `Equip`
+  abilities, attaching to a unit, and a Cleanup rule that recalls an Equipment when
+  its unit dies (an Equipment attached to a unit is "present at that battlefield").
+  This engine has `activeGear` as a flat per-player list with no attachment concept
+  at all, and `Listener.battlefieldId`'s own comment says "Gear is never at a
+  battlefield in this pool" — which SFD may falsify.
+
+**A framing question worth settling early, because it may already be a
+divergence.** `[Ambush]` is defined as "I may be played to a battlefield where you
+control Units", and the rules say it "adds options to locations that are valid for
+a Unit to be played to during the Make Relevant Choices step". This engine treats
+reinforce-by-presence as a UNIVERSAL permission (`validate-play-card`'s presence
+check, and `free-play.destinationsFor`). If the newer rules make that
+Ambush-gated, the engine is currently too permissive for every unit in the pool.
+Settle it from the PDF before writing any SFD card that touches placement, and
+record the answer either way.
+
+## The sequence — this is the order that worked for OGN
+
+1. **Load the data and let the censuses fire.** Add the JSON and the `CARD_FILES`
+   entry, run the suite, and expect several tests to go red at once: the supertype
+   and rarity censuses, the `DOMAINS` order pin, the split-Power-pip census, the
+   "I enter ready" guard, and the bracketed-token sweep if SFD prints a keyword the
+   engine does not model. **Each red is a decision, not a bug.** Work through them
+   one at a time and record what you decided.
+2. **Survey and cluster before implementing anything.** Do not start on cards.
+   Produce a written survey: how many cards, how many need no code, which need an
+   existing primitive, which need a NEW primitive, and which need one of the
+   subsystems above. `coverage.coverageBySet` reports per-set progress, and
+   `SetCoverage.finishedButUndeclared` is what will tell you when the set is done
+   and needs promoting into `COMPLETE_SETS`.
+3. **Build the subsystems first, centrally, one at a time.** XP and Equipment are
+   each their own piece of work with their own tests. Do not let them arrive
+   half-built inside a card wave — a card registered against a primitive that does
+   not fully work reports IMPLEMENTED and does nothing, which is the failure mode
+   this repo has hit most often.
+4. **Then implement cards in waves**, and this is where the team earns its keep —
+   see below.
+5. **Promote the set** into `COMPLETE_SETS` when `finishedButUndeclared` says so.
+
+## Where to use the agent team, and where not to
+
+Use `engine-devs` subagents, **fanned out over DISJOINT per-domain effect files**
+(`effects/fury.ts`, `chaos.ts`, `order.ts`, `mind.ts`, `body.ts`, `calm.ts`,
+`signature.ts`). That is exactly how OGN's 29-card cluster-1 wave landed: five
+parallel agents over disjoint files, each proving its own tests could fail by
+disabling its registry keys and re-running.
+
+**Do NOT fan out over:**
+
+- a shared file — `card-effects.ts`, `unit-triggers.ts`, `triggers.ts`,
+  `effective-might.ts`, `cost-modifiers.ts`, `card-loader.ts`, `combat.ts`. Two
+  agents editing one of these will conflict, and in the OGN wave the six cards that
+  needed a shared file had to be finished centrally afterwards. Identify those
+  cards during the survey and keep them for yourself.
+- either new subsystem. XP and Equipment are single-owner work.
+- the verification loop. The engine build is shared, so agents cannot each run
+  `npm run build` safely in parallel; have them run the unit suite and do the full
+  loop yourself, centrally, before each commit.
+
+Give each agent: its domain file, its card list, the primitives it may use, and
+the standing discipline below. Tell it explicitly that a card whose text needs a
+primitive that does not exist must be REPORTED, not faked — two agents in the OGN
+wave correctly stopped rather than shipping into that trap.
+
+## One playtest report to settle, with the mechanism already located
+
+**Baited Hook (OGN-242).** Reported: "if I use Hook to sacrifice a lone unit at a
+battlefield, the unit I get off the top should be playable to the battlefield that
+lone unit was on — I believe a recent rule change allows this."
+
+The symptom is real and the cause is exact. `free-play.destinationsFor` offers a
+battlefield only when `hasPresence` — the player has a unit there — and Baited
+Hook kills the lone unit *in the same ability*, so by the time the free play
+happens presence is gone and base is the only option.
+
+The rules question is genuinely open and you should settle it before changing
+anything:
+
+- The 2026-07-16 PDF does **not** support it as written. The permission it defines
+  is `[Ambush]`, "a battlefield where you **control Units**" — after the kill you
+  control none there.
+- But note the engine checks PRESENCE while control of the battlefield has **not
+  yet lapsed** (that happens in the next Cleanup, 323.11). "A battlefield you
+  control" and "a battlefield where you have units" come apart for exactly one
+  window, and this is it. If the newer rule is phrased as control, the report is
+  correct and the fix is one predicate.
+- The other candidate reading is that the kill and the play are linked
+  instructions (359.3), so the destination is judged as the ability began.
+
+Check for a rules document newer than 2026-07-16 first. If none exists, take the
+user's reading, implement it, and record it **Unverified** in
+`docs/rules-conformance.md` with both alternatives — that is this project's
+standing decision for an unguessable call. Either way, pin it with a test that
+fails first.
+
+## Standing discipline — non-negotiable
+
+- **Prove every fix by making the check fail first.** A test that passed before the
+  change tests nothing. And when you prove something by mutation, **grep for the
+  marker to confirm the mutation applied** — twice in the last session a patch
+  script missed on indentation and the "mutation" ran against unmutated code.
+- **Fix the PREMISE, never weaken the assertion.**
+- **Negative controls belong on the PEN (`pendingTriggers`), not the board.** A
+  listener whose `applies` is wrong still re-checks in `resolve` and resolves to
+  nothing, so the board looks identical either way.
+- **Re-read the CODE before believing a note about the code.** Three notes in this
+  repo turned out to be false: Noxian Guillotine's PARTIAL note, Volibear's
+  "cardPlayed does not carry the unit", and the bystander rule.
+- **An instrument gets the same scrutiny as the code** — see the
+  `instrument-defects` memory. In particular: measure whether a deck can REACH your
+  change before trusting a green probe run.
+- **Record divergences in `docs/rules-conformance.md` in the same change**, and
+  re-read what it already claims first.
+- **Never bulk-edit source with PowerShell.** A python round-trip with explicit
+  `utf-8` and `newline=""` is safe — note the repo is CRLF, so a multi-line search
+  string joined with `\n` will silently not match. `assert` every replacement.
+- Scratch files go in the session scratchpad, NOT next to the source.
+- Commit per task with a real message, and push.
+
+## Verification loop — every time, in this order
+
+1. `npm run test --workspace=@rift-engine/engine`
+2. `npm run build --workspace=@rift-engine/engine` — **before** the web typecheck,
+   because `@rift-engine/web` resolves the engine from `dist`
+3. `npm run typecheck`, then `npm run build`
+4. Probes: `npx tsx packages/engine/probes/{ai-health,passive-human,chain-depth,walkout}.ts`
+5. Live if a player can see it: `PORT=<port> node tools/ui-probes/live-triggers.mjs`
+   with `SPECTATE=1` and `DECK=buff|calm|combat`. Never hardcode 5173.
+
+**Every AI gate is blind to SFD until a deck contains SFD cards** — the presets are
+pinned. Expect green gates to prove nothing about the new set, and build a
+purpose-built deck when you need to see one work.
