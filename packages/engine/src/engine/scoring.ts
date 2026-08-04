@@ -1,6 +1,7 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { WIN_THRESHOLD_1V1 } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
+import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -64,10 +65,13 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   // part of `runStartOfTurn` — so like `endOfTurn` they sit in the pen until the
   // single Cleanup at the end of that action. See HeldEventKind's turn-boundary
   // note.
-  return held.reduce(
-    (next, battlefieldId) => holdEventTrigger(next, { kind: "battlefieldHeld", holderIndex: playerIndex, battlefieldId }),
-    scored,
-  );
+  return held.reduce((next, battlefieldId) => {
+    const withPermanents = holdEventTrigger(next, { kind: "battlefieldHeld", holderIndex: playerIndex, battlefieldId });
+    // The BATTLEFIELD's own "when you hold here" (Grove of the God-Willow, The
+    // Grand Plaza, five more), placed after the permanents so it resolves before
+    // them under LIFO — see holdBattlefieldTrigger.
+    return holdBattlefieldTrigger(withPermanents, "hold", battlefieldId, playerIndex);
+  }, scored);
 }
 
 /**

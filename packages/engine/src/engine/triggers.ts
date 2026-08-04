@@ -851,6 +851,21 @@ export function eventTriggerDefIds(): string[] {
 }
 
 /**
+ * One card's event trigger, for the one caller that has to run an ability
+ * WITHOUT its event having happened: Reckoner's Arena's "activate the conquer
+ * effects of units here".
+ *
+ * Deliberately narrow — it hands back the definition rather than resolving
+ * anything, so the battlefield decides which listeners it means (its own, and
+ * only those standing there) instead of this module growing a card-shaped
+ * function. `applies` is the caller's to ignore, and Reckoner's Arena does
+ * ignore it: nothing triggered, so there is no trigger condition to test.
+ */
+export function eventTriggerFor(defId: string): EventTriggerDefinition | undefined {
+  return allEventTriggers()[defId];
+}
+
+/**
  * Resolves a triggered ability that was waiting on the chain as a Pending Item
  * (809.1.b.3) — the deferred counterpart to `dispatchEvent` below.
  *

@@ -14,6 +14,7 @@ import {
 } from "../src/engine/coverage.js";
 import { decisionDefIds } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { loadBattlefieldDefinitions } from "../src/cards/card-loader.js";
 import {
   KEYWORDS,
   NON_KEYWORD_BRACKETS,
@@ -167,10 +168,19 @@ describe("coverage.ts knows about every place a card can be implemented", () => 
 
   it("no module claims a card that isn't real", () => {
     const registry = defaultCardRegistry();
+    // **"Real" is not the same as "in the CardRegistry", and that premise was
+    // wrong rather than merely narrow.** `card-loader`'s `shouldSkip` keeps
+    // Battlefield-type (and Rune-type) cards out of `loadCardDefinitions`, so the
+    // registry has never held one — but the 24 printed Battlefields are real
+    // cards with real rules text, and `engine/battlefield-abilities.ts`
+    // implements them. Asking both sources keeps the check's teeth: a typo'd
+    // battlefield id is in NEITHER, and still fails here.
+    const battlefieldIds = new Set(loadBattlefieldDefinitions().map((b) => b.id));
     for (const { defId, file } of occurrences) {
       const module = implementingModule(defId);
       if (module === undefined) continue;
-      expect(registry.tryGet(defId), `${module} claims ${defId} (referenced in ${file}) but it is not a real card`).toBeDefined();
+      const real = registry.tryGet(defId) !== undefined || battlefieldIds.has(defId);
+      expect(real, `${module} claims ${defId} (referenced in ${file}) but it is not a real card`).toBe(true);
     }
   });
 });

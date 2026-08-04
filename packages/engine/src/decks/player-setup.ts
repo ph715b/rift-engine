@@ -71,6 +71,9 @@ export function buildPlayerFromDeckList(
     name,
     legend,
     championZone: championInstance,
+    // Recorded here because this is the only place that knows it: the zone goes
+    // empty the moment the champion is played, and Hallowed Tomb asks after that.
+    chosenChampionDefId: deckList.championId,
     deck,
     hand: [],
     trash: [],

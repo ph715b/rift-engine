@@ -174,8 +174,15 @@ export interface TriggerChainEntry {
    * resolves even though its source has left play (809.1.b), because the card IS
    * the ability's source rather than a bystander watching. An event-registry
    * listener is the bystander, and bails. See `resolveHeldOnPlayTrigger`.
+   *
+   * `"battlefield"` is the BATTLEFIELD's own printed ability ("when you hold
+   * here, draw 1"), where `event` is a `BattlefieldTriggerEvent` and
+   * `listenerDefId` is the printed Battlefield card (`BattlefieldState.defId`).
+   * It shares the non-`event` sources' rule for the same reason a Legend does,
+   * only more strongly: a battlefield is in play from setup to the end of the
+   * game and cannot leave, so there is no "it has gone" case at all.
    */
-  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger" | "deathknell";
+  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger" | "deathknell" | "battlefield";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */
@@ -217,6 +224,24 @@ export interface PlayerState {
    * player-indexed.
    */
   championZone: UnitInstance | null;
+  /**
+   * The defId of this player's **Chosen Champion** — the card `championZone`
+   * started the game holding.
+   *
+   * `championZone` alone cannot answer "which card is your Chosen Champion",
+   * because it is `null` the moment the champion is played, and that is exactly
+   * when Hallowed Tomb ("return your Chosen Champion from your trash to your
+   * Champion Zone if it is empty") needs the answer. Nor can the trash be
+   * searched for "a champion": OGN prints 56 champions against 16 legends, so a
+   * legal deck can hold champion cards that are not the designated one, and
+   * `isChampion` would offer them.
+   *
+   * REQUIRED, not optional, so every hand-built state has to say what it is. An
+   * optional field would default the Tomb to finding nothing — which is the
+   * silent-inert shape this codebase keeps rediscovering, and it would be
+   * silent in exactly the states used to test the card.
+   */
+  chosenChampionDefId: string;
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];
@@ -681,6 +706,20 @@ export interface GameState {
    * Empty in every settled state.
    */
   pendingTriggers: TriggerChainEntry[];
+  /**
+   * A player who has WON by something other than points — The Grand Plaza's
+   * "when you hold here, if you have 7+ units here, you win the game".
+   *
+   * `win-condition.winner` reads this before it compares scores, so an alternate
+   * win condition does not have to be expressible as a number of points. It is
+   * deliberately a declaration rather than a shortcut that awards enough points:
+   * a player put on the Victory Score would also satisfy every "while an opponent
+   * is within 3 points" clause on the board, and would be beatable by a tie.
+   *
+   * Set once and never cleared — a win does not lapse. `null` in every ordinary
+   * game, which is why it costs nothing to read on the hot path.
+   */
+  declaredWinnerIndex: 0 | 1 | null;
   /**
    * How many EXTRA turns the player at `extraTurnsForIndex` still has coming —
    * Time Warp's "take a turn after this one".

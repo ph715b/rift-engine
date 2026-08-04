@@ -17,6 +17,7 @@ import { combatAssignmentDefIds } from "./combat.js";
 import { boardRestrictionDefIds } from "./board-restrictions.js";
 import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
+import { battlefieldAbilityDefIds } from "./battlefield-abilities.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -185,6 +186,13 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "hide costs", defIds: hideCostDefIds },
   { label: "top-of-deck looks", defIds: topOfDeckDefIds },
   { label: "deathknell modifiers", defIds: deathknellModifierDefIds },
+  // The BATTLEFIELD cards' own abilities. Their ids never reach
+  // `needsImplementation` — `card-loader`'s `shouldSkip` keeps Battlefield-type
+  // cards out of the loaded pool entirely — so this source claims nothing the
+  // deck builder counts. It is here for the other half of coverage's job:
+  // `implementingModule` has to be able to say where OGN-275's printed text
+  // lives, and the source-scanning drift test flags any id it cannot.
+  { label: "battlefield abilities", defIds: battlefieldAbilityDefIds },
 ];
 
 /**

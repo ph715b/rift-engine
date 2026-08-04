@@ -33,6 +33,7 @@ import {
   chooseMatchBattlefields,
   defaultCardRegistry,
   LEGACY_BATTLEFIELDS,
+  battlefieldDefIdFor,
   mulberry32,
   presetDeckList,
   startGame,
@@ -63,6 +64,13 @@ export function legacyBattlefields(): BattlefieldState[] {
   return LEGACY_BATTLEFIELDS.map((name, i) => ({
     id: `bf-${i}`,
     name,
+    // **Stamped, exactly as `battlefieldPair` stamps a real game's.** Without it
+    // every probe that PINS its battlefields plays on boards whose battlefields
+    // have no printed ability, while the probes that roll theirs get abilities —
+    // so a pinned probe could report a green gate over a path a real game always
+    // takes. All three of these are real cards (Zaun Warrens, Targon's Peak,
+    // Reaver's Row) and every one of them has rules text.
+    ...(battlefieldDefIdFor(name) !== undefined ? { defId: battlefieldDefIdFor(name)! } : {}),
     controllerId: null,
     units: {},
     contestedByIndex: null,
@@ -109,6 +117,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     chainPasses: 0,
     spellChain: [],
     pendingTriggers: [],
+    declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],

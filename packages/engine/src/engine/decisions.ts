@@ -2,6 +2,7 @@ import type { GameState, PendingDecision } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
 import { legendDecisions } from "./legend-abilities.js";
+import { battlefieldDecisions } from "./battlefield-abilities.js";
 import { freePlayDecisions } from "./free-play.js";
 import { discardCards, drawCards } from "./effect-helpers.js";
 import { holdEventTrigger } from "./triggers.js";
@@ -135,6 +136,10 @@ function allDecisions(): Record<string, DecisionDefinition> {
     // file — every Legend is dual-domain, so filing one by domain is meaningless
     // (see legend-abilities.ts's own note).
     { name: "engine/legend-abilities.ts", entries: legendDecisions },
+    // Battlefields' questions, for the same reason the Legends' are here: every
+    // printed Battlefield is Colorless, so filing one in a per-domain file would
+    // be filing it nowhere.
+    { name: "engine/battlefield-abilities.ts", entries: battlefieldDecisions },
     ...domainDecisions(),
   ]);
   return composed;

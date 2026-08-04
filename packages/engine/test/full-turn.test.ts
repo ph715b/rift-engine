@@ -43,6 +43,7 @@ function buildInitialGameState(): GameState {
     chainOpenedByTrigger: false,
     spellChain: [],
     pendingTriggers: [],
+    declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
