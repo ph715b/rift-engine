@@ -766,7 +766,14 @@ export interface GameState {
    * battlefield. Deploying it at base first and moving it afterwards would fire
    * both for the wrong place.
    */
-  unitsAwaitingFreePlacement: { unit: UnitInstance; playerIndex: 0 | 1 }[];
+  unitsAwaitingFreePlacement: {
+    unit: UnitInstance;
+    playerIndex: 0 | 1;
+    /** A battlefield this free play may reach even with no presence, because the
+     *  effect performing it emptied that battlefield itself (Baited Hook killing a
+     *  lone unit). See engine/free-play.ts's destinationsFor. */
+    alsoAllowBattlefieldId?: string;
+  }[];
   /**
    * Questions the engine has stopped to ask, oldest first.
    *

@@ -807,7 +807,10 @@ export const decisions: Record<string, DecisionDefinition> = {
       // instruction, and nothing can observe the intermediate zone — so it goes
       // straight to play rather than through `PlayerState.banished`, which still
       // has no writers. Recorded in docs/rules-conformance.md.
-      return chosen ? playUnitFree(recycled, d.playerIndex, chosen as UnitInstance) : recycled;
+      // `d.battlefieldId` is where the bait stood when it was killed, captured on
+      // the decision because the board no longer knows: the unit is in a trash and
+      // the Cleanup between the two submits has already lapsed control there.
+      return chosen ? playUnitFree(recycled, d.playerIndex, chosen as UnitInstance, d.battlefieldId) : recycled;
     },
   },
   // Albus Ferros' "spend any number of buffs". Asked once per buff, with a

@@ -896,6 +896,10 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       // Unreachable today and written anyway: this engine opens no response
       // window between submitting an ActivateAbility and resolving it, so nothing
       // can remove the victim in between. Reported as unexercised, not working.
+      // Read BEFORE the kill, off the victim's own location — `findUnitAnywhere`
+      // reports a zone (`"base"` or a battlefield INDEX), not an id.
+      const victimBattlefieldId =
+        victim && typeof victim.zone === "object" ? state.battlefields[victim.zone.battlefieldIndex]?.id : undefined;
       const cap = victim
         ? effectiveMight(state, victim.unit, victim.ownerIndex, { isCombat: false }) + 1
         : null;
@@ -911,6 +915,13 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         // victim is in a trash by the time this is answered, and `null` is the
         // 359.3.e.14 case, which must stay distinguishable from a cap of 0.
         ...(cap !== null ? { count: cap } : {}),
+        // WHERE the bait stood, for the same reason and a stronger one: the free
+        // play this leads to may land there even though the kill just emptied it
+        // (359.3's linked instructions — see free-play.ts's destinationsFor).
+        // Nothing can recompute it later. The unit is in a trash by then, and the
+        // Cleanup between this submit and the answer has already lapsed control of
+        // a battlefield the player no longer occupies.
+        ...(victimBattlefieldId !== undefined ? { battlefieldId: victimBattlefieldId } : {}),
       });
     },
   },

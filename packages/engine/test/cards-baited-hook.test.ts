@@ -188,3 +188,76 @@ describe("Baited Hook (OGN-242): the first Energy+Power activation", () => {
     expect(isCardImplemented(registry.get(BAITED_HOOK))).toBe(true);
   });
 });
+
+/**
+ * Reported from playtesting: "if I use Hook to sacrifice a LONE unit at a
+ * battlefield, the unit I get off the top should be playable to the battlefield
+ * that lone unit was on."
+ *
+ * The mechanism is exact. `free-play.destinationsFor` offers a battlefield only
+ * where the player has a unit RIGHT NOW, and Baited Hook kills the only one it had
+ * there as the first half of the same ability — so by the time the free play
+ * happens presence is gone and base is the only destination.
+ *
+ * `bf-0` is CONTROLLED by the player in these tests, which is the whole point:
+ * control is awarded when the battlefield is held and lapses only in a later
+ * Cleanup (`lapseUnoccupiedControl`, 323.11). So between the kill and the free
+ * play there is a real window where "a battlefield you control" and "a battlefield
+ * where you have units" disagree, and this is it.
+ *
+ * Recorded **Unverified** in docs/rules-conformance.md: the 2026-07-16 PDF defines
+ * the permission as `[Ambush]`, "a battlefield where you control Units", which
+ * after the kill is false. The alternative readings are control (implemented here,
+ * on the reporter's account of a rule change) and 359.3's linked instructions
+ * judging the destination as the ability began.
+ */
+describe("Baited Hook: the replacement may land where the bait died", () => {
+  /** The gear in play, a LONE `victim` at bf-0 which the player controls. */
+  function loneAtBattlefield(controlled: boolean): { state: GameState; hook: GearInstance; victim: UnitInstance } {
+    const hook = gear();
+    const victim = makeUnit({ name: "Bait", might: 3, instanceId: "bait" });
+    const state = makeState({
+      phase: "Action",
+      players: [
+        makePlayer("p1", { channeled: orderRunes(2), deck: [makeUnit({ name: "Fresh", might: 4, instanceId: "fresh" })] }),
+        makePlayer("p2"),
+      ],
+    });
+    state.players[0]!.activeGear = [hook];
+    state.battlefields[0]!.units = { p1: [victim] };
+    // The fixture names its battlefields `bf1`/`bf2`, not `bf-0` — read the id
+    // rather than hardcoding one, which cost a red run that looked like a fix
+    // failing when it had already worked.
+    if (controlled) state.battlefields[0]!.controllerId = "p1";
+    return { state, hook, victim };
+  }
+
+  it("offers the battlefield the bait died at, when the player still controls it", () => {
+    const { state, hook, victim } = loneAtBattlefield(true);
+    const afterKill = accept(state, activation(state, hook, victim.instanceId));
+    const afterBanish = answer(afterKill, "fresh");
+
+    const d = pendingDecision(afterBanish);
+    expect(d, "no placement question was asked — the unit went straight to base").toBeDefined();
+    expect(optionsFor(afterBanish, d!).map((o) => o.id)).toContain(state.battlefields[0]!.id);
+  });
+
+  it("still lands the unit there once chosen", () => {
+    const { state, hook, victim } = loneAtBattlefield(true);
+    const afterBanish = answer(accept(state, activation(state, hook, victim.instanceId)), "fresh");
+    const placed = answer(afterBanish, state.battlefields[0]!.id);
+
+    expect(placed.battlefields[0]!.units["p1"]?.map((u) => u.instanceId)).toEqual(["fresh"]);
+    expect(placed.players[0]!.baseUnits).toEqual([]);
+  });
+
+  it("does NOT offer a battlefield the player neither occupies nor controls", () => {
+    // The negative control that keeps this from becoming "free plays go anywhere".
+    const { state, hook, victim } = loneAtBattlefield(false);
+    const afterBanish = answer(accept(state, activation(state, hook, victim.instanceId)), "fresh");
+
+    const d = pendingDecision(afterBanish);
+    const ids = d ? optionsFor(afterBanish, d).map((o) => o.id) : [];
+    expect(ids).not.toContain(state.battlefields[1]!.id);
+  });
+});

@@ -29,7 +29,12 @@ import { applyContested } from "./cleanup.js";
 export const FREE_PLAY_PLACEMENT = "free-play-placement";
 
 /** `"base"`, or a battlefield id. */
-function destinationsFor(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): { id: string; label: string }[] {
+function destinationsFor(
+  state: GameState,
+  playerIndex: 0 | 1,
+  unit: UnitInstance,
+  alsoAllowBattlefieldId?: string,
+): { id: string; label: string }[] {
   const actor = state.players[playerIndex];
   const out = [{ id: "base", label: "Your base" }];
   for (const bf of state.battlefields) {
@@ -43,7 +48,30 @@ function destinationsFor(state: GameState, playerIndex: 0 | 1, unit: UnitInstanc
     // card's resolution rather than as a play action of the controller's own.
     // Recorded Unverified in docs/rules-conformance.md.
     const hasPresence = (bf.units[actor.id]?.length ?? 0) > 0;
-    if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, unit.defId, bf)) continue;
+    // **The place this play's own effect just emptied.** 359.3's linked
+    // instructions: where Baited Hook kills a friendly unit and then plays one
+    // "ignoring its cost", the two halves are one instruction, so the destination
+    // is judged as the ability began rather than after its own kill.
+    //
+    // Without it a LONE unit at a battlefield is unreachable by construction — the
+    // kill removes exactly the presence the free play then needs, so the
+    // replacement always went to base and was never even asked. Reported from
+    // playtesting.
+    //
+    // Control is NOT the test, and that was tried first: control lapses in the
+    // Cleanup that runs between submitting the activation and answering its
+    // question (`lapseUnoccupiedControl`, 323.11), so by the time the free play
+    // happens the player controls nothing there either. Only something CARRIED
+    // from before the kill can survive that gap.
+    //
+    // Recorded **Unverified** in docs/rules-conformance.md: the 2026-07-16 PDF
+    // frames the permission as `[Ambush]`, "a battlefield where you control
+    // UNITS", which after the kill is false. Deliberately narrow — one named
+    // battlefield, passed by the one effect that earned it — rather than a general
+    // loosening of where free plays may land.
+    if (bf.id !== alsoAllowBattlefieldId) {
+      if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, unit.defId, bf)) continue;
+    }
     out.push({ id: bf.id, label: bf.name });
   }
   return out;
@@ -56,8 +84,15 @@ function destinationsFor(state: GameState, playerIndex: 0 | 1, unit: UnitInstanc
  * The CALLER has already removed the card from wherever it came from, exactly as
  * `playUnitToBase` requires — this only decides the destination and deploys.
  */
-export function playUnitFree(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): GameState {
-  const destinations = destinationsFor(state, playerIndex, unit);
+export function playUnitFree(
+  state: GameState,
+  playerIndex: 0 | 1,
+  unit: UnitInstance,
+  /** A battlefield this play may reach REGARDLESS of presence, because the same
+   *  effect emptied it a moment ago. See destinationsFor. */
+  alsoAllowBattlefieldId?: string,
+): GameState {
+  const destinations = destinationsFor(state, playerIndex, unit, alsoAllowBattlefieldId);
   if (destinations.length <= 1) return playUnitToBase(state, playerIndex, unit);
 
   // The unit is parked WITH the question rather than deployed first and moved:
@@ -65,7 +100,13 @@ export function playUnitFree(state: GameState, playerIndex: 0 | 1, unit: UnitIns
   // and doing either at base first would fire them for the wrong place.
   const parked: GameState = {
     ...state,
-    unitsAwaitingFreePlacement: [...state.unitsAwaitingFreePlacement, { unit, playerIndex }],
+    unitsAwaitingFreePlacement: [
+      ...state.unitsAwaitingFreePlacement,
+      // Carried with the parked unit so `optionsFor` re-derives the SAME list when
+      // the question is answered a submit later — by then the board has moved on
+      // and nothing could recompute it.
+      { unit, playerIndex, ...(alsoAllowBattlefieldId !== undefined ? { alsoAllowBattlefieldId } : {}) },
+    ],
   };
   return parkDecision(parked, { kind: FREE_PLAY_PLACEMENT, playerIndex, cardInstanceId: unit.instanceId });
 }
@@ -82,7 +123,10 @@ export const freePlayDecisions: Record<string, DecisionDefinition> = {
     options: (state, d): DecisionOption[] => {
       const held = awaiting(state, d.cardInstanceId);
       if (!held) return [];
-      return destinationsFor(state, held.playerIndex, held.unit).map((dest) => ({ id: dest.id, label: dest.label }));
+      return destinationsFor(state, held.playerIndex, held.unit, held.alsoAllowBattlefieldId).map((dest) => ({
+        id: dest.id,
+        label: dest.label,
+      }));
     },
     resolve: (state, d, optionId) => {
       const held = awaiting(state, d.cardInstanceId);
