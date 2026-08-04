@@ -388,6 +388,20 @@ export interface BattlefieldState {
   designatedInstanceIds?: readonly string[];
   id: string;
   name: string;
+  /**
+   * The Battlefield CARD this is, when the name matches one.
+   *
+   * Battlefields were names and nothing else until now, which is why they have no
+   * abilities: `card-loader`'s `shouldSkip` excludes Battlefield-type cards from
+   * `loadCardDefinitions`, so there was nothing for an ability registry to key
+   * off. This is that key — the 24 printed battlefields all carry real rules text
+   * (`loadBattlefieldDefinitions`), and an ability table can now find it.
+   *
+   * OPTIONAL because a deck file may name a battlefield no card matches, and
+   * because the many hand-built `BattlefieldState`s in tests and probes must keep
+   * compiling. Absent means "no printed ability", never "look it up by name".
+   */
+  defId?: string;
   controllerId: string | null;
   units: Record<string, UnitInstance[]>;
   /**

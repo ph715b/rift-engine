@@ -1,4 +1,5 @@
 import type { BattlefieldState } from "../model/game-state.js";
+import { loadBattlefieldDefinitions } from "../cards/card-loader.js";
 import type { Rng } from "../util/rng.js";
 import type { DeckList } from "./deck-list.js";
 
@@ -20,11 +21,34 @@ import type { DeckList } from "./deck-list.js";
  * opponent's) and are what every action/target references, so they must stay
  * stable for a game's lifetime.
  */
+/** Name -> printed Battlefield card id. Built once; `loadBattlefieldDefinitions`
+ *  already de-duplicates by name and `validateDeckList` picks from the same list,
+ *  so a name is a safe key. */
+const DEF_ID_BY_NAME: ReadonlyMap<string, string> = new Map(
+  loadBattlefieldDefinitions().map((def) => [def.name, def.id]),
+);
+
+/** The printed card id for a battlefield name, or undefined when no card matches
+ *  — a deck file may name anything, and an unmatched name is simply a battlefield
+ *  with no printed ability rather than an error. */
+export function battlefieldDefIdFor(name: string): string | undefined {
+  return DEF_ID_BY_NAME.get(name);
+}
+
 export function battlefieldPair(humanName: string, aiName: string): [BattlefieldState, BattlefieldState] {
-  return [
-    { id: "bf-0", name: humanName, controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
-    { id: "bf-1", name: aiName, controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
-  ];
+  const build = (id: string, name: string): BattlefieldState => ({
+    id,
+    name,
+    // Resolved ONCE, at construction, rather than looked up per read: the name is
+    // fixed for the game's lifetime, and a state that carries its own card id
+    // cannot disagree with one that re-derives it.
+    ...(battlefieldDefIdFor(name) !== undefined ? { defId: battlefieldDefIdFor(name)! } : {}),
+    controllerId: null,
+    units: {},
+    contestedByIndex: null,
+    hiddenCards: [],
+  });
+  return [build("bf-0", humanName), build("bf-1", aiName)];
 }
 
 /**
