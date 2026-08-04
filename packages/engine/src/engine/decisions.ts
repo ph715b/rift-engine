@@ -154,8 +154,38 @@ export function decisionDefIds(): string[] {
   );
 }
 
-function definitionFor(decision: PendingDecision): DecisionDefinition | undefined {
-  return allDecisions()[decision.kind];
+/**
+ * The handler for a question's `kind`, or a THROW.
+ *
+ * An unregistered kind is a bug in card registration, not a game state. It used
+ * to be tolerated in three different ways — `advanceDecisions` dropped the
+ * question, `optionsFor` returned `[]` and `promptFor` returned `""` — and each
+ * of those is silent: the card parks its question, nothing happens, it costs its
+ * runes and goes to the trash, and `coverage.ts` still calls it IMPLEMENTED,
+ * because it sees the card registered in this file's own map and cannot tell
+ * that the seed names a key the map lacks.
+ *
+ * The old defence was "an unregistered kind cannot be answered by anyone, so
+ * dropping it is the only option that doesn't deadlock the game" — true about
+ * the runtime and wrong about the consequence. `resolvePendingTrigger` was
+ * changed from exactly that shape to a throw, for exactly this reason: a silent
+ * no-op is how all 7 legend hooks would have vanished with no failing test.
+ *
+ * What this must NOT do is collapse the other case. A REGISTERED definition
+ * returning no options is legitimate — "discard 1" with an empty hand has
+ * genuinely become moot — and `advanceDecisions` still drops that one. The
+ * distinction is between having no handler and having nothing to ask.
+ */
+function definitionFor(decision: PendingDecision): DecisionDefinition {
+  const definition = allDecisions()[decision.kind];
+  if (!definition) {
+    throw new Error(
+      `No decision registered for kind "${decision.kind}" (id ${decision.id}). ` +
+        `A card parked a question nothing can answer — register it in the owning ` +
+        `per-domain effect file, or in GENERIC if it belongs to no card.`,
+    );
+  }
+  return definition;
 }
 
 /** The question at the front of the queue, or undefined when the game is
@@ -164,13 +194,16 @@ export function pendingDecision(state: GameState): PendingDecision | undefined {
   return state.pendingDecisions[0];
 }
 
-/** The answers to the front question, for legal-actions and the board. */
+/** The answers to the front question, for legal-actions and the board.
+ *  An empty list here means the question has become moot, and ONLY that —
+ *  `definitionFor` throws rather than returning nothing for a kind it does not
+ *  know, so the two can no longer be confused. */
 export function optionsFor(state: GameState, decision: PendingDecision): DecisionOption[] {
-  return definitionFor(decision)?.options(state, decision) ?? [];
+  return definitionFor(decision).options(state, decision);
 }
 
 export function promptFor(state: GameState, decision: PendingDecision): string {
-  return definitionFor(decision)?.prompt(state, decision) ?? "";
+  return definitionFor(decision).prompt(state, decision);
 }
 
 /** Safety net for a handler that re-parks its own question forever. Far above
@@ -196,13 +229,10 @@ export function advanceDecisions(state: GameState): GameState {
   for (let step = 0; step < MAX_ADVANCE_STEPS; step += 1) {
     const head = current.pendingDecisions[0];
     if (!head) return current;
+    // Throws on an unregistered kind rather than dropping the question — see
+    // `definitionFor`. Dropping it was the silent path: the card did nothing and
+    // still reported implemented.
     const definition = definitionFor(head);
-    // An unregistered kind cannot be answered by anyone, so dropping it is the
-    // only option that doesn't deadlock the game.
-    if (!definition) {
-      current = { ...current, pendingDecisions: current.pendingDecisions.slice(1) };
-      continue;
-    }
     const options = definition.options(current, head);
     if (options.length > 1) return current;
     const popped = { ...current, pendingDecisions: current.pendingDecisions.slice(1) };
@@ -243,12 +273,16 @@ export function repeatDecision(state: GameState, seed: DecisionSeed): GameState 
  * doesn't apply — a stale decision id, or an option that isn't on offer — so the
  * validator and the executor agree on what "legal" means without repeating the
  * check.
+ *
+ * An unregistered KIND is not one of those cases and no longer returns undefined
+ * here: it is a bug rather than an inapplicable answer, and `definitionFor`
+ * throws. Reporting it as "that answer doesn't apply" is what let a card park an
+ * unanswerable question and read as merely un-answered.
  */
 export function answerDecision(state: GameState, decisionId: string, optionId: string): GameState | undefined {
   const head = pendingDecision(state);
   if (!head || head.id !== decisionId) return undefined;
   const definition = definitionFor(head);
-  if (!definition) return undefined;
   if (!definition.options(state, head).some((o) => o.id === optionId)) return undefined;
 
   const popped = { ...state, pendingDecisions: state.pendingDecisions.slice(1) };

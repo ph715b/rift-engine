@@ -205,7 +205,24 @@ function settleDeferredResolution(
     const pending = settled.pendingDecisions[0];
     if (pending) {
       const answers = legalActions(settled);
-      if (answers.length === 0) return settled;
+      // A question at the front of the queue always has an answer, and that is an
+      // invariant of decisions.ts rather than a hope: `advanceDecisions` drains a
+      // head with no options (it has become moot) and `definitionFor` throws on a
+      // kind nothing registers. So reaching here means one of those broke.
+      //
+      // Returning `settled` was the silent response, and the same shape as the
+      // exhaustion case below: `evaluate` reads points, might, hand and gear,
+      // none of which reveal that a question is still outstanding, so the AI
+      // would score a board the game can never reach and pick a move on it.
+      // Measured before changing it — 18,823 pending-decision iterations across
+      // ai-health, walkout and chain-depth (440 games), of which 0 reached here.
+      if (answers.length === 0) {
+        throw new Error(
+          `settleDeferredResolution: a pending decision offers no answer ` +
+            `(kind=${pending.kind}, id=${pending.id}, playerIndex=${pending.playerIndex}). ` +
+            `advanceDecisions should have dropped it or definitionFor should have thrown.`,
+        );
+      }
       const current = settled;
       let bestAnswer = answers[0]!;
       let bestValue = -Infinity;

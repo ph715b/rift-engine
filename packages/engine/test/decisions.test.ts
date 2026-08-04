@@ -111,10 +111,13 @@ describe("a question with nothing to decide is never asked", () => {
     expect(state.pendingDecisions).toHaveLength(0);
   });
 
-  it("drops a question no registry can answer, rather than deadlocking", () => {
-    const state = parkDecision(asker(0), { kind: "not-a-registered-kind", playerIndex: 0 });
-    expect(state.pendingDecisions).toHaveLength(0);
-  });
+  // "drops a question no registry can answer, rather than deadlocking" used to
+  // live here, and its premise was wrong rather than its assertion. Dropping is
+  // for a question that has become MOOT — the two cases above, both of which
+  // still drop. A kind NOTHING registers is a bug in card registration, and
+  // dropping it silently is how a card can park an unanswerable question, do
+  // nothing, and still report implemented. It now throws; see
+  // "a decision kind nothing registers" at the foot of this file.
 });
 
 describe("the Cleanup waits for the answer (323.2.b)", () => {
@@ -221,5 +224,78 @@ describe("a question raised during a Cleanup", () => {
     expect(asked.pendingDecisions.map((d) => d.kind)).toEqual(["discard", "draw"]);
     expect(legalActions(asked).length).toBeGreaterThan(0); // answerable outside the Action phase
     expect(answerDecisions(asked).pendingDecisions).toHaveLength(0);
+  });
+});
+
+/**
+ * An unregistered decision kind is a BUG, not a game state.
+ *
+ * `advanceDecisions` used to drop one silently, defended by "an unregistered
+ * kind cannot be answered by anyone, so dropping it is the only option that
+ * doesn't deadlock the game". That is true about the runtime and wrong about
+ * the consequence: a card that parks a kind nobody registered then does
+ * nothing, costs its runes, goes to the trash — and still reports IMPLEMENTED,
+ * because `coverage.ts` sees the card registered in `decisions.ts`'s own map
+ * and cannot tell that the seed names a key the map lacks.
+ *
+ * The precedent is `resolvePendingTrigger`, which was changed to throw on an
+ * unregistered defId for exactly this reason: a silent no-op is how all 7
+ * legend hooks would have vanished with no failing test.
+ *
+ * The distinction that has to survive is between a kind with NO DEFINITION (a
+ * bug) and a registered definition returning NO OPTIONS (legitimate — "discard
+ * 1" with an empty hand really has become moot). Both are pinned here.
+ */
+describe("a decision kind nothing registers", () => {
+  it("throws when parked, naming the kind", () => {
+    const state = asker(2);
+    expect(() => parkDecision(state, { kind: "sfd-unwritten-question", playerIndex: 0 })).toThrow(
+      /sfd-unwritten-question/,
+    );
+  });
+
+  it("still DROPS a registered question that has become moot", () => {
+    // The half that must not change. "Discard 1" with an empty hand has no
+    // options and is genuinely finished — dropping it is the rules working, and
+    // it is why the fix cannot simply be "no options means throw".
+    const state = makeState({ players: [makePlayer("p1", { hand: [] }), makePlayer("p2")] });
+    const asked = parkDecision(state, { kind: "discard", playerIndex: 0, count: 1 });
+    expect(asked.pendingDecisions).toHaveLength(0);
+  });
+
+  it("throws rather than reporting no legal actions", () => {
+    // The path the AI walks. `legalActions` reads `optionsFor`, which returned
+    // `[]` for an unregistered kind — indistinguishable from a moot question,
+    // and the shape that made the settle loop score a half-resolved board.
+    const state = asker(2);
+    const stuck: GameState = {
+      ...state,
+      pendingDecisions: [{ id: "d1", kind: "sfd-unwritten-question", playerIndex: 0 }],
+    };
+    expect(() => legalActions(stuck)).toThrow(/sfd-unwritten-question/);
+  });
+  it("never leaves a head question with no answer — the invariant the AI leans on", () => {
+    // `settleDeferredResolution` now THROWS rather than scoring a half-settled
+    // board when a pending question offers nothing, and that is only safe
+    // because of this: `parkDecision` either drains the head or leaves one with
+    // real options. Never a head with zero.
+    //
+    // Pinned here rather than in the AI because this is where it can actually
+    // break. Measured before the AI was changed: 18,823 pending-decision
+    // iterations across 440 self-play games, none of them reaching that branch.
+    const states = [
+      parkDecision(asker(0), { kind: "discard", playerIndex: 0, count: 1 }), // moot: empty hand
+      parkDecision(asker(3), { kind: "discard", playerIndex: 0, count: 1 }), // a real question
+      parkDecision(asker(2), { kind: "draw", playerIndex: 0, count: 1 }), // one option, executed
+    ];
+    for (const state of states) {
+      const head = pendingDecision(state);
+      if (!head) continue;
+      expect(optionsFor(state, head).length, `${head.kind} sits at the head with no answer`).toBeGreaterThan(0);
+      expect(legalActions(state).length).toBeGreaterThan(0);
+    }
+    // And the positive control: at least one of those really did leave a
+    // question standing, or this sweep is asserting nothing.
+    expect(states.filter((s) => pendingDecision(s) !== undefined).length).toBeGreaterThan(0);
   });
 });
