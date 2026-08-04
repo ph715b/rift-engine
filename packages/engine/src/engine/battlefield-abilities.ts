@@ -6,6 +6,7 @@ import {
   channelRunesExhausted,
   discardThenDraw,
   drawCards,
+  giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   holdCardsRecycled,
   readyRunes,
@@ -182,6 +183,18 @@ const FORTIFIED_POSITION_SHIELD = 2;
 /** Reaver's Row — "When you defend here, you may move a friendly unit here to
  *  base." */
 const REAVERS_ROW = "OGN-285";
+
+/** Obelisk of Power — "At the start of each player's first Beginning Phase,
+ *  that player channels 1 rune." */
+const OBELISK_OF_POWER = "OGN-284";
+/** The Arena's Greatest — "At the start of each player's first Beginning Phase,
+ *  that player gains 1 point." */
+const THE_ARENAS_GREATEST = "OGN-290";
+/** Back-Alley Bar — "When a unit moves from here, give it +1 Might this turn." */
+const BACK_ALLEY_BAR = "OGN-277";
+/** The Dreaming Tree — "When a player chooses a friendly unit here with a spell
+ *  for the first time each turn, they draw 1." */
+const THE_DREAMING_TREE = "OGN-292";
 
 /**
  * Every printed Battlefield's abilities, keyed by its card id.
@@ -373,7 +386,74 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
         }),
     },
   ],
+
+  [BACK_ALLEY_BAR]: [
+    {
+      on: "unitMovedFrom",
+      // "GIVE IT +1 Might this turn" — the unit that left, which is why this is
+      // the only moment that carries a `unitInstanceId`. The unit is no longer
+      // here by the time this resolves, and it does not need to be: the Bar is
+      // paying for the departure, not for standing there.
+      resolve: (state, event) =>
+        event.unitInstanceId === undefined
+          ? state
+          : giveMightThisTurnToOwnUnit(state, event.playerIndex, event.unitInstanceId, 1),
+    },
+  ],
+
+  [THE_DREAMING_TREE]: [
+    {
+      on: "unitChosenBySpell",
+      // "For the first time each turn" is checked at RESOLUTION rather than
+      // here, following Wraith of Echoes: the per-turn allowance is a RESOURCE,
+      // not a trigger condition, so a second choice in the same turn still
+      // triggers and resolves to nothing. What DOES belong here — that the
+      // chosen unit is friendly to the chooser and standing at this battlefield
+      // — is already settled by the site that fires the moment.
+      resolve: (state, event) => {
+        const used = state.players[event.playerIndex].spellChoiceDrawnBattlefieldIds;
+        if (used.includes(event.battlefieldId)) return state;
+        return drawCards(
+          updatePlayer(state, event.playerIndex, (p) => ({
+            ...p,
+            spellChoiceDrawnBattlefieldIds: [...p.spellChoiceDrawnBattlefieldIds, event.battlefieldId],
+          })),
+          event.playerIndex,
+          1,
+        );
+      },
+    },
+  ],
 };
+
+/**
+ * The Dreaming Tree's moment — a Spell has CHOSEN these units, at announce.
+ *
+ * Called from `execute-play-card` with every unit the played Spell named, and it
+ * is this function rather than the trigger's `applies` that settles the card's
+ * two conditions: "a FRIENDLY unit" (friendly to the CHOOSER, not to the
+ * battlefield's controller) and "HERE" (standing at the battlefield, not in
+ * base). Both are facts about the moment of the choice, which 355 puts at
+ * announce — a unit moved or killed before the Spell resolves was still chosen.
+ *
+ * One Pending Item per chosen unit, because the Tree is about a unit being
+ * chosen and a Spell that names two units here has chosen twice. Only the first
+ * to RESOLVE draws, which is what "the first time each turn" means.
+ */
+export function holdUnitsChosenBySpell(
+  state: GameState,
+  chooserIndex: 0 | 1,
+  chosenInstanceIds: readonly string[],
+): GameState {
+  let next = state;
+  const chooserId = state.players[chooserIndex].id;
+  for (const unitInstanceId of chosenInstanceIds) {
+    const bf = next.battlefields.find((b) => (b.units[chooserId] ?? []).some((u) => u.instanceId === unitInstanceId));
+    if (!bf) continue; // in base, or not the chooser's — neither is "a friendly unit here"
+    next = holdBattlefieldTrigger(next, "unitChosenBySpell", bf.id, chooserIndex, unitInstanceId);
+  }
+  return next;
+}
 
 /**
  * Reckoner's Arena — "activate the conquer effects of units here".
@@ -617,6 +697,66 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
     resolve: (state, _d, optionId) => (optionId === "decline" ? state : relocateToBaseUnchanged(state, optionId)),
   },
 };
+
+// ---------------------------------------------------------------------------
+// The Beginning-Phase pair, which do NOT go on the chain
+// ---------------------------------------------------------------------------
+
+/**
+ * "At the start of each player's FIRST Beginning Phase" — the two battlefields
+ * whose ability happens once per player per game.
+ *
+ * **Resolved INLINE, not held**, and that is the same deliberate exception
+ * `beginningPhase` already is for Dr. Mundo, Mushroom Pouch and Jinx - Loose
+ * Cannon's Legend: holding it would resolve the ability AFTER `scoreHolds`,
+ * breaking an ordering `runBeginning`'s own comment calls load-bearing. The
+ * Arena's Greatest is the card that makes it matter — a point gained after holds
+ * score is a point gained in the wrong phase.
+ *
+ * **"Their first" is `turnNumber === 1`, and that is exact rather than
+ * approximate.** `runEnd` only advances the counter when play wraps back to the
+ * FIRST player (118), so BOTH players' opening turns are turn 1 and each gets
+ * exactly one. The one thing that could give a player two Beginning Phases at
+ * turn 1 is an extra turn (Time Warp, which does not bump the counter) — and
+ * Time Warp costs 10 Energy plus 4 Power against a turn-1 pool of two or three
+ * runes, so it is unreachable rather than merely unlikely. Measured, not assumed.
+ */
+export function runBattlefieldBeginningPhase(state: GameState, playerIndex: 0 | 1): GameState {
+  if (state.turnNumber !== 1) return state;
+  let next = state;
+  for (const bf of state.battlefields) {
+    if (bf.defId === OBELISK_OF_POWER) next = channelRunes(next, playerIndex, 1);
+    if (bf.defId === THE_ARENAS_GREATEST) {
+      next = updatePlayer(next, playerIndex, (p) => ({ ...p, points: p.points + 1 }));
+    }
+  }
+  return next;
+}
+
+/**
+ * Obelisk of Power's "channels 1 rune" — READY, unlike Startipped Peak's
+ * "channel 1 rune exhausted".
+ *
+ * Its own three lines rather than a shared helper, because the only existing one
+ * (`channelRunesExhausted`) bakes the exhaust in for the card that asks for it,
+ * and a parameter would be a flag on a function whose whole name is the answer.
+ * Same "as many as possible if fewer remain" behaviour as `runChannel` (315.4.b).
+ */
+function channelRunes(state: GameState, playerIndex: 0 | 1, count: number): GameState {
+  return updatePlayer(state, playerIndex, (p) => {
+    if (count <= 0 || p.runeDeck.length === 0) return p;
+    const taken = p.runeDeck.slice(0, count).map((r) => ({ ...r, state: "Ready" as const }));
+    return { ...p, runeDeck: p.runeDeck.slice(taken.length), channeled: [...p.channeled, ...taken] };
+  });
+}
+
+/** The two battlefields `runBattlefieldBeginningPhase` implements. They are not
+ *  in `BATTLEFIELD_TRIGGERS`, because nothing about them is a Chain Pending
+ *  Item — so the completeness gate has to be told about them separately, which
+ *  is exactly what this is for. */
+export function beginningPhaseBattlefieldDefIds(): string[] {
+  return [OBELISK_OF_POWER, THE_ARENAS_GREATEST];
+}
 
 /** Every unit standing at a battlefield, on both sides, with whose it is. */
 function unitsAt(state: GameState, battlefieldId: string | undefined) {

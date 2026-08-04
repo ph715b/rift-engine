@@ -255,6 +255,18 @@ export interface PlayerState {
    * resolution. See `BattlefieldTriggerDefinition.capture`.
    */
   readyRunesAtEndOfTurn: number;
+  /**
+   * The battlefields at which this player has already taken The Dreaming Tree's
+   * draw this turn — "when a player chooses a friendly unit here with a spell for
+   * the FIRST TIME each turn, they draw 1".
+   *
+   * A list of battlefield ids rather than a boolean, because both players pick a
+   * battlefield from their own pool and two Dreaming Trees really can be in play
+   * at once — a single flag would let one Tree spend the other's allowance.
+   *
+   * "This turn" state, cleared by `runEnd` for BOTH players with the rest.
+   */
+  spellChoiceDrawnBattlefieldIds: string[];
   deck: CardInstance[];
   hand: CardInstance[];
   trash: CardInstance[];

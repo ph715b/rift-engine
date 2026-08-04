@@ -31,6 +31,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     championZone: null,
     chosenChampionDefId: "TEST-CHAMPION",
     readyRunesAtEndOfTurn: 0,
+    spellChoiceDrawnBattlefieldIds: [],
     deck: [],
     hand: [],
     trash: [],

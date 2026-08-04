@@ -70,6 +70,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     championZone: null,
     chosenChampionDefId: "TEST-CHAMPION",
     readyRunesAtEndOfTurn: 0,
+    spellChoiceDrawnBattlefieldIds: [],
     deck: [],
     hand: [],
     trash: [],

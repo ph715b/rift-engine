@@ -75,6 +75,7 @@ export function buildPlayerFromDeckList(
     // empty the moment the champion is played, and Hallowed Tomb asks after that.
     chosenChampionDefId: deckList.championId,
     readyRunesAtEndOfTurn: 0,
+    spellChoiceDrawnBattlefieldIds: [],
     deck,
     hand: [],
     trash: [],

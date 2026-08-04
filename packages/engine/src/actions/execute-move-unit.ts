@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { applyContested } from "../engine/cleanup.js";
 import { holdMoveTrigger } from "../engine/unit-triggers.js";
 import { holdEventTrigger } from "../engine/triggers.js";
+import { holdBattlefieldTrigger } from "../engine/battlefield-abilities.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
@@ -107,6 +108,10 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
       to: action.destinationBattlefieldId,
       movesThisTurn: moved.movesThisTurn,
     });
+    // The BATTLEFIELD it left — Back-Alley Bar's "when a unit moves FROM here,
+    // give it +1 Might this turn". `originId` is "base" for a unit leaving base,
+    // which matches no battlefield and so fires nothing.
+    next = holdBattlefieldTrigger(next, "unitMovedFrom", originId, action.playerIndex, moved.instanceId);
   }
 
   // **No attack dispatch here.** Landing on a battlefield the opponent holds is

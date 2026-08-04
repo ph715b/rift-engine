@@ -17,7 +17,7 @@ import { combatAssignmentDefIds } from "./combat.js";
 import { boardRestrictionDefIds } from "./board-restrictions.js";
 import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
-import { battlefieldAbilityDefIds } from "./battlefield-abilities.js";
+import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
 import { continuousBattlefieldDefIds } from "./battlefield-continuous.js";
 
 /**
@@ -194,6 +194,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // `implementingModule` has to be able to say where OGN-275's printed text
   // lives, and the source-scanning drift test flags any id it cannot.
   { label: "battlefield abilities", defIds: battlefieldAbilityDefIds },
+  { label: "beginning-phase battlefields", defIds: beginningPhaseBattlefieldDefIds },
   { label: "continuous battlefields", defIds: continuousBattlefieldDefIds },
 ];
 

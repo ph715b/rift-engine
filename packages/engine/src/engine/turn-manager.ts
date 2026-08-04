@@ -4,7 +4,7 @@ import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
 import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
-import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -155,7 +155,13 @@ export function runBeginning(state: GameState): GameState {
   // window as the permanents' — it is not a permanent on the board, so the
   // listener walk the event bus does cannot reach it.
   const afterLegend = dispatchLegendBeginningPhase(afterAbilities, afterAbilities.activePlayerIndex);
-  return { ...scoreHolds(afterLegend, afterLegend.activePlayerIndex), phase: "Channel" };
+  // The BATTLEFIELDS' own Beginning-Phase abilities (Obelisk of Power, The
+  // Arena's Greatest), in the same window and resolved INLINE for the same
+  // reason the permanents' and the Legend's are: holding them would put them
+  // after `scoreHolds`, and a point gained after holds score is a point gained
+  // in the wrong phase.
+  const afterBattlefields = runBattlefieldBeginningPhase(afterLegend, afterLegend.activePlayerIndex);
+  return { ...scoreHolds(afterBattlefields, afterBattlefields.activePlayerIndex), phase: "Channel" };
 }
 
 /**
@@ -323,6 +329,9 @@ export function runEnd(state: GameState): GameState {
     // The trigger fired above already CAPTURED the count, so clearing it here
     // cannot take the effect away — see BattlefieldTriggerDefinition.capture.
     readyRunesAtEndOfTurn: 0,
+    // The Dreaming Tree's once-per-turn draw, cleared for both players — the
+    // same sweep every other "this turn" field here goes through.
+    spellChoiceDrawnBattlefieldIds: [] as string[],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,

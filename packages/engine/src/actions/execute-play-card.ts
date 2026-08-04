@@ -3,6 +3,7 @@ import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
+import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -392,6 +393,16 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   let nextState = state;
 
   if (card.kind === "Spell") {
+    // The Dreaming Tree — "when a player CHOOSES a friendly unit here with a
+    // spell". 355 makes each chosen unit a target as the Spell is ANNOUNCED, so
+    // the moment is here rather than at resolution: a unit moved or killed while
+    // the Spell waits on the chain was still chosen. Placed after the Spell, so
+    // under LIFO (343) the Tree's draw resolves BEFORE the Spell it watched.
+    const chosen = [
+      action.targetUnitInstanceId,
+      action.secondTargetUnitInstanceId,
+      ...(action.targetUnitInstanceIds ?? []),
+    ].filter((id): id is string => id !== undefined);
     updatedActor = {
       ...actor,
       ...sharedUpdates,
@@ -462,6 +473,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         },
       ],
     };
+    // Fired against the board BEFORE the Spell resolves, which is where the
+    // chosen units still are.
+    nextState = holdUnitsChosenBySpell(nextState, action.playerIndex, chosen);
   } else {
     updatedActor = {
       ...actor,
