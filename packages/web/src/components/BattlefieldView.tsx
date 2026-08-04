@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { CardView, type DragPoint } from "./CardView.js";
 import { useRowFit } from "./use-row-fit.js";
+import { battlefieldCard } from "../battlefield-cards.js";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
 
 interface BattlefieldViewProps {
@@ -100,6 +101,10 @@ export function BattlefieldView({
   // (measured at 225px once cards became full board size). Exhausted units are
   // TAPPED — rotated, so they lie on their side — and their extra width is
   // reserved rather than absorbed by shrinking them.
+  // Looked up by name, the only handle BattlefieldState offers. Undefined is a
+  // legitimate answer for a deck naming something with no card, and renders as it
+  // did before this existed.
+  const card = battlefieldCard(battlefield.name);
   const aiFit = useRowFit(aiUnits.length, undefined, aiUnits.filter((u) => u.exhausted).length);
   const humanFit = useRowFit(humanUnits.length, undefined, humanUnits.filter((u) => u.exhausted).length);
 
@@ -109,6 +114,21 @@ export function BattlefieldView({
         <span>{battlefield.name}</span>
         <span>{isShowdownActive ? "Showdown!" : controllerName}</span>
       </div>
+      {/* The battlefield's own CARD. Its ability was previously readable only in
+          the deck builder, so a player could choose a battlefield for its text and
+          then never see that text again — which is also why "are battlefield
+          abilities working?" was unanswerable from inside a game.
+
+          The art is a thumbnail rather than a full card because this box has to
+          hold two unit rows that measure their own width (use-row-fit.ts); the
+          text sits beside it so the ability is legible WITHOUT a hover, and the
+          title carries it in full for when it is clipped. */}
+      {card && (
+        <div className="battlefield-card" title={`${card.name} — ${card.text}`}>
+          <img className="battlefield-card-art" src={card.imageUrl} alt="" loading="lazy" />
+          <span className="battlefield-card-text">{card.text}</span>
+        </div>
+      )}
       {/* Facedown cards (rule 811). Presence is public and changes how the
           battlefield reads — there is a trick waiting here — while identity is
           not, so the opponent's shows only a back.

@@ -968,6 +968,40 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+/* The battlefield's own card: art thumbnail + its ability text.
+
+   `flex: 0 0 auto` for the same reason the floating readout uses it — this box
+   holds two unit rows that measure their own available width (use-row-fit.ts), so
+   anything here that could grow or shrink would move the cards. The text is
+   clamped rather than scrolled; the full string is in the title. */
+.battlefield-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  margin-bottom: 0.35rem;
+}
+
+.battlefield-card-art {
+  width: 2.4rem;
+  border-radius: 0.2rem;
+  flex: 0 0 auto;
+  /* Battlefield cards are printed LANDSCAPE, unlike every other card here. */
+  aspect-ratio: 1039 / 744;
+  object-fit: cover;
+}
+
+.battlefield-card-text {
+  font-size: 0.68rem;
+  line-height: 1.25;
+  color: var(--color-text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /*
  * A battlefield side FANS its units rather than scrolling them.
  *
