@@ -180,6 +180,62 @@ fails first.
 pinned. Expect green gates to prove nothing about the new set, and build a
 purpose-built deck when you need to see one work.
 
+## The coverage gap this set will make impossible to ignore
+
+Read the paragraph above again, because for SFD it is not a caveat, it is the
+condition: **every card in the set starts unexercised by definition.**
+
+There is a distinction the repo does not currently draw. `coverage.ts` measures
+**implemented** — `isCardImplemented` is a static check that a `defId` is
+registered. Nothing measures **exercised**: whether a card has ever actually
+resolved in a game. So `coverageBySet` will happily report SFD at 100% while a
+large fraction of it has never been drawn by any probe. That is not a
+hypothetical failure mode for this repo; it is the `make-buffdeck.mjs` defect —
+an instrument reporting its INPUT as its output — one level up.
+
+**Build the instrument before you trust the number.** In rough order of value:
+
+1. **Exercised coverage.** Instrument `probes/harness.ts` to record every `defId`
+   that resolves, run the existing probes, and print `exercised / implemented` per
+   set. Small, self-contained, and it turns "we should test more" into a figure
+   that moves. Put it in the handoff's figures table.
+2. **A coverage-driven deck generator.** Given the never-exercised list, build
+   legal decks that REACH those cards. This generalises `make-buffdeck.mjs` — and
+   keep its hard-won assertion: it throws, naming what did not fit, because it
+   once printed "priority present" for cards its 39-card fill loop had silently
+   dropped.
+3. **An invariant soak** over those decks. These need no oracle and are the checks
+   worth automating: zero invalid actions, zero stranded Chain items, resources
+   never negative, no decision with a blank title, and the walkout invariant
+   (walkouts == control awarded, exact at every measurement so far).
+
+### If you build a playtest team, this is the shape that works
+
+The tempting version — agents fetching top-performing decklists and playing them
+— is the wrong instrument three times over. A competitive list is optimised to
+WIN, so it converges on the same strong cards and deliberately omits the marginal
+ones, which are exactly the ones whose code is untested; for a new set no meta
+exists yet anyway; and it imports an unverifiable external source into an
+instrument, in a repo whose recurring defect is instruments that report plausibly.
+
+The real difficulty is the **oracle**. A game that does not crash proves nothing
+about a card being correct, and a check that cannot fail first tests nothing. So
+split the job:
+
+- Everything decidable without knowing the right answer → the invariants above,
+  as plain deterministic code. No agents.
+- **"Did this card do what its printed text says?" → an agent.** Give it the card
+  text plus the state diff from the moment the card resolved, and have it report
+  SUSPECTS. Deterministic code cannot make that judgement and nothing else in this
+  repo does. This is the one place a playtest team earns its cost.
+
+Fan those agents out over **disjoint card batches**, drawn from the
+never-exercised list rather than from a decklist. Treat every suspect as a lead,
+not a finding: confirm it by hand with a test that fails first, exactly as with
+any other bug. And make the report lead with **reachability, not pass/fail** — "47
+cards resolved, 223 never drawn" is the honest headline; "200 games, no failures"
+is the same sentence with the important half deleted.
+
 ## What to leave behind — write this before you stop
 
 Whatever you finish, end by writing **`docs/handoff-<the date>.md`** and committing
