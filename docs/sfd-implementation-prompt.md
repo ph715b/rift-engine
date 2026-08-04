@@ -249,17 +249,27 @@ WIN, so several of them converge on the same strong cards and deliberately omit
 the marginal ones — which are exactly the ones whose code is untested. You would
 need many lists to reach what a handful of generated decks reach by construction.
 
-**Generated decks do the coverage job, and this is measured, not argued.** A greedy
-set-cover over the 170 cards no preset deck contains — pick the Legend that legally
-holds the most uncovered cards, fill 40 slots, repeat — produced **6 decks covering
-all 170**, and 12 games each exercised **183 of 217 subjects (84%)** with no
-deckbuilding judgement applied at all. Card legality is machine-checked
-(`validateDeckList`: 40 cards, max 3 copies across main + sideboard, champion must
-be in the deck and eligible for the Legend, and a card need only SHARE one domain
-with the Legend's two), so a generator cannot quietly produce an illegal deck.
+**Generated decks do the coverage job, and this is measured, not argued.** Card
+legality is machine-checked (`validateDeckList`: 40 cards, max 3 copies across main
++ sideboard, champion must be in the deck and eligible for the Legend, and a card
+need only SHARE one domain with the Legend's two), so a generator cannot quietly
+produce an illegal deck. Two generation strategies were measured on OGN+OGS:
 
-Use both. Generated decks to reach every card; real lists to make sure the game
-those cards are reached in resembles one somebody would actually play.
+| strategy | decks | result |
+|---|---|---|
+| baseline — the 7 preset decks | 7 | 81/270 needing code exercised |
+| greedy card-cover | 6 | all 170 unreachable cards covered; 183/217 subjects (84%) run |
+| **one deck per Legend** | **16** | **zero cards uncovered anywhere; 197/270 exercised; 47/56 champions** |
+
+**Build one deck per Legend.** It is the better default and the reason is
+structural: a minimal card-cover collapses onto whichever Legends happen to hold
+the most cards — the 6-deck cover used only 4 distinct Legends of 16, leaving 12
+Legends, their abilities and their eligible champions completely unplayed. Legends
+are cards too, they are never "played", and a Legend that is nobody's Legend is
+exercised by nothing. Do this per SFD Legend as the set's decks come together.
+
+Use real decklists alongside it, for realistic curves and the interactions that
+actually arise — not for coverage.
 
 The real difficulty is the **oracle**. A game that does not crash proves nothing
 about a card being correct, and a check that cannot fail first tests nothing. So
@@ -298,8 +308,28 @@ subjects.
    maximum of 3 copies while dearer cards beside it in the same deck were played
    repeatedly. Either an AI valuation gap or an enumeration gap.
 
-Note what both imply about a green suite: they are reachability failures, not logic
+3. **Three Legends' activated abilities are never used by the AI.** With a deck
+   built around each, OGN-247 Kai'Sa, OGN-253 Darius and OGN-267 Miss Fortune all
+   went unactivated across 8 games apiece. All three read `[Exhaust]:` — two of them
+   `[Add]` a resource, one grants `[Ganking]`. Three of three is a pattern, not
+   three coincidences, and it sits beside a baseline where only **5 distinct cards
+   in the whole pool were ever activated**. Suspect Legend/Gear activation
+   enumeration or valuation generally.
+4. **OGS-023 Garen - Might of Demacia never fires** — "when you conquer, if you
+   have 4+ units at that battlefield, draw 2". Plausibly a condition the AI simply
+   never reaches, which is itself worth knowing.
+
+Note what these imply about a green suite: they are reachability failures, not logic
 failures. No assertion was wrong. The cards were simply never in front of the AI.
+
+**And two more Legends were the instrument's fault, not the engine's** — see
+`exercise-log.ts`'s blind-spot section. A purely CONTINUOUS effect (OGS-019 Master
+Yi's `mightBonus`) produces no action, Chain item or event, so nothing can observe
+it; and `beginningPhase` is the one trigger family still resolved inline, so it
+never reaches `pendingTriggers` (OGN-251 Jinx - Loose Cannon's Legend). Cards of
+either shape report unexercised forever. Treat them as **unmeasured, not untested**,
+and do not paper over it by marking them exercised — that converts a known blind
+spot into a silent lie.
 
 ## What to leave behind — write this before you stop
 

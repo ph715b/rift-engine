@@ -42,8 +42,29 @@
  * resolves invisibly was still recorded by the `PlayCard` action that put it there,
  * so the card stays in `exercised()`. The blind spot moves cards between BUCKETS
  * far more often than it removes them from the union. The cards genuinely at risk
- * of vanishing are the ones with no action of their own — Legends and tokens — and
- * `legendsSeen` in the probe is the control that watches for exactly that.
+ * of vanishing are the ones with no action of their own — Legends and tokens.
+ *
+ * # Two categories it CANNOT see, and they are Legends
+ *
+ * Found by building one deck per Legend and watching six of sixteen stay
+ * unexercised while each was its own deck's Legend. Three of those six were real
+ * leads, but two were this observer being blind, and the distinction matters:
+ *
+ *  - **A continuous effect never happens.** OGS-019 Master Yi - Wuju Bladesman is
+ *    "while a friendly unit defends alone, it gets +2 Might" — a `mightBonus`, read
+ *    during a calculation. There is no action, no Chain item and no event, so
+ *    nothing here can ever record it. It is not a trigger at all.
+ *  - **`beginningPhase` is still resolved INLINE.** It is the one held-trigger
+ *    conversion deliberately left undone (holding it would resolve Beginning-Phase
+ *    abilities after `scoreHolds`), so it never reaches `pendingTriggers` and this
+ *    observer never sees it. OGN-251 Jinx - Loose Cannon's Legend is exactly that,
+ *    and so are Dr. Mundo and Mushroom Pouch.
+ *
+ * **Both categories report as never-exercised no matter how much they run.** Treat
+ * a card of either shape as unmeasured rather than untested — and do not "fix" it
+ * by marking such cards exercised, which would convert a known blind spot into a
+ * silent lie. If `beginningPhase` is ever converted to a held trigger, that half
+ * disappears on its own.
  */
 import { isSpellChainEntry } from "@rift-engine/engine";
 import type { CardInstance, GameState, PlayerAction } from "@rift-engine/engine";
