@@ -209,11 +209,19 @@ describe("Mask of Foresight (OGN-060) is held too, and remembers who was alone",
     //
     // Proved by mutation: replacing the `captured` read with a fresh battlefield
     // lookup fails this and only this.
+    // TWO replacements, not one, and that is what makes the test unconfounded.
+    // A single newcomer arriving at a running combat gains its own designation
+    // (465 Step 1) and is then its controller's only unit there — so it triggers
+    // the gear legitimately and ends on +1 whether the original entry captured or
+    // re-derived. With two, "alone" is false for both, so the only thing that
+    // could buff either is the ORIGINAL entry re-deriving `mine[0]`.
     const staged = runCleanup(maskState(1));
     const replaced = {
       ...staged,
       battlefields: staged.battlefields.map((bf, i) =>
-        i === 0 ? { ...bf, units: { ...bf.units, p1: [makeUnit({ name: "Latecomer", might: 3 })] } } : bf,
+        i === 0
+          ? { ...bf, units: { ...bf.units, p1: [makeUnit({ name: "Latecomer", might: 3 }), makeUnit({ name: "Latecomer2", might: 3 })] } }
+          : bf,
       ),
     };
 
@@ -221,6 +229,7 @@ describe("Mask of Foresight (OGN-060) is held too, and remembers who was alone",
 
     expect(mightOf(settled, "Mine0"), "the unit it triggered for is gone, so nothing should carry the buff").toBeUndefined();
     expect(mightOf(settled, "Latecomer")).toBe(0);
+    expect(mightOf(settled, "Latecomer2")).toBe(0);
   });
 
   it("still buffs the one that was alone when a reinforcement joins it", () => {

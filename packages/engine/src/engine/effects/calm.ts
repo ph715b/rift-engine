@@ -503,7 +503,13 @@ function aloneAt(state: GameState, listener: Listener, event: GameEvent): string
   if (event.kind !== "combatBegan") return undefined;
   const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
   const mine = bf?.units[state.players[listener.ownerIndex].id] ?? [];
-  return mine.length === 1 ? mine[0]!.instanceId : undefined;
+  if (mine.length !== 1) return undefined;
+  // And the one unit must be gaining its designation NOW. A reinforcement
+  // arriving mid-combat designates only itself (465 Step 1), and by then its
+  // controller has two units there — so this is already false. The check matters
+  // for the mirror case: an ARRIVAL that makes its controller's presence exactly
+  // one, which happens when everything else there has died.
+  return event.designated.includes(mine[0]!.instanceId) ? mine[0]!.instanceId : undefined;
 }
 
 /**

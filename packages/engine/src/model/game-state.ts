@@ -108,6 +108,22 @@ export interface TriggerChainEntry {
    *  I conquer", "here") read this rather than asking the board again, since the
    *  unit may have moved or died in between. */
   battlefieldId?: string;
+  /**
+   * The listening card as it was when the trigger fired.
+   *
+   * A Finalized Chain Item RESOLVES even if its source has left the board: 359.3
+   * says a check on something no longer available returns "null" and calculations
+   * based on it are ignored — the item is not removed. The only rules that remove
+   * one are a replaced death (809.1.b), declining to perform it, and declining to
+   * pay for it. So resolution needs a listener even when the board no longer has
+   * one, and this is it: 809.1.b.3's "note its attributes" applied to the listener
+   * rather than only to the event.
+   *
+   * The LIVE board copy is preferred at resolution when it is still there, so an
+   * ability that reads its own current state sees the truth; this is the fallback.
+   * Typed loosely for the same reason `event` is.
+   */
+  listenerCard?: unknown;
   /** The event as it was when it fired, captured rather than recomputed — 809.1.b.3's
    *  "noted before it moves to the Trash" applied generally. Typed loosely here
    *  to keep model/ free of an import from engine/; triggers.ts narrows it. */
@@ -355,6 +371,21 @@ export interface PlayerState {
  * implemented, since nothing reads it before then.
  */
 export interface BattlefieldState {
+  /**
+   * Units that have already gained an Attacker or Defender designation during the
+   * combat currently running here (465 Step 1), so a later arrival can be told
+   * apart from one that was designated at the opening.
+   *
+   * 383.4.f fires an Attack Trigger when its unit gains the designation "for the
+   * FIRST time during a combat", and 465 designates a unit that becomes present
+   * later "during the Cleanup phase following the action that caused it to become
+   * present" — so the engine has to remember who has already been designated, or
+   * every unit already there would fire again each time a reinforcement walked in.
+   *
+   * Cleared by `clearContested`, which runs when the Showdown closes (190.6.a):
+   * the record belongs to one combat, not to the battlefield.
+   */
+  designatedInstanceIds?: readonly string[];
   id: string;
   name: string;
   controllerId: string | null;

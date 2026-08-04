@@ -549,18 +549,22 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
         // designation is handed out, not when the ability resolves. Without this
         // the Legend would place a Pending Item at every combat on the board.
         applies: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event).length > 0,
-        // WHICH units attacked, noted at fire time. 465 designates every unit of
-        // the attacking side present at that moment, and the response window can
-        // add or remove units before this resolves — a reinforcement arriving
-        // then did not attack, and must not be debuffed.
-        capture: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event),
+        // ONE Pending Item PER attacking unit. Her text is singular — "when an
+        // ENEMY UNIT attacks" — and 465 Step 1 designates every unit of the
+        // attacking side at the same moment, so this is N triggered abilities
+        // that an opponent may answer one at a time, not one that debuffs N.
+        //
+        // Each carries the unit it is about, noted at fire time: the response
+        // window can add or remove units before any of them resolves, and a
+        // reinforcement arriving then did not attack.
+        captureEach: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event),
         resolve: (state, listener, event, captured) => {
-          if (event.kind !== "combatBegan" || !Array.isArray(captured)) return state;
-          return (captured as string[]).reduce(
-            (next, unitInstanceId) =>
-              onEnemyUnitAttacks(next, listener.ownerIndex, { unitInstanceId, attackerIndex: listener.ownerIndex === 0 ? 1 : 0, battlefieldId: event.battlefieldId }),
-            state,
-          );
+          if (event.kind !== "combatBegan" || typeof captured !== "string") return state;
+          return onEnemyUnitAttacks(state, listener.ownerIndex, {
+            unitInstanceId: captured,
+            attackerIndex: listener.ownerIndex === 0 ? 1 : 0,
+            battlefieldId: event.battlefieldId,
+          });
         },
       });
     }
@@ -590,7 +594,12 @@ function attackersAgainst(state: GameState, ownerIndex: 0 | 1, event: GameEvent)
   const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
   if (!bf || bf.controllerId !== state.players[ownerIndex].id) return [];
   if (bf.contestedByIndex === null || bf.contestedByIndex === ownerIndex) return [];
-  return (bf.units[state.players[bf.contestedByIndex].id] ?? []).map((u) => u.instanceId);
+  // Only the units gaining the Attacker designation at THIS moment — "when an
+  // enemy unit attacks" is the gaining, so a reinforcement walking into a fight
+  // she has already taxed triggers her once more, for itself alone.
+  return (bf.units[state.players[bf.contestedByIndex].id] ?? [])
+    .map((u) => u.instanceId)
+    .filter((id) => event.designated.includes(id));
 }
 
 /** This unit's owner's Legend's continuous Might contribution, if any. */

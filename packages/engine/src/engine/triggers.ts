@@ -116,14 +116,14 @@ export function listeningPermanents(state: GameState, playerIndex: 0 | 1): Liste
  * the moment a trigger is held as a Pending Item and flushed onto the chain, which
  * is why the correction is recorded here rather than left for whoever hits it.
  */
-export function allListeningPermanents(state: GameState): Listener[] {
-  const active = state.activePlayerIndex;
-  const other: 0 | 1 = active === 0 ? 1 : 0;
+export function allListeningPermanents(state: GameState, placesFirst?: 0 | 1): Listener[] {
+  const first = placesFirst ?? state.activePlayerIndex;
+  const second: 0 | 1 = first === 0 ? 1 : 0;
   return [
-    ...listeningPermanents(state, active),
-    ...listeningTrashCards(state, active),
-    ...listeningPermanents(state, other),
-    ...listeningTrashCards(state, other),
+    ...listeningPermanents(state, first),
+    ...listeningTrashCards(state, first),
+    ...listeningPermanents(state, second),
+    ...listeningTrashCards(state, second),
   ];
 }
 
@@ -606,7 +606,22 @@ export type GameEvent =
    * second copy of that fact, free to disagree with the field the Showdown
    * actually runs on.
    */
-  | { kind: "combatBegan"; battlefieldId: string }
+  | {
+      kind: "combatBegan";
+      battlefieldId: string;
+      /**
+       * The units gaining an Attacker or Defender designation AT THIS MOMENT —
+       * everyone present when the combat opened, or just the arrivals at a later
+       * Cleanup (465 Step 1).
+       *
+       * Carried rather than re-derived from the battlefield, because "everyone
+       * standing here" and "everyone gaining the designation now" are the same
+       * set only at the opening. 383.4.f's "for the first time during a combat"
+       * is what makes the difference matter: without this, a reinforcement's
+       * arrival would re-fire every attack trigger already in the fight.
+       */
+      designated: readonly string[];
+    }
   /**
    * `stunnerIndex` just stunned these units (rule 422) — ONE event per
    * instruction, carrying every unit that actually became stunned.
@@ -781,6 +796,23 @@ export interface EventTriggerDefinition {
    * Called only from `holdEventTrigger`, and only after `applies` has passed.
    */
   capture?: (state: GameState, listener: Listener, event: GameEvent) => unknown;
+  /**
+   * The plural of `capture`: place ONE Pending Item per value returned, each
+   * carrying its own.
+   *
+   * For an ability whose printed subject is singular while the event that fires
+   * it is plural. Ahri - Nine-Tailed Fox reads "when an ENEMY UNIT attacks a
+   * battlefield you control", and 465 Step 1 designates every unit of the
+   * attacking side at once — so three attackers is three triggered abilities,
+   * each of which an opponent may respond to separately. One entry covering all
+   * three would collapse three response windows into one, which is a smaller
+   * board than the rules describe rather than a tidier one.
+   *
+   * Mutually exclusive with `capture` in practice: a definition wanting both
+   * would be asking for one entry and many at the same time, so `capture` is
+   * ignored when this is present.
+   */
+  captureEach?: (state: GameState, listener: Listener, event: GameEvent) => unknown[];
   resolve: EventTriggerEffect;
 }
 
@@ -855,8 +887,33 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
         `Pending Items today — see this function's scope note.`,
     );
   }
-  const listener = allListeningPermanents(state).find((l) => l.card.instanceId === entry.listenerInstanceId);
-  if (!listener) return state; // left play while the response window was open
+  // The LIVE listener when it is still there, so an ability reading its own
+  // current state sees the truth — otherwise the one captured when it fired.
+  //
+  // **This used to bail**, on the reading that an event-registry listener is a
+  // bystander which must be in play to act. The rules do not say that. 359.3:
+  // "If the spell checks information about a target that is no longer legal or a
+  // card or permanent whose location, zone, or status has changed such that that
+  // information is no longer available, that check returns 'null' and all
+  // calculations based on it are ignored" — the item still resolves, and the
+  // parts that referred to something gone are what drop out. The only rules that
+  // REMOVE a triggered ability from the chain are a replaced death (809.1.b), the
+  // controller declining to perform it, and declining to pay its cost. Bailing
+  // silently discarded abilities the rules would have resolved, which was most
+  // visible on a death-watch listener killed by the very Deathknell it triggered
+  // on. Each resolver already answers safely for a unit it cannot find.
+  const live = allListeningPermanents(state).find((l) => l.card.instanceId === entry.listenerInstanceId);
+  const captured = entry.listenerCard as Listener["card"] | undefined;
+  const listener: Listener | undefined =
+    live ??
+    (captured === undefined
+      ? undefined
+      : {
+          card: captured,
+          ownerIndex: entry.playerIndex,
+          ...(entry.battlefieldId !== undefined ? { battlefieldId: entry.battlefieldId } : {}),
+        });
+  if (!listener) return state; // pre-`listenerCard` entry, and nothing on the board
   const event = entry.event as GameEvent;
   if (trigger.on !== event.kind) return state;
   return trigger.resolve(state, listener, event, entry.captured);
@@ -892,27 +949,48 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
  * 383 and 343 together require; see allListeningPermanents for why placement order
  * and resolution order are opposites.
  */
-export function holdEventTrigger(state: GameState, event: GameEvent): GameState {
+export function holdEventTrigger(
+  state: GameState,
+  event: GameEvent,
+  /**
+   * Who places their abilities on the chain FIRST, when the moment has its own
+   * order. Defaults to the turn player, which is 383's general rule.
+   *
+   * 465 Step 4 gives a combat its own: "The Attacking player, who has Focus,
+   * places Triggered Abilities on the Chain first ... followed by the Defending
+   * Player." Placement is the opposite of resolution (343, LIFO), so
+   * attacker-first means the DEFENDER's combat triggers resolve first. The two
+   * rules agree whenever the attacker IS the turn player, which is every combat a
+   * Move starts; Charm is what pulls them apart, by contesting a battlefield for
+   * the moved unit's controller on someone else's turn.
+   */
+  placesFirst?: 0 | 1,
+): GameState {
   const registry = allEventTriggers();
   const held: TriggerChainEntry[] = [];
-  for (const listener of allListeningPermanents(state)) {
+  for (const listener of allListeningPermanents(state, placesFirst)) {
     const trigger = registry[listener.card.defId];
     if (trigger?.on !== event.kind) continue;
     if (trigger.applies && !trigger.applies(state, listener, event)) continue;
     // Captured against the board as it stands NOW — before any other listener in
     // this same walk has resolved, which is what makes it a snapshot of the
     // moment of the event (383) rather than of whatever the chain did next.
-    const captured = trigger.capture?.(state, listener, event);
-    held.push({
+    const entry = (captured: unknown): TriggerChainEntry => ({
       kind: "trigger",
       playerIndex: listener.ownerIndex,
       listenerInstanceId: listener.card.instanceId,
       listenerDefId: listener.card.defId,
       listenerName: listener.card.name,
+      listenerCard: listener.card,
       ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
       ...(captured !== undefined ? { captured } : {}),
       event,
     });
+    if (trigger.captureEach) {
+      for (const one of trigger.captureEach(state, listener, event)) held.push(entry(one));
+    } else {
+      held.push(entry(trigger.capture?.(state, listener, event)));
+    }
   }
   if (held.length === 0) return state;
   return { ...state, pendingTriggers: [...state.pendingTriggers, ...held] };

@@ -1,7 +1,7 @@
 import type { BattlefieldState, GameState } from "../model/game-state.js";
 import { removeUnheldHiddenCards } from "./hidden.js";
 import { holdEventTrigger } from "./triggers.js";
-import { attackerIndexAt } from "./combat-designation.js";
+import { attackerIndexAt, unitsPresentAt } from "./combat-designation.js";
 
 /**
  * The Cleanup, run after every resolved action.
@@ -30,7 +30,7 @@ export function runCleanup(state: GameState): GameState {
   // (step 4) before facedown cards are checked against who controls their
   // battlefield, or a card would survive one extra Cleanup at a battlefield its
   // owner had already lost.
-  return finalizePendingTriggers(stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state))));
+  return finalizePendingTriggers(designateArrivals(stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state)))));
 }
 
 /**
@@ -130,7 +130,10 @@ export function clearContested(state: GameState, battlefieldId: string): GameSta
   const bf = state.battlefields[bfIndex]!;
   if (bf.contestedByIndex === null) return state;
   const battlefields = [...state.battlefields];
-  battlefields[bfIndex] = { ...bf, contestedByIndex: null };
+  // The designation record belongs to the combat that is ending, not to the
+  // battlefield — leaving it would make the next combat here treat every unit
+  // already standing there as long since designated.
+  battlefields[bfIndex] = { ...bf, contestedByIndex: null, designatedInstanceIds: [] };
   return { ...state, battlefields };
 }
 
@@ -221,8 +224,51 @@ function stageShowdowns(state: GameState): GameState {
  * are no designations to hand out and nothing to fire.
  */
 function beginCombatAt(state: GameState, battlefieldId: string): GameState {
-  if (attackerIndexAt(state, battlefieldId) === null) return state;
-  return holdEventTrigger(state, { kind: "combatBegan", battlefieldId });
+  const attackerIndex = attackerIndexAt(state, battlefieldId);
+  if (attackerIndex === null) return state;
+  return designate(state, battlefieldId, unitsPresentAt(state, battlefieldId), attackerIndex);
+}
+
+/**
+ * Records `designated` against the battlefield and fires `combatBegan` for them.
+ *
+ * The record is what makes 383.4.f's "for the FIRST time during a combat"
+ * enforceable: a unit already in it is not gaining a designation again.
+ */
+function designate(state: GameState, battlefieldId: string, designated: readonly string[], attackerIndex: 0 | 1): GameState {
+  if (designated.length === 0) return state;
+  const withRecord: GameState = {
+    ...state,
+    battlefields: state.battlefields.map((bf) =>
+      bf.id === battlefieldId
+        ? { ...bf, designatedInstanceIds: [...(bf.designatedInstanceIds ?? []), ...designated] }
+        : bf,
+    ),
+  };
+  // 465 Step 4: the ATTACKING player places first here, not the turn player.
+  // Placement is the opposite of resolution (343), so this makes the defender's
+  // combat triggers resolve first.
+  return holdEventTrigger(withRecord, { kind: "combatBegan", battlefieldId, designated }, attackerIndex);
+}
+
+/**
+ * 465 Step 1, second sentence: a unit that becomes present at a battlefield where
+ * a combat is running "will gain the Attacker or Defender designation during the
+ * Cleanup phase following the action that caused it to become present".
+ *
+ * So a reinforcement's Attack Trigger fires a Cleanup after it walks in, and the
+ * units already in the fight do not fire again — which is what the battlefield's
+ * designation record is for.
+ */
+function designateArrivals(state: GameState): GameState {
+  if (state.turnState !== "Showdown" || state.showdownKind !== "Combat") return state;
+  const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
+  if (!bf) return state;
+  const attackerIndex = attackerIndexAt(state, bf.id);
+  if (attackerIndex === null) return state;
+  const already = new Set(bf.designatedInstanceIds ?? []);
+  const arrivals = unitsPresentAt(state, bf.id).filter((id) => !already.has(id));
+  return designate(state, bf.id, arrivals, attackerIndex);
 }
 
 /**

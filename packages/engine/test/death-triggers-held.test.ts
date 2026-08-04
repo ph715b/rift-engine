@@ -152,7 +152,7 @@ describe("death-watch is a Pending Item too, and is decided at the same moment",
     expect(penNames(killed)).not.toContain(registry.get(WRAITH_OF_ECHOES).name);
   });
 
-  it("TRIGGERS for a listener the Deathknell then kills — and the resolution bails, which is the recorded rule", () => {
+  it("TRIGGERS *and RESOLVES* for a listener the Deathknell then kills (383 / 359.3)", () => {
     // The ordering that changed, and the limit of what it buys.
     //
     // A Kog'Maw dying deals 4 to everything at his battlefield, which kills the
@@ -162,13 +162,16 @@ describe("death-watch is a Pending Item too, and is decided at the same moment",
     // abilities at the moment of the event, so it triggers now — the pen proves
     // it, and that is the observable change.
     //
-    // It still does not DRAW, and that is deliberate rather than a gap here:
-    // `resolvePendingTrigger` bails when an event-registry listener has left
-    // play, on the recorded reading that such a listener is a BYSTANDER which
-    // must be there to act — as against a card's own ability, which resolves
-    // regardless (809.1.b). Whether 809.1.b should override that for bystanders
-    // too is a live question recorded in docs/rules-conformance.md; it is one
-    // rule for every event kind and not something to change under one card.
+    // And it DRAWS. That was a live question when this test was written — the
+    // engine bailed on a listener that had left play, on the reading that a
+    // bystander must be there to act — and the rules settle it the other way.
+    // 359.3: a check on "a card or permanent whose location, zone, or status has
+    // changed such that that information is no longer available" returns null and
+    // "all calculations based on it are ignored". The ITEM still resolves; only
+    // the parts referring to something gone drop out. The three rules that remove
+    // a triggered ability from the chain are a replaced death (809.1.b), the
+    // controller declining to perform it, and declining to pay its cost — a dead
+    // listener is none of them.
     const kogmaw = card(KOGMAW_CAUSTIC);
     // The Wraith is 5 Might, so Kog'Maw's 4 is only lethal on a damaged one —
     // without this the Deathknell never reaches it and the test asserts nothing.
@@ -187,6 +190,6 @@ describe("death-watch is a Pending Item too, and is decided at the same moment",
       (settled.battlefields[0]!.units["p1"] ?? []).map((u) => u.defId),
       "the Deathknell did not actually kill the Wraith",
     ).not.toContain(WRAITH_OF_ECHOES);
-    expect(settled.players[0]!.hand, "a dead bystander drew anyway").toHaveLength(0);
+    expect(settled.players[0]!.hand, "the ability was discarded with its dead source").toHaveLength(1);
   });
 });

@@ -47,12 +47,28 @@ export function attackingUnitsAt(state: GameState, battlefieldId: string): UnitI
   return [...(bf?.units[state.players[attackerIndex].id] ?? [])];
 }
 
+/** Every unit of EITHER side standing at `battlefieldId` — the set 465 Step 1
+ *  designates when a combat opens. */
+export function unitsPresentAt(state: GameState, battlefieldId: string): string[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  return state.players.flatMap((p) => (bf.units[p.id] ?? []).map((u) => u.instanceId));
+}
+
 /** Shared by both predicates: is this listener a UNIT standing at the
  *  battlefield this combat opened at? A Gear listener ("when a friendly unit
  *  attacks") is deliberately excluded — it is not a combatant, and Mask of
  *  Foresight asks its own question about the units instead. */
 function isCombatantAt(listener: Listener, event: GameEvent): event is Extract<GameEvent, { kind: "combatBegan" }> {
-  return event.kind === "combatBegan" && listener.card.kind === "Unit" && listener.battlefieldId === event.battlefieldId;
+  return (
+    event.kind === "combatBegan" &&
+    listener.card.kind === "Unit" &&
+    listener.battlefieldId === event.battlefieldId &&
+    // 383.4.f: the trigger is on GAINING the designation, "for the first time
+    // during a combat". A unit already designated is not gaining it again when a
+    // reinforcement arrives and the event fires for the newcomer.
+    event.designated.includes(listener.card.instanceId)
+  );
 }
 
 /** "When I attack" — this listener is a unit on the side that applied Contested. */
