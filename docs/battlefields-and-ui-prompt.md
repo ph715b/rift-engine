@@ -1,17 +1,20 @@
 # Prompt — battlefield abilities, and the four UI gaps behind them
 
-Everything below was measured on 2026-08-04 at `b6365e2`, not recalled. Paste the
+Everything below was measured on 2026-08-04 at `2eda208`, not recalled. Paste the
 block under the line into a fresh session.
+
+**Steps 1 and 2 below are DONE, and so are two of the four UI gaps.** They are kept
+rather than deleted because what they establish is what the remaining work builds
+on — read them, do not redo them.
 
 ---
 
 Read `docs/handoff-2026-08-04.md` first, then the memory files it names, then
 `docs/rules-conformance.md`'s **Divergent** table and the **Log**'s top five rows.
 
-Your job is **battlefields**: to make them real cards with abilities, and visible
-in the game. Four smaller UI gaps are specified after it, because they were
-verified in the same pass and three of them are what made the engine look broken
-when it was not.
+Your job is **the 24 battlefield abilities**. They are the only part of this
+document still unbuilt: the card is on screen, `BattlefieldState` knows which card
+it is, and the UI gaps behind the original reports are closed or settled.
 
 ## First, a premise to correct
 
@@ -51,16 +54,14 @@ while playing.
 
 ## The order to do this in
 
-1. **Show the battlefield card in game — do this FIRST.** It needs no engine
-   change: `loadBattlefieldDefinitions()` already has the art and the text, and
-   `BattlefieldState.name` is a unique key into it. Until a player can read a
-   battlefield's ability, nobody can tell whether the ability works, which is
-   exactly the position this report came from. Match the shared card size the
-   `web-ui-layout` memory pins — do not introduce a second one.
-2. **Give `BattlefieldState` a `defId`.** One field, set where the pair is built
-   (`battlefieldPair` in `decks/battlefield-setup.ts`), resolved from the name.
-   This is what lets anything else key off the card rather than off a string, and
-   it is the change every later step depends on.
+1. ~~**Show the battlefield card in game.**~~ **DONE** (`ea01259`). Art and
+   ability text render per battlefield via `web/src/battlefield-cards.ts`. Five
+   tests, two of which guard the name lookup rather than the pixels.
+2. ~~**Give `BattlefieldState` a `defId`.**~~ **DONE** (`2eda208`).
+   `battlefieldDefIdFor(name)` resolves it and `battlefieldPair` stamps it ONCE at
+   construction — not per read, so a state carrying its own card id cannot drift
+   from one that re-derives it. Absent means "no printed ability", never "look it
+   up by name later". **This is your key into the ability table.**
 3. **Then implement the abilities, in clusters by trigger moment.** Read them
    first and group them; do NOT go alphabetically. The 24 fall out roughly as:
    - **"When you hold here"** — Altar to Unity, Grove of the God-Willow, Hallowed
@@ -88,25 +89,24 @@ while playing.
 
 ## The four UI gaps, all verified
 
-These were reported as engine bugs. **Three of them are not.**
+These were reported as engine bugs. **Three of them were not.** All four are now
+closed or settled; none needs work. They are recorded because each one is a way to
+misread this engine.
 
-1. **Floating Energy and Power are never displayed.** This is the real content of
-   "using Seals doesn't seem to add power". The engine is correct —
-   `activated-abilities.ts:303` banks it into `floatingPower[domain]` — but
-   `GameBoard.tsx` only ever READS `floatingEnergy`/`floatingPower` (line 653) to
-   compute affordability and renders neither. Add a persistent counter for both,
-   per domain for Power. **This is the highest-value item in this document**: with
-   no readout, every resource ability in the game looks broken.
-2. **Playing from hidden already works** — `legalActions` enumerates it
-   (`fromHiddenBattlefieldId`), and `GameBoard.tsx` has `playableHiddenIds` and
-   `playHiddenCard`. What is missing is the affordance: `BattlefieldView.tsx:122`
-   renders a plain text button, and a hidden card that is not yet playable is
-   disabled with the tooltip *"Playable from your next turn"* — which is rule 811
-   working, not a bug. Replace the button with a **card-back image** where a unit
-   would sit, sized like a unit, and keep the disabled-with-reason state visible
-   rather than silent. **Do not collapse the `mine` branch** while you are in
-   there — that branch is what keeps the opponent's facedown card secret, in the
-   label and the title alike, and the file says so.
+1. ~~**Floating Energy and Power are never displayed.**~~ **DONE** (`4117aef`).
+   The engine was always correct — `activated-abilities.ts:303` banks it into
+   `floatingPower[domain]` — and `GameBoard` read those fields only to price
+   affordability, rendering neither. That alone made "Seals don't add power" look
+   like an engine bug. A readout now sits under the Runes zone label, keeping the
+   pools distinct (per-domain, rainbow, and the two Spells-only pools) because
+   collapsing them would misstate what the player can afford.
+2. ~~**Playing from hidden.**~~ **DONE** (`160aec4`), and it always worked —
+   `legalActions` enumerates it and `GameBoard` had the handlers. The report was
+   the affordance, plus rule 811's "beginning on the next turn" reading as a bug.
+   Facedown cards are now card-sized backs INSIDE the owner's unit row, which cost
+   no extra row because `use-row-fit.ts` already fans it. **If you touch that code:
+   do not collapse the `mine` branch** — nothing masks this state, so that branch
+   IS the opponent's secrecy, in label, title and alt alike.
 3. **Un-tap a rune exhausted by mistake — SETTLED: there is no such ability.**
    Rule **164.2.b** gives a Basic Rune exactly two abilities and neither reverses
    the other:
