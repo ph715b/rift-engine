@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
@@ -84,7 +84,7 @@ export function domainDeathTriggers(): { name: string; entries: Record<string, D
  * (Vanguard Helm and Viktor - Leader), which is exactly the condition that
  * table's own comment named for splitting.
  */
-export function domainDeathWatch(): { name: string; entries: Record<string, DeathWatchEffect> }[] {
+export function domainDeathWatch(): { name: string; entries: Record<string, DeathWatchDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.deathWatchTriggers,

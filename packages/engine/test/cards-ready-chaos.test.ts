@@ -414,7 +414,7 @@ describe("Kog'Maw - Caustic (OGN-190): [Deathknell] deal 4 to all units at my ba
     // dispatchOnUnitDied hop into the composed Deathknell registry.
     const { state, kogmaw } = kogmawAt();
 
-    const after = destroyUnit(state, kogmaw.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(state, kogmaw.instanceId, 1));
 
     expect(after.battlefields[0]!.units["p1"]!.map((u) => u.damage)).toEqual([4]); // Ally
     expect(after.battlefields[0]!.units["p2"]!.map((u) => u.damage)).toEqual([4]); // Enemy
@@ -446,7 +446,7 @@ describe("Kog'Maw - Caustic (OGN-190): [Deathknell] deal 4 to all units at my ba
     const { state, kogmaw } = kogmawAt();
     state.battlefields[0]!.units["p2"] = [makeUnit({ name: "Fragile", might: 3 })];
 
-    const after = destroyUnit(state, kogmaw.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(state, kogmaw.instanceId, 1));
 
     expect(after.battlefields[0]!.units["p2"]).toHaveLength(0);
     expect(after.players[1]!.trash.map((c) => c.name)).toEqual(["Fragile"]);
@@ -462,7 +462,7 @@ describe("Kog'Maw - Caustic (OGN-190): [Deathknell] deal 4 to all units at my ba
     state.players[0]!.baseUnits = [kogmaw, neighbour];
     state.battlefields[0]!.units = { p2: [makeUnit({ name: "Forward", might: 9 })] };
 
-    const after = destroyUnit(state, kogmaw.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(state, kogmaw.instanceId, 1));
 
     expect(after.players[0]!.baseUnits.map((u) => u.damage)).toEqual([0]);
     expect(after.battlefields[0]!.units["p2"]!.map((u) => u.damage)).toEqual([0]);

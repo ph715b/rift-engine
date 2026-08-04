@@ -666,7 +666,9 @@ describe("Solari Shrine (OGN-072): when you kill a stunned enemy unit, you may e
   it("asks, and draws when accepted — exhausting the Shrine", () => {
     const { state, victim } = shrineState();
 
-    const asked = destroyUnit(state, victim.instanceId, 0);
+    // Settled: a death-watch is a Chain Pending Item, so the kill only places
+    // the Shrine's offer and it is asked a chain-pop later.
+    const asked = resolveHeldTriggers(destroyUnit(state, victim.instanceId, 0));
     expect(pendingDecision(asked)!.kind).toBe("OGN-072-draw");
 
     const after = answerDecisions(asked, (options) => options.find((o) => o.id === "draw")!.id);
@@ -678,7 +680,7 @@ describe("Solari Shrine (OGN-072): when you kill a stunned enemy unit, you may e
   it("declining costs nothing — the Shrine stays ready and no card is drawn", () => {
     const { state, victim } = shrineState();
 
-    const after = answerDecisions(destroyUnit(state, victim.instanceId, 0), (o) => o.find((x) => x.id === "decline")!.id);
+    const after = answerDecisions(resolveHeldTriggers(destroyUnit(state, victim.instanceId, 0)), (o) => o.find((x) => x.id === "decline")!.id);
 
     expect(after.players[0]!.hand).toHaveLength(0);
     expect(after.players[0]!.activeGear[0]!.exhausted).toBe(false);
@@ -686,13 +688,13 @@ describe("Solari Shrine (OGN-072): when you kill a stunned enemy unit, you may e
 
   it("does not ask when the victim was not stunned", () => {
     const { state, victim } = shrineState({ stunned: false });
-    expect(destroyUnit(state, victim.instanceId, 0).pendingDecisions).toHaveLength(0);
+    expect(resolveHeldTriggers(destroyUnit(state, victim.instanceId, 0)).pendingDecisions).toHaveLength(0);
   });
 
   it("does not ask when somebody ELSE did the killing", () => {
     // "When YOU kill" — this is the whole reason DeathContext carries a killer.
     const { state, victim } = shrineState();
-    expect(destroyUnit(state, victim.instanceId, 1).pendingDecisions).toHaveLength(0);
+    expect(resolveHeldTriggers(destroyUnit(state, victim.instanceId, 1)).pendingDecisions).toHaveLength(0);
   });
 
   it("does not ask when the dead unit was FRIENDLY", () => {
@@ -719,7 +721,7 @@ describe("Solari Shrine (OGN-072): when you kill a stunned enemy unit, you may e
 
   it("does not ask when the Shrine is already exhausted — it cannot pay", () => {
     const { state, victim } = shrineState({ shrineExhausted: true });
-    expect(destroyUnit(state, victim.instanceId, 0).pendingDecisions).toHaveLength(0);
+    expect(resolveHeldTriggers(destroyUnit(state, victim.instanceId, 0)).pendingDecisions).toHaveLength(0);
   });
 
   it("fires on a COMBAT kill too — the killer is the opposing side", () => {
@@ -735,7 +737,7 @@ describe("Solari Shrine (OGN-072): when you kill a stunned enemy unit, you may e
       ),
     };
 
-    const after = resolveShowdown(fighting, "bf1", 0);
+    const after = resolveHeldTriggers(resolveShowdown(fighting, "bf1", 0));
 
     expect(after.pendingDecisions.some((d) => d.kind === "OGN-072-draw")).toBe(true);
   });

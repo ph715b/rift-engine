@@ -415,7 +415,7 @@ describe("buff cards", () => {
     ];
     state = addBuff(state, doomed.instanceId);
 
-    const after = answerDecisions(destroyUnit(state, doomed.instanceId, 1));
+    const after = answerDecisions(resolveHeldTriggers(destroyUnit(state, doomed.instanceId, 1)));
     expect(atBf(after, "p1").find((u) => u.name === "Survivor")!.buffed).toBe(true);
   });
 
@@ -446,23 +446,23 @@ describe("Viktor - Leader (OGN-246): a Recruit for every other non-Recruit that 
 
   it("makes a token when another friendly unit dies", () => {
     const { state, ally } = viktorState();
-    const after = destroyUnit(state, ally.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(state, ally.instanceId, 1));
     expect(after.players[0]!.baseUnits.filter((u) => u.isToken)).toHaveLength(1);
   });
 
   it("does NOT fire for his own death — 'another'", () => {
     const { state, viktor } = viktorState();
-    const after = destroyUnit(state, viktor.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(state, viktor.instanceId, 1));
     expect(after.players[0]!.baseUnits.filter((u) => u.isToken)).toHaveLength(0);
   });
 
   it("does NOT fire for a Recruit token dying — otherwise he replaces them forever", () => {
     // The exclusion that keeps this from being a livelock rather than a combo.
     const { state } = viktorState();
-    const withToken = destroyUnit(state, state.battlefields[0]!.units["p1"]![1]!.instanceId, 1);
+    const withToken = resolveHeldTriggers(destroyUnit(state, state.battlefields[0]!.units["p1"]![1]!.instanceId, 1));
     const token = withToken.players[0]!.baseUnits.find((u) => u.isToken)!;
 
-    const after = destroyUnit(withToken, token.instanceId, 1);
+    const after = resolveHeldTriggers(destroyUnit(withToken, token.instanceId, 1));
     expect(after.players[0]!.baseUnits.filter((u) => u.isToken)).toHaveLength(0);
   });
 

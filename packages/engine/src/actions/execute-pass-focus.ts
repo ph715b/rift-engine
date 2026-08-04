@@ -1,5 +1,5 @@
 import { isSpellChainEntry, type GameState } from "../model/game-state.js";
-import { resolveHeldSelfTrigger, resolvePendingTrigger } from "../engine/triggers.js";
+import { resolveHeldDeathknell, resolveHeldSelfTrigger, resolvePendingTrigger } from "../engine/triggers.js";
 import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import { dispatchOnSpellCast, resolveHeldOnMoveTrigger, resolveHeldOnPlayTrigger } from "../engine/unit-triggers.js";
@@ -58,13 +58,13 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // an ordinary turn with a Pirate's Haven on the board comes through this line
   // once per unit that Awakened.
   if (!isSpellChainEntry(poppedEntry)) {
-    // FOUR registries can produce a held trigger now, and `source` says which —
+    // FIVE registries can produce a held trigger now, and `source` says which —
     // an EventTrigger-registry ability (a bystander watching the board), a unit's
-    // own "when you play me" / "when I move", or a card's ability about ITSELF.
-    // They resolve differently enough to need separate functions: see
-    // resolveHeldOnPlayTrigger on why a dead source still resolves while a dead
-    // LISTENER does not. The three card-sourced kinds all share that rule and
-    // differ only in the event they carry.
+    // own "when you play me" / "when I move", a card's ability about ITSELF, or a
+    // dying card's `[Deathknell]`. They resolve differently enough to need
+    // separate functions: see resolveHeldOnPlayTrigger on why a dead source still
+    // resolves while a dead LISTENER does not. The four card-sourced kinds all
+    // share that rule and differ only in the event they carry.
     const afterTrigger =
       poppedEntry.source === "unitOnPlay"
         ? resolveHeldOnPlayTrigger(state, poppedEntry)
@@ -72,7 +72,9 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
           ? resolveHeldOnMoveTrigger(state, poppedEntry)
           : poppedEntry.source === "selfTrigger"
             ? resolveHeldSelfTrigger(state, poppedEntry)
-            : resolvePendingTrigger(state, poppedEntry);
+            : poppedEntry.source === "deathknell"
+              ? resolveHeldDeathknell(state, poppedEntry)
+              : resolvePendingTrigger(state, poppedEntry);
     const remaining = afterTrigger.spellChain.slice(0, -1);
     return finishChainPop(afterTrigger, remaining);
   }

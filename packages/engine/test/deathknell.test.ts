@@ -6,7 +6,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, pickCard, resolveHeldTriggers } from "./fixtures.js";
 import { optionsFor } from "../src/engine/decisions.js";
 
 /**
@@ -52,7 +52,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     const state = stockedState(scout);
     const before = state.players[0]!.channeled.length;
 
-    const after = dealDamage(state, 1, scout.instanceId, 99);
+    const after = resolveHeldTriggers(dealDamage(state, 1, scout.instanceId, 99));
 
     expect(after.players[0]!.channeled).toHaveLength(before + 1);
     expect(after.players[0]!.channeled.at(-1)!.state).toBe("Exhausted");
@@ -64,7 +64,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     const scout = card(SOARING_SCOUT);
     const state = stockedState(scout);
 
-    const after = destroyUnit(state, scout.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(state, scout.instanceId));
 
     expect(after.players[0]!.channeled).toHaveLength(state.players[0]!.channeled.length + 1);
   });
@@ -76,7 +76,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     state.battlefields[0]!.units = { p1: [scout], p2: [attacker] };
 
     // p2 attacks; the scout has no chance.
-    const after = resolveShowdown(state, "bf1", 1);
+    const after = resolveHeldTriggers(resolveShowdown(state, "bf1", 1));
 
     expect(after.battlefields[0]!.units["p1"] ?? []).toHaveLength(0);
     expect(after.players[0]!.channeled).toHaveLength(state.players[0]!.channeled.length + 1);
@@ -86,7 +86,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     const scout = card(SOARING_SCOUT);
     const state = stockedState(scout, "base");
 
-    const after = destroyUnit(state, scout.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(state, scout.instanceId));
 
     expect(after.players[0]!.baseUnits).toHaveLength(0);
     expect(after.players[0]!.channeled).toHaveLength(state.players[0]!.channeled.length + 1);
@@ -101,7 +101,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     const state = stockedState(scout);
     state.deathWardedUnitInstanceIds = [scout.instanceId];
 
-    const after = destroyUnit(state, scout.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(state, scout.instanceId));
 
     expect(after.players[0]!.baseUnits.map((u) => u.instanceId)).toEqual([scout.instanceId]); // recalled
     expect(after.players[0]!.channeled).toHaveLength(state.players[0]!.channeled.length); // no channel
@@ -120,7 +120,7 @@ describe("Undercover Agent's Deathknell (OGN-178)", () => {
     // questions rather than wrapped around them. Answering them is what proves
     // the "then" survived that: if the draw had run first, the cards on offer to
     // discard would have included the ones just drawn.
-    const after = answerDecisions(destroyUnit(state, agent.instanceId));
+    const after = answerDecisions(resolveHeldTriggers(destroyUnit(state, agent.instanceId)));
     const handIds = after.players[0]!.hand.map((c) => c.instanceId);
 
     // 3 - 2 discarded + 2 drawn = 3.
@@ -142,7 +142,7 @@ describe("Undercover Agent's Deathknell (OGN-178)", () => {
 
     // One card in hand and "discard 2" is not a choice, so nothing is asked —
     // the whole hand goes and the draw follows immediately.
-    const after = destroyUnit(state, agent.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(state, agent.instanceId));
 
     expect(after.pendingDecisions).toHaveLength(0);
     expect(after.players[0]!.hand).toHaveLength(2); // 1 - 1 + 2 drawn

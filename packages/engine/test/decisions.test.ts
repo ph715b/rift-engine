@@ -8,7 +8,7 @@ import { discardCards, discardThenDraw, destroyUnit } from "../src/engine/effect
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { answerDecisions, makePlayer, makeState, makeUnit, pickCard } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, pickCard, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The engine stopping to ask a player a question.
@@ -217,7 +217,10 @@ describe("a question raised during a Cleanup", () => {
     });
     state.players[0]!.baseUnits = [agent as never];
 
-    const asked = destroyUnit(state, agent.instanceId);
+    // Settled: the Deathknell is placed by the kill and parks its question a
+    // chain-pop later. The point of the test is unchanged — a question raised
+    // outside the Action phase must still be answerable.
+    const asked = resolveHeldTriggers(destroyUnit(state, agent.instanceId));
 
     expect(asked.phase).toBe("Beginning");
     // Two entries: the discard question, and the "then draw 2" queued behind it.

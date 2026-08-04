@@ -436,7 +436,9 @@ describe("Watchful Sentry (OGN-096): [Deathknell] — Draw 1", () => {
     state.battlefields[0]!.units = { p1: [sentry] };
     const handBefore = state.players[0]!.hand.length;
 
-    const after = cast(state, 1, state.players[1]!.hand[0]!, { targetUnitInstanceId: sentry.instanceId });
+    // Settled: the Deathknell is a Chain Pending Item, so the spell resolving
+    // only places it and the draw lands a chain-pop later.
+    const after = resolveHeldTriggers(cast(state, 1, state.players[1]!.hand[0]!, { targetUnitInstanceId: sentry.instanceId }));
 
     expect(after.players[0]!.trash.map((c) => c.defId)).toContain(WATCHFUL_SENTRY); // it really died
     expect(after.players[0]!.hand).toHaveLength(handBefore + 1);

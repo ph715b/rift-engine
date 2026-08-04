@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellEffect, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
@@ -563,8 +563,8 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
  * DYING card — "when a buffed friendly unit dies" is a property of the watcher,
  * not of the corpse.
  */
-export const deathWatchTriggers: Record<string, DeathWatchEffect> = {
-  "OGN-228": (state, listener, death) => {
+export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  "OGN-228": {
     // Vanguard Helm — "When a buffed friendly unit dies, buff another friendly
     // unit."
     //
@@ -576,13 +576,19 @@ export const deathWatchTriggers: Record<string, DeathWatchEffect> = {
     // "ANOTHER" excludes the unit that died, which is free here since it is no
     // longer in play; what it really excludes is nothing else, so any surviving
     // friendly unit is eligible.
-    if (death.ownerIndex !== listener.ownerIndex) return state; // not friendly to the Helm
-    if (!death.unit.buffed) return state;
-    const candidates = ownUnitsEverywhere(state, listener.ownerIndex);
-    if (candidates.length === 0) return state;
-    return parkDecision(state, { kind: "OGN-228-buff", playerIndex: listener.ownerIndex });
+    // Both printed conditions are facts about the DEATH — whose unit it was, and
+    // whether it was buffed as it died — so both decide whether the Helm
+    // triggered. "Is there anything left to buff" is a question about the board
+    // at resolution and stays below: a trigger that fires and finds nothing is
+    // 422 working.
+    applies: (_state, listener, death) => death.ownerIndex === listener.ownerIndex && death.unit.buffed,
+    resolve: (state, listener) => {
+      const candidates = ownUnitsEverywhere(state, listener.ownerIndex);
+      if (candidates.length === 0) return state;
+      return parkDecision(state, { kind: "OGN-228-buff", playerIndex: listener.ownerIndex });
+    },
   },
-  "OGN-246": (state, listener, death) => {
+  "OGN-246": {
     // Viktor - Leader — "When another non-Recruit unit you control dies, play a
     // 1 Might Recruit unit token into your base."
     //
@@ -590,10 +596,12 @@ export const deathWatchTriggers: Record<string, DeathWatchEffect> = {
     // own death does not pay out) and "NON-RECRUIT" — without the second he
     // would replace each token with another forever, which is a livelock rather
     // than a combo.
-    if (death.ownerIndex !== listener.ownerIndex) return state;
-    if (death.unit.instanceId === listener.card.instanceId) return state; // "another"
-    if (death.unit.isToken) return state; // the Recruit tokens he makes
-    return placeRecruitToken(state, listener.ownerIndex, "base");
+    // All three are facts about the death, so all three are fire-time.
+    applies: (_state, listener, death) =>
+      death.ownerIndex === listener.ownerIndex &&
+      death.unit.instanceId !== listener.card.instanceId && // "another"
+      !death.unit.isToken, // the Recruit tokens he makes
+    resolve: (state, listener) => placeRecruitToken(state, listener.ownerIndex, "base"),
   },
 };
 

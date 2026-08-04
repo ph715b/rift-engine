@@ -198,6 +198,24 @@ export type DeathknellEffect = (state: GameState, ctx: EffectContext, death: Dea
  *  death, since "friendly" is relative to the listener's controller. */
 export type DeathWatchEffect = (state: GameState, listener: Listener, death: DeathContext) => GameState;
 
+export interface DeathWatchDefinition {
+  /**
+   * Whether the ability TRIGGERED, asked at the moment of the death.
+   *
+   * The same split `EventTriggerDefinition.applies` makes, arriving here for the
+   * same reason: a death-watch is HELD now, so a listener whose printed condition
+   * is unmet must place NO Pending Item rather than one that closes the chain,
+   * costs both players a PassFocus and then resolves to nothing.
+   *
+   * Reads only the death and the listener — "friendly", "buffed", "your kill",
+   * "stunned" are all facts about the death, and the response window cannot
+   * change them because `DeathContext` captured them before the card reached the
+   * trash (809.1.b.3). Anything about the BOARD at resolution stays in `resolve`.
+   */
+  applies?: (state: GameState, listener: Listener, death: DeathContext) => boolean;
+  resolve: DeathWatchEffect;
+}
+
 let composedDeathknells: Record<string, DeathknellEffect> | null = null;
 
 /** Composed lazily for the same import-cycle reason as card-effects.ts's
@@ -215,7 +233,7 @@ export function deathTriggerDefIds(): string[] {
   return [...Object.keys(allDeathknells()), ...Object.keys(allDeathWatch())];
 }
 
-let composedDeathWatch: Record<string, DeathWatchEffect> | null = null;
+let composedDeathWatch: Record<string, DeathWatchDefinition> | null = null;
 
 /**
  * Death-watch listeners: the inline ones below plus whatever the per-domain
@@ -227,15 +245,15 @@ let composedDeathWatch: Record<string, DeathWatchEffect> | null = null;
  * cards belong in `effects/<domain>.ts`, and the entries here stay put for the
  * same reason ALL_CARD_EFFECTS' inline ones do.
  */
-function allDeathWatch(): Record<string, DeathWatchEffect> {
-  composedDeathWatch ??= mergeRegistries<DeathWatchEffect>("death watch", [
+function allDeathWatch(): Record<string, DeathWatchDefinition> {
+  composedDeathWatch ??= mergeRegistries<DeathWatchDefinition>("death watch", [
     { name: "engine/triggers.ts", entries: DEATH_WATCH },
     ...domainDeathWatch(),
   ]);
   return composedDeathWatch;
 }
 
-const DEATH_WATCH: Record<string, DeathWatchEffect> = {
+const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
   // Wraith of Echoes — "The first time a friendly unit dies each turn, draw 1."
   //
   // "Friendly" is relative to the LISTENER, which is why a death-watch gets the
@@ -246,12 +264,19 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
   // player (firstFriendlyDeathUsedThisTurn), set here and cleared by runEnd. It
   // has to be a flag rather than a count of deaths, because the death that arms
   // it may be one of several resolving from a single combat.
-  "OGN-118": (state, listener, death) => {
-    if (death.ownerIndex !== listener.ownerIndex) return state; // not friendly to the Wraith
-    if (state.players[listener.ownerIndex].firstFriendlyDeathUsedThisTurn) return state;
-    const players = [...state.players] as [PlayerState, PlayerState];
-    players[listener.ownerIndex] = { ...players[listener.ownerIndex], firstFriendlyDeathUsedThisTurn: true };
-    return drawCards({ ...state, players }, listener.ownerIndex, 1);
+  "OGN-118": {
+    // "A FRIENDLY unit" is a fact about the death, so it decides whether the
+    // Wraith triggers at all. The per-turn flag deliberately does NOT: it is a
+    // resource, and with two friendly units dying at once both abilities trigger
+    // (383 fixes the set at the moment of the event) while only the first to
+    // resolve draws — which is what "the first time each turn" means.
+    applies: (_state, listener, death) => death.ownerIndex === listener.ownerIndex,
+    resolve: (state, listener) => {
+      if (state.players[listener.ownerIndex].firstFriendlyDeathUsedThisTurn) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[listener.ownerIndex] = { ...players[listener.ownerIndex], firstFriendlyDeathUsedThisTurn: true };
+      return drawCards({ ...state, players }, listener.ownerIndex, 1);
+    },
   },
 
   /**
@@ -273,10 +298,18 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
    * Shrine cannot pay it, so it is not offered at all rather than offered and
    * refused (the same shape `canPayActivationCost` uses).
    */
-  "OGN-072": (state, listener, death) => {
-    if (death.killerIndex !== listener.ownerIndex) return state; // not YOUR kill
-    if (death.ownerIndex === listener.ownerIndex) return state; // not an ENEMY unit
-    if (!death.unit.stunned) return state;
+  "OGN-072": {
+    // All three printed conditions are facts about the DEATH, captured before the
+    // card reached the trash (809.1.b.3), so all three decide whether the Shrine
+    // triggered rather than being re-asked later.
+    applies: (_state, listener, death) =>
+      death.killerIndex === listener.ownerIndex && // YOUR kill
+      death.ownerIndex !== listener.ownerIndex && // an ENEMY unit
+      death.unit.stunned,
+    // The exhaust check stays at RESOLUTION, and the difference is the point: it
+    // is the ability's COST, a question about the board when it resolves, and the
+    // response window can exhaust the Shrine. Never offer what cannot be paid.
+    resolve: (state, listener) => {
     // A Gear in play, so the narrowing is a formality — but `Listener.card` is a
     // CardInstance now that trash listeners share the type, and a Spell has no
     // `exhausted`.
@@ -286,6 +319,7 @@ const DEATH_WATCH: Record<string, DeathWatchEffect> = {
       playerIndex: listener.ownerIndex,
       cardInstanceId: listener.card.instanceId,
     });
+    },
   },
 };
 
@@ -330,37 +364,76 @@ function karthusCount(state: GameState, ownerIndex: 0 | 1): number {
   ).length;
 }
 
-export function dispatchOnUnitDied(state: GameState, death: DeathContext): GameState {
+/**
+ * A unit died: place every ability that triggers on it, all at once (383).
+ *
+ * TWO mechanisms, because the two families have different listeners and only one
+ * of them is on the board:
+ *
+ *  - the **[Deathknell]** belongs to the DYING card, which is already in a trash,
+ *    so it is a `"deathknell"`-sourced entry carrying the whole `DeathContext`;
+ *  - a **death-watch** listener is an ordinary permanent watching someone else
+ *    die, so it rides the `unitDied` event through `holdEventTrigger` like every
+ *    other converted kind, with its printed conditions in `applies`.
+ *
+ * **Two orderings changed here, and both are the rules arriving.** (1) The
+ * Deathknell used to resolve before the death-watch listeners were even walked,
+ * and the walk ran AFTER it with a comment explaining that a Deathknell which
+ * kills things could remove a listener before it fired. 383 determines the whole
+ * set of triggered abilities at the moment of the event, together — so a listener
+ * the Deathknell later kills has still triggered, and 809.1.b makes its ability
+ * resolve anyway. (2) The Deathknell is placed LAST so that under LIFO (343) it
+ * still resolves FIRST, which is where it sat inline.
+ */
+export function holdUnitDied(state: GameState, death: DeathContext): GameState {
+  const withWatchers = holdEventTrigger(state, { kind: "unitDied", death });
+  return holdDeathknell(withWatchers, death);
+}
+
+/**
+ * Puts the dying card's own `[Deathknell]` in the holding pen, if it has one.
+ *
+ * **The Karthus multiplier is counted NOW and carried**, not re-derived. "Your
+ * [Deathknell] effects trigger an additional time" is a property of the moment
+ * the ability triggered: a Karthus killed inside the response window — or by this
+ * very death, in a board wipe — did not un-double a trigger that had already
+ * fired. Reading the board at resolution would let it.
+ */
+function holdDeathknell(state: GameState, death: DeathContext): GameState {
+  if (!allDeathknells()[death.unit.defId]) return state;
+  const entry: TriggerChainEntry = {
+    kind: "trigger",
+    source: "deathknell",
+    playerIndex: death.ownerIndex,
+    listenerInstanceId: death.unit.instanceId,
+    listenerDefId: death.unit.defId,
+    listenerName: death.unit.name,
+    ...(death.battlefieldId !== undefined ? { battlefieldId: death.battlefieldId } : {}),
+    event: { death, times: 1 + karthusCount(state, death.ownerIndex) },
+  };
+  return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
+}
+
+/** What a held `[Deathknell]` carries: the death as it happened, and how many
+ *  times to execute it (Karthus, counted at the moment of death). */
+interface HeldDeathknell {
+  death: DeathContext;
+  times: number;
+}
+
+/**
+ * Resolves a held `[Deathknell]` when the chain pops it.
+ *
+ * Nothing is looked up: the dying card is in a trash by now, which is the whole
+ * reason this family needed its own source. 809.1.b again — an ability on the
+ * Chain is independent of the card that made it.
+ */
+export function resolveHeldDeathknell(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = allDeathknells()[entry.listenerDefId];
+  if (!trigger) return state;
+  const { death, times } = entry.event as HeldDeathknell;
   let next = state;
-
-  const deathknell = allDeathknells()[death.unit.defId];
-  if (deathknell) {
-    // Karthus - Eternal's "your [Deathknell] effects trigger an additional time".
-    // One base execution plus one per Karthus, which is the model the rules
-    // themselves give for "an additional time" under [Repeat]: "the spell or
-    // ability's instructions will be executed an additional time on resolution
-    // for EACH instance". Two Karthuses is 1 + 2 = 3, settled in
-    // docs/rules-calls-resolved.md §6.
-    //
-    // "YOUR Deathknell effects" is possessive of the EFFECT, and an effect is
-    // yours if you control its source — so it is the DYING unit's controller
-    // that matters, read at the moment of death, which is what `death` carries.
-    // A Karthus on the opponent's board does nothing for you.
-    const times = 1 + karthusCount(next, death.ownerIndex);
-    for (let i = 0; i < times; i += 1) {
-      next = deathknell(next, contextFor(death.ownerIndex), death);
-    }
-  }
-
-  // Listeners are re-walked AFTER the Deathknell, not captured before it: a
-  // Deathknell that kills things (Kog'Maw - Caustic) can remove a listener, and
-  // a stale snapshot would fire a trigger for a permanent no longer in play.
-  const watchers = allDeathWatch();
-  for (const listener of allListeningPermanents(next)) {
-    const watch = watchers[listener.card.defId];
-    if (watch) next = watch(next, listener, death);
-  }
-
+  for (let i = 0; i < times; i += 1) next = trigger(next, contextFor(death.ownerIndex), death);
   return next;
 }
 
@@ -578,7 +651,24 @@ export type GameEvent =
    * only thing every card asks — that a discard happened. A card that one day
    * needs the count can have it added along with the plumbing to make it true.
    */
-  | { kind: "cardsDiscarded"; discarderIndex: 0 | 1 };
+  | { kind: "cardsDiscarded"; discarderIndex: 0 | 1 }
+  /**
+   * A unit DIED — the event a death-watch listener watches, carrying the whole
+   * `DeathContext` because every one of its conditions is about the unit as it
+   * died rather than about the board now.
+   *
+   * 809.1.b.3 is the reason the payload is this shape: "before the card is moved
+   * to the Trash, note its location, its attributes, and any other details
+   * related to the effect of its triggered ability". By the time a held trigger
+   * resolves the unit is in a trash with its Buff already stripped (709), so
+   * "was it buffed", "was it stunned" and "where was it" have no other source.
+   *
+   * A `[Deathknell]` does NOT ride this event: its listener is the dying card
+   * itself, which no walk over permanents in play can reach, so it is held as a
+   * `"deathknell"`-sourced entry instead. Both are placed by the same call, at
+   * the same moment.
+   */
+  | { kind: "unitDied"; death: DeathContext };
 
 /**
  * The event kinds that have been CONVERTED to Chain Pending Items (383 /
@@ -619,7 +709,8 @@ export type HeldEventKind =
   | "cardsRecycled"
   | "combatBegan"
   | "unitsStunned"
-  | "cardsDiscarded";
+  | "cardsDiscarded"
+  | "unitDied";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
@@ -686,6 +777,11 @@ function allEventTriggers(): Record<string, EventTriggerDefinition> {
     // card registered in both places is the same named duplicate error as any
     // other — see attackEventTriggers for why the bodies did not move here.
     attackEventTriggers(),
+    // The death-watch family, adapted onto the `unitDied` event. An adapter
+    // rather than moving four cards into `eventTriggers`, for the reason the
+    // attack one gives: their conditions are all about the DEATH, which the event
+    // carries, and one shared narrowing beats four copies of it.
+    deathWatchEventTriggers(),
     // The LEGEND hooks whose moment is already a held event. A merge source like
     // any other, so a Legend defId colliding with a card's is the same named
     // error — see legendEventTriggers for why only four of the eight convert.
@@ -798,6 +894,25 @@ export function holdEventTrigger(state: GameState, event: GameEvent): GameState 
   }
   if (held.length === 0) return state;
   return { ...state, pendingTriggers: [...state.pendingTriggers, ...held] };
+}
+
+/**
+ * `allDeathWatch()` presented as `unitDied` listeners, so a death-watch is an
+ * ordinary held event with an ordinary `applies` predicate.
+ *
+ * The listener is a permanent in play, unlike a `[Deathknell]`'s — which is why
+ * this family needs no `source` of its own and the other one does.
+ */
+function deathWatchEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
+  const entries: Record<string, EventTriggerDefinition> = {};
+  for (const [defId, watch] of Object.entries(allDeathWatch())) {
+    entries[defId] = {
+      on: "unitDied",
+      applies: (state, listener, event) => event.kind === "unitDied" && (watch.applies?.(state, listener, event.death) ?? true),
+      resolve: (state, listener, event) => (event.kind === "unitDied" ? watch.resolve(state, listener, event.death) : state),
+    };
+  }
+  return { name: "engine/triggers.ts (death watch)", entries };
 }
 
 export function dispatchEvent(state: GameState, event: InlineEvent): GameState {

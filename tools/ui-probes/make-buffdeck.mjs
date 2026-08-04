@@ -41,8 +41,11 @@ const DECKS = {
       "OGN-155", // Qiyana - Victorious — battlefieldConquered trigger + decision
       "OGN-143", // Pirate's Haven — unitReadied, fired once per unit by every Awaken
       "OGN-158", // Volibear - Imposing — unitMoved trigger
-      "OGN-232", // Fiora - Victorious — grants [Deflect] while Mighty (the surcharge)
-      "OGN-161", // Deadbloom Predator — [Deflect] on placement into an enemy battlefield
+      // Fiora - Victorious and Deadbloom Predator were dropped here when the death
+      // family was added: 13 entries is what 39 slots hold at 3 copies, so a new
+      // one costs an old one. Both are [Deflect] cards, whose live behaviour is a
+      // COST shown in the lobby rather than a chain row, so they are the two this
+      // probe learns least from watching.
       "OGN-242", // Baited Hook — the first ability costing Energy AND Power together
       "OGN-230", // Albus Ferros — spend any number of buffs
       "OGN-226", // Spectral Matron — play a unit from your trash
@@ -55,6 +58,12 @@ const DECKS = {
       // Traveling Merchant is Chaos and no legal deck can hold all three.
       "OGN-222", // Noxian Drummer — a token placed where he moved TO
       "OGN-162", // Miss Fortune - Captain — the one whose "first move" is carried
+      // The DEATH family, added when it was converted (2026-08-03). Measured
+      // first, and again neither existing deck could reach one: units die every
+      // combat, so a [Deathknell] on a body that fights is the reliable way to
+      // see one on the chain. Order is the domain both of these share with Sett.
+      "OGN-216", // Soaring Scout — [Deathknell] channel 1 rune exhausted
+      "OGN-246", // Viktor - Leader — a death-WATCH, the other half of the family
     ],
   },
   calm: {
@@ -135,4 +144,20 @@ writeFileSync(out, lines.join("\n"));
 console.log(`wrote ${out}: ${ids.length} main + champion ${champion.name} (${legend.name}), sideboard ${side.length}`);
 // The champion is named separately because it is NOT in `priority` — a priority
 // entry for it would be filtered out above and read as missing.
+//
+// **Asserted against the BUILT deck, not against the input list.** This line used
+// to print `PRIORITY` itself, which is a claim about what was ASKED for rather
+// than what was written — and the fill loop stops at 39, so a priority list longer
+// than 13 entries silently drops its tail while this cheerfully named every card
+// as present. It did exactly that: two cards added to watch a newly converted
+// trigger family never made the deck, the live probe reported their triggers as
+// never observed, and the generator had already said they were in.
+const absent = PRIORITY.filter((id) => !ids.includes(id));
+if (absent.length) {
+  throw new Error(
+    `priority cards did not fit in the 39-card main deck: ${absent.map((id) => registry.get(id).name).join(", ")}. ` +
+      `A ${PRIORITY.length}-card priority list needs ${PRIORITY.length * 3} slots at 3 copies each. ` +
+      `Drop an entry rather than letting the tail fall off silently.`,
+  );
+}
 console.log(`priority present: ${PRIORITY.map((id) => registry.get(id).name).join(", ")}`);

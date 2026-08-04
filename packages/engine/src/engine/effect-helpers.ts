@@ -6,7 +6,7 @@ import { effectiveMight } from "./effective-might.js";
 import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
-import { dispatchEvent, dispatchOnUnitDied, holdEventTrigger, holdSelfTrigger, killGear } from "./triggers.js";
+import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
@@ -176,7 +176,9 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
     trash: [...p.trash, trashed],
     unitsLostThisTurn: p.unitsLostThisTurn + 1,
   }));
-  const withDeaths = dispatchOnUnitDied(inTrash, death);
+  // HELD (383): the [Deathknell] and every death-watch listener are placed
+  // together at the moment of the death, and resolve a chain-pop later.
+  const withDeaths = holdUnitDied(inTrash, death);
   // HELD, like every other converted event, and fired AFTER the death funnel so a
   // listener sees a board the unit has already left.
   return bySpell && death.killerIndex !== undefined

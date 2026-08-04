@@ -3,7 +3,7 @@ import { runBeginning } from "../src/engine/turn-manager.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * [Temporary] — rule 816: "At the start of this permanent's controller's
@@ -154,7 +154,9 @@ describe("a Temporary death is a real death", () => {
     });
     const before = state.players[0]!.channeled.length;
 
-    const after = runBeginning(state);
+    // Settled: the [Deathknell] is a Chain Pending Item, so the sweep places it
+    // and the channel lands a chain-pop later.
+    const after = resolveHeldTriggers(runBeginning(state));
 
     expect(after.players[0]!.baseUnits).toHaveLength(0);
     expect(after.players[0]!.channeled).toHaveLength(before + 1);

@@ -145,7 +145,10 @@ export interface TriggerChainEntry {
    * card's ability about ITSELF (Scrapheap's "when this is played, discarded or
    * killed"), where `event` is a `SelfEvent` carrying the whole CARD — because at
    * two of those three moments it sits in a hand or a trash and no walk over
-   * permanents in play would reach it.
+   * permanents in play would reach it. `"deathknell"` is the dying card's own
+   * "when I die" (808), where `event` carries the `DeathContext` and the number of
+   * times to execute it — Karthus - Eternal's multiplier, counted at the moment of
+   * death rather than re-derived from a board it may itself have left.
    *
    * A discriminant rather than a second event field, so an entry can never carry
    * both and no existing literal has to change — the absent case is exactly what
@@ -156,7 +159,7 @@ export interface TriggerChainEntry {
    * the ability's source rather than a bystander watching. An event-registry
    * listener is the bystander, and bails. See `resolveHeldOnPlayTrigger`.
    */
-  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger";
+  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger" | "deathknell";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */

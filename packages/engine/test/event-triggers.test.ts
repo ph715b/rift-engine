@@ -159,15 +159,15 @@ describe("Wraith of Echoes (OGN-118): the FIRST friendly death each turn", () =>
 
   it("draws 1 when a friendly unit dies", () => {
     const { state, ally } = wraithState();
-    const after = destroyUnit(state, ally.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(state, ally.instanceId));
     expect(after.players[0]!.hand).toHaveLength(1);
     expect(after.players[0]!.firstFriendlyDeathUsedThisTurn).toBe(true);
   });
 
   it("draws only ONCE per turn, however many friendly units die", () => {
     const { state, ally, second } = wraithState();
-    let next = destroyUnit(state, ally.instanceId);
-    next = destroyUnit(next, second.instanceId);
+    let next = resolveHeldTriggers(destroyUnit(state, ally.instanceId));
+    next = resolveHeldTriggers(destroyUnit(next, second.instanceId));
     expect(next.players[0]!.hand).toHaveLength(1); // not 2
   });
 
@@ -175,13 +175,13 @@ describe("Wraith of Echoes (OGN-118): the FIRST friendly death each turn", () =>
     // "Each turn", not "each game" — and runEnd fires at the end of EVERY turn,
     // so a friendly death on the opponent's turn arms it for them too.
     const { state, ally, second } = wraithState();
-    let next = destroyUnit(state, ally.instanceId);
+    let next = resolveHeldTriggers(destroyUnit(state, ally.instanceId));
     expect(next.players[0]!.hand).toHaveLength(1);
 
     next = runEnd(next);
     expect(next.players[0]!.firstFriendlyDeathUsedThisTurn).toBe(false);
 
-    next = destroyUnit(next, second.instanceId);
+    next = resolveHeldTriggers(destroyUnit(next, second.instanceId));
     expect(next.players[0]!.hand).toHaveLength(2);
   });
 
@@ -193,7 +193,7 @@ describe("Wraith of Echoes (OGN-118): the FIRST friendly death each turn", () =>
       players: [state.players[0]!, { ...state.players[1]!, baseUnits: [theirs] }] as GameState["players"],
     };
 
-    const after = destroyUnit(withEnemy, theirs.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(withEnemy, theirs.instanceId));
 
     expect(after.players[0]!.hand).toHaveLength(0);
     expect(after.players[0]!.firstFriendlyDeathUsedThisTurn).toBe(false);
@@ -204,7 +204,7 @@ describe("Wraith of Echoes (OGN-118): the FIRST friendly death each turn", () =>
     // death should see one either.
     const { state, ally } = wraithState();
     const warded: GameState = { ...state, deathWardedUnitInstanceIds: [ally.instanceId] };
-    const after = destroyUnit(warded, ally.instanceId);
+    const after = resolveHeldTriggers(destroyUnit(warded, ally.instanceId));
     expect(after.players[0]!.hand).toHaveLength(0);
   });
 });

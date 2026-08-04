@@ -556,7 +556,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
     state.players[0]!.runeDeck = [{ id: "r2", domain: "Order", state: "Ready" }];
     state = addBuff(state, scout.instanceId);
 
-    const after = answerDecisions(destroyUnit(state, scout.instanceId, 1), (o) => o.find((x) => x.id === "die")!.id);
+    const after = resolveHeldTriggers(answerDecisions(destroyUnit(state, scout.instanceId, 1), (o) => o.find((x) => x.id === "die")!.id));
 
     expect(after.players[0]!.trash.map((c) => c.instanceId)).toContain(scout.instanceId);
     // Its Deathknell DID run: r2 came out of the rune deck into `channeled`,

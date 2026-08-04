@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { resolveShowdown } from "../src/engine/combat.js";
-import { dispatchOnUnitDied } from "../src/engine/triggers.js";
+import { holdUnitDied } from "../src/engine/triggers.js";
 import { dealDamage, destroyUnit, recycleCardFromHand } from "../src/engine/effect-helpers.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
 import { pendingDecision } from "../src/engine/decisions.js";
@@ -47,8 +47,11 @@ describe("Karthus - Eternal (OGN-236): Deathknells fire an additional time", () 
     return state;
   }
 
+  // A [Deathknell] is a Chain Pending Item now, so this places it and settles.
+  // The Karthus MULTIPLIER is captured when it is placed, which is what makes
+  // "read at the moment of death" testable at all.
   const killSentry = (state: GameState) =>
-    dispatchOnUnitDied(state, { unit: realUnitInstance(WATCHFUL_SENTRY), ownerIndex: 0 });
+    resolveHeldTriggers(holdUnitDied(state, { unit: realUnitInstance(WATCHFUL_SENTRY), ownerIndex: 0 }));
 
   it("fires ONCE with no Karthus — the control", () => {
     expect(killSentry(karthusState(0)).players[0]!.hand).toHaveLength(1);
@@ -71,7 +74,7 @@ describe("Karthus - Eternal (OGN-236): Deathknells fire an additional time", () 
     // yours if you control its source — read at the moment of death.
     const state = karthusState(2);
     state.players[1]!.deck = Array.from({ length: 10 }, () => spellInstance(HEXTECH_RAY));
-    const settled = dispatchOnUnitDied(state, { unit: realUnitInstance(WATCHFUL_SENTRY), ownerIndex: 1 });
+    const settled = resolveHeldTriggers(holdUnitDied(state, { unit: realUnitInstance(WATCHFUL_SENTRY), ownerIndex: 1 }));
     expect(settled.players[1]!.hand).toHaveLength(1);
   });
 
