@@ -21,8 +21,15 @@ Adding a set is one JSON file in `packages/engine/src/cards/` plus one entry in
 
 **As of 2026-08-04 there is no SFD data in the repo** — `CARD_FILES` is
 `[ognRaw, ogsRaw]` and the only match for "sfd" anywhere is the readiness brief.
-If it is still absent, stop and say so; do not scaffold around a file that does
-not exist.
+
+The set itself is NOT unreleased, which matters for how you source that file:
+**Spiritforged shipped on 2026-02-13, uses the set code SFD, and has 221 cards**
+(excluding Overnumber cards). It has six months of tournament results behind it. So
+the missing JSON is a data-sourcing task with a known answer, not a wait. Match the
+shape of the existing `ogn.json` / `ogs.json` — note their `imageUrl` fields point
+at `cmsassets.rgpub.io`, i.e. Riot's own CMS, which is worth chasing before any
+community scrape. **Do not hand-transcribe 221 cards**; get the data, then let the
+censuses tell you what is wrong with it.
 
 ## The finding that should shape your plan
 
@@ -228,12 +235,31 @@ What is still missing, in order of value:
 
 ### If you build a playtest team, this is the shape that works
 
-The tempting version — agents fetching top-performing decklists and playing them
-— is the wrong instrument three times over. A competitive list is optimised to
-WIN, so it converges on the same strong cards and deliberately omits the marginal
-ones, which are exactly the ones whose code is untested; for a new set no meta
-exists yet anyway; and it imports an unverifiable external source into an
-instrument, in a repo whose recurring defect is instruments that report plausibly.
+**Community decklists exist and are worth using — just not for coverage.**
+riftDecks, Piltover Archive and riftbound.one all carry SFD tournament lists (an
+earlier draft of this document claimed no meta existed for the set; that was
+wrong, and it is corrected here rather than quietly dropped). What a real list
+gives you is a *realistic* game: plausible curves, the interactions that actually
+come up, the cards people actually resolve together. Nothing synthetic reproduces
+that, and it is a genuine gap in the generated decks below.
+
+What it cannot give you is COVERAGE, and that part is arithmetic rather than
+opinion. A legal deck is 40 cards; SFD is 221. A competitive list is optimised to
+WIN, so several of them converge on the same strong cards and deliberately omit
+the marginal ones — which are exactly the ones whose code is untested. You would
+need many lists to reach what a handful of generated decks reach by construction.
+
+**Generated decks do the coverage job, and this is measured, not argued.** A greedy
+set-cover over the 170 cards no preset deck contains — pick the Legend that legally
+holds the most uncovered cards, fill 40 slots, repeat — produced **6 decks covering
+all 170**, and 12 games each exercised **183 of 217 subjects (84%)** with no
+deckbuilding judgement applied at all. Card legality is machine-checked
+(`validateDeckList`: 40 cards, max 3 copies across main + sideboard, champion must
+be in the deck and eligible for the Legend, and a card need only SHARE one domain
+with the Legend's two), so a generator cannot quietly produce an illegal deck.
+
+Use both. Generated decks to reach every card; real lists to make sure the game
+those cards are reached in resembles one somebody would actually play.
 
 The real difficulty is the **oracle**. A game that does not crash proves nothing
 about a card being correct, and a check that cannot fail first tests nothing. So
@@ -253,12 +279,27 @@ any other bug. And make the report lead with **reachability, not pass/fail** —
 cards resolved, 189 never reachable" is the honest headline; "200 games, no
 failures" is the same sentence with the important half deleted.
 
-`exercised.ts` produced a lead of exactly this shape on its first run, without any
-agents: **OGN-004 Cleave**, a 1-energy in-domain Fury `[Action]` reading "Give a
-unit [Assault 3] this turn", was never played across 8 games holding the legal
-maximum of 3 copies, while dearer cards sitting beside it in the same deck were
-played repeatedly. Unchased — it is either an AI valuation gap or an enumeration
-gap, and it is a good first subject for whatever runs this.
+### Two defects this found before any agent was involved
+
+Both came out of pointing generated decks at never-exercised cards, within minutes,
+on an engine whose 1822 tests were green. Neither is fixed. Both are good first
+subjects.
+
+1. **`chooseAction` throws on a legal board.** Playing *Get Excited!* at a unit with
+   `[Deflect]` raises `"Get Excited! must pay 1 rainbow Power for [Deflect] on its
+   target, but named 0"` from inside `heuristic-ai`'s own lookahead — the AI
+   enumerates a play whose executor then rejects it, and the exception escapes
+   `chooseAction` rather than the candidate being scored badly and skipped. It is
+   unreachable from any preset deck, which is why 40-game self-play never saw it.
+   There is a `deflect-surcharge.test.ts` already; the surcharge is understood, the
+   *enumeration* is not.
+2. **OGN-004 Cleave is never played.** A 1-energy in-domain Fury `[Action]`, "Give
+   a unit [Assault 3] this turn", never played across 8 games holding the legal
+   maximum of 3 copies while dearer cards beside it in the same deck were played
+   repeatedly. Either an AI valuation gap or an enumeration gap.
+
+Note what both imply about a green suite: they are reachability failures, not logic
+failures. No assertion was wrong. The cards were simply never in front of the AI.
 
 ## What to leave behind — write this before you stop
 
