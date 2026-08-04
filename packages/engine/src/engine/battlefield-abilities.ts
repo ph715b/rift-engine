@@ -6,8 +6,10 @@ import {
   channelRunesExhausted,
   discardThenDraw,
   drawCards,
+  grantKeywordThisTurn,
   holdCardsRecycled,
   readyRunes,
+  relocateToBaseUnchanged,
   spendBuff,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
@@ -171,6 +173,15 @@ const THE_CANDLELIT_SANCTUM = "OGN-291";
 const CANDLELIT_LOOK = 2;
 /** Zaun Warrens — "When you conquer here, discard 1, then draw 1." */
 const ZAUN_WARRENS = "OGN-298";
+
+/** Fortified Position — "When you defend here, choose a unit. It gains
+ *  [Shield 2] this combat." */
+const FORTIFIED_POSITION = "OGN-279";
+/** The value Fortified Position grants — `[Shield 2]`, not `[Shield]`. */
+const FORTIFIED_POSITION_SHIELD = 2;
+/** Reaver's Row — "When you defend here, you may move a friendly unit here to
+ *  base." */
+const REAVERS_ROW = "OGN-285";
 
 /**
  * Every printed Battlefield's abilities, keyed by its card id.
@@ -339,6 +350,29 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
     },
   ],
 
+  [FORTIFIED_POSITION]: [
+    {
+      on: "defend",
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${FORTIFIED_POSITION}-shield`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
+
+  [REAVERS_ROW]: [
+    {
+      on: "defend",
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${REAVERS_ROW}-retreat`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
 };
 
 /**
@@ -531,7 +565,67 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
         return { ...p, deck: [chosen, ...top.filter((c) => c.instanceId !== optionId), ...p.deck.slice(top.length)] };
       }),
   },
+
+  /**
+   * Fortified Position — "choose a unit. It gains [Shield 2] this combat."
+   *
+   * **Every unit AT the battlefield is offered, on both sides**, because the card
+   * names no owner — the same reading Adaptatron's "you may kill a gear" takes,
+   * and for the same reason: shielding an enemy is a legal, occasionally sensible
+   * play, and filtering to your own would quietly rewrite the card. Scoped to the
+   * battlefield rather than the whole board because `[Shield]` only contributes
+   * while DEFENDING, so it does nothing at all to a unit that is not in this
+   * fight. Recorded Unverified.
+   *
+   * **"This combat" is implemented as this TURN**, which is the divergence: it
+   * lands on `keywordsThisTurn`, so a second combat in the same turn would still
+   * find the Shield there. There is no per-combat scope in this engine, and
+   * inventing one for a single card would be a subsystem.
+   */
+  [`${FORTIFIED_POSITION}-shield`]: {
+    prompt: () => "Fortified Position: give a unit [Shield 2] this combat",
+    options: (state, d) => unitsAt(state, d.battlefieldId).map(({ unit }) => ({
+      id: unit.instanceId,
+      label: unit.name,
+      instanceId: unit.instanceId,
+    })),
+    resolve: (state, _d, optionId) =>
+      grantKeywordThisTurn(state, optionId, "Shield", FORTIFIED_POSITION_SHIELD),
+  },
+
+  /**
+   * Reaver's Row — "you may move a friendly unit here to base."
+   *
+   * MOVE, not Recall, so it goes through `relocateToBaseUnchanged` and the unit
+   * does not exhaust: 454 says a Recall leaves statuses untouched and this
+   * engine's `recallUnitToBase` force-exhausts for the player-initiated retreat.
+   * Nothing else about it is a move either — `movesThisTurn` is untouched and no
+   * `unitMoved` event fires, for the reason that helper's own note gives.
+   *
+   * "FRIENDLY" is relative to the defender, so only their units are offered.
+   */
+  [`${REAVERS_ROW}-retreat`]: {
+    prompt: () => "Reaver's Row: move a friendly unit here to base?",
+    options: (state, d) => {
+      const mine = unitsAt(state, d.battlefieldId).filter(({ ownerIndex }) => ownerIndex === d.playerIndex);
+      if (mine.length === 0) return [];
+      return [
+        ...mine.map(({ unit }) => ({ id: unit.instanceId, label: `Retreat ${unit.name}`, instanceId: unit.instanceId })),
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, _d, optionId) => (optionId === "decline" ? state : relocateToBaseUnchanged(state, optionId)),
+  },
 };
+
+/** Every unit standing at a battlefield, on both sides, with whose it is. */
+function unitsAt(state: GameState, battlefieldId: string | undefined) {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  return ([0, 1] as const).flatMap((ownerIndex) =>
+    (bf.units[state.players[ownerIndex].id] ?? []).map((unit) => ({ unit, ownerIndex })),
+  );
+}
 
 /** The Candlelit Sanctum's last step: the cards the player kept go back "in any
  *  order", which is a real question only when two of them survived. */

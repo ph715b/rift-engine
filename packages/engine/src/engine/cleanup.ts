@@ -2,6 +2,7 @@ import type { BattlefieldState, GameState } from "../model/game-state.js";
 import { removeUnheldHiddenCards } from "./hidden.js";
 import { holdEventTrigger } from "./triggers.js";
 import { attackerIndexAt, unitsPresentAt } from "./combat-designation.js";
+import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 
 /**
  * The Cleanup, run after every resolved action.
@@ -226,7 +227,22 @@ function stageShowdowns(state: GameState): GameState {
 function beginCombatAt(state: GameState, battlefieldId: string): GameState {
   const attackerIndex = attackerIndexAt(state, battlefieldId);
   if (attackerIndex === null) return state;
-  return designate(state, battlefieldId, unitsPresentAt(state, battlefieldId), attackerIndex);
+  const designated = designate(state, battlefieldId, unitsPresentAt(state, battlefieldId), attackerIndex);
+
+  // The BATTLEFIELD's own "when you defend here" (Fortified Position, Reaver's
+  // Row), fired ONCE as the combat opens and deliberately NOT from
+  // `designateArrivals` below. "You defend here" is a claim about the PLAYER, and
+  // a player who is already defending does not begin to defend again because a
+  // reinforcement walked in — that is 383.4.f's "for the first time during a
+  // combat" applied to the side rather than to the unit.
+  //
+  // Guarded on the defender actually having units present, so a Non-Combat
+  // Showdown promoted with nobody on the other side cannot fire it. Placed after
+  // the units' own combat triggers, so it resolves before them under LIFO.
+  const defenderIndex: 0 | 1 = attackerIndex === 0 ? 1 : 0;
+  const bf = designated.battlefields.find((b) => b.id === battlefieldId);
+  if ((bf?.units[designated.players[defenderIndex].id]?.length ?? 0) === 0) return designated;
+  return holdBattlefieldTrigger(designated, "defend", battlefieldId, defenderIndex);
 }
 
 /**
