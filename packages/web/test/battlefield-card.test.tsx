@@ -82,6 +82,13 @@ describe("BattlefieldView renders that card", () => {
         humanIndex={0}
         isShowdownActive={false}
         isUnitTargetable={() => false}
+        isFriendlySelectable={() => false}
+        chosenUnitIds={new Set()}
+        onUnitClick={() => {}}
+        onMoveHere={() => {}}
+        canDragUnit={() => false}
+        onUnitDrag={() => {}}
+        onUnitDragEnd={() => {}}
         isUnitChainTargeted={() => false}
       />,
     );
