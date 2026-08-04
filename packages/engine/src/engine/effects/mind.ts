@@ -4,10 +4,9 @@ import type {
   DeathknellEffect,
   DeathWatchEffect,
   EventTriggerDefinition,
-  GameEvent,
-  Listener,
   SelfTriggerDefinition,
 } from "../triggers.js";
+import { isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
@@ -74,31 +73,6 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
   return location.zone === "base"
     ? { isCombat: false }
     : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
-}
-
-/**
- * "When I defend" — the other side of Yasuo - Remorseful's test, and the reason
- * neither card needs an event of its own.
- *
- * A Defend trigger fires when the unit gains the **Defender** designation, which
- * rule 465's Combat Step 1 puts at the opening of the Combat Showdown ("Units at
- * the Contested Battlefield controlled by the Attacker or Defender gain the
- * Attacker or Defender designation now"), i.e. at `combatBegan`. Which side
- * attacked is `bf.contestedByIndex` — 465's own definition of the Attacker,
- * still set here because `clearContested` runs only when the Showdown closes —
- * so everyone else standing at that battlefield is defending.
- *
- * Shared by Teemo's `applies` and his `resolve` so the two cannot drift. Both
- * need it: the inline dispatch path never consults `applies`, and once
- * `combatBegan` becomes a Chain Pending Item the two are separated by a response
- * window in which Teemo can be moved off the battlefield he was defending.
- */
-function isDefendingAt(state: GameState, listener: Listener, event: GameEvent): boolean {
-  if (event.kind !== "combatBegan") return false;
-  if (listener.card.kind !== "Unit") return false;
-  if (listener.battlefieldId !== event.battlefieldId) return false;
-  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
-  return bf !== undefined && bf.contestedByIndex !== null && bf.contestedByIndex !== listener.ownerIndex;
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
@@ -565,20 +539,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // all-or-nothing cost rule, the same distinction Dr. Mundo - Expert draws
     // below.
     on: "combatBegan",
-    // **Currently unread.** `combatBegan` is still dispatched inline by
-    // cleanup.ts and only `holdEventTrigger` consults `applies`. Written anyway
-    // because `combatBegan` is next in the Chain conversion queue and this is
-    // exactly the predicate it will need — "when I defend" is a fact about the
-    // board at the moment of the event, and holding the trigger for a Teemo who
-    // is ATTACKING would open a response window for an ability that resolves to
-    // nothing.
+    // "When I defend" is a fact about the board at the moment of the event, so it
+    // is asked here: holding the trigger for a Teemo who is ATTACKING would open
+    // a response window for an ability that resolves to nothing. The predicate is
+    // combat-designation.ts's, shared with Yasuo's mirror-image "when I attack"
+    // so the two sides cannot come to different answers about the same combat.
     applies: isDefendingAt,
     resolve: (state, listener, event) => {
       // Narrowing the union is not ceremony: the dispatcher filters by `on`, but
-      // the compiler cannot see it, and `isDefendingAt` cannot hand back the
-      // narrowed event.
+      // the compiler cannot see it, and `applies` cannot hand back the narrowed
+      // event.
+      //
+      // `isDefendingAt` is deliberately NOT re-asked here. It was, while this
+      // resolved inline and the two were the same instant; now they are separated
+      // by a response window, and re-asking would let the opponent cancel a
+      // trigger that has already fired by moving Teemo off the battlefield he was
+      // defending. 383 fixes triggering at the moment of the event.
       if (event.kind !== "combatBegan") return state;
-      if (!isDefendingAt(state, listener, event)) return state;
 
       const owner = state.players[listener.ownerIndex];
       // "Reveal the top 5" — revealing moves nothing (425: "Cards remain in the
@@ -635,18 +612,21 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Ahri - Inquisitive — "When I attack or defend, give an enemy unit here
     // -2 Might this turn, to a minimum of 1 Might."
     //
-    // "Attacks OR DEFENDS" is why this listens to `combatBegan` rather than
-    // riding the on-attack table: that one fires only for the unit that moved
-    // in. The same distinction Mask of Foresight already draws — which side
-    // started the fight is deliberately not consulted.
+    // "Attacks OR DEFENDS" — which side started the fight is deliberately not
+    // consulted, which is the whole of `isFightingAt`. The same indifference Mask
+    // of Foresight shows, and the opposite of Yasuo and Teemo, who each name one
+    // side. All four now ask combat-designation.ts rather than re-deriving it.
     //
-    // She must be AT the battlefield in question, and the target is auto-selected
-    // from the enemies there (same precedent as the other combat triggers, filed
-    // Unverified). The floor is her own printed clause.
+    // Being AT the battlefield is a fire-time condition and lives in `applies`:
+    // she triggered because she was in the combat, and an opponent moving her out
+    // during the response window does not un-trigger it (383). The TARGET is a
+    // resolution-time board read and stays below — auto-selected from the enemies
+    // there, same precedent as the other combat triggers, filed Unverified. The
+    // floor is her own printed clause.
     on: "combatBegan",
+    applies: isFightingAt,
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
-      if (listener.battlefieldId !== event.battlefieldId) return state;
       const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
       const ownerId = state.players[listener.ownerIndex].id;
       const enemy = Object.entries(bf?.units ?? {})

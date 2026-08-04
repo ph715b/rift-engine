@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
-import { dispatchOnAttack, dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
+import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
@@ -14,13 +14,13 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
 
 /**
  * The eleven cards that read "stun", and the two events they needed.
  *
  * Everything here goes through the COMPOSED registries — `effectForCard`,
- * `dispatchOnPlayUnit`, `dispatchOnAttack`, `stunUnits` — never a resolver
+ * `dispatchOnPlayUnit`, `beginCombatAt`, `stunUnits` — never a resolver
  * closure directly. A card registered in a per-domain file has silently failed
  * to fire in this codebase before, and calling its closure would have passed.
  */
@@ -332,38 +332,47 @@ describe("Solari Chief (OGN-225): stun an enemy unit, or kill it if already stun
 });
 
 describe("Leona - Determined (OGN-238): when I attack, stun an enemy unit here", () => {
-  it("stuns an enemy at her battlefield through the on-attack dispatch", () => {
+  it("stuns an enemy at the battlefield she is attacking", () => {
     const leona = realUnitInstance(LEONA_DETERMINED);
     const enemy = makeUnit({ name: "Enemy" });
     const state = makeState();
     state.battlefields[0]!.units = { p1: [leona], p2: [enemy] };
 
-    const after = dispatchOnAttack(state, leona, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(firstAt(after, "p2").stunned).toBe(true);
   });
 
   it("does not reach a unit at ANOTHER battlefield — 'here' is her own", () => {
+    // The enemy at bf1 is what makes this a real test rather than a vacuous one:
+    // without a defender there, bf1 is a Non-Combat Showdown, Leona never gains
+    // the Attacker designation, and the unit at bf2 would be unstunned because
+    // nothing fired at all.
     const leona = realUnitInstance(LEONA_DETERMINED);
     const elsewhere = makeUnit({ name: "Elsewhere" });
     const state = makeState();
-    state.battlefields[0]!.units = { p1: [leona] };
+    state.battlefields[0]!.units = { p1: [leona], p2: [makeUnit({ name: "Here" })] };
     state.battlefields[1]!.units = { p2: [elsewhere] };
 
-    const after = dispatchOnAttack(state, leona, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
+    expect(firstAt(after, "p2").stunned, "the enemy she IS attacking went unstunned").toBe(true);
     expect(firstAt(after, "p2", 1).stunned).toBe(false);
   });
 
   it("makes the stunned defender deal no combat damage", () => {
     // The point of the card, asserted end to end rather than on the flag: a
     // 5-Might defender stunned on the way in kills nothing.
+    //
+    // Starts Neutral now rather than mid-Showdown: her stun happens as the combat
+    // OPENS, so a state that already had the Showdown running was past the moment.
     const leona = realUnitInstance(LEONA_DETERMINED);
     const defender = makeUnit({ name: "Defender", might: 5 });
-    const state = makeState({ turnState: "Showdown", showdownBattlefieldId: "bf1", showdownKind: "Combat" });
+    const state = makeState();
     state.battlefields[0]!.units = { p1: [leona], p2: [defender] };
 
-    const attacked = dispatchOnAttack(state, leona, 0, "bf1");
+    const attacked = beginCombatAt(state, "bf1", 0);
+    expect(attacked.showdownKind, "the combat never opened").toBe("Combat");
     const after = resolveShowdown(attacked, "bf1", 0);
 
     // Leona survives (4 Might, took 0) and is recalled to base by cleanup 3d.
@@ -384,7 +393,7 @@ describe("Twisted Fate - Gambler (OGN-200): reveal the top rune, then act on its
 
   it("recycles the revealed rune to the BOTTOM of the rune deck (416)", () => {
     const { state, tf } = tfState("Mind");
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(after.players[0]!.runeDeck.map((r) => r.id)).toEqual(["r2", "r1"]);
   });
@@ -393,21 +402,21 @@ describe("Twisted Fate - Gambler (OGN-200): reveal the top rune, then act on its
     const { state, tf } = tfState("Mind");
     state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
 
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(after.players[0]!.hand.map((c) => c.name)).toEqual(["Drawn"]);
   });
 
   it("Fury: 2 to the first enemy here and 1 to each other", () => {
     const { state, tf } = tfState("Fury");
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(unitsAt(after, "p2").map((u) => u.damage)).toEqual([2, 1]);
   });
 
   it("Order: stuns an enemy", () => {
     const { state, tf } = tfState("Order");
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(unitsAt(after, "p2").some((u) => u.stunned)).toBe(true);
   });
@@ -416,19 +425,28 @@ describe("Twisted Fate - Gambler (OGN-200): reveal the top rune, then act on its
     const { state, tf } = tfState("Calm");
     state.players[0]!.deck = [makeUnit({ name: "Not drawn" })];
 
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(after.players[0]!.hand).toHaveLength(0);
     expect(unitsAt(after, "p2").every((u) => u.damage === 0 && !u.stunned)).toBe(true);
   });
 
   it("does nothing at all on an empty rune deck — the reveal is the whole trigger", () => {
-    const { state, tf } = tfState("Fury");
+    // Was `expect(after).toBe(state)`. An identity assertion cannot survive a
+    // Cleanup — staging a Showdown always returns a fresh object — and it was
+    // only ever standing in for "the board did not move", so it says that
+    // directly now. He still TRIGGERS with an empty rune deck (383 asks nothing
+    // about the deck); he resolves to nothing, which is a different fact and one
+    // this pool can finally tell apart.
+    const { state } = tfState("Fury");
     state.players[0]!.runeDeck = [];
+    state.players[0]!.deck = [makeUnit({ name: "Not drawn" })];
 
-    const after = dispatchOnAttack(state, tf, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
-    expect(after).toBe(state);
+    expect(after.players[0]!.runeDeck).toHaveLength(0);
+    expect(after.players[0]!.hand).toHaveLength(0);
+    expect(unitsAt(after, "p2").every((u) => u.damage === 0 && !u.stunned)).toBe(true);
   });
 });
 

@@ -13,7 +13,7 @@
  *     can ever resolve, the same invariant `unitsAwaitingDeathReplacement` needed
  *     and did not have.
  *
- * **Two scenarios, and the second is not a duplicate of the first.**
+ * **Three scenarios, and none is a duplicate of another.**
  *
  *  1. `buff` — a purpose-built Sett buff deck. `unitBuffed` was the first converted
  *     event and this deck places ~2700 buffs per 300 games, so the sample is real
@@ -27,6 +27,19 @@
  *     and each costs both players a PassFocus. Nothing in scenario 1 exercises
  *     that shape, and a gate that cannot see it would stay green if an Awaken-fired
  *     trigger were stranded every single turn.
+ *  3. `combat` — a Calm+Body deck built to hold **Attack Triggers** and both sides
+ *     of `combatBegan`. It exists because the conversion of that event had NO
+ *     reachable coverage here at all, and the measurement is what said so: of the
+ *     twelve cards it touches, exactly three are in any preset deck and NONE is in
+ *     the decks scenarios 1-2 or `walkout` pin. Every headless gate stayed green
+ *     across the change because the new path never ran once — which is precisely
+ *     the "green gates prove nothing about a new feature" shape, arrived at the
+ *     honest way rather than caught later.
+ *
+ *     A domain PAIR is a hard ceiling on what one deck can reach, so this is six of
+ *     the twelve rather than all of them: the four Body attack triggers, plus Mask
+ *     of Foresight and Yasuo - Remorseful from Calm. Fury, Chaos, Mind and Order
+ *     hold the rest, and no single legal deck can see them together.
  *
  * Everything is counted from the STATE STREAM, never from inside the engine. A
  * probe that wraps a trigger's `resolve` also counts the heuristic AI's LOOKAHEAD,
@@ -41,6 +54,24 @@ import { legacyBattlefields, report, startedGame } from "./harness.ts";
 const SETT_LEGEND = "OGN-269";
 const MISTFALL = "OGN-152";
 const PIRATES_HAVEN = "OGN-143";
+
+/** Lee Sin, Calm + Body — the one preset legend whose domain pair covers both an
+ *  Attack Trigger family and a `combatBegan` listener on each side. */
+const LEE_SIN_LEGEND = "OGN-257";
+/** The six cards the `combat` scenario forces in, and what each one controls for.
+ *  Four Attack Triggers (383.4.f, registered as `combatBegan` listeners through
+ *  unit-triggers.ts's adapter), plus the two Calm cards that listen to the same
+ *  event without being Attack Triggers at all — Mask of Foresight is a GEAR, so
+ *  it is also the one listener here that the designation predicates deliberately
+ *  do not treat as a combatant. */
+const COMBAT_FORCED = [
+  "OGN-130", // Crackshot Corsair — when I attack, deal 1 to an enemy unit here
+  "OGN-131", // Dune Drake — when I attack, +2 Might if a ready enemy is here
+  "OGN-148", // Anivia - Primal — when I attack, deal 3 to all enemy units here
+  "OGN-159", // Warwick - Hunter — when I attack, kill all damaged enemy units here
+  "OGN-060", // Mask of Foresight — when a friendly unit attacks or defends ALONE
+  "OGN-076", // Yasuo - Remorseful — when I attack, deal my Might to an enemy here
+] as const;
 const GAMES = Number(process.env.GAMES ?? 100);
 const STEP_CAP = 400;
 
@@ -212,6 +243,10 @@ const awakenList = buildBuffDeck(SETT_LEGEND, [PIRATES_HAVEN]);
 console.log(`deck: ${awakenList.name} + Pirate's Haven x${awakenList.cardIds.filter((id) => id === PIRATES_HAVEN).length}`);
 const awaken = playOut("awaken", awakenList, 31000);
 
+const combatList = buildBuffDeck(LEE_SIN_LEGEND, COMBAT_FORCED);
+console.log(`deck: ${combatList.name} + combat listeners: ${COMBAT_FORCED.map((id) => registry.get(id).name).join(", ")}`);
+const combat = playOut("combat", combatList, 51000);
+
 // The Awaken control's own claim, separate from the shared invariants: Pirate's
 // Haven's per-unit readying really does reach the chain. Named explicitly rather
 // than folded into `triggerOnChainStates`, because that counter is already
@@ -220,6 +255,32 @@ const awaken = playOut("awaken", awakenList, 31000);
 // shape this file exists to avoid.
 const havenName = registry.get(PIRATES_HAVEN).name;
 const awakenTriggers = awaken.byListener[havenName] ?? 0;
+
+/**
+ * The `combat` scenario's own claim: an Attack Trigger really reached the chain in
+ * self-play, per card.
+ *
+ * Reported per card rather than as a total, and asserted as "at least one of the
+ * forced six", because reachability is per card and a total hides which ones the
+ * AI never got into play. A card at 0 is a REACHABILITY fact worth reading, not a
+ * failure — the AI has to draw it, pay for it and walk it into a fight — but all
+ * six at 0 means the event never fired and every other number in this scenario is
+ * vacuous, which is exactly what was true before this scenario existed.
+ */
+const combatListeners = Object.fromEntries(COMBAT_FORCED.map((id) => [registry.get(id).name, combat.byListener[registry.get(id).name] ?? 0]));
+const countFor = (ids: readonly string[]) => ids.reduce((total, id) => total + (combat.byListener[registry.get(id).name] ?? 0), 0);
+/**
+ * Split in two, because one total cannot fail for the right reason.
+ *
+ * Mask of Foresight and Yasuo were `combatBegan` listeners before this conversion
+ * and would keep firing if the whole ATTACK_TRIGGERS adapter were deleted — so a
+ * combined count stays comfortably non-zero while the thing actually being
+ * controlled for has vanished. Proved by mutation: emptying the adapter's entries
+ * leaves `combatBeganTriggers` at 186 and takes `attackTriggers` to 0, and only
+ * the second of those fails the gate.
+ */
+const attackTriggers = countFor(["OGN-130", "OGN-131", "OGN-148", "OGN-159"]);
+const combatBeganTriggers = countFor(["OGN-060", "OGN-076"]);
 
 const clean = (c: Counters) => c.invalid === 0 && c.strandedPen === 0 && c.declaredGameOver === c.games;
 
@@ -234,9 +295,14 @@ report(
       ...awaken,
       positiveControls: { awakenTriggers, maxPerListenerOnChain: awaken.maxPerListenerOnChain },
     },
+    combat: {
+      ...combat,
+      positiveControls: { attackTriggers, combatBeganTriggers, combatListeners },
+    },
   },
   clean(buff) &&
     clean(awaken) &&
+    clean(combat) &&
     buff.heldStates > 0 &&
     buff.triggerOnChainStates > 0 &&
     // The Awaken really fired, and really fired in BATCHES — one Pending Item per
@@ -244,5 +310,9 @@ report(
     // from a single listener would mean the batching had silently collapsed into
     // one event per turn.
     awakenTriggers > 0 &&
-    awaken.maxPerListenerOnChain > 1,
+    awaken.maxPerListenerOnChain > 1 &&
+    // A combat really happened AND an Attack Trigger really became a Pending Item
+    // in it. Without these the whole `combatBegan` conversion is unmeasured here.
+    attackTriggers > 0 &&
+    combatBeganTriggers > 0,
 );

@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { resolveCardEffect } from "../src/engine/card-effect-resolution.js";
-import { dispatchOnAttack } from "../src/engine/unit-triggers.js";
 import { answerDecision, optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance } from "../src/model/card.js";
 import type { GameState, SpellChainEntry } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { answerDecisions, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { answerDecisions, beginCombatAt, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
 import type { DecisionOption } from "../src/engine/decisions.js";
 
 /**
@@ -196,8 +195,9 @@ describe("Ava Achiever (OGN-107): a [Hidden] card out of hand when she attacks",
     return state;
   }
 
-  const attack = (state: GameState) =>
-    dispatchOnAttack(state, state.battlefields[0]!.units["p1"]![0]!, 0, "bf1");
+  // Ava attacks when the Combat Showdown opens (383.4.f); `beginCombatAt` stops
+  // at the question her trigger parks, which is where each test below picks up.
+  const attack = (state: GameState) => beginCombatAt(state, "bf1", 0);
 
   it("offers only the [Hidden] card, never the rest of the hand", () => {
     const asked = attack(avaState());

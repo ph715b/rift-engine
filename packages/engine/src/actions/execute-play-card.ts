@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
-import { dispatchOnAttack, dispatchOnPlayUnit } from "../engine/unit-triggers.js";
+import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { dispatchSelfEvent, holdEventTrigger } from "../engine/triggers.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
@@ -371,18 +371,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         : {}),
     });
 
-    const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
-    const opponent = next.players[opponentIndex];
-    const bfAfterTrigger = next.battlefields[bfIndex]!;
-    const opponentPresent = (bfAfterTrigger.units[opponent.id]?.length ?? 0) > 0;
-
-    if (opponentPresent) {
-      // A Unit played directly onto an opponent-held battlefield is "attacking,"
-      // same as MoveUnit's contested case (execute-move-unit.ts) — same
-      // shared dispatchOnAttack, same before-the-Showdown-opens ordering.
-      next = dispatchOnAttack(next, deployedUnit, action.playerIndex, action.destinationBattlefieldId);
-    }
-
+    // **No attack dispatch here**, same as MoveUnit's contested case and for the
+    // same reason: a Unit played onto an opponent-held battlefield gains the
+    // Attacker designation when the Combat Showdown opens (383.4.f / 465), not
+    // when it lands. cleanup.beginCombatAt fires it a Cleanup later, and finds
+    // this unit by walking the battlefield rather than being handed it.
+    //
     // Contested now, Showdown staged by the following Cleanup — identical
     // treatment to a Move (rule 190.4's "Moves or otherwise becomes present"),
     // which is the point of routing both through applyContested.

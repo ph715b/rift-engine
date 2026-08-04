@@ -6,7 +6,7 @@ import { isHiddenCard } from "../src/engine/hidden.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Teemo - Strategist (OGN-121) — "[Hidden] When I defend, choose an enemy unit
@@ -76,8 +76,16 @@ function defendingBoard(deckDefIds: string[], attackerMight = 9) {
   return { state, teemo, attacker };
 }
 
-/** The real path: MoveUnit -> applyContested -> the Cleanup `submit` runs stages
- *  a Combat Showdown -> combatBegan -> Teemo's trigger. */
+/**
+ * The real path: MoveUnit -> applyContested -> the Cleanup `submit` runs stages a
+ * Combat Showdown -> combatBegan -> Teemo's trigger, HELD -> the chain resolves it.
+ *
+ * The settle at the end is not a formality. `combatBegan` is a Chain Pending Item
+ * now (383), so the move leaves Teemo's ability waiting and respondable, and every
+ * assertion below is about what it does once it resolves. The Showdown check stays
+ * where it is, BEFORE the settle, because it is about the move: a test whose fight
+ * never started would otherwise pass its negative controls for the wrong reason.
+ */
 function walkIn(state: GameState, playerIndex: 0 | 1, destination = "bf1"): GameState {
   const after = accept(
     state,
@@ -89,7 +97,7 @@ function walkIn(state: GameState, playerIndex: 0 | 1, destination = "bf1"): Game
   );
   expect(after.turnState, "no Showdown was staged").toBe("Showdown");
   expect(after.showdownKind, "the Showdown was not a Combat").toBe("Combat");
-  return after;
+  return resolveHeldTriggers(after);
 }
 
 describe("the fixture's own premises", () => {

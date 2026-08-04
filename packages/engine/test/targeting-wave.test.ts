@@ -2,14 +2,13 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { dispatchOnAttack } from "../src/engine/unit-triggers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { beginCombatAt, makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
 
 const registry = defaultCardRegistry();
 const VOLIBEAR_FURIOUS = "OGN-041"; // "When I attack, deal 5 damage split among any number of enemy units here."
@@ -51,8 +50,10 @@ describe("Volibear - Furious (OGN-041): 5 damage split among enemies here", () =
     return state;
   }
 
-  const attack = (state: GameState) =>
-    dispatchOnAttack(state, at(state, "bf1", "p1")[0]!, 0, "bf1");
+  // Volibear attacks when the Combat Showdown opens (383.4.f), so the way to make
+  // him attack is to contest the battlefield for his controller and let the
+  // Cleanup stage it — there is no on-attack dispatcher to call any more.
+  const attack = (state: GameState) => beginCombatAt(state, "bf1", 0);
 
   it("kills as many as the 5 covers, lethal-first in board order", () => {
     // The auto-split is lethal-first, the same model combat's own damage

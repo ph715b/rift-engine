@@ -9,7 +9,7 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { makePlayer, makeState, makeUnit, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * Charm and Mask of Foresight — the last two inert cards in the presets.
@@ -141,15 +141,20 @@ describe("Mask of Foresight (OGN-060): when a friendly unit attacks or defends a
   const mightOf = (state: GameState, name: string) =>
     state.battlefields[0]!.units["p1"]!.find((u) => u.name === name)!.mightThisTurn;
 
+  // `combatBegan` is a Chain Pending Item now, so the Cleanup that stages the
+  // combat only PLACES the gear's ability — these settle the chain before asking
+  // what it did. `test/attack-trigger-moment.test.ts` pins the wait itself, and
+  // the fact that the buff goes to the unit that was alone rather than to
+  // whoever stands first when it resolves.
   it("gives +1 this turn to a unit standing alone when combat begins", () => {
-    const after = runCleanup(maskState(1));
+    const after = resolveHeldTriggers(maskState(1));
 
     expect(after.showdownKind).toBe("Combat");
     expect(mightOf(after, "Mine0")).toBe(1);
   });
 
   it("gives nothing when two units are there — nobody is alone", () => {
-    const after = runCleanup(maskState(2));
+    const after = resolveHeldTriggers(maskState(2));
 
     expect(after.showdownKind).toBe("Combat");
     expect(mightOf(after, "Mine0")).toBe(0);
@@ -161,7 +166,7 @@ describe("Mask of Foresight (OGN-060): when a friendly unit attacks or defends a
     // is "WHILE I'm attacking or defending alone" and is re-derived continuously;
     // this is granted once and stays. A reinforcement arriving later must not
     // silently take it back.
-    const after = runCleanup(maskState(1));
+    const after = resolveHeldTriggers(maskState(1));
     const reinforced = {
       ...after,
       battlefields: after.battlefields.map((bf, i) =>
@@ -178,14 +183,14 @@ describe("Mask of Foresight (OGN-060): when a friendly unit attacks or defends a
     state.battlefields[0]!.units = { p1: [makeUnit({ name: "Mine0", might: 3 })] }; // no opponent
     state.battlefields[0]!.contestedByIndex = 0;
 
-    const after = runCleanup(state);
+    const after = resolveHeldTriggers(state);
 
     expect(after.showdownKind).toBe("NonCombat");
     expect(mightOf(after, "Mine0")).toBe(0);
   });
 
   it("does nothing for the opponent's lone unit", () => {
-    const after = runCleanup(maskState(1));
+    const after = resolveHeldTriggers(maskState(1));
     expect(after.battlefields[0]!.units["p2"]![0]!.mightThisTurn).toBe(0);
   });
 });

@@ -1,6 +1,8 @@
 import type { BattlefieldState, GameState } from "../model/game-state.js";
 import { removeUnheldHiddenCards } from "./hidden.js";
-import { dispatchEvent } from "./triggers.js";
+import { holdEventTrigger } from "./triggers.js";
+import { attackerIndexAt, attackingUnitsAt } from "./combat-designation.js";
+import { dispatchLegendOnEnemyAttack } from "./legend-abilities.js";
 
 /**
  * The Cleanup, run after every resolved action.
@@ -171,7 +173,7 @@ function stageShowdowns(state: GameState): GameState {
   if (state.turnState === "Showdown" && state.showdownKind === "NonCombat") {
     const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
     if (bf && unitsOfBothPlayers(state, bf)) {
-      return dispatchEvent({ ...state, showdownKind: "Combat" }, { kind: "combatBegan", battlefieldId: bf.id });
+      return beginCombatAt({ ...state, showdownKind: "Combat" }, bf.id);
     }
     return state;
   }
@@ -195,8 +197,43 @@ function stageShowdowns(state: GameState): GameState {
   };
   // Only a COMBAT Showdown has attackers and defenders — a Non-Combat one is a
   // window with nobody to fight, so "attacks or defends alone" is not true of
-  // anyone in it. It fires later if 317.2 promotes it.
-  return isCombat ? dispatchEvent(staged, { kind: "combatBegan", battlefieldId: contested.id }) : staged;
+  // anyone in it, and nobody gains the Attacker designation an Attack Trigger
+  // waits on. It fires later if 317.2 promotes it.
+  return isCombat ? beginCombatAt(staged, contested.id) : staged;
+}
+
+/**
+ * Combat Step 1 (465): the units at `battlefieldId` gain their Attacker and
+ * Defender designations, and everything that watches for that moment fires.
+ *
+ * Two mechanisms, because the engine has two kinds of listener and only one of
+ * them is on the board:
+ *
+ *  - **`combatBegan` is HELD** (383 / 809.1.b.3), so every permanent's "when I
+ *    attack", "when I defend" and "when a friendly unit attacks alone" becomes a
+ *    Chain Pending Item and is respondable. `runCleanup` finalizes the pen
+ *    immediately after `stageShowdowns` for exactly this reason.
+ *  - **The Legend hook stays INLINE**, like `[Vision]` and the legend hook in the
+ *    on-play conversion: `allListeningPermanents` never walks `players[i].legend`,
+ *    so a legend ability cannot be held without carrying the whole registry into
+ *    `resolvePendingTrigger`. Fired FIRST, before the pen is flushed, so its
+ *    debuff is in place when the held triggers resolve on top of it.
+ *
+ * Ahri - Enchantress is the one legend here and hers is a per-ATTACKING-UNIT
+ * ability ("when an enemy unit attacks the battlefield I control, give it -1
+ * Might"), so it fires once per unit that gained the Attacker designation — which
+ * is every unit of `contestedByIndex` standing there, not merely the one that
+ * moved in. That widening is the same one 465 makes for the card triggers, and it
+ * is the reason this reads the board rather than taking a unit from the caller.
+ */
+function beginCombatAt(state: GameState, battlefieldId: string): GameState {
+  const attackerIndex = attackerIndexAt(state, battlefieldId);
+  if (attackerIndex === null) return state; // not contested — no designations to hand out
+  const withLegends = attackingUnitsAt(state, battlefieldId).reduce(
+    (next, unit) => dispatchLegendOnEnemyAttack(next, { unitInstanceId: unit.instanceId, attackerIndex, battlefieldId }),
+    state,
+  );
+  return holdEventTrigger(withLegends, { kind: "combatBegan", battlefieldId });
 }
 
 /**

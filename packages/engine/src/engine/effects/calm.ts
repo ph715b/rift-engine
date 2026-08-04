@@ -1,6 +1,14 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchEffect, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type {
+  DeathknellEffect,
+  DeathWatchEffect,
+  EventTriggerDefinition,
+  GameEvent,
+  Listener,
+  SelfTriggerDefinition,
+} from "../triggers.js";
+import { isAttackingAt } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
@@ -481,6 +489,23 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchEffect> = {};
 
+/**
+ * The friendly unit that is "attacking or defending ALONE" at this combat, or
+ * `undefined` if the listener's controller has anything other than exactly one
+ * unit there — Mask of Foresight's whole trigger condition, and the unit its
+ * "give IT +1 Might" refers to.
+ *
+ * One function serving as both the `applies` predicate and the `capture`, so the
+ * ability cannot trigger for one unit and then buff another. Splitting them into
+ * a count check and a separate lookup is exactly the drift this shape prevents.
+ */
+function aloneAt(state: GameState, listener: Listener, event: GameEvent): string | undefined {
+  if (event.kind !== "combatBegan") return undefined;
+  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+  const mine = bf?.units[state.players[listener.ownerIndex].id] ?? [];
+  return mine.length === 1 ? mine[0]!.instanceId : undefined;
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "OGN-066": {
     // Ahri - Alluring — "When I hold, you score 1 point."
@@ -566,7 +591,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
   },
   "OGN-060": {
     // Mask of Foresight — "When a friendly unit attacks or defends alone, give it
-    // +1 Might this turn."
+    // +1 Might this turn." See `aloneAt` above for the unit it means.
     //
     // An EVENT, not a continuous modifier, and the difference is the whole card:
     // "+1 this turn" is granted once and keeps its value for the rest of the turn
@@ -578,13 +603,26 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // "Attacks OR defends" — either side, so this asks only whether the
     // controller's own presence at that battlefield is exactly one unit. Which
     // side started it does not matter and is deliberately not consulted.
+    //
+    // The one card in the pool that needs `capture`, and it needs it for a reason
+    // that only appears once the trigger is held. "ALONE" is a fire-time
+    // condition (383), so it belongs in `applies` — but the ability is then about
+    // THAT unit, and by the time it resolves the response window may have brought
+    // a second unit in or killed the one it fired for. Re-deriving "my only unit
+    // here" at resolution buffs a reinforcement the card never triggered for; the
+    // instance id is noted instead, which is 809.1.b.3's "note its attributes"
+    // applied to the one attribute this ability is about.
+    //
+    // A Gear listener, so it has no `battlefieldId` of its own — hence reading
+    // the event's, not the listener's.
     on: "combatBegan",
-    resolve: (state, listener, event) => {
-      if (event.kind !== "combatBegan") return state;
-      const ownerId = state.players[listener.ownerIndex].id;
-      const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
-      const mine = bf?.units[ownerId] ?? [];
-      return mine.length === 1 ? giveMightThisTurn(state, mine[0]!.instanceId, 1) : state;
+    applies: (state, listener, event) => aloneAt(state, listener, event) !== undefined,
+    capture: aloneAt,
+    resolve: (state, listener, event, captured) => {
+      if (event.kind !== "combatBegan" || typeof captured !== "string") return state;
+      // No presence re-check: it left play, or it did not, and `giveMightThisTurn`
+      // already answers for a unit it cannot find (422's do as much as you can).
+      return giveMightThisTurn(state, captured, 1);
     },
   },
   "OGN-059": {
@@ -676,27 +714,25 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Attacker or Defender designation now." So the moment is the COMBAT
     // SHOWDOWN OPENING, not the move that contested the battlefield.
     //
-    // That is why this is a `combatBegan` listener and not an entry in
-    // unit-triggers.ts's ON_ATTACK_TRIGGERS table, where the pool's four other
-    // "when I attack" cards live. Those fire inside the move/play executor, one
-    // per unit that just landed — earlier than the rules' moment, and blind to a
-    // unit that was already standing there when a friend walked in and started
-    // the fight. 465 gives that unit the Attacker designation too, so Yasuo
-    // holding a battlefield that his own reinforcement contests really does
-    // attack. Reading it off `combatBegan` gets both cases; the older table gets
-    // neither right. (Not a claim that those four are wrong enough to move —
-    // that is a separate change to a file this pass does not own.)
-    //
-    // Which side is attacking is `contestedByIndex`, which IS 465's definition of
-    // the Attacker verbatim and is still set here: `clearContested` runs only
-    // when the Showdown closes.
+    // He was the first card written this way, and the rest of the "when I attack"
+    // family has now joined him: unit-triggers.ts's ATTACK_TRIGGERS register
+    // against this same event through one shared adapter, so all eight of them
+    // and Yasuo answer "am I attacking?" with the same `isAttackingAt`. They used
+    // to be dispatched inside the move/play executor, one per unit that just
+    // landed — earlier than the rules' moment, and blind to a unit that was
+    // already standing there when a friend walked in and started the fight. 465
+    // gives that unit the Attacker designation too, so Yasuo holding a
+    // battlefield that his own reinforcement contests really does attack.
     on: "combatBegan",
+    // The designation is fixed when the combat opens (383), so it is asked here
+    // and NOT re-asked below — moving him away during the response window must
+    // not cancel an ability that has already triggered.
+    applies: isAttackingAt,
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
       if (listener.card.kind !== "Unit") return state;
-      if (listener.battlefieldId !== event.battlefieldId) return state;
       const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
-      if (!bf || bf.contestedByIndex !== listener.ownerIndex) return state; // he is DEFENDING
+      if (!bf) return state;
       // "An enemy unit HERE" — the first one at this battlefield, in board order.
       // Auto-selected rather than asked, the same simplification (and the same
       // structural reason: no action to hang the choice on) that Crackshot

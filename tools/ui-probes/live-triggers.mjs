@@ -119,14 +119,24 @@ const SPECTATE = process.env.SPECTATE === '1';
  * so the Calm cards were unreachable by any run of this probe — and unreachable
  * looks exactly like broken from here, since both report the trigger as never
  * observed. Two decks is what makes "not seen" mean something.
+ *
+ * **`DECK=combat` is the third**, added when `combatBegan` was converted
+ * (2026-08-03) for the same reason the second one exists: the buff and calm lists
+ * between them contain not one Attack Trigger, so the change was invisible here
+ * and this probe would have reported its usual green over a feature that never
+ * ran. Same legend as `calm`, different priority list — Yasuo (attacks), Teemo
+ * (defends), Ahri - Inquisitive (either), Mask of Foresight (a gear watching) and
+ * Ava Achiever (the one that parks a question), which is every shape the event has
+ * inside one legal domain pair.
  */
 const DECK = process.env.DECK ?? "buff";
-const DECK_FILE = DECK === "calm" ? ".calmdeck.txt" : ".buffdeck.txt";
+const DECK_FILES = { buff: ".buffdeck.txt", calm: ".calmdeck.txt", combat: ".combatdeck.txt" };
+const DECK_FILE = DECK_FILES[DECK] ?? DECK_FILES.buff;
 const DECK_TEXT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), DECK_FILE), "utf8");
 // Matches the LEGEND's name, which is what the imported deck is called in the
 // lobby list. Both legends' names begin with the character, so a first-word
 // match is enough and stays right if a legend's subtitle ever changes.
-const DECK_NAME = DECK === "calm" ? /Ahri/i : /Sett/i;
+const DECK_NAME = DECK === "buff" ? /Sett/i : /Ahri/i;
 
 const consoleErrors = [];
 const pageErrors = [];

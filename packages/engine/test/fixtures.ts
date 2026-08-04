@@ -167,6 +167,33 @@ export function resolveHeldTriggers(state: GameState): GameState {
 }
 
 /**
+ * Opens a Combat Showdown at `battlefieldId` with `attackerIndex` as the
+ * Attacker, and settles the triggers it fires — what an Attack Trigger test
+ * drives, now that there is no `dispatchOnAttack` to call.
+ *
+ * Contesting the battlefield is the whole setup: rule 465 makes the Attacker
+ * "the player whose Unit(s) applied the Contested status", the Cleanup stages the
+ * Showdown from that (323 step 6), and staging it is what hands out the Attacker
+ * and Defender designations an Attack Trigger waits on (383.4.f).
+ *
+ * **Deliberately not a shortcut past `applies`.** A test that hand-built a
+ * `combatBegan` event and pushed it through `dispatchEvent` would bypass every
+ * designation check and assert nothing at all — the trap the `unitBuffed`
+ * conversion already sprang once. This goes through the real Cleanup, so a card
+ * that fires for the wrong side fails here.
+ *
+ * Requires both players present at the battlefield for a COMBAT rather than a
+ * Non-Combat Showdown; with nobody to fight, no designations are handed out and
+ * nothing fires, which is itself the correct answer.
+ */
+export function beginCombatAt(state: GameState, battlefieldId: string, attackerIndex: 0 | 1 = 0): GameState {
+  return resolveHeldTriggers({
+    ...state,
+    battlefields: state.battlefields.map((bf) => (bf.id === battlefieldId ? { ...bf, contestedByIndex: attackerIndex } : bf)),
+  });
+}
+
+/**
  * Answers every pending question, standing in for a player at the board.
  *
  * `pick` chooses among the options on offer; omitted, it takes the first, which

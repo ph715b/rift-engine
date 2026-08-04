@@ -113,6 +113,26 @@ export interface TriggerChainEntry {
    *  to keep model/ free of an import from engine/; triggers.ts narrows it. */
   event: unknown;
   /**
+   * Whatever the ability had to note about the BOARD when it triggered, as
+   * opposed to about the event — the trigger's own half of 809.1.b.3's "note its
+   * attributes before the card is moved".
+   *
+   * The event says what happened; it cannot say which of several units the
+   * ability picked out. Mask of Foresight is the case that needs it: "when a
+   * friendly unit attacks or defends ALONE" is a fire-time condition, so the unit
+   * that was alone is decided then, and re-deriving "my only unit here" after the
+   * response window would buff a reinforcement that arrived during it — or, worse,
+   * whoever happens to stand first once the unit that triggered it has died.
+   *
+   * Produced by `EventTriggerDefinition.capture` and handed back to `resolve`.
+   * Absent for every trigger that needs nothing beyond the event and its own
+   * listener, which is all of them but one — the point is that an ability which
+   * DOES need it can no longer be written by pretending the board has not moved.
+   * Typed loosely for the same reason `event` is: model/ imports nothing from
+   * engine/.
+   */
+  captured?: unknown;
+  /**
    * WHICH registry resolves this entry — and therefore how to read `event`.
    *
    * Absent (or `"event"`) is the original shape: an EventTrigger-registry

@@ -5,20 +5,25 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Anivia - Primal (OGN-148) and Warwick - Hunter (OGN-159), the two cluster-1
- * cards whose text lands in `unit-triggers.ts`'s ON_ATTACK_TRIGGERS rather than
- * in a per-domain effects file — there is no per-domain on-attack registry, so
+ * cards whose text lands in `unit-triggers.ts`'s ATTACK_TRIGGERS rather than in a
+ * per-domain effects file — there is no per-domain attack-trigger registry, so
  * the pass that implemented the rest of Body could not reach them.
  *
- * **Driven through `submit(MoveUnit)`, never through `dispatchOnAttack`.** The
- * pre-existing tests for the other four on-attack cards
- * (unit-triggers-events.test.ts) call that dispatcher directly, which is exactly
- * the hop this repo has repeatedly found things silently dropped in: a trigger
- * can be written, registered and unreachable at the same time, and only the real
- * action path rules that out.
+ * **Driven through `submit(MoveUnit)` and then settled.** The move is what starts
+ * the fight, but it is not when either of them attacks: an Attack Trigger fires
+ * when its unit gains the Attacker designation (383.4.f), which the following
+ * Cleanup hands out as the Combat Showdown opens, and it is a Chain Pending Item
+ * from that moment — so the effect lands a chain-pop later. `attackWith` below is
+ * the whole of that sequence; `test/attack-trigger-moment.test.ts` is where the
+ * timing itself is pinned, and it deliberately does not use this.
+ *
+ * The real action path still matters more than the dispatcher these used to have
+ * a sibling for: a trigger can be written, registered and unreachable at the same
+ * time, and only `legalActions` -> `submit` rules that out.
  *
  * Warwick's second clause ("I enter ready") is a play-time property and rides
  * card-loader's QUICK_TEXT_OVERRIDES, so it is covered by the play test rather
@@ -43,6 +48,12 @@ function offered<T>(state: GameState, match: (a: never) => boolean, what: string
   expect(action, `${what} was never enumerated`).toBeDefined();
   return action as T;
 }
+
+/** Walk `unit` into `battlefieldId` and settle the combat that opens there — a
+ *  move, a Cleanup that stages the Showdown and holds the Attack Triggers, and
+ *  the two passes that resolve them. */
+const attackWith = (state: GameState, unit: UnitInstance, battlefieldId = "bf1") =>
+  resolveHeldTriggers(accept(state, moveTo(state, unit, battlefieldId)));
 
 const moveTo = (state: GameState, unit: UnitInstance, battlefieldId = "bf1") =>
   offered(
@@ -76,7 +87,7 @@ describe("Anivia - Primal (OGN-148): when I attack, deal 3 to all enemy units he
     const anivia = realUnitInstance(ANIVIA);
     const state = attackState(anivia, [makeUnit({ name: "A", might: 9 }), makeUnit({ name: "B", might: 9 }), makeUnit({ name: "C", might: 9 })]);
 
-    const after = accept(state, moveTo(state, anivia));
+    const after = attackWith(state, anivia);
 
     expect(enemiesAt(after).map((u) => u.damage)).toEqual([3, 3, 3]);
   });
@@ -85,7 +96,7 @@ describe("Anivia - Primal (OGN-148): when I attack, deal 3 to all enemy units he
     const anivia = realUnitInstance(ANIVIA);
     const state = attackState(anivia, [makeUnit({ name: "Frail", might: 3 }), makeUnit({ name: "Tough", might: 9 })]);
 
-    const after = accept(state, moveTo(state, anivia));
+    const after = attackWith(state, anivia);
 
     expect(enemiesAt(after).map((u) => u.name)).toEqual(["Tough"]);
     expect(after.players[1]!.trash).toHaveLength(1);
@@ -100,7 +111,7 @@ describe("Anivia - Primal (OGN-148): when I attack, deal 3 to all enemy units he
     const state = attackState(anivia, [makeUnit({ might: 9 })]);
     state.battlefields[0]!.units["p1"] = [ally];
 
-    const after = accept(state, moveTo(state, anivia));
+    const after = attackWith(state, anivia);
     const friendly = after.battlefields[0]!.units["p1"] ?? [];
 
     expect(friendly.every((u) => u.damage === 0)).toBe(true);
@@ -116,13 +127,18 @@ describe("Anivia - Primal (OGN-148): when I attack, deal 3 to all enemy units he
     state.battlefields[0]!.units = { p1: [anivia] };
     state.battlefields[0]!.controllerId = "p1";
 
-    const after = accept(
-      state,
-      offered(
+    // Settled, not asserted straight after the move: a trigger that fired for the
+    // wrong side would still be waiting on the chain at that point, and an
+    // undamaged board would read exactly like one where nothing triggered.
+    const after = resolveHeldTriggers(
+      accept(
         state,
-        ((a: { type: string; destinationBattlefieldId?: string }) =>
-          a.type === "MoveUnit" && a.destinationBattlefieldId === "bf1") as never,
-        "the opponent's move into bf1",
+        offered(
+          state,
+          ((a: { type: string; destinationBattlefieldId?: string }) =>
+            a.type === "MoveUnit" && a.destinationBattlefieldId === "bf1") as never,
+          "the opponent's move into bf1",
+        ),
       ),
     );
 
@@ -147,7 +163,7 @@ describe("Warwick - Hunter (OGN-159): when I attack, kill all DAMAGED enemy unit
       makeUnit({ name: "Scratched", might: 9, damage: 1 }),
     ]);
 
-    const after = accept(state, moveTo(state, warwick));
+    const after = attackWith(state, warwick);
 
     expect(enemiesAt(after).map((u) => u.name)).toEqual(["Fresh"]);
     expect(after.players[1]!.trash.map((c) => c.name).sort()).toEqual(["Scratched", "Wounded"]);
@@ -161,7 +177,7 @@ describe("Warwick - Hunter (OGN-159): when I attack, kill all DAMAGED enemy unit
     const kogmaw = realUnitInstance("OGN-190");
     const state = attackState(warwick, [{ ...kogmaw, damage: 1 } as UnitInstance]);
 
-    const after = accept(state, moveTo(state, warwick));
+    const after = attackWith(state, warwick);
 
     expect(after.players[1]!.trash.map((c) => c.defId)).toContain("OGN-190");
     // His Deathknell hit everything at his battlefield, Warwick included.
@@ -173,7 +189,7 @@ describe("Warwick - Hunter (OGN-159): when I attack, kill all DAMAGED enemy unit
     const warwick = realUnitInstance(WARWICK);
     const state = attackState(warwick, [makeUnit({ name: "Fresh", might: 9 })]);
 
-    const after = accept(state, moveTo(state, warwick));
+    const after = attackWith(state, warwick);
 
     expect(enemiesAt(after).map((u) => u.name)).toEqual(["Fresh"]);
     expect(after.players[1]!.trash).toHaveLength(0);
@@ -185,7 +201,7 @@ describe("Warwick - Hunter (OGN-159): when I attack, kill all DAMAGED enemy unit
     const state = attackState(warwick, [makeUnit({ might: 9, damage: 1 })]);
     state.battlefields[0]!.units["p1"] = [hurtAlly];
 
-    const after = accept(state, moveTo(state, warwick));
+    const after = attackWith(state, warwick);
 
     expect((after.battlefields[0]!.units["p1"] ?? []).map((u) => u.name)).toContain("Ally");
   });

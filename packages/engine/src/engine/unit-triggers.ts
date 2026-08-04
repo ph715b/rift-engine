@@ -24,8 +24,10 @@ import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
-import { dispatchLegendOnEnemyAttack, dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
+import { dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
+import { isAttackingAt } from "./combat-designation.js";
+import type { EventTriggerDefinition } from "./triggers.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -318,13 +320,16 @@ export function targetingForUnitTrigger(defId: string): TargetingSpec {
 export function unitTriggerDefIds(): string[] {
   return [
     ...Object.keys(allUnitTriggers()),
-    // The on-attack / on-move / on-spell-cast registries below are separate
-    // dispatch tables with their own event, and reporting only the on-play one
-    // marked seven working cards as inert — Crackshot Corsair, Dune Drake,
-    // Traveling Merchant, Noxian Drummer, Ravenbloom Student, Lux - Illuminated
-    // and Sneaky Deckhand. They're declared here rather than in coverage.ts so
-    // a new event table in this file is one edit, not two.
-    ...Object.keys(ON_ATTACK_TRIGGERS),
+    // The on-move / on-spell-cast registries below are separate dispatch tables
+    // with their own event, and reporting only the on-play one marked seven
+    // working cards as inert — Crackshot Corsair, Dune Drake, Traveling Merchant,
+    // Noxian Drummer, Ravenbloom Student, Lux - Illuminated and Sneaky Deckhand.
+    // They're declared here rather than in coverage.ts so a new event table in
+    // this file is one edit, not two.
+    //
+    // ATTACK_TRIGGERS is deliberately NOT in this list any more: it is registered
+    // as `combatBegan` listeners now, so `eventTriggerDefIds` reports those eight
+    // cards and repeating them here would make one table look like two sources.
     ...Object.keys(ON_MOVE_TRIGGERS),
     ...Object.keys(ON_SPELL_CAST_TRIGGERS),
     ...Object.keys(PLACEMENT_GRANTS),
@@ -507,15 +512,31 @@ export function resolveHeldOnPlayTrigger(state: GameState, entry: TriggerChainEn
   return trigger.resolve(state, contextFor(entry.playerIndex), entry.listenerInstanceId, entry.event as UnitTriggerEvent);
 }
 
-/** On-attack triggers — fired once per unit that just landed on a battlefield
- *  which turned out to be contested (execute-move-unit.ts / execute-play-card.ts's
- *  Unit-to-battlefield branch), before the Showdown window opens. Crackshot
- *  Corsair's and Dune Drake's targets are auto-selected (deterministic order)
- *  rather than offering a real player choice — same simplification
- *  precedent as card-effects.ts's Back to Back/Singularity entries (the
- *  Java oracle's own OriginEffects.java admits doing the same for at least
- *  one card: "Full 'choose 2' targeting arrives with the Part 2 UI"). */
-const ON_ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
+/**
+ * Attack Triggers — "when I attack", for the units that print it.
+ *
+ * **These fire at `combatBegan`, not at the move.** Rule 383.4.f: an Attack
+ * Trigger triggers "when a Unit or Player gains the Attacker designation for the
+ * first time during a combat", and 465's Combat Step 1 hands that designation out
+ * as the Combat Showdown opens. They used to be dispatched from inside
+ * execute-move-unit.ts and execute-play-card.ts, one per unit that had just
+ * landed — earlier than the rules' moment, and blind to a unit that was already
+ * standing there when a friend walked in and started the fight.
+ *
+ * The bodies stayed here rather than moving into the per-domain effect files, and
+ * `attackEventTriggers` below is what registers them: this is one ability shape
+ * spread across eight cards, and the ONE thing every one of them needs — the
+ * attacker-side filter — is a thing to be applied once, not copied eight times
+ * into eight `applies` predicates that can each be forgotten. What a card's
+ * trigger DOES still lives with the card, in this table.
+ *
+ * Crackshot Corsair's and Dune Drake's targets are auto-selected (deterministic
+ * order) rather than offering a real player choice — same simplification
+ * precedent as card-effects.ts's Back to Back/Singularity entries (the Java
+ * oracle's own OriginEffects.java admits doing the same for at least one card:
+ * "Full 'choose 2' targeting arrives with the Part 2 UI").
+ */
+const ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
   // Volibear - Furious — "[Deflect 2] When I attack, deal 5 damage SPLIT among any
   // number of enemy units here."
   //
@@ -716,18 +737,46 @@ function enemiesAnywhere(state: GameState, casterIndex: 0 | 1): string[] {
   ];
 }
 
-export function dispatchOnAttack(state: GameState, unit: UnitInstance, casterIndex: 0 | 1, battlefieldId: string): GameState {
-  const trigger = ON_ATTACK_TRIGGERS[unit.defId];
-  const attacked = trigger ? trigger(state, contextFor(casterIndex), unit, battlefieldId) : state;
-  // The DEFENDER's legend also watches this moment (Ahri), so it fires whether
-  // or not the attacking unit has a trigger — and after it, so a unit killed by
-  // its own on-attack effect is not then debuffed. Inside this funnel rather
-  // than at its two call sites, same reasoning as dispatchOnPlayUnit above.
-  return dispatchLegendOnEnemyAttack(attacked, {
-    unitInstanceId: unit.instanceId,
-    attackerIndex: casterIndex,
-    battlefieldId,
-  });
+/**
+ * The `ATTACK_TRIGGERS` table, presented to `triggers.ts` as ordinary
+ * `combatBegan` listeners — so an Attack Trigger is a Chain Pending Item (383)
+ * like every other converted event, respondable before it resolves.
+ *
+ * One adapter rather than eight hand-written entries, and the reason is the
+ * filter. `combatBegan` fires for DEFENDERS too — that is why Ahri - Inquisitive
+ * ("attack or defend") and Teemo listen to it — so each of these cards needs an
+ * attacker-side test, and eight copies of it is eight chances to leave one out.
+ * Here there is one, in `applies`, and a card cannot be registered without it.
+ *
+ * **`applies`, not a re-check inside the body.** 383 fixes triggering at the
+ * moment of the event: asking "am I attacking" again at resolution would let an
+ * opponent cancel a fired trigger by moving its unit, and would open a response
+ * window at every combat for abilities that resolve to nothing. The bodies do
+ * re-read the BOARD (who is standing here now, what damage they carry), which is
+ * the part that is genuinely a resolution-time question.
+ *
+ * The listener is the attacking unit itself, so `contextFor(listener.ownerIndex)`
+ * and the event's battlefield are the whole of the old dispatcher's payload —
+ * which is why this family could convert without the carried-choice plumbing the
+ * on-move and on-spell-cast tables still need.
+ */
+export function attackEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
+  const entries: Record<string, EventTriggerDefinition> = {};
+  for (const [defId, effect] of Object.entries(ATTACK_TRIGGERS)) {
+    entries[defId] = {
+      on: "combatBegan",
+      applies: isAttackingAt,
+      resolve: (state, listener, event) => {
+        // Narrowing is not ceremony: the dispatcher filters by `on` and `applies`
+        // already asked both questions, but neither can hand the compiler a
+        // narrowed event or a UnitInstance.
+        if (event.kind !== "combatBegan") return state;
+        if (listener.card.kind !== "Unit") return state;
+        return effect(state, contextFor(listener.ownerIndex), listener.card, event.battlefieldId);
+      },
+    };
+  }
+  return { name: "engine/unit-triggers.ts (attack triggers)", entries };
 }
 
 /** On-move triggers — fired once per completed move, contested or not

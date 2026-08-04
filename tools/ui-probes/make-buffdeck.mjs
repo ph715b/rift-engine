@@ -68,6 +68,26 @@ const DECKS = {
       "OGN-071", // Party Favors — the OPPONENT answers
     ],
   },
+  combat: {
+    file: ".combatdeck.txt",
+    // Same legend as `calm`, and that is the point rather than laziness: Ahri -
+    // Nine-Tailed Fox is Calm + Mind, the one preset legend whose domain pair
+    // reaches BOTH an Attack Trigger and a "when I defend" listener — and her own
+    // legend hook fires at the same moment, so the deck exercises the held
+    // triggers and the still-inline legend one in the same combat.
+    //
+    // A domain pair is a hard ceiling: Volibear - Furious (Fury), Crackshot
+    // Corsair / Dune Drake / Anivia / Warwick (Body), Twisted Fate (Chaos) and
+    // Leona - Determined (Order) cannot join them in any legal deck.
+    legendId: "OGN-255",
+    priority: [
+      "OGN-076", // Yasuo - Remorseful — "when I attack", the attacker side
+      "OGN-121", // Teemo - Strategist — "when I defend", the defender side
+      "OGN-119", // Ahri - Inquisitive — "attack OR defend", neither side
+      "OGN-060", // Mask of Foresight — a GEAR listening to the same event
+      "OGN-107", // Ava Achiever — the one Attack Trigger that parks a decision
+    ],
+  },
 };
 
 const which = process.env.DECK ?? "buff";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
-import { dispatchOnAttack, dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
+import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { dispatchLegendOnConquer } from "../src/engine/legend-abilities.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
@@ -16,7 +16,7 @@ import { implementingModule, isCardImplemented, partialImplementationNote } from
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
+import { answerDecisions, beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance } from "./fixtures.js";
 
 /**
  * The OGN Legends whose printed text had no implementation.
@@ -249,25 +249,34 @@ describe("Yasuo - Unforgiven (OGN-259): 2 Energy, exhaust — move a friendly un
 });
 
 describe("Ahri - Nine-Tailed Fox (OGN-255): an enemy attacking a battlefield you control gets -1 Might", () => {
-  /** p1 controls bf1 and has Ahri; p2 is about to attack it. */
+  /**
+   * p1 controls bf1 and has Ahri and a defender there; p2 is about to attack it.
+   *
+   * **The defender is not decoration.** "Attacks" means gaining the Attacker
+   * designation (383.4.f), and 465 hands those out only when Combat opens — which
+   * needs units of both players present (341). Walking into a battlefield you
+   * control but do not occupy opens a NON-Combat Showdown, where nobody attacks
+   * and nobody defends. These tests used to call `dispatchOnAttack` with a unit
+   * and an index, so the board never had to be a board a combat could happen on.
+   */
   function ahriState(controlled: boolean): { state: GameState; attacker: UnitInstance } {
     const attacker = makeUnit({ name: "Attacker", might: 4 });
     const state = withLegend(AHRI);
     state.battlefields[0]!.controllerId = controlled ? "p1" : null;
-    state.battlefields[0]!.units = { p2: [attacker] };
+    state.battlefields[0]!.units = { p1: [makeUnit({ name: "Defender", might: 4 })], p2: [attacker] };
     return { state, attacker };
   }
 
-  it("debuffs the attacker, through the shared on-attack dispatch", () => {
-    const { state, attacker } = ahriState(true);
-    const after = dispatchOnAttack(state, attacker, 1, "bf1");
+  it("debuffs the attacker when the combat opens", () => {
+    const { state } = ahriState(true);
+    const after = beginCombatAt(state, "bf1", 1);
 
     expect(unitsAt(after, "p2")[0]!.mightThisTurn).toBe(-1);
   });
 
   it("does nothing at a battlefield its controller does NOT hold", () => {
-    const { state, attacker } = ahriState(false);
-    const after = dispatchOnAttack(state, attacker, 1, "bf1");
+    const { state } = ahriState(false);
+    const after = beginCombatAt(state, "bf1", 1);
 
     expect(unitsAt(after, "p2")[0]!.mightThisTurn).toBe(0);
   });
@@ -276,17 +285,33 @@ describe("Ahri - Nine-Tailed Fox (OGN-255): an enemy attacking a battlefield you
     const mine = makeUnit({ name: "Mine", might: 4 });
     const state = withLegend(AHRI);
     state.battlefields[0]!.controllerId = "p1";
-    state.battlefields[0]!.units = { p1: [mine] };
+    state.battlefields[0]!.units = { p1: [mine], p2: [makeUnit({ name: "Theirs", might: 4 })] };
 
-    const after = dispatchOnAttack(state, mine, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
     expect(unitsAt(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 
-  it("floors at 1 Might however many times it fires", () => {
-    const { state, attacker } = ahriState(true);
+  it("floors at 1 Might across repeated combats", () => {
+    // 383.4.f checks an attack trigger's condition "once per combat", so the ten
+    // firings this needs are ten separate combats rather than ten dispatches into
+    // one. Between them the battlefield is returned to an uncontested Neutral
+    // state, which is what closing a Showdown does (190.6.a).
+    const { state } = ahriState(true);
     let after = state;
-    for (let i = 0; i < 10; i += 1) after = dispatchOnAttack(after, unitsAt(after, "p2")[0]!, 1, "bf1");
+    for (let i = 0; i < 10; i += 1) {
+      after = beginCombatAt(
+        {
+          ...after,
+          turnState: "Neutral",
+          showdownBattlefieldId: null,
+          showdownKind: null,
+          battlefields: after.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, contestedByIndex: null } : bf)),
+        },
+        "bf1",
+        1,
+      );
+    }
 
     // 4 printed Might, floored at 1 -> the stored modifier stops at -3.
     expect(unitsAt(after, "p2")[0]!.mightThisTurn).toBe(-3);

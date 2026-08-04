@@ -1,24 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { dispatchOnAttack, dispatchOnMove, dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
-import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { dispatchOnMove, dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
+import { beginCombatAt, makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+
+/**
+ * These used to call `dispatchOnAttack` directly. There is no such dispatcher any
+ * more: an Attack Trigger fires when its unit gains the Attacker designation
+ * (383.4.f), which happens as the Combat Showdown opens, so the way to drive one
+ * is to open a combat — `beginCombatAt`, which contests the battlefield and lets
+ * the real Cleanup do the rest.
+ *
+ * That is not a cosmetic swap. The old calls handed the dispatcher a unit and an
+ * attacker index, so they proved nothing about WHICH units fire; going through the
+ * Cleanup means a card that fired for the defending side fails here.
+ */
 
 describe("Crackshot Corsair: on-attack, deal 1 to an enemy unit here (auto-selected)", () => {
-  it("damages an enemy unit at the same battlefield the attacker landed on", () => {
+  it("damages an enemy unit at the battlefield he is attacking", () => {
     const corsair = realUnitInstance("OGN-130");
     const enemy = makeUnit({ might: 5 });
-    let state = makeState();
+    const state = makeState();
     state.battlefields[0]!.units = { p1: [corsair], p2: [enemy] };
 
-    state = dispatchOnAttack(state, corsair, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
-    expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(1);
+    expect(after.battlefields[0]!.units["p2"]![0]!.damage).toBe(1);
   });
 
-  it("no-ops when there's no enemy unit at that battlefield", () => {
+  it("does not fire when he is DEFENDING the battlefield instead", () => {
+    // The old dispatcher could not be asked this: it fired for whichever unit it
+    // was handed. Now the side is the board's answer, not the caller's.
     const corsair = realUnitInstance("OGN-130");
-    let state = makeState();
+    const enemy = makeUnit({ might: 5 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [corsair], p2: [enemy] };
+
+    const after = beginCombatAt(state, "bf1", 1);
+
+    expect(after.battlefields[0]!.units["p2"]![0]!.damage).toBe(0);
+  });
+
+  it("never fires at a battlefield with no enemy units — that is a Non-Combat Showdown", () => {
+    // The replacement for "no-ops when there's no enemy unit here". The card's
+    // own no-op is no longer the reason nothing happens: with nobody to fight,
+    // 341 opens a Non-Combat Showdown, and no Attacker designation is handed out
+    // for an Attack Trigger to wait on.
+    const corsair = realUnitInstance("OGN-130");
+    const state = makeState();
     state.battlefields[0]!.units = { p1: [corsair] };
-    expect(dispatchOnAttack(state, corsair, 0, "bf1")).toBe(state);
+
+    const after = beginCombatAt(state, "bf1", 0);
+
+    expect(after.showdownKind).toBe("NonCombat");
+    expect(after.spellChain).toHaveLength(0);
   });
 });
 
@@ -26,23 +59,23 @@ describe("Dune Drake: on-attack, +2 Might this turn if a ready enemy unit is her
   it("buffs itself when a ready enemy unit is present", () => {
     const drake = realUnitInstance("OGN-131");
     const readyEnemy = makeUnit({ exhausted: false });
-    let state = makeState();
+    const state = makeState();
     state.battlefields[0]!.units = { p1: [drake], p2: [readyEnemy] };
 
-    state = dispatchOnAttack(state, drake, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
+    expect(after.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
   });
 
   it("does not buff when the only enemy unit here is exhausted", () => {
     const drake = realUnitInstance("OGN-131");
     const exhaustedEnemy = makeUnit({ exhausted: true });
-    let state = makeState();
+    const state = makeState();
     state.battlefields[0]!.units = { p1: [drake], p2: [exhaustedEnemy] };
 
-    state = dispatchOnAttack(state, drake, 0, "bf1");
+    const after = beginCombatAt(state, "bf1", 0);
 
-    expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
+    expect(after.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
 });
 
@@ -86,12 +119,26 @@ describe("Noxian Drummer: on-move to a battlefield, play a token here", () => {
   });
 });
 
-describe("dispatchOnMove/dispatchOnAttack: no-op for units with no registered trigger", () => {
-  it("returns state unchanged", () => {
+describe("a unit with no registered trigger fires nothing", () => {
+  it("dispatchOnMove returns state unchanged", () => {
     const daringPoro = realUnitInstance("OGN-210");
     const state = makeState();
     expect(dispatchOnMove(state, daringPoro, 0, "bf1")).toBe(state);
-    expect(dispatchOnAttack(state, daringPoro, 0, "bf1")).toBe(state);
+  });
+
+  it("and a combat it attacks in puts nothing on the chain", () => {
+    // Asserted on the CHAIN rather than on state identity: `combatBegan` is held,
+    // so "nothing triggered" and "something triggered and did nothing" are finally
+    // different boards, and only the chain tells them apart. A Cleanup that stages
+    // a Showdown always returns a fresh state, so identity proves nothing here.
+    const daringPoro = realUnitInstance("OGN-210");
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [daringPoro], p2: [makeUnit({ might: 5 })] };
+
+    const after = beginCombatAt(state, "bf1", 0);
+
+    expect(after.showdownKind).toBe("Combat");
+    expect(after.spellChain).toHaveLength(0);
   });
 });
 

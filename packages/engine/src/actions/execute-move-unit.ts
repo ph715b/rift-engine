@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { applyContested } from "../engine/cleanup.js";
-import { dispatchOnAttack, dispatchOnMove } from "../engine/unit-triggers.js";
+import { dispatchOnMove } from "../engine/unit-triggers.js";
 import { holdEventTrigger } from "../engine/triggers.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { MoveUnitAction } from "./player-action.js";
@@ -60,7 +60,6 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   if (!validation.ok) throw new Error(validation.error);
 
   let next = state;
-  const movedUnits: UnitInstance[] = [];
   for (const unitId of action.unitInstanceIds) {
     // Where it came FROM, captured before the removal — `removeFromOrigin` is
     // what makes that unanswerable afterwards.
@@ -74,11 +73,10 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
     // Move) has not moved in the sense those cards ask about.
     const moved = { ...unit, exhausted: true, movesThisTurn: unit.movesThisTurn + 1 };
     const isFirstMoveThisTurn = unit.movesThisTurn === 0;
-    movedUnits.push(moved);
     next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, moved);
     // On-move fires for every completed move, contested or not (Traveling
-    // Merchant, Noxian Drummer) — on-attack (below) only if it turns out to
-    // be contested, so it must wait until every unit has actually landed.
+    // Merchant, Noxian Drummer). Unlike an Attack Trigger it really is an effect
+    // of the MOVE, so it belongs here rather than at the combat.
     next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId, isFirstMoveThisTurn);
     // A board-wide event, distinct from the per-card ON_MOVE_TRIGGERS table
     // above: that one is keyed by the MOVING unit's defId and can never reach a
@@ -103,22 +101,13 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
     });
   }
 
-  const bf = next.battlefields.find((b) => b.id === action.destinationBattlefieldId)!;
-  const opponentIndex: 0 | 1 = action.playerIndex === 0 ? 1 : 0;
-  const opponent = next.players[opponentIndex];
-  const opponentPresent = (bf.units[opponent.id]?.length ?? 0) > 0;
-
-  if (opponentPresent) {
-    // Landing on a battlefield the opponent holds is "attacking," same as a Unit
-    // played directly there (execute-play-card.ts) — fires once per moved unit,
-    // before the Showdown window opens (on-attack effects aren't a priority
-    // window in this engine, same synchronous-resolution ordering on-play/on-move
-    // triggers already use). Only the Combat case has attackers, so this stays
-    // gated on the opponent actually being present rather than on Contested.
-    for (const moved of movedUnits) {
-      next = dispatchOnAttack(next, moved, action.playerIndex, action.destinationBattlefieldId);
-    }
-  }
-
+  // **No attack dispatch here.** Landing on a battlefield the opponent holds is
+  // how a fight STARTS, but it is not the moment anyone attacks: 383.4.f fires an
+  // Attack Trigger when a unit "gains the Attacker designation", and 465's Combat
+  // Step 1 hands that out as the Combat Showdown opens — one Cleanup later, from
+  // cleanup.beginCombatAt. Dispatching here ran the triggers before
+  // `applyContested` below had even decided there was a fight, fired them for a
+  // unit walking into an empty battlefield where no combat follows, and could not
+  // reach a unit that was already standing here when its friend walked in.
   return applyContested(next, action.destinationBattlefieldId, action.playerIndex);
 }

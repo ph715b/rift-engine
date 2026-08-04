@@ -14,7 +14,16 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  beginCombatAt,
+  makeState,
+  makeUnit,
+  playUnitTrigger,
+  realUnitInstance,
+  resolveHeldTriggers,
+  spellInstance,
+} from "./fixtures.js";
 
 /**
  * Fires a HELD event and drives it to resolution.
@@ -264,13 +273,27 @@ describe("Might modification", () => {
     expect(effectiveMight(after, atBf(after, "p2")[0]!, 1, { isCombat: false, battlefieldId: "bf1" })).toBe(1);
   });
 
+  // `combatBegan` is HELD now, so these go through `beginCombatAt` — a real
+  // Cleanup staging a real Combat Showdown — rather than through `dispatchEvent`.
+  // The difference is not style: `dispatchEvent` never consulted `applies`, so a
+  // hand-built event asserted nothing about whether Ahri was in the fight at all.
   it("Ahri - Inquisitive shrinks an enemy when combat begins at HER battlefield", () => {
     const ahri = realUnitInstance(AHRI_INQUISITIVE);
     const enemy = makeUnit({ name: "Enemy", might: 5 });
     const state = makeState();
     state.battlefields[0]!.units = { p1: [ahri], p2: [enemy] };
 
-    const after = dispatchEvent(state, { kind: "combatBegan", battlefieldId: "bf1" });
+    const after = beginCombatAt(state, "bf1", 0);
+    expect(atBf(after, "p2")[0]!.mightThisTurn).toBe(-2);
+  });
+
+  it("Ahri - Inquisitive shrinks one when she is DEFENDING too — 'attack OR defend'", () => {
+    const ahri = realUnitInstance(AHRI_INQUISITIVE);
+    const enemy = makeUnit({ name: "Enemy", might: 5 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [ahri], p2: [enemy] };
+
+    const after = beginCombatAt(state, "bf1", 1);
     expect(atBf(after, "p2")[0]!.mightThisTurn).toBe(-2);
   });
 
@@ -279,9 +302,9 @@ describe("Might modification", () => {
     const enemy = makeUnit({ name: "Enemy", might: 5 });
     const state = makeState();
     state.battlefields[0]!.units = { p1: [ahri] };
-    state.battlefields[1]!.units = { p2: [enemy] };
+    state.battlefields[1]!.units = { p1: [makeUnit({ name: "Elsewhere" })], p2: [enemy] };
 
-    const after = dispatchEvent(state, { kind: "combatBegan", battlefieldId: "bf2" });
+    const after = beginCombatAt(state, "bf2", 0);
     expect(atBf(after, "p2", 1)[0]!.mightThisTurn).toBe(0);
   });
 

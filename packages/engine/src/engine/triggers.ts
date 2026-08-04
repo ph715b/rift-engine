@@ -7,6 +7,9 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // Doing module-init work across this cycle is what broke the engine once before.
 import { drawCards } from "./effect-helpers.js";
 import { parkDecision } from "./decisions.js";
+// Same cycle, same reason, as the effect-helpers import above: the binding is
+// read only inside `allEventTriggers`, which composes lazily.
+import { attackEventTriggers } from "./unit-triggers.js";
 import {
   domainDeathTriggers,
   domainDeathWatch,
@@ -448,11 +451,6 @@ export type GameEvent =
    *  a buff was really placed: rule 708 makes a second one on an already-buffed
    *  unit a no-op, and a no-op is not a buffing. */
   | { kind: "unitBuffed"; ownerIndex: 0 | 1; unitInstanceId: string }
-  /** A Combat Showdown has just opened at `battlefieldId` — the moment units
-   *  there become attackers and defenders (341/351.1). Fired for a freshly
-   *  staged Combat and for a Non-Combat one promoted by 317.2, since both are a
-   *  combat beginning as far as a card that says "when a unit attacks or
-   *  defends" is concerned. */
   /**
    * A unit completed a STANDARD move (a MoveUnit action), from `from` to `to`.
    *
@@ -495,6 +493,25 @@ export type GameEvent =
    * settles it as far as anything can: "to YOUR Main Deck". Recorded Unverified.
    */
   | { kind: "cardsRecycled"; ownerIndex: 0 | 1; count: number }
+  /**
+   * A Combat Showdown has just opened at `battlefieldId` — 465's Combat Step 1,
+   * the moment units there gain the Attacker and Defender designations. Fired for
+   * a freshly staged Combat and for a Non-Combat one promoted by 317.2, since
+   * both are a combat beginning as far as a card that says "when a unit attacks
+   * or defends" is concerned.
+   *
+   * **This is the moment ATTACK TRIGGERS fire** (383.4.f, "when a Unit or Player
+   * gains the Attacker designation for the first time during a combat"), which is
+   * why unit-triggers.ts's `ATTACK_TRIGGERS` register against this event rather
+   * than being dispatched by the move that started the fight.
+   *
+   * Carries only the battlefield, deliberately: one event serves every listener
+   * there, on BOTH sides, and which of them attacked is a question about the
+   * board — `combat-designation.ts` answers it from `contestedByIndex`, which is
+   * 465's own definition of the Attacker. A carried attacker index would be a
+   * second copy of that fact, free to disagree with the field the Showdown
+   * actually runs on.
+   */
   | { kind: "combatBegan"; battlefieldId: string }
   /**
    * `stunnerIndex` just stunned these units (rule 422) — ONE event per
@@ -578,13 +595,15 @@ export type HeldEventKind =
   | "unitReadied"
   | "battlefieldHeld"
   | "unitKilledBySpell"
-  | "cardsRecycled";
+  | "cardsRecycled"
+  | "combatBegan";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
 
-/** A listener, handed the event and its own permanent (so "I"/"my" resolve). */
-export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent) => GameState;
+/** A listener, handed the event and its own permanent (so "I"/"my" resolve), plus
+ *  whatever its `capture` noted at fire time (undefined when it has none). */
+export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent, captured?: unknown) => GameState;
 
 export interface EventTriggerDefinition {
   on: GameEvent["kind"];
@@ -610,6 +629,25 @@ export interface EventTriggerDefinition {
    * response window in which the board can change.
    */
   applies?: (state: GameState, listener: Listener, event: GameEvent) => boolean;
+  /**
+   * What this ability has to note about the BOARD at the moment it triggered,
+   * carried on the chain entry and handed back to `resolve`.
+   *
+   * `applies` answers whether the ability triggered; this answers what it
+   * triggered ABOUT, and the two are different questions the moment a trigger is
+   * held. "When a friendly unit attacks alone" triggers because exactly one unit
+   * was there — and the ability is about THAT unit, which a resolution running a
+   * response window later can no longer identify from the board.
+   *
+   * Only for facts the event cannot carry. An event is shared by every listener
+   * (one `combatBegan` per battlefield, not one per card), so anything a
+   * particular listener singled out belongs here rather than in a widened event.
+   * Anything still true at resolution should simply be re-read there: capturing a
+   * fact that has not moved just makes the entry bigger.
+   *
+   * Called only from `holdEventTrigger`, and only after `applies` has passed.
+   */
+  capture?: (state: GameState, listener: Listener, event: GameEvent) => unknown;
   resolve: EventTriggerEffect;
 }
 
@@ -620,6 +658,11 @@ let composedEventTriggers: Record<string, EventTriggerDefinition> | null = null;
 function allEventTriggers(): Record<string, EventTriggerDefinition> {
   composedEventTriggers ??= mergeRegistries<EventTriggerDefinition>("event trigger", [
     { name: "engine/triggers.ts", entries: {} },
+    // The "when I attack" family, adapted from unit-triggers.ts's own table. It
+    // is a merge SOURCE like a domain file rather than entries spliced in, so a
+    // card registered in both places is the same named duplicate error as any
+    // other — see attackEventTriggers for why the bodies did not move here.
+    attackEventTriggers(),
     ...domainEventTriggers(),
   ]);
   return composedEventTriggers;
@@ -671,7 +714,7 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
   if (!listener) return state; // left play while the response window was open
   const event = entry.event as GameEvent;
   if (trigger.on !== event.kind) return state;
-  return trigger.resolve(state, listener, event);
+  return trigger.resolve(state, listener, event, entry.captured);
 }
 
 /**
@@ -711,6 +754,10 @@ export function holdEventTrigger(state: GameState, event: GameEvent): GameState 
     const trigger = registry[listener.card.defId];
     if (trigger?.on !== event.kind) continue;
     if (trigger.applies && !trigger.applies(state, listener, event)) continue;
+    // Captured against the board as it stands NOW — before any other listener in
+    // this same walk has resolved, which is what makes it a snapshot of the
+    // moment of the event (383) rather than of whatever the chain did next.
+    const captured = trigger.capture?.(state, listener, event);
     held.push({
       kind: "trigger",
       playerIndex: listener.ownerIndex,
@@ -718,6 +765,7 @@ export function holdEventTrigger(state: GameState, event: GameEvent): GameState 
       listenerDefId: listener.card.defId,
       listenerName: listener.card.name,
       ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
+      ...(captured !== undefined ? { captured } : {}),
       event,
     });
   }
