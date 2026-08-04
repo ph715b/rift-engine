@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { applyContested } from "../engine/cleanup.js";
-import { dispatchOnMove } from "../engine/unit-triggers.js";
+import { holdMoveTrigger } from "../engine/unit-triggers.js";
 import { holdEventTrigger } from "../engine/triggers.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { MoveUnitAction } from "./player-action.js";
@@ -76,8 +76,16 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
     next = addToBattlefield(afterRemove, action.playerIndex, action.destinationBattlefieldId, moved);
     // On-move fires for every completed move, contested or not (Traveling
     // Merchant, Noxian Drummer). Unlike an Attack Trigger it really is an effect
-    // of the MOVE, so it belongs here rather than at the combat.
-    next = dispatchOnMove(next, moved, action.playerIndex, action.destinationBattlefieldId, isFirstMoveThisTurn);
+    // of the MOVE, so it belongs here rather than at the combat — but HELD (383),
+    // not dispatched, so an opponent gets a window before it resolves.
+    //
+    // `isFirstMoveThisTurn` is captured from the PRE-increment `movesThisTurn`
+    // above and carried on the entry, because by the time the trigger resolves
+    // the unit shows this move and the answer can no longer be re-derived.
+    next = holdMoveTrigger(next, moved, action.playerIndex, {
+      battlefieldId: action.destinationBattlefieldId,
+      isFirstMoveThisTurn,
+    });
     // A board-wide event, distinct from the per-card ON_MOVE_TRIGGERS table
     // above: that one is keyed by the MOVING unit's defId and can never reach a
     // listener sitting on a different card. Stealthy Pursuer watches "a friendly

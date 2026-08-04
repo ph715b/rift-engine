@@ -48,6 +48,13 @@ const DECKS = {
       "OGN-226", // Spectral Matron — play a unit from your trash
       "OGN-237", // King's Edict — the opponent chooses
       "OGN-153", // Overt Operation — one question per buffed friendly unit
+      // The ON-MOVE family, added when it was converted (2026-08-03). Measured
+      // first: none of the three decks here contained a single on-move card, so
+      // the change was invisible to every live run — the same hole the `combat`
+      // deck was created for. Only these two are legal in a Body+Order list;
+      // Traveling Merchant is Chaos and no legal deck can hold all three.
+      "OGN-222", // Noxian Drummer — a token placed where he moved TO
+      "OGN-162", // Miss Fortune - Captain — the one whose "first move" is carried
     ],
   },
   calm: {

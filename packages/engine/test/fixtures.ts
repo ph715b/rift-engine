@@ -3,7 +3,7 @@ import { createCardInstance, type SpellInstance, type UnitInstance } from "../sr
 import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
-import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
+import { dispatchOnPlayUnit, holdMoveTrigger } from "../src/engine/unit-triggers.js";
 import type { PendingDecision } from "../src/model/game-state.js";
 import type { BattlefieldState, GameState, PlayerState } from "../src/model/game-state.js";
 
@@ -220,6 +220,29 @@ export function playUnitTrigger(
   extra?: Parameters<typeof dispatchOnPlayUnit>[4],
 ): GameState {
   return resolveHeldTriggers(dispatchOnPlayUnit(state, unit, casterIndex, destination, extra));
+}
+
+/**
+ * `holdMoveTrigger` and then settle — a unit's own "when I move" ability is a
+ * Chain Pending Item now, so holding it is all the move does and the effect lands
+ * a chain-pop later.
+ *
+ * The counterpart to `playUnitTrigger`, and for the same audience: the many tests
+ * that are about WHAT a move trigger does rather than WHEN. `test/on-move-held.ts`
+ * is where the timing is pinned, and it drives real `MoveUnit` actions instead.
+ *
+ * `isFirstMoveThisTurn` defaults TRUE, matching the old dispatcher's default, so
+ * a caller that does not care about Miss Fortune - Captain's one condition reads
+ * exactly as it did before.
+ */
+export function moveUnitTrigger(
+  state: GameState,
+  unit: UnitInstance,
+  casterIndex: 0 | 1,
+  battlefieldId: string,
+  isFirstMoveThisTurn = true,
+): GameState {
+  return resolveHeldTriggers(holdMoveTrigger(state, unit, casterIndex, { battlefieldId, isFirstMoveThisTurn }));
 }
 
 export function answerDecisions(

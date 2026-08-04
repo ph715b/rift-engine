@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
-import { dispatchOnMove, dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
+import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { recordConquest } from "../src/engine/scoring.js";
@@ -15,7 +15,16 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
-import { answerDecisions, makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  makeState,
+  makeUnit,
+  moveUnitTrigger,
+  playUnitTrigger,
+  realUnitInstance,
+  resolveHeldTriggers,
+  spellInstance,
+} from "./fixtures.js";
 
 /**
  * The batch whose cards each needed one new mechanism: a decision over a zone
@@ -326,7 +335,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
 
   it("asks on the first move and readies the chosen permanent", () => {
     const { state, captain, ally } = captainState();
-    const asked = dispatchOnMove(state, captain, 0, "bf1", true);
+    const asked = moveUnitTrigger(state, captain, 0, "bf1", true);
     expect(pendingDecision(asked)!.kind).toBe("OGN-162-ready");
 
     const after = answerDecisions(asked, (o) => o.find((x) => x.id === ally.instanceId)!.id);
@@ -335,14 +344,14 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
 
   it("does NOT ask on a later move in the same turn", () => {
     const { state, captain } = captainState();
-    expect(dispatchOnMove(state, captain, 0, "bf1", false).pendingDecisions).toHaveLength(0);
+    expect(moveUnitTrigger(state, captain, 0, "bf1", false).pendingDecisions).toHaveLength(0);
   });
 
   it("offers the Legend too — 'something else', not 'a unit'", () => {
     const { state, captain } = captainState();
     state.players[0]!.legend.exhausted = true;
 
-    const asked = dispatchOnMove(state, captain, 0, "bf1", true);
+    const asked = moveUnitTrigger(state, captain, 0, "bf1", true);
     const labels = optionsFor(asked, pendingDecision(asked)!).map((o) => o.label);
 
     expect(labels.some((l) => l.includes("Test Legend"))).toBe(true);
@@ -357,7 +366,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
       ),
     };
 
-    const asked = dispatchOnMove(withExhaustedCaptain, captain, 0, "bf1", true);
+    const asked = moveUnitTrigger(withExhaustedCaptain, captain, 0, "bf1", true);
     const ids = optionsFor(asked, pendingDecision(asked)!).map((o) => o.instanceId);
 
     expect(ids).not.toContain(captain.instanceId);
@@ -365,7 +374,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
 
   it("declining costs nothing", () => {
     const { state, captain, ally } = captainState();
-    const after = answerDecisions(dispatchOnMove(state, captain, 0, "bf1", true), pick("decline"));
+    const after = answerDecisions(moveUnitTrigger(state, captain, 0, "bf1", true), pick("decline"));
     expect(after.battlefields[0]!.units["p1"]!.find((u) => u.instanceId === ally.instanceId)!.exhausted).toBe(true);
   });
 
@@ -373,7 +382,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
     const captain = realUnitInstance(MISS_FORTUNE_CAPTAIN);
     const state = makeState();
     state.battlefields[0]!.units = { p1: [captain] };
-    expect(dispatchOnMove(state, captain, 0, "bf1", true).pendingDecisions).toHaveLength(0);
+    expect(moveUnitTrigger(state, captain, 0, "bf1", true).pendingDecisions).toHaveLength(0);
   });
 });
 

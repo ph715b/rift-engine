@@ -779,17 +779,56 @@ export function attackEventTriggers(): { name: string; entries: Record<string, E
   return { name: "engine/unit-triggers.ts (attack triggers)", entries };
 }
 
+/**
+ * What a move trigger has to be told, captured when the move happened.
+ *
+ * Both fields are things the board stops being able to answer. `battlefieldId`
+ * is where the unit moved TO — by resolution it may have been moved again or
+ * killed. `isFirstMoveThisTurn` is the sharper one: `execute-move-unit` computes
+ * it from `movesThisTurn` BEFORE incrementing, so a resolution that re-derived it
+ * would find the unit already showing one move and answer FALSE every time —
+ * Miss Fortune - Captain would simply never fire.
+ */
+export interface UnitMoveTriggerEvent {
+  battlefieldId: string;
+  isFirstMoveThisTurn: boolean;
+}
+
 /** On-move triggers — fired once per completed move, contested or not
- *  (execute-move-unit.ts), independent of on-attack above.
+ *  (execute-move-unit.ts), independent of the attack triggers above.
+ *
+ *  **HELD as Chain Pending Items** since 2026-08-03, through `holdMoveTrigger`
+ *  below: the listener is the moving unit itself, so this is the on-PLAY shape
+ *  rather than the event-registry one, and the entry carries `source:
+ *  "unitOnMove"` to say which registry resolves it.
+ *
+ *  Takes the unit's INSTANCE ID rather than the unit, like `UnitTriggerDefinition`
+ *  already does — none of the three needs more, and an id cannot go stale across
+ *  the response window the way a captured object would.
  *
  *  `isFirstMoveThisTurn` exists for Miss Fortune - Captain alone ("the FIRST
  *  time I move each turn"); every other listener ignores it and fires on every
  *  move, which is what their own text says. */
-const ON_MOVE_TRIGGERS: Record<
-  string,
-  (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string, isFirstMoveThisTurn: boolean) => GameState
-> = {
-  "OGN-185": (state, ctx) => {
+interface MoveTriggerDefinition {
+  /**
+   * Whether the ability TRIGGERED, as opposed to merely being a move.
+   *
+   * The same split `EventTriggerDefinition.applies` makes, and needed for the
+   * same reason: 383.4 settles "requirements besides the trigger" at the moment
+   * of the event, so a move that does not meet them must place NO Pending Item —
+   * holding one anyway would close the chain and cost both players a PassFocus
+   * for an ability that resolves to nothing. Miss Fortune - Captain's "the FIRST
+   * time I move each turn" is the only one today.
+   *
+   * Reads the carried event only. It is asked before the entry exists, so there
+   * is nothing else it could read.
+   */
+  applies?: (event: UnitMoveTriggerEvent) => boolean;
+  resolve: (state: GameState, ctx: EffectContext, unitInstanceId: string, event: UnitMoveTriggerEvent) => GameState;
+}
+
+const ON_MOVE_TRIGGERS: Record<string, MoveTriggerDefinition> = {
+  "OGN-185": { resolve: (state, ctx) => {
     // Traveling Merchant — "When I move, discard 1, then draw 1."
     //
     // This is where the front-of-hand discard convention started, inlined here,
@@ -797,29 +836,44 @@ const ON_MOVE_TRIGGERS: Record<
     // point, and is now what `discardThenDraw` exists to protect — with the
     // discard able to stop and ask, the draw has to be queued behind the
     // question rather than wrapped around it.
-    return discardThenDraw(state, ctx.casterIndex, 1, 1);
+      return discardThenDraw(state, ctx.casterIndex, 1, 1);
+    },
   },
-  "OGN-222": (state, ctx, unit, battlefieldId) => {
-    // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit token here.
-    return placeTokenAtDestination(state, ctx.casterIndex, { battlefieldId });
+  "OGN-222": {
+    // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit
+    // token here. "HERE" is the battlefield he moved TO, taken from the carried
+    // event rather than from where he stands now.
+    resolve: (state, ctx, _unitInstanceId, event) => placeTokenAtDestination(state, ctx.casterIndex, { battlefieldId: event.battlefieldId }),
   },
-  "OGN-162": (state, ctx, unit, _battlefieldId, isFirstMoveThisTurn) => {
+  "OGN-162": {
     // Miss Fortune - Captain — "The first time I move each turn, you may ready
     // something else that's exhausted."
     //
-    // "FIRST time each turn" is the reason UnitInstance carries movedThisTurn:
+    // "FIRST time each turn" is the reason UnitInstance carries movesThisTurn:
     // a per-player flag would let one unit's move spend another's allowance, and
     // "each turn" means it comes back, so it cannot be a one-shot.
     //
+    // **It is a requirement BESIDES moving, so it decides whether she triggers at
+    // all** (383.4) and lives here rather than in the body. Her second move of a
+    // turn must place nothing: a Pending Item that closes the chain, costs both
+    // players a PassFocus and then does nothing is not "the rules working", it is
+    // an ability that never triggered pretending it did.
+    applies: (event) => event.isFirstMoveThisTurn,
     // "SOMETHING ELSE that's exhausted" — not "a unit", so the Legend and Gear
     // are eligible too, and not herself. "You may", so it stops to ask.
-    if (!isFirstMoveThisTurn) return state;
-    if (readyableOthers(state, ctx.casterIndex, unit.instanceId).length === 0) return state;
-    return parkDecision(state, {
-      kind: "OGN-162-ready",
-      playerIndex: ctx.casterIndex,
-      cardInstanceId: unit.instanceId,
-    });
+    //
+    // This one stays at RESOLUTION, and the difference from the condition above
+    // is the point: whether anything is exhausted is a question about the board
+    // when the ability resolves, and a trigger that fires and finds nothing is
+    // 422's do-as-much-as-you-can rather than a trigger that never happened.
+    resolve: (state, ctx, unitInstanceId) => {
+      if (readyableOthers(state, ctx.casterIndex, unitInstanceId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "OGN-162-ready",
+        playerIndex: ctx.casterIndex,
+        cardInstanceId: unitInstanceId,
+      });
+    },
   },
 };
 
@@ -842,18 +896,52 @@ export function readyableOthers(
     .map((c) => ({ instanceId: c.instanceId, name: c.name }));
 }
 
-export function dispatchOnMove(
+/**
+ * Puts a moving unit's own "when I move" trigger in the holding pen (383), the
+ * counterpart to `holdUnitTrigger` for the on-play family.
+ *
+ * Nothing is dispatched here. The whole `UnitMoveTriggerEvent` rides along
+ * because both of its fields stop being derivable the moment the move completes —
+ * see the interface for which and why.
+ *
+ * Returns the state unchanged when the unit has no registered move trigger, so
+ * the executor calls it unconditionally.
+ */
+export function holdMoveTrigger(
   state: GameState,
   unit: UnitInstance,
   casterIndex: 0 | 1,
-  battlefieldId: string,
-  /** Defaults true so the one caller that does not track it (a test, or a future
-   *  mover) gets the every-move behaviour every listener but one wants. */
-  isFirstMoveThisTurn = true,
+  event: UnitMoveTriggerEvent,
 ): GameState {
   const trigger = ON_MOVE_TRIGGERS[unit.defId];
   if (!trigger) return state;
-  return trigger(state, contextFor(casterIndex), unit, battlefieldId, isFirstMoveThisTurn);
+  if (trigger.applies && !trigger.applies(event)) return state;
+  const entry: TriggerChainEntry = {
+    kind: "trigger",
+    source: "unitOnMove",
+    playerIndex: casterIndex,
+    listenerInstanceId: unit.instanceId,
+    listenerDefId: unit.defId,
+    listenerName: unit.name,
+    battlefieldId: event.battlefieldId,
+    event,
+  };
+  return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
+}
+
+/**
+ * Resolves a held on-move trigger when the chain pops it.
+ *
+ * **The unit is NOT required to still be in play**, for the same reason
+ * `resolveHeldOnPlayTrigger` gives: 809.1.b makes an ability on the Chain
+ * independent of the card that made it, so an opponent who kills the mover during
+ * the response window removes what the ability might have referred to, not the
+ * ability. Noxian Drummer's token still arrives.
+ */
+export function resolveHeldOnMoveTrigger(state: GameState, entry: TriggerChainEntry): GameState {
+  const trigger = ON_MOVE_TRIGGERS[entry.listenerDefId];
+  if (!trigger) return state;
+  return trigger.resolve(state, contextFor(entry.playerIndex), entry.listenerInstanceId, entry.event as UnitMoveTriggerEvent);
 }
 
 /** On-spell-cast listeners — units that react to THEIR OWN controller

@@ -139,13 +139,20 @@ export interface TriggerChainEntry {
    * ability, `event` a `GameEvent`. `"unitOnPlay"` is a unit's own "when you
    * play me" ability, where the listener IS the played unit and `event` is a
    * `UnitTriggerEvent` carrying the destination and the choices that rode in on
-   * the PlayCard action.
+   * the PlayCard action. `"unitOnMove"` is the same shape for "when I move",
+   * where `event` is a `UnitMoveTriggerEvent` carrying the destination and
+   * whether this was the unit's first move of the turn.
    *
    * A discriminant rather than a second event field, so an entry can never carry
    * both and no existing literal has to change — the absent case is exactly what
    * every producer wrote before on-play triggers were held.
+   *
+   * **The two unit-sourced kinds share a rule the event kind does not**: their
+   * ability resolves even though its source has left play (809.1.b), because the
+   * unit IS the ability's source rather than a bystander watching. See
+   * `resolveHeldOnPlayTrigger`.
    */
-  source?: "event" | "unitOnPlay";
+  source?: "event" | "unitOnPlay" | "unitOnMove";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dispatchOnMove, dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
-import { beginCombatAt, makeState, makeUnit, realUnitInstance } from "./fixtures.js";
+import { dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
+import { beginCombatAt, makeState, makeUnit, moveUnitTrigger, realUnitInstance } from "./fixtures.js";
 
 /**
  * These used to call `dispatchOnAttack` directly. There is no such dispatcher any
@@ -88,7 +88,7 @@ describe("Traveling Merchant: on-move, discard 1 then draw 1", () => {
     state.players[0]!.hand = [discardMe];
     state.players[0]!.deck = [drawMe];
 
-    state = dispatchOnMove(state, merchant, 0, "bf1");
+    state = moveUnitTrigger(state, merchant, 0, "bf1");
 
     expect(state.players[0]!.trash.map((c) => c.instanceId)).toContain(discardMe.instanceId);
     expect(state.players[0]!.hand.map((c) => c.instanceId)).toContain(drawMe.instanceId);
@@ -101,7 +101,7 @@ describe("Traveling Merchant: on-move, discard 1 then draw 1", () => {
     let state = makeState();
     state.players[0]!.deck = [drawMe];
 
-    state = dispatchOnMove(state, merchant, 0, "bf1");
+    state = moveUnitTrigger(state, merchant, 0, "bf1");
 
     expect(state.players[0]!.hand).toHaveLength(1);
   });
@@ -112,7 +112,7 @@ describe("Noxian Drummer: on-move to a battlefield, play a token here", () => {
     const drummer = realUnitInstance("OGN-222");
     let state = makeState();
 
-    state = dispatchOnMove(state, drummer, 0, "bf1");
+    state = moveUnitTrigger(state, drummer, 0, "bf1");
 
     expect(state.battlefields[0]!.units["p1"]).toHaveLength(1);
     expect(state.battlefields[0]!.units["p1"]![0]!.isToken).toBe(true);
@@ -120,10 +120,14 @@ describe("Noxian Drummer: on-move to a battlefield, play a token here", () => {
 });
 
 describe("a unit with no registered trigger fires nothing", () => {
-  it("dispatchOnMove returns state unchanged", () => {
+  it("a move puts nothing in the holding pen", () => {
+    // `holdMoveTrigger` returns the state UNCHANGED for a unit with no entry in
+    // the table, which is why identity still means something here — nothing was
+    // held, so no Cleanup ran and no fresh object was made. Contrast the combat
+    // case below, where staging a Showdown always returns a fresh state.
     const daringPoro = realUnitInstance("OGN-210");
     const state = makeState();
-    expect(dispatchOnMove(state, daringPoro, 0, "bf1")).toBe(state);
+    expect(moveUnitTrigger(state, daringPoro, 0, "bf1")).toBe(state);
   });
 
   it("and a combat it attacks in puts nothing on the chain", () => {
