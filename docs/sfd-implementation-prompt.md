@@ -289,47 +289,50 @@ any other bug. And make the report lead with **reachability, not pass/fail** —
 cards resolved, 189 never reachable" is the honest headline; "200 games, no
 failures" is the same sentence with the important half deleted.
 
-### Two defects this found before any agent was involved
+### What this actually found — one bug, and four ways to be wrong about a bug
 
-Both came out of pointing generated decks at never-exercised cards, within minutes,
-on an engine whose 1822 tests were green. Neither is fixed. Both are good first
-subjects.
+Generated decks turned up five suspicious cards on an engine whose 1822 tests were
+green. **Exactly one was a defect.** That ratio is the lesson, and chasing the other
+four is what produced the reporting rules now built into `exercised.ts`.
 
-1. **`chooseAction` throws on a legal board.** Playing *Get Excited!* at a unit with
-   `[Deflect]` raises `"Get Excited! must pay 1 rainbow Power for [Deflect] on its
-   target, but named 0"` from inside `heuristic-ai`'s own lookahead — the AI
-   enumerates a play whose executor then rejects it, and the exception escapes
-   `chooseAction` rather than the candidate being scored badly and skipped. It is
-   unreachable from any preset deck, which is why 40-game self-play never saw it.
-   There is a `deflect-surcharge.test.ts` already; the surcharge is understood, the
-   *enumeration* is not.
-2. **OGN-004 Cleave is never played.** A 1-energy in-domain Fury `[Action]`, "Give
-   a unit [Assault 3] this turn", never played across 8 games holding the legal
-   maximum of 3 copies while dearer cards beside it in the same deck were played
-   repeatedly. Either an AI valuation gap or an enumeration gap.
+**The real one, since fixed.** `chooseAction` threw on a legal board: *Get Excited!*
+at a `[Deflect]` unit raised `"must pay 1 rainbow Power for [Deflect] on its target,
+but named 0"` from inside `heuristic-ai`'s lookahead. `legal-actions` prices
+`[Deflect]` per variant, but the discard-choice branch emits *before* that
+re-pricing — and Get Excited!'s discard is MANDATORY, so the branch that skips the
+tax is the only path it has. The AI trusts `legalActions` and calls the executor
+directly, so the exception escaped and killed the game. Third instance of the
+offered-then-refused shape in that one file, and the second found by a probe rather
+than by reading.
 
-3. **Three Legends' activated abilities are never used by the AI.** With a deck
-   built around each, OGN-247 Kai'Sa, OGN-253 Darius and OGN-267 Miss Fortune all
-   went unactivated across 8 games apiece. All three read `[Exhaust]:` — two of them
-   `[Add]` a resource, one grants `[Ganking]`. Three of three is a pattern, not
-   three coincidences, and it sits beside a baseline where only **5 distinct cards
-   in the whole pool were ever activated**. Suspect Legend/Gear activation
-   enumeration or valuation generally.
-4. **OGS-023 Garen - Might of Demacia never fires** — "when you conquer, if you
-   have 4+ units at that battlefield, draw 2". Plausibly a condition the AI simply
-   never reaches, which is itself worth knowing.
+**The four that were not defects, and what each teaches:**
 
-Note what these imply about a green suite: they are reachability failures, not logic
-failures. No assertion was wrong. The cards were simply never in front of the AI.
+1. **Resource abilities are declined ON PURPOSE.** Six `Seal of X`, Kai'Sa and
+   Darius read `[Exhaust]: [Add] <resource>` and are offered thousands of times
+   without ever being taken — because `heuristic-ai`'s `abilityBanksResource`
+   deliberately drops them from the candidate pool. `evaluate` scores board state,
+   so a banked resource can only tie with Pass, and this project has a standing rule
+   against speculative heuristics with no evaluative basis. Miss Fortune's
+   `[Ganking]`, Sun Disc and Ravenborn Tome are not filtered but lose for the same
+   reason: their value lands on a turn the 1-ply evaluator cannot see.
+2. **"Never played" is not "never offered".** OGN-004 Cleave looked dead at 8 games;
+   at 30 games it was offered 265 times and taken once. Small samples manufacture
+   certainties.
+3. **A card in a deck is usually never SEEN.** A game runs 5–8 turns and draws about
+   **10 distinct cards of 39**. OGS-011 Flash sat in a deck for 10 games, was drawn
+   in none of them, and read convincingly as an enumeration bug. Check a card was
+   drawn before calling it a defect — and to reach one, use the 3-copy maximum and
+   vary the seed, because more games alone buys less than it looks like.
+4. **Two Legends are structurally invisible to the instrument.** A purely CONTINUOUS
+   effect (OGS-019 Master Yi's `mightBonus`) produces no action, Chain item or
+   event; and `beginningPhase` is the one trigger family still resolved inline, so
+   it never reaches `pendingTriggers` (OGN-251 Jinx - Loose Cannon's Legend). Both
+   report unexercised forever. **Unmeasured, not untested** — and do not paper over
+   it by marking them exercised, which converts a known blind spot into a silent lie.
 
-**And two more Legends were the instrument's fault, not the engine's** — see
-`exercise-log.ts`'s blind-spot section. A purely CONTINUOUS effect (OGS-019 Master
-Yi's `mightBonus`) produces no action, Chain item or event, so nothing can observe
-it; and `beginningPhase` is the one trigger family still resolved inline, so it
-never reaches `pendingTriggers` (OGN-251 Jinx - Loose Cannon's Legend). Cards of
-either shape report unexercised forever. Treat them as **unmeasured, not untested**,
-and do not paper over it by marking them exercised — that converts a known blind
-spot into a silent lie.
+`exercised.ts` now separates `inDeckButNeverOffered` from `offeredButNeverTaken` so
+these cannot be confused again, and asserts the one invariant that would have caught
+the real bug: **everything the AI played must be something `legalActions` offered.**
 
 ## What to leave behind — write this before you stop
 

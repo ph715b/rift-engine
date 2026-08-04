@@ -66,7 +66,7 @@
  * silent lie. If `beginningPhase` is ever converted to a held trigger, that half
  * disappears on its own.
  */
-import { isSpellChainEntry } from "@rift-engine/engine";
+import { isSpellChainEntry, legalActions } from "@rift-engine/engine";
 import type { CardInstance, GameState, PlayerAction } from "@rift-engine/engine";
 
 /** Every card instance currently sitting somewhere an ability could be activated
@@ -96,6 +96,28 @@ export class ExerciseLog {
    *  zero; a non-zero value means this observer is looking in the wrong places and
    *  silently under-reporting, not that the engine is wrong. */
   activationsUnresolved = 0;
+  /**
+   * defIds `legalActions` OFFERED as a PlayCard or ActivateAbility, whether or not
+   * the AI took them.
+   *
+   * This is the difference between "the engine cannot do this" and "the AI will not
+   * choose this", and without it the two are indistinguishable in the report — a
+   * card that is offered 2250 times and never taken looks exactly like a card no
+   * deck contains.
+   *
+   * That is not hypothetical. Six `Seal of X`, Kai'Sa and Darius all read
+   * `[Exhaust]: [Add] <resource>`, and `heuristic-ai`'s `abilityBanksResource`
+   * DELIBERATELY drops them from the candidate pool: `evaluate` scores board state,
+   * so a banked resource can only ever tie with Pass, and this project's standing
+   * rule is no speculative heuristic without a real evaluative basis. Miss Fortune's
+   * `[Ganking]`, Sun Disc, Ravenborn Tome and Pack of Wonders are not filtered but
+   * lose for the same reason — their value lands on a FUTURE turn the 1-ply
+   * evaluator cannot see.
+   *
+   * None of those is an engine defect, and a report that cannot say so turns a
+   * documented AI limitation into a fake backlog of broken cards.
+   */
+  readonly offered = new Set<string>();
 
   /** Call with the state BEFORE the action, and only for actions the engine
    *  accepted — an Invalid result exercised nothing. */
@@ -108,6 +130,26 @@ export class ExerciseLog {
       const found = permanentsInPlay(before).find((c) => c.instanceId === action.permanentInstanceId);
       if (found === undefined) this.activationsUnresolved++;
       else bump(this.activated, found.defId);
+    }
+  }
+
+  /**
+   * Call with the state BEFORE the action, alongside `record`.
+   *
+   * Reads `legalActions` directly rather than anything inside the AI. That is the
+   * same state-stream discipline the header describes: this asks the engine what is
+   * LEGAL, which is a fact about the engine, and compares it with what the AI
+   * actually did. Scoring is deliberately not observed — the point is to separate
+   * the two, so instrumenting the scorer would defeat it.
+   */
+  scanOffers(state: GameState): void {
+    for (const action of legalActions(state)) {
+      if (action.type === "PlayCard") {
+        this.offered.add(action.card.defId);
+      } else if (action.type === "ActivateAbility") {
+        const found = permanentsInPlay(state).find((c) => c.instanceId === action.permanentInstanceId);
+        if (found !== undefined) this.offered.add(found.defId);
+      }
     }
   }
 

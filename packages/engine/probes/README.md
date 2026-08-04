@@ -43,6 +43,26 @@ invite the same misreading `make-buffdeck.mjs` once invited.
 Deliberately **not** gated on a coverage percentage — any threshold would be a
 number picked to pass. The gate is that the instrument still works.
 
+It reports three *reasons* a card went unexercised, and they are not
+interchangeable:
+
+| bucket | meaning | is it a defect? |
+|---|---|---|
+| `inDeckButNeverOffered` | `legalActions` never enumerated it | maybe — but check it was ever DRAWN first |
+| `offeredButNeverTaken` | offered, and the AI declined every time | **no.** `abilityBanksResource` drops resource abilities on purpose, and a 1-ply evaluator cannot price a deferred effect |
+| `inDeckButNeverExercised` | the union of both | — |
+
+The middle column is why the split exists. Six `Seal of X`, Kai'Sa and Darius are
+offered thousands of times and never taken, by design; Cleave was offered 265 times
+and taken once. Reporting those beside genuinely unreachable cards manufactures a
+backlog of broken cards that are not broken.
+
+**A game draws about 10 of 39 cards.** Games last 5–8 turns, so one copy of a card
+very likely never appears. And the pairing scheme gives each deck only ~5 distinct
+shuffles across 40 games. OGS-011 Flash sat in a deck for 10 games, was never drawn
+once, and read convincingly as an enumeration bug. Check a card was drawn before
+calling it a defect.
+
 ## Why these are TypeScript
 
 They used to be untyped `.mjs` in a session-local scratchpad, importing the engine

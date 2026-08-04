@@ -24,6 +24,25 @@
  * is still unexercised — that last one is the negative control, and without it an
  * observer that simply marked every card would report a triumphant 270/270.
  *
+ * # A card can be in the deck and still never be SEEN
+ *
+ * Measured, because it changes how every number here should be read: a game in this
+ * engine lasts 5–8 turns and only about **10 distinct cards of a 39-card deck ever
+ * reach a hand** — roughly a quarter. So a single copy of a card is unlikely to
+ * appear in any given game, and `inDecks` badly overstates what one run can reach.
+ *
+ * Worse, the games are less independent than the count suggests. This probe pairs
+ * `at(PRESET_DECKS, seed)` with `at(PRESET_DECKS, seed + 1)` and shuffles them with
+ * `mulberry32(seed)` and `mulberry32(seed + 1)` — so deck X shuffled with seed `s`
+ * turns up BOTH as player A at seed `s` and as player B at seed `s - 1`. Across 40
+ * games each deck sees only about **five distinct shuffles**, not forty.
+ *
+ * That combination produced a false lead worth remembering: OGS-011 Flash sat in
+ * Annie's deck for 10 games and reached a hand in none of them, which read as an
+ * enumeration bug and was pure sampling. **Before calling a never-offered card a
+ * defect, check it was ever drawn.** To actually reach a card, put it in at the
+ * 3-copy maximum and vary the seed — more games alone buys less than it looks like.
+ *
  * # It counts from the state stream, and it has to
  *
  * README.md's standing rule: *count from the state stream, never from inside the
@@ -78,6 +97,7 @@ for (let seed = 1; seed <= GAMES; seed++) {
       invalid++;
       break;
     }
+    log.scanOffers(before);
     log.record(before, action);
     state = res.state;
     log.scanChain(state);
@@ -133,13 +153,34 @@ for (const row of Object.values(sets)) {
   row.reachableOfPool = pct(row.inDecks, row.inPool);
 }
 
-/** In a deck, drawable, and still never did anything. These are the real leads:
- *  unlike the never-in-a-deck majority, nothing about the deck list explains them
- *  away. Named, because a bare defId is not a lead anyone will follow. */
-const inDeckButNeverExercised = [...inDecks]
-  .filter((id) => !exercised.has(id))
+const typeOf = new Map(defs.map((d) => [d.id, d.type]));
+/** A Legend can never be OFFERED: it starts in play and is never played, so its
+ *  only signals are an activated ability or a trigger. Marked rather than filtered,
+ *  because "a Legend that never fired" is still worth seeing — just not as evidence
+ *  of an enumeration gap. */
+const label = (id: string): string =>
+  `${id} ${nameOf.get(id) ?? "?"}` +
+  (typeOf.get(id) === "Legend" ? " [Legend — never offerable]" : "") +
+  (needsCode.has(id) ? "" : " (vanilla)");
+
+/** In a deck, drawable, and still never did anything. Named, because a bare defId
+ *  is not a lead anyone will follow. */
+const inDeckButNeverExercised = [...inDecks].filter((id) => !exercised.has(id)).sort().map(label);
+
+/** **The engine offered it and the AI declined — every time.** Split out because
+ *  it is a completely different fact from "never reachable", and lumping the two
+ *  together turns a documented AI limitation into a fake backlog of broken cards.
+ *  Expect the resource-banking permanents here permanently: `abilityBanksResource`
+ *  drops them from the AI's candidate pool on purpose. */
+const offeredButNeverTaken = [...log.offered].filter((id) => !exercised.has(id)).sort().map(label);
+
+/** In a deck and NEVER even offered. These are the real leads — nothing about AI
+ *  taste explains them, so it is reachability, a cost the AI can never meet, or a
+ *  gap in enumeration. */
+const inDeckButNeverOffered = [...inDecks]
+  .filter((id) => !log.offered.has(id) && !exercised.has(id))
   .sort()
-  .map((id) => `${id} ${nameOf.get(id) ?? "?"}${needsCode.has(id) ? "" : " (vanilla)"}`);
+  .map(label);
 
 /** Exercised but in no deck list — expected to be tokens, which are created rather
  *  than played. Anything else here means this observer resolved a defId wrongly. */
@@ -158,6 +199,13 @@ const controls = {
   activationsResolve: log.activationsUnresolved === 0,
   /** Games actually played out rather than dying on the first action. */
   gamesRan: gamesRun === GAMES,
+  /** **Everything the AI played was something `legalActions` offered.** The one
+   *  real invariant this probe can assert rather than merely report — and the
+   *  failure it catches is the offered-then-refused family that has now bitten
+   *  this repo three times (most recently Get Excited! at a `[Deflect]` unit,
+   *  which threw out of `chooseAction` mid-game). Restricted to the two action
+   *  kinds `offered` tracks. */
+  takenWasOffered: [...log.played.keys(), ...log.activated.keys()].every((id) => log.offered.has(id)),
 };
 
 report(
@@ -179,6 +227,9 @@ report(
       triggered: log.triggered.size,
       activationsUnresolved: log.activationsUnresolved,
     },
+    offered: log.offered.size,
+    inDeckButNeverOffered,
+    offeredButNeverTaken,
     inDeckButNeverExercised,
     exercisedOutsideDecks,
     mostPlayed: topCounts(log.played, 10),
