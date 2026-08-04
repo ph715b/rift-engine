@@ -161,6 +161,9 @@ const pageErrors = [];
 let boardsReached = 0;
 let stepsTaken = 0;
 let triggerRowStates = 0;
+/** Samples where the overlay was present but its title could not be read — a
+ *  race with the bot answering, kept apart from real titles. */
+let titleReadsFailed = 0;
 let chainItemStates = 0;
 let decisionsSeen = 0;
 let decisionsAnswered = 0;
@@ -355,8 +358,20 @@ for (let g = 0; g < GAMES; g += 1) {
     const overlay = page.locator(".choice-overlay-panel");
     if (await overlay.count()) {
       decisionsSeen += 1;
-      const title = (await page.locator(".choice-overlay-title").first().textContent().catch(() => "")) ?? "";
-      decisionTitles.set(title.trim(), (decisionTitles.get(title.trim()) ?? 0) + 1);
+      // A read that FAILS is counted separately, never as a title. Under spectate
+      // the bot answers a beat after the panel appears, so the overlay can vanish
+      // between the count above and this read — and the old `.catch(() => "")`
+      // recorded that as a decision titled "", which is indistinguishable in the
+      // report from a real prompt rendering with a blank name. That blank name is
+      // one of the things this probe exists to catch, so it must not be able to
+      // manufacture one.
+      const title = await page
+        .locator(".choice-overlay-title")
+        .first()
+        .textContent()
+        .catch(() => null);
+      if (title === null || title.trim() === "") titleReadsFailed += 1;
+      else decisionTitles.set(title.trim(), (decisionTitles.get(title.trim()) ?? 0) + 1);
       // Under spectate the options are deliberately disabled — the bot answers.
       // Clicking anyway would be a no-op that scored as a failure to answer.
       if (!SPECTATE) {
@@ -466,6 +481,7 @@ console.log(
         decisionsSeen,
         decisionsAnswered,
         decisionTitles: Object.fromEntries(decisionTitles),
+        titleReadsFailed,
         triggerNames: Object.fromEntries(triggerNames),
         playAttempts,
       },

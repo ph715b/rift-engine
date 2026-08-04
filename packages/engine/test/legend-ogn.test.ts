@@ -3,6 +3,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { executeActivateAbility } from "../src/actions/execute-activate-ability.js";
 import { validateActivateAbility } from "../src/actions/validate-activate-ability.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
+import { holdEventTrigger } from "../src/engine/triggers.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
@@ -334,14 +335,26 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
     return state;
   }
 
-  /** Plays a unit of `might` through the composed on-play dispatch. */
+  /**
+   * Plays a unit of `might` the way a real play does: the unit arrives, the
+   * on-play dispatch runs, and `cardPlayed` is HELD.
+   *
+   * That last part is the whole of the fix. Volibear used to be fired from inside
+   * `dispatchOnPlayUnit`, so `playUnitTrigger` alone reached him; he is a
+   * `cardPlayed` listener now, and only the EXECUTORS hold that event — so a
+   * helper that skips it stops reaching him, which is exactly what a card played
+   * through a path that forgot the event would look like.
+   */
   function play(state: GameState, might: number): GameState {
     const unit = makeUnit({ name: `M${might}`, might });
     const withUnit: GameState = {
       ...state,
       players: [{ ...state.players[0]!, baseUnits: [...state.players[0]!.baseUnits, unit] }, state.players[1]!],
     };
-    return playUnitTrigger(withUnit, unit, 0, "base", {});
+    const arrived = dispatchOnPlayUnit(withUnit, unit, 0, "base", {});
+    return resolveHeldTriggers(
+      holdEventTrigger(arrived, { kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: unit.instanceId }),
+    );
   }
 
   it("asks when a 5-Might unit is played, and channels 1 exhausted when accepted", () => {

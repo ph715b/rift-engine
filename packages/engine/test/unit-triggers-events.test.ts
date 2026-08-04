@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
-import { beginCombatAt, makeState, makeUnit, moveUnitTrigger, realUnitInstance } from "./fixtures.js";
+import { holdEventTrigger } from "../src/engine/triggers.js";
+import type { GameState } from "../src/model/game-state.js";
+import { beginCombatAt, makeState, makeUnit, moveUnitTrigger, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
+
+/** A resolved Spell of `casterIndex`'s, held and settled — `spellCast` is a Chain
+ *  Pending Item now, so there is no dispatcher to call. */
+const castSpell = (state: GameState, casterIndex: 0 | 1, totalCost: number) =>
+  resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost }));
 
 /**
  * These used to call `dispatchOnAttack` directly. There is no such dispatcher any
@@ -152,7 +158,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
     let state = makeState();
     state.battlefields[0]!.units = { p1: [student] };
 
-    state = dispatchOnSpellCast(state, 0, 3);
+    state = castSpell(state, 0, 3);
 
     expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(1);
   });
@@ -162,7 +168,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
     let state = makeState();
     state.battlefields[0]!.units = { p1: [student] };
 
-    state = dispatchOnSpellCast(state, 1, 3); // opponent (index 1) casts
+    state = castSpell(state, 1, 3); // opponent (index 1) casts
 
     expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });
@@ -172,7 +178,7 @@ describe("Ravenbloom Student: on-spell-cast, +1 Might this turn (own spells only
     let state = makeState();
     state.players[0]!.baseUnits = [student];
 
-    state = dispatchOnSpellCast(state, 0, 3);
+    state = castSpell(state, 0, 3);
 
     expect(state.players[0]!.baseUnits[0]!.mightThisTurn).toBe(1);
   });
@@ -184,7 +190,7 @@ describe("Lux - Illuminated: on-spell-cast, +3 Might if the spell costs 5+ Energ
     let state = makeState();
     state.battlefields[0]!.units = { p1: [lux] };
 
-    state = dispatchOnSpellCast(state, 0, 5);
+    state = castSpell(state, 0, 5);
 
     expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(3);
   });
@@ -194,7 +200,7 @@ describe("Lux - Illuminated: on-spell-cast, +3 Might if the spell costs 5+ Energ
     let state = makeState();
     state.battlefields[0]!.units = { p1: [lux] };
 
-    state = dispatchOnSpellCast(state, 0, 4);
+    state = castSpell(state, 0, 4);
 
     expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(0);
   });

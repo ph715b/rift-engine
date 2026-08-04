@@ -3,9 +3,9 @@ import { effectForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { dispatchOnSpellCast } from "../src/engine/unit-triggers.js";
+import { holdEventTrigger } from "../src/engine/triggers.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
-import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * Recruit the Vanguard (OGS-015) — "Play four 1-Might Recruit unit tokens.
@@ -107,7 +107,7 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [lux];
 
-    const next = dispatchOnSpellCast(state, 0, 4 + 1);
+    const next = resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4 + 1 }));
 
     expect(next.players[0]!.baseUnits[0]!.mightThisTurn).toBe(3);
   });
@@ -117,6 +117,9 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [lux];
 
-    expect(dispatchOnSpellCast(state, 0, 4).players[0]!.baseUnits[0]!.mightThisTurn).toBe(0);
+    expect(
+      resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4 })).players[0]!.baseUnits[0]!
+        .mightThisTurn,
+    ).toBe(0);
   });
 });

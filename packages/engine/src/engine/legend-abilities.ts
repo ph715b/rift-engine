@@ -459,7 +459,7 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
   };
 
   for (const [defId, ability] of Object.entries(LEGEND_ABILITIES)) {
-    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned } = ability;
+    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned, onSpellCast, onUnitPlayed } = ability;
 
     if (onEndOfTurn) {
       add(defId, {
@@ -500,6 +500,47 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       });
     }
 
+    if (onSpellCast) {
+      add(defId, {
+        on: "spellCast",
+        // "When you play a spell that costs 5 or more" — the caster and the
+        // threshold are both facts about the event, so both settle at fire time.
+        // The threshold lives in the BODY as well, and that is not a duplicate to
+        // remove: `onSpellCast` is still the hook's own contract, and nothing here
+        // may quietly become the only place a printed number is written down.
+        applies: (_state, listener, event) =>
+          event.kind === "spellCast" && event.casterIndex === listener.ownerIndex && event.totalCost >= 5,
+        resolve: (state, listener, event) =>
+          event.kind === "spellCast" ? onSpellCast(state, listener.ownerIndex, event.totalCost) : state,
+      });
+    }
+
+    if (onUnitPlayed) {
+      add(defId, {
+        on: "cardPlayed",
+        // **The recorded blocker for this hook was wrong.** It said Volibear
+        // "needs the played unit, which `cardPlayed` does not carry" — but the
+        // event carries `playedInstanceId`, and his body already looked the unit
+        // up on the BOARD by id rather than reading the instance it was handed,
+        // deliberately, so that a 4-Might unit under a Garen aura counts as
+        // Mighty. Nothing new was needed.
+        //
+        // [Mighty] and "you may exhaust me" are both settled here: the first is
+        // the trigger's own condition (383.4), and the second is its COST — an
+        // exhausted Legend cannot pay, and an offer nobody can take is not made.
+        applies: (state, listener, event) =>
+          event.kind === "cardPlayed" &&
+          event.playedKind === "Unit" &&
+          event.casterIndex === listener.ownerIndex &&
+          !state.players[listener.ownerIndex].legend.exhausted &&
+          isMightyById(state, event.playedInstanceId),
+        resolve: (state, listener, event) =>
+          event.kind === "cardPlayed"
+            ? onUnitPlayed(state, listener.ownerIndex, { unit: { instanceId: event.playedInstanceId } as UnitInstance, casterIndex: event.casterIndex })
+            : state,
+      });
+    }
+
     if (onEnemyUnitAttacks) {
       add(defId, {
         on: "combatBegan",
@@ -536,20 +577,20 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
  * A contested battlefield with no controller gives nothing, which is what makes
  * Ahri a defensive Legend rather than a general attack tax.
  */
+/** Is the unit with this instance id [Mighty] (5+ Might, rule 812) as it stands
+ *  on the board right now? Read through `effectiveMight`, so an aura counts —
+ *  which is why the id is looked up rather than trusting a captured instance. */
+function isMightyById(state: GameState, instanceId: string): boolean {
+  const location = findUnitAnywhere(state, instanceId);
+  return location !== undefined && isMighty(state, location.unit, location.ownerIndex);
+}
+
 function attackersAgainst(state: GameState, ownerIndex: 0 | 1, event: GameEvent): string[] {
   if (event.kind !== "combatBegan") return [];
   const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
   if (!bf || bf.controllerId !== state.players[ownerIndex].id) return [];
   if (bf.contestedByIndex === null || bf.contestedByIndex === ownerIndex) return [];
   return (bf.units[state.players[bf.contestedByIndex].id] ?? []).map((u) => u.instanceId);
-}
-
-/** Fires the caster's Legend spell-cast ability, if any. `totalCost` is
- *  Energy + Power: "costs 5 or more" reads the whole printed cost, which is
- *  how the oracle evaluates it for both Lux cards
- *  (UnitAbilities.java:66, LegendAbilities.java:47). */
-export function dispatchLegendOnSpellCast(state: GameState, ownerIndex: 0 | 1, totalCost: number): GameState {
-  return abilitiesFor(state, ownerIndex)?.onSpellCast?.(state, ownerIndex, totalCost) ?? state;
 }
 
 /** This unit's owner's Legend's continuous Might contribution, if any. */
@@ -565,14 +606,6 @@ export function legendMightBonus(
 /** Fires the active player's Legend Beginning-Phase ability, if it has one. */
 export function dispatchLegendBeginningPhase(state: GameState, ownerIndex: 0 | 1): GameState {
   return abilitiesFor(state, ownerIndex)?.onBeginningPhase?.(state, ownerIndex) ?? state;
-}
-
-/** Fires both players' Legend on-unit-played abilities — Volibear's. */
-export function dispatchLegendOnUnitPlayed(
-  state: GameState,
-  played: { unit: UnitInstance; casterIndex: 0 | 1 },
-): GameState {
-  return bothLegends(state, (next, ownerIndex) => abilitiesFor(next, ownerIndex)?.onUnitPlayed?.(next, ownerIndex, played));
 }
 
 /**

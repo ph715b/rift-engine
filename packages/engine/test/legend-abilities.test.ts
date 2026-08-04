@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { runEnd } from "../src/engine/turn-manager.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
-import { dispatchLegendOnSpellCast } from "../src/engine/legend-abilities.js";
+import { holdEventTrigger } from "../src/engine/triggers.js";
 import { makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 import type { GameState } from "../src/model/game-state.js";
 
@@ -16,14 +16,18 @@ import type { GameState } from "../src/model/game-state.js";
  * tests are about WHAT each Legend does; `test/legend-triggers-held.test.ts` is
  * where the waiting itself is pinned, and it deliberately does not settle.
  *
- * Lux's is still dispatched inline: on-spell-cast is not a held event kind, so
- * `dispatchLegendOnSpellCast` is still the way in.
+ * Lux's is held too now, on the `spellCast` event — there is no dispatcher left
+ * to call, so `castSpell` below places it and settles.
  */
 function withLegend(state: GameState, playerIndex: 0 | 1, defId: string): GameState {
   const players = [...state.players] as GameState["players"];
   players[playerIndex] = { ...players[playerIndex], legend: { ...players[playerIndex].legend, defId } };
   return { ...state, players };
 }
+
+/** A resolved Spell of `casterIndex`'s, held and settled. */
+const castSpell = (state: GameState, casterIndex: 0 | 1, totalCost: number) =>
+  resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost }));
 
 function runes(specs: ("R" | "E")[]) {
   return specs.map((s, i) => ({ id: `r${i}`, domain: "Fury" as const, state: s === "R" ? ("Ready" as const) : ("Exhausted" as const) }));
@@ -77,7 +81,7 @@ describe("Lux - Lady of Luminosity (OGS-021): play a spell costing 5+, draw 1", 
     const state = withLegend(makeState(), 0, "OGS-021");
     state.players[0]!.deck = [makeUnit(), makeUnit()];
 
-    const next = dispatchLegendOnSpellCast(state, 0, 5);
+    const next = castSpell(state, 0, 5);
     expect(next.players[0]!.hand).toHaveLength(1);
   });
 
@@ -86,14 +90,14 @@ describe("Lux - Lady of Luminosity (OGS-021): play a spell costing 5+, draw 1", 
     state.players[0]!.deck = [makeUnit()];
 
     // 4 + 1 — the case that a naive energy-only check would miss.
-    expect(dispatchLegendOnSpellCast(state, 0, 4 + 1).players[0]!.hand).toHaveLength(1);
+    expect(castSpell(state, 0, 4 + 1).players[0]!.hand).toHaveLength(1);
   });
 
   it("does not draw below 5", () => {
     const state = withLegend(makeState(), 0, "OGS-021");
     state.players[0]!.deck = [makeUnit()];
 
-    expect(dispatchLegendOnSpellCast(state, 0, 4).players[0]!.hand).toHaveLength(0);
+    expect(castSpell(state, 0, 4).players[0]!.hand).toHaveLength(0);
   });
 });
 

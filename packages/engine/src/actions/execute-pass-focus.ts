@@ -1,9 +1,8 @@
 import { isSpellChainEntry, type GameState } from "../model/game-state.js";
-import { resolveHeldDeathknell, resolveHeldSelfTrigger, resolvePendingTrigger } from "../engine/triggers.js";
+import { holdEventTrigger, resolveHeldDeathknell, resolveHeldSelfTrigger, resolvePendingTrigger } from "../engine/triggers.js";
 import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
-import { dispatchOnSpellCast, resolveHeldOnMoveTrigger, resolveHeldOnPlayTrigger } from "../engine/unit-triggers.js";
-import { dispatchLegendOnSpellCast } from "../engine/legend-abilities.js";
+import { resolveHeldOnMoveTrigger, resolveHeldOnPlayTrigger } from "../engine/unit-triggers.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
 
@@ -90,9 +89,10 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // cards read the combined figure in the oracle (UnitAbilities.java:66 and
   // LegendAbilities.java:47 are the same `energyCost + powerCost >= 5`).
   const totalCost = poppedEntry.card.energyCost + poppedEntry.card.powerCost;
-  const afterUnits = dispatchOnSpellCast(resolvedEffect, poppedEntry.playerIndex, totalCost);
-  // The caster's Legend listens at the same moment (Lux - Lady of Luminosity).
-  const resolved = dispatchLegendOnSpellCast(afterUnits, poppedEntry.playerIndex, totalCost);
+  // HELD (383), and ONE call now covers both the unit listeners and the caster's
+  // Legend — a Legend is in the listener walk, so `spellCast` reaches Lux -
+  // Illuminated and Lux - Lady of Luminosity through the same event.
+  const resolved = holdEventTrigger(resolvedEffect, { kind: "spellCast", casterIndex: poppedEntry.playerIndex, totalCost });
   return finishChainPop(resolved, resolved.spellChain.slice(0, -1)); // pop the top (LIFO — last pushed)
 }
 

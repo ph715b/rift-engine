@@ -24,7 +24,6 @@ import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
-import { dispatchLegendOnUnitPlayed } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
 import { isAttackingAt } from "./combat-designation.js";
 import type { EventTriggerDefinition } from "./triggers.js";
@@ -392,13 +391,11 @@ export function dispatchOnPlayUnit(
     optionalPowerPaid?: boolean;
   },
 ): GameState {
-  // The LEGEND watches every unit played (Volibear), whether or not that unit
-  // has a trigger of its own — so this runs before the early return below rather
-  // than after it. Folded into this funnel rather than added at each of the
-  // three call sites (both execute-play-card branches and deploy.playUnitToBase)
-  // for the reason the comment below records: a dispatch hop that one call site
-  // forgets is invisible, because the unit still deploys.
-  const withLegend = dispatchLegendOnUnitPlayed(state, { unit, casterIndex });
+  // **No Legend dispatch here.** Volibear - Relentless Storm used to be fired
+  // from this funnel, and is a HELD `cardPlayed` listener now — a Legend is in
+  // `allListeningPermanents`, and the event already carries the played unit's
+  // instance id, which is all his ability ever read. Leaving the call here as
+  // well would fire him twice for one play.
 
   // `[Vision]` fires HERE, for any unit that has it, rather than from a
   // per-card entry in the table below.
@@ -415,9 +412,9 @@ export function dispatchOnPlayUnit(
   // the entering unit is already on the board — the moment the rules name. The
   // recycle choice rode in on the action, because this engine cannot pause
   // mid-resolution to ask.
-  const withVision = hasKeyword(withLegend, unit, casterIndex, "Vision")
-    ? applyVision(withLegend, casterIndex, extra?.visionRecycle)
-    : withLegend;
+  const withVision = hasKeyword(state, unit, casterIndex, "Vision")
+    ? applyVision(state, casterIndex, extra?.visionRecycle)
+    : state;
 
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
   // straight to the inline one, so a Unit registered in a per-domain effects
@@ -949,26 +946,51 @@ export function resolveHeldOnMoveTrigger(state: GameState, entry: TriggerChainEn
  *  Spell (execute-pass-focus.ts's chain resolution), scanning only the
  *  caster's own units (base + battlefields) for a registered listener —
  *  never the opponent's, matching the printed "you" in both cards' text. */
-const ON_SPELL_CAST_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, spellTotalCost: number) => GameState> = {
-  "OGN-103": (state, ctx, unit) => giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 1), // Ravenbloom Student
-  // Lux - Illuminated — "costs 5 or more" is Energy PLUS Power (see the call
-  // site in execute-pass-focus.ts; this used to be handed energyCost alone).
-  "OGS-006": (state, ctx, unit, spellTotalCost) =>
-    spellTotalCost >= 5 ? giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 3) : state,
+interface SpellCastTriggerDefinition {
+  /** The card's own requirement BESIDES its controller having cast a spell.
+   *  Asked at fire time (383.4), so a listener whose threshold is unmet places no
+   *  Pending Item rather than one that resolves to nothing. */
+  applies?: (totalCost: number) => boolean;
+  resolve: (state: GameState, ctx: EffectContext, unit: UnitInstance, spellTotalCost: number) => GameState;
+}
+
+const ON_SPELL_CAST_TRIGGERS: Record<string, SpellCastTriggerDefinition> = {
+  // Ravenbloom Student — no threshold, so any spell of its controller's.
+  "OGN-103": { resolve: (state, ctx, unit) => giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 1) },
+  // Lux - Illuminated — "costs 5 or more" is Energy PLUS Power (the same figure
+  // her Legend reads; this used to be handed energyCost alone, which silently
+  // missed every 4-Energy/1-Power spell in the pool).
+  "OGS-006": {
+    applies: (totalCost) => totalCost >= 5,
+    resolve: (state, ctx, unit) => giveMightThisTurnToOwnUnit(state, ctx.casterIndex, unit.instanceId, 3),
+  },
 };
 
-export function dispatchOnSpellCast(state: GameState, casterIndex: 0 | 1, spellTotalCost: number): GameState {
-  const actor = state.players[casterIndex];
-  const ownUnits: UnitInstance[] = [
-    ...actor.baseUnits,
-    ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
-  ];
-  let next = state;
-  const ctx = contextFor(casterIndex);
-  for (const unit of ownUnits) {
-    const trigger = ON_SPELL_CAST_TRIGGERS[unit.defId];
-    if (!trigger) continue;
-    next = trigger(next, ctx, unit, spellTotalCost);
+/**
+ * The on-spell-cast table, presented as `spellCast` listeners.
+ *
+ * The listeners are units in play, so this family needed no `source` of its own —
+ * only a held event kind. The old dispatcher walked the CASTER's own units by
+ * hand, which is exactly the "each re-derives the listener walk" duplication this
+ * module's own header names; `allListeningPermanents` does it now, and "you" is
+ * an `applies` check on the caster like every other converted card's.
+ */
+export function spellCastEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
+  const entries: Record<string, EventTriggerDefinition> = {};
+  for (const [defId, trigger] of Object.entries(ON_SPELL_CAST_TRIGGERS)) {
+    entries[defId] = {
+      on: "spellCast",
+      // "When YOU play a spell" is the caster check the old walk did structurally;
+      // Lux - Illuminated's "costs 5 or more" is her own requirement besides that,
+      // and both are facts about the event, so both settle at fire time (383.4).
+      applies: (_state, listener, event) =>
+        event.kind === "spellCast" && event.casterIndex === listener.ownerIndex && (trigger.applies?.(event.totalCost) ?? true),
+      resolve: (state, listener, event) => {
+        if (event.kind !== "spellCast") return state;
+        if (listener.card.kind !== "Unit") return state;
+        return trigger.resolve(state, contextFor(listener.ownerIndex), listener.card, event.totalCost);
+      },
+    };
   }
-  return next;
+  return { name: "engine/unit-triggers.ts (on-spell-cast)", entries };
 }

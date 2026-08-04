@@ -9,7 +9,7 @@ import { drawCards } from "./effect-helpers.js";
 import { parkDecision } from "./decisions.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
-import { attackEventTriggers } from "./unit-triggers.js";
+import { attackEventTriggers, spellCastEventTriggers } from "./unit-triggers.js";
 import { legendEventTriggers } from "./legend-abilities.js";
 import {
   domainDeathTriggers,
@@ -668,7 +668,25 @@ export type GameEvent =
    * `"deathknell"`-sourced entry instead. Both are placed by the same call, at
    * the same moment.
    */
-  | { kind: "unitDied"; death: DeathContext };
+  | { kind: "unitDied"; death: DeathContext }
+  /**
+   * A Spell RESOLVED for `casterIndex` — Ravenbloom Student's and Lux -
+   * Illuminated's "when you play a spell", and Lux - Lady of Luminosity's.
+   *
+   * `totalCost` is Energy PLUS Power, which is how both Lux cards read "costs 5
+   * or more" (UnitAbilities.java:66 and LegendAbilities.java:47 are the same
+   * `energyCost + powerCost >= 5`). It is carried because by the time a held
+   * trigger resolves the Spell is in a trash and popped off the chain, so there
+   * is nothing left to ask.
+   *
+   * **The MOMENT is the chain pop, not the play**, which is what this engine has
+   * always done and is recorded as a divergence: the cards say "when you PLAY a
+   * spell", and 383 would fire that as the Spell goes on the Chain. Converting
+   * the mechanism does not move the moment — that is its own change, and the
+   * Attack Triggers are the precedent for doing both at once only when the rules
+   * tie them together.
+   */
+  | { kind: "spellCast"; casterIndex: 0 | 1; totalCost: number };
 
 /**
  * The event kinds that have been CONVERTED to Chain Pending Items (383 /
@@ -710,7 +728,8 @@ export type HeldEventKind =
   | "combatBegan"
   | "unitsStunned"
   | "cardsDiscarded"
-  | "unitDied";
+  | "unitDied"
+  | "spellCast";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
@@ -782,6 +801,9 @@ function allEventTriggers(): Record<string, EventTriggerDefinition> {
     // attack one gives: their conditions are all about the DEATH, which the event
     // carries, and one shared narrowing beats four copies of it.
     deathWatchEventTriggers(),
+    // The on-spell-cast family. Its listeners are units in play, so like the
+    // death-watch it needed only a held event kind, not a `source`.
+    spellCastEventTriggers(),
     // The LEGEND hooks whose moment is already a held event. A merge source like
     // any other, so a Legend defId colliding with a card's is the same named
     // error — see legendEventTriggers for why only four of the eight convert.
