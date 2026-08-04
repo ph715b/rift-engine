@@ -107,21 +107,40 @@ These were reported as engine bugs. **Three of them are not.**
    rather than silent. **Do not collapse the `mine` branch** while you are in
    there — that branch is what keeps the opponent's facedown card secret, in the
    label and the title alike, and the file says so.
-3. **Un-tap a rune exhausted by mistake.** No such action exists — `FloatRune` only
-   goes one way (exhaust for 1 Energy, or recycle for 1 Power). This is a genuine
-   new engine action plus validation: it must refuse once the floating Energy has
-   been spent, so it is "give back the Energy and ready the rune, or refuse", never
-   a free rewind. Treat it as a UI-affordance action, and check whether the rules
-   permit it at all before building it — if they do not, the honest fix is a
-   confirmation step before exhausting, not an undo.
-4. **Auto-float Energy when recycling a still-Ready rune.** Rule **164.2** gives a
-   Basic Rune two abilities and this repo already relies on it: Baited Hook's own
-   test asserts that one Ready Order rune covers both an Energy and a Power cost,
-   and `deflect-surcharge.test.ts` states the limit — double duty applies to the
-   OWNER's cost and does not make two Powers. So the reporter is very likely
-   right that recycling a Ready rune should also yield its Energy. **Confirm it
-   against the rules PDF and record it either way**, because it changes rune
-   economy globally rather than for one card.
+3. **Un-tap a rune exhausted by mistake — SETTLED: there is no such ability.**
+   Rule **164.2.b** gives a Basic Rune exactly two abilities and neither reverses
+   the other:
+
+   > `[E]: [Reaction] — Add [1].`
+   > `Recycle this: [Reaction] — Add [C].`
+
+   Nothing readies an exhausted rune on demand, so an "un-tap" is a UI affordance,
+   never a rules action. Do NOT add a `FloatRune`-style engine action for it. The
+   options are (a) a confirm step before exhausting, or (b) a genuine
+   undo-last-action at the app layer that replays from the previous `GameState` —
+   this app already keeps state per submit, so (b) is cheap and honest, and it is
+   the only one that cannot desync the engine. Prefer (b), and refuse the undo once
+   any later action has been submitted.
+
+4. **Auto-float Energy when recycling a Ready rune — SETTLED, and the requested
+   behaviour is NOT automatic.** The same two abilities are separate: recycling
+   does not exhaust, so `Recycle this` adds Power and nothing else. Granting Energy
+   automatically would be inventing a third ability the rune does not have.
+
+   But the resource need not be wasted, because a player may use BOTH abilities on
+   the same rune: exhaust it for Energy, then recycle it for Power. That is the
+   "double duty" this engine already implements and tests — Baited Hook's own test
+   asserts one Ready Order rune covers an Energy and a Power cost, and
+   `deflect-surcharge.test.ts` pins the limit (double duty serves the OWNER's cost;
+   it does not make two Powers).
+
+   So the correct fix is a **UI convenience, not an engine rule**: right-clicking a
+   *Ready* rune should submit the exhaust-for-Energy action and then the
+   recycle-for-Power action, in that order, as two real activations. `floatPower`
+   in `GameBoard.tsx` currently submits one action; chaining needs the second to
+   run against the state the first returned, so thread it rather than calling
+   `applyAction` twice against stale state. Offer it only when BOTH actions are
+   legal, and leave right-click on an already-Exhausted rune exactly as it is.
 
 ## Standing discipline — non-negotiable
 
