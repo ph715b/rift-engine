@@ -138,6 +138,24 @@ const DECK_TEXT = readFileSync(join(dirname(fileURLToPath(import.meta.url)), DEC
 // match is enough and stays right if a legend's subtitle ever changes.
 const DECK_NAME = DECK === "buff" ? /Sett/i : /Ahri/i;
 
+/**
+ * Whether this deck can be RELIED ON to raise a decision prompt in `GAMES` games,
+ * and therefore whether `decisionsSeen > 0` is a fair gate for it.
+ *
+ * **Measured, after the gate failed on a run that had nothing wrong with it.** The
+ * calm deck was run twice against the same commit and reported 12 prompts and
+ * then 0 — its decision rate is ~0.6% of samples, so six games is simply not
+ * enough for it to be sure of raising one, and the failure said "regression" when
+ * the honest answer was "this deck does not always ask". The buff deck reports
+ * 30-60 over the same six games and the combat deck reliably reaches Ava
+ * Achiever's, so both keep the gate.
+ *
+ * The STRANDED-prompt half of the check below is unaffected and applies to every
+ * deck: that one is about `decisionsSeen` approaching `stepsTaken`, which needs no
+ * prompt to have been raised at all.
+ */
+const EXPECTS_DECISIONS = DECK !== "calm";
+
 const consoleErrors = [];
 const pageErrors = [];
 let boardsReached = 0;
@@ -422,7 +440,7 @@ await browser.close();
  * A quarter is the ceiling — generous against seed variance, and nowhere near
  * the ~100% a stuck prompt would produce.
  */
-const spectateOk = !SPECTATE || (decisionsSeen > 0 && decisionsSeen * 4 < stepsTaken);
+const spectateOk = !SPECTATE || ((decisionsSeen > 0 || !EXPECTS_DECISIONS) && decisionsSeen * 4 < stepsTaken);
 
 const ok =
   boardsReached === GAMES &&

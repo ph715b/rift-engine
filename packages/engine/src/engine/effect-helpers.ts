@@ -10,7 +10,7 @@ import { dispatchEvent, dispatchOnUnitDied, dispatchSelfEvent, holdEventTrigger,
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
-import { dispatchLegendOnUnitsStunned, offerDeathReplacement } from "./legend-abilities.js";
+import { offerDeathReplacement } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
@@ -688,8 +688,11 @@ export function stunUnits(state: GameState, stunnerIndex: 0 | 1, targetInstanceI
   }
   if (stunned.length === 0) return state;
 
-  const event = { kind: "unitsStunned", stunnerIndex, stunned } as const;
-  return dispatchLegendOnUnitsStunned(dispatchEvent(next, event), event);
+  // HELD (383), not dispatched — and the Legend rides the same call now rather
+  // than a second dispatch beside it, because `allListeningPermanents` walks the
+  // Legend zone. Leona - Radiant Dawn's "buff a friendly unit" therefore parks
+  // its question a chain-pop after the stun, with a response window in between.
+  return holdEventTrigger(next, { kind: "unitsStunned", stunnerIndex, stunned });
 }
 
 /**
@@ -798,7 +801,7 @@ export function discardCards(
   // more cards"). After the per-card self-triggers, so a card that plays itself
   // out of the trash on being discarded has already done so.
   if (options?.suppressEvent) return selfTriggered;
-  return dispatchEvent(selfTriggered, { kind: "cardsDiscarded", discarderIndex: playerIndex });
+  return holdEventTrigger(selfTriggered, { kind: "cardsDiscarded", discarderIndex: playerIndex });
 }
 
 /**

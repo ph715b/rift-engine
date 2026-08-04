@@ -549,9 +549,12 @@ describe("Jinx - Rebel (OGN-202): when you discard one or more, ready me and +1 
     return state;
   }
 
+  // `cardsDiscarded` is a Chain Pending Item now (383), so these settle the chain
+  // before asking — the negatives too, since a wrongly-placed trigger would still
+  // be waiting and an unchanged board would look identical to one that never fired.
   it("fires once for a discard of 2 — 'one or more', not per card", () => {
     const state = jinxState(3);
-    const after = answerDecisions(discardCards(state, 0, 2));
+    const after = resolveHeldTriggers(answerDecisions(discardCards(state, 0, 2)));
     const jinx = after.battlefields[0]!.units["p1"]![0]!;
 
     expect(jinx.exhausted).toBe(false);
@@ -562,14 +565,14 @@ describe("Jinx - Rebel (OGN-202): when you discard one or more, ready me and +1 
     const state = jinxState(0);
     state.players[1]!.hand = [makeUnit({ name: "theirs" })];
 
-    const after = answerDecisions(discardCards(state, 1, 1));
+    const after = resolveHeldTriggers(answerDecisions(discardCards(state, 1, 1)));
 
     expect(after.battlefields[0]!.units["p1"]![0]!.exhausted).toBe(true);
   });
 
   it("does not fire when nothing was actually discarded", () => {
     const state = jinxState(0);
-    expect(discardCards(state, 0, 2).battlefields[0]!.units["p1"]![0]!.exhausted).toBe(true);
+    expect(resolveHeldTriggers(discardCards(state, 0, 2)).battlefields[0]!.units["p1"]![0]!.exhausted).toBe(true);
   });
 });
 

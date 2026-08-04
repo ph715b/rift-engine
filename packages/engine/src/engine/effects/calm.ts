@@ -506,6 +506,20 @@ function aloneAt(state: GameState, listener: Listener, event: GameEvent): string
   return mine.length === 1 ? mine[0]!.instanceId : undefined;
 }
 
+/**
+ * How many ENEMY units `ownerIndex` themselves just stunned — Eclipse Herald's
+ * whole condition, and the number his "+1 Might" is multiplied by.
+ *
+ * One function for the predicate and the payout, so the ability cannot trigger
+ * for a count it then fails to use. Reads only the event and the listener's
+ * owner, which is what makes it safe to ask at fire time: neither can be changed
+ * by the response window the hold opens.
+ */
+function enemiesStunnedFor(ownerIndex: 0 | 1, event: GameEvent): number {
+  if (event.kind !== "unitsStunned" || event.stunnerIndex !== ownerIndex) return 0;
+  return event.stunned.filter((s) => s.ownerIndex !== ownerIndex).length;
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "OGN-066": {
     // Ahri - Alluring — "When I hold, you score 1 point."
@@ -643,10 +657,14 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // be. A Herald does not celebrate its own controller's units being stunned,
     // nor the opponent stunning something.
     on: "unitsStunned",
+    // Both halves of "you ... enemy" are fire-time conditions, so they decide
+    // whether a Pending Item exists rather than being re-asked at resolution —
+    // and they can be, because each reads only the EVENT and the listener's
+    // owner, neither of which the response window can change.
+    applies: (_state, listener, event) => enemiesStunnedFor(listener.ownerIndex, event) > 0,
     resolve: (state, listener, event) => {
       if (event.kind !== "unitsStunned") return state;
-      if (event.stunnerIndex !== listener.ownerIndex) return state;
-      const enemiesStunned = event.stunned.filter((s) => s.ownerIndex !== listener.ownerIndex).length;
+      const enemiesStunned = enemiesStunnedFor(listener.ownerIndex, event);
       if (enemiesStunned === 0) return state;
       const readied = readyUnit(state, listener.card.instanceId);
       return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, enemiesStunned);

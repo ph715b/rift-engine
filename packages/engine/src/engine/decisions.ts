@@ -4,7 +4,7 @@ import { domainDecisions, mergeRegistries } from "./effects/index.js";
 import { legendDecisions } from "./legend-abilities.js";
 import { freePlayDecisions } from "./free-play.js";
 import { discardCards, drawCards } from "./effect-helpers.js";
-import { dispatchEvent } from "./triggers.js";
+import { holdEventTrigger } from "./triggers.js";
 
 /**
  * The engine stopping to ask a player a question, and carrying on with the
@@ -96,7 +96,10 @@ const GENERIC: Record<string, DecisionDefinition> = {
       const discarded = discardCards(state, d.playerIndex, 1, [optionId], { suppressEvent: true });
       const remaining = (d.count ?? 1) - 1;
       if (remaining > 0) return repeatDecision(discarded, { ...d, count: remaining });
-      return dispatchEvent(discarded, { kind: "cardsDiscarded", discarderIndex: d.playerIndex });
+      // HELD (383), like the funnel's own site. The suppression above is what
+      // makes one instruction one Pending Item however many answers it took —
+      // holding per answer would put Jinx - Rebel on the chain twice.
+      return holdEventTrigger(discarded, { kind: "cardsDiscarded", discarderIndex: d.playerIndex });
     },
   },
 

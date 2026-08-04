@@ -587,9 +587,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // "YOU discard" is her own controller: Mindsplitter making the OPPONENT
     // discard must not ready their Jinx.
     on: "cardsDiscarded",
+    // "YOU discard" reads only the event and the listener's owner, so it is a
+    // fire-time condition and settles whether a Pending Item is placed at all.
+    // Not re-asked below: 383 fixes triggering at the moment of the event.
+    applies: (_state, listener, event) => event.kind === "cardsDiscarded" && event.discarderIndex === listener.ownerIndex,
     resolve: (state, listener, event) => {
       if (event.kind !== "cardsDiscarded") return state;
-      if (event.discarderIndex !== listener.ownerIndex) return state;
       const readied = readyUnit(state, listener.card.instanceId);
       return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, 1);
     },

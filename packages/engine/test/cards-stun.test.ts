@@ -14,7 +14,16 @@ import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { answerDecisions, beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance, spellInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  beginCombatAt,
+  makeState,
+  makeUnit,
+  playUnitTrigger,
+  realUnitInstance,
+  resolveHeldTriggers,
+  spellInstance,
+} from "./fixtures.js";
 
 /**
  * The eleven cards that read "stun", and the two events they needed.
@@ -159,10 +168,14 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     return { state, herald, enemy };
   }
 
+  // `unitsStunned` is a Chain Pending Item now (383), so every one of these
+  // settles the chain before asking what happened — including the NEGATIVE ones,
+  // which would otherwise pass whether the condition worked or the trigger were
+  // merely still waiting.
   it("readies the Herald and pumps it when its controller stuns an enemy", () => {
     const { state, enemy } = heraldState();
 
-    const after = stunUnits(state, 0, [enemy.instanceId]);
+    const after = resolveHeldTriggers(stunUnits(state, 0, [enemy.instanceId]));
     const herald = firstAt(after, "p1");
 
     expect(herald.exhausted).toBe(false);
@@ -175,7 +188,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     const { state, enemy } = heraldState();
     const already = stunUnit(state, enemy.instanceId);
 
-    const after = stunUnits(already, 0, [enemy.instanceId]);
+    const after = resolveHeldTriggers(stunUnits(already, 0, [enemy.instanceId]));
 
     expect(firstAt(after, "p1").exhausted).toBe(true); // never readied
     expect(firstAt(after, "p1").mightThisTurn).toBe(0);
@@ -187,7 +200,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     const ownUnit = makeUnit({ name: "Also mine" });
     state.players[0]!.baseUnits = [ownUnit];
 
-    const after = stunUnits(state, 1, [ownUnit.instanceId]);
+    const after = resolveHeldTriggers(stunUnits(state, 1, [ownUnit.instanceId]));
 
     expect(firstAt(after, "p1").instanceId).toBe(herald.instanceId);
     expect(firstAt(after, "p1").exhausted).toBe(true);
@@ -199,7 +212,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     const ownUnit = makeUnit({ name: "Also mine" });
     state.players[0]!.baseUnits = [ownUnit];
 
-    const after = stunUnits(state, 0, [ownUnit.instanceId]);
+    const after = resolveHeldTriggers(stunUnits(state, 0, [ownUnit.instanceId]));
 
     expect(firstAt(after, "p1").exhausted).toBe(true);
   });
@@ -212,7 +225,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     state.battlefields[0]!.units["p2"] = [...state.battlefields[0]!.units["p2"]!, second];
     const ids = unitsAt(state, "p2").map((u) => u.instanceId);
 
-    const after = stunUnits(state, 0, ids);
+    const after = resolveHeldTriggers(stunUnits(state, 0, ids));
 
     expect(firstAt(after, "p1").mightThisTurn).toBe(2);
   });
@@ -236,7 +249,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
         a.modeId === "stun" &&
         a.targetUnitInstanceId === enemy.instanceId,
     )!;
-    const after = executeActivateAbility(state, stun as never);
+    const after = resolveHeldTriggers(executeActivateAbility(state, stun as never));
 
     expect(firstAt(after, "p2").stunned).toBe(true);
     expect(unitsAt(after, "p1").find((u) => u.defId === ECLIPSE_HERALD)!.exhausted).toBe(false);
@@ -257,7 +270,7 @@ describe("Leona - Radiant Dawn (OGN-261): when you stun one or more enemy units,
   it("buffs a chosen friendly unit when its controller stuns an enemy", () => {
     const { state, enemies } = leonaState();
 
-    const after = answerDecisions(stunUnits(state, 0, [enemies[0]!.instanceId]));
+    const after = answerDecisions(resolveHeldTriggers(stunUnits(state, 0, [enemies[0]!.instanceId])));
 
     expect(firstAt(after, "p1").buffed).toBe(true);
   });
@@ -269,7 +282,7 @@ describe("Leona - Radiant Dawn (OGN-261): when you stun one or more enemy units,
     const second = makeUnit({ name: "Second friendly" });
     state.players[0]!.baseUnits = [second];
 
-    const after = stunUnits(state, 0, enemies.map((u) => u.instanceId));
+    const after = resolveHeldTriggers(stunUnits(state, 0, enemies.map((u) => u.instanceId)));
 
     expect(after.pendingDecisions).toHaveLength(1);
     expect(after.pendingDecisions[0]!.kind).toBe("OGN-261-buff");
@@ -280,7 +293,7 @@ describe("Leona - Radiant Dawn (OGN-261): when you stun one or more enemy units,
     const atHome = makeUnit({ name: "At home" });
     state.players[0]!.baseUnits = [atHome];
 
-    const after = stunUnits(state, 0, [enemies[0]!.instanceId]);
+    const after = resolveHeldTriggers(stunUnits(state, 0, [enemies[0]!.instanceId]));
     const options = optionsFor(after, pendingDecision(after)!);
 
     expect(options.map((o) => o.label).sort()).toEqual(["At home", "Friendly"]);
@@ -289,8 +302,8 @@ describe("Leona - Radiant Dawn (OGN-261): when you stun one or more enemy units,
   it("does not fire for the opponent's stun, nor for stunning your own", () => {
     const { state, friendly } = leonaState();
 
-    expect(stunUnits(state, 1, [friendly.instanceId]).pendingDecisions).toHaveLength(0);
-    expect(stunUnits(state, 0, [friendly.instanceId]).pendingDecisions).toHaveLength(0);
+    expect(resolveHeldTriggers(stunUnits(state, 1, [friendly.instanceId])).pendingDecisions).toHaveLength(0);
+    expect(resolveHeldTriggers(stunUnits(state, 0, [friendly.instanceId])).pendingDecisions).toHaveLength(0);
   });
 });
 
@@ -544,10 +557,12 @@ describe("Facebreaker (OGN-220): stun a friendly and an enemy at the SAME battle
     const { state, friendly, enemy } = faceState();
     state.players[0]!.legend = { ...state.players[0]!.legend, defId: LEONA_RADIANT_DAWN, name: "Leona - Radiant Dawn" };
 
-    const after = resolveSpell(FACEBREAKER, 0, state, {
-      targetUnitInstanceId: friendly.instanceId,
-      secondTargetUnitInstanceId: enemy.instanceId,
-    });
+    const after = resolveHeldTriggers(
+      resolveSpell(FACEBREAKER, 0, state, {
+        targetUnitInstanceId: friendly.instanceId,
+        secondTargetUnitInstanceId: enemy.instanceId,
+      }),
+    );
 
     expect(after.pendingDecisions).toHaveLength(1);
   });

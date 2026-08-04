@@ -459,7 +459,7 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
   };
 
   for (const [defId, ability] of Object.entries(LEGEND_ABILITIES)) {
-    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks } = ability;
+    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned } = ability;
 
     if (onEndOfTurn) {
       add(defId, {
@@ -481,6 +481,22 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
         resolve: (state, listener, event) =>
           event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onUnitsStunned) {
+      add(defId, {
+        on: "unitsStunned",
+        // Leona's "when you stun ONE OR MORE enemy units" — both halves read only
+        // the event and the Legend's owner, so they settle at fire time. The
+        // ability itself then pays out ONCE however many were stunned, which is
+        // the whole reason `unitsStunned` is a batch event rather than per unit.
+        applies: (_state, listener, event) =>
+          event.kind === "unitsStunned" &&
+          event.stunnerIndex === listener.ownerIndex &&
+          event.stunned.some((s) => s.ownerIndex !== listener.ownerIndex),
+        resolve: (state, listener, event) =>
+          event.kind === "unitsStunned" ? onUnitsStunned(state, listener.ownerIndex, event) : state,
       });
     }
 
@@ -549,20 +565,6 @@ export function legendMightBonus(
 /** Fires the active player's Legend Beginning-Phase ability, if it has one. */
 export function dispatchLegendBeginningPhase(state: GameState, ownerIndex: 0 | 1): GameState {
   return abilitiesFor(state, ownerIndex)?.onBeginningPhase?.(state, ownerIndex) ?? state;
-}
-
-/**
- * Fires BOTH players' Legend stun abilities, active player first — turn order,
- * the order the rules resolve simultaneous triggers in, and the same order
- * `allListeningPermanents` uses for board listeners.
- *
- * Both players, not just the stunner: "when YOU stun" is the ability's own
- * condition to check against `event.stunnerIndex`, not something this dispatch
- * should decide. Filtering here would make the hook unusable for a legend that
- * one day triggers on being stunned.
- */
-export function dispatchLegendOnUnitsStunned(state: GameState, event: StunEvent): GameState {
-  return bothLegends(state, (next, ownerIndex) => abilitiesFor(next, ownerIndex)?.onUnitsStunned?.(next, ownerIndex, event));
 }
 
 /** Fires both players' Legend on-unit-played abilities — Volibear's. */

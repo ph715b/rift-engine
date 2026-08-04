@@ -617,7 +617,9 @@ export type HeldEventKind =
   | "battlefieldHeld"
   | "unitKilledBySpell"
   | "cardsRecycled"
-  | "combatBegan";
+  | "combatBegan"
+  | "unitsStunned"
+  | "cardsDiscarded";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
