@@ -326,11 +326,73 @@ function decodeTextEntities(plain: string): string {
     .replace(/&amp;/g, "&");
 }
 
+/**
+ * Cards whose printed text names a keyword **without its brackets**, with the
+ * defId mapped to the keywords affected.
+ *
+ * Two SFD cards do this, confirmed against the raw JSON rather than inferred —
+ * the upstream data really is missing the brackets, `rich` and `plain` agree,
+ * and neither is anything this loader did to them:
+ *
+ *   SFD-096 Laurent Bladekeeper — "Ganking (I can move from battlefield to
+ *   battlefield.)"
+ *   SFD-138 Windsinger — "Hidden (Hide now for ... to react with later ...)"
+ *
+ * **Both halves of this go wrong, and in opposite directions.** `parseKeywords`
+ * only reads `[Bracketed]` tokens, so the unit does not HAVE the keyword —
+ * Laurent could not move and Windsinger was not hidden, silently, with nothing
+ * to see. And `coverage.implementableText` only strips BRACKETED keywords, so
+ * the bare word survived as residue and the card reported as needing an
+ * implementation — which would have sent someone to write "Ganking" as a card
+ * effect, duplicating a keyword the engine already has.
+ *
+ * The fix is to BRACKET the word in the stored text, once, here. Everything
+ * downstream — `parseKeywords`, `implementableText`, the deck builder, the
+ * board's rules text — then sees the card the way every other card in the pool
+ * is written, and none of them needs to know about the exception. Fixing it as
+ * two separate tables (grant the keyword; suppress the residue) would have been
+ * two things to keep in step.
+ *
+ * **Nothing else in the repo could have caught these.** The bracket sweep in
+ * coverage-drift asks whether a bracketed token is known, and there is no
+ * bracket here to be unknown. `keyword-prose.test.ts` is the guard for this
+ * direction, and it is what will name the next one.
+ *
+ * This is the same problem `QUICK_TEXT_OVERRIDES` solves for "I enter ready",
+ * and deliberately not merged with it: that table is about a card describing a
+ * keyword's EFFECT in its own prose, while this one is about a card printing
+ * the keyword's own NAME and losing the brackets in the data.
+ */
+const PROSE_KEYWORD_DEF_IDS: Record<string, readonly Keyword[]> = {
+  "SFD-096": ["Ganking"], // Laurent Bladekeeper
+  "SFD-138": ["Hidden"], // Windsinger
+};
+
+/** The defIds above, for the test that pins each entry to a card whose text
+ *  really does print the bare keyword. Exported rather than the table, on the
+ *  same reasoning as `hiddenKeywordFalsePositiveDefIds`. */
+export function proseKeywordDefIds(): string[] {
+  return Object.keys(PROSE_KEYWORD_DEF_IDS);
+}
+
+/** Rewrites a bare keyword name into its bracketed form, so the rest of the
+ *  pipeline sees an ordinary card. Only the FIRST occurrence, and only for the
+ *  keywords named for this defId — a blanket "bracket every keyword word you
+ *  see" would rewrite Ember Monk's "play a card with [Hidden]" prose and every
+ *  other card that MENTIONS a keyword without having it. */
+function bracketProseKeywords(id: string, plain: string): string {
+  let text = plain;
+  for (const keyword of PROSE_KEYWORD_DEF_IDS[id] ?? []) {
+    text = text.replace(new RegExp(`(^|[^\\[\\w])(${keyword})\\b`, "i"), (_m, before: string) => `${before}[${keyword}]`);
+  }
+  return text;
+}
+
 function parseCardDefinition(card: RawCard): CardDefinition {
   const id = deriveId(card.riftbound_id);
   const name = card.name.replace(" (Starter)", "");
   const domains = parseDomains(card.classification.domain);
-  const plain = decodeTextEntities(card.text.plain ?? "");
+  const plain = bracketProseKeywords(id, decodeTextEntities(card.text.plain ?? ""));
   const imageUrl = card.media.image_url ?? "";
   const energyCost = card.attributes.energy ?? 0;
   const powerCost = card.attributes.power ?? 0;
