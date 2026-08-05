@@ -11,6 +11,7 @@ import type {
 import { isAttackingAt } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
@@ -26,8 +27,11 @@ import {
   ownUnitsEverywhere,
   readyRunes,
   readyUnit,
+  recallUnitToBase,
+  returnCardFromTrash,
   returnUnitToHand,
   stunUnits,
+  takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
@@ -364,6 +368,40 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return grantTemporary(doubled, id);
     },
   },
+  "SFD-043": {
+    // Emperor's Divide — "[Hidden][Action] Move any number of friendly units at
+    // a battlefield to their base."
+    //
+    // "ANY NUMBER" is `min: 0`, which the unitList spec's own note settles: a
+    // minimum of zero is what makes "up to" real, and it also makes the card
+    // castable with nothing chosen — the same shape Fox-Fire has, and the same
+    // reason (355 requires valid choices for all targets at announce, and zero
+    // choices is a valid answer to "any number").
+    //
+    // "AT A BATTLEFIELD" is doing two jobs at once and both are load-bearing.
+    // It is the default `scope`, so a unit sitting in base is not a legal choice
+    // — this spell cannot move a unit that is already home. And it is `A`
+    // battlefield, singular, so `sameBattlefield` groups the whole set at one
+    // place; a divide that emptied two battlefields at once would be a different
+    // (much better) card.
+    //
+    // `recallUnitToBase`, NOT `relocateToBaseUnchanged`, and the two are not
+    // interchangeable: the card says MOVE, so the unit arrives exhausted and
+    // Vilemaw's Lair's "units can't move from here to base" stops it. That is
+    // rule 454's distinction — a Recall is not a Move — and Fight or Flight's
+    // identical "move a unit from a battlefield to its base" already makes the
+    // same call. Picking the other helper would silently make this better than
+    // printed.
+    //
+    // [Hidden] and [Action] are timing (engine/timing.ts). Played from Hidden,
+    // rule 811 restricts the choices to that battlefield's units, which
+    // legal-actions enforces rather than this resolver.
+    targeting: { kind: "unitList", min: 0, owner: "friendly", sameBattlefield: true },
+    resolve: (state, _ctx, event) =>
+      // Per chosen id, in the order chosen. A unit that has left play in the
+      // meantime is skipped by the helper rather than throwing (422).
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => recallUnitToBase(next, id), state),
+  },
 };
 
 /** The `MightContext` for a unit `findUnitAnywhere` just located — the
@@ -476,7 +514,163 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx, _unitId, event) =>
       event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
   },
+  "SFD-032": {
+    // Disarming Rake — "When you play me, you may kill a gear."
+    //
+    // Adaptatron's question without its "if you do" payoff, and it takes the
+    // same two readings for the same reasons. "A GEAR" names no owner, so your
+    // own is on offer too — this pool's gear includes Treasure Trove and
+    // Scrapheap, which pay out when they die, so killing your own is a real play
+    // rather than a mis-click waiting to happen. And it is routed through
+    // `killGear` so those self-triggers actually fire.
+    //
+    // "You MAY", so it parks a question rather than taking a target: a target on
+    // the action would make the kill compulsory whenever any gear existed.
+    //
+    // Nothing is asked with no gear anywhere — 422's do-as-much-as-you-can, and
+    // a question with no answers must not be parked.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      state.players[0].activeGear.length + state.players[1].activeGear.length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-032-kill", playerIndex: ctx.casterIndex }),
+  },
+  "SFD-039": {
+    // Royal Entourage — "When you play me, ready or exhaust a legend."
+    //
+    // The first card in the pool that touches a LEGEND's ready state from
+    // outside the legend's own ability, and both halves are worth something:
+    // readying your own buys a second use of its once-per-turn ability this
+    // turn, and exhausting the opponent's denies theirs.
+    //
+    // "A LEGEND" carries no owner, so either seat's is a legal choice, and the
+    // rules settle it with this card's own wording: 355.9.a's bare-noun list says
+    // "'Legend' refers to a legend in the Legend Zone", and 355.10.b's worked
+    // example is literally *"Ready a legend" targets a legend, because the Legend
+    // Zone is Public* — with Legend Zones (plural) named among the Public zones.
+    // No owner restriction anywhere, so exhausting theirs is as legal as readying
+    // yours.
+    //
+    // **A DECISION rather than an announce-time target, and that is a divergence
+    // worth naming.** Because it targets, 355 would have the legend chosen when
+    // the Entourage is announced. There is no `legend` kind in TargetingSpec and
+    // adding one is a card-effects.ts change; the same shape Adaptatron's "kill a
+    // gear" and Blitzcrank's "move an enemy unit" already take, for the reason
+    // decisions.ts records. Observable only through a Reaction cast in the window
+    // between the play and the trigger resolving.
+    //
+    // MANDATORY: there is no "you may". Every board offers exactly two answers
+    // (each legend is either ready or exhausted, so each contributes the one
+    // change that would do something), which is also what stops
+    // `advanceDecisions` answering it on the player's behalf.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "SFD-039-legend", playerIndex: ctx.casterIndex }),
+  },
+  "SFD-053": {
+    // Janna - Savior — "[Reaction] When you play me, heal your units here, then
+    // move up to one enemy unit from here to its base."
+    //
+    // "HERE" is where she landed, so this reads `event.destination` rather than
+    // looking her up — the same field, and the same reason, as Blitzcrank -
+    // Impassive's "to here". Her [Reaction] timing (813, and the printed
+    // permission to play her to a battlefield you control) is engine/timing.ts's;
+    // nothing about it changes what this resolver does.
+    //
+    // Played to BASE she still heals — "your units here" is a real instruction
+    // wherever she is, and 355.9.b makes a Base a place like any other — but the
+    // second half asks nothing, because no enemy unit can be standing in your
+    // base for her to move out of it.
+    //
+    // "HEAL", not "heal all units": only the caster's, and only at her location.
+    // `healAllUnits` is the wrong helper twice over (it clears both players,
+    // everywhere), so the clearing is written out here.
+    //
+    // "UP TO ONE", so declining is a real answer and leads the list. Moving an
+    // enemy home un-contests the battlefield she just arrived at, which is
+    // usually the point of casting her mid-showdown — but not always, since it
+    // also hands that unit back ready to defend elsewhere.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      const battlefieldId = event.destination === "base" ? undefined : event.destination.battlefieldId;
+      const healed = healOwnUnitsAt(state, ctx.casterIndex, battlefieldId);
+      if (battlefieldId === undefined) return healed;
+      const enemyIndex: 0 | 1 = ctx.casterIndex === 0 ? 1 : 0;
+      const bf = healed.battlefields.find((b) => b.id === battlefieldId);
+      // 422 again: with no enemy unit here there is nothing to move, so nothing
+      // is asked.
+      if ((bf?.units[healed.players[enemyIndex].id] ?? []).length === 0) return healed;
+      return parkDecision(healed, { kind: "SFD-053-move", playerIndex: ctx.casterIndex, battlefieldId });
+    },
+  },
+  "SFD-058": {
+    // Ornn - Blacksmith's FIRST moment — "When you play me or when I hold, look
+    // at the top 4 cards of your Main Deck. You may reveal a gear from among them
+    // and draw it. Then recycle the rest."
+    //
+    // One ability with two triggers, so the body lives in `ornnLook` below and
+    // the on-hold half registers separately in `eventTriggers`. Splitting the
+    // text between the two entries instead would have let them drift.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => ornnLook(state, ctx.casterIndex),
+  },
 };
+
+/** Janna - Savior's "heal your units HERE" — `playerIndex`'s units at
+ *  `battlefieldId`, or in their base when she was played there.
+ *
+ *  Written out rather than reaching for `healAllUnits`, which is global on both
+ *  axes this card is narrow on: it clears BOTH players and EVERY zone, and would
+ *  quietly heal the enemy units Janna was cast to finish off. */
+function healOwnUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string | undefined): GameState {
+  const heal = (u: UnitInstance): UnitInstance => (u.damage === 0 ? u : { ...u, damage: 0 });
+  const ownerId = state.players[playerIndex].id;
+  if (battlefieldId === undefined) {
+    const players = [...state.players] as [PlayerState, PlayerState];
+    players[playerIndex] = { ...players[playerIndex], baseUnits: players[playerIndex].baseUnits.map(heal) };
+    return { ...state, players };
+  }
+  return {
+    ...state,
+    battlefields: state.battlefields.map((bf) =>
+      bf.id === battlefieldId ? { ...bf, units: { ...bf.units, [ownerId]: (bf.units[ownerId] ?? []).map(heal) } } : bf,
+    ),
+  };
+}
+
+/**
+ * Ornn - Blacksmith's ability, shared by his on-play and his on-hold trigger.
+ *
+ * Nocturne's offer is parked FIRST, and the queue being FIFO is what makes that
+ * the right order: "as you LOOK AT me from the top of your deck" is answered
+ * before "which gear do you take", which is the order the two texts read in.
+ * Reinforce makes the same call for the same reason.
+ *
+ * An empty deck asks nothing at all rather than parking a question whose only
+ * answer is "decline" — 422.
+ */
+function ornnLook(state: GameState, playerIndex: 0 | 1): GameState {
+  const looked = state.players[playerIndex].deck.slice(0, 4);
+  if (looked.length === 0) return state;
+  return parkDecision(offerTopOfDeckBanish(state, playerIndex, looked), { kind: "SFD-058-gear", playerIndex });
+}
+
+/** "Recycle the top card" — the bottom of the Main Deck (416/1924), never the
+ *  trash. Held through `holdCardsRecycled` so Karma - Channeler sees it, which
+ *  is the whole reason this is not written as a bare deck rotation. */
+function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const owner = players[playerIndex];
+  const top = owner.deck[0];
+  if (!top) return state;
+  players[playerIndex] = { ...owner, deck: [...owner.deck.slice(1), top] };
+  return holdCardsRecycled({ ...state, players }, playerIndex, 1);
+}
+
+/** The cards Guardian of the Passage could take back — "a unit OR GEAR from
+ *  your trash", so a Spell in there is not on offer. */
+function trashUnitsAndGear(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].trash.filter((c) => c.kind === "Unit" || c.kind === "Gear");
+}
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
@@ -779,7 +973,193 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return dealDamage(state, listener.ownerIndex, enemyId, might);
     },
   },
+  "SFD-035": {
+    // Guardian of the Passage — "When I hold, you may return a unit or gear from
+    // your trash to your hand."
+    //
+    // "When **I** hold" is the positional reading Ahri - Alluring and Blitzcrank
+    // - Impassive already take: the battlefield held has to be the one the
+    // Guardian is standing at, not merely one his controller held somewhere.
+    //
+    // Both conditions are settled at fire time and deliberately not re-asked in
+    // `resolve` — the window this hold opens is exactly when an opponent could
+    // move or kill him, and 383 fixes triggering at the moment of the event.
+    //
+    // Whether the trash has anything to take back is NOT one of them: that is a
+    // question about the board at RESOLUTION, so it belongs below. A trigger that
+    // fires and then finds nothing is the rules working.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      // "You MAY" — but a question with no answers must not be parked (422).
+      if (trashUnitsAndGear(state, listener.ownerIndex).length === 0) return state;
+      return parkDecision(state, { kind: "SFD-035-return", playerIndex: listener.ownerIndex });
+    },
+  },
+  "SFD-038": {
+    // Ribbon Dancer — "When I move to a battlefield, give another friendly unit
+    // +1 Might this turn."
+    //
+    // A `unitMoved` listener watching for ITSELF, which is Yasuo - Windrider's
+    // shape and not the per-card `ON_MOVE_TRIGGERS` table's. Both are placed by
+    // the same line of `executeMoveUnit`, so the two mechanisms fire at exactly
+    // the same moment; this one is reachable from a per-domain file, which the
+    // table is not.
+    //
+    // "TO A BATTLEFIELD" is written out even though a Standard Move in this
+    // engine always has a battlefield as its destination (`MoveUnitAction`
+    // carries `destinationBattlefieldId`, and moving home is a Recall rather
+    // than a Move — 454). It is the card's own condition, and a check that is
+    // currently always true is cheaper to keep than to rediscover.
+    //
+    // "ANOTHER friendly unit" carries no location word, so 355.9.b's bare-noun
+    // reading applies and a unit at home is a legal choice — pumping a defender
+    // in base is exactly what this is for when the Dancer walks in alone.
+    //
+    // giveMightThisTurn, not a Buff: it expires in the Expiration Step (317).
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId && event.to !== "base",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      // MANDATORY — no "you may" — so there is no decline option. With no other
+      // friendly unit anywhere there is nobody to give it to and nothing is
+      // asked (422); "ANOTHER" is what makes that case reachable at all.
+      if (ribbonDancerCandidates(state, listener.ownerIndex, listener.card.instanceId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "SFD-038-might",
+        playerIndex: listener.ownerIndex,
+        // "ANOTHER" — the Dancer herself, carried so the answer-time candidate
+        // list can exclude her even if she has moved again since.
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "SFD-041": {
+    // Apprentice Smith — "When I move, reveal the top card of your Main Deck. If
+    // it's a gear, draw it. Otherwise, recycle it."
+    //
+    // Same self-watching `unitMoved` shape as Ribbon Dancer above, minus her
+    // destination condition: "when I move" full stop.
+    //
+    // Nothing is revealed from an empty deck, so nothing happens — deliberately
+    // NOT a Burn Out. `drawCards` runs 431 because a card was drawn and could
+    // not be; this card only draws once it has already seen a gear on top, so
+    // an empty deck never reaches the draw at all.
+    //
+    // "RECYCLE it" is the bottom of the Main Deck (1924), which is what makes
+    // the Smith a repeatable filter rather than self-mill: the same card comes
+    // back around eventually.
+    on: "unitMoved",
+    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      const top = state.players[listener.ownerIndex].deck[0];
+      if (!top) return state;
+      // "If it's a GEAR, DRAW it" — the card revealed is the top one, so the
+      // ordinary draw takes exactly it.
+      const after = top.kind === "Gear" ? drawCards(state, listener.ownerIndex, 1) : recycleTopCard(state, listener.ownerIndex);
+      // "As you look at or REVEAL me" (Nocturne), raised AFTER rather than
+      // before because this reveal consumes the card immediately and nothing
+      // here stops to ask — the same ordering Dazzling Aurora uses, and his
+      // decision banishes the card from wherever it has since ended up.
+      return offerTopOfDeckBanish(after, listener.ownerIndex, [top]);
+    },
+  },
+  "SFD-047": {
+    // Simian Ancestor — "When you buff me, ready me."
+    //
+    // A 5-Energy 5-Might body that can attack and then be untapped by any of the
+    // pool's buffs, which is why it reads on the BUFF rather than on the pump: a
+    // Buff is a persistent game object (710) and this fires as one is PLACED.
+    //
+    // Fires only for a buff that was really placed. 708 makes a second Buff on an
+    // already-buffed unit a no-op, and `addBuff` already drops the event in that
+    // case — so a second Stand United does not ready him again. That is the rule
+    // rather than an optimisation here, and it is the reason this card is not a
+    // free untap engine.
+    //
+    // **"When YOU buff me" is read as "when I am buffed", and that is the
+    // event's shape rather than a choice made here**: `unitBuffed` carries whose
+    // UNIT it is and deliberately no causer (see its own note). The two come
+    // apart only if an opponent could buff your unit, which no card in this pool
+    // does — the day one does, the event needs the field, not this entry.
+    //
+    // `readyUnit` no-ops on an already-ready Ancestor, which is 415 and is what
+    // keeps the `unitReadied` event honest.
+    on: "unitBuffed",
+    applies: (_state, listener, event) =>
+      event.kind === "unitBuffed" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.ownerIndex === listener.ownerIndex,
+    resolve: (state, listener) => readyUnit(state, listener.card.instanceId),
+  },
+  "SFD-048": {
+    // Stellacorn Herder — "When I move, draw 1."
+    //
+    // The plainest member of the self-watching `unitMoved` family; see Ribbon
+    // Dancer above for why these are event listeners rather than entries in
+    // unit-triggers.ts's per-card move table.
+    on: "unitMoved",
+    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
+  "SFD-057": {
+    // Irelia - Fervent — "[Deflect] When you choose or ready me, give me
+    // +1 Might this turn."
+    //
+    // **HALF the ability, and the half that is missing is named rather than
+    // quietly dropped.** "When you READY me" is here; "when you CHOOSE me" is
+    // NOT, and cannot be from this file: there is no board-wide "a unit was
+    // chosen" event. The only choosing moment the engine has is
+    // battlefield-abilities.ts's `unitChosenBySpell`, which is a
+    // BATTLEFIELD-keyed hold raised only from `execute-play-card` — it cannot
+    // reach a unit listener, it never sees an ABILITY choosing her, and it drops
+    // a unit standing in base. Wiring that half needs a `unitChosen` GameEvent
+    // in triggers.ts fired from both choosing paths, which is a shared-file
+    // change. Until it lands she is PARTIAL: coverage.ts's registration is per
+    // defId and will report her DONE.
+    //
+    // The ready half is not a consolation prize — `unitReadied` includes the
+    // Awakening Phase's mass ready (415, and the event's own note), so a
+    // returning Irelia is a 5-Might attacker on the turn after she is spent.
+    //
+    // Fires only for a ready that actually happened: `readyUnit` refuses an
+    // already-ready unit (415), so the event never exists for a no-op.
+    on: "unitReadied",
+    applies: (_state, listener, event) =>
+      event.kind === "unitReadied" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.ownerIndex === listener.ownerIndex,
+    resolve: (state, listener) => giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 1),
+  },
+  "SFD-058": {
+    // Ornn - Blacksmith's SECOND moment — "when I hold". See his on-play entry
+    // in `unitTriggers` for the ability itself; both call `ornnLook`.
+    //
+    // "When **I** hold" is positional, like Ahri - Alluring's and the Guardian's
+    // above: the battlefield held has to be the one Ornn is standing at. Settled
+    // at fire time so the window this opens cannot be used to move him off it.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? ornnLook(state, listener.ownerIndex) : state),
+  },
 };
+
+/** The units Ribbon Dancer's "give ANOTHER friendly unit" may name — hers,
+ *  anywhere (355.9.b), minus herself. One function for the fire-time "is there
+ *  anybody to give it to" check and for the option list, so the two cannot
+ *  disagree about what "another" means. */
+function ribbonDancerCandidates(state: GameState, ownerIndex: 0 | 1, selfInstanceId: string): UnitInstance[] {
+  return ownUnitsEverywhere(state, ownerIndex).filter((u) => u.instanceId !== selfInstanceId);
+}
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -1014,6 +1394,169 @@ export const decisions: Record<string, DecisionDefinition> = {
       // `addBuff` no-ops if the Adaptatron has left play in the meantime, which
       // is the usual "target vanished" convention rather than a special case.
       return d.cardInstanceId ? addBuff(killed, d.cardInstanceId) : killed;
+    },
+  },
+
+  // Disarming Rake's "you may kill a gear", raised by its on-play trigger, which
+  // has already established that some gear exists.
+  //
+  // BOTH players' gear, because the card names no owner — the same reading, and
+  // the same `killGear` funnel (so a dying gear's own trigger fires), that
+  // Adaptatron's question above takes. Decline leads, so a mis-click and the
+  // AI's tie-break both land on doing nothing.
+  "SFD-032-kill": {
+    prompt: () => "Disarming Rake: kill a gear?",
+    options: (state) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      for (const index of [0, 1] as const) {
+        for (const gear of state.players[index].activeGear) {
+          options.push({ id: gear.instanceId, label: gear.name, instanceId: gear.instanceId });
+        }
+      }
+      return options;
+    },
+    resolve: (state, _d, optionId) => {
+      if (optionId === "decline") return state;
+      const ownerIndex = ([0, 1] as const).find((i) => state.players[i].activeGear.some((g) => g.instanceId === optionId));
+      if (ownerIndex === undefined) return state; // it died while the question waited
+      const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === optionId)!;
+      return killGear(state, gear, ownerIndex);
+    },
+  },
+
+  // Royal Entourage's "ready or exhaust a legend".
+  //
+  // ONE option per legend rather than four, because a legend is either ready or
+  // exhausted and only one of the two verbs would do anything to it. That is
+  // also what guarantees two options on every board, which is what stops
+  // `advanceDecisions` answering a real choice on the player's behalf.
+  //
+  // The direction is encoded in the option id rather than re-derived when the
+  // answer arrives: a legend readied by something else while this question waited
+  // must not turn "ready theirs" into "exhaust theirs".
+  //
+  // No `instanceId` on the options, deliberately — the board renders an option
+  // carrying one as the CARD itself, and a Legend sits in its own zone rather
+  // than among the permanents the board lays out. Same call the Solari Shrine's
+  // yes/no makes; the labels name the legends.
+  "SFD-039-legend": {
+    prompt: () => "Royal Entourage: ready or exhaust a legend",
+    options: (state) =>
+      ([0, 1] as const).map((i) =>
+        state.players[i].legend.exhausted
+          ? { id: `${i}-ready`, label: `Ready ${state.players[i].legend.name}` }
+          : { id: `${i}-exhaust`, label: `Exhaust ${state.players[i].legend.name}` },
+      ),
+    resolve: (state, _d, optionId) => {
+      const index = Number(optionId.slice(0, 1));
+      if (index !== 0 && index !== 1) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[index] = {
+        ...players[index],
+        legend: { ...players[index].legend, exhausted: optionId.endsWith("exhaust") },
+      };
+      return { ...state, players };
+    },
+  },
+
+  // Guardian of the Passage's "you may return a unit or gear from your trash to
+  // your hand", raised by his on-hold trigger.
+  //
+  // A SPELL in the trash is not on offer — the card lists two kinds and stops
+  // there, which is the whole restriction (recurring a counterspell every turn
+  // would be a different card).
+  //
+  // Decline leads. Rebuilt from live state rather than stored on the decision,
+  // so a card that left the trash while this waited is simply not listed.
+  "SFD-035-return": {
+    prompt: () => "Guardian of the Passage: return a unit or gear from your trash to your hand?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...trashUnitsAndGear(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => (optionId === "decline" ? state : returnCardFromTrash(state, d.playerIndex, optionId)),
+  },
+
+  // Ribbon Dancer's "give ANOTHER friendly unit +1 Might this turn", raised by
+  // her own move trigger, which has already established that another friendly
+  // unit exists.
+  //
+  // NO decline option: the card carries no "you may", so once it has triggered
+  // the Might has to land somewhere. With exactly one candidate that makes this a
+  // single option and `advanceDecisions` executes it without a prompt, which is
+  // right — there is no choice to make.
+  "SFD-038-might": {
+    prompt: () => "Ribbon Dancer: give another friendly unit +1 Might this turn",
+    options: (state, d) =>
+      ribbonDancerCandidates(state, d.playerIndex, d.cardInstanceId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => giveMightThisTurnToOwnUnit(state, d.playerIndex, optionId, 1),
+  },
+
+  // Janna - Savior's "move up to one enemy unit from here to its base", raised by
+  // her on-play trigger, which has already established that she landed at a
+  // battlefield and that an enemy unit is standing there.
+  //
+  // "FROM HERE" is `d.battlefieldId`, captured when the question was raised: it
+  // means where she landed, not wherever she is by the time the answer arrives.
+  // Candidates are re-read from that battlefield against live state, so a unit
+  // that has since left is not on offer.
+  //
+  // `recallUnitToBase`, the same helper Emperor's Divide uses above: "move ... to
+  // its base" is a Move (454), so the unit arrives exhausted and Vilemaw's Lair
+  // can refuse it.
+  "SFD-053-move": {
+    prompt: () => "Janna - Savior: move an enemy unit here to its base?",
+    options: (state, d) => {
+      const enemyId = state.players[d.playerIndex === 0 ? 1 : 0].id;
+      const bf = state.battlefields.find((b) => b.id === d.battlefieldId);
+      return [
+        { id: "decline", label: "Decline" },
+        ...(bf?.units[enemyId] ?? []).map((u) => ({ id: u.instanceId, label: `Move ${u.name} home`, instanceId: u.instanceId })),
+      ];
+    },
+    resolve: (state, _d, optionId) => (optionId === "decline" ? state : recallUnitToBase(state, optionId)),
+  },
+
+  // Ornn - Blacksmith's "you may reveal a gear from among them and draw it. Then
+  // recycle the rest."
+  //
+  // Only GEAR among the top 4 is offered — the card names the kind, so a unit on
+  // top is never a choice however much you want it.
+  //
+  // "THEN RECYCLE THE REST" happens either way, which is why the decline branch
+  // is not a no-op: it is a separate instruction from the reveal-and-draw, the
+  // same structure Reinforce and Baited Hook have. With no gear among the four
+  // this is a single option and `advanceDecisions` executes it unprompted, which
+  // is correct — the recycle is mandatory and there was nothing to decide.
+  //
+  // Re-slices the top 4 at ANSWER time rather than trusting a stored list, so a
+  // deck that has moved on cannot smuggle a card from deeper in it into hand:
+  // `takeOneFromTopAndRecycleRest` refuses an id that is no longer up there.
+  "SFD-058-gear": {
+    prompt: () => "Ornn - Blacksmith: reveal a gear from the top 4 and draw it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].deck
+        .slice(0, 4)
+        .filter((c) => c.kind === "Gear")
+        .map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "decline") return takeOneFromTopAndRecycleRest(state, d.playerIndex, 4, optionId);
+      const looked = state.players[d.playerIndex].deck.slice(0, 4);
+      if (looked.length === 0) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [...players[d.playerIndex].deck.slice(looked.length), ...looked],
+      };
+      // Karma - Channeler watches every recycle in this engine, including the
+      // ones written inline like this one.
+      return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
     },
   },
 };

@@ -21,10 +21,12 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToAllEnemies,
   holdCardsRecycled,
+  ownUnitsEverywhere,
   payPowerFromChanneled,
   readyUnit,
   recycleUnitFromPlayToDeck,
   removeUnitAnywhere,
+  returnCardFromTrash,
   returnUnitToHand,
 } from "../effect-helpers.js";
 import { playUnitToBase } from "../deploy.js";
@@ -348,7 +350,49 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return increase > 0 ? giveMightThisTurn(state, chosen.unit.instanceId, increase) : state;
     },
   },
+  "SFD-087": {
+    // Premonition — "[Reaction] Draw 3."
+    //
+    // The plainest effect in the set behind the deepest Power cost in it (2
+    // Energy and THREE Mind), which is the card: Consult the Past above draws 2
+    // for one Power at Hidden speed, and this draws 3 at Reaction speed for
+    // three. Nothing about that pricing is this resolver's business.
+    //
+    // [Reaction] is rule 813 and belongs entirely to engine/timing.ts — the
+    // resolver is identical whenever it runs, so there is nothing timing-shaped
+    // for this entry to do, exactly as Smoke Screen's own note records.
+    //
+    // A deck too short to cover three runs Burn Out (431) inside `drawCards`
+    // rather than being clamped here.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 3),
+  },
 };
+
+/** The gear cards in `playerIndex`'s own trash — Aspiring Engineer's "a gear
+ *  from your trash".
+ *
+ *  Its own function because the TRIGGER asks whether there is anything worth
+ *  asking about and the DECISION asks what the answers are, and those two
+ *  drifting apart is precisely how a question gets parked that nothing can
+ *  answer — `advanceDecisions` would drop it silently and the card would report
+ *  implemented. Same reason `evolutionaryCandidates` above is shared. */
+function gearsInTrash(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].trash.filter((c) => c.kind === "Gear");
+}
+
+/** The Mechs Bubble Bot could ready — "ANOTHER friendly Mech", exhausted ones
+ *  only (see her entry for why the exhaustion filter is unobservable). Shared by
+ *  her trigger and her decision for the same reason `gearsInTrash` is.
+ *
+ *  "Another" excludes her as an OBJECT, by instanceId — two Bubble Bots each
+ *  satisfy the other's "another", which a defId comparison gets exactly
+ *  backwards. Same reading granted-keywords.ts takes for "other friendly units". */
+function readyableMechs(state: GameState, playerIndex: 0 | 1, selfInstanceId: string) {
+  return ownUnitsEverywhere(state, playerIndex).filter(
+    (u) => u.instanceId !== selfInstanceId && u.exhausted && u.tags.includes("Mech"),
+  );
+}
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-110": {
@@ -437,6 +481,90 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // becoming present just as it would be by any other arrival.
     targeting: { kind: "none" },
     resolve: (state, ctx, _unitId, event) => placeToken(state, ctx.casterIndex, event.destination, SPRITE_TOKEN),
+  },
+  "SFD-061": {
+    // Aspiring Engineer — "When you play me, return a gear from your trash to
+    // your hand."
+    //
+    // **Asked as a DECISION rather than as a target, and that is a divergence
+    // rather than a preference.** 355.9.a.4 works this exact shape by name — "e.g.
+    // 'Recycle a unit from your trash' TARGETS a unit card in your trash" — so the
+    // choice belongs to the moment the ability goes on the Chain (355: valid
+    // choices must be made for all targets), which is where Annie - Stubborn's
+    // identical "a spell from your trash" makes it. The spec that expresses that,
+    // `{ kind: "ownTrashCard", cardKind }`, cannot name a GEAR: its `cardKind` is
+    // typed "Unit" | "Spell", and widening it is an edit to card-effects.ts, which
+    // this pass does not own. So the card is chosen a response window later than
+    // the rules place it. Unobservable in this pool — nothing here reaches a
+    // trash at reaction speed, and the trash being chosen from is the chooser's
+    // own — but it is a divergence and is recorded as one rather than left to be
+    // discovered.
+    //
+    // MANDATORY: no "you may" anywhere in the text, so there is no decline option.
+    // A trash with no gear in it asks nothing at all (422's do-as-much-as-you-can),
+    // and a trash with exactly one gear is not a question — `advanceDecisions`
+    // takes the single option without ever prompting.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      gearsInTrash(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-061-return", playerIndex: ctx.casterIndex }),
+  },
+  "SFD-062": {
+    // Bubble Bot — "When you play me, ready another friendly Mech."
+    //
+    // A DECISION rather than a target, and here the reason is the TAG.
+    // `TargetingSpec`'s unit kind restricts by owner, Might, scope and exhaustion
+    // and by nothing else, so the only announce-time spec available is a bare "a
+    // friendly unit" — which would enumerate every friendly unit as a legal choice
+    // and then quietly do nothing whenever a non-Mech was named. The AI takes the
+    // first candidate offered, so that reads as a working card that usually does
+    // nothing, which is strictly worse than asking the question one response
+    // window late. The lateness is the same 355 divergence Aspiring Engineer
+    // records above, and it is slightly more visible here: with an announce-time
+    // target, an opponent could kill the named Mech in response and 359.3.e would
+    // make this do nothing, whereas a resolution-time chooser simply names another.
+    //
+    // Only EXHAUSTED Mechs are offered. Rule 415 — "A Unit that is already Ready
+    // cannot be Readied again. If a Unit is instructed to be Readied while it is
+    // already Ready, nothing additional happens" — makes the two boards identical,
+    // `unitReadied` included, since `readyUnit` carries that same guard. What the
+    // filter buys is that "no exhausted Mech" and "no Mech at all" ask the same
+    // nothing instead of prompting for a choice with no consequence.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      readyableMechs(state, ctx.casterIndex, unitId).length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-062-ready", playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
+  },
+  "SFD-072": {
+    // Dropboarder — "When you play me, if you control two or more gear, ready me."
+    //
+    // A unit enters EXHAUSTED (143.4.a), so readying itself IS the card: 4 Energy
+    // for a 4-Might body that can move, fight or be spent the turn it lands, but
+    // only on a board that has already paid for two gear.
+    //
+    // "Gear" means gear on the BOARD (355.9.b: "'Unit,' 'gear,' and 'rune' refer
+    // to objects on the Board unless specified otherwise"), which is `activeGear`
+    // — a facedown card at a battlefield is not a gear until it is played, and one
+    // in the trash is not one at all.
+    //
+    // **The "if" is part of the TRIGGER CONDITION, not the effect**, and the rules
+    // say so in as many words (383.2.b): "Any additional conditional statement
+    // immediately after the Condition must be true in order for the Condition to
+    // be fulfilled. Such a conditional statement is part of the Trigger Condition
+    // and not the Effect." Their worked example is Sona - Harmonious, whose
+    // ability "will still resolve" if she is removed in reaction to it. So the
+    // count should be read when the trigger FIRES and not re-asked here.
+    // `UnitTriggerDefinition` has no `applies` hook — the event-trigger and
+    // on-move families grew one, the on-play family has not — and adding one is an
+    // edit to unit-triggers.ts, which this pass does not own. Read at resolution
+    // instead, which differs only when a gear enters or leaves play during the
+    // response window this trigger's own hold opens. Recorded as a divergence
+    // rather than left implicit.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      state.players[ctx.casterIndex].activeGear.length >= 2 ? readyUnit(state, unitId) : state,
   },
 };
 
@@ -943,4 +1071,45 @@ export const decisions: Record<string, DecisionDefinition> = {
       };
       return { ...played, players: after };
     },
-  },};
+  },
+  /**
+   * Aspiring Engineer's "return a gear from your trash to your hand".
+   *
+   * No decline option: the instruction carries no "you may", so with a gear in
+   * the trash one comes back. Only GEAR is offered — the card names a kind, and
+   * offering the rest of the trash would be a different, much better card.
+   *
+   * The one-gear case never reaches a human: `advanceDecisions` executes a
+   * single-option question instead of prompting with it, which is also what makes
+   * this shape usable for a mandatory instruction at all.
+   */
+  "SFD-061-return": {
+    prompt: () => "Aspiring Engineer: return a gear from your trash to your hand",
+    options: (state, d) =>
+      gearsInTrash(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => returnCardFromTrash(state, d.playerIndex, optionId),
+  },
+  /**
+   * Bubble Bot's "ready another friendly Mech".
+   *
+   * `cardInstanceId` is BUBBLE BOT herself, captured when the question was
+   * raised, and it is what "another" is measured against. Captured rather than
+   * re-derived because by the time the answer arrives she may have been killed in
+   * the response window — 809.1.b makes the ability independent of its source, so
+   * the Mech is still readied, and an exclusion that could not name her would
+   * quietly become an exclusion of nobody.
+   *
+   * The options are rebuilt from live state (as every decision's are), so a Mech
+   * that was readied or killed while this waited is simply not on the list.
+   */
+  "SFD-062-ready": {
+    prompt: () => "Bubble Bot: ready another friendly Mech",
+    options: (state, d) =>
+      readyableMechs(state, d.playerIndex, d.cardInstanceId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, _d, optionId) => readyUnit(state, optionId),
+  },
+};

@@ -7,11 +7,14 @@ import {
   channelRunesExhausted,
   destroyUnit,
   drawCards,
+  exhaustGear,
+  forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
   legionActive,
   holdCardsRecycled,
   ownUnitsEverywhere,
+  payPowerFromChanneled,
   readyUnit,
   recycleCardFromHand,
   recycleUnitFromPlayToDeck,
@@ -19,13 +22,27 @@ import {
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
-import { placeRecruitToken } from "../token.js";
+import { placeRecruitToken, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
+import { playCardIgnoringCost } from "../play-free.js";
+import { isAttackingAt } from "../combat-designation.js";
+import { isMighty } from "../granted-keywords.js";
+import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
+
+/**
+ * Shurima's Sand Soldier: a 2-Might unit token, entering exhausted like any
+ * other unit (143.4.a) — nothing on either card that makes one says "ready".
+ *
+ * A spec rather than a second `placeRecruitToken`, for the reason token.ts's own
+ * `TokenSpec` comment gives: the Recruit is 1 Might and this is 2, and a token
+ * type is data, not a function.
+ */
+const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
 
 /** Divine Judgment's four categories, in the order the card names them. */
 const JUDGMENT_CATEGORIES = ["units", "gear", "runes", "hand"] as const;
@@ -309,6 +326,89 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx) =>
       parkDecision(state, { kind: "OGN-237-kill", playerIndex: ctx.casterIndex === 0 ? 1 : 0 }),
   },
+  "SFD-154": {
+    // Guards! — "[Hidden] Play a 2 Might Sand Soldier unit token. You may pay
+    // [Order] to ready it."
+    //
+    // Sprite Call's shape (effects/mind.ts) with a payment bolted on: a Spell
+    // that mints a token, so `targeting` is "none" — nothing is chosen, and the
+    // DESTINATION is a deployment zone rather than a target.
+    //
+    // **The ready is asked, not fanned onto the action**, unlike the optional
+    // costs a play carries. It is not a cost of playing Guards! — the spell is
+    // already resolving when the question arises, and 355 excludes "making
+    // choices for Triggered Abilities" from the choices made as a card is
+    // played. Offered only when the token really exists, so a Guards! whose
+    // token was somehow never placed asks nothing.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      // Base by default. `destinationBattlefieldId` is read so that the moment
+      // this card is listed as a token-placing spell it lands where 811 puts a
+      // hidden play — see the note on `placeSandSoldier` for what is missing.
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      const { state: placed, tokenInstanceId } = placeSandSoldier(state, ctx.casterIndex, destination);
+      if (tokenInstanceId === undefined) return placed;
+      return parkDecision(placed, {
+        kind: "SFD-154-ready",
+        playerIndex: ctx.casterIndex,
+        // "IT" is the token this spell just made, captured now: the answer comes
+        // in a submit later, by which time "the newest token" is not a thing the
+        // board can be asked for.
+        targetInstanceId: tokenInstanceId,
+      });
+    },
+  },
+  "SFD-163": {
+    // Deathgrip — "[Reaction] Kill a friendly unit. If you do, give +Might equal
+    // to its Might to another friendly unit this turn. Draw 1."
+    //
+    // `min: 2`, so the spell is simply not playable without two friendly units:
+    // both the victim and the beneficiary are chosen and affected, so both are
+    // Targets (355), and "in order to put a spell or ability on the chain, valid
+    // choices must be made for all targets". Facebreaker above takes the same
+    // reading of the same shape. It costs the caster the Draw on a one-unit
+    // board, which is the price of the card being one instruction rather than
+    // three.
+    //
+    // **`asymmetricSlots`, and it is the whole card.** Both slots are "friendly",
+    // so enumeration would otherwise prune (B,A) once it had offered (A,B) — and
+    // here the two are opposites: slot 0 DIES and slot 1 is pumped. Without it
+    // half the plays are unreachable, which is exactly the gap Convergent
+    // Mutation's note records.
+    //
+    // `scope: "anywhere"` for both — "a friendly unit", no battlefield named
+    // (355.9.b).
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere", asymmetricSlots: true },
+    resolve: (state, ctx, event) => {
+      const victimId = event.targetUnitInstanceId;
+      const beneficiaryId = event.secondTargetUnitInstanceId;
+      // "Draw 1" is its own instruction on its own line, so it happens whatever
+      // became of the other two — including a Deathgrip cast with no target left.
+      const draw = (s: GameState) => drawCards(s, ctx.casterIndex, 1);
+      if (!victimId) return draw(state);
+
+      const location = findUnitAnywhere(state, victimId);
+      if (!location) return draw(state);
+      // "EQUAL TO ITS MIGHT", read BEFORE the kill and as EFFECTIVE Might: a
+      // buffed or pumped unit grips harder, and by the time it is in a trash the
+      // rules evaluate it at its printed Might instead ("Units in Non-Board Zones
+      // are evaluated according to their printed Might"). Reading it after would
+      // silently drop every modifier the unit was carrying.
+      const might = effectiveMight(state, location.unit, location.ownerIndex, {
+        isCombat: false,
+        ...(location.zone === "base" ? {} : { battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id }),
+      });
+
+      const killed = destroyUnit(state, victimId, ctx.casterIndex);
+      // "IF YOU DO" — a death ward or Zhonya's Hourglass REPLACES the death
+      // (809.1.b.1), so the unit is still in play and the pump must not happen.
+      // Asking the board is what distinguishes the two; a `killed !== state`
+      // comparison would not, since a replacement changes the state too.
+      if (findUnitAnywhere(killed, victimId)) return draw(killed);
+      return draw(beneficiaryId ? giveMightThisTurn(killed, beneficiaryId, might) : killed);
+    },
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -509,6 +609,53 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
         ? state
         : parkDecision(state, { kind: "OGN-230-spend", playerIndex: ctx.casterIndex }),
   },
+  "SFD-157": {
+    // Royal Guard — "When you play me, play a 2 Might Sand Soldier unit token
+    // here."
+    //
+    // "HERE" is `event.destination`, Vanguard Captain's reading exactly: a Royal
+    // Guard played to base makes his Sand Soldier in base, and one reinforcing a
+    // battlefield makes it there. Not "where he stands at resolution" — the
+    // trigger is held, and the window between is when he can be moved or killed.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => placeToken(state, ctx.casterIndex, event.destination, SAND_SOLDIER_TOKEN),
+  },
+  "SFD-158": {
+    // Sandshifter — "When you play me, kill an enemy unit with 3 Might or less."
+    //
+    // `maxMight` is a filter on the TARGET, enforced by the enumerator and the
+    // validator (target-lookup's `unitWithinMaxMight`), which read EFFECTIVE
+    // Might — so a 2-Might unit standing under an aura that makes it 4 is not
+    // offered. Checking it in the resolver instead would come too late: the unit
+    // would already be in play and the ability already on the chain.
+    //
+    // Scope "anywhere": "an enemy unit" names no battlefield (355.9.b), so one
+    // sheltering in the opponent's base is a legal target — Harnessed Dragon's
+    // reading of the same phrase.
+    targeting: { kind: "unit", owner: "enemy", maxMight: 3, scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
+  "SFD-175": {
+    // Undertitan, FIRST clause only — "When you play me, give your other units +2
+    // Might this turn."
+    //
+    // "YOUR OTHER units", so `giveMightThisTurnToAllFriendlies` is not it: that
+    // helper has no way to exclude the source, and the Undertitan pumping itself
+    // would be a 7-Might body rather than a 5-Might one that makes a board.
+    // Per-unit `giveMightThisTurn` over the walk, with his own id filtered out.
+    //
+    // No "here": a unit at home is pumped too, which is Grand Strategem's
+    // distinction and is printed the same way.
+    //
+    // The this-turn form rather than a Buff — it expires in the Expiration Step
+    // (317) instead of persisting (710), and +2 is not a thing a Buff can be.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      ownUnitsEverywhere(state, ctx.casterIndex)
+        .filter((u) => u.instanceId !== unitId)
+        .reduce((next, u) => giveMightThisTurn(next, u.instanceId, 2), state),
+  },
 };
 
 /**
@@ -553,6 +700,24 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // token and three tokens are three game objects with three instanceIds.
   "OGN-239": (state, ctx) =>
     [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
+
+  // Unsung Hero — "[Deathknell] — If I was [Mighty], draw 2." (rule 808)
+  //
+  // "WAS", past tense, and that is the card: he prints 2 Might, and the rules
+  // evaluate a unit in a non-Board zone at its PRINTED Might ("A unit in the
+  // trash is Mighty if its printed Might is 5 or greater"), so asking about the
+  // copy in the trash would make this text unreachable. It is asked of
+  // `death.unit` — the unit as it died, which 809.1.b.3 requires be captured
+  // before the card moves — so the buff and the pumps that got him to 5 count.
+  //
+  // `isMighty` rather than a hand-written `>= 5`: the threshold is a rule, not a
+  // per-card number, and the same predicate answers for Fiora - Victorious.
+  //
+  // **Known limitation, named:** a unit that was Mighty only because of a
+  // POSITIONAL aura (Garen - Commander's "+1 here") is not seen — `isMighty`
+  // asks with no battlefield, and by now the unit is at none. Everything the
+  // unit carried on itself (Might, buff, this-turn pumps) is counted.
+  "SFD-167": (state, ctx, death) => (isMighty(state, death.unit, death.ownerIndex) ? drawCards(state, ctx.casterIndex, 2) : state),
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -603,6 +768,32 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
       !death.unit.isToken, // the Recruit tokens he makes
     resolve: (state, listener) => placeRecruitToken(state, listener.ownerIndex, "base"),
   },
+  "SFD-169": {
+    // Altar of Memories — "When a friendly unit dies, you may exhaust me to draw
+    // 1, then put a card from your hand on the top or bottom of your Main Deck."
+    //
+    // Solari Shrine's shape (triggers.ts) with a second half: the same
+    // "you may exhaust this to draw 1" split, so the same division of labour.
+    // "A FRIENDLY unit" is a fact about the death, measured against the ALTAR's
+    // controller, so it settles at fire time (383.4) — a gear that triggered for
+    // the opponent's losses would be a different card.
+    //
+    // The EXHAUST is deliberately not asked here. It is the ability's cost, a
+    // question about the board when it resolves, and the response window can
+    // exhaust the Altar; never offer what cannot be paid.
+    applies: (_state, listener, death) => death.ownerIndex === listener.ownerIndex,
+    resolve: (state, listener) => {
+      // A Gear in play, so the narrowing is a formality — `Listener.card` is a
+      // CardInstance since trash listeners share the type, and a Spell has no
+      // `exhausted`.
+      if (listener.card.kind === "Spell" || listener.card.exhausted) return state;
+      return parkDecision(state, {
+        kind: "SFD-169-draw",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
 };
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
@@ -631,7 +822,93 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       event.kind === "cardsRecycled" && ownUnits(state, listener.ownerIndex).length > 0
         ? parkDecision(state, { kind: "OGN-235-buff", playerIndex: listener.ownerIndex })
         : state,
-  },};
+  },
+  "SFD-170": {
+    // Rek'Sai - Swarm Queen — "When I attack, you may reveal the top 2 cards of
+    // your Main Deck. You may banish one, then play it. If it is a unit, you may
+    // play it here. Recycle the rest."
+    //
+    // Registered as a `combatBegan` listener rather than added to
+    // unit-triggers.ts's ATTACK_TRIGGERS table — that table is a shared file, and
+    // `isAttackingAt` is exported precisely so a per-domain file can take the same
+    // shape without editing it (383.4.f: the trigger is gaining the Attacker
+    // designation, which 465's Combat Step 1 hands out).
+    //
+    // Guarded on there being a deck to look at, so an empty one places no Pending
+    // Item at all rather than one whose only answer is "decline".
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (state.players[listener.ownerIndex].deck.length === 0) return state;
+      // "HERE" rides on the decision, not on where she stands when it is
+      // answered: a held trigger's response window is exactly when an opponent
+      // would move or kill her, and the ability is independent of her by then
+      // (809.1.b).
+      return parkDecision(state, {
+        kind: "SFD-170-reveal",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
+  "SFD-177": {
+    // Azir - Sovereign — "When I attack, you may move any number of your token
+    // units to this battlefield." (His [Accelerate] is a cost keyword the play
+    // path handles — rule 805 — and is not part of this trigger.)
+    //
+    // Same `combatBegan` + `isAttackingAt` registration as Rek'Sai above.
+    //
+    // "ANY NUMBER" including zero, so it is a repeated question with a standing
+    // "stop" rather than one multi-select — Albus Ferros' shape, and it terminates
+    // for the same reason his does: every answer that continues also removes a
+    // candidate from the list (the token is now here).
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // Nothing to move is not a question. A held trigger that resolves to
+      // nothing still closes the chain and costs both players a PassFocus.
+      if (movableTokensFor(state, listener.ownerIndex, event.battlefieldId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "SFD-177-move",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
+  "SFD-179": {
+    // Corina Veraza — "When I move to a battlefield, play three 1 Might Recruit
+    // unit tokens here." (Her [Accelerate] is handled by the play path, 805.)
+    //
+    // Registered against the `unitMoved` EVENT rather than in unit-triggers.ts's
+    // ON_MOVE_TRIGGERS table, for the same reason the two attack triggers above
+    // are event listeners: that table is a shared file, while this event is
+    // already held (383) and already carries everything she needs. The two
+    // mechanisms fire at the same moment and both resolve a chain-pop later, so
+    // the choice costs nothing but the file it lives in.
+    //
+    // It fires only for a STANDARD move (execute-move-unit), which is what the
+    // card says: a Recall is not a Move (454), and a spell-driven relocation
+    // (`forceMoveToBattlefield`) is deliberately outside the event too — so
+    // Corina dragged somewhere by an opponent's card makes nothing.
+    //
+    // `to` is always a battlefield id (a MoveUnit action names one), so "to a
+    // battlefield" needs no test of its own.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      // Identity, not ownership: the event is about ONE unit, and hers is the
+      // only move she cares about. "When I move", not "when a friendly unit
+      // moves".
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) =>
+      event.kind === "unitMoved"
+        ? // Three separate placements rather than a count: `placeRecruitToken`
+          // mints one token, and three tokens are three game objects.
+          [0, 1, 2].reduce((next) => placeRecruitToken(next, listener.ownerIndex, { battlefieldId: event.to }), state)
+        : state,
+  },
+};
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -844,6 +1121,183 @@ export const decisions: Record<string, DecisionDefinition> = {
       return parkDecision(channelled, { kind: "OGN-230-spend", playerIndex: d.playerIndex });
     },
   },
+  // Guards!'s "you may pay [Order] to ready it", raised as the spell resolves.
+  //
+  // A "you may" with a PRICE, so it is a decision rather than something the
+  // caster is simply given — and the price is checked twice on purpose: once to
+  // decide whether to offer the option at all (never offer what cannot be paid,
+  // the same shape `canPayActivationCost` uses) and once when the answer arrives,
+  // because the rune can be gone by then.
+  "SFD-154-ready": {
+    prompt: () => "Guards!: pay 1 Order to ready the Sand Soldier?",
+    options: (state, d) => {
+      // Declining leads, as everywhere else a "you may" is asked.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (d.targetInstanceId === undefined) return options;
+      // 359.3's null: the token can be killed between the spell resolving and
+      // this being answered, and there is then nothing to ready.
+      const token = findUnitAnywhere(state, d.targetInstanceId);
+      if (!token || !token.unit.exhausted) return options;
+      if (payPowerFromChanneled(state, d.playerIndex, "Order", 1) === undefined) return options;
+      options.push({ id: "pay", label: "Pay 1 Order: ready it", instanceId: d.targetInstanceId });
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || d.targetInstanceId === undefined) return state;
+      if (!findUnitAnywhere(state, d.targetInstanceId)) return state;
+      // `payPowerFromChanneled` returns undefined rather than an unchanged state
+      // when it cannot be paid (416.3), so an unpayable answer must not ready —
+      // the payoff would otherwise be free.
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Order", 1);
+      if (paid === undefined) return state;
+      return readyUnit(paid, d.targetInstanceId);
+    },
+  },
+  // Altar of Memories' two halves, asked in the order the card prints them.
+  //
+  // Two questions rather than one, because the second is not optional: once the
+  // Altar is exhausted, "draw 1, THEN put a card from your hand on the top or
+  // bottom" is a mandatory follow-up, and folding it into the first would let a
+  // player take the draw and skip the cost of it.
+  "SFD-169-draw": {
+    prompt: () => "Altar of Memories: exhaust it to draw 1?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === d.cardInstanceId);
+      if (gear && !gear.exhausted) options.push({ id: "exhaust", label: "Exhaust: draw 1", instanceId: gear.instanceId });
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "exhaust" || d.cardInstanceId === undefined) return state;
+      // `exhaustGear` no-ops on a gear that has left play or is already
+      // exhausted, so comparing states is how the cost is confirmed paid — and
+      // an unpaid cost must not draw.
+      const exhausted = exhaustGear(state, d.playerIndex, d.cardInstanceId);
+      if (exhausted === state) return state;
+      // "THEN" — the placement question is parked AFTER the draw, so the card
+      // just drawn is one of the cards that may be put back. Parking it before
+      // would invert that, which is the trap `discardThenDraw` exists for.
+      return parkDecision(drawCards(exhausted, d.playerIndex, 1), { kind: "SFD-169-place", playerIndex: d.playerIndex });
+    },
+  },
+  "SFD-169-place": {
+    prompt: () => "Altar of Memories: put a card from your hand on the top or bottom of your Main Deck",
+    // Both destinations per card, in ONE question rather than "which card" then
+    // "which end": the card offers them as a single choice, and two questions
+    // would let a player commit a card and then discover the end they wanted was
+    // the same either way. An empty hand offers nothing and the question is
+    // dropped as moot (422).
+    options: (state, d) =>
+      state.players[d.playerIndex].hand.flatMap((c) => [
+        { id: `top:${c.instanceId}`, label: `${c.name} — top of deck`, instanceId: c.instanceId },
+        { id: `bottom:${c.instanceId}`, label: `${c.name} — bottom of deck`, instanceId: c.instanceId },
+      ]),
+    resolve: (state, d, optionId) => {
+      const separator = optionId.indexOf(":");
+      if (separator === -1) return state;
+      const cardInstanceId = optionId.slice(separator + 1);
+      // The BOTTOM is a Recycle in rule 416's sense — "puts it on the bottom of
+      // the corresponding deck" — so it goes through the shared helper and fires
+      // `cardsRecycled` for Karma - Channeler. The TOP is not a Recycle and
+      // deliberately fires nothing.
+      if (optionId.slice(0, separator) === "bottom") return recycleCardFromHand(state, d.playerIndex, cardInstanceId);
+      const actor = state.players[d.playerIndex];
+      const card = actor.hand.find((c) => c.instanceId === cardInstanceId);
+      if (!card) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...actor, hand: actor.hand.filter((c) => c.instanceId !== cardInstanceId), deck: [card, ...actor.deck] };
+      return { ...state, players };
+    },
+  },
+  /**
+   * Rek'Sai - Swarm Queen's "you may reveal the top 2 ... you may banish one,
+   * then play it ... recycle the rest".
+   *
+   * **Two printed "may"s flattened into one question**, and the flattening is
+   * lossless: the outcomes are decline-and-touch-nothing, reveal-and-recycle-both,
+   * and reveal-banish-play-one-and-recycle-the-other, all three of which are
+   * options here. Asked as two questions it would be the same three outcomes at
+   * the cost of a second Pending Item, and the first question's answer ("yes,
+   * reveal") tells the player nothing they do not already see in the second.
+   *
+   * "RECYCLE THE REST" runs on every answer except the decline, because the
+   * reveal is what it is about — a Rek'Sai who never looked has nothing to put
+   * back. Same instruction structure as Baited Hook's, one instruction further
+   * along.
+   */
+  "SFD-170-reveal": {
+    prompt: () => "Rek'Sai - Swarm Queen: reveal the top 2 of your Main Deck?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const top2 = state.players[d.playerIndex].deck.slice(0, 2);
+      if (top2.length === 0) return options;
+      options.push({ id: "none", label: `Reveal ${top2.map((c) => c.name).join(", ")} and banish nothing` });
+      for (const card of top2) {
+        options.push({ id: card.instanceId, label: `Banish and play ${card.name}`, instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const actor = state.players[d.playerIndex];
+      const top2 = actor.deck.slice(0, 2);
+      const chosen = top2.find((c) => c.instanceId === optionId);
+      const rest = top2.filter((c) => c.instanceId !== chosen?.instanceId);
+
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...actor,
+        deck: [...actor.deck.slice(top2.length), ...rest],
+        // "PLAY it" — this is a card being played, so [Legion] and every
+        // `cardPlayed` listener count it. `playCardIgnoringCost` fires the events
+        // but deliberately does not pay or tally; the caller does.
+        ...(chosen ? { cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1 } : {}),
+      };
+      const recycled = holdCardsRecycled({ ...state, players }, d.playerIndex, rest.length);
+      if (!chosen) return recycled;
+      // The banish is transient — banished and played in one instruction, with
+      // nothing able to observe the intermediate zone — so it goes straight to
+      // play rather than through `PlayerState.banished`, exactly as Baited Hook
+      // does and as docs/rules-conformance.md records.
+      //
+      // **No destination is passed, and that is "you may play it here":** a free
+      // unit play parks the shared placement question, which offers base and every
+      // battlefield the player has presence at — Rek'Sai's own among them, since
+      // she is standing in the fight. Passing `d.battlefieldId` would have made
+      // "here" mandatory and dropped the "may". The known cost is that a player
+      // with units at a THIRD battlefield may also send it there, which the shared
+      // question allows and the card does not name.
+      return playCardIgnoringCost(recycled, d.playerIndex, chosen);
+    },
+  },
+  // Azir - Sovereign's "move any number of your token units to this
+  // battlefield" — asked once per token, with a standing "stop".
+  "SFD-177-move": {
+    prompt: () => "Azir - Sovereign: move a token unit to this battlefield?",
+    options: (state, d) => {
+      // "Stop" is ALWAYS present, which is also what lets advanceDecisions retire
+      // the question on its own once the last token has arrived.
+      const options: DecisionOption[] = [{ id: "stop", label: "Move no more tokens" }];
+      if (d.battlefieldId === undefined) return options;
+      for (const token of movableTokensFor(state, d.playerIndex, d.battlefieldId)) {
+        options.push({ id: token.instanceId, label: `Move ${token.name}`, instanceId: token.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "stop" || d.battlefieldId === undefined) return state;
+      // `forceMoveToBattlefield`, not the Move ACTION: 415.1.b makes the exhaust
+      // part of a Standard Move's cost rather than of moving, and this is a
+      // Game Effect moving them (316.7.c) — so the tokens arrive as they were.
+      // It applies Contested for their controller (458), which is what makes
+      // walking reinforcements into someone else's battlefield an attack.
+      const moved = forceMoveToBattlefield(state, optionId, d.battlefieldId);
+      // Onto the FRONT: this is a continuation of the question being answered,
+      // not a new one, so it must not be interleaved with another trigger's
+      // question that was raised in the same combat.
+      return repeatDecision(moved, { kind: "SFD-177-move", playerIndex: d.playerIndex, battlefieldId: d.battlefieldId });
+    },
+  },
   // Divine Judgment's eight questions, one definition — the four categories
   // differ only in what they list and what "recycle" means for it, and writing
   // them out four times would be four chances to paste the wrong pool.
@@ -960,4 +1414,44 @@ function matronPlayableFromTrash(state: GameState, playerIndex: 0 | 1): UnitInst
   return state.players[playerIndex].trash.filter(
     (c): c is UnitInstance => c.kind === "Unit" && c.energyCost <= 3 && c.powerCost <= 1,
   );
+}
+
+/**
+ * Places one Sand Soldier and hands back the id of the token it made.
+ *
+ * `placeToken` returns only the new state, which is all every other caller
+ * wants — and Guards! has to READY the token afterwards, so it needs to know
+ * which one it is. Recovered by diffing the caster's units rather than by
+ * teaching token.ts to return the token: every token is minted with a fresh
+ * instanceId, so exactly one id is new, and the shared file stays untouched.
+ *
+ * `tokenInstanceId` is undefined when nothing was placed — `placeToken` no-ops
+ * on a battlefield id that names nothing, the usual "target vanished" path.
+ */
+function placeSandSoldier(
+  state: GameState,
+  casterIndex: 0 | 1,
+  destination: TokenDestination,
+): { state: GameState; tokenInstanceId?: string } {
+  const before = new Set(ownUnitsEverywhere(state, casterIndex).map((u) => u.instanceId));
+  const placed = placeToken(state, casterIndex, destination, SAND_SOLDIER_TOKEN);
+  const token = ownUnitsEverywhere(placed, casterIndex).find((u) => !before.has(u.instanceId));
+  return { state: placed, ...(token ? { tokenInstanceId: token.instanceId } : {}) };
+}
+
+/**
+ * The token units Azir - Sovereign could still move to `battlefieldId` — every
+ * token its controller has anywhere ELSE, base included.
+ *
+ * `isToken` is the whole filter: "your TOKEN units" says nothing about where they
+ * are or which token they are, so a Sand Soldier at another battlefield and a
+ * Recruit sitting at home are equally eligible.
+ *
+ * Tokens already standing there are excluded, and that is what makes "any
+ * number" terminate: every answer that moves one shortens this list.
+ */
+function movableTokensFor(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const here = new Set((bf?.units[state.players[playerIndex].id] ?? []).map((u) => u.instanceId));
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => u.isToken && !here.has(u.instanceId));
 }

@@ -11,6 +11,7 @@ import {
   drawCards,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
+  grantKeywordThisTurn,
   ownUnitsEverywhere,
   payPowerFromChanneled,
   readyPermanent,
@@ -26,7 +27,11 @@ import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
+import type { Keyword } from "../../model/keyword.js";
 import { effectiveMight } from "../effective-might.js";
+import { effectiveKeywords, isMighty } from "../granted-keywords.js";
+import { isFightingAt } from "../combat-designation.js";
+import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 
 /**
@@ -259,6 +264,45 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return parkDecision(asked, { kind: "OGN-153-buff-all", playerIndex: ctx.casterIndex });
     },
   },
+  "SFD-097": {
+    // Punch First — "[Action] Give a unit +5 Might this turn."
+    //
+    // Primal Strength (OGN-154, above) at a different number, and the same three
+    // readings apply unchanged: the bare noun "a unit" is scope "anywhere"
+    // (355.9.b), so a body sitting in either player's BASE is a legal target;
+    // there is no floor because none is printed; and it is `giveMightThisTurn`
+    // rather than a Buff, so it expires in the Expiration Step (317) instead of
+    // persisting (710).
+    //
+    // `[Action]` is a timing keyword, parsed from the card and enforced by
+    // timing.ts — nothing about it belongs in the resolver.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 5) : state,
+  },
+  "SFD-106": {
+    // Show of Strength — "[Reaction] Draw 1 for each of your [Mighty] units."
+    //
+    // Kadregrin the Infernal's sentence exactly (OGN-038, effects/fury.ts), so it
+    // takes his reading whole: `isMighty` rather than a hand-written `>= 5`,
+    // because rule 711 asks about a unit's CURRENT Might and a 3-Might body under
+    // Garen - Commander with a buff IS Mighty. That helper deliberately asks with
+    // `isCombat: false`, so `[Assault]` never pushes one over the line.
+    //
+    // "YOUR units" — base and battlefields both, since nothing here is
+    // positional. No "other" is printed and there is no self to exclude anyway.
+    //
+    // A board with nothing Mighty draws ZERO, which `drawCards` treats as a no-op
+    // rather than as a draw from an empty deck — so casting this into a small
+    // board is a wasted card, not a Burn Out (431).
+    //
+    // Being a `[Reaction]` is what makes the count interesting: it can be cast
+    // after a pump lands, and the units counted are the ones standing when it
+    // RESOLVES, not when it was announced.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      drawCards(state, ctx.casterIndex, ownUnitsEverywhere(state, ctx.casterIndex).filter((u) => isMighty(state, u, ctx.casterIndex)).length),
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -380,6 +424,22 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       event.targetUnitInstanceId
         ? unitsDuel(state, ctx.casterIndex, unitInstanceId, event.targetUnitInstanceId)
         : state,
+  },
+  "SFD-091": {
+    // Buhru Captain — "When you play me, you may draw 1 or buff me."
+    //
+    // Targeting is "none" and the choice is a DECISION, not a fanned-out action
+    // variant, because nothing here is a target: both modes act on the caster or
+    // on the Captain himself, and 355.11 only makes a chosen thing a target.
+    // Blitzcrank - Impassive (OGN-067, calm.ts) parks from an on-play trigger the
+    // same way.
+    //
+    // Qiyana - Victorious (OGN-155, below) prints the nearly identical "draw 1 or
+    // channel 1 rune exhausted" with NO "you may", and is offered exactly two
+    // answers. This card prints one, so DECLINING is a third — see the decision.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitInstanceId) =>
+      parkDecision(state, { kind: "SFD-091-choose", playerIndex: ctx.casterIndex, cardInstanceId: unitInstanceId }),
   },
 };
 
@@ -633,6 +693,128 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return parkDecision(state, { kind: "OGN-155-conquer", playerIndex: listener.ownerIndex });
     },
   },
+  "SFD-110": {
+    // Fiora - Peerless — "When I attack or defend one on one, double my Might
+    // this combat."
+    //
+    // `isFightingAt` is the "attack OR defend" predicate Ahri - Inquisitive
+    // already uses, and it carries the two checks this card would otherwise have
+    // to repeat: she must be a UNIT standing at the battlefield the combat opened
+    // at, and she must be GAINING her designation now (383.4.f, "for the first
+    // time during a combat") — so a reinforcement walking in later does not fire
+    // her again.
+    //
+    // **"One on one" is a defined term**, and the rules define it in two steps in
+    // their Special Terms section: "A unit is ALONE when there are no other
+    // friendly units at the same location", and "A unit is ONE ON ONE when it and
+    // the enemy unit at the same location are both alone." So it is exactly one
+    // unit per side at the battlefield — see `oneOnOneAt`.
+    //
+    // The condition is a requirement BESIDES the trigger, so 383.4 settles it at
+    // the moment of the event and it lives in `applies`: a combat she joins with a
+    // friend beside her must place no Pending Item at all, rather than one that
+    // closes the chain, costs both players a PassFocus and resolves to nothing.
+    on: "combatBegan",
+    applies: (state, listener, event) => isFightingAt(state, listener, event) && oneOnOneAt(state, listener, event),
+    resolve: (state, listener) => {
+      // **"THIS COMBAT" is implemented as this TURN, and that is the divergence.**
+      // The bonus lands on `mightThisTurn`, so a second combat in the same turn
+      // would still find it — and so would anything else that reads her Might,
+      // `[Mighty]` included. There is no per-combat scope in this engine and
+      // inventing one for a single card would be a subsystem; Fortified Position's
+      // "[Shield 2] this combat" (battlefield-abilities.ts) already takes exactly
+      // this approximation for exactly this reason. NEEDS a row in
+      // docs/rules-conformance.md.
+      //
+      // "DOUBLE my Might" is +M rather than ×2 on a field, because Might is a sum
+      // of printed value, this-turn modifiers, buffs and auras (effective-might.ts)
+      // and only the sum can be doubled. Read at RESOLUTION, which is a response
+      // window after the trigger fired: a pump cast in that window is part of the
+      // Might being doubled, which is what "double my Might" says.
+      //
+      // `isCombat: false`, the same reading `isMighty` records: the combat-only
+      // terms are `[Assault]` and `[Shield]`, which are damage-side adjustments
+      // rather than part of the Might this ability is doubling.
+      const found = findUnitAnywhere(state, listener.card.instanceId);
+      if (!found) return state; // killed in the window — 359.3, the calculation drops out
+      return giveMightThisTurn(state, listener.card.instanceId, mightInPlace(state, found));
+    },
+  },
+  "SFD-112": {
+    // Kato the Arm — "[Deflect] When I move to a battlefield, give another
+    // friendly unit my keywords and +Might equal to my Might this turn."
+    //
+    // Registered against the board-wide `unitMoved` event rather than
+    // unit-triggers.ts's per-card ON_MOVE_TRIGGERS table, which this file does not
+    // own. The two reach the same moment: that event is fired once per unit by
+    // `execute-move-unit` AFTER the unit has landed, and only for a Standard Move
+    // to a battlefield — never for a spell-driven relocation or a Recall (454), so
+    // "when I move TO A BATTLEFIELD" needs no extra check.
+    //
+    // "When **I** move" is the identity check in `applies`: the event fires for
+    // every unit either player moves, and without it Kato would hand out his
+    // keywords whenever anything on the board took a step.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      if (event.unitInstanceId !== listener.card.instanceId) return state;
+      // "ANOTHER friendly unit" with no battlefield named, so base counts
+      // (355.9.b) and Kato himself does not. Nothing to give it to is 422's
+      // do-as-much-as-you-can and asks nothing — the same place Miss Fortune -
+      // Captain puts her "is anything exhausted" check, and for the same reason:
+      // whether a recipient EXISTS is a question about the board at resolution,
+      // not a requirement that decides whether the ability triggered.
+      if (otherFriendlyUnits(state, listener.ownerIndex, listener.card.instanceId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "SFD-112-gift",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "SFD-120": {
+    // Sivir - Ambitious — "[Deflect 2] When I conquer after an attack, if you
+    // assigned 5 or more excess damage to enemy units, you may deal that much to
+    // an enemy unit."
+    //
+    // The trigger CONDITION is Tryndamere - Barbarian's (OGN-034, effects/fury.ts)
+    // word for word; only the payout differs, so it reads the same three facts and
+    // `sivirQualifies` mirrors `tryndamereQualifies`:
+    //  - "when I conquer" is positional — she must be standing at the battlefield
+    //    that was taken;
+    //  - "after an attack" is why `lastShowdownExcessDamage` carries a battlefield
+    //    and an attacking side, so a conquest by walking into an empty battlefield
+    //    (which never wrote it) cannot borrow another fight's number;
+    //  - "5 or more excess damage" is a term the rules never define — `excess`
+    //    appears in the PDF only under Burn Out — and combat.ts's `excessAssigned`
+    //    records why all three candidate readings coincide here.
+    //
+    // "THAT MUCH" is the same figure the condition tested, so it is re-read from
+    // `lastShowdownExcessDamage` when the question is answered rather than copied
+    // onto the decision: nothing between the conquest and the answer can write it
+    // (only a combat's damage step does, and a combat cannot open mid-chain), and
+    // the decision carries the battlefield so a stale record cannot be mistaken
+    // for this one.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => sivirQualifies(state, listener, event),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      // The conqueror and the excess record are re-checked because the response
+      // window cannot change either. The LOCATION check deliberately is not — same
+      // reading as Sett - Brawler and Qiyana - Victorious above: 383 fixes what
+      // triggered at the moment of the event, and re-asking would let an opponent
+      // cancel a fired trigger by pushing her one battlefield sideways.
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (excessFor(state, listener.ownerIndex, event.battlefieldId) < SIVIR_EXCESS_REQUIRED) return state;
+      return parkDecision(state, {
+        kind: "SFD-120-strike",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -774,7 +956,186 @@ export const decisions: Record<string, DecisionDefinition> = {
     resolve: (state, d) =>
       ownUnitsEverywhere(state, d.playerIndex).reduce((next, unit) => addBuff(next, unit.instanceId), state),
   },
+  // Buhru Captain's "you may draw 1 or buff me", raised by his on-play trigger.
+  //
+  // THREE answers, where Qiyana - Victorious' near-identical either/or gets two.
+  // The difference is the printed "you MAY", so declining is listed — and listed
+  // FIRST, the ordering Mistfall and Miss Fortune - Captain use so that a
+  // mis-click and a tie in the AI's scoring both land on doing nothing. (The AI
+  // does not simply take the head: it scores every answer, see
+  // `settleDeferredResolution`.)
+  //
+  // The DRAW is offered unconditionally, empty deck included, for Qiyana's
+  // reason: drawing from an empty Main Deck is what triggers Burn Out (431), a
+  // real outcome rather than a non-choice, and suppressing the option would take
+  // a legal decision away.
+  //
+  // The BUFF is not, and the asymmetry is deliberate: the Captain is the thing
+  // being buffed, an on-play trigger resolves even though its source has left
+  // play (809.1.b), and a buff aimed at a card already in the trash would be an
+  // option that visibly does nothing. 359.3 — the check returns null and the
+  // calculation drops out.
+  "SFD-091-choose": {
+    prompt: () => "Buhru Captain: draw 1, or buff me?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }, { id: "draw", label: "Draw 1" }];
+      const captain = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId) : undefined;
+      if (captain) options.push({ id: "buff", label: "Buff me", instanceId: captain.unit.instanceId });
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "draw") return drawCards(state, d.playerIndex, 1);
+      if (optionId === "buff") return addBuff(state, d.cardInstanceId!);
+      return state; // declined — "you may"
+    },
+  },
+  // Kato the Arm's "give ANOTHER friendly unit my keywords and +Might equal to my
+  // Might this turn", raised by his on-move trigger.
+  //
+  // NOT a "you may", so there is no decline: the ability is mandatory and the only
+  // choice is which friendly unit receives it. A board with nobody else on it is
+  // handled before the question is ever raised (see the trigger).
+  //
+  // Kato is re-read HERE rather than snapshotted onto the decision, and both his
+  // Might and his keyword set with him. That is the closest thing to resolution
+  // time this mechanism has — nothing else is legal while a question is pending —
+  // and it is what makes "my keywords" mean the ones he has NOW: `effectiveKeywords`
+  // folds in his printed `[Deflect]`, anything an aura is granting him and anything
+  // granted to him earlier this turn. He is gone if he was killed answering an
+  // earlier queued question, in which case 359.3 drops the whole calculation.
+  //
+  // The keywords are granted THIS TURN (`keywordsThisTurn`) rather than written
+  // into the recipient's printed set, which is where the printed "this turn"
+  // lands. Read as governing BOTH halves of the gift — the keywords and the Might
+  // — since the sentence gives them together; the alternative, permanent keywords
+  // plus temporary Might, would make a 4-Energy common the pool's only source of
+  // permanent keyword-granting. Flagged as the reading taken rather than a
+  // certainty.
+  "SFD-112-gift": {
+    prompt: (state, d) => {
+      const kato = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId) : undefined;
+      return `Kato the Arm: give another friendly unit his keywords and +${kato ? mightInPlace(state, kato) : 0} Might this turn`;
+    },
+    options: (state, d) =>
+      otherFriendlyUnits(state, d.playerIndex, d.cardInstanceId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => {
+      const kato = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId) : undefined;
+      if (!kato) return state; // 359.3 — nothing left to copy from
+      const granted = Object.entries(effectiveKeywords(state, kato.unit, kato.ownerIndex)).reduce(
+        (next, [keyword, value]) => grantKeywordThisTurn(next, optionId, keyword as Keyword, value ?? 1),
+        state,
+      );
+      return giveMightThisTurn(granted, optionId, mightInPlace(state, kato));
+    },
+  },
+  // Sivir - Ambitious' "you may deal that much to an enemy unit", raised by her
+  // on-conquer trigger once the excess threshold is met.
+  //
+  // "AN ENEMY UNIT" with no "here" printed, so this reaches the opponent's whole
+  // board including their base (355.9.b) — the same distinction Twisted Fate -
+  // Gambler's two branches draw from each other, one saying "here" and one not.
+  //
+  // "THAT MUCH" is re-derived from `lastShowdownExcessDamage` rather than carried,
+  // so the label and the damage cannot disagree; the decision's battlefield is
+  // what stops an older fight's number being read as this one's.
+  "SFD-120-strike": {
+    prompt: (state, d) =>
+      `Sivir - Ambitious: deal ${excessFor(state, d.playerIndex, d.battlefieldId)} to an enemy unit?`,
+    options: (state, d) => {
+      // "You MAY", so declining is a real answer and is listed first.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const amount = excessFor(state, d.playerIndex, d.battlefieldId);
+      if (amount <= 0) return options;
+      for (const unit of ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0)) {
+        options.push({ id: unit.instanceId, label: `Deal ${amount} to ${unit.name}`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const amount = excessFor(state, d.playerIndex, d.battlefieldId);
+      return amount > 0 ? dealDamage(state, d.playerIndex, optionId, amount) : state;
+    },
+  },
 };
+
+/**
+ * Rule 745's "one on one", spelled out in the PDF's Special Terms in two steps:
+ * "A unit is ALONE when there are no other friendly units at the same location",
+ * and "A unit is ONE ON ONE when it and the enemy unit at the same location are
+ * both alone."
+ *
+ * So both halves are counts, not a claim about the listener alone: exactly one of
+ * the listener's units here AND exactly one of the opponent's. Two enemies facing
+ * a lone Fiora is not one on one, which is what stops the card from being "double
+ * my Might whenever I am outnumbered".
+ *
+ * Reads the board at the moment the combat opened, which is when `applies` is
+ * asked (383.4) — a reinforcement arriving later cannot un-trigger it.
+ */
+function oneOnOneAt(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "combatBegan") return false;
+  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+  if (!bf) return false;
+  const enemyIndex: 0 | 1 = listener.ownerIndex === 0 ? 1 : 0;
+  return (
+    (bf.units[state.players[listener.ownerIndex].id]?.length ?? 0) === 1 &&
+    (bf.units[state.players[enemyIndex].id]?.length ?? 0) === 1
+  );
+}
+
+/** How much excess damage `playerIndex` assigned in the fight at
+ *  `battlefieldId`, or 0 if the record is from a different battlefield, from the
+ *  other side of a fight, or absent entirely. One reader for Sivir's condition,
+ *  her prompt and her damage, so the three cannot disagree about the number. */
+function excessFor(state: GameState, playerIndex: 0 | 1, battlefieldId: string | undefined): number {
+  const excess = state.lastShowdownExcessDamage;
+  if (!excess || excess.battlefieldId !== battlefieldId || excess.attackerIndex !== playerIndex) return 0;
+  return excess.amount;
+}
+
+const SIVIR_EXCESS_REQUIRED = 5;
+
+/** Sivir - Ambitious' three trigger conditions, asked once — the same shape (and
+ *  the same reason) as fury.ts's `tryndamereQualifies`, whose card prints this
+ *  clause word for word. */
+function sivirQualifies(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "battlefieldConquered") return false;
+  if (event.conquerorIndex !== listener.ownerIndex) return false;
+  if (listener.battlefieldId !== event.battlefieldId) return false; // "when *I* conquer"
+  return excessFor(state, listener.ownerIndex, event.battlefieldId) >= SIVIR_EXCESS_REQUIRED;
+}
+
+/** Every unit `playerIndex` controls except one — Kato the Arm's "ANOTHER
+ *  friendly unit", which names no battlefield and so includes base (355.9.b). */
+function otherFriendlyUnits(state: GameState, playerIndex: 0 | 1, excludeInstanceId: string): UnitInstance[] {
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => u.instanceId !== excludeInstanceId);
+}
+
+/**
+ * A unit's current Might, evaluated where it actually stands — the lookup Fiora -
+ * Peerless, Kato the Arm and `unitsDuel` all need.
+ *
+ * The location matters because auras are positional (Garen - Commander, Lee Sin -
+ * Centered): a base unit has no battlefield id, and those auras read that omission
+ * as "base". `isCombat: false` for the reason `isMighty` records — `[Assault]` and
+ * `[Shield]` are damage-side adjustments, not part of the Might a card doubles or
+ * copies.
+ */
+function mightInPlace(state: GameState, location: AnyUnitLocation): number {
+  return effectiveMight(
+    state,
+    location.unit,
+    location.ownerIndex,
+    location.zone === "base"
+      ? { isCombat: false }
+      : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id },
+  );
+}
 
 /**
  * Two units dealing damage equal to their Mights to each other — Challenge's
@@ -799,14 +1160,12 @@ function unitsDuel(state: GameState, casterIndex: 0 | 1, firstId: string, second
   const second = findUnitAnywhere(state, secondId);
   if (!first || !second) return state;
 
-  // A base unit has no battlefield id; auras keyed on location (Garen -
-  // Commander) read that omission as "base".
-  const mightCtx = (location: AnyUnitLocation) =>
-    location.zone === "base"
-      ? { isCombat: false }
-      : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
-  const firstMight = effectiveMight(state, first.unit, first.ownerIndex, mightCtx(first));
-  const secondMight = effectiveMight(state, second.unit, second.ownerIndex, mightCtx(second));
+  // `mightInPlace` above — the where-it-stands lookup this used to spell out
+  // inline, folded the moment Fiora - Peerless and Kato the Arm wanted the same
+  // question asked. A base unit has no battlefield id; auras keyed on location
+  // (Garen - Commander) read that omission as "base".
+  const firstMight = mightInPlace(state, first);
+  const secondMight = mightInPlace(state, second);
 
   const afterSecondDamage = dealDamage(state, casterIndex, secondId, firstMight);
   return dealDamage(afterSecondDamage, casterIndex, firstId, secondMight);

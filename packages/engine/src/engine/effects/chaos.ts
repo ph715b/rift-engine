@@ -12,10 +12,12 @@ import type { DecisionDefinition } from "../decisions.js";
 import {
   channelRunesExhausted,
   dealDamage,
+  destroyUnit,
   discardCards,
   discardThenDraw,
   drawCards,
   forceMoveToBattlefield,
+  giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantTemporary,
   ownUnitsEverywhere,
@@ -23,12 +25,14 @@ import {
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
+  returnPermanentToHand,
   returnUnitToHand,
   swapUnitLocations,
   takeOneFromTopAndRecycleRest,
   takeControlOfUnit,
 } from "../effect-helpers.js";
-import { findUnitAnywhere } from "../target-lookup.js";
+import { findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { attackerIndexAt, attackingUnitsAt, isDefendingAt } from "../combat-designation.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
@@ -281,7 +285,99 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => parkDecision(state, { kind: "OGN-198-play", playerIndex: ctx.casterIndex }),
   },
+  "SFD-145": {
+    // Switcheroo — "[Hidden][Action] Swap the Might of two units at the same
+    // battlefield this turn."
+    //
+    // `sameBattlefield` is Facebreaker's relation between two targets, and the
+    // reason it has to live on the SPEC rather than in this resolver: by the time
+    // a resolver runs the choice is already made and validated, so refusing here
+    // would leave the card paid for and doing nothing.
+    //
+    // `min: 2` — both halves are one instruction joined by "of two units", so the
+    // card is simply uncastable without a pair standing together (355: "valid
+    // choices must be made for all targets"). The two slots are genuinely
+    // interchangeable (a swap is the same either way round), so the default
+    // symmetric pruning is right and `asymmetricSlots` would only double the
+    // AI's search for one board.
+    //
+    // **WHICH Might is swapped is a rules call this file makes explicitly.** The
+    // swap is expressed as two opposite `mightThisTurn` deltas, computed from
+    // printed Might PLUS the accumulated this-turn modifier — NOT from
+    // `effectiveMight`. That is `giveMightThisTurn`'s own floor convention,
+    // written down there for this exact question: "Buffs and continuous auras are
+    // deliberately NOT counted: they can appear and vanish after this resolves."
+    // Baking an aura or a combat-only [Shield] into a delta that survives to the
+    // end of the turn would keep paying out long after its source stopped
+    // applying, which is a worse answer than under-counting it. So a buffed unit
+    // keeps its own buff across the swap and only the base+this-turn figures
+    // trade places. **Flagged as unverified** — 2236's worked example reads
+    // "current Might" for a spell that references Might, which would argue the
+    // other way.
+    targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, sameBattlefield: true },
+    resolve: (state, _ctx, event) => {
+      const { targetUnitInstanceId: firstId, secondTargetUnitInstanceId: secondId } = event;
+      if (!firstId || !secondId) return state;
+      const first = findUnitAnywhere(state, firstId);
+      const second = findUnitAnywhere(state, secondId);
+      // 359.3: a target that has left play makes the check return nothing rather
+      // than making the spell fizzle loudly.
+      if (!first || !second) return state;
+      const delta = swappableMight(second.unit) - swappableMight(first.unit);
+      if (delta === 0) return state; // equal Might: a swap nothing can observe
+      // Applied to the first, then the second, reading `delta` once — the second
+      // call must not re-derive from a board the first has already changed.
+      return giveMightThisTurn(giveMightThisTurn(state, firstId, delta), secondId, -delta);
+    },
+  },
+  "SFD-147": {
+    // Downwell — "Return all units and gear to their owners' hands."
+    //
+    // No targeting at all, and that is 355.10.d rather than convenience: "Kill
+    // all units at battlefields doesn't target anything" — an effect that names
+    // every object of a kind chooses none of them, so there is nothing to pick
+    // and nothing to validate.
+    //
+    // "ALL units" is BOTH bases as well as every battlefield (355.9.b's bare
+    // noun, the same reading Whirlwind takes), so `allUnitsInPlay` — the walk
+    // Whirlwind's own option list uses — is the right set and a battlefield-only
+    // sweep would be wrong. At 8 Energy and 2 Power this is the pool's board
+    // wipe, and leaving base units standing would make it a one-sided one.
+    //
+    // Ids are snapshotted before anything moves, for the reason
+    // `dealDamageToAllUnitsAt` above snapshots its own: each return rewrites the
+    // zones the walk reads.
+    //
+    // Units first, then gear, in printed order. It is observable: `killGear` is
+    // NOT what happens to a gear here (it is returned, not killed), so no gear's
+    // killed self-trigger fires, but a unit leaving play does strip its Buff
+    // (709) and reset damage — both already inside `returnUnitToHand`.
+    //
+    // **Known gap, inherited rather than introduced**: `returnUnitToHand` puts a
+    // TOKEN into its owner's hand instead of letting it cease to exist, and
+    // nothing in this engine removes it there. Every bounce in the pool shares
+    // it (Rebuke, Zaunite Bouncer, Whirlwind); this card just meets it more
+    // often. Fixing it is a change to effect-helpers.ts.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      const unitIds = allUnitsInPlay(state).map((u) => u.instanceId);
+      const gearIds = ([0, 1] as const).flatMap((index) => state.players[index].activeGear.map((g) => g.instanceId));
+      const bounced = unitIds.reduce((next, id) => returnUnitToHand(next, id), state);
+      return gearIds.reduce((next, id) => returnPermanentToHand(next, id), bounced);
+    },
+  },
 };
+
+/**
+ * The Might figure Switcheroo trades between two units: printed plus the
+ * accumulated this-turn modifier, and deliberately not `effectiveMight`.
+ *
+ * Named rather than inlined because it IS the card's rules call — see SFD-145's
+ * entry for why a delta that outlives its source is the worse error.
+ */
+function swappableMight(unit: UnitInstance): number {
+  return unit.might + unit.mightThisTurn;
+}
 
 /**
  * Parks one question of `kind` for each player, starting with `first`.
@@ -418,6 +514,71 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // — the same "offer it from the trash, pay Power, then playUnitToBase" shape.
     targeting: { kind: "none" },
     resolve: (state, ctx) => parkDecision(state, { kind: "OGN-196-play", playerIndex: ctx.casterIndex }),
+  },
+  "SFD-132": {
+    // Beast Below — "When you play me, return another friendly unit and an enemy
+    // unit to their owners' hands."
+    //
+    // TWO DECISIONS rather than a `unitSlots` spec, and the difference is 422.
+    // `unitSlots` with `min: 2` enumerates only complete pairs, so a board with a
+    // spare friendly and no enemy (or the reverse) produces no variant at all,
+    // `legal-actions` falls through to its "a Unit is playable with its trigger's
+    // target omitted" branch, and the Beast returns NOTHING. The rules' golden
+    // rule says do as much as you can and ignore the impossible instruction, so
+    // the half that CAN happen must still happen. Asking the two halves
+    // separately is the only shape that gets that right: a question with no
+    // options is dropped by `advanceDecisions` while its sibling still runs.
+    //
+    // It is also the moment the rules name for a unit's on-play trigger. 355.10's
+    // worked example is this card's shape exactly — "a unit with a triggered
+    // ability that says 'When I'm played, kill a unit' does not require you to
+    // choose a target as it's played; the target will be chosen when the ability
+    // triggers" — so a resolution-time question is nearer the printed timing than
+    // the announce-time fan-out, not a compromise away from it.
+    //
+    // "ANOTHER friendly" is enforced by carrying his own instanceId on the
+    // question, NOT by the accident that enumeration happens while he is in hand
+    // (Zaunite Bouncer's reason): by the time these resolve he is on the board and
+    // would otherwise be on his own list.
+    //
+    // Both halves are MANDATORY — no "you may" — so neither offers a decline.
+    // Friendly first, printed order; `parkDecision` is FIFO, so the order they are
+    // raised in is the order they are asked in.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      parkDecision(parkDecision(state, { kind: "SFD-132-friendly", playerIndex: ctx.casterIndex, cardInstanceId: unitId }), {
+        kind: "SFD-132-enemy",
+        playerIndex: ctx.casterIndex,
+      }),
+  },
+  "SFD-138": {
+    // Windsinger — "[Hidden] When you play me, you may return another unit at a
+    // battlefield with 3 Might or less to its owner's hand."
+    //
+    // A DECISION rather than `{ kind: "unit", maxMight: 3 }`, and the reason is
+    // the printed "you MAY". A fanned-out spec offers the no-target variant ONLY
+    // when the board offered no legal candidate at all — `legal-actions`' own
+    // `card.kind === "Unit" && effectVariants.length === 0` branch — so with any
+    // 3-Might unit standing anywhere "you may" would silently become "you must",
+    // and a player whose only small unit is their OWN would be forced to bounce
+    // it. That is the failure card-effects.ts's OPTIONAL_UNIT_COSTS comment
+    // records for Wildclaw Shaman and Soulgorger takes the same way out of.
+    //
+    // (Tideturner's entry above claims enumeration offers a no-target variant for
+    // an optional unit target. Measured against `legal-actions`, it does not —
+    // that comment is wrong, and this card is not written on it.)
+    //
+    // "AT A BATTLEFIELD" is printed, so base units are out of reach; "3 Might or
+    // less" is asked through `unitWithinMaxMight`, the same shared predicate the
+    // enumerator and the validator use, so this card and a `maxMight` spec can
+    // never disagree about what counts (it reads EFFECTIVE Might, which is 2236's
+    // "current Might").
+    //
+    // "ANOTHER" rides on his own instanceId, for the reason Beast Below's entry
+    // gives: this resolves with him already on the board.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      parkDecision(state, { kind: "SFD-138-return", playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
   },
 };
 
@@ -597,7 +758,222 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, 1);
     },
   },
+  "SFD-123": {
+    // Corrupt Enforcer, FIRST clause only — "When I move to a battlefield,
+    // discard 1."
+    //
+    // **His second clause is NOT implemented**: "When I win a combat, draw 1"
+    // needs a combat-WON event, and there is none. 466.5.a defines the concept
+    // ("a Player has won a combat if they received either the attacker or
+    // defender designation and are the only Player that has units remaining at
+    // this battlefield during this step"), but `GameEvent` carries only
+    // `combatBegan` and `battlefieldConquered` and neither is that: a conquest is
+    // also what a walk-in produces, so paying out on one would draw for a combat
+    // that never happened. Adding the event is a change to combat.ts and
+    // triggers.ts. Recorded for coverage.PARTIALLY_IMPLEMENTED rather than
+    // approximated. (effects/fury.ts's Draven - Vanquisher is blocked on the same
+    // missing event, from the other side of the pool.)
+    //
+    // The `unitMoved` EVENT rather than the per-card `ON_MOVE_TRIGGERS` table,
+    // which lives in unit-triggers.ts and is not this file's to edit — Yasuo -
+    // Windrider above is the precedent, and the event carries everything a "when
+    // I move" card can ask.
+    //
+    // "TO A BATTLEFIELD" needs no destination check: a `MoveUnitAction` carries a
+    // `destinationBattlefieldId`, so every Standard Move in this engine ends at
+    // one. The event also never fires for a Recall (454, a Recall is not a Move)
+    // or for a spell-driven relocation, which is the line the card wants.
+    //
+    // The discard goes through `discardCards`, so with more than one card in hand
+    // it stops and ASKS rather than taking the front of hand, and it fires
+    // `cardsDiscarded` once for the instruction — a Jinx - Rebel across the table
+    // readies once, not never.
+    on: "unitMoved",
+    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => (event.kind === "unitMoved" ? discardCards(state, listener.ownerIndex, 1) : state),
+  },
+  "SFD-125": {
+    // Fae Porter — "When I move to a battlefield, you may pay [Chaos] to move a
+    // unit you control to the same battlefield."
+    //
+    // "The SAME battlefield" is `event.to`, captured on the question rather than
+    // re-read from where the Porter is standing when it resolves: `unitMoved` is
+    // held (383), and the window it opens is exactly when he could be bounced or
+    // moved on. The destination the card means is the one he arrived at.
+    //
+    // "You may PAY" is a cost inside an instruction (355.10.d.1's "[do X] to [do
+    // Y]"), so the Chaos rune is not a target and the moved unit is. Affordability
+    // is asked in `applies` as well as at resolution, following Draven -
+    // Vanquisher: 416.3 makes a cost that cannot be completed one you may not
+    // choose to pay, and a held trigger that resolves to nothing still costs both
+    // players a PassFocus.
+    //
+    // "A unit YOU CONTROL" carries no location (355.9.b's bare noun), so a unit
+    // sitting in base is a legal choice — and it is the main one, since this is
+    // how the Porter reinforces. Units already at the destination are excluded:
+    // there is no move for them to make.
+    //
+    // `forceMoveToBattlefield`, so the arrival applies Contested and can promote a
+    // Showdown. It fires no on-move trigger and does not exhaust, which that
+    // helper's own note records as this engine's reading of an effect-driven move
+    // (415.1.b puts the exhaust on the Standard Move ACTION, not on moving).
+    on: "unitMoved",
+    applies: (state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      payPowerFromChanneled(state, listener.ownerIndex, "Chaos", 1) !== undefined &&
+      ownUnitsElsewhere(state, listener.ownerIndex, event.to).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      return parkDecision(state, {
+        kind: "SFD-125-move",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.to,
+      });
+    },
+  },
+  "SFD-126": {
+    // Loyal Pup — "When you defend at a battlefield, you may move me there."
+    //
+    // "YOU defend", not "I defend": the subject is the PLAYER, so this fires for a
+    // Pup standing somewhere else entirely — which is the whole card. That also
+    // means `isDefendingAt` is the wrong predicate (it requires the listener to be
+    // one of the units designated in that combat), and `pupJoins` below is written
+    // instead.
+    //
+    // 465 makes the Defender "the player who did not apply the Contested status",
+    // which in a two-player game is simply the non-attacker. **This engine
+    // additionally requires that player to have a unit at the battlefield**,
+    // mirroring `cleanup.beginCombatAt`'s own guard on the battlefields' "when you
+    // defend here" (Fortified Position, Reaver's Row) — the same printed wording,
+    // so the two must agree. Recorded as this file's reading rather than derived:
+    // 465 gives the PLAYER the designation regardless of presence.
+    //
+    // **Measured: that requirement is unreachable through the opening of a
+    // combat.** `stageShowdowns` only reaches `beginCombatAt` when
+    // `unitsOfBothPlayers` holds, so a one-sided contest stages a NON-Combat
+    // Showdown and fires no `combatBegan` at all. The check therefore only bites
+    // on `designateArrivals` — a reinforcement walking into a fight whose other
+    // side has since been wiped — which is exactly where it should. Kept rather
+    // than deleted for that path, and named here so nobody reads it as load-
+    // bearing at the opening.
+    //
+    // Held (383), so the Pup arrives at a fight whose designations are already
+    // handed out; 465 Step 1's second sentence covers him — he gains the Defender
+    // designation at the Cleanup following his arrival, which is exactly what
+    // `designateArrivals` does. He therefore reinforces the fight rather than
+    // joining the opening of it, the same divergence Stealthy Pursuer records.
+    on: "combatBegan",
+    applies: (state, listener, event) => pupJoins(state, listener, event),
+    resolve: (state, listener, event) => {
+      if (!pupJoins(state, listener, event) || event.kind !== "combatBegan") return state;
+      // "You MAY move me" — a real choice, and only his controller's.
+      return parkDecision(state, {
+        kind: "SFD-126-join",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
+  "SFD-128": {
+    // Overzealous Fan — "When I defend, you may kill me to move an attacking unit
+    // to its base."
+    //
+    // "When I DEFEND" is the unit's own designation, so this one IS
+    // `isDefendingAt` — 465's Attacker is `contestedByIndex` and everyone else
+    // standing there is defending, and 383.4.f's "for the first time during a
+    // combat" is already enforced by the event's `designated` list.
+    //
+    // The timing is what makes the card work: `combatBegan` items resolve on the
+    // Combat Chain (465 Step 1 Task 4), which is BEFORE the Combat Damage Step —
+    // so an attacker sent home is an attacker whose Might never joins the pool.
+    //
+    // "KILL ME TO move" is a cost (355.10.d.1), so it is paid first and the move
+    // only happens if it was paid — and killing him is not targeting anything,
+    // which is why only the attacking unit rides on the question. `destroyUnit`
+    // with NO killerIndex, matching every other cost-kill in the pool (Cruel
+    // Patron, Commander Ledros): nobody "killed" him in the sense a
+    // `killerIndex`-reading card asks about.
+    //
+    // "MOVE an attacking unit to its base" is `recallUnitToBase`, the same helper
+    // Fight or Flight's identically-worded "move a unit from a battlefield to its
+    // base" uses — a Move, so the unit arrives exhausted, rather than 454's Recall
+    // which would leave it ready.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isDefendingAt(state, listener, event) &&
+      event.kind === "combatBegan" &&
+      attackingUnitsAt(state, event.battlefieldId).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      return parkDecision(state, {
+        kind: "SFD-128-sacrifice",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
+  "SFD-137": {
+    // Harpoon Squad — "When I move FROM a battlefield, give me +2 Might this
+    // turn."
+    //
+    // The one card in this file whose move trigger reads the ORIGIN, which is the
+    // reason `unitMoved` carries `from` at all: by the time any move DISPATCHER
+    // runs the unit has already been removed from where it was. `"base"` is what
+    // the event carries for a unit leaving home, and it matches no battlefield —
+    // so walking out of base pays nothing and only battlefield-to-battlefield
+    // redeployment does, which is what the printed "from a battlefield" buys over
+    // Treasure Hunter's bare "when I move".
+    //
+    // Read from the EVENT rather than re-derived, for Yasuo - Windrider's reason:
+    // the trigger is held, and between firing and resolving he can be moved again.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId && event.from !== "base",
+    resolve: (state, listener, event) =>
+      event.kind === "unitMoved" ? giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, HARPOON_PUMP) : state,
+  },
 };
+
+/** Harpoon Squad's redeployment bonus. */
+const HARPOON_PUMP = 2;
+
+/**
+ * Loyal Pup's three conditions, asked once so `applies` and `resolve` cannot
+ * disagree — the same shape (and the same reason) as `pursuerFollows` below.
+ *
+ * Deliberately NOT `isDefendingAt`: that predicate requires the listener to be
+ * among the units designated in this combat, and the whole point of the Pup is
+ * that he is somewhere else when the fight opens.
+ */
+function pupJoins(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "combatBegan") return false;
+  const attackerIndex = attackerIndexAt(state, event.battlefieldId);
+  if (attackerIndex === null || attackerIndex === listener.ownerIndex) return false; // "YOU defend"
+  // Already standing in the fight: "move me THERE" has nothing to do.
+  if (listener.battlefieldId === event.battlefieldId) return false;
+  // The presence requirement — see the card's entry for why this engine adds it.
+  const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+  return (bf?.units[state.players[listener.ownerIndex].id]?.length ?? 0) > 0;
+}
+
+/**
+ * The units `playerIndex` controls that are NOT already at `battlefieldId` —
+ * Fae Porter's "a unit you control", which names no location (355.9.b) and so
+ * reaches base as well as every other battlefield.
+ *
+ * Filtered rather than left to `forceMoveToBattlefield`'s own already-there
+ * no-op, because this list is also the OPTIONS a player is shown: offering a
+ * move that cannot happen and charging a Chaos rune for it is 416.3's
+ * offered-then-refused shape.
+ */
+function ownUnitsElsewhere(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const here = new Set((bf?.units[state.players[playerIndex].id] ?? []).map((u) => u.instanceId));
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => !here.has(u.instanceId));
+}
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -829,7 +1205,159 @@ export const decisions: Record<string, DecisionDefinition> = {
     options: (state, d) => playableTrashUnits(state, d.playerIndex),
     resolve: (state, d, optionId) => playUnitFromTrash(state, d.playerIndex, optionId),
   },
+
+  // Fae Porter's "you may pay [Chaos] to move a unit you control to the same
+  // battlefield." One question over both halves, not two: the payment is a cost
+  // WITHIN the instruction (355.10.d.1), so declining to move and declining to
+  // pay are the same answer and asking them separately would need a way to
+  // remember that the first was said yes to.
+  //
+  // Priced when the OPTIONS are built and again when one is taken, the same split
+  // `playableTrashUnits` makes: the question can sit behind others, and the Chaos
+  // rune it was offered against may have been spent in between.
+  "SFD-125-move": {
+    prompt: () => "Fae Porter: pay 1 Chaos Power to move a unit you control to his battlefield?",
+    options: (state, d) => {
+      const decline: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!d.battlefieldId) return [];
+      if (payPowerFromChanneled(state, d.playerIndex, "Chaos", 1) === undefined) return decline;
+      return [
+        ...decline,
+        ...ownUnitsElsewhere(state, d.playerIndex, d.battlefieldId).map((u) => ({
+          id: u.instanceId,
+          label: `Pay 1 Chaos Power: move ${u.name} here`,
+          instanceId: u.instanceId,
+        })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || !d.battlefieldId) return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Chaos", 1);
+      if (paid === undefined) return state;
+      return forceMoveToBattlefield(paid, optionId, d.battlefieldId);
+    },
+  },
+
+  // Loyal Pup's "you may move me there". The decline leads, so a mis-click and
+  // the AI's tie-break both land on doing nothing — the convention Whirlwind's
+  // and Soulgorger's offers already use.
+  "SFD-126-join": {
+    prompt: () => "Loyal Pup: move him to the battlefield you are defending?",
+    options: (state, d) => {
+      // Moot if he has since died, or has already been moved into the fight — a
+      // question about a board that no longer exists is dropped, not answered.
+      const location = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId) : undefined;
+      if (!location || !d.battlefieldId) return [];
+      if (location.zone !== "base" && state.battlefields[location.zone.battlefieldIndex]!.id === d.battlefieldId) return [];
+      return [
+        { id: "stay", label: "Stay" },
+        { id: "join", label: "Move him to the fight" },
+      ];
+    },
+    resolve: (state, d, optionId) =>
+      optionId === "join" && d.cardInstanceId && d.battlefieldId
+        ? forceMoveToBattlefield(state, d.cardInstanceId, d.battlefieldId)
+        : state,
+  },
+
+  // Overzealous Fan's "you may kill me to move an attacking unit to its base."
+  //
+  // The attackers are re-read from LIVE state when the question reaches the front
+  // of the queue rather than captured when it was raised, so a unit that has
+  // since left the fight is not offered — and the battlefield is captured,
+  // because by then the Fan may no longer be standing at it.
+  "SFD-128-sacrifice": {
+    prompt: () => "Overzealous Fan: kill him to send an attacking unit home?",
+    options: (state, d) => {
+      // The COST first: with the Fan already gone there is nothing to pay with,
+      // so the question is moot rather than declinable.
+      if (!d.cardInstanceId || !findUnitAnywhere(state, d.cardInstanceId) || !d.battlefieldId) return [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...attackingUnitsAt(state, d.battlefieldId).map((u) => ({
+          id: u.instanceId,
+          label: `Kill him: send ${u.name} to its base`,
+          instanceId: u.instanceId,
+        })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || !d.cardInstanceId) return state;
+      if (!findUnitAnywhere(state, d.cardInstanceId)) return state; // the cost can no longer be paid
+      // Cost, then effect. `destroyUnit` runs the full death funnel, so his own
+      // death still reaches a death-watch and a Deathknell on the board.
+      return recallUnitToBase(destroyUnit(state, d.cardInstanceId), optionId);
+    },
+  },
+
+  // Beast Below's two halves. Both MANDATORY — the card carries no "you may" —
+  // so neither offers a decline: with candidates the player must pick one, with
+  // exactly one candidate it happens without a prompt, and with none the option
+  // list is EMPTY and `advanceDecisions` drops that half while the other still
+  // runs. That last case is the whole reason these are decisions; see the card's
+  // entry.
+  "SFD-132-friendly": {
+    prompt: () => "Beast Below: return another friendly unit to its owner's hand",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex)
+        .filter((u) => u.instanceId !== d.cardInstanceId) // "ANOTHER"
+        .map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => returnUnitToHand(state, optionId),
+  },
+  "SFD-132-enemy": {
+    prompt: () => "Beast Below: return an enemy unit to its owner's hand",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, _d, optionId) => returnUnitToHand(state, optionId),
+  },
+
+  // Windsinger's "you may return another unit at a battlefield with 3 Might or
+  // less to its owner's hand." The decline leads, and is what makes "may" mean
+  // may — with nothing small enough on the board it is the only option, so the
+  // question is executed rather than shown and nobody is interrupted to be told
+  // there is nothing to do.
+  //
+  // No owner restriction: "another unit", not "an enemy unit". Bouncing your own
+  // resets its damage and rescues it from a fight, exactly as Rebuke's does.
+  "SFD-138-return": {
+    prompt: () => "Windsinger: you may return a unit at a battlefield with 3 Might or less to its owner's hand",
+    options: (state, d): DecisionOption[] => [
+      { id: "decline", label: "Decline" },
+      ...unitsAtBattlefields(state)
+        .filter(({ unit }) => unit.instanceId !== d.cardInstanceId) // "ANOTHER"
+        // The shared predicate the enumerator and the validator use for a
+        // `maxMight` spec, so "3 Might or less" cannot come to mean two things.
+        .filter(({ unit }) => unitWithinMaxMight(state, unit, WINDSINGER_MAX_MIGHT))
+        .map(({ unit }) => ({ id: unit.instanceId, label: unit.name, instanceId: unit.instanceId })),
+    ],
+    resolve: (state, _d, optionId) => (optionId === "decline" ? state : returnUnitToHand(state, optionId)),
+  },
 };
+
+/** Windsinger's cap — "a unit at a battlefield with 3 [Might] or less". */
+const WINDSINGER_MAX_MIGHT = 3;
+
+/**
+ * Every unit standing at a battlefield, either owner's, with the owner index the
+ * caller needs to price it.
+ *
+ * Battlefield order then player order, so an option list built from it is stable
+ * and a test about WHICH unit was offered means something — the same reason
+ * `allUnitsInPlay` fixes its own walk.
+ */
+function unitsAtBattlefields(state: GameState): { unit: UnitInstance; ownerIndex: 0 | 1 }[] {
+  const out: { unit: UnitInstance; ownerIndex: 0 | 1 }[] = [];
+  for (const bf of state.battlefields) {
+    for (const ownerIndex of [0, 1] as const) {
+      for (const unit of bf.units[state.players[ownerIndex].id] ?? []) out.push({ unit, ownerIndex });
+    }
+  }
+  return out;
+}
 
 /**
  * The units in a player's trash they could play right now for their Power cost

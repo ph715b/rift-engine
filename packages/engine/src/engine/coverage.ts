@@ -267,6 +267,24 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
   // defId, so the next two-clause card written by halves reports DONE on the
   // first half, and this list is the only thing that says otherwise.
+  //
+  // **The next two-clause cards arrived on 2026-08-05**, six of them, in SFD's
+  // first card wave — and the prediction above was exact. Each was measured
+  // reporting `isCardImplemented = true` with no partial note before these
+  // entries were written, i.e. each read as finished while half of it was
+  // missing. Every one was reported by the agent that wrote the other half
+  // rather than found afterwards, which is the discipline working: none of them
+  // could add an entry here, because this file is shared.
+  //
+  // Three of the six are blocked on the SAME missing primitive — a gear-token
+  // (the Gold token, `sfd-t03`) — which four separate agents hit independently
+  // across eleven cards. That is the wave's largest single finding.
+  ["SFD-004", "the [Reaction] half works; 'Play a Gold gear token exhausted' needs a gear-token primitive"],
+  ["SFD-020", "the pay-Fury pump works; 'when I win a combat, play a Gold gear token exhausted' needs a gear token AND a combat-won event"],
+  ["SFD-027", "'when I hold, draw 2' works; 'If you have two or fewer cards in hand, I enter ready' needs a clause in deploy.unitEntersReady"],
+  ["SFD-057", "the 'ready me' half works; 'when you CHOOSE me' needs a unitChosen GameEvent — no board-wide choosing moment exists"],
+  ["SFD-123", "the on-move half works; 'when I win a combat, draw 1' needs a combat-won event (466.5.a), which GameEvent does not have"],
+  ["SFD-175", "the on-play pump works; 'As I'm revealed from your deck, [Add] 2 Energy' needs a reveal-from-deck hook"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

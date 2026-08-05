@@ -1,9 +1,10 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellEffect, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
-import type { DecisionDefinition } from "../decisions.js";
+import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import {
   addBuff,
+  banishCard,
   dealDamage,
   destroyUnit,
   legionActive,
@@ -11,15 +12,23 @@ import {
   discardCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
+  ownUnitsEverywhere,
+  payEnergyFromPool,
+  payPowerFromChanneled,
   readyUnit,
+  removeUnitAnywhere,
   stunUnits,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
+import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { isHiddenCard } from "../hidden.js";
 import { parkDecision } from "../decisions.js";
+import { playUnitFree } from "../free-play.js";
+import { playCardIgnoringCost } from "../play-free.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
-import type { PlayerState } from "../../model/game-state.js";
+import type { CardInstance, UnitInstance } from "../../model/card.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -424,7 +433,215 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return forceMoveToBattlefield(bombarded, unitId, destination);
     },
   },
+  "SFD-196": {
+    // Defiant Dance (Calm + Chaos) — "[Reaction] Give a unit +2 [M] this turn and
+    // another unit -2 [M] this turn."
+    //
+    // `asymmetricSlots` is the whole correctness of this card and it is easy to
+    // miss: both slots take the role "any", so without the flag `legal-actions`
+    // prunes (B,A) once it has offered (A,B) — and here the two slots do OPPOSITE
+    // things, so half the card would be unreachable. Exactly Convergent Mutation's
+    // reasoning, and the second card in the pool to need it.
+    //
+    // `min: 2` — nothing says "up to", so 355.8 settles castability: valid choices
+    // must be made for all targets before the spell goes on the chain, which makes
+    // this uncastable with fewer than two units in play. The two chosen units are
+    // always DISTINCT under `unitSlots`, which is what "ANOTHER unit" wants.
+    //
+    // `scope: "anywhere"`: "a unit" is 355.9.b's bare noun, so either player's base
+    // is in reach — and either player's unit, since the card names no owner. Buffing
+    // an enemy is legal and occasionally right (feeding a -2 to something that
+    // matters more), so nothing narrows it here.
+    //
+    // NO floor on the debuff. Smoke Screen and Siphon Power print "to a minimum of
+    // 1 [M]" and this does not, so `giveMightThisTurn` is called without one — a
+    // 2-Might unit taken to 0 dies to the next point of damage, which is the card.
+    targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, scope: "anywhere", asymmetricSlots: true },
+    resolve: (state, _ctx, event) => {
+      const pumped = event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 2) : state;
+      return event.secondTargetUnitInstanceId ? giveMightThisTurn(pumped, event.secondTargetUnitInstanceId, -2) : pumped;
+    },
+  },
+  "SFD-204": {
+    // On the Hunt (Body + Chaos) — "Ready your units."
+    //
+    // "YOUR units", no location named, so base and every battlefield —
+    // `ownUnitsEverywhere` is exactly that walk. Gear and the Legend are NOT
+    // readied: the card says units, and `readyPermanent` exists precisely for the
+    // card (Miss Fortune - Captain) that names no type.
+    //
+    // The id list is snapshotted BEFORE the first ready rather than re-walked per
+    // step. Nothing here can remove a unit today — but `readyUnit` holds a
+    // `unitReadied` event, and Pirate's Haven answers it, so the list this
+    // instruction applies to is the one that existed when it began.
+    //
+    // One event PER UNIT, not one for the instruction, and that is the primitive's
+    // contract rather than a choice made here: `unitReadied` is per-unit at all
+    // thirteen call sites and the Awaken already fires one per exhausted unit, which
+    // is what Pirate's Haven's "give IT +1 [M]" is written against. (Contrast
+    // `unitsStunned`, which is batched because Leona reads "one or more".)
+    //
+    // Rule 415's already-Ready guard lives inside `readyUnit`, so a board that was
+    // already awake produces no events and no Might.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      ownUnitsEverywhere(state, ctx.casterIndex)
+        .map((u) => u.instanceId)
+        .reduce((next, id) => readyUnit(next, id), state),
+  },
+  "SFD-200": {
+    // Arcane Shift (Mind + Chaos) — "[Action] Banish a friendly unit, then its
+    // owner plays it, ignoring its cost. Deal 3 to an enemy unit at a battlefield.
+    // Banish this."
+    //
+    // Last Breath's slot shape, and for the same printed reason: the enemy is "at a
+    // battlefield" and the friendly is not, so the two halves are scoped
+    // differently. `min: 2` because neither half says "up to" — 355.8 again.
+    //
+    // **A BLINK, and it differs from Portal Rescue's by one printed word.** Portal
+    // Rescue reads "plays it TO THEIR BASE" and so calls `playUnitToBase`; this one
+    // says only "plays it", which is the ordinary permission — so it goes through
+    // `playUnitFree`, which offers the destinations a paid play would have offered.
+    // Reading the two the same way would silently delete the card's best line
+    // (blinking a unit onto a battlefield you already hold).
+    //
+    // The banish is TRANSIENT — banished and replayed in one instruction, nothing
+    // can observe the middle zone — so the unit goes straight to play rather than
+    // through `PlayerState.banished`. "BANISH THIS" is the other kind: the spell
+    // genuinely stays there, which is why `banishCard` is called for it and not for
+    // the unit. Time Warp is the only other real writer of that zone.
+    //
+    // A fresh copy, exactly as Portal Rescue rebuilds one: 709 strips the Buff on
+    // leaving play, and damage / this-turn Might / stun are properties of the body
+    // that left.
+    //
+    // **Known ordering wrinkle, inherited rather than introduced:** when the blinked
+    // unit has more than one legal destination, `playUnitFree` PARKS the question,
+    // so the damage below lands before the unit actually arrives. The card's printed
+    // order is play-then-damage. Nothing in this pool can observe the difference
+    // (the damage target is an enemy, chosen at announce time), but it is a real
+    // deferral and not a claim that the order is preserved.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 2,
+      slotScopes: ["anywhere", "battlefield"],
+    },
+    resolve: (state, ctx, event) => {
+      const friendlyId = event.targetUnitInstanceId;
+      const found = friendlyId ? findUnitAnywhere(state, friendlyId) : undefined;
+      let next = state;
+      if (friendlyId && found) {
+        const returning: UnitInstance = {
+          ...found.unit,
+          damage: 0,
+          mightThisTurn: 0,
+          buffed: false,
+          stunned: false,
+          movesThisTurn: 0,
+        };
+        // "ITS OWNER plays it", not the caster — `found.ownerIndex`, the same
+        // reading Portal Rescue takes. Friendly-only targeting makes the two the
+        // same player today; naming it is what keeps that an observation.
+        next = playUnitFree(removeUnitAnywhere(state, friendlyId), found.ownerIndex, returning);
+      }
+
+      const enemyId = event.secondTargetUnitInstanceId;
+      if (enemyId) next = dealDamage(next, ctx.casterIndex, enemyId, 3);
+      // "Banish this" — the spell is already in the caster's trash by now (the
+      // ordinary cast path trashes at announce), and `banishCard` looks there.
+      return ctx.sourceCardInstanceId ? banishCard(next, ctx.casterIndex, ctx.sourceCardInstanceId) : next;
+    },
+  },
+  "SFD-188": {
+    // Void Rush (Fury + Order) — "Reveal the top 2 cards of your Main Deck. You may
+    // banish one, then play it, reducing its cost by [2 Energy]. Draw any you
+    // didn't banish."
+    //
+    // Baited Hook's structure — look at the top of the deck, optionally banish one
+    // and play it, then dispose of the rest — with one difference that is the whole
+    // card: the play is DISCOUNTED, not free. Nothing in the pool had done that
+    // before, which is why `voidRushPayment` below is written out rather than
+    // borrowed; The Harrowing and Soulgorger waive the Energy half outright and
+    // Immortal Phoenix pays a fixed printed price.
+    //
+    // "REVEAL" is informational only. This engine has no per-player hidden view of
+    // a deck, so revealing is not a state change; what the decision offers IS the
+    // reveal, and the option list is the two cards.
+    //
+    // Parked rather than resolved inline, because "you may banish ONE" is a genuine
+    // choice between two cards and a spell's resolution has no action to carry it.
+    // With nothing affordable the list is a lone "decline" and `advanceDecisions`
+    // retires it without a prompt — so a board that cannot pay simply draws both.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "SFD-188-banish", playerIndex: ctx.casterIndex }),
+  },
 };
+
+/** Void Rush's "reducing its cost by [2 Energy]". */
+const VOID_RUSH_DISCOUNT = 2;
+
+/** The two cards Void Rush reveals — read live rather than captured on the
+ *  decision, because `PendingDecision` has no field for a card list and the deck
+ *  cannot move between parking this question and answering it (a spell's
+ *  resolution is one submit). A question queued BEHIND one that draws would see a
+ *  different pair; nothing in this pool can produce that shape. */
+function voidRushRevealed(state: GameState, playerIndex: 0 | 1): CardInstance[] {
+  return state.players[playerIndex].deck.slice(0, 2);
+}
+
+/**
+ * Pays a revealed card's cost with Void Rush's [2 Energy] taken off, or
+ * `undefined` when the pool cannot cover it — the same contract
+ * `payPowerFromChanneled` and `spendBuff` use, so an unpayable card is never
+ * offered rather than offered and then played free.
+ *
+ * **POWER FIRST, then Energy**, and the order is not arbitrary:
+ * `payPowerFromChanneled` recycles the rune and banks 1 floating Energy for one
+ * that was still Ready, which is the same "a Ready rune spent on Power still
+ * counts toward the Energy cost" arithmetic `computeAutoPayment` does. Paying
+ * Energy first would exhaust that rune and lose the credit, refusing plays the
+ * ordinary cost pipeline allows.
+ *
+ * The discount is applied AFTER the cross-cutting modifiers (`modifiedEnergyCost`)
+ * rather than to the printed number, matching how `modifiedEnergyCost` already
+ * orders its own conditional discounts against the printed cost, and floored at 0.
+ *
+ * **Three named limitations, all inherited from `payPowerFromChanneled` and all
+ * UNDER-offering** — the card is withheld, never handed over unpaid:
+ *  - Floating Power is not counted, only the channeled pool.
+ *  - A split Power pip (`powerDomainAlt`) is tried as all-primary, then as
+ *    all-alt; a MIXED payment (one Fury and one Order for a 2-Power hybrid) is not
+ *    attempted, because the helper takes a single domain and widening it is a
+ *    change to effect-helpers.ts. That matters more here than it did for The
+ *    Harrowing, since SFD prints hybrid pips freely.
+ *  - A Legend can never be in a Main Deck, so it is refused rather than priced.
+ */
+function voidRushPayment(state: GameState, playerIndex: 0 | 1, card: CardInstance): GameState | undefined {
+  if (card.kind === "Legend") return undefined;
+
+  let paid: GameState | undefined = state;
+  if (card.powerCost > 0) {
+    paid =
+      payPowerFromChanneled(state, playerIndex, card.powerDomain, card.powerCost) ??
+      (card.powerDomainAlt !== undefined
+        ? payPowerFromChanneled(state, playerIndex, card.powerDomainAlt, card.powerCost)
+        : undefined);
+  }
+  if (!paid) return undefined;
+
+  const energy = Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) - VOID_RUSH_DISCOUNT);
+  return payEnergyFromPool(paid, playerIndex, energy);
+}
+
+/** What one revealed card's option says it costs, so the two prices a player is
+ *  choosing between are visible rather than implied. */
+function voidRushLabel(state: GameState, playerIndex: 0 | 1, card: CardInstance): string {
+  if (card.kind === "Legend") return card.name;
+  const energy = Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) - VOID_RUSH_DISCOUNT);
+  const power = card.powerCost > 0 ? `, ${card.powerCost} ${card.powerDomain ?? "any"} Power` : "";
+  return `Banish and play ${card.name} (pay ${energy} Energy${power})`;
+}
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
 
@@ -515,4 +732,73 @@ export const decisions: Record<string, DecisionDefinition> = {
       };
       return { ...discarded, players };
     },
-  },};
+  },
+  /**
+   * Void Rush's "you may banish one, then play it, reducing its cost by
+   * [2 Energy]. Draw any you didn't banish."
+   *
+   * Declining leads, as everywhere else a "you may" is asked, and it is a real
+   * answer rather than a formality: declining draws BOTH revealed cards, which is
+   * often better than paying for the one on top.
+   *
+   * "Draw any you didn't banish" runs on EVERY answer including the decline —
+   * two instructions, not one, the same structure Baited Hook's "then recycle the
+   * rest" has.
+   */
+  "SFD-188-banish": {
+    prompt: () => "Void Rush: banish one of the top 2 and play it for 2 less Energy?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline (draw both)" }];
+      for (const card of voidRushRevealed(state, d.playerIndex)) {
+        // Priced when the OPTIONS are built, so a card whose reduced cost cannot be
+        // paid is never offered — 416.3's "the action must be able to be completed
+        // for the cost to be paid", the same shape Ava Achiever's offer uses.
+        if (voidRushPayment(state, d.playerIndex, card) === undefined) continue;
+        options.push({ id: card.instanceId, label: voidRushLabel(state, d.playerIndex, card), instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      const revealed = voidRushRevealed(state, d.playerIndex);
+      const named = optionId === "decline" ? undefined : revealed.find((c) => c.instanceId === optionId);
+      // Re-paid here rather than trusted from the option list, which was built
+      // against an earlier state. If the pool has drained in between, nothing is
+      // banished and both cards are drawn — an unpayable cost withholds the payoff
+      // instead of handing it over free, exactly as The Harrowing's replay does.
+      const paid = named ? voidRushPayment(state, d.playerIndex, named) : state;
+      const chosen = paid ? named : undefined;
+      const base = paid ?? state;
+
+      // BOTH revealed cards come off the deck first, whichever way this went.
+      // Necessary rather than tidy: a Spell played below can draw, and leaving the
+      // un-banished card on top would let it be drawn twice.
+      const drawn = revealed.filter((c) => c.instanceId !== chosen?.instanceId);
+      const players = [...base.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: players[d.playerIndex].deck.slice(revealed.length),
+        // "PLAY it" — this one IS a card you played, so [Legion] and Viktor -
+        // Innovator both see it. Baited Hook and Ava Achiever make the same call;
+        // the free plays a card performs on ITSELF (Portal Rescue's blink) do not.
+        ...(chosen ? { cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1 } : {}),
+      };
+      const offDeck: GameState = { ...base, players };
+
+      // Printed order: play, THEN draw the other. The banish is transient — banished
+      // and played in one instruction — so the card goes straight to play rather
+      // than through `PlayerState.banished`.
+      //
+      // **Divergence, inherited from `playCardIgnoringCost` and named here because
+      // this card can hit anything:** a revealed SPELL resolves IMMEDIATELY rather
+      // than going on the chain, and with NO targets, because nothing announced it.
+      // A targeted spell played this way therefore does as much as it can and no
+      // more — which for Incinerate is nothing at all. Recorded in
+      // docs/rules-conformance.md against play-free.ts.
+      const played = chosen ? playCardIgnoringCost(offDeck, d.playerIndex, chosen) : offDeck;
+      if (drawn.length === 0) return played;
+      const after = [...played.players] as [PlayerState, PlayerState];
+      after[d.playerIndex] = { ...after[d.playerIndex], hand: [...after[d.playerIndex].hand, ...drawn] };
+      return { ...played, players: after };
+    },
+  },
+};

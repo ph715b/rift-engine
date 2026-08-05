@@ -25,7 +25,9 @@ import {
   readyUnit,
   returnUnitToHand,
 } from "../effect-helpers.js";
-import { isMighty } from "../granted-keywords.js";
+import { effectiveKeywords, isMighty } from "../granted-keywords.js";
+import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
+import { placeToken, type TokenSpec } from "../token.js";
 import {
   ARMORY_WARD_POWER,
   clearPaidDeathWard,
@@ -35,7 +37,7 @@ import {
 } from "../death-ward.js";
 import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
-import { findUnitAnywhere } from "../target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -268,7 +270,104 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return drawCards(damaged, ctx.casterIndex, 1);
     },
   },
+  "SFD-001": {
+    // Against the Odds — "[Reaction] Give a friendly unit at a battlefield
+    // +2 Might this turn for each ENEMY unit THERE."
+    //
+    // `owner: "friendly"` with the DEFAULT battlefield scope, both printed: the
+    // card names a battlefield, so a unit sitting in base is not a legal target
+    // (355.9.b, the Void Seeker/Final Spark split this file already records).
+    //
+    // "THERE" is the target's OWN battlefield, which is why the count is taken
+    // from the location rather than from the board — a second enemy stack at the
+    // other battlefield is not part of the odds being fought against. The count
+    // is read at RESOLUTION, not when the Reaction is announced: this is a
+    // Reaction cast into someone else's window precisely to catch the board as it
+    // lands, and 359.3.e executes the instruction when the spell resolves.
+    //
+    // A lone friendly with no enemy opposite is +0. That is a legal cast rather
+    // than an illegal one — the multiplication is the instruction, not a
+    // condition on it — so nothing is refused and the caster simply gets nothing.
+    // [Reaction] itself is printed timing and lives in timing.ts, not here.
+    targeting: { kind: "unit", owner: "friendly" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const at = findUnitOnBattlefield(state, targetId);
+      if (!at) return state;
+      const enemyId = state.players[ctx.opponentIndex].id;
+      const enemies = (state.battlefields[at.battlefieldIndex]!.units[enemyId] ?? []).length;
+      return enemies === 0 ? state : giveMightThisTurn(state, targetId, AGAINST_THE_ODDS_PER_ENEMY * enemies);
+    },
+  },
+  "SFD-004": {
+    // Bushwhack — "[Hidden] Friendly units enter ready this turn. Play a Gold
+    // gear token exhausted."
+    //
+    // **Only the first sentence is here.** There is no gear-token primitive in
+    // this engine at all — `token.ts` mints UnitInstances and nothing else — and
+    // the Gold token is a Gear with its own activated ability ("Kill this, [T]:
+    // [Reaction] Add [1 rainbow Power]"), so it is a subsystem rather than a
+    // helper call. Registered anyway because half of this card genuinely works
+    // and the other half cannot be faked; recorded for
+    // coverage.PARTIALLY_IMPLEMENTED.
+    //
+    // The enter-ready half reuses `unitsEnterReadyThisTurn`, the flag Confront
+    // already sets, rather than `nextUnitsEnterReady`: this is a DURATION ("this
+    // turn"), not a charge spent by the next unit, and the two are different
+    // fields for exactly that reason (see deploy.unitEntersReady). It is cleared
+    // by runEnd with the rest of the turn's transient state.
+    //
+    // Confront prints "Units you PLAY this turn enter ready" and this prints
+    // "FRIENDLY units enter ready this turn"; they are read as the same effect
+    // because every way a unit enters play here is a play, and `unitEntersReady`
+    // is the one funnel that decides it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = { ...players[ctx.casterIndex], unitsEnterReadyThisTurn: true };
+      return { ...state, players };
+    },
+  },
+  "SFD-017": {
+    // Sudden Storm — "[Hidden] [Action] Deal 2 to a unit at a battlefield. If
+    // it's ATTACKING, deal 4 to it instead."
+    //
+    // "Instead" replaces the amount, so this is ONE instance of damage of either
+    // 2 or 4 rather than 2 followed by 2 more — which matters beyond arithmetic,
+    // since each instance is its own damage event that [Shield] and the damage
+    // modifiers price separately.
+    //
+    // "Attacking" is 465 Step 1's Attacker designation, asked through
+    // `attackerIndexAt`: the Attacker is the player who applied Contested, and
+    // every unit of theirs standing at that battlefield is attacking. The
+    // battlefield's `designatedInstanceIds` was the rejected alternative — it is
+    // the sharper question (383.4.f's "gains the designation") but it is only
+    // written by a Cleanup, so a unit that walked in and started the fight this
+    // very action would read as NOT attacking and take 2 where the card says 4.
+    // Answering off `contestedByIndex` cannot go stale that way; it survives for
+    // as long as the Showdown does (190.6.a).
+    //
+    // The card is an [Action], so it is castable inside a Showdown — which is the
+    // only place the 4 is reachable, and is what makes the clause worth having.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const at = findUnitOnBattlefield(state, targetId);
+      const attacking =
+        at !== undefined && attackerIndexAt(state, state.battlefields[at.battlefieldIndex]!.id) === at.ownerIndex;
+      return dealDamage(state, ctx.casterIndex, targetId, attacking ? SUDDEN_STORM_VS_ATTACKER : SUDDEN_STORM_BASE);
+    },
+  },
 };
+
+/** Against the Odds' per-enemy step, and Sudden Storm's two amounts — named
+ *  because each is a printed number the resolver would otherwise read as a bare
+ *  literal beside another bare literal. */
+const AGAINST_THE_ODDS_PER_ENEMY = 2;
+const SUDDEN_STORM_BASE = 2;
+const SUDDEN_STORM_VS_ATTACKER = 4;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-026": {
@@ -417,11 +516,50 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return drawCards(state, ctx.casterIndex, mighty);
     },
   },
+  "SFD-007": {
+    // Gem Jammer — "[Ganking] When you play me, give a unit [Ganking] this turn."
+    //
+    // His own printed `[Ganking]` is the keyword machinery's; only the GRANT is
+    // here, and writing the printed one again would be a second source of truth
+    // for the same fact.
+    //
+    // "A unit", with no owner and no battlefield named, so `scope: "anywhere"`
+    // and either side is legal — 355.9.b's bare noun, the same call Cleave makes
+    // two registries up. Handing an opponent's unit free mobility is a bad play
+    // rather than an illegal one, and the enumeration must offer it or a human
+    // could not make it.
+    //
+    // `grantKeywordThisTurn`'s default value of 1 is right: `[Ganking]` is
+    // unnumbered, unlike Cleave's `[Assault 3]`.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Ganking") : state,
+  },
 };
+
+/** Ferrous Forerunner's payout. A spec rather than a call to
+ *  `placeRecruitToken`, because a Mech token is a different card: 3 Might, and
+ *  the `Mech` tag is load-bearing (Rumble - Hotheaded's "your Mechs each have
+ *  [Assault]" reads it, and the token is the archetype's whole point). No
+ *  `entersReady` — 143.4.a's default stands, and the card says nothing else. */
+const MECH_TOKEN: TokenSpec = { name: "Mech", might: 3, tag: "Mech" };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {};
+export const deathTriggers: Record<string, DeathknellEffect> = {
+  // Ferrous Forerunner — "[Deathknell] — Play two 3 Might Mech unit tokens to
+  // your base." (rule 808)
+  //
+  // "TO YOUR BASE" is printed, so where he died is irrelevant — a Forerunner
+  // killed at a battlefield still sends both tokens home, exactly as Machine
+  // Evangel's three Recruits do. `ctx.casterIndex` is the dying unit's
+  // controller, which is what "your" means for a Deathknell (see
+  // resolveHeldDeathknell, which builds the context from `death.ownerIndex`).
+  //
+  // Two separate placements rather than a count: two tokens are two game objects
+  // with two instanceIds, and `placeToken` mints one.
+  "SFD-021": (state, ctx) => [0, 1].reduce((next) => placeToken(next, ctx.casterIndex, "base", MECH_TOKEN), state),
+};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
@@ -592,7 +730,126 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return drawCards(state, listener.ownerIndex, 1);
     },
   },
+  "SFD-028": {
+    // Lucian - Gunslinger — "[Assault] When I attack, deal damage equal to MY
+    // [Assault] to an enemy unit HERE."
+    //
+    // Registered as a `combatBegan` listener here rather than added to
+    // unit-triggers.ts's ATTACK_TRIGGERS table, which is the same family: that
+    // table is a shared file, and `isAttackingAt` — the one filter every card in
+    // it needs — is exported precisely so a per-domain file can take the same
+    // shape without editing it. `attackEventTriggers` registers those eight under
+    // their own defIds, so there is no collision to have.
+    //
+    // **The damage READS the keyword rather than hardcoding its printed 1.** That
+    // is the card: "damage equal to my [Assault]" is a number that moves, and
+    // `effectiveKeywords` is what sees it move — Cleave's `[Assault 3]` grant, or
+    // a battlefield's, raises the shot to 3. A literal `1` would have been right
+    // on an empty board and quietly wrong on every board where the card is doing
+    // its job.
+    //
+    // Zero Assault deals NOTHING rather than 0: an instance of 0 damage is still
+    // an instance of damage, and would fire the damage-triggered abilities in
+    // this pool. Unreachable today (his 1 is printed) and cheap to be right about.
+    //
+    // "HERE" is `event.battlefieldId`, not wherever he stands at resolution — 383
+    // fixes the moment, and the response window a held trigger opens is exactly
+    // when an opponent would move him. The TARGET is auto-selected in board
+    // order, the same simplification every other attack trigger in this pool
+    // makes and for the same structural reason: nothing carries a choice made
+    // inside a Cleanup. Recorded Unverified in docs/rules-conformance.md with the
+    // rest of that family.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (listener.card.kind !== "Unit") return state;
+      const assault = effectiveKeywords(state, listener.card, listener.ownerIndex).Assault ?? 0;
+      if (assault <= 0) return state;
+      const targetId = firstEnemyAt(state, listener.ownerIndex, event.battlefieldId, listener.card.instanceId);
+      return targetId ? dealDamage(state, listener.ownerIndex, targetId, assault) : state;
+    },
+  },
+  "SFD-020": {
+    // Draven - Vanquisher, SECOND clause only — "When I attack or defend, you may
+    // pay [1 Fury]. If you do, give me +2 Might this turn."
+    //
+    // **His first clause is NOT implemented**: "When I win a combat, play a Gold
+    // gear token exhausted" needs two things this engine does not have — a
+    // combat-WON event (there is none; `GameEvent` has `combatBegan` and
+    // `battlefieldConquered`, and neither is "only your units remain"), and gear
+    // tokens at all. Recorded for coverage.PARTIALLY_IMPLEMENTED rather than
+    // approximated, since a conquest is not a combat win and using one for the
+    // other would pay out on a walk-in.
+    //
+    // "Attack OR DEFEND" is `isFightingAt` — Ahri - Inquisitive's predicate, which
+    // exists so the cards that deliberately ignore the designation say so in a
+    // name rather than by an `||` at the call site.
+    //
+    // "You MAY pay" is a real cost, so this parks a question instead of firing,
+    // and it is not asked at all when the Fury cannot be paid (416.3: a cost that
+    // cannot be completed is not one you may choose to pay). Asked in `applies`
+    // so an unaffordable board places no Pending Item — a held trigger that
+    // resolves to nothing still costs both players a PassFocus, and this one would
+    // otherwise fire at every single combat he is in.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isFightingAt(state, listener, event) && payPowerFromChanneled(state, listener.ownerIndex, "Fury", 1) !== undefined,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // Re-asked here as well as in `applies`, for the reason Immortal Phoenix
+      // records: the window the hold opens is exactly when that Fury could be
+      // spent on something else, and paying is a cost rather than a condition.
+      if (payPowerFromChanneled(state, listener.ownerIndex, "Fury", 1) === undefined) return state;
+      return parkDecision(state, {
+        kind: "SFD-020-pump",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "SFD-027": {
+    // Dunebreaker, SECOND clause only — "When I hold, draw 2."
+    //
+    // **His first clause is NOT implemented**: "If you have two or fewer cards in
+    // your hand, I enter ready" is a conditional enter-ready, which belongs with
+    // Leona - Zealot's and Vayne - Hunter's in `deploy.unitEntersReady` — a shared
+    // file. card-loader.ts already knows about it: its `QUICK_TEXT_OVERRIDES`
+    // comment names the four SFD cards that print "I enter ready IF ..." and
+    // explains why an unconditional Quick would make each of them strictly
+    // better. Recorded for coverage.PARTIALLY_IMPLEMENTED.
+    //
+    // "When **I** hold" is positional, the same reading Ahri - Alluring and
+    // Blitzcrank - Impassive take: the battlefield scored has to be the one he is
+    // standing at. A hold is 471.1.a's SCORING moment rather than mere presence,
+    // so a battlefield already conquered this turn fires nothing (471.1.b).
+    //
+    // Both conditions settle in `applies` because the event is held, and the
+    // window it opens is precisely when he could be moved or killed — 383 fixes
+    // what triggered at the moment of the event.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? drawCards(state, listener.ownerIndex, 2) : state),
+  },
 };
+
+/** The enemy units at one battlefield in board order, minus the trigger's own
+ *  unit — Lucian - Gunslinger's "an enemy unit here".
+ *
+ *  A local copy of unit-triggers.ts's private `enemiesAt` rather than an import,
+ *  because that one is not exported and this file may not edit it. The ORDER is
+ *  the same (board order, both players' lists walked as stored), which is what
+ *  makes an auto-selecting trigger's test meaningful rather than incidental. */
+function firstEnemyAt(state: GameState, ownerIndex: 0 | 1, battlefieldId: string, selfInstanceId: string): string | undefined {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return undefined;
+  const ownId = state.players[ownerIndex].id;
+  return Object.entries(bf.units)
+    .filter(([id]) => id !== ownId)
+    .flatMap(([, units]) => units.map((u) => u.instanceId))
+    .find((id) => id !== selfInstanceId);
+}
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
@@ -701,6 +958,32 @@ export const decisions: Record<string, DecisionDefinition> = {
       return playCardIgnoringCost({ ...paid, players }, d.playerIndex, phoenix);
     },
   },
+  // Draven - Vanquisher's "when I attack or defend, you may pay [1 Fury]. If you
+  // do, give me +2 Might this turn" — raised by his combat listener, which has
+  // already checked the Fury can be paid.
+  //
+  // Declining leads, as everywhere a "you may" is asked, so a mis-click and the
+  // AI's tie-break both land on doing nothing.
+  //
+  // `giveMightThisTurnToOwnUnit` rather than `giveMightThisTurn`: the pump names
+  // HIM ("give ME"), and the owner-scoped helper refuses an id that is not this
+  // player's — which is what stops a stale `cardInstanceId` from buffing whatever
+  // now answers to it. A Draven killed during the response window is paid for and
+  // pumps nothing; that is 359.3's "the check returns null and calculations based
+  // on it are ignored", and the cost is still spent because paying is the choice.
+  "SFD-020-pump": {
+    prompt: () => "Draven - Vanquisher: pay 1 Fury Power to give him +2 Might this turn?",
+    options: () => [
+      { id: "decline", label: "Decline" },
+      { id: "pay", label: "Pay 1 Fury Power: +2 Might this turn" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || !d.cardInstanceId) return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Fury", 1);
+      if (!paid) return state;
+      return giveMightThisTurnToOwnUnit(paid, d.playerIndex, d.cardInstanceId, DRAVEN_PUMP);
+    },
+  },
   // Vayne - Hunter's "when I conquer, you may pay [1 Energy] to return me to my
   // owner's hand" — a way to re-use her on-play tempo, at the price of the body.
   "OGN-035-return": {
@@ -792,3 +1075,6 @@ function tryndamereQualifies(state: GameState, listener: Listener, event: GameEv
 }
 
 const TRYNDAMERE_EXCESS_REQUIRED = 5;
+
+/** What Draven - Vanquisher's paid Fury buys. */
+const DRAVEN_PUMP = 2;
