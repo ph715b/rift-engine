@@ -1,3 +1,16 @@
+> **DONE — all 24 battlefield abilities are implemented as of `f6bc2e0`
+> (2026-08-04), and the four UI reports below are closed or settled.**
+>
+> This document is kept for its REASONING, not as a task list: the premise
+> correction (OGS prints no battlefields), the cluster-by-moment plan, and
+> why three of the four reported "engine bugs" were not engine bugs. The
+> implementation notes live in `engine/battlefield-abilities.ts`,
+> `engine/battlefield-continuous.ts`, the `battlefield-abilities` memory
+> file, and the Divergent rows in `docs/rules-conformance.md`.
+>
+> The completeness gate is `test/battlefield-coverage.test.ts` — it is the
+> only measurement in the repo that can see a battlefield at all.
+
 # Prompt — battlefield abilities, and the four UI gaps behind them
 
 Everything below was measured on 2026-08-04 at `2eda208`, not recalled. Paste the

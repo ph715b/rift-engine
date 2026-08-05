@@ -1,17 +1,47 @@
 # Prompt — implement Spiritforged (SFD)
 
-Paste the block below into a fresh session. Everything in it was measured on
-2026-08-04 at `8a8af5d`, not recalled.
+Paste the block below into a fresh session. Everything in it was re-measured on
+2026-08-04 at `e8e6383`, branch `feat/showdowns-timing-and-chain-viewer`, not
+recalled. Figures that moved since the previous revision are marked.
 
 ---
 
-Read `docs/handoff-2026-08-04.md` first — it is the whole brief for the state you
-are inheriting. Then read the memory files it names, and `docs/rules-conformance.md`'s
-**Divergent** table plus the **Log**'s top ten rows. Then read
+Read `docs/handoff-2026-08-04.md` first for the state you are inheriting — but
+know that it is **27 commits stale** (it was written at `4c64c39`), and the
+previous revision of this prompt was **26 commits stale** (`8a8af5d`). The eight
+that change your job are summarised below; **no handoff has been written for
+them**, so this section is the only place they are collected. Then read the memory
+files it names (`battlefield-abilities` is new), and `docs/rules-conformance.md`'s
+**Divergent** table plus the **Log**'s top twelve rows. Then read
 `docs/sfd-readiness-brief.md`'s DONE section, which records what the set-readiness
 work actually put in place.
 
+`docs/battlefields-and-ui-prompt.md` is **finished** — all 24 battlefield
+abilities are implemented. Read it only for the reasoning, never as a task list.
+
 Your job is to bring **Spiritforged (SFD)** into the engine.
+
+## What changed since — the eight commits nothing else records
+
+1. **All 24 BATTLEFIELD abilities are implemented** (`397efa4`..`f6bc2e0`). They
+   were never broken; they did not exist, because `card-loader`'s `shouldSkip`
+   keeps Battlefield-type cards out of `loadCardDefinitions`. They now live in
+   three tables — `engine/battlefield-abilities.ts` (triggered, held as Chain
+   Pending Items under a new `TriggerChainEntry.source: "battlefield"`),
+   `engine/battlefield-continuous.ts` (read at gates), and
+   `runBattlefieldBeginningPhase` (inline, the `beginningPhase` exception).
+   **This is on your critical path: see "if SFD prints battlefields" below.**
+2. **`[Deflect]` was audited per CHOOSING PATH and three paths paid nothing**
+   (`9a1d525`). Target lists, unit-or-gear slots and ACTIVATED ABILITIES — the
+   "or ability" half of the keyword had no implementation at all. All closed, via
+   `chosenUnitsOfPlay` / `chosenUnitsOfActivation`. **If SFD prints `[Deflect]`,
+   it works now; before this it was routable-around.**
+3. **The board could not pay a rainbow surcharge at all**, and an `Invalid`
+   submit was rendered nowhere (`ee39145`, `9a1d525`, `e8e6383`). Three separate
+   UI defects, all of which presented as "the card just does not cast". They are
+   fixed, and the third one matters to you as a TOOL: **a refusal is now visible,
+   so any refusal in a live run is a hard failure signal** — `legal-actions` is
+   shared with the validator, so nothing offered should ever be refused.
 
 ## Before anything else: check the data is here
 
@@ -31,6 +61,15 @@ at `cmsassets.rgpub.io`, i.e. Riot's own CMS, which is worth chasing before any
 community scrape. **Do not hand-transcribe 221 cards**; get the data, then let the
 censuses tell you what is wrong with it.
 
+**And check the ENCODING of whatever you get, because the data already in this
+repo is wrong.** `ogn.json` carries six mojibaked apostrophes — a UTF-8 curly
+quote stored as latin-1 — across two cards: Sigil of the Storm ("This doesn?t
+choose anything") and a `[Hidden]` card. Nothing catches it, and it is now
+visible in play, because battlefield rules text renders on the board. A scan for
+`â€™`, `�` and a stray BOM over the new JSON costs one command and is worth a
+census of its own; the existing two cards are left alone deliberately, since
+patching a snapshot by hand is undone by the next data refresh.
+
 ## The finding that should shape your plan
 
 **The risk in Spiritforged is not 250 card bodies. It is the subsystems the cards
@@ -48,6 +87,7 @@ OGN+OGS print** — so they are almost certainly SFD's:
 | `[Weaponmaster]` | Triggered, on play. Choose a Card you control with the Equipment tag, pay its Equip ability's cost reduced by X, attach it | **The whole Equipment/attachment subsystem** |
 | `[Quick-Draw]` | "`[Reaction]`" + "when you play this, attach it to a Unit you control" | Equipment/attachment again |
 | `[Backline]` | Passive. "must be assigned lethal damage after any other unit with the same controller that does not have `[Backline]`" | Already implemented per-card as `combat.ASSIGNED_LAST_DEF_IDS`, because Caitlyn prints it as PROSE. If SFD prints it bracketed, promote it to a real keyword |
+| `[Deflect N]` | "Opponents must pay N rainbow Power to choose me with a spell **or ability**" | **Nothing — this now works on every path**, as of 2026-08-04. It did not before: lists, unit-or-gear slots and abilities all chose a Deflect unit for free |
 
 **Two subsystems, neither of which exists:**
 
@@ -59,6 +99,31 @@ OGN+OGS print** — so they are almost certainly SFD's:
   This engine has `activeGear` as a flat per-player list with no attachment concept
   at all, and `Listener.battlefieldId`'s own comment says "Gear is never at a
   battlefield in this pool" — which SFD may falsify.
+
+## If SFD prints BATTLEFIELDS, they are a hard gate — not a nice-to-have
+
+OGN prints 24 battlefields and OGS prints 0. If Spiritforged prints any, they
+land in the pool the moment you add the JSON, and **`test/battlefield-coverage.test.ts`
+goes red naming each one**, because it asserts every loaded battlefield is
+implemented in exactly one of the three tables.
+
+That gate exists precisely because battlefields are invisible to every other
+measurement here: `shouldSkip` keeps them out of `loadCardDefinitions`, so
+`needsImplementation` never counts one and `isCardImplemented` is never asked
+about one. A battlefield with no ability costs nothing, breaks nothing and
+reports nothing — which is how all 24 sat inert for the life of this engine.
+**Treat that red as a task list, and do not silence it.**
+
+Two things about the tables you will be adding to:
+
+- A battlefield's entry is a **LIST** of abilities, because one card can print
+  two at two moments (Targon's Peak arms a counter on conquer and spends it at
+  end of turn). A delayed half must **capture** what it needs at fire time —
+  `runEnd` clears every "this turn" field before the trigger it fired resolves.
+- A battlefield could not be a `Listener`: `Listener.card` is a `CardInstance`,
+  and a battlefield has no owner, no zone, no exhaust state, and is not
+  controlled by whoever its ability triggers for. That is why it is a `source`
+  rather than an entry in `eventTriggers`, and it is the shape to follow.
 
 **A framing question worth settling early, because it may already be a
 divergence.** `[Ambush]` is defined as "I may be played to a battlefield where you
@@ -75,9 +140,10 @@ record the answer either way.
 1. **Load the data and let the censuses fire.** Add the JSON and the `CARD_FILES`
    entry, run the suite, and expect several tests to go red at once: the supertype
    and rarity censuses, the `DOMAINS` order pin, the split-Power-pip census, the
-   "I enter ready" guard, and the bracketed-token sweep if SFD prints a keyword the
-   engine does not model. **Each red is a decision, not a bug.** Work through them
-   one at a time and record what you decided.
+   "I enter ready" guard, the bracketed-token sweep if SFD prints a keyword the
+   engine does not model, and **`battlefield-coverage` if SFD prints any
+   battlefields**. **Each red is a decision, not a bug.** Work through them one at
+   a time and record what you decided.
 2. **Survey and cluster before implementing anything.** Do not start on cards.
    Produce a written survey: how many cards, how many need no code, which need an
    existing primitive, which need a NEW primitive, and which need one of the
@@ -118,36 +184,63 @@ the standing discipline below. Tell it explicitly that a card whose text needs a
 primitive that does not exist must be REPORTED, not faked — two agents in the OGN
 wave correctly stopped rather than shipping into that trap.
 
-## One playtest report to settle, with the mechanism already located
+## Playtest reports: three settled since this prompt was written, four bugs
 
-**Baited Hook (OGN-242).** Reported: "if I use Hook to sacrifice a lone unit at a
-battlefield, the unit I get off the top should be playable to the battlefield that
-lone unit was on — I believe a recent rule change allows this."
+None of these is a task. They are here because each is a way to misread this
+engine — and in every one of them, the obvious cause was disproved first.
 
-The symptom is real and the cause is exact. `free-play.destinationsFor` offers a
-battlefield only when `hasPresence` — the player has a unit there — and Baited
-Hook kills the lone unit *in the same ability*, so by the time the free play
-happens presence is gone and base is the only option.
+- **Baited Hook (OGN-242)** — done at `b6365e2`. "The unit off the top should be
+  playable to the battlefield the bait died on." Control was tried FIRST and does
+  not work: control lapses in `lapseUnoccupiedControl` (323.11) and a Cleanup runs
+  between submitting the activation and answering its question, so by then the
+  player controls nothing there either. Implemented instead as 359.3's linked
+  instructions — the victim's battlefield captured on the parked decision and
+  threaded through. Recorded **Unverified**, with all three candidate readings.
+- **"Falling Star will not cast"** — done at `ee39145` and `e8e6383`, and it was
+  **two independent bugs wearing one symptom**. Auto Pay could not express rule
+  164.2's double duty (two Fury runes paying 2 Energy AND 2 Power), so the button
+  silently no-opped once the player had claimed those runes for Energy by hand.
+  And separately, `GameBoard` rebuilt its `PlayCardAction` field by field and
+  never copied `targetUnitInstanceIds`, so every `unitList` card was submitted
+  with no targets and refused. **The first diagnosis was announced before the
+  second was found** — worth remembering when a report has one symptom and you
+  find one cause.
+- **"Does `[Deflect]` work?"** — audited per choosing path rather than per card,
+  which is the only question that had an honest answer. The keyword itself was
+  right; three of five paths never consulted it. See the delta section above.
 
-The rules question is genuinely open and you should settle it before changing
-anything:
+**The lesson all four share, and it is now standing discipline: when the board
+does something a player cannot explain, diff what the UI HOLDS against what it
+SENDS.** The dropped-field bug was found that way in one command — comparing the
+fields `PendingPlay` declares against the fields the submit path copies — after
+reading the same code twice without seeing it.
 
-- The 2026-07-16 PDF does **not** support it as written. The permission it defines
-  is `[Ambush]`, "a battlefield where you **control Units**" — after the kill you
-  control none there.
-- But note the engine checks PRESENCE while control of the battlefield has **not
-  yet lapsed** (that happens in the next Cleanup, 323.11). "A battlefield you
-  control" and "a battlefield where you have units" come apart for exactly one
-  window, and this is it. If the newer rule is phrased as control, the report is
-  correct and the fix is one predicate.
-- The other candidate reading is that the kill and the play are linked
-  instructions (359.3), so the destination is judged as the ability began.
+## The figures you are inheriting — measured at `e8e6383`, not recalled
 
-Check for a rules document newer than 2026-07-16 first. If none exists, take the
-user's reading, implement it, and record it **Unverified** in
-`docs/rules-conformance.md` with both alternatives — that is this project's
-standing decision for an unguessable call. Either way, pin it with a test that
-fails first.
+Anything you do to the engine moves some of these. Re-measure before you claim a
+regression, and **re-measure against the OLD SHA** — check it out, rebuild, re-run
+— because that check is the only thing separating "the world moved" from "the
+instrument broke". It has been needed four times, and once it re-attributed a
+delta to a *different* commit than the one in hand.
+
+| instrument | value |
+|---|---|
+| engine tests | **1934** (129 files) |
+| web tests | **96** (14 files) |
+| per-set coverage | OGN 248/248, OGS 22/22, both declared complete, 0 partial |
+| battlefields | **24/24 implemented**, gated by `battlefield-coverage.test.ts` |
+| ai-health | 40/40, 0 invalid |
+| passive-human | 16/16 |
+| walkout (200 games) | **191 walkouts / 107 points**, 32 closed with nobody present |
+| chain-depth | 300/300 terminated, 0 stranded pen; `attackTriggers` 185, other `combatBegan` 209 |
+| exercised (40 games) | 105 in decks, 99 exercised, 189 needing code unreachable |
+
+**walkout moved 130/78/9 → 191/107/32 during the battlefield work, and it is the
+world**: `Reaver's Row` is one of the three battlefields the probe pins, the AI
+takes its "move a friendly unit here to base", and that empties the defending
+side. Verified by stashing and rebuilding at the previous commit, which
+reproduced 191/107/32 exactly. The invariant (walkouts == control awarded) is
+exact at every figure.
 
 ## Standing discipline — non-negotiable
 
@@ -159,9 +252,23 @@ fails first.
 - **Negative controls belong on the PEN (`pendingTriggers`), not the board.** A
   listener whose `applies` is wrong still re-checks in `resolve` and resolves to
   nothing, so the board looks identical either way.
-- **Re-read the CODE before believing a note about the code.** Three notes in this
+- **Re-read the CODE before believing a note about the code.** Four notes in this
   repo turned out to be false: Noxian Guillotine's PARTIAL note, Volibear's
-  "cardPlayed does not carry the unit", and the bystander rule.
+  "cardPlayed does not carry the unit", the bystander rule, and
+  `coverage.ts`'s "nothing reads `[Deflect]`". **And a doc comment that says a
+  hook does not exist yet is a task, not a fact** — `WIN_THRESHOLD_1V1`'s comment
+  named Aspirant's Climb as unimplemented, and `scoreHolds`'s named the hold
+  triggers, and both were true until somebody read them.
+- **NEVER rebuild an action field by field.** This codebase has now dropped a
+  field on a dispatch hop **six times**, most recently `targetUnitInstanceIds`,
+  `xAmount` and `fromHiddenBattlefieldId` in one builder. The fix that removes
+  the class is to submit the ENUMERATED action — `legal-actions` already produced
+  the one that matches every choice — with only the payment substituted. A list
+  of fields to copy is a list somebody has to remember to extend.
+- **A required new field on `GameState`/`PlayerState` is the right call when the
+  alternative is silent.** Four landed this session; the compiler named all 22
+  literals, which is the point. An optional field defaults to "the card finds
+  nothing", silently, in exactly the states used to test it.
 - **An instrument gets the same scrutiny as the code** — see the
   `instrument-defects` memory. In particular: measure whether a deck can REACH your
   change before trusting a green probe run.
@@ -179,9 +286,15 @@ fails first.
 2. `npm run build --workspace=@rift-engine/engine` — **before** the web typecheck,
    because `@rift-engine/web` resolves the engine from `dist`
 3. `npm run typecheck`, then `npm run build`
-4. Probes: `npx tsx packages/engine/probes/{ai-health,passive-human,chain-depth,walkout}.ts`
+4. Probes: `npx tsx packages/engine/probes/{ai-health,passive-human,chain-depth,walkout,exercised}.ts`
+   — **five now**, and `exercised` is the one that tells implemented from
+   demonstrated. Read its header before quoting its numbers.
 5. Live if a player can see it: `PORT=<port> node tools/ui-probes/live-triggers.mjs`
    with `SPECTATE=1` and `DECK=buff|calm|combat`. Never hardcode 5173.
+   `ACTIVE=1` is still the only way to check a prompt is answerable BY A PERSON.
+   **A rendered refusal is now a hard failure** — the board surfaces `Invalid`,
+   and `legal-actions` is shared with the validator, so anything offered and then
+   refused is an enumerator/validator disagreement worth stopping for.
 
 **Every AI gate is blind to SFD until a deck contains SFD cards** — the presets are
 pinned. Expect green gates to prove nothing about the new set, and build a
@@ -199,18 +312,24 @@ been drawn by any probe. That is the `make-buffdeck.mjs` defect — an instrumen
 reporting its INPUT as its output — one level up.
 
 **`probes/exercised.ts` now measures the second question, and you should run it
-first.** Its baseline on OGN+OGS, at `e107958`, 40 games, battlefields pinned:
+first.** Its baseline on OGN+OGS, **re-measured at `e8e6383`**, 40 games,
+battlefields pinned:
 
 | | |
 |---|---|
 | definitions in the registry | 288 (270 of which `needsImplementation`) |
 | reachable — in one of the 7 preset decks | **105** |
-| exercised | **96** |
+| exercised | **99** |
 | cards needing code that NO probe can reach | **189** |
 
-Read `exercised` and `inDecks` together or not at all. `exercised / inDecks` was
-91% for OGN and 83% for OGS — of what the decks CAN reach, nearly everything runs.
-`inDecks / inPool` is 31% for OGN, and that is the real gap. **A low `exercised` is
+Read `exercised` and `inDecks` together or not at all. `exercised / inDecks` is
+**93%** for OGN and **83%** for OGS — of what the decks CAN reach, nearly
+everything runs. `inDecks / inPool` is **31%** for OGN, and that is the real gap.
+
+**Battlefields are outside every one of these numbers.** They are not in the
+registry, so `pool`, `inDecks` and `exercised` all ignore them; the only thing
+that can see one is `battlefield-coverage.test.ts`. Do not read a green
+`exercised` as saying anything about a battlefield. **A low `exercised` is
 almost always a deck problem, not an engine problem**, and the two are fixed by
 different work.
 
@@ -338,7 +457,9 @@ the real bug: **everything the AI played must be something `legalActions` offere
 
 Whatever you finish, end by writing **`docs/handoff-<the date>.md`** and committing
 it with the last change. This repo runs on those handoffs; the one you were told to
-read first is the reason you know any of the above. Write it from **measurements
+read first is the reason you know any of the above — and note that it is now 27
+commits stale, which is why the delta had to be written into THIS document
+instead. That is the failure mode to avoid, not to copy. Write it from **measurements
 taken at the final commit, not from memory of what you did** — say so at the top,
 and note the sha and branch. Where a figure contradicts an existing memory note,
 say which one is later.
@@ -348,8 +469,9 @@ It must carry:
 - **What the session actually did**, one line per commit, in order — so a
   regression stays bisectable by reading rather than by guessing.
 - **A figures table**, re-run at the end, not copied from mid-session: engine and
-  web test counts, per-set coverage from `coverageBySet`, the four probe results,
-  and any live-probe counts. If a probe MOVED, say whether you verified it against
+  web test counts, per-set coverage from `coverageBySet`, the **five** probe
+  results (`exercised` included), the battlefield count if SFD prints any, and any
+  live-probe counts. If a probe MOVED, say whether you verified it against
   the previous sha by checking out, rebuilding and re-running — that check is the
   only thing separating "the world moved" from "the instrument broke", and an
   unverified delta is worth nothing to the next session.
