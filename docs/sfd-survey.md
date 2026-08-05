@@ -64,7 +64,7 @@ than one subsystem bucket.
 > produced precisely the "registered against a primitive that does not work"
 > failure this repo hits most often.**
 
-That disjointness is the plan's whole shape: **136 of 204 cards are not blocked
+That disjointness is the plan's whole shape: **136 of 204 cards are not blocked on a KEYWORD
 on anything.** The set is far less subsystem-bound than "two missing subsystems"
 suggests, and the ordinary bodies can be fanned out over per-domain effect files
 on day one without waiting for either subsystem to land.
@@ -249,6 +249,74 @@ makes the probes able to see it; until they exist, `coverageBySet` measuring
    for cards that are already done.
 6. **Promote SFD into `COMPLETE_SETS`** when `finishedButUndeclared` says so.
    Both the card gate and the battlefield gate read that one list.
+
+---
+
+## Wave 1 result — measured 2026-08-05 at `c964783`, and it corrects this document
+
+Seven agents over the seven files above wrote **46 whole cards and 6 halves**.
+SFD went **1/204 -> 47/203** (the denominator moved because Laurent Bladekeeper's
+prose keyword was bracketed, so he needs no code). Per file: calm 11, order 10,
+chaos 9, fury 8, body 6, mind 4, signature 4.
+
+**Of the 105 cards handed out, 52 were registered and 53 were refused.** That is
+the number this document got wrong, and the reason is worth stating plainly.
+
+### The "blocked on nothing" figure was wrong, and no pattern could have found it
+
+The triage above detects **shared-file** needs by matching text. It cannot detect
+a **missing primitive**, because "kill a gear", "prevent it", "play a Gold gear
+token" and "lose control of that unit at end of turn" look exactly like ordinary
+card text. So "136 ordinary bodies blocked on nothing" was really *"136 cards
+that do not print a blocked keyword and do not obviously land in a shared file"*
+— a much weaker claim than it read as.
+
+**The refusals are the deliverable here.** They are far more specific than
+anything derivable by reading, and every one names the file that owns the gap.
+
+### The largest finding: there is no GEAR TOKEN, and it was not predicted
+
+`token.ts` mints `UnitInstance` only. The Gold token (`sfd-t03`) is dropped from
+the pool by `shouldSkip`'s Token-supertype rule, so it has no `CardDefinition` to
+reference at all. **Four agents hit this independently, across eleven cards** —
+Bushwhack, Draven - Vanquisher, Chemtech Cask, Plundering Poro, Wages of Pain,
+Card Sharp, Fae Dragon, Eminent Benefactor, Honest Broker, Trove Golem, Blood
+Money — plus the two battlefields (Treasure Hoard, Emperor's Dais) already known
+to need it. It is a subsystem, and it is the highest-value single piece of work
+the wave produced.
+
+### The other primitives the refusals named
+
+| primitive | owns it | blocks |
+|---|---|---|
+| gear token + Gold's ability | `token.ts`, `activated-abilities.ts` | 11 cards, 2 battlefields |
+| a combat-WON event (466.5.a) | `triggers.ts`, `combat.ts` | Corrupt Enforcer, Draven - Vanquisher, Draven - Audacious |
+| `unitChosen` event (Targeting Effects) | `triggers.ts`, `execute-play-card.ts` | Irelia - Fervent, Jae Medarda, Spirit Wheel |
+| rule 438 Prevent | 4 shared files | Counter Strike |
+| controller vs owner | `model/game-state.ts`, `turn-manager.ts` | Hostile Takeover |
+| gear-shaped targeting and costs | `card-effects.ts` + enumerator/validator | Detonate, Factory Recall, Legion Quartermaster, Zaun Punk |
+| optional ENERGY additional cost | `card-effects.ts` + enumerator/validator | Sea Monkey, Blast Corps Cadet |
+| conditional enter-ready | `deploy.ts` | Direwing, Xin Zhao - Vigilant, Dunebreaker |
+| a guarded `gainPoints` | `scoring.ts` + 7 other sites | Tianna Crownguard |
+| `unitList` on a UNIT trigger | `unit-triggers.ts` | Fae Dragon |
+| dynamic keyword VALUE | `granted-keywords.ts`, `effective-might.ts` | Ancient Warmonger |
+| `KEYWORD_AURAS` with a tag predicate | `granted-keywords.ts` | Forecaster, Petricite Monument, Rumble - Hotheaded, Breakneck Mech |
+
+### Six cards are written as halves
+
+All six reported `impl=true` with **no** partial note before the entries were
+written — measured. Each was flagged by the agent that wrote the other half;
+none could add the entry, because `coverage.ts` is shared. They are SFD-004,
+SFD-020, SFD-027, SFD-057, SFD-123 and SFD-175, and each entry names the missing
+half. Three test files asserting "coverage reports these as implemented" then
+went red — TRUE when written, correctly false after — and were split into
+whole-cards and partials rather than weakened.
+
+### What this changes about the order of work
+
+The 9 unblocked battlefields and the gear token are now the two cheapest real
+advances. **Do the gear token first**: it unblocks eleven cards and two of the
+fifteen battlefields, and nothing else in the set has that leverage.
 
 ## What NOT to do
 
