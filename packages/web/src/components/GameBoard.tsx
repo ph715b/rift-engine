@@ -53,6 +53,7 @@ import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
 import { listTargetHint } from "../target-hint.js";
 import { autoPayFill } from "../auto-payment.js";
+import { submittedPlay } from "../submitted-play.js";
 import { cardHasDestination } from "../card-destination.js";
 import { matchesPendingChoices } from "../pending-match.js";
 
@@ -1575,42 +1576,22 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     ) {
       return;
     }
-    // Every optional field is spread in only when actually set: the engine
-    // distinguishes absent from present for several of them (an absent
-    // additionalCostUnitInstanceId means "declined the cost," an absent
-    // destinationBattlefieldId means "base"), so writing them unconditionally
-    // as undefined would not be equivalent.
-    const action: PlayCardAction = {
-      type: "PlayCard",
-      playerIndex: HUMAN_INDEX,
-      card: pendingPlay.card,
-      payment: pendingPlay.payment,
-      ...(pendingPlay.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: pendingPlay.targetUnitInstanceId } : {}),
-      ...(pendingPlay.secondTargetUnitInstanceId !== undefined
-        ? { secondTargetUnitInstanceId: pendingPlay.secondTargetUnitInstanceId }
-        : {}),
-      ...(pendingPlay.targetBattlefieldId !== undefined ? { targetBattlefieldId: pendingPlay.targetBattlefieldId } : {}),
-      ...(pendingPlay.trashCardInstanceId !== undefined ? { trashCardInstanceId: pendingPlay.trashCardInstanceId } : {}),
-      ...(pendingPlay.visionRecycle !== undefined ? { visionRecycle: pendingPlay.visionRecycle } : {}),
-      ...(pendingPlay.additionalCostUnitInstanceId !== undefined
-        ? { additionalCostUnitInstanceId: pendingPlay.additionalCostUnitInstanceId }
-        : {}),
-      ...(pendingPlay.destinationBattlefieldId !== undefined && pendingPlay.destinationBattlefieldId !== BASE_ZONE_ID
-        ? { destinationBattlefieldId: pendingPlay.destinationBattlefieldId }
-        : {}),
-      // [Accelerate], and it is NOT optional to copy. `pendingLegalAction` resolves
-      // to the accelerated candidate once the toggle is on, so the cost quoted and
-      // paid is the accelerated one (4E+2P against 3E+1P) — but this action is
-      // rebuilt field by field, and omitting the flag submitted the PLAIN variant
-      // carrying the accelerated payment. validate-play-card recomputes the cost
-      // from the flag, saw a payment that did not match, and refused: the card sat
-      // fully paid and never left the champion zone.
-      //
-      // Spread only when true: the field is typed `?: true`, and absent is how the
-      // engine spells "declined".
-      ...(pendingPlay.acceleratePaid ? { acceleratePaid: true as const } : {}),
-    };
-    applyAction(action);
+    // **Submitted as the ENUMERATED action, not rebuilt from the pending one.**
+    //
+    // This used to assemble a fresh `PlayCardAction` field by field, one spread
+    // per optional field — and three never got a line: `targetUnitInstanceIds`
+    // (every `unitList` card), `xAmount` (Bullet Time's X) and
+    // `fromHiddenBattlefieldId` (811's play from facedown). Falling Star was
+    // therefore submitted with NO targets and refused with "requires 2 targets,
+    // got 0", which — before a refusal was ever rendered — read as the card
+    // silently declining to cast. That is the SIXTH recorded instance of a
+    // dispatch hop dropping a field in this codebase.
+    //
+    // `resolved` is already the one enumerated action matching every choice the
+    // player made — `matchesPending` compares each of them exactly — so it
+    // carries every field by construction, including any added later. The only
+    // thing the board knows better is WHICH runes pay. See submitted-play.ts.
+    applyAction(submittedPlay(resolved, pendingPlay.payment));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPlay, legal]);
 
