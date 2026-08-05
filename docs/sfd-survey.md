@@ -42,35 +42,79 @@ first day of SFD on it.
 
 ## The four clusters, and they are disjoint
 
-Measured, and they sum exactly: 43 + 15 + 146 = 204, with **zero** cards in more
+Measured, and they sum exactly: 53 + 15 + 136 = 204, with **zero** cards in more
 than one subsystem bucket.
 
 | cluster | cards | blocked on |
 |---|---|---|
-| **Ordinary card bodies** | **146** | nothing — existing primitives |
-| **Equipment / attachment** | **43** | a subsystem that does not exist |
+| **Ordinary card bodies** | **136** | nothing — existing primitives |
+| **Equipment / attachment** | **53** | a subsystem that does not exist |
 | **`[Repeat]`** | **15** | a subsystem that does not exist |
 | needs no code at all | 2 | — |
 
-That disjointness is the plan's whole shape: **146 of 204 cards are not blocked
+> **Corrected 2026-08-05, after the first version of this table was written.**
+> The Equipment bucket was first measured at 43 by asking which cards print a
+> blocked KEYWORD. Ten more say "attach an Equipment", "detach", or "each
+> Equipment attached to me" **in prose, with no bracket** — Rell - Magnetic,
+> Angle Shot, Aphelios - Exalted, Gearhead, Strike Down, Relentless Pursuit,
+> Arise! among them. They are blocked exactly as hard as the bracketed ones, and
+> the keyword scan could not see them. Re-measured on `implementableText`, which
+> strips keywords and reminder text, so the match is against the text that
+> actually needs writing. **Sending those ten to a card-wave agent would have
+> produced precisely the "registered against a primitive that does not work"
+> failure this repo hits most often.**
+
+That disjointness is the plan's whole shape: **136 of 204 cards are not blocked
 on anything.** The set is far less subsystem-bound than "two missing subsystems"
 suggests, and the ordinary bodies can be fanned out over per-domain effect files
 on day one without waiting for either subsystem to land.
 
-### Cluster 1 — the 146 ordinary bodies
+### Cluster 1 — the 136 ordinary bodies, split into fan-out and central
 
-Spread evenly across domains (roughly 30 per domain — Fury 30, Mind 30, Body 30,
-Chaos 30, Calm 29, Order 29), which is exactly the shape the OGN cluster-1 wave
-was fanned out over: `effects/fury.ts`, `chaos.ts`, `order.ts`, `mind.ts`,
-`body.ts`, `calm.ts`. Disjoint files, one agent each.
+**The shared-file extraction is DONE** (it was listed here as the wave's first
+task, and it is now the table below). The split matters because the seven
+per-domain files each own their own `cardEffects` / `unitTriggers` /
+`eventTriggers` / `selfTriggers` / `deathTriggers` / `deathWatchTriggers` /
+`decisions` registries and are merged by `effects/index.ts` — which **throws on
+a duplicate defId** rather than last-write-wins. Those seven registries are the
+parallel-safe surface. Everything else is a single-owner shared file.
 
-**Identify the shared-file cards during this wave and keep them centrally.** In
-the OGN wave six cards needed `card-effects.ts` / `unit-triggers.ts` /
-`combat.ts` and had to be finished by hand afterwards. That list has not been
-extracted for SFD yet — doing it is the first task of the wave, not a discovery
-to make mid-flight.
+**105 cards fan out**, one agent per disjoint file:
 
-### Cluster 2 — Equipment / attachment (43 cards)
+| file | cards |
+|---|---|
+| `effects/order.ts` | 20 |
+| `effects/chaos.ts` | 18 |
+| `effects/fury.ts` | 16 |
+| `effects/mind.ts` | 16 |
+| `effects/calm.ts` | 15 |
+| `effects/body.ts` | 13 |
+| `effects/signature.ts` | 7 |
+
+**31 cards stay CENTRAL**, because their text lands in a file two agents would
+collide in:
+
+| shared file | cards |
+|---|---|
+| `cost-modifiers.ts` | 10 — Void Drone, Battering Ram, Needlessly Large Yordle, Production Surge, Yordle Explorer, Jaull-Fish, Irelia - Graceful, Vex - Cheerless, Ezreal - Prodigy, Drag Under |
+| `activated-abilities.ts` | 9 — Assembly Rig, Poro Snax, Heart of Dark Ice, Hextech Anomaly, Renata Glasc - Mastermind, Ancient Henge, Vanguard Armory, Ornn - Fire Below the Mountain, Ezreal - Prodigal Explorer |
+| `legend-abilities.ts` | 9 — the Legends that are not Equipment-blocked |
+| `board-restrictions.ts` | 2 — Minotaur Reckoner, Ruin Runner |
+| `effective-might.ts` | 2 — Rumble - Scrapper, Trusty Ramhound |
+| `combat.ts` + `death-replacement.ts` | 1 — Soraka - Wanderer, which needs both |
+
+Three cards appear under two shared files (Ornn and Ezreal are Legends with an
+activated ability; Soraka needs assigned-last AND a death replacement), so the
+row counts sum to more than 31.
+
+**This table is a TRIAGE, not a verdict.** It is pattern-matched over
+`implementableText`, and its first version was wrong in both directions —
+`[Tank]`'s reminder text scored as a combat rule and "a card with cost no more
+than 3" scored as a cost modifier, while ten Equipment cards went unseen.
+Confirm per card before handing a list to an agent; the value here is that
+nothing lands in a shared file by surprise, not that every row is settled.
+
+### Cluster 2 — Equipment / attachment (53 cards)
 
 The big one, and single-owner work. `[Equip]` alone is on 46 printings.
 
@@ -190,8 +234,9 @@ makes the probes able to see it; until they exist, `coverageBySet` measuring
 
 ## Order of work
 
-1. **Cluster 1, the 146 ordinary bodies.** Not blocked on anything, fans out over
-   six disjoint per-domain effect files, and is 72% of the set. Extract the
+1. **Cluster 1, the 136 ordinary bodies.** Not blocked on anything, fans out over
+   seven disjoint per-domain effect files (105 of them; the other 31 are shared-file
+   work and are listed above), and is 67% of the set. Extract the
    shared-file cards first and keep them central.
 2. **The 9 unblocked battlefields**, which need no new primitive and close most
    of a hard gate.
