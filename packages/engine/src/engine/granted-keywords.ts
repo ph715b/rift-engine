@@ -411,6 +411,59 @@ export function deflectSurcharge(state: GameState, unit: UnitInstance, ownerInde
  * genuinely UNVERIFIED against the rules, which say nothing about whether a
  * rainbow surcharge draws on a floating pool.
  */
+/**
+ * Every unit a PLAY chooses, across all four fields that can name one — the
+ * argument `deflectSurchargeForTargets` wants, built once.
+ *
+ * **It exists because listing the fields by hand got it wrong.** Both call
+ * sites passed `targetUnitInstanceId` and `secondTargetUnitInstanceId` and
+ * stopped there, so a spell that chooses through a LIST (Falling Star,
+ * Icathian Rain, Fox-Fire) or through a unit-or-gear slot (Fading Memories,
+ * Salvage) paid no `[Deflect]` tax at all — measured across the pool: 43 cards
+ * taxed, 5 free. A keyword that a card can simply route around is worse than
+ * one that is unimplemented, because the unimplemented one is visible.
+ *
+ * Repeats are KEPT. 355 makes each choice a target in its own right, so a
+ * spell naming the same `[Deflect 1]` unit twice owes 2 — which is what
+ * `deflectSurchargeForTargets` already does with the list it is handed.
+ *
+ * A gear named by `targetPermanentInstanceId` contributes 0 without a special
+ * case: the lookup finds no unit and skips it.
+ */
+export function chosenUnitsOfPlay(choice: {
+  targetUnitInstanceId?: string;
+  secondTargetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+  targetPermanentInstanceId?: string;
+}): (string | undefined)[] {
+  return [
+    choice.targetUnitInstanceId,
+    choice.secondTargetUnitInstanceId,
+    ...(choice.targetUnitInstanceIds ?? []),
+    choice.targetPermanentInstanceId,
+  ];
+}
+
+/**
+ * The units an ACTIVATED ABILITY chooses.
+ *
+ * `[Deflect N]` reads "opponents must pay N rainbow Power to choose me with a
+ * spell **or ability**", and the ability half was never wired: this module had
+ * exactly two callers, both on the PlayCard path, so six activations across
+ * four sources chose a Deflect unit for nothing.
+ *
+ * Its own function rather than a reuse of `chosenUnitsOfPlay`, because an
+ * activation names its target through a SMALLER set of fields — there is no
+ * second slot and no list — and a shared signature would invite a future
+ * PlayCard field to be silently assumed present here too.
+ */
+export function chosenUnitsOfActivation(choice: {
+  targetUnitInstanceId?: string;
+  targetPermanentInstanceId?: string;
+}): (string | undefined)[] {
+  return [choice.targetUnitInstanceId, choice.targetPermanentInstanceId];
+}
+
 export function deflectSurchargeForTargets(
   state: GameState,
   chooserIndex: 0 | 1,

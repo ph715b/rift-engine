@@ -9,6 +9,7 @@ import {
 } from "../engine/activated-abilities.js";
 import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
+import { chosenUnitsOfActivation, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets } from "../engine/target-lookup.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -79,6 +80,36 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     );
     if (named.length < owed) {
       return fail(`${card.name}'s ability needs ${owed} more Energy than the runes named cover`);
+    }
+  }
+
+  // **[Deflect]** — "opponents must pay N rainbow Power to choose me with a
+  // spell OR ABILITY". Re-derived here rather than trusted from the action,
+  // exactly as `validate-play-card` re-derives a Spell's: a client could
+  // otherwise quote itself a cheaper target than the one it names.
+  //
+  // Asked through the same `chosenUnitsOfActivation` the enumerator uses, so
+  // the two cannot come to different answers about which fields name a unit —
+  // the offered-then-refused failure this file already carries a comment about.
+  const deflected = deflectSurchargeForTargets(state, action.playerIndex, chosenUnitsOfActivation(action));
+  if (deflected > 0) {
+    const rainbow = action.payment?.rainbowRunes ?? [];
+    if (rainbow.length < deflected) {
+      return fail(
+        `${card.name}'s ability must pay ${deflected} rainbow Power for [Deflect] on its target, ` +
+          `but named ${rainbow.length}`,
+      );
+    }
+    const ownCost = new Set(action.payment?.energyRunes ?? []);
+    for (const id of rainbow) {
+      if (!actor.channeled.some((r) => r.id === id)) {
+        return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
+      }
+      // One rune cannot pay both the ability's own cost and an opponent's tax —
+      // the same line `validate-play-card` draws, for the same reason.
+      if (ownCost.has(id)) {
+        return fail(`Rune ${id} is already spent on ${card.name}'s own cost and cannot also pay its [Deflect] surcharge`);
+      }
     }
   }
 

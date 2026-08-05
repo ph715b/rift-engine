@@ -2191,6 +2191,13 @@ button:disabled {
   box-shadow: 0 0 0 2px var(--color-danger);
 }
 
+/* A rune spent on an opponent's [Deflect] tax. Its own colour because it is
+   its own kind of commitment — it pays nothing of YOUR cost, and unlike the
+   two above it can never be shared with them. */
+.rune-tile.proposed-rainbow {
+  box-shadow: 0 0 0 2px var(--color-warning, #c08a2e);
+}
+
 .rune-tile.proposed-energy.proposed-power {
   box-shadow:
     0 0 0 2px var(--color-accent),

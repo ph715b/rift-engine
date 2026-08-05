@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { computeAutoPayment, type RuneCard, type RunePayment } from "@rift-engine/engine";
+import {
+  computeAutoPayment,
+  createCardInstance,
+  defaultCardRegistry,
+  legalActions,
+  submit,
+  type GameState,
+  type PlayCardAction,
+  type RuneCard,
+  type RunePayment,
+} from "@rift-engine/engine";
 import { autoPayFill } from "../src/auto-payment.js";
 
 /**
@@ -57,6 +67,72 @@ function oldAutoPayFill(
   const fill = computeAutoPayment(remainingPool, Math.max(remainingEnergy, 0), Math.max(remainingPower, 0), "Fury");
   return fill ? { energyRunes: fill.energyRunes, powerRunes: fill.powerRunes } : null;
 }
+
+describe("the [Deflect] surcharge — the bucket the board never had", () => {
+  /** Cleave at a [Deflect 1] unit: the card's own cost plus 1 rainbow. */
+  function withSurcharge(pool: readonly RuneCard[], energy: number, power: number, rainbow: number): RunePayment {
+    const payment = computeAutoPayment(pool, energy, power, "Fury", undefined, rainbow);
+    if (!payment) throw new Error("fixture pool cannot pay the surcharge");
+    return payment;
+  }
+
+  it("the engine asks for a THIRD bucket, and it does NOT double-duty with the other two", () => {
+    // 164.2's double duty is about paying YOUR cost. A tax handed to an opponent
+    // refunds nothing, so a rune spent on the surcharge is spent.
+    const pool = [fury("f0"), fury("f1"), fury("f2")];
+    const required = withSurcharge(pool, 2, 2, 1);
+    expect(required.rainbowRunes).toHaveLength(1);
+    const spentOnOwnCost = new Set([...required.energyRunes, ...required.powerRunes]);
+    expect(spentOnOwnCost.has(required.rainbowRunes![0]!), "a rune paid the tax AND the card").toBe(false);
+  });
+
+  it("fills the surcharge, which is the whole reason a Deflect target was uncastable", () => {
+    const pool = [fury("f0"), fury("f1"), fury("f2")];
+    const fill = autoPayFill(pool, empty, withSurcharge(pool, 2, 2, 1), "Fury");
+    expect(fill, "Auto Pay cannot pay a [Deflect] surcharge").not.toBeNull();
+    expect(fill!.rainbowRunes).toHaveLength(1);
+  });
+
+  it("never proposes a rune for the tax that it is also proposing for the card's own cost", () => {
+    const pool = [fury("f0"), fury("f1"), fury("f2")];
+    const fill = autoPayFill(pool, empty, withSurcharge(pool, 2, 2, 1), "Fury")!;
+    const own = new Set([...fill.energyRunes, ...fill.powerRunes]);
+    expect(own.has(fill.rainbowRunes[0]!), "one rune paid both the tax and the cost").toBe(false);
+  });
+
+  it("respects a rune the player has already claimed for the card's own cost", () => {
+    const pool = [fury("f0"), fury("f1"), fury("f2")];
+    const proposed: RunePayment = { energyRunes: ["f0", "f1"], powerRunes: ["f0", "f1"], rainbowRunes: [] };
+    const fill = autoPayFill(pool, proposed, withSurcharge(pool, 2, 2, 1), "Fury")!;
+    expect(fill.rainbowRunes, "the tax reused a rune already paying the card").toEqual(["f2"]);
+  });
+
+  it("takes ANY domain for the tax — rainbow means rainbow", () => {
+    const pool: RuneCard[] = [fury("f0"), fury("f1"), { id: "c0", domain: "Calm", state: "Ready" }];
+    const required: RunePayment = { energyRunes: ["a", "b"], powerRunes: ["a", "b"], rainbowRunes: ["c"] };
+    const fill = autoPayFill(pool, { energyRunes: ["f0", "f1"], powerRunes: ["f0", "f1"] }, required, "Fury")!;
+    expect(fill.rainbowRunes).toEqual(["c0"]);
+  });
+
+  it("refuses honestly when the pool covers the card but not the tax", () => {
+    // Two Fury runes pay 2+2 by double duty, and there is no third rune for the
+    // surcharge. That is a real no, and it must not read as a dead button.
+    const pool = [fury("f0"), fury("f1")];
+    const required: RunePayment = { energyRunes: ["a", "b"], powerRunes: ["a", "b"], rainbowRunes: ["c"] };
+    expect(autoPayFill(pool, empty, required, "Fury")).toBeNull();
+  });
+
+  it("reports nothing owed only when the TAX is settled too", () => {
+    const pool = [fury("f0"), fury("f1"), fury("f2")];
+    const required = withSurcharge(pool, 2, 2, 1);
+    const ownCostPaid: RunePayment = { energyRunes: required.energyRunes, powerRunes: required.powerRunes };
+    // Energy and Power are complete; the surcharge is not. The old length check
+    // looked at those two buckets alone and called this finished, submitted it,
+    // and the engine refused it — silently.
+    expect(autoPayFill(pool, ownCostPaid, required, "Fury")).not.toBeNull();
+    expect(autoPayFill(pool, required, required, "Fury")).toBeNull();
+  });
+});
 
 describe("the OLD Auto Pay could not do it — the failure this file pins", () => {
   it("returned null for the reported board, which is the dead button", () => {
@@ -167,5 +243,132 @@ describe("autoPayFill: a rune already spent on Energy still pays Power", () => {
     expect(fill).not.toBeNull();
     expect(fill!.powerRunes).toEqual(["e0"]);
     expect(fill!.energyRunes, "an exhausted rune was proposed for Energy").toEqual(["r0"]);
+  });
+});
+
+/**
+ * The loop closed: a payment this module builds must be one the ENGINE accepts.
+ *
+ * The unit tests above are arithmetic. This is the part that was actually broken
+ * in play — the board assembled a payment, the engine refused it, and nothing
+ * said so. Driven through the real `legalActions` and the real `submit`, because
+ * that is the pair that disagreed.
+ */
+const registry = defaultCardRegistry();
+const instance = (defId: string) => createCardInstance(registry.get(defId));
+
+const POUTY_PORO = "OGN-013"; // a UNIT whose entire printed text is [Deflect 1]
+
+function player(id: string) {
+  return {
+    id,
+    name: id,
+    legend: {
+      instanceId: `${id}-legend`,
+      defId: "TEST-LEGEND",
+      name: "Test Legend",
+      domains: [],
+      exhausted: false,
+      isToken: false,
+      kind: "Legend" as const,
+      championTag: "TEST",
+    },
+    championZone: null,
+    chosenChampionDefId: "TEST-CHAMPION",
+    readyRunesAtEndOfTurn: 0,
+    spellChoiceDrawnBattlefieldIds: [],
+    deck: [], hand: [], trash: [], banished: [], activeGear: [], runeDeck: [], channeled: [], baseUnits: [],
+    points: 0, floatingEnergy: 0, floatingPower: {}, floatingRainbowPower: 0, cardsPlayedThisTurn: 0,
+    firstFriendlyDeathUsedThisTurn: false, extraMightPerBuffThisTurn: 0, discardedThisTurn: false,
+    scoredBattlefieldsThisTurn: [], unitsEnterReadyThisTurn: false, restrictedSpellEnergy: 0,
+    restrictedSpellPower: 0, nextUnitsEnterReady: 0, unitsLostThisTurn: 0, nextSpellEnergyDiscount: 0,
+    nextSpellBonusDamage: 0, cannotPlayCardsThisTurn: false, hideIgnoresCostThisTurn: false,
+    preventsSpellDamageThisTurn: false,
+  };
+}
+
+/** A real board: an enemy [Deflect 1] unit at bf1 and a pool deep enough in
+ *  every domain that nothing here can fail for want of runes. */
+function boardWithDeflector(): { state: GameState; poroId: string } {
+  const poro = instance(POUTY_PORO);
+  const state = {
+    players: [player("p1"), player("p2")],
+    battlefields: [
+      { id: "bf1", name: "BF1", controllerId: null, units: { p2: [poro] }, contestedByIndex: null, hiddenCards: [] },
+      { id: "bf2", name: "BF2", controllerId: null, units: {}, contestedByIndex: null, hiddenCards: [] },
+    ],
+    activePlayerIndex: 0, firstPlayerIndex: 0, turnNumber: 4, phase: "Action", turnState: "Neutral",
+    focusHolder: 0, showdownBattlefieldId: null, showdownKind: null, consecutiveFocusPasses: 0,
+    chainOpen: true, chainPriority: 0, chainPasses: 0, chainOpenedByTrigger: false, spellChain: [],
+    pendingTriggers: [], declaredWinnerIndex: null, killDamagedUnitsThisTurn: false, spellResolvingForIndex: null,
+    markedForDeathOnDamageInstanceIds: [], extraTurns: 0, extraTurnsForIndex: 0, lastShowdownExcessDamage: null,
+    deathWardedUnitInstanceIds: [], paidDeathWardUnitInstanceIds: [], unitsAwaitingDeathReplacement: [],
+    unitsAwaitingFreePlacement: [], pendingDecisions: [],
+  } as unknown as GameState;
+  state.players[0].channeled = (["Fury", "Body", "Calm", "Mind", "Order", "Chaos"] as const).flatMap((domain, d) =>
+    Array.from({ length: 4 }, (_, i) => ({ id: `${domain}-${d}-${i}`, domain, state: "Ready" as const })),
+  );
+  return { state, poroId: poro.instanceId };
+}
+
+describe("end to end: the board's payment is one the engine accepts", () => {
+  /** The first enumerated play that names the Poro AND owes a surcharge. */
+  function taxedPlay(): { state: GameState; action: PlayCardAction } {
+    for (const def of registry.all()) {
+      if (def.type !== "Spell") continue;
+      const { state, poroId } = boardWithDeflector();
+      state.players[0].hand = [instance(def.id)];
+      let found: PlayCardAction | undefined;
+      try {
+        found = legalActions(state).find(
+          (a): a is PlayCardAction =>
+            a.type === "PlayCard" && a.card.defId === def.id && a.targetUnitInstanceId === poroId,
+        );
+      } catch {
+        continue;
+      }
+      if (found && (found.payment.rainbowRunes ?? []).length > 0) return { state, action: found };
+    }
+    throw new Error("no taxed play found — has [Deflect] pricing changed?");
+  }
+
+  it("finds a real card the engine taxes, so the rest of this is about something", () => {
+    const { action } = taxedPlay();
+    expect((action.payment.rainbowRunes ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("the OLD two-bucket payment is REFUSED — the bug, in the engine's own words", () => {
+    const { state, action } = taxedPlay();
+    const asTheBoardUsedToBuildIt: PlayCardAction = {
+      ...action,
+      payment: { energyRunes: action.payment.energyRunes, powerRunes: action.payment.powerRunes },
+    };
+    const { result } = submit(state, asTheBoardUsedToBuildIt);
+    expect(result.type, "the two-bucket payment is no longer refused — has the premise changed?").toBe("Invalid");
+    expect((result as { error: string }).error).toMatch(/rainbow Power for \[Deflect\]/);
+  });
+
+  it("the payment autoPayFill builds from an empty proposal is ACCEPTED", () => {
+    const { state, action } = taxedPlay();
+    const fill = autoPayFill(
+      state.players[0].channeled,
+      { energyRunes: [], powerRunes: [] },
+      action.payment,
+      // A Spell by construction — `taxedPlay` only looks at Spells — but the
+      // union includes a Legend, which has no Power pip at all.
+      action.card.kind === "Legend" ? null : action.card.powerDomain,
+      action.card.kind === "Legend" ? undefined : action.card.powerDomainAlt,
+    );
+    expect(fill, "Auto Pay could not build a payment for a taxed target").not.toBeNull();
+    const built: PlayCardAction = {
+      ...action,
+      payment: {
+        energyRunes: fill!.energyRunes,
+        powerRunes: fill!.powerRunes,
+        ...(fill!.rainbowRunes.length > 0 ? { rainbowRunes: fill!.rainbowRunes } : {}),
+      },
+    };
+    const { result } = submit(state, built);
+    expect(result, `the engine refused the board's own payment: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
   });
 });

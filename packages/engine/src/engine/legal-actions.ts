@@ -51,7 +51,12 @@ import {
   mayPlayUnitToBattlefield,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
-import { deflectSurchargeForTargets, hasKeyword } from "./granted-keywords.js";
+import {
+  chosenUnitsOfActivation,
+  chosenUnitsOfPlay,
+  deflectSurchargeForTargets,
+  hasKeyword,
+} from "./granted-keywords.js";
 import { hiddenCardLimitAt, mayMoveToBaseFrom } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
@@ -199,11 +204,55 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
       }
 
       for (const variant of variants) {
-        for (const choice of costChoices) out.push({ ...variant, ...choice });
+        // **[Deflect] on what this variant CHOSE.** Priced per variant for the
+        // same reason a Spell's is: the price depends on the target, so one
+        // variant can be affordable while another is not, and a single payment
+        // computed once per ability cannot say so.
+        //
+        // The surcharge can CREATE a payment where there was none. Most taxed
+        // abilities in this pool cost only an exhaust (Iron Ballista, Orb of
+        // Regret), so their actions carried no `payment` at all — a version that
+        // only extended an existing one would have left exactly those untaxed.
+        const owed = deflectSurchargeForTargets(state, playerIndex, chosenUnitsOfActivation(variant));
+        const taxed = owed > 0 ? withActivationSurcharge(state, playerIndex, variant, owed) : variant;
+        // An unpayable surcharge is not an offer. Same rule as the Spell path,
+        // and the same reason: never enumerate what the validator will refuse.
+        if (taxed === undefined) continue;
+        for (const choice of costChoices) out.push({ ...taxed, ...choice });
       }
     }
   }
   return out;
+}
+
+/**
+ * `action` with `owed` rainbow runes added to its payment, or undefined when the
+ * pool cannot cover the surcharge.
+ *
+ * Runes already named for the ability's own Energy are excluded, which is the
+ * same rule `computeAutoPayment` applies to a Spell's: 164.2's double duty is
+ * about paying YOUR cost, and a tax handed to an opponent refunds nothing.
+ *
+ * ANY domain and ANY state — a Power cost is paid by recycling (416), so an
+ * already-exhausted rune recycles for the tax just as well as a Ready one.
+ */
+function withActivationSurcharge(
+  state: GameState,
+  playerIndex: 0 | 1,
+  action: ActivateAbilityAction,
+  owed: number,
+): ActivateAbilityAction | undefined {
+  const spent = new Set(action.payment?.energyRunes ?? []);
+  const rainbow = state.players[playerIndex].channeled.filter((r) => !spent.has(r.id)).slice(0, owed);
+  if (rainbow.length < owed) return undefined;
+  return {
+    ...action,
+    payment: {
+      energyRunes: action.payment?.energyRunes ?? [],
+      powerRunes: action.payment?.powerRunes ?? [],
+      rainbowRunes: rainbow.map((r) => r.id),
+    },
+  };
 }
 
 /**
@@ -793,10 +842,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // here rather than beside its use below, because the discard branch
       // immediately after emits its own candidates and owes the same tax — see
       // that branch for why it cannot simply fall through to the re-pricing.
-      const deflected = deflectSurchargeForTargets(state, playerIndex, [
-        variant.targetUnitInstanceId,
-        variant.secondTargetUnitInstanceId,
-      ]);
+      const deflected = deflectSurchargeForTargets(state, playerIndex, chosenUnitsOfPlay(variant));
 
       // One candidate per discardable card, priced against the DISCOUNTED cost —
       // and taxed for [Deflect] like every other variant.

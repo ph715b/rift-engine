@@ -32,6 +32,17 @@ import { computeAutoPayment, type Domain, type RunePayment, type RuneCard } from
 export interface AutoPayFill {
   energyRunes: string[];
   powerRunes: string[];
+  /**
+   * Runes recycled for a `[Deflect N]` RAINBOW surcharge.
+   *
+   * **The board had no such bucket at all** — `rainbowRunes` appeared nowhere in
+   * this package — so every card the engine taxed was uncastable from the board:
+   * the submit gate counted only Energy and Power, decided the payment was
+   * complete, sent it, and `validate-play-card` refused it with "must pay 1
+   * rainbow Power for [Deflect] on its target, but named 0". Nothing rendered the
+   * refusal, so the card simply un-armed.
+   */
+  rainbowRunes: string[];
 }
 
 /**
@@ -54,18 +65,22 @@ export function autoPayFill(
 ): AutoPayFill | null {
   const energyOwed = required.energyRunes.length - proposed.energyRunes.length;
   const powerOwed = required.powerRunes.length - proposed.powerRunes.length;
-  if (energyOwed <= 0 && powerOwed <= 0) return null;
+  const rainbowRequired = required.rainbowRunes ?? [];
+  const rainbowOwed = rainbowRequired.length - (proposed.rainbowRunes ?? []).length;
+  if (energyOwed <= 0 && powerOwed <= 0 && rainbowOwed <= 0) return null;
 
   // The engine's own answer for the WHOLE cost, from the WHOLE pool — including
-  // whatever double duty it wants to use. Asked fresh rather than reusing
-  // `required`, because `required` is one enumerated variant and the player may
-  // have already claimed runes it did not pick.
+  // whatever double duty it wants to use, and the surcharge, which deliberately
+  // gets NO double duty. Asked fresh rather than reusing `required`, because
+  // `required` is one enumerated variant and the player may have already claimed
+  // runes it did not pick.
   const whole = computeAutoPayment(
     channeled,
     required.energyRunes.length,
     required.powerRunes.length,
     powerDomain,
     powerDomainAlt,
+    rainbowRequired.length,
   );
   if (!whole) return null;
 
@@ -106,10 +121,41 @@ export function autoPayFill(
     }
   }
 
+  // The `[Deflect]` surcharge, and it is the ONE bucket that gets no double duty:
+  // 164.2's "one rune, one Energy and one Power" is about paying YOUR cost, and a
+  // tax handed to an opponent refunds nothing — `validate-play-card` refuses a
+  // rune that appears in both. So this excludes everything spent on the card's own
+  // cost, proposed or filled, which is exactly what `computeAutoPayment` does.
+  const rainbowRunes: string[] = [];
+  if (rainbowOwed > 0) {
+    const spent = new Set([
+      ...proposed.energyRunes,
+      ...proposed.powerRunes,
+      ...(proposed.rainbowRunes ?? []),
+      ...energyRunes,
+      ...powerRunes,
+    ]);
+    for (const id of whole.rainbowRunes ?? []) {
+      if (rainbowRunes.length >= rainbowOwed) break;
+      if (spent.has(id)) continue;
+      rainbowRunes.push(id);
+      spent.add(id);
+    }
+    // Top up from the pool on the surcharge's own rule: ANY domain, any state,
+    // because a Power cost is paid by recycling (416) and rainbow means rainbow.
+    for (const rune of channeled) {
+      if (rainbowRunes.length >= rainbowOwed) break;
+      if (spent.has(rune.id)) continue;
+      rainbowRunes.push(rune.id);
+      spent.add(rune.id);
+    }
+  }
+
   // Still short means the pool really cannot pay it, which is a legitimate answer
   // — but it must never be the answer merely because a bucket was double-counted.
   if (energyRunes.length < energyOwed || powerRunes.length < powerOwed) return null;
-  return { energyRunes, powerRunes };
+  if (rainbowRunes.length < rainbowOwed) return null;
+  return { energyRunes, powerRunes, rainbowRunes };
 }
 
 /** A local copy of the domain test, deliberately narrow: the engine's own

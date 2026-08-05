@@ -13,6 +13,13 @@ export interface PaymentMode {
   kind: "payment";
   proposedEnergyIds: string[];
   proposedPowerIds: string[];
+  /** Runes committed to a `[Deflect]` RAINBOW surcharge. A third list rather
+   *  than more entries in `proposedPowerIds`, because the tax is genuinely a
+   *  different commitment: it is any-domain, it pays an OPPONENT, and unlike
+   *  the other two it can never double-duty with them (164.2 is about paying
+   *  your own cost). Shown because a rune silently spent is how the board
+   *  taught players nothing about where their runes went. */
+  proposedRainbowIds: string[];
   isRuneEligibleForEnergy: (rune: RuneCard) => boolean;
   isRuneEligibleForPower: (rune: RuneCard) => boolean;
   onRuneLeftClick: (rune: RuneCard) => void;
@@ -171,12 +178,14 @@ export function RuneZone({ runes, mode, flightAnchor, floating }: RuneZoneProps)
           const art = runeArt[rune.domain];
           const proposedEnergy = (mode?.kind === "payment" && mode.proposedEnergyIds.includes(rune.id)) ?? false;
           const proposedPower = (mode?.kind === "payment" && mode.proposedPowerIds.includes(rune.id)) ?? false;
+          const proposedRainbow = (mode?.kind === "payment" && mode.proposedRainbowIds.includes(rune.id)) ?? false;
           const canLeftClick = mode ? proposedEnergy || mode.isRuneEligibleForEnergy(rune) : false;
           const canRightClick = mode ? proposedPower || mode.isRuneEligibleForPower(rune) : false;
           const classes = ["rune-tile"];
           if (rune.state === "Exhausted") classes.push("exhausted");
           if (proposedEnergy) classes.push("proposed-energy");
           if (proposedPower) classes.push("proposed-power");
+          if (proposedRainbow) classes.push("proposed-rainbow");
           if (canLeftClick || canRightClick) classes.push("payable");
           return (
             <div
@@ -190,7 +199,7 @@ export function RuneZone({ runes, mode, flightAnchor, floating }: RuneZoneProps)
                 // click/hover target — is never obscured by its neighbor.
                 zIndex: index,
               }}
-              title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}`}
+              title={`${rune.domain} — ${rune.state}${proposedEnergy ? " · proposed for Energy" : ""}${proposedPower ? " · proposed for Power" : ""}${proposedRainbow ? " · proposed for [Deflect]" : ""}`}
               onClick={canLeftClick ? () => mode!.onRuneLeftClick(rune) : undefined}
               onContextMenu={
                 canRightClick

@@ -392,13 +392,33 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // turn it isn't.
   const awaitingHuman = isHumanTurn && !isGameOver ? pendingDecision(state) : undefined;
 
+  /**
+   * Submits an action and clears whatever was being built for it.
+   *
+   * **A refusal is SHOWN now.** `submit` can return `Invalid`, and this used to
+   * store it, disarm the card and clear the notice — so an action the engine
+   * rejected looked exactly like one that had never been sent. That is how a
+   * missing `[Deflect]` surcharge bucket presented in play: the card un-armed,
+   * the runes came back, and nothing said why.
+   *
+   * The engine's own message is used verbatim rather than reworded. It is
+   * written for a player ("Cleave must pay 1 rainbow Power for [Deflect] on its
+   * target, but named 0"), and paraphrasing it here would be a second copy of a
+   * rule free to drift from the one that actually refused.
+   *
+   * This is a backstop, not the affordance. Everything the board offers should
+   * already be legal — `legal-actions` is shared with the validator precisely so
+   * — and a message appearing here means those two disagreed, which is a bug
+   * worth seeing rather than hiding.
+   */
   function applyAction(action: PlayerAction) {
-    setGame(submit(state, action));
+    const next = submit(state, action);
+    setGame(next);
     setSelectedUnitIds(new Set());
     setPendingPlay(null);
     setPendingAbility(null);
     setDragOverZoneId(null);
-    setUnplayableNotice(null);
+    setUnplayableNotice(next.result.type === "Invalid" ? next.result.error : null);
   }
 
   // The AI's turn plays itself, one action at a time, with a short delay for feel
@@ -1521,6 +1541,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             payment: {
               energyRunes: [...prev.payment.energyRunes, ...fill.energyRunes],
               powerRunes: [...prev.payment.powerRunes, ...fill.powerRunes],
+              // The `[Deflect]` surcharge. Spread only when it has entries, so a
+              // card with no taxed target keeps sending the two-bucket payment
+              // every stored action and every test literal already carries.
+              ...(fill.rainbowRunes.length > 0 || (prev.payment.rainbowRunes ?? []).length > 0
+                ? { rainbowRunes: [...(prev.payment.rainbowRunes ?? []), ...fill.rainbowRunes] }
+                : {}),
             },
           }
         : prev,
@@ -1538,7 +1564,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (!resolved) return;
     if (
       pendingPlay.payment.energyRunes.length !== resolved.payment.energyRunes.length ||
-      pendingPlay.payment.powerRunes.length !== resolved.payment.powerRunes.length
+      pendingPlay.payment.powerRunes.length !== resolved.payment.powerRunes.length ||
+      // **The `[Deflect]` surcharge counts too.** Without this line the gate
+      // declared a payment complete while its third bucket was empty, submitted
+      // it, and `validate-play-card` refused — "must pay 1 rainbow Power for
+      // [Deflect] on its target, but named 0". Nothing rendered the refusal, so
+      // every one of the 39 taxed cards simply un-armed when aimed at a Deflect
+      // unit. That is the same silent shape the payment gap above produced.
+      (pendingPlay.payment.rainbowRunes ?? []).length !== (resolved.payment.rainbowRunes ?? []).length
     ) {
       return;
     }
@@ -1857,9 +1890,15 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (!resolved || !pending) return "";
     const energy = resolved.payment.energyRunes.length - pending.payment.energyRunes.length;
     const power = resolved.payment.powerRunes.length - pending.payment.powerRunes.length;
+    const rainbow = (resolved.payment.rainbowRunes ?? []).length - (pending.payment.rainbowRunes ?? []).length;
     const owed = [
       energy > 0 ? `${energy} Energy (left-click)` : null,
       power > 0 ? `${power} Power (right-click)` : null,
+      // The `[Deflect]` tax, named as what it is. It has no click gesture of its
+      // own — it is any domain and cannot double-duty with the card's own cost,
+      // so there is nothing for a player to decide — but it MUST be visible, or
+      // a card that will not cast gives no reason why.
+      rainbow > 0 ? `${rainbow} rainbow for [Deflect] (Auto Pay)` : null,
     ].filter(Boolean);
     // Rule 164.2's double duty, said out loud. The SAME rune pays one Energy
     // and one Power, so a 2+2 card is paid by two runes clicked twice each —
@@ -1876,7 +1915,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     pendingResolvedAction &&
       pendingPlay &&
       (pendingResolvedAction.payment.energyRunes.length > pendingPlay.payment.energyRunes.length ||
-        pendingResolvedAction.payment.powerRunes.length > pendingPlay.payment.powerRunes.length),
+        pendingResolvedAction.payment.powerRunes.length > pendingPlay.payment.powerRunes.length ||
+        (pendingResolvedAction.payment.rainbowRunes ?? []).length >
+          (pendingPlay.payment.rainbowRunes ?? []).length),
   );
 
   // FloatRune: tap a rune directly into the floating pool, independent of
@@ -2254,6 +2295,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                 pendingResolvedAction
                   ? {
                       kind: "payment",
+                      proposedRainbowIds: pendingPlay!.payment.rainbowRunes ?? [],
                       proposedEnergyIds: pendingPlay!.payment.energyRunes,
                       proposedPowerIds: pendingPlay!.payment.powerRunes,
                       isRuneEligibleForEnergy,

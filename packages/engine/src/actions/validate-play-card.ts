@@ -15,7 +15,7 @@ import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
-import { deflectSurchargeForTargets } from "../engine/granted-keywords.js";
+import { chosenUnitsOfPlay, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import {
   cardMovesTarget,
@@ -550,10 +550,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // No domain check on this bucket: rainbow means any domain, which is precisely
   // why it is a separate bucket from `powerRunes` above rather than more entries
   // in it.
-  const deflected = deflectSurchargeForTargets(state, action.playerIndex, [
-    action.targetUnitInstanceId,
-    action.secondTargetUnitInstanceId,
-  ]);
+  const deflected = deflectSurchargeForTargets(state, action.playerIndex, chosenUnitsOfPlay(action));
   const rainbow = payment.rainbowRunes ?? [];
   if (rainbow.length < deflected) {
     return fail(

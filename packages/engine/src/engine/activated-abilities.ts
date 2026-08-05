@@ -1121,8 +1121,44 @@ export function payActivationCost(
     if (paid === undefined) return undefined;
     next = paid;
   }
+  // The `[Deflect]` surcharge on whatever this ability chose. Paid LAST, after
+  // the ability's own cost, for the reason `computeAutoPayment` takes it last:
+  // the ability's Power is domain-restricted and the tax is not, so spending a
+  // matching rune on the tax first could make a payable ability unpayable.
+  //
+  // Not gated on `cost`: the surcharge is the OPPONENT's keyword, not part of
+  // what the ability costs, so an ability whose only cost is an exhaust still
+  // owes it. `validate-activate-ability` is what decides it is owed at all.
+  const rainbow = payment?.rainbowRunes ?? [];
+  if (rainbow.length > 0) {
+    const recycled = recycleRunesForSurcharge(next, playerIndex, rainbow);
+    if (recycled === undefined) return undefined;
+    next = recycled;
+  }
   if (cost.exhaust) next = exhaustActivated(next, playerIndex, instanceId);
   return next;
+}
+
+/**
+ * Recycles the named runes to the bottom of the rune deck for a `[Deflect]`
+ * surcharge — 416, a Power cost is paid by recycling.
+ *
+ * **No floating-Energy credit**, unlike a rune recycled for its owner's own
+ * Power. 164.2's double duty is about paying YOUR cost; a tax handed to an
+ * opponent refunds nothing, which is the same line `execute-play-card` draws
+ * for a Spell's surcharge.
+ */
+function recycleRunesForSurcharge(state: GameState, playerIndex: 0 | 1, runeIds: readonly string[]): GameState | undefined {
+  const actor = state.players[playerIndex];
+  const spent = actor.channeled.filter((r) => runeIds.includes(r.id));
+  if (spent.length < runeIds.length) return undefined;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...actor,
+    channeled: actor.channeled.filter((r) => !runeIds.includes(r.id)),
+    runeDeck: [...actor.runeDeck, ...spent.map((r) => ({ ...r, state: "Ready" as const }))],
+  };
+  return { ...state, players };
 }
 
 /** Spends floating Energy first, then exhausts the named runes — the same order
