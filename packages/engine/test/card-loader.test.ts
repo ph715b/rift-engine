@@ -11,6 +11,7 @@ import { DOMAINS, isDomain, lowestOrdinalDomain } from "../src/model/domain.js";
 import { allPresetDecks } from "../src/decks/deck-presets.js";
 import ognRaw from "../src/cards/ogn.json" with { type: "json" };
 import ogsRaw from "../src/cards/ogs.json" with { type: "json" };
+import sfdRaw from "../src/cards/sfd.json" with { type: "json" };
 
 describe("card loader", () => {
   it("loads a non-trivial number of Origins + Proving Grounds cards", () => {
@@ -65,7 +66,13 @@ describe("card loader", () => {
     expect(def.might).toBe(7);
   });
 
-  it("does NOT set powerDomainAlt for Decisive Strike (OGS-024), a non-hybrid multi-domain card", () => {
+  it("does NOT set powerDomainAlt for Decisive Strike (OGS-024) — but see the OPEN QUESTION", () => {
+    // This pins CURRENT BEHAVIOUR, and as of 2026-08-04 that behaviour is in
+    // doubt: pulling the art while confirming SFD's fourteen split pips showed
+    // OGS-024 with the same two-colour split capsule as Tibbers, which would
+    // make the "non-hybrid" in this test's old name wrong. Not changed here —
+    // it re-costs cards in a declared-complete set and wants its own change.
+    // See the it.todo in the POWER_DOMAIN_ALT_OVERRIDES census below.
     const def = defaultCardRegistry().get("OGS-024");
     expect(def.powerDomainAlt).toBeUndefined();
   });
@@ -117,7 +124,11 @@ describe("loadBattlefieldDefinitions", () => {
  * later one silently wins, and the count barely moves.
  */
 describe("shouldSkip: the markers a new set could quietly step outside", () => {
-  const raw = [...extractCardItems(ognRaw), ...extractCardItems(ogsRaw)];
+  // SFD included since 2026-08-04. It was OGN+OGS only, which made this census
+  // blind to exactly the event it exists for: a NEW SET stepping outside the
+  // markers. It passed on the day Spiritforged landed while measuring a pool
+  // that did not contain it.
+  const raw = [...extractCardItems(ognRaw), ...extractCardItems(ogsRaw), ...extractCardItems(sfdRaw)];
   const census = (pick: (c: (typeof raw)[number]) => string | null) =>
     [...new Set(raw.map(pick))].sort((a, b) => String(a).localeCompare(String(b)));
 
@@ -204,19 +215,33 @@ describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not ju
     // Scoped to "I enter ready" rather than /enters? ready/, which matches 18
     // cards: nine are `[Accelerate]` reminder text (the keyword handles it) and
     // four grant readiness to OTHER units, so a wider sweep would need a
-    // 15-entry allow-list and would be noise. The narrow form is exactly five
+    // 15-entry allow-list and would be noise. The narrow form is exactly ten
     // cards, and every one of them is a real decision.
+    //
+    // **SFD doubled this list on 2026-08-04, and the prediction above was
+    // right**: five Spiritforged cards print the phrase. Exactly one of them
+    // (Eager Drakehound) is unconditional and became a QUICK_TEXT_OVERRIDES
+    // entry; the other four are conditional and are recorded below.
     const CONDITIONAL = new Map([
       // Not overrides, and must not become them — the condition is inside the
       // sentence, which is the `CONDITIONAL_KEYWORD_DEF_IDS` shape. Both are
       // implemented in engine/deploy.ts, where the condition can be read.
       ["OGN-035", "Vayne - Hunter — only if an opponent controls a battlefield"],
       ["OGN-079", "Leona - Zealot — only within 3 points of the Victory Score"],
+      // SFD's four. **None of these is implemented yet** — unlike the two above,
+      // they are listed here to record that an unconditional override would be
+      // WRONG for them, not to claim their condition is read anywhere. Each is
+      // one of the 199 cards SFD's own coverage figure still counts as missing,
+      // and that figure — not this list — is what says when they are done.
+      ["SFD-027", "Dunebreaker — only with two or fewer cards in hand"],
+      ["SFD-071", "Breakneck Mech — only if you control another Mech"],
+      ["SFD-094", "Direwing — only if you control another Dragon"],
+      ["SFD-176", "Xin Zhao - Vigilant — only with two or more other units in your base"],
     ]);
     const printing = defaultCardRegistry()
       .all()
       .filter((def) => /I enter ready/.test(def.text ?? ""));
-    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(5);
+    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(10);
     const unaccounted = printing
       .filter((def) => !CONDITIONAL.has(def.id))
       .filter((def) => !(def.type === "Unit" && def.keywords.Quick === 1))
@@ -265,9 +290,51 @@ describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art",
       "OGN-266 -", // Siphon Power
       "OGN-270 -", // Showstopper
       "OGS-018 Chaos", // Tibbers — the one confirmed split pip
-      "OGS-024 -", // Decisive Strike — confirmed NOT hybrid by inspection
+      "OGS-024 -", // Decisive Strike — see the OPEN QUESTION below
+      // SFD's fourteen, all confirmed split by inspection of the card art.
+      // Every dual-domain SFD card with a Power cost is a split pip, so the
+      // alt is always the higher-ordinal of its two domains.
+      "SFD-182 Mind", // Danger Zone
+      "SFD-184 Body", // Relentless Pursuit
+      "SFD-186 Chaos", // Spinning Axe
+      "SFD-188 Order", // Void Rush
+      "SFD-190 Mind", // Forgefire Cape
+      "SFD-191 Mind", // Rabadon's Deathcrown
+      "SFD-192 Mind", // Shurelya's Requiem
+      "SFD-194 Body", // Counter Strike
+      "SFD-196 Chaos", // Defiant Dance
+      "SFD-198 Order", // Arise!
+      "SFD-200 Chaos", // Arcane Shift
+      "SFD-202 Order", // Hostile Takeover
+      "SFD-204 Chaos", // On the Hunt
+      "SFD-206 Order", // Riposte
     ]);
   });
+
+  /**
+   * **OPEN QUESTION, raised 2026-08-04 and deliberately NOT acted on here.**
+   *
+   * Confirming SFD's fourteen meant pulling the art for the OGN/OGS candidates
+   * too, as controls — and they look identical in kind to the SFD ones and to
+   * Tibbers. Each of the ten OGN dual-domain Signature spells, and OGS-024
+   * Decisive Strike, shows the same left/right two-colour split capsule that
+   * this table treats as the definition of a hybrid pip.
+   *
+   * That directly contradicts the loader's own note, which says Decisive
+   * Strike's "pip is a solid single color and is NOT hybrid". A single-domain
+   * card really does render a solid capsule with that domain's icon repeated
+   * (Anivia, Body, 2 Power) — so the two appearances are easy to tell apart,
+   * and these eleven have the split one.
+   *
+   * If that reading is right, eleven cards in two DECLARED-COMPLETE sets are
+   * charging their whole Power cost in one domain when half their pip says
+   * otherwise. It is left alone in this change on purpose: it re-costs cards
+   * across OGN and OGS, moves every probe that plays them, and is not SFD work.
+   * It wants its own change, its own before/after probe run, and someone
+   * looking at the art a second time. The census above is what keeps it visible
+   * until then.
+   */
+  it.todo("decide whether OGN's ten dual-domain Signature spells and OGS-024 are split pips too");
 });
 
 /**
@@ -362,5 +429,42 @@ describe("HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS: mentioning [Hidden] is not havi
       "two cards now share a name — harmless for the [Hidden] table since it keys on defId, " +
         "but check every other by-name lookup (decks/decklist-parser.ts folds names too)",
     ).toEqual([]);
+  });
+});
+
+/**
+ * `text.plain` arrives from upstream with HTML entities still encoded, and that
+ * string is what renders on the board and what every text-scanning gate reads.
+ *
+ * Four occurrences across two SFD cards today, and none in OGN or OGS — which
+ * is why nothing needed this until Spiritforged landed. Fixed in the loader
+ * rather than in the JSON, because the card files are upstream snapshots and a
+ * hand-edit to one is undone by the next data refresh.
+ */
+describe("card text arrives with its HTML entities decoded", () => {
+  const registry = defaultCardRegistry();
+
+  it("leaves no encoded entity in any card's text, in any set", () => {
+    const offenders = registry
+      .all()
+      .filter((def) => /&(?:quot|amp|lt|gt|nbsp|apos|#\d+);/.test(def.text ?? ""))
+      .map((def) => `${def.id} (${def.name})`);
+    expect(offenders, "this text renders literally — decode it in decodeTextEntities").toEqual([]);
+  });
+
+  it("leaves none on a BATTLEFIELD either, which is the path a player reads", () => {
+    const offenders = loadBattlefieldDefinitions()
+      .filter((def) => /&(?:quot|amp|lt|gt|nbsp|apos|#\d+);/.test(def.text))
+      .map((def) => `${def.id} (${def.name})`);
+    expect(offenders).toEqual([]);
+  });
+
+  it("really decoded something — the two SFD cards that carried &quot;", () => {
+    // The positive control. Both assertions above are empty-list claims, so on
+    // a pool that never had an entity they would pass with the decoder deleted.
+    expect(registry.get("SFD-184").text, "Relentless Pursuit").toContain('"');
+    const forge = loadBattlefieldDefinitions().find((d) => d.id === "SFD-208")!;
+    expect(forge.text, "Forge of the Fluft").toContain('"');
+    expect(forge.text).not.toContain("&quot;");
   });
 });

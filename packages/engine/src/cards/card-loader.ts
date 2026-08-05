@@ -1,5 +1,6 @@
 import ognRaw from "./ogn.json" with { type: "json" };
 import ogsRaw from "./ogs.json" with { type: "json" };
+import sfdRaw from "./sfd.json" with { type: "json" };
 import type { Domain } from "../model/domain.js";
 import { isDomain, lowestOrdinalDomain } from "../model/domain.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
@@ -7,10 +8,21 @@ import type { CardDefinition } from "../model/card-definition.js";
 import { extractCardItems, type RawCard } from "./raw-card-schema.js";
 
 /**
- * Card pool in scope: Origins (OGN) + Proving Grounds (OGS) only — see PRD
- * open-question #1's resolution. sfd.json/unl.json exist in the oracle
- * repos but are out of scope until their own milestone; add them here the
- * same way, when that happens.
+ * Card pool in scope: Origins (OGN) + Proving Grounds (OGS) + Spiritforged
+ * (SFD). SFD's milestone is now open, so it is loaded here; `unl.json`
+ * (Unleashed) still exists only in the oracle repo and gets added the same
+ * way when its own milestone opens.
+ *
+ * `sfd.json` was taken byte-for-byte from the frozen Java oracle
+ * (A:\Projects\riftbound-engine\src\main\resources\cards\sfd.json), the same
+ * provenance as ogn.json/ogs.json. 288 raw entries, of which `shouldSkip`
+ * keeps 206; the other 82 are 15 Battlefields, 66 Showcase/alternate-art
+ * prints and 1 Token. 206 + 15 = the set's printed 221.
+ *
+ * Note it is a BARE ARRAY, like ogn.json and unlike ogs.json's paginated
+ * `{items}` envelope — `extractCardItems` already reads both. Unlike either
+ * of the older two it carries no BOM, and unlike ogn.json it is free of the
+ * latin-1 mojibake recorded in docs/rules-conformance.md.
  *
  * Statically imported (not read via `fs` at runtime) so this module works
  * unmodified in both Node and a bundled browser build (e.g. packages/web) —
@@ -20,9 +32,21 @@ import { extractCardItems, type RawCard } from "./raw-card-schema.js";
  * unconditionally, even if the function that uses them is never called
  * client-side.
  */
-const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw];
+const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw, sfdRaw];
 
-const KW_PATTERN = /\[([A-Za-z][a-zA-Z]*)(?: (\d+))?\]/g;
+/**
+ * The bracket grammar `parseKeywords` reads. The trailing `-` in the character
+ * class is load-bearing: SFD prints `[Quick-Draw]`, and without it this pattern
+ * does not match that token AT ALL — the keyword parses onto no card, and the
+ * Gear that prints it reads in play as simply not working, with nothing to see.
+ * That is the same failure `[Deflect]` shipped with, arriving through the
+ * grammar rather than through a missing implementation.
+ *
+ * Note the guard in coverage-drift.test.ts deliberately scans the WIDER
+ * `\[([^\]]*)\]` instead, precisely so a token this pattern cannot see still
+ * lands there rather than being invisible to both.
+ */
+const KW_PATTERN = /\[([A-Za-z][a-zA-Z-]*)(?: (\d+))?\]/g;
 
 /**
  * Playtesting fix ported from CardLoader.java:188-213 — four cards MENTION
@@ -74,6 +98,42 @@ const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
  */
 const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
   "OGS-018": "Chaos", // Tibbers — Fury/Chaos split pip; lowestOrdinalDomain already yields "Fury" as the primary domain below
+
+  // SFD's fourteen, every one confirmed by pulling the card art off Riot's CMS
+  // (the `media.image_url` already in the JSON) and looking at the pip at 4x
+  // against a single-domain control. The distinction is unambiguous once you
+  // put them side by side:
+  //
+  //   single domain  — ONE solid-colour capsule, N copies of that domain's icon
+  //                    (Anivia, Body, 2 Power: solid orange, two Body glyphs)
+  //   split pip      — ONE capsule divided left/right into the two domains'
+  //                    colours, N glyphs inside it
+  //
+  // A pip's POWER COST is the glyph count, not the colour count — which is the
+  // trap here. Three of these cost 2 Power and read at a glance like "two
+  // pips, one per domain"; they are one split capsule holding two glyphs, the
+  // same as Tibbers above. Every dual-domain card in SFD that has a Power cost
+  // at all is one of these, with no exceptions, so the alt is always simply the
+  // higher-ordinal of the card's two domains.
+  //
+  // Without an entry each of these silently takes `lowestOrdinalDomain` and
+  // demands its whole Power cost in that ONE domain — so Forgefire Cape, whose
+  // pip is half Calm and half Mind, could not be paid with a Mind rune at all.
+  // That is the exact failure this table exists to prevent.
+  "SFD-182": "Mind", // Danger Zone — Fury/Mind
+  "SFD-184": "Body", // Relentless Pursuit — Fury/Body
+  "SFD-186": "Chaos", // Spinning Axe — Fury/Chaos
+  "SFD-188": "Order", // Void Rush — Fury/Order
+  "SFD-190": "Mind", // Forgefire Cape — Calm/Mind, 2 Power in one split capsule
+  "SFD-191": "Mind", // Rabadon's Deathcrown — Calm/Mind, 2 Power
+  "SFD-192": "Mind", // Shurelya's Requiem — Calm/Mind, 2 Power
+  "SFD-194": "Body", // Counter Strike — Calm/Body
+  "SFD-196": "Chaos", // Defiant Dance — Calm/Chaos
+  "SFD-198": "Order", // Arise! — Calm/Order
+  "SFD-200": "Chaos", // Arcane Shift — Mind/Chaos
+  "SFD-202": "Order", // Hostile Takeover — Mind/Order, 2 Power
+  "SFD-204": "Chaos", // On the Hunt — Body/Chaos, 2 Power
+  "SFD-206": "Order", // Riposte — Body/Order, 2 Power
 };
 
 /** Rune/Battlefield/Token-supertype/Showcase-rarity/alternate-art entries never become playable
@@ -127,7 +187,17 @@ function parseKeywords(text: string): Partial<Record<Keyword, number>> {
  * defId, so a card with two clauses reports as done when one is written; both
  * of his are.
  */
-const QUICK_TEXT_OVERRIDES = new Set(["OGS-016", "OGS-009", "OGN-159"]); // Vanguard Attendant, Master Yi - Honed, Warwick - Hunter
+const QUICK_TEXT_OVERRIDES = new Set([
+  "OGS-016", // Vanguard Attendant — "I enter ready."
+  "OGS-009", // Master Yi - Honed — "[Ganking] I enter ready."
+  "OGN-159", // Warwick - Hunter — "I enter ready.When I attack, kill all damaged enemy units here."
+  // SFD. Of the five Spiritforged cards printing "I enter ready", this is the
+  // only UNCONDITIONAL one, so it is the only one that belongs here — the other
+  // four read "I enter ready IF ...", and an override would turn each of them
+  // into a strictly better card that enters ready unconditionally. They are
+  // listed in card-loader.test.ts's CONDITIONAL map instead.
+  "SFD-006", // Eager Drakehound — "I enter ready.", the same shape as Vanguard Attendant
+]);
 
 /**
  * Cards whose bracketed keywords are CONDITIONAL, so parsing them as printed
@@ -224,11 +294,43 @@ export function isGenuinelyHidden(plain: string, id: string): boolean {
   return plain.includes("[Hidden]") && !HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS.has(id);
 }
 
+/**
+ * Decodes the HTML entities the upstream export leaves in `text.plain`.
+ *
+ * `plain` is supposed to be the de-tagged twin of `text.rich`, and mostly is —
+ * but the de-tagging does not decode entities, so a card whose rules text
+ * contains a quotation mark arrives carrying a literal `&quot;`. Four
+ * occurrences across two SFD cards today (Relentless Pursuit and the Forge of
+ * the Fluft battlefield); OGN and OGS have none, which is why nothing has
+ * needed this before.
+ *
+ * It matters because this string is what RENDERS. Battlefield rules text is
+ * drawn on the board, so `friendly legends have &quot;[Exhaust]: ...&quot;`
+ * is visible to a player mid-game. It is also the string every keyword and
+ * text-scanning gate in this repo reads.
+ *
+ * Done in the LOADER rather than by patching the JSON, deliberately: the card
+ * files are upstream snapshots, and a hand-edit to one is silently undone by
+ * the next data refresh — which is the recorded reason ogn.json's six mojibaked
+ * apostrophes were left in place rather than corrected in the file.
+ */
+function decodeTextEntities(plain: string): string {
+  return plain
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    // `&amp;` LAST, so "&amp;quot;" decodes to the literal "&quot;" it encodes
+    // rather than being re-decoded into a bare quote by an earlier pass.
+    .replace(/&amp;/g, "&");
+}
+
 function parseCardDefinition(card: RawCard): CardDefinition {
   const id = deriveId(card.riftbound_id);
   const name = card.name.replace(" (Starter)", "");
   const domains = parseDomains(card.classification.domain);
-  const plain = card.text.plain ?? "";
+  const plain = decodeTextEntities(card.text.plain ?? "");
   const imageUrl = card.media.image_url ?? "";
   const energyCost = card.attributes.energy ?? 0;
   const powerCost = card.attributes.power ?? 0;
@@ -402,7 +504,11 @@ export function loadBattlefieldDefinitions(): BattlefieldDefinition[] {
         id: deriveId(item.riftbound_id),
         name: item.name,
         imageUrl,
-        text: item.text.plain ?? "",
+        // Entity-decoded on the same reasoning as parseCardDefinition's, and
+        // this is the path where it is most visible: battlefield rules text is
+        // rendered on the board, so Forge of the Fluft's `&quot;` is something
+        // a player reads mid-game.
+        text: decodeTextEntities(item.text.plain ?? ""),
         domains: parseDomains(item.classification.domain),
       });
     }

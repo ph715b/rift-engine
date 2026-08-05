@@ -91,9 +91,18 @@ describe("deck source 2: the user's real .deck files", () => {
     }
   });
 
-  it("rejects real decks that reference cards outside the Origins-only scope, with a clear error", () => {
+  it("rejects real decks that reference cards outside the loaded card scope, with a clear error", () => {
     const registry = defaultCardRegistry();
-    // References SFD-185 (a Spiritforged legend) — out of scope per PRD's resolved card-scope decision.
+    // This deck used to be rejected for SFD-185 (a Spiritforged card), and on
+    // 2026-08-04 SFD was loaded and that id started resolving. The deck is
+    // still correctly rejected, now for UNL-128 — Unleashed is the next set out
+    // of scope, and `unl.json` sits unimported in the oracle repo exactly as
+    // sfd.json did.
+    //
+    // So what this pins is not "SFD is out of scope" but "an unknown id is
+    // named in the error rather than silently dropped", which is the property
+    // that has to survive every set landing. The id is asserted from the
+    // rejection itself for the same reason.
     const contents = readFileSync(
       `${REAL_DECKS_DIR}\\_Hartford__Best-of_Draven_-_TCG_SogeKing.deck`,
       "utf8",
@@ -101,7 +110,11 @@ describe("deck source 2: the user's real .deck files", () => {
     const deckList = parseDeckFile(contents)!;
     const result = validateDeckList(deckList, registry);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("SFD-185");
+    if (!result.ok) expect(result.error).toContain("UNL-128");
+    // And the half that would otherwise go unnoticed: SFD ids in this same deck
+    // now resolve, so the rejection is genuinely about the remaining unknown set
+    // rather than about Spiritforged still being absent.
+    expect(registry.tryGet("SFD-185"), "SFD-185 should resolve now that Spiritforged is loaded").toBeDefined();
   });
 });
 

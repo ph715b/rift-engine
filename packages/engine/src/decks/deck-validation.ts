@@ -3,6 +3,7 @@ import type { CardDefinition, UnitDefinition } from "../model/card-definition.js
 import type { Domain } from "../model/domain.js";
 import { fail, ok, type ValidationResult } from "../actions/validation-result.js";
 import { BATTLEFIELD_COUNT, DECK_SIZE, MAX_COPIES, RUNE_DECK_SIZE, SIDEBOARD_SIZE, type DeckList } from "./deck-list.js";
+import { foldCardName } from "./decklist-text-parser.js";
 
 /**
  * A champion is eligible for a legend when its name shares the legend's
@@ -11,10 +12,25 @@ import { BATTLEFIELD_COUNT, DECK_SIZE, MAX_COPIES, RUNE_DECK_SIZE, SIDEBOARD_SIZ
  * Exported (not just used by validateDeckList below) so a deck-builder UI can
  * filter its champion picker with the exact same rule, rather than a second
  * copy of this logic drifting out of sync.
+ *
+ * **The prefix match is FOLDED, not literal, and SFD is why.** Spiritforged
+ * ships the same character's name cased two ways: the Legend is `Rek'sai - Void
+ * Burrower` while both of its champions are `Rek'Sai - Breacher` and `Rek'Sai -
+ * Swarm Queen`. A literal `startsWith` matched neither, which made Rek'Sai the
+ * only Legend in the pool with no eligible champion — and since a deck must
+ * contain a champion eligible for its Legend, NO legal deck could be built for
+ * her at all. The domains were fine; it was one capital S.
+ *
+ * `foldCardName` is the pool's existing fold (lowercase, collapsed whitespace,
+ * normalised quotes) and is reused rather than re-implemented here — the same
+ * decision, for the same reason, as the decklist collision check that once
+ * carried its own drifted hand-copy of it in a pool holding Kai'Sa and Kog'Maw.
+ * It also makes the curly/straight apostrophe difference a non-issue for the
+ * next set that ships one.
  */
 export function isEligibleChampion(champion: UnitDefinition, legendName: string, legendDomains: readonly string[]): boolean {
   const charName = legendName.includes(" - ") ? legendName.slice(0, legendName.indexOf(" - ")) : legendName;
-  if (!champion.name.startsWith(`${charName} - `)) return false;
+  if (!foldCardName(champion.name).startsWith(foldCardName(`${charName} - `))) return false;
   return champion.domains.every((d) => legendDomains.includes(d));
 }
 
@@ -29,6 +45,28 @@ export function isEligibleChampion(champion: UnitDefinition, legendName: string,
 export function isCardLegalForLegend(card: CardDefinition, legendDomains: readonly Domain[]): boolean {
   if (card.type === "Legend") return false;
   return card.domains.some((d) => legendDomains.includes(d));
+}
+
+/**
+ * Does this card print `[Unique]` — "Your deck can have only 1 card with this
+ * name"? Spiritforged's three legendary Equipment (Forgefire Cape, Rabadon's
+ * Deathcrown, Shurelya's Requiem) are the pool's only ones.
+ *
+ * A deckbuilding restriction rather than a gameplay ability, which is why it is
+ * in `NON_KEYWORD_BRACKETS` rather than `KEYWORDS` — and this function is the
+ * "what reads it" that entry names. Allow-listing the token without enforcing
+ * anything would have made the bracket-sweep gate pass on a bracket that still
+ * does nothing, which is the one outcome that gate exists to prevent.
+ *
+ * Read off the printed text, the same source `coverage.unimplementedKeywordsOn`
+ * uses, rather than a new loader field: the restriction is on the CARD, is
+ * static, and three cards do not justify widening `CardDefinition` — but note
+ * the rule is by NAME and this is enforced by id below, which is exact only
+ * while no two ids share a name. `parseDecklistText` already has a test that no
+ * two card names collide once folded, so that premise is checked elsewhere.
+ */
+export function isUniqueCard(def: CardDefinition): boolean {
+  return "text" in def && typeof def.text === "string" && /\[Unique\]/i.test(def.text);
 }
 
 /**
@@ -79,8 +117,15 @@ export function validateDeckList(deckList: DeckList, registry: CardRegistry): Va
   }
 
   for (const [id, count] of copyCounts) {
-    if (count > MAX_COPIES) {
-      return fail(`Too many copies of ${id}: ${count} (max ${MAX_COPIES} across main deck + sideboard)`);
+    const def = registry.tryGet(id);
+    // `[Unique]` (SFD) tightens the ordinary 3-copy cap to 1 for this card.
+    const cap = def && isUniqueCard(def) ? 1 : MAX_COPIES;
+    if (count > cap) {
+      return fail(
+        cap === 1
+          ? `Too many copies of ${id}: ${count} ([Unique] allows only 1 across main deck + sideboard)`
+          : `Too many copies of ${id}: ${count} (max ${MAX_COPIES} across main deck + sideboard)`,
+      );
     }
   }
 

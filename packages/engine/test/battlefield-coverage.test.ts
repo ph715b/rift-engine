@@ -6,7 +6,7 @@ import {
   beginningPhaseBattlefieldDefIds,
 } from "../src/engine/battlefield-abilities.js";
 import { continuousBattlefieldDefIds } from "../src/engine/battlefield-continuous.js";
-import { implementingModule } from "../src/engine/coverage.js";
+import { COMPLETE_SETS, implementingModule, setCodeOf } from "../src/engine/coverage.js";
 
 /**
  * The completeness gate for battlefields — the only thing that can tell a
@@ -23,10 +23,20 @@ import { implementingModule } from "../src/engine/coverage.js";
  * The three tables are disjoint by construction and by intent: a TRIGGERED
  * ability is a Chain Pending Item, a CONTINUOUS one is read at a gate, and the
  * Beginning-Phase pair are resolved inline. Nothing should be in two of them.
+ *
+ * **Scoped to `COMPLETE_SETS` since 2026-08-04**, for the same reason the card
+ * gates already are. SFD prints 15 battlefields and landed with none of them
+ * implemented; leaving this whole-pool would have meant a suite that is red for
+ * as long as the set takes, and a gate expected to be red says nothing when it
+ * is. OGN's 24 keep their hard gate; SFD's 15 are reported as progress and
+ * become gated the moment "SFD" joins COMPLETE_SETS — one line, in the same
+ * place that promotes the cards.
  */
 
 describe("every printed battlefield does something", () => {
   const defs = loadBattlefieldDefinitions();
+  const gated = defs.filter((d) => COMPLETE_SETS.includes(setCodeOf(d.id)));
+  const inProgress = defs.filter((d) => !COMPLETE_SETS.includes(setCodeOf(d.id)));
 
   /** The three places a battlefield's printed text can be implemented. */
   const implemented = new Map<string, string>([
@@ -35,15 +45,22 @@ describe("every printed battlefield does something", () => {
     ...beginningPhaseBattlefieldDefIds().map((id) => [id, "beginning-phase"] as const),
   ]);
 
-  it("the pool really is 24 battlefields, all of them OGN", () => {
+  it("the pool is 39 battlefields — 24 OGN and 15 SFD, and OGS prints none", () => {
     // A positive control on the measurement itself: an empty or truncated
     // definition list would make every assertion below vacuously pass.
-    expect(defs).toHaveLength(24);
-    expect(defs.every((d) => d.id.startsWith("OGN-"))).toBe(true);
+    expect(defs).toHaveLength(39);
+    const bySet = new Map<string, number>();
+    for (const d of defs) bySet.set(setCodeOf(d.id), (bySet.get(setCodeOf(d.id)) ?? 0) + 1);
+    expect([...bySet].sort()).toEqual([
+      ["OGN", 24],
+      ["SFD", 15],
+    ]);
+    // The gate is only worth something while it actually gates something.
+    expect(gated.length, "no battlefield is under a hard gate — COMPLETE_SETS has lost its subject").toBe(24);
   });
 
-  it("every one of the 24 has an implementation, and the failure NAMES it", () => {
-    const missing = defs.filter((d) => !implemented.has(d.id)).map((d) => `${d.id} ${d.name}: ${d.text}`);
+  it("every battlefield of a COMPLETE set has an implementation, and the failure NAMES it", () => {
+    const missing = gated.filter((d) => !implemented.has(d.id)).map((d) => `${d.id} ${d.name}: ${d.text}`);
     expect(
       missing,
       `These battlefields are in play and do nothing. Add each to BATTLEFIELD_TRIGGERS,\n` +
@@ -51,7 +68,28 @@ describe("every printed battlefield does something", () => {
     ).toEqual([]);
   });
 
-  it("every one of the 24 prints real rules text — there is nothing vacuous to cover", () => {
+  it("reports an in-progress set's battlefields as progress rather than failing", () => {
+    // The SFD equivalent of `setProgressLine`. It prints what is left so the
+    // number is watchable, and it asserts the one thing that would otherwise go
+    // unnoticed: a set finishing its battlefields and never being promoted, at
+    // which point this file stops protecting them.
+    const done = inProgress.filter((d) => implemented.has(d.id));
+    for (const set of new Set(inProgress.map((d) => setCodeOf(d.id)))) {
+      const all = inProgress.filter((d) => setCodeOf(d.id) === set);
+      const left = all.filter((d) => !implemented.has(d.id));
+      console.log(
+        `in progress — ${set} battlefields: ${all.length - left.length}/${all.length} implemented` +
+          (left.length > 0 ? ` — left: ${left.map((d) => `${d.id} (${d.name})`).join(", ")}` : ""),
+      );
+      expect(
+        left.length === 0 && !COMPLETE_SETS.includes(set),
+        `${set}'s battlefields are all implemented — add ${set} to COMPLETE_SETS so this gate starts protecting them`,
+      ).toBe(false);
+    }
+    expect(done.length + inProgress.filter((d) => !implemented.has(d.id)).length).toBe(inProgress.length);
+  });
+
+  it("every one of the 39 prints real rules text — there is nothing vacuous to cover", () => {
     // The other half of the gate. If a battlefield printed nothing, "implemented"
     // would be a claim about an empty string.
     for (const def of defs) {
@@ -66,7 +104,7 @@ describe("every printed battlefield does something", () => {
     expect(duplicates, "a battlefield is implemented twice — which of the two runs?").toEqual([]);
   });
 
-  it("no table names something that is not one of the 24", () => {
+  it("no table names something that is not a printed battlefield", () => {
     // The reverse direction, and the one that catches a typo'd defId: an entry
     // nothing in play can ever match is silent, and reads as implemented.
     const real = new Set(defs.map((d) => d.id));
@@ -79,7 +117,10 @@ describe("every printed battlefield does something", () => {
     // `implementingModule` is what the drift test and any "why is this card
     // marked implemented?" question go through. A battlefield it cannot place is
     // a battlefield a future audit will report as inert.
-    for (const def of defs) {
+    // Scoped to the gated sets: an unimplemented SFD battlefield legitimately
+    // has no module yet, and asserting otherwise would just be the same red as
+    // the implementation gate above wearing a different message.
+    for (const def of gated) {
       expect(implementingModule(def.id), `coverage.ts cannot place ${def.name}`).toBeDefined();
     }
   });

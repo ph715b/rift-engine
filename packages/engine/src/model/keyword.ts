@@ -1,10 +1,26 @@
 /**
  * Keywords confirmed in Origins + Proving Grounds card text (model/Keyword.java's
  * own doc comment: "HIDDEN, DEATHKNELL, MIGHTY, TEMPORARY — confirmed in OGN/OGS
- * card text. LEGION — grants a token on play; confirmed in OGN."). The Java enum
- * also has EQUIP/WEAPONMASTER/QUICK_DRAW (SFD) and HUNT/LEVEL/AMBUSH/BACKLINE
- * (UNL) — those sets are out of scope for now (see PRD open-question #1) and
- * get added here the same way each set's cards get added.
+ * card text. LEGION — grants a token on play; confirmed in OGN."), plus the four
+ * Spiritforged (SFD) brings.
+ *
+ * **The four SFD keywords are declared here and listed in coverage.ts's
+ * `UNIMPLEMENTED_KEYWORDS`**, which is the shape that map exists for: the card
+ * parses the keyword, and every card printing it reports NOT implemented until
+ * the subsystem behind it lands. Declaring them without that entry is precisely
+ * how `[Deflect]` shipped inert.
+ *
+ * `Quick-Draw` carries a hyphen. That is legal in a TS string literal and needs
+ * no normalisation here — unlike Keyword.java, whose enum constants cannot hold
+ * one, so CardLoader.parseKeywords strips it before the lookup. What it DID need
+ * was widening `card-loader`'s `KW_PATTERN`, whose `[A-Za-z][a-zA-Z]*` could not
+ * match the token at all and dropped it silently.
+ *
+ * Still out of scope, and named so the next set cannot reopen the hole: the Java
+ * enum's HUNT/LEVEL (UNL Round 1's G-XP mechanic) and AMBUSH/BACKLINE (UNL Round
+ * 2a). **None of the four is printed by a single SFD card** — measured over
+ * sfd.json, not assumed — so the XP resource of rule 728 is a UNL problem, not
+ * an SFD one.
  */
 export const KEYWORDS = [
   "Ganking",
@@ -20,6 +36,11 @@ export const KEYWORDS = [
   "Legion",
   "Mighty",
   "Temporary",
+  // Spiritforged (SFD). All four are in UNIMPLEMENTED_KEYWORDS.
+  "Equip", // Gear: an activated ability that attaches this to a unit you control.
+  "Weaponmaster", // Unit, on play: may [Equip] one of your Equipment to me for 1 rainbow less.
+  "Quick-Draw", // Gear: has [Reaction]; when played, attach it to a unit you control.
+  "Repeat", // Spell: may pay an additional cost to repeat this spell's effect.
 ] as const;
 
 export type Keyword = (typeof KEYWORDS)[number];
@@ -67,7 +88,17 @@ export const NON_KEYWORD_BRACKETS = [
   // (":rb_exhaust:: [Reaction] → [Add] :rb_rune_fury:."). Part of an activated
   // ability's text, implemented in engine/activated-abilities.ts. It is a verb,
   // and no card "has [Add]".
+  //
+  // SFD prints it uppercased as "[ADD]" on Renata Glasc - Chem-Baroness. That
+  // needs no second entry: `isKnownBracketToken` compares upper-cased, so the
+  // one name covers both castings.
   "Add",
+  // "[Unique] (Your deck can have only 1 card with this name.)" — SFD's three
+  // legendary Equipment. A DECKBUILDING restriction, not a gameplay ability:
+  // nothing about a Unique card behaves differently once it is in play, so it
+  // is not a keyword. Read by `decks/deck-validation.ts`'s `isUniqueCard`,
+  // which tightens that card's copy cap from MAX_COPIES to 1.
+  "Unique",
 ] as const;
 
 const NON_KEYWORD_BRACKETS_UPPER = new Set<string>(NON_KEYWORD_BRACKETS.map((t) => t.toUpperCase()));

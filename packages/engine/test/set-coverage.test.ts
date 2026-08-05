@@ -26,11 +26,19 @@ describe("per-set completeness gating", () => {
   /** A card shape with real rules text and a defId no registry claims, in a set
    *  that does not exist. It cannot be implemented out from under this file —
    *  the same reason effect-registry.test.ts's "unimplemented card" subject is
-   *  synthetic. */
-  const unwrittenSfdCard: CardDefinition = {
+   *  synthetic.
+   *
+   *  **It used to be `SFD-001`, and that stopped being a set that does not
+   *  exist on 2026-08-04**, when Spiritforged's JSON landed and SFD-001 became
+   *  a real card (Against the Odds). The synthetic subject has to belong to a
+   *  set the registry genuinely cannot hold, or "the pool plus one unwritten
+   *  card" quietly becomes "the pool plus 206 unwritten cards" and the tests
+   *  below measure something else. `ZZZ` is not a Riftbound set code and is not
+   *  one of the four the oracle ships (OGN/OGS/SFD/UNL). */
+  const unwrittenCard: CardDefinition = {
     ...registry.get("OGN-024"),
-    id: "SFD-001",
-    name: "Unwritten Spiritforged Card",
+    id: "ZZZ-001",
+    name: "Unwritten Card In No Set",
     text: "Deal 4 to a unit at a battlefield. Draw 1.",
   };
 
@@ -47,28 +55,28 @@ describe("per-set completeness gating", () => {
     // The half worth keeping from the old whole-pool gate. If SFD were declared
     // complete with this card unwritten, the gate says which card — not a count,
     // not a percentage.
-    const [sfd] = coverageBySet([unwrittenSfdCard], ["SFD"]);
+    const [sfd] = coverageBySet([unwrittenCard], ["ZZZ"]);
     expect(sfd!.declaredComplete).toBe(true);
-    expect(sfd!.unimplemented).toEqual(["SFD-001 (Unwritten Spiritforged Card)"]);
+    expect(sfd!.unimplemented).toEqual(["ZZZ-001 (Unwritten Card In No Set)"]);
     expect(sfd!.finishedButUndeclared).toBe(false);
   });
 
   it("reports the same set as PROGRESS while it is under construction", () => {
     // The same card, the same answer about it, and no failure — this is what
     // lands the day SFD's JSON arrives and nothing else has happened yet.
-    const [sfd] = coverageBySet([unwrittenSfdCard], []);
+    const [sfd] = coverageBySet([unwrittenCard], []);
     expect(sfd!.declaredComplete).toBe(false);
     expect(sfd!.implemented).toBe(0);
     expect(sfd!.needing).toBe(1);
-    expect(setProgressLine(sfd!)).toBe("SFD: 0/1 implemented — left: SFD-001 (Unwritten Spiritforged Card)");
+    expect(setProgressLine(sfd!)).toBe("ZZZ: 0/1 implemented — left: ZZZ-001 (Unwritten Card In No Set)");
   });
 
   it("does not silently truncate the list of what is left", () => {
     // A capped list that does not say it was capped reads as "that is all of
     // them", which is the same lie as a bare count.
     const many = Array.from({ length: 8 }, (_, i) => ({
-      ...unwrittenSfdCard,
-      id: `SFD-${String(i + 1).padStart(3, "0")}`,
+      ...unwrittenCard,
+      id: `ZZZ-${String(i + 1).padStart(3, "0")}`,
       name: `Card ${i + 1}`,
     }));
     const line = setProgressLine(coverageBySet(many, [])[0]!);
@@ -78,14 +86,26 @@ describe("per-set completeness gating", () => {
 
   it("scopes per set rather than over the pool — a finished set is unaffected by an unfinished one", () => {
     // The property the whole change is for: OGN and OGS keep their hard gate
-    // while SFD is half-written beside them.
-    const coverage = coverageBySet([...registry.all(), unwrittenSfdCard]);
+    // while an unfinished set sits beside them. As of 2026-08-04 this is no
+    // longer hypothetical — SFD is that set, and the synthetic ZZZ card is kept
+    // alongside it so the property is still proved on a subject nobody can
+    // implement out from under this file.
+    const coverage = coverageBySet([...registry.all(), unwrittenCard]);
     const ogn = coverage.find((c) => c.set === "OGN")!;
+    const ogs = coverage.find((c) => c.set === "OGS")!;
+    const zzz = coverage.find((c) => c.set === "ZZZ")!;
     const sfd = coverage.find((c) => c.set === "SFD")!;
     expect(ogn.declaredComplete).toBe(true);
     expect(ogn.unimplemented).toEqual([]);
+    expect(ogs.declaredComplete).toBe(true);
+    expect(ogs.unimplemented).toEqual([]);
+    expect(zzz.declaredComplete).toBe(false);
+    expect(zzz.unimplemented).toEqual(["ZZZ-001 (Unwritten Card In No Set)"]);
+    // The real in-progress set: not declared, and not empty either — if this
+    // ever reads 0 the JSON stopped loading and every other SFD test would be
+    // vacuously green.
     expect(sfd.declaredComplete).toBe(false);
-    expect(sfd.unimplemented).toEqual(["SFD-001 (Unwritten Spiritforged Card)"]);
+    expect(sfd.needing).toBeGreaterThan(0);
   });
 
   it("flags a set that is FINISHED but still undeclared", () => {
@@ -96,9 +116,15 @@ describe("per-set completeness gating", () => {
     // Proved against the REAL pool with a deliberately wrong argument, which is
     // exactly the mistake being caught: OGN and OGS are finished, so undeclaring
     // them must raise the flag on both.
+    //
+    // SFD joined the pool on 2026-08-04 and is genuinely unfinished, so it is
+    // the one set here that must NOT raise the flag however it is declared.
+    // That makes this check stronger than it was: it used to distinguish
+    // "flagged" from "flagged" across two finished sets, and now it has a real
+    // negative case rather than only the synthetic one below.
     const undeclared = coverageBySet(registry.all(), []);
-    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS"]);
-    expect(undeclared.every((c) => c.finishedButUndeclared)).toBe(true);
+    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD"]);
+    expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS"]);
     // And declaring only one leaves the flag on the other, so the check is per
     // set rather than an all-or-nothing.
     const half = coverageBySet(registry.all(), ["OGN"]);
@@ -109,7 +135,7 @@ describe("per-set completeness gating", () => {
   it("an unfinished set is NOT flagged as undeclared-but-finished", () => {
     // The flag must not fire for a set that simply has not been written yet, or
     // it is noise from the day the JSON lands until the day the set is done.
-    const [sfd] = coverageBySet([unwrittenSfdCard], []);
+    const [sfd] = coverageBySet([unwrittenCard], []);
     expect(sfd!.finishedButUndeclared).toBe(false);
   });
 });

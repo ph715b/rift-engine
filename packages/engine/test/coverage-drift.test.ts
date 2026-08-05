@@ -240,7 +240,7 @@ describe("every card type reaches the coverage measure", () => {
  * Pinned per CARD rather than per keyword-name, so this keeps meaning something
  * when Deflect lands and the next pending keyword takes its place.
  */
-describe("the unimplemented-keyword mechanism, now that the pool has none", () => {
+describe("the unimplemented-keyword mechanism, now that SFD has reopened it", () => {
   const registry = defaultCardRegistry();
   const POUTY_PORO = "OGN-013"; // entire text is "[Deflect] (reminder)"
   const FIORA_VICTORIOUS = "OGN-232"; // grants [Deflect], [Ganking], [Shield] while Mighty
@@ -248,19 +248,34 @@ describe("the unimplemented-keyword mechanism, now that the pool has none", () =
   const GAREN_RUGGED = "OGS-007"; // "[Assault 2], [Shield 2]" — keywords that DO work
 
   /**
-   * `UNIMPLEMENTED_KEYWORDS` is EMPTY as of 2026-08-02: `[Deflect]` was its only
-   * entry and the surcharge now has real consumers in the cost pipeline, so
-   * deleting the entry flipped every card whose sole remaining gap it was.
+   * `UNIMPLEMENTED_KEYWORDS` was EMPTY from 2026-08-02, when `[Deflect]`'s entry
+   * was deleted because the surcharge had real consumers in the cost pipeline,
+   * **until Spiritforged landed on 2026-08-04 and put four keywords back in it**
+   * — exactly the reopening the previous revision of this comment predicted, and
+   * the reason these tests were kept rather than deleted when their subject went
+   * away.
    *
-   * These tests used Deflect as their subject, so most of them no longer have
-   * one. Rewritten to pin what is now TRUE — every keyword has a consumer — plus
-   * the structural guards that keep meaning something when the next pending set
-   * ([Backline], [Hunt], [Level], [Ambush]) arrives. They are NOT deleted,
-   * because the hole they were written for is reopenable by one map entry.
+   * So the mechanism has real subjects again, and the assertions below are no
+   * longer vacuous: `[Equip]`/`[Weaponmaster]`/`[Quick-Draw]` need an
+   * Equipment-attachment subsystem this engine does not have, and `[Repeat]`
+   * needs a spell to be able to pay an additional cost to repeat itself.
    */
-  it("flags nothing, because every keyword in KEYWORDS now has a real consumer", () => {
+  it("flags exactly SFD's four, and nothing in the finished sets", () => {
+    // The four are named rather than counted, because a count cannot tell
+    // "Equip is still pending" from "Deflect silently regressed".
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged]).toEqual([]);
+    expect([...flagged].sort()).toEqual(["Equip", "Quick-Draw", "Repeat", "Weaponmaster"]);
+
+    // And the direction that matters for OGN/OGS: a keyword losing its
+    // implementation would show up here as a card from a finished set, which is
+    // the regression this whole file is pointed at.
+    const flaggedSets = new Set(
+      registry
+        .all()
+        .filter((def) => unimplementedKeywordsOn(def).length > 0)
+        .map((def) => def.id.split("-")[0]!),
+    );
+    expect([...flaggedSets]).toEqual(["SFD"]);
   });
 
   it("a keyword-only card is now genuinely finished — Pouty Poro's whole text is [Deflect]", () => {
@@ -402,23 +417,39 @@ describe("a bracketed token nothing knows about", () => {
   });
 
   it("NAMES the token and the cards, for a token an unseen set could print", () => {
-    // The positive control. The sweep above is vacuous today by construction —
-    // it is asserting an empty list — so the half that has to be proved is that
-    // it can still see something.
+    // The positive control. The sweep above is vacuous by construction — it is
+    // asserting an empty list — so the half that has to be proved is that it can
+    // still see something.
+    //
+    // The subject used to be `[Weaponmaster]` on a card called SFD-001, and BOTH
+    // halves of that stopped working on 2026-08-04: Weaponmaster is now a
+    // declared keyword, and SFD-001 is a real card (Against the Odds). A control
+    // whose subject the pool has since absorbed proves nothing, so it moves to a
+    // token that is genuinely unknown — `[Backline]` is UNL's, named in
+    // KEYWORDS' own doc comment as still out of scope, and it must be replaced
+    // again the day Unleashed lands.
     const invented: CardDefinition = {
       ...registry.get("OGN-024"),
-      id: "SFD-001",
-      name: "Spiritforged Newcomer",
-      text: "[Weaponmaster] (Reminder text nobody has written yet.) Deal 4 to a unit at a battlefield.",
+      id: "ZZZ-001",
+      name: "Unleashed Newcomer",
+      text: "[Backline] (Reminder text nobody has written yet.) Deal 4 to a unit at a battlefield.",
     };
+    expect(isKnownBracketToken("Backline"), "[Backline] is modelled now — this control needs a new subject").toBe(
+      false,
+    );
     const unknown = [...bracketTokens([invented])].filter(([token]) => !isKnownBracketToken(token));
-    expect(unknown).toEqual([["Weaponmaster", ["SFD-001 (Spiritforged Newcomer)"]]]);
+    expect(unknown).toEqual([["Backline", ["ZZZ-001 (Unleashed Newcomer)"]]]);
   });
 
   it("sees a token the keyword parser's own grammar cannot", () => {
-    // `parseKeywords`' `[A-Za-z][a-zA-Z]*` cannot match `[Quick Draw]` or `[E]`
-    // at all, so those would slip past a guard that reused it — the more hidden
-    // a token is, the more this has to catch it.
+    // `parseKeywords`' `[A-Za-z][a-zA-Z-]*` cannot match a token containing a
+    // SPACE at all, so `[Quick Draw]` would slip past a guard that reused it —
+    // the more hidden a token is, the more this has to catch it.
+    //
+    // The hyphenated case used to be here too and no longer is: SFD really
+    // printed `[Quick-Draw]`, the grammar really did drop it silently, and the
+    // fix was to widen the pattern rather than to widen this control. The space
+    // form is still unmatched, so the control still has a subject.
     const invented: CardDefinition = {
       ...registry.get("OGN-024"),
       id: "SFD-002",
@@ -451,29 +482,51 @@ describe("a bracketed token nothing knows about", () => {
   });
 
   it("the pool's token census, stated rather than assumed", () => {
-    // 15 distinct bracketed words: 12 keywords and these 3. `Quick` is the
-    // thirteenth keyword and appears in NO bracket — every card that has it
-    // prints it as prose, which is what QUICK_TEXT_OVERRIDES exists for. So
-    // "every bracket is a keyword" is a claim satisfied by twelve, and the
-    // brief for this session recorded thirteen.
+    // **21 distinct bracketed words** as of 2026-08-04, up from 15 when the pool
+    // was OGN+OGS: 16 keywords, and 4 allow-listed non-keywords appearing as 5
+    // spellings.
+    //
+    // Two of the six newcomers are worth stating outright, because each is a way
+    // this census can read as fine while something is wrong:
+    //
+    //   `ADD` and `Add` are the SAME allow-listed token in two castings — SFD's
+    //   Renata Glasc - Chem-Baroness prints it uppercase. They are distinct
+    //   STRINGS and so are two entries here, while `isKnownBracketToken`
+    //   compares upper-cased and needs only the one allow-list name. A census
+    //   that folded case would hide a genuinely new token that differed from a
+    //   known one only in case.
+    //
+    //   `Quick-Draw` is the token `parseKeywords`' own grammar could not match
+    //   before its pattern was widened to allow a hyphen. It is in this list
+    //   because the sweep scans the wider `\[([^\]]*)\]`, which is the entire
+    //   reason the two grammars are deliberately different.
     const words = new Set([...bracketTokens(registry.all()).keys()].map((t) => t.replace(/\s+\d+$/, "")));
     expect([...words].sort()).toEqual([
+      "ADD",
       "Accelerate",
       "Action",
       "Add",
       "Assault",
       "Deathknell",
       "Deflect",
+      "Equip",
       "Ganking",
       "Hidden",
       "Legion",
       "Mighty",
+      "Quick-Draw",
       "Reaction",
+      "Repeat",
       "Shield",
       "Tank",
       "Temporary",
+      "Unique",
       "Vision",
+      "Weaponmaster",
     ]);
+    // `Quick` is still the one keyword that appears in NO bracket — every card
+    // that has it prints it as prose, which is what QUICK_TEXT_OVERRIDES exists
+    // for. SFD added four bracketed keywords and did not change that.
     expect(KEYWORDS.filter((k) => !words.has(k))).toEqual(["Quick"]);
   });
 });
@@ -546,11 +599,14 @@ describe("a partial note says how much is left", () => {
     }
   });
 
-  it("derives nothing from keywords while every keyword has a consumer", () => {
-    // The derived half is inert by construction right now. Asserting it rather
-    // than assuming keeps the two halves distinguishable: a note appearing from
-    // nowhere would mean a keyword had quietly lost its implementation.
+  it("derives keyword notes for SFD only, never for a finished set", () => {
+    // The derived half was inert by construction until 2026-08-04 and now has 58
+    // real subjects, all of them SFD. Asserting per SET rather than globally
+    // keeps the two halves distinguishable: a note appearing on an OGN or OGS
+    // card means a keyword quietly lost its implementation, which is a
+    // regression, while a note on an SFD card is just work not done yet.
     for (const def of registry.all()) {
+      if (def.id.startsWith("SFD-")) continue;
       expect(unimplementedKeywordsOn(def), `${def.id} (${def.name})`).toEqual([]);
     }
   });

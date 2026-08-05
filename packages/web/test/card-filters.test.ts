@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { defaultCardRegistry, isCardLegalForLegend, type CardDefinition, type Domain } from "@rift-engine/engine";
+import {
+  defaultCardRegistry,
+  isCardImplemented,
+  isCardLegalForLegend,
+  type CardDefinition,
+  type Domain,
+} from "@rift-engine/engine";
 import { EMPTY_FILTERS, costBucket, filterAndSortCards, hasActiveFilters, type CardFilters } from "../src/card-filters.js";
 
 /**
@@ -59,10 +65,28 @@ describe("filtering", () => {
     expect(fury.every((c) => c.domains.includes("Fury"))).toBe(true);
   });
 
-  it("'implemented only' hides nothing while the pool is complete", () => {
-    // A real control now that every card is implemented: if this ever removes
-    // something, either a card regressed or the flag reads the wrong thing.
-    expect(run({ implementedOnly: true })).toHaveLength(ALL.length);
+  it("'implemented only' hides the unimplemented cards and keeps the rest", () => {
+    // This used to assert the filter removed NOTHING, which was true and a real
+    // control while OGN+OGS were the whole pool and both were finished. SFD
+    // landed on 2026-08-04 with ~200 cards unwritten, so the filter now has
+    // something to do — and asserting "hides nothing" would have meant either
+    // deleting the check or, worse, keeping a green test whose premise was that
+    // the deck builder has no unimplemented cards to hide.
+    //
+    // Pinned in both directions instead, which is what the flag is actually
+    // for: everything it keeps is implemented, everything it drops is not, and
+    // it drops something. The finished sets are checked separately, because a
+    // card disappearing from OGN or OGS is a regression while an SFD one is
+    // simply not written yet.
+    const shown = run({ implementedOnly: true });
+    expect(shown.length, "the filter hides nothing — SFD should have unimplemented cards").toBeLessThan(ALL.length);
+    expect(shown.every((c) => isCardImplemented(c))).toBe(true);
+    const hidden = ALL.filter((c) => !shown.includes(c));
+    expect(hidden.every((c) => !isCardImplemented(c))).toBe(true);
+    expect(
+      hidden.filter((c) => c.id.startsWith("OGN-") || c.id.startsWith("OGS-")),
+      "a card from a declared-complete set is being hidden as unimplemented",
+    ).toEqual([]);
   });
 
   it("reports an active filter so the Clear affordance can appear", () => {

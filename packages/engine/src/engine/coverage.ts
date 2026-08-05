@@ -72,12 +72,30 @@ import { continuousBattlefieldDefIds } from "./battlefield-continuous.js";
  * that carry it at once.
  */
 const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
-  // EMPTY as of 2026-08-02, and that is the shape working: `[Deflect]` lived here
-  // while it was parsed and ignored, and DELETING this one entry flipped all five
-  // cards whose only remaining gap it was — exactly what this map's doc comment
-  // above predicted. Keep it as a map rather than deleting the mechanism: the
-  // KEYWORDS doc comment already names [Backline]/[Hunt]/[Level]/[Ambush] as
-  // pending sets, and the next one must not be able to reopen the same hole.
+  // Was EMPTY from 2026-08-02 until Spiritforged landed on 2026-08-04, and the
+  // mechanism was kept rather than deleted for exactly this: `[Deflect]` lived
+  // here while it was parsed and ignored, and DELETING that one entry flipped
+  // all five cards whose only remaining gap it was.
+  //
+  // These four are SFD's, and they are here on the day the JSON arrived rather
+  // than after somebody noticed a card doing nothing. Two subsystems sit behind
+  // them, neither of which exists in this engine:
+  //
+  //   Equipment/attachment — `activeGear` is a flat per-player list with no
+  //   attachment concept, and `Listener.battlefieldId`'s comment ("Gear is
+  //   never at a battlefield in this pool") is falsified by an Equipment
+  //   attached to a unit, which the rules place at that unit's battlefield.
+  //
+  //   [Repeat] — a spell may pay an additional cost to repeat its effect. The
+  //   Java oracle implements it as a resumable choice (pendingRepeatChoice /
+  //   effectiveRepeatCost / maybeOfferRepeat), not as a unit keyword.
+  //
+  // Each string is what a deck builder shows for a card whose only remaining
+  // gap is this keyword, so it says what is missing rather than greying it.
+  ["Equip", "Equipment attachment does not exist — no way to attach a Gear to a unit"],
+  ["Weaponmaster", "needs [Equip]: attach one of your Equipment on play, for 1 rainbow less"],
+  ["Quick-Draw", "needs [Equip]: a Gear with [Reaction] that attaches to a unit when played"],
+  ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled"],
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.

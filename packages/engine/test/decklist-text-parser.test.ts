@@ -69,15 +69,43 @@ describe("parseDecklistText: real community-export fixture (heavy resolution gap
   });
 
   it("resolves the MainDeck cards that exist and flags the ones that don't (no champion appended since none resolved)", () => {
-    // Charm+Defy+Discipline+Pit Rookie+Sabotage (3 each) + En Garde+Zhonya's+First Mate (2 each) + Challenge+Primal Strength (1 each)
-    expect(result!.deckList.cardIds).toHaveLength(3 * 5 + 2 * 3 + 1 * 2);
-    for (const name of ["Lonely Poro", "Punch First", "Scuttle Crab", "Ruin Runner", "Rengar, Trophy Hunter", "Fiora, Peerless"]) {
+    // **SFD landing on 2026-08-04 moved this fixture, and that is the point of
+    // keeping a real export as the fixture.** Four of the names it references
+    // were "a handful of later-set units/spells" — they were Spiritforged's,
+    // and they resolve now:
+    //
+    //   Lonely Poro (3) -> SFD-036   Punch First (3) -> SFD-097
+    //   Ruin Runner (2) -> SFD-105   Fiora, Peerless (2) -> SFD-110
+    //
+    // Charm+Defy+Discipline+Pit Rookie+Sabotage (3 each) + Lonely Poro+Punch
+    // First (3 each) + En Garde+Zhonya's+First Mate+Ruin Runner+Fiora, Peerless
+    // (2 each) + Challenge+Primal Strength (1 each) = 33.
+    expect(result!.deckList.cardIds).toHaveLength(3 * 7 + 2 * 5 + 1 * 2);
+    // What is still out of scope: Scuttle Crab and Rengar are Unleashed's, and
+    // no "Tempered" Master Yi exists in any loaded set.
+    for (const name of ["Scuttle Crab", "Rengar, Trophy Hunter", "Master Yi, Tempered"]) {
       expect(result!.unresolvedNames).toContain(name);
+    }
+    for (const name of ["Lonely Poro", "Punch First", "Ruin Runner", "Fiora, Peerless"]) {
+      expect(result!.unresolvedNames, `${name} is in SFD and should resolve now`).not.toContain(name);
     }
   });
 
-  it("dedupes a name that fails to resolve in both MainDeck and Sideboard (Fiora, Peerless)", () => {
-    expect(result!.unresolvedNames.filter((n) => n === "Fiora, Peerless")).toHaveLength(1);
+  it("dedupes a name that fails to resolve in both MainDeck and Sideboard", () => {
+    // The property: a name listed in both sections is reported ONCE, not twice.
+    //
+    // Its subject used to be "Fiora, Peerless" from the fixture above, and SFD
+    // resolved it — leaving no name in that export that fails in both sections,
+    // so the assertion became vacuously true against an empty array. A control
+    // whose subject the pool absorbed proves nothing, and the real export is
+    // worth keeping verbatim, so the property gets its own minimal fixture with
+    // a name no set can ever ship.
+    const text = MASTER_YI_TEXT.replace("3 Rengar, Trophy Hunter", "3 Zzyzx, The Unprintable").replace(
+      "1 Fiora, Peerless\n",
+      "1 Zzyzx, The Unprintable\n",
+    );
+    const bothSections = parseDecklistText(text, registry)!;
+    expect(bothSections.unresolvedNames.filter((n) => n === "Zzyzx, The Unprintable")).toHaveLength(1);
   });
 
   it("passes battlefield names through verbatim, no resolution attempted", () => {
@@ -89,20 +117,30 @@ describe("parseDecklistText: real community-export fixture (heavy resolution gap
     expect(result!.deckList.runeDomainBCount).toBe(7); // Body
   });
 
-  it("leaves the sideboard empty (all-or-nothing): Disarming Rake/Alpha Strike/Ruin Runner/Fiora, Peerless don't resolve", () => {
+  it("leaves the sideboard empty (all-or-nothing) while ANY of its names is unresolved", () => {
+    // Four of this sideboard's five names resolve now — Disarming Rake became
+    // SFD-032, Ruin Runner SFD-105, Fiora, Peerless SFD-110, and Challenge was
+    // always OGN-128. Alpha Strike (Unleashed) is the one holdout, and the
+    // all-or-nothing rule means one holdout still empties the whole sideboard.
+    //
+    // That is a stronger case for the rule than the original was: it used to be
+    // demonstrated by a sideboard where almost nothing resolved, where "empty"
+    // is what you would expect anyway.
     expect(result!.deckList.sideboardCardIds).toEqual([]);
-    expect(result!.unresolvedNames).toContain("Disarming Rake");
     expect(result!.unresolvedNames).toContain("Alpha Strike");
+    expect(result!.unresolvedNames).not.toContain("Disarming Rake");
   });
 });
 
 describe("parseDecklistText: a resolvable champion appends exactly one copy", () => {
-  it("reaches 40 cards when the champion resolves", () => {
+  it("appends exactly one copy when the champion resolves", () => {
     const registry = defaultCardRegistry();
     const text = MASTER_YI_TEXT.replace("1 Master Yi, Tempered", "1 Master Yi, Meditative");
     const result = parseDecklistText(text, registry)!;
     expect(result.deckList.championId).not.toBe("");
-    expect(result.deckList.cardIds).toHaveLength(3 * 5 + 2 * 3 + 1 * 2 + 1);
+    // 33 resolvable main-deck cards (see the fixture's own test above, which
+    // rose from 23 when SFD landed) plus the champion's single appended copy.
+    expect(result.deckList.cardIds).toHaveLength(3 * 7 + 2 * 5 + 1 * 2 + 1);
   });
 });
 
