@@ -542,6 +542,69 @@ export interface BattlefieldDefinition {
   domains: Domain[];
 }
 
+/** A printed TOKEN card. Same shape as a battlefield's, and here for the same
+ *  reason: `shouldSkip` keeps Token-supertype entries out of the playable pool,
+ *  but they are real printed cards with real rules text. */
+export interface TokenDefinition {
+  id: string;
+  /** The synthetic runtime defId a created token carries — `TOKEN-GOLD` for
+   *  "Gold // Buff" — so a token instance on the board can be traced back to
+   *  the card it is a copy of. Matches `token.ts`'s `TOKEN-${tag}` convention,
+   *  which predates this and which `setCodeOf("TOKEN-RECRUIT")` already pins. */
+  runtimeDefId: string;
+  name: string;
+  imageUrl: string;
+  text: string;
+  type: string;
+}
+
+/**
+ * Real Token-supertype cards (name, art, rules text).
+ *
+ * These are excluded from `loadCardDefinitions` by `shouldSkip` for a good
+ * reason — a token is never in a deck and never played from hand, so it has no
+ * business in a deckbuilding pool — but "not deckbuildable" is not "not real",
+ * and the pool has exactly the same blind spot for tokens that it had for
+ * battlefields: **nothing could see one.**
+ *
+ * SFD is what forces the issue. Its Gold token is a GEAR with a printed
+ * activated ability ("Kill this, [Exhaust]: [Reaction] — [Add] rainbow"), and
+ * eleven SFD cards plus two SFD battlefields say "play a Gold gear token". That
+ * ability has to be implemented somewhere and keyed by something, and keying it
+ * to a card no measurement can see is how `[Deflect]` shipped inert.
+ *
+ * So this is the source `coverage-drift`'s "no module claims a card that isn't
+ * real" check consults for token ids, exactly as it already consults
+ * `loadBattlefieldDefinitions()` for battlefield ids — that test's own comment
+ * makes the argument: "'Real' is not the same as 'in the CardRegistry'."
+ */
+export function loadTokenDefinitions(): TokenDefinition[] {
+  const seen = new Set<string>();
+  const defs: TokenDefinition[] = [];
+  for (const raw of CARD_FILES) {
+    for (const item of extractCardItems(raw)) {
+      if (item.classification.supertype !== "Token") continue;
+      if (item.metadata.alternate_art) continue;
+      if (seen.has(item.name)) continue;
+      seen.add(item.name);
+      // "Gold // Buff" is one printed card carrying two faces; the gear face is
+      // the one cards create, and its tag is the first name. Splitting on "//"
+      // rather than storing the whole string keeps the runtime defId readable
+      // and matches how the cards refer to it ("a Gold gear token").
+      const face = item.name.split("//")[0]!.trim();
+      defs.push({
+        id: deriveId(item.riftbound_id),
+        runtimeDefId: `TOKEN-${face.toUpperCase()}`,
+        name: item.name,
+        imageUrl: item.media.image_url ?? "",
+        text: decodeTextEntities(item.text.plain ?? ""),
+        type: item.classification.type,
+      });
+    }
+  }
+  return defs;
+}
+
 /**
  * Real Battlefield-type cards (name, art, rules text) — like Rune-type
  * cards, Battlefields are deliberately excluded from `loadCardDefinitions`

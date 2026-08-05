@@ -1,4 +1,4 @@
-import type { UnitInstance } from "../model/card.js";
+import type { GearInstance, UnitInstance } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { applyContested } from "./cleanup.js";
 
@@ -112,4 +112,103 @@ export function placeToken(
   // token-making Spells are exactly what an opponent holding Focus can cast into
   // someone else's window now that Action speed exists.
   return applyContested({ ...state, battlefields }, destination.battlefieldId, casterIndex);
+}
+
+/**
+ * What a GEAR token is.
+ *
+ * Separate from `TokenSpec` rather than a variant of it, because the two share
+ * almost nothing: a gear has no Might, is never at a battlefield, never
+ * attacks, and so needs none of the combat state every `UnitInstance` carries.
+ * Folding them together would have meant a `might` field that is meaningless
+ * for half its uses.
+ */
+export interface GearTokenSpec {
+  name: string;
+  /** Tag line — the printed subtype, and the source of the runtime defId. */
+  tag: string;
+}
+
+/**
+ * SFD's Gold token, the pool's first gear token.
+ *
+ * The printed card is `sfd-t03` "Gold // Buff" — one card with two faces, of
+ * which the gear face is the one cards create ("play a Gold gear token"). Its
+ * printed ability, "Kill this, [Exhaust]: [Reaction] — [Add] :rb_rune_rainbow:",
+ * is implemented in `activated-abilities.ts` under this spec's runtime defId.
+ *
+ * `loadTokenDefinitions()` is what makes that ability's defId traceable to a
+ * real printed card, and `token-definitions.test.ts` pins this spec's name and
+ * runtime defId against the card data so a rename upstream cannot quietly leave
+ * the ability keyed to nothing.
+ */
+export const GOLD_TOKEN: GearTokenSpec = { name: "Gold", tag: "Gold" };
+
+/** The runtime defId a created Gold token carries, and the key its printed
+ *  ability is registered under in `activated-abilities.ts`. Exported from HERE
+ *  rather than written out again there, so the two cannot drift: a table keyed
+ *  to an id nothing creates is silent, and reads exactly like an implemented
+ *  ability. Derived from the spec for the same reason. */
+export const GOLD_TOKEN_DEF_ID = `TOKEN-${GOLD_TOKEN.tag.toUpperCase()}`;
+
+/**
+ * Builds a runtime-only gear token — a raw `GearInstance`, on exactly the same
+ * reasoning as `createToken` above: no `CardDefinition` exists for a token,
+ * because `shouldSkip` filters Token-supertype entries out of the playable pool.
+ *
+ * `attachedToInstanceId` starts null. The field already existed for the
+ * Equipment subsystem SFD also needs, and a Gold token is never attached — but
+ * leaving it undefined would make a gear token structurally different from
+ * every other gear on the board, which is the kind of difference that surfaces
+ * later as a crash in code that assumed the field was there.
+ */
+export function createGearToken(spec: GearTokenSpec, entersExhausted: boolean): GearInstance {
+  tokenCounter += 1;
+  return {
+    instanceId: `token-${spec.tag.toLowerCase()}-${tokenCounter}`,
+    defId: `TOKEN-${spec.tag.toUpperCase()}`,
+    name: spec.name,
+    domains: [],
+    // Every SFD card that makes one says "play a Gold gear token EXHAUSTED", so
+    // the caller states it rather than defaulting: a gear token that quietly
+    // entered ready would be a free rainbow Power on the turn it was made.
+    exhausted: entersExhausted,
+    isToken: true,
+    kind: "Gear",
+    energyCost: 0,
+    powerCost: 0,
+    powerDomain: null,
+    attachedToInstanceId: null,
+    keywords: {},
+  };
+}
+
+/**
+ * Creates a gear token and puts it into `casterIndex`'s `activeGear`.
+ *
+ * Deliberately NOT routed through `placeToken`'s destination machinery: gear is
+ * a flat per-player list with no location at all (`activeGear` on
+ * `PlayerState`), so there is no battlefield to place one at and no Contested
+ * to apply. `Listener.battlefieldId`'s comment — "Gear is never at a
+ * battlefield in this pool" — is still true of gear TOKENS even though SFD's
+ * Equipment will falsify it for attached gear.
+ */
+export function placeGearToken(
+  state: GameState,
+  casterIndex: 0 | 1,
+  spec: GearTokenSpec,
+  entersExhausted: boolean,
+): GameState {
+  const token = createGearToken(spec, entersExhausted);
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[casterIndex] = { ...players[casterIndex], activeGear: [...players[casterIndex].activeGear, token] };
+  return { ...state, players };
+}
+
+/** `count` Gold tokens at once, all exhausted — the shape every SFD card that
+ *  makes more than one asks for ("play two Gold gear tokens exhausted"). */
+export function placeGoldTokens(state: GameState, casterIndex: 0 | 1, count: number): GameState {
+  let next = state;
+  for (let i = 0; i < count; i += 1) next = placeGearToken(next, casterIndex, GOLD_TOKEN, true);
+  return next;
 }

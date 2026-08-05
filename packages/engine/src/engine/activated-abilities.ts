@@ -1,6 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
+import { GOLD_TOKEN_DEF_ID } from "./token.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 import {
   addBuff,
@@ -338,6 +339,44 @@ const MALZAHAR_POWER = 2;
 
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  [GOLD_TOKEN_DEF_ID]: {
+    // The Gold token (SFD, printed card `sfd-t03` "Gold // Buff") — "Kill this,
+    // [Exhaust]: [Reaction] — [Add] :rb_rune_rainbow:."
+    //
+    // **Keyed by a token's runtime defId, which is a first for this table.** A
+    // token has no `CardDefinition` — `shouldSkip` filters Token-supertype
+    // entries out of the playable pool — so `loadTokenDefinitions()` exists to
+    // make this id traceable back to a real printed card, exactly as
+    // `loadBattlefieldDefinitions()` does for the 24 battlefield abilities.
+    // Without that, `coverage-drift`'s "no module claims a card that isn't
+    // real" check would be asked about an id nothing in the repo could confirm.
+    //
+    // BOTH halves of the cost are real and both are printed. `killSelf` is what
+    // makes a Gold a one-shot: it is paid before the ability resolves, so the
+    // token is already dead when anything responds. `exhaust` on top of it looks
+    // redundant — a card you are killing hardly needs exhausting — but it is
+    // what stops a Gold that entered READY being usable twice in one chain if a
+    // future card ever readies one, and it is what the card prints.
+    //
+    // The Power is RAINBOW, so it lands in `floatingRainbowPower` rather than
+    // `floatingPower` (which is keyed by Domain) — the same pool Malzahar's
+    // ritual uses, and for the same reason.
+    kind: "Gear",
+    cost: { killSelf: true, exhaust: true },
+    targeting: { kind: "none" },
+    // Banks a resource and changes nothing the board evaluator can price, so the
+    // AI will not take it — the same flag, and the same known consequence, as
+    // the Seals and Malzahar. Recorded rather than worked around: this project
+    // has a standing rule against speculative heuristics with no evaluative
+    // basis, so a Gold token will sit unspent in self-play.
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingRainbowPower: actor.floatingRainbowPower + 1 };
+      return { ...state, players };
+    },
+  },
   "OGN-113": {
     // Malzahar - Fanatic — "Kill a friendly unit or gear, Exhaust: [Action] ->
     // Add [rainbow][rainbow]."

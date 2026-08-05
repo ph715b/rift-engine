@@ -64,10 +64,14 @@ than one subsystem bucket.
 > produced precisely the "registered against a primitive that does not work"
 > failure this repo hits most often.**
 
-That disjointness is the plan's whole shape: **136 of 204 cards are not blocked on a KEYWORD
-on anything.** The set is far less subsystem-bound than "two missing subsystems"
-suggests, and the ordinary bodies can be fanned out over per-domain effect files
-on day one without waiting for either subsystem to land.
+That disjointness looked like the plan's whole shape: **136 of 204 cards print no
+blocked keyword and no Equipment prose**, so they could be fanned out over the
+per-domain effect files without waiting for either subsystem.
+
+**Wave 1 proved that claim too strong — see the Wave 1 section at the foot of
+this document.** "Not blocked on a keyword" is not the same as "not blocked", and
+53 of the 105 cards handed out were refused for missing primitives that no text
+pattern could have predicted.
 
 ### Cluster 1 — the 136 ordinary bodies, split into fan-out and central
 

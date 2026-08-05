@@ -14,7 +14,7 @@ import {
 } from "../src/engine/coverage.js";
 import { decisionDefIds } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { loadBattlefieldDefinitions } from "../src/cards/card-loader.js";
+import { loadBattlefieldDefinitions, loadTokenDefinitions } from "../src/cards/card-loader.js";
 import {
   KEYWORDS,
   NON_KEYWORD_BRACKETS,
@@ -175,11 +175,21 @@ describe("coverage.ts knows about every place a card can be implemented", () => 
     // cards with real rules text, and `engine/battlefield-abilities.ts`
     // implements them. Asking both sources keeps the check's teeth: a typo'd
     // battlefield id is in NEITHER, and still fails here.
+    //
+    // **TOKENS are the third source, added 2026-08-05 for the same reason.**
+    // SFD's Gold token is a printed Gear (`sfd-t03`) with a printed activated
+    // ability, and eleven SFD cards plus two SFD battlefields create one — but
+    // `shouldSkip` filters Token-supertype entries out of the pool, so its
+    // ability is keyed to a runtime defId (`TOKEN-GOLD`) that the registry has
+    // never held. Loosening the check to "ignore ids starting TOKEN-" would
+    // have let a typo through; asking `loadTokenDefinitions()` keeps the teeth,
+    // because a token id backed by no printed card still fails here.
     const battlefieldIds = new Set(loadBattlefieldDefinitions().map((b) => b.id));
+    const tokenIds = new Set(loadTokenDefinitions().map((t) => t.runtimeDefId));
     for (const { defId, file } of occurrences) {
       const module = implementingModule(defId);
       if (module === undefined) continue;
-      const real = registry.tryGet(defId) !== undefined || battlefieldIds.has(defId);
+      const real = registry.tryGet(defId) !== undefined || battlefieldIds.has(defId) || tokenIds.has(defId);
       expect(real, `${module} claims ${defId} (referenced in ${file}) but it is not a real card`).toBe(true);
     }
   });
