@@ -38,6 +38,7 @@ import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
+import { placeGoldTokens } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -776,6 +777,39 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return giveMightThisTurnToOwnUnit(readied, listener.ownerIndex, listener.card.instanceId, 1);
     },
   },
+  "SFD-121": {
+    // Black Market Broker — "When you play a card from face down, play a Gold
+    // gear token exhausted."
+    //
+    // "FROM FACE DOWN" is a play out of a Facedown Zone, which the rules
+    // themselves gloss as the same thing as Hidden: "Playing a card from
+    // facedown (or 'from Hidden') does open a chain" (811's discussion of the
+    // keyword). So this is Ember Monk's (OGN-167, above) condition exactly, and
+    // it is written against the same carried fact — `cardPlayed.fromHidden`,
+    // which `executePlayCard` sets from `action.fromHiddenBattlefieldId`.
+    //
+    // That fact being on the EVENT is what makes this card implementable rather
+    // than an approximation. Without it the only honest reading available would
+    // be "when you play a card", which is strictly stronger than printed and
+    // would pay out on every card the Broker's controller casts.
+    //
+    // "YOU play" — his own controller's facedown card, not the opponent's, the
+    // same restriction Ember Monk carries. His own arrival counts if he was
+    // himself played from facedown (Ember Monk's entry records the same), since
+    // the event is fired after the card has resolved into play and the listener
+    // walk therefore already finds him.
+    //
+    // Both conditions are properties of the event, so `applies` settles them at
+    // fire time (383) and `resolve` cannot disagree with a board that has moved
+    // on during the response window this hold opens.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" && event.fromHidden === true && event.casterIndex === listener.ownerIndex,
+    resolve: (state, listener, event) =>
+      event.kind === "cardPlayed" && event.fromHidden === true && event.casterIndex === listener.ownerIndex
+        ? placeGoldTokens(state, listener.ownerIndex, 1)
+        : state,
+  },
   "SFD-123": {
     // Corrupt Enforcer, FIRST clause only — "When I move to a battlefield,
     // discard 1."
@@ -932,6 +966,35 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         battlefieldId: event.battlefieldId,
       });
     },
+  },
+  "SFD-130": {
+    // Treasure Hunter — "When I move, play a Gold gear token exhausted."
+    //
+    // BARE "when I move" — no origin and no destination, which is exactly the
+    // contrast Harpoon Squad's entry below already names ("what the printed
+    // 'from a battlefield' buys over Treasure Hunter's bare 'when I move'"). So
+    // walking out of base pays, and so does redeploying between battlefields;
+    // neither `event.from` nor `event.to` is read at all.
+    //
+    // A Recall is still nothing (454 — a Recall is not a Move), and neither is a
+    // spell-driven relocation, because `unitMoved` fires for neither. That is the
+    // event's line rather than this card's, and it is the printed one.
+    //
+    // `placeGoldTokens(..., 1)` rather than `placeGearToken(..., GOLD_TOKEN,
+    // true)`: same result, but the exhausted-ness is then stated in one place for
+    // every SFD card that makes Gold, and a gear token that quietly entered ready
+    // would be a free rainbow Power on the turn it was made.
+    //
+    // The token goes to `listener.ownerIndex`, the Hunter's controller — "play a
+    // Gold gear token" with no player named is the ability's controller (355.9),
+    // and `event.moverIndex` would say the same thing here only because the
+    // condition below already requires the mover to BE him.
+    on: "unitMoved",
+    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId
+        ? placeGoldTokens(state, listener.ownerIndex, 1)
+        : state,
   },
   "SFD-137": {
     // Harpoon Squad — "When I move FROM a battlefield, give me +2 Might this

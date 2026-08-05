@@ -33,7 +33,8 @@ import {
  * gets a full `submit` cast, which is the hop that carries a chosen target
  * through validation, payment and the chain.
  *
- * Three of these cards are registered for only PART of their printed text. Each
+ * TWO of these cards are registered for only PART of their printed text (it was
+ * three until the gear-token primitive landed and finished Bushwhack). Each
  * one's describe block says which part, and asserts nothing about the missing
  * half — an assertion about text nobody wrote would be the thing that makes a
  * partial look finished.
@@ -123,9 +124,9 @@ describe("Against the Odds (SFD-001): +2 Might per enemy unit THERE", () => {
   });
 });
 
-describe("Bushwhack (SFD-004): friendly units enter ready this turn — HALF the card", () => {
-  // The other half, "play a Gold gear token exhausted", is NOT implemented: this
-  // engine has no gear tokens at all. Nothing here asserts anything about it.
+describe("Bushwhack (SFD-004): enter ready this turn, AND a Gold token", () => {
+  // Both halves are written now. The second one waited on the gear-token
+  // primitive, which was the wave's largest blocker.
   it("makes a later unit enter READY, asked through deploy's own predicate", () => {
     const state = makeState();
     const arriving = makeUnit({ name: "Ambusher" });
@@ -136,6 +137,21 @@ describe("Bushwhack (SFD-004): friendly units enter ready this turn — HALF the
     expect(unitEntersReady(after, 0, arriving)).toBe(true);
     // Only the caster's — "FRIENDLY units".
     expect(unitEntersReady(after, 1, arriving)).toBe(false);
+  });
+
+  it("also plays ONE Gold gear token, exhausted, for the caster only", () => {
+    // The second sentence, unwritten until the gear-token primitive existed.
+    // Exhausted matters: a ready Gold is a free rainbow Power the turn it is
+    // made, because its printed ability costs only a kill and an exhaust.
+    const after = resolveSpell(BUSHWHACK, 0, makeState());
+
+    const gear = after.players[0]!.activeGear;
+    expect(gear).toHaveLength(1);
+    expect(gear[0]!.name).toBe("Gold");
+    expect(gear[0]!.kind).toBe("Gear");
+    expect(gear[0]!.isToken).toBe(true);
+    expect(gear[0]!.exhausted, "a ready Gold is a free rainbow Power this turn").toBe(true);
+    expect(after.players[1]!.activeGear, "the opponent got one too").toHaveLength(0);
   });
 });
 
@@ -385,7 +401,7 @@ describe("coverage reports these as implemented", () => {
   // list has to split. Keeping the old assertion would have meant asserting
   // that three half-written cards still read as finished — the premise changed,
   // and this is the premise being fixed rather than the assertion weakened.
-  for (const defId of [AGAINST_THE_ODDS, GEM_JAMMER, SUDDEN_STORM, FERROUS_FORERUNNER, LUCIAN_GUNSLINGER]) {
+  for (const defId of [AGAINST_THE_ODDS, BUSHWHACK, GEM_JAMMER, SUDDEN_STORM, FERROUS_FORERUNNER, LUCIAN_GUNSLINGER]) {
     it(`${defId} (${registry.get(defId).name}) is whole`, () => {
       expect(isCardImplemented(registry.get(defId))).toBe(true);
       expect(partialImplementationNote(registry.get(defId))).toBeUndefined();
@@ -395,9 +411,12 @@ describe("coverage reports these as implemented", () => {
   // The three written as HALF a card. Each must report NOT implemented, and the
   // note must say which half is missing — a bare `false` would be
   // indistinguishable from a card nobody has started.
+  // Bushwhack LEFT this list on 2026-08-05: the gear-token primitive landed and
+  // its second sentence is written, so its PARTIALLY_IMPLEMENTED entry was
+  // DELETED rather than reworded — a card is either finished or it is on that
+  // list. Draven still needs a combat-WON event on top of the token.
   for (const [defId, missing] of [
-    [BUSHWHACK, "Gold gear token"],
-    [DRAVEN_VANQUISHER, "Gold gear token"],
+    [DRAVEN_VANQUISHER, "combat-won event"],
     [DUNEBREAKER, "deploy.unitEntersReady"],
   ] as const) {
     it(`${defId} (${registry.get(defId).name}) is PARTIAL, and says why`, () => {

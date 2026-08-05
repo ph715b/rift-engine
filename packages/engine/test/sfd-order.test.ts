@@ -3,6 +3,8 @@ import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
+import { runBeginning } from "../src/engine/turn-manager.js";
+import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { holdUnitDied } from "../src/engine/triggers.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -38,7 +40,11 @@ import {
 
 const registry = defaultCardRegistry();
 
+const EMINENT_BENEFACTOR = "SFD-152";
 const GUARDS = "SFD-154";
+const HONEST_BROKER = "SFD-155";
+const BLOOD_MONEY = "SFD-162";
+const TROVE_GOLEM = "SFD-174";
 const ROYAL_GUARD = "SFD-157";
 const SANDSHIFTER = "SFD-158";
 const DEATHGRIP = "SFD-163";
@@ -104,6 +110,73 @@ function unitsOf(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
 
 const unitsAt = (state: GameState, battlefieldId: string, playerId: string): UnitInstance[] =>
   state.battlefields.find((bf) => bf.id === battlefieldId)!.units[playerId] ?? [];
+
+/**
+ * The Gold gear tokens a player has, matched by the token's RUNTIME defId rather
+ * than by its name — the name is display text, and `GOLD_TOKEN_DEF_ID` is the
+ * thing the printed ability in activated-abilities.ts is keyed to. A test that
+ * matched on "Gold" would still pass if a card minted a gear that carried no
+ * ability at all.
+ */
+const goldOf = (state: GameState, playerIndex: 0 | 1): GearInstance[] =>
+  state.players[playerIndex]!.activeGear.filter((g) => g.defId === GOLD_TOKEN_DEF_ID);
+
+/** Every Gold token assertion these four cards share: how many, exhausted, and
+ *  distinct — two tokens sharing an instanceId would make the second unkillable. */
+function expectGold(state: GameState, playerIndex: 0 | 1, count: number): void {
+  const gold = goldOf(state, playerIndex);
+  expect(gold).toHaveLength(count);
+  expect(gold.every((g) => g.exhausted), "a Gold token entered READY — that is a free rainbow Power").toBe(true);
+  expect(new Set(gold.map((g) => g.instanceId)).size).toBe(count);
+  expect(goldOf(state, playerIndex === 0 ? 1 : 0), "the opponent was paid too").toHaveLength(0);
+}
+
+// ── Eminent Benefactor (SFD-152) ─────────────────────────────────────────────
+
+describe("Eminent Benefactor (SFD-152): when I hold, two Gold gear tokens", () => {
+  /** Player 0 in their Beginning Phase holding bf1 with `units` — `isHeldBy`
+   *  reads exactly this: units present, and none of the opponent's. */
+  function holdingBf1(units: UnitInstance[]): GameState {
+    const state = makeState({ phase: "Beginning", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: units };
+    state.battlefields[0]!.controllerId = "p1";
+    return state;
+  }
+
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(EMINENT_BENEFACTOR))).toBe(true);
+  });
+
+  it("pays two Gold on the hold — through runBeginning, which is where the event fires", () => {
+    const settled = resolveHeldTriggers(runBeginning(holdingBf1([realUnitInstance(EMINENT_BENEFACTOR)])));
+    // The hold itself still scores; the Gold is on top of it.
+    expect(settled.players[0]!.points).toBe(1);
+    expectGold(settled, 0, 2);
+    // Gear has no location, so nothing should have appeared at a battlefield.
+    expect(unitsAt(settled, "bf1", "p1").filter((u) => u.isToken)).toHaveLength(0);
+  });
+
+  it("does NOT fire for a battlefield he is not standing at — 'when I hold'", () => {
+    // Two battlefields held, the Benefactor at only one: 2 points, and still
+    // only one payout of two Gold rather than two payouts of two.
+    const state = holdingBf1([realUnitInstance(EMINENT_BENEFACTOR)]);
+    state.battlefields[1]!.units = { p1: [makeUnit({ name: "Outpost" })] };
+    state.battlefields[1]!.controllerId = "p1";
+
+    const settled = resolveHeldTriggers(runBeginning(state));
+    expect(settled.players[0]!.points).toBe(2);
+    expectGold(settled, 0, 2);
+  });
+
+  it("pays nothing when the opponent is also present — that is not a hold", () => {
+    const state = holdingBf1([realUnitInstance(EMINENT_BENEFACTOR)]);
+    state.battlefields[0]!.units = { ...state.battlefields[0]!.units, p2: [makeUnit({ name: "Intruder" })] };
+
+    const settled = resolveHeldTriggers(runBeginning(state));
+    expect(settled.players[0]!.points).toBe(0);
+    expectGold(settled, 0, 0);
+  });
+});
 
 // ── Guards! (SFD-154) ────────────────────────────────────────────────────────
 
@@ -179,6 +252,45 @@ describe("Guards! (SFD-154): a Sand Soldier token, and an optional Order to read
   });
 });
 
+// ── Honest Broker (SFD-155) ──────────────────────────────────────────────────
+
+describe("Honest Broker (SFD-155): [Deathknell] — a Gold gear token", () => {
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(HONEST_BROKER))).toBe(true);
+  });
+
+  it("pays his OWN controller when the opponent kills him", () => {
+    // Killed BY player 1, so this separates "the dying unit's controller" from
+    // "whoever killed it" — reading the killer would hand the Gold to the wrong
+    // seat, and with a symmetric fixture that mistake is invisible.
+    const broker = realUnitInstance(HONEST_BROKER);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [broker];
+
+    const after = resolveHeldTriggers(destroyUnit(state, broker.instanceId, 1));
+    expect(after.players[0]!.baseUnits).toHaveLength(0);
+    expectGold(after, 0, 1);
+  });
+
+  it("still pays when he dies at a battlefield — gear has no location", () => {
+    const broker = realUnitInstance(HONEST_BROKER);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units["p1"] = [broker];
+
+    const after = resolveHeldTriggers(destroyUnit(state, broker.instanceId, 1));
+    expectGold(after, 0, 1);
+  });
+
+  it("does nothing while he is alive — the control", () => {
+    const broker = realUnitInstance(HONEST_BROKER);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [broker, makeUnit({ name: "Bystander" })];
+    // Someone ELSE dies: a Deathknell is keyed to the corpse, not to the board.
+    const after = resolveHeldTriggers(destroyUnit(state, state.players[0]!.baseUnits[1]!.instanceId, 1));
+    expectGold(after, 0, 0);
+  });
+});
+
 // ── Royal Guard (SFD-157) ────────────────────────────────────────────────────
 
 describe("Royal Guard (SFD-157): a Sand Soldier where HE landed", () => {
@@ -251,6 +363,94 @@ describe("Sandshifter (SFD-158): kill an enemy unit with 3 Might or less", () =>
       .flatMap((a) => (a.type === "PlayCard" && a.targetUnitInstanceId ? [a.targetUnitInstanceId] : []))
       .map((id) => state.players[1]!.baseUnits.find((u) => u.instanceId === id)!.might);
     expect(offered).toEqual([3]);
+  });
+});
+
+// ── Blood Money (SFD-162) ───────────────────────────────────────────────────
+
+describe("Blood Money (SFD-162): kill a small unit at a battlefield, and get paid", () => {
+  /** Blood Money in hand, with `friendly` and `enemy` units at bf1. */
+  function moneyState(
+    friendly: UnitInstance[],
+    enemy: UnitInstance[],
+  ): { state: GameState; spellId: string } {
+    const spell = spellInstance(BLOOD_MONEY);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [spell];
+    state.players[0]!.channeled = runes("Order", 6);
+    state.battlefields[0]!.units["p1"] = friendly;
+    state.battlefields[0]!.units["p2"] = enemy;
+    return { state, spellId: spell.instanceId };
+  }
+
+  const castsOf = (state: GameState, instanceId: string) =>
+    legalActions(state).filter((a) => a.type === "PlayCard" && a.card.instanceId === instanceId);
+
+  /** The units this spell is currently offered against, by name. */
+  const offeredVictims = (state: GameState, spellId: string): string[] =>
+    castsOf(state, spellId)
+      .flatMap((a) => (a.type === "PlayCard" && a.targetUnitInstanceId ? [a.targetUnitInstanceId] : []))
+      .map(
+        (id) =>
+          [...unitsAt(state, "bf1", "p1"), ...unitsAt(state, "bf1", "p2"), ...unitsOf(state, 0), ...unitsOf(state, 1)].find(
+            (u) => u.instanceId === id,
+          )!.name,
+      );
+
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(BLOOD_MONEY))).toBe(true);
+  });
+
+  it("kills the ENEMY unit and pays ONE Gold", () => {
+    const { state, spellId } = moneyState([], [makeUnit({ might: 2, name: "Theirs" })]);
+    const victimId = unitsAt(state, "bf1", "p2")[0]!.instanceId;
+    const play = castsOf(state, spellId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === victimId);
+    const after = castAndResolve(state, play, "Blood Money on the enemy");
+
+    expect(unitsAt(after, "bf1", "p2")).toHaveLength(0);
+    expectGold(after, 0, 1);
+  });
+
+  it("kills a FRIENDLY unit and pays TWO Gold — the branch that makes the card", () => {
+    const { state, spellId } = moneyState([makeUnit({ might: 2, name: "Mine" })], []);
+    const victimId = unitsAt(state, "bf1", "p1")[0]!.instanceId;
+    const play = castsOf(state, spellId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === victimId);
+    const after = castAndResolve(state, play, "Blood Money on my own");
+
+    expect(unitsAt(after, "bf1", "p1")).toHaveLength(0);
+    expectGold(after, 0, 2);
+  });
+
+  it("reads the branch off the unit BEFORE it dies, with both sides on the board", () => {
+    // Both a friendly and an enemy 2-Might unit are standing there, so a resolver
+    // that looked the victim up AFTER the kill could not tell them apart at all —
+    // it would find nothing and pay neither branch. Naming the friendly here and
+    // getting 2 is what says the capture happened first.
+    const { state, spellId } = moneyState([makeUnit({ might: 2, name: "Mine" })], [makeUnit({ might: 2, name: "Theirs" })]);
+    const victimId = unitsAt(state, "bf1", "p1")[0]!.instanceId;
+    const play = castsOf(state, spellId).find((a) => a.type === "PlayCard" && a.targetUnitInstanceId === victimId);
+    const after = castAndResolve(state, play, "Blood Money on my own");
+
+    expect(unitsAt(after, "bf1", "p1")).toHaveLength(0);
+    expect(unitsAt(after, "bf1", "p2")).toHaveLength(1);
+    expectGold(after, 0, 2);
+  });
+
+  it("will not target a 3-Might unit, and reads EFFECTIVE Might rather than printed", () => {
+    // Printed 2, pumped +1 this turn: 3 effective, and out of reach. The 2-Might
+    // one beside it is the positive control — without it a broken enumeration
+    // that offered NOTHING would read exactly like a working restriction.
+    const { state, spellId } = moneyState(
+      [],
+      [makeUnit({ might: 2, name: "Pumped", mightThisTurn: 1 }), makeUnit({ might: 2, name: "Small" }), makeUnit({ might: 3, name: "Big" })],
+    );
+    expect(offeredVictims(state, spellId)).toEqual(["Small"]);
+  });
+
+  it("cannot reach a unit in a BASE — the text names a battlefield (355.9.b)", () => {
+    const { state, spellId } = moneyState([], [makeUnit({ might: 2, name: "Out there" })]);
+    state.players[1]!.baseUnits = [makeUnit({ might: 1, name: "At home" })];
+    expect(offeredVictims(state, spellId)).toEqual(["Out there"]);
   });
 });
 
@@ -511,6 +711,52 @@ describe("Rek'Sai - Swarm Queen (SFD-170): reveal 2, banish and play one, recycl
     // Contested BY THE OPPONENT: she is defending, and "when I attack" is silent.
     const after = beginCombatAt(state, "bf1", 1);
     expect(pendingDecision(after)).toBeUndefined();
+  });
+});
+
+// ── Trove Golem (SFD-174) ───────────────────────────────────────────────────
+
+describe("Trove Golem (SFD-174): four Gold gear tokens on play", () => {
+  /** The Golem in hand with enough Order runes for his 8 Energy and 2 Order
+   *  Power — a ready rune pays 1 Energy when exhausted, and a Power cost recycles
+   *  one, so 10 is the floor and 12 leaves slack. */
+  function golemState(): { state: GameState; unitId: string } {
+    const golem = realUnitInstance(TROVE_GOLEM);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [golem];
+    state.players[0]!.channeled = runes("Order", 12);
+    return { state, unitId: golem.instanceId };
+  }
+
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(TROVE_GOLEM))).toBe(true);
+  });
+
+  it("makes four exhausted Gold tokens — driven through the real play, not the resolver", () => {
+    const { state, unitId } = golemState();
+    const play = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === unitId);
+    const after = resolveHeldTriggers(accept(state, play, "Trove Golem"));
+
+    expect(unitsOf(after, 0).map((u) => u.instanceId), "the Golem himself never landed").toContain(unitId);
+    expectGold(after, 0, 4);
+  });
+
+  it("makes the same four wherever he was played — gear has no location", () => {
+    // Royal Guard's "here" is load-bearing because his token is a UNIT; the
+    // Golem's is gear, which lives in a flat per-player list. Played to a
+    // battlefield he still makes four, and none of them appear there.
+    const { state, unitId } = golemState();
+    // A reinforce destination needs presence there already — the same rule
+    // validate-play-card enforces — so someone has to be holding the ground.
+    state.battlefields[0]!.units["p1"] = [makeUnit({ name: "Vanguard" })];
+    const play = legalActions(state).find(
+      (a) => a.type === "PlayCard" && a.card.instanceId === unitId && a.destinationBattlefieldId === "bf1",
+    );
+    const after = resolveHeldTriggers(accept(state, play, "Trove Golem to bf1"));
+
+    expect(unitsAt(after, "bf1", "p1").map((u) => u.instanceId)).toContain(unitId);
+    expectGold(after, 0, 4);
+    expect(unitsAt(after, "bf1", "p1").filter((u) => u.isToken)).toHaveLength(0);
   });
 });
 

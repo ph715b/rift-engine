@@ -11,13 +11,14 @@ import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
-import { placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import {
   banishCard,
   channelRunesExhausted,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
   exhaustAllFriendlyUnits,
+  exhaustGear,
   giveMightThisTurn,
   giveMightThisTurnToAllEnemies,
   holdCardsRecycled,
@@ -367,6 +368,37 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 3),
   },
+  "SFD-070": {
+    // Wages of Pain — "[Hidden][Action] Deal 3 to a unit at a battlefield. Play a
+    // Gold gear token exhausted."
+    //
+    // Structurally Void Seeker (OGN-086) with a Gold token where the draw is, and
+    // it takes Void Seeker's two readings wholesale rather than re-deriving them:
+    //
+    //  - **Default battlefield scope.** `{ kind: "unit" }` with no `scope`,
+    //    because the printed complement names a battlefield — the rules'
+    //    Instructions section (135.2) works this exact phrasing. A unit in either
+    //    base is not a legal target, unlike Smoke Screen's bare "a unit" above.
+    //    No owner word is printed either, so shooting your own is legal and bad.
+    //
+    //  - **Two instructions, ignored separately.** A target that left play while
+    //    this sat on the chain makes `dealDamage` a no-op and the token STILL
+    //    arrives (359.3.e, and 135.2.b's worked Void Seeker example). This is not
+    //    Retreat's case: Retreat's second sentence names "ITS owner" and so is an
+    //    instruction about the target, while "play a Gold gear token" refers to
+    //    nothing that could become illegal.
+    //
+    // Damage FIRST, then the token — 359.3.e.5, "top to bottom of the rules text".
+    // Observable rather than cosmetic: a lethal 3 kills mid-resolution and can run
+    // a [Deathknell] before the gear exists for anything to count.
+    //
+    // [Hidden] and [Action] are the loader's and engine/timing.ts's; played from
+    // facedown, 811 confines the target to that battlefield, which legal-actions
+    // enforces rather than this resolver guessing.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      placeGoldTokens(dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 3), ctx.casterIndex, 1),
+  },
 };
 
 /** The gear cards in `playerIndex`'s own trash — Aspiring Engineer's "a gear
@@ -565,6 +597,38 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, unitId) =>
       state.players[ctx.casterIndex].activeGear.length >= 2 ? readyUnit(state, unitId) : state,
+  },
+  "SFD-081": {
+    // Card Sharp — "When you play me, you and each opponent may play a Gold gear
+    // token exhausted. For each opponent who did, you play a Gold gear token
+    // exhausted."
+    //
+    // A Group Hug that pays you for being taken up, and the second sentence is
+    // what makes the opponent's "may" a real question: accepting hands them a
+    // rainbow Power and hands the CASTER one as well, so declining is a genuine
+    // play rather than a formality. Party Favors (OGN-071) is the precedent for
+    // asking the opponent a question on your own card at all.
+    //
+    // **Two parked questions, caster first.** "You and each opponent" is this
+    // engine's APNAP convention (active player first), and the caster IS the
+    // active player here — Card Sharp is a plain Unit with no printed [Action] or
+    // [Reaction], so it can only be played on its controller's own turn. Text
+    // order and APNAP therefore agree and nothing rests on which one is being
+    // followed.
+    //
+    // Sequential rather than simultaneous, which is the one visible divergence:
+    // the queue asks the caster, then the opponent, so the opponent answers
+    // knowing what the caster chose. There is one decision queue and no
+    // simultaneous-choice primitive; Promising Future records the identical shape
+    // two entries up. Here it costs less than it does there — neither answer
+    // constrains the other, and the caster's choice tells the opponent nothing
+    // they could act on.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      [
+        { kind: "SFD-081-mine", playerIndex: ctx.casterIndex } as const,
+        { kind: "SFD-081-theirs", playerIndex: (1 - ctx.casterIndex) as 0 | 1 } as const,
+      ].reduce((acc, seed) => parkDecision(acc, seed), state),
   },
 };
 
@@ -874,6 +938,83 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return readyUnit(state, listener.card.instanceId);
     },
   },
+  "SFD-069": {
+    // Plundering Poro — "When I conquer, play a Gold gear token exhausted."
+    //
+    // "When I conquer" is the POSITIONAL reading, identical to Kai'Sa -
+    // Evolutionary's above: the Poro has to be standing AT the battlefield taken.
+    // That is what separates a unit's own conquest ("when I") from a Legend's or
+    // Super Mega Death Rocket's "when YOU conquer", which the same
+    // `battlefieldConquered` event serves and which each card asks for itself.
+    //
+    // Nothing is chosen and nothing is conditional, so the whole card is one call:
+    // the token is the Poro's payout for having been the body that took the
+    // battlefield, and 2 Energy for a 2-Might unit is priced against it.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      // The conqueror is a fact about the EVENT, so re-asking it is free and
+      // cannot come to a different answer across the response window. The
+      // POSITION deliberately is not re-asked: 383 fixes what triggered at the
+      // moment of the event, and an opponent moving the Poro off the battlefield
+      // in response must not cancel a trigger that has already fired.
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      return placeGoldTokens(state, listener.ownerIndex, 1);
+    },
+  },
+  "SFD-063": {
+    // Chemtech Cask — "When you play a spell on an opponent's turn, you may
+    // exhaust me to play a Gold gear token exhausted."
+    //
+    // Viktor - Innovator's trigger condition narrowed to SPELLS, and it is only
+    // reachable at all because of reaction-speed timing: with no [Action] or
+    // [Reaction] in the pool you could never play anything on someone else's turn,
+    // so this would be a trigger that cannot fire. "On an opponent's turn" is the
+    // ACTIVE player against the CASK's controller — not against the caster, which
+    // is a different question and would fire this on the opponent's own plays.
+    //
+    // "You may EXHAUST ME TO play..." is a cost, not a rider, so it stops to ask:
+    // Solari Shrine (OGN-072) is the shape, down to the split between the two
+    // checks. The trigger CONDITIONS are facts about the event and settle whether
+    // it fired; the Cask being ready is a fact about the BOARD when it resolves,
+    // and the response window this hold opens can spend it. So the exhaustion is
+    // asked at resolution and an already-spent Cask asks nothing rather than
+    // offering a cost it cannot pay.
+    //
+    // One Cask, one token, per spell — a second Cask on the board is a second
+    // listener with its own exhaust to pay, which is what "exhaust ME" means.
+    on: "cardPlayed",
+    // Held (383), so all three are asked before a Pending Item is placed: a
+    // trigger held for the opponent's spell, or for your own Unit, would close the
+    // chain and cost both players a PassFocus for a question with no answer.
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Spell" &&
+      state.activePlayerIndex !== listener.ownerIndex,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      // Both re-checks are of the EVENT, which the response window cannot alter —
+      // and `activePlayerIndex` deliberately is NOT re-asked, for the reason
+      // Viktor's entry records: `cardPlayed` is a Chain Pending Item, so a chain
+      // still resolving as the turn passes would otherwise make the Cask refuse a
+      // trigger that genuinely fired on the opponent's turn.
+      if (event.casterIndex !== listener.ownerIndex || event.playedKind !== "Spell") return state;
+      // A Gear in play, so the narrowing is a formality — but `Listener.card` is a
+      // CardInstance now that trash listeners share the type, and a Spell has no
+      // `exhausted`. Same two lines Solari Shrine writes.
+      if (listener.card.kind === "Spell" || listener.card.exhausted) return state;
+      return parkDecision(state, {
+        kind: "SFD-063-gold",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -1111,5 +1252,90 @@ export const decisions: Record<string, DecisionDefinition> = {
         instanceId: u.instanceId,
       })),
     resolve: (state, _d, optionId) => readyUnit(state, optionId),
+  },
+  /**
+   * Chemtech Cask's "you may exhaust me to play a Gold gear token exhausted",
+   * raised by its cardPlayed trigger — which has already established that the
+   * spell was YOURS, that it was a spell, that it was played on the opponent's
+   * turn, and that the Cask was still ready when the ability resolved.
+   *
+   * Two options always, so `advanceDecisions` can never answer it for you: a "you
+   * may" the engine resolves is not a "you may". Declining is a real play — the
+   * Cask's exhaust is worth keeping for a bigger spell later in the same window,
+   * since the trigger fires on EVERY spell you play on their turn.
+   *
+   * No `instanceId` on either option, deliberately, for the reason Solari Shrine's
+   * question records: the board renders an option carrying one as the CARD, which
+   * is right for "pick one of your units" and wrong for a yes/no.
+   */
+  "SFD-063-gold": {
+    prompt: () => "Chemtech Cask: exhaust it to play a Gold gear token exhausted?",
+    options: () => [
+      { id: "gold", label: "Exhaust and play a Gold token" },
+      { id: "decline", label: "Decline" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "gold" || !d.cardInstanceId) return state;
+      // Exhaust FIRST, then make the token: the exhaust is the COST, and
+      // `exhaustGear` no-ops on a Cask that has left play or been spent since the
+      // offer — so a state where the price cannot be paid must not hand over the
+      // Gold. Identity against the input state is how that no-op is detected,
+      // exactly as Solari Shrine's draw detects it.
+      const paid = exhaustGear(state, d.playerIndex, d.cardInstanceId);
+      return paid === state ? state : placeGoldTokens(paid, d.playerIndex, 1);
+    },
+  },
+  /**
+   * Card Sharp's own half — "YOU ... may play a Gold gear token exhausted".
+   *
+   * Free, and there is no board on which taking it is wrong, but it is printed
+   * "may" and so it is asked. Two options for the same reason Solari Shrine's
+   * question has two: `advanceDecisions` executes a single-option question without
+   * prompting, which would quietly rewrite the word.
+   *
+   * Deliberately NOT merged with the opponent's question below even though the two
+   * are worded identically: they are answered by different players, and one
+   * decision has one `playerIndex`.
+   */
+  "SFD-081-mine": {
+    prompt: () => "Card Sharp: play a Gold gear token exhausted?",
+    options: () => [
+      { id: "gold", label: "Play a Gold token" },
+      { id: "decline", label: "Decline" },
+    ],
+    resolve: (state, d, optionId) => (optionId === "gold" ? placeGoldTokens(state, d.playerIndex, 1) : state),
+  },
+  /**
+   * Card Sharp's opponent-facing half — "each opponent may play a Gold gear token
+   * exhausted. For each opponent who did, you play a Gold gear token exhausted."
+   *
+   * `d.playerIndex` is the OPPONENT (the chooser); the caster is the other seat,
+   * derived rather than carried, which is Party Favors' precedent and is exact
+   * while this engine is two-player (`GameState.players` is a 2-tuple).
+   *
+   * **The caster's bonus token is paid HERE, inside the opponent's answer, rather
+   * than by a third queued step.** "For each opponent who did" needs to know what
+   * the opponent chose, and nothing on the board records a choice — counting Gold
+   * tokens afterwards would be reading a total that the caster's own half, or a
+   * Chemtech Cask, could also have moved. With exactly one opponent, folding the
+   * bonus into their answer produces the same tokens in the same order as a
+   * separate step would (their token, then the caster's). It is the one place this
+   * entry would need rewriting if the engine ever seated three players, and it is
+   * written down rather than left to be discovered.
+   *
+   * The prompt states the consequence, because it IS the decision: a Gold for you
+   * costs a Gold to the player who just played the card.
+   */
+  "SFD-081-theirs": {
+    prompt: () => "Card Sharp: play a Gold gear token exhausted? (if you do, the caster plays one too)",
+    options: () => [
+      { id: "gold", label: "Play a Gold token (the caster gets one)" },
+      { id: "decline", label: "Decline" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "gold") return state;
+      const caster = (1 - d.playerIndex) as 0 | 1;
+      return placeGoldTokens(placeGoldTokens(state, d.playerIndex, 1), caster, 1);
+    },
   },
 };

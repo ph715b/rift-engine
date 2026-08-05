@@ -3,11 +3,15 @@ import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { answerDecision, optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
+import { recordConquest } from "../src/engine/scoring.js";
+import { holdEventTrigger } from "../src/engine/triggers.js";
+import { isCardImplemented } from "../src/engine/coverage.js";
+import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
+import { answerDecisions, makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * The Spiritforged (SFD) Mind cards — effects/mind.ts.
@@ -36,9 +40,19 @@ const PREMONITION = "SFD-087"; // Spell, 2 Energy + 3 Mind Power — "[Reaction]
 const ASPIRING_ENGINEER = "SFD-061"; // Unit, 3 Energy + 1 Mind Power
 const BUBBLE_BOT = "SFD-062"; // Unit, 3 Energy
 const DROPBOARDER = "SFD-072"; // Unit, 4 Energy
+const CHEMTECH_CASK = "SFD-063"; // Gear, 1 Energy — "you may exhaust me to play a Gold gear token"
+const PLUNDERING_PORO = "SFD-069"; // Unit, 2 Energy 2 Might — "when I conquer"
+const WAGES_OF_PAIN = "SFD-070"; // Spell, 3 Energy — "[Hidden][Action] Deal 3 ... Play a Gold gear token"
+const CARD_SHARP = "SFD-081"; // Unit, 3 Energy 3 Might — "you and each opponent may..."
 const GARBAGE_GRABBER = "OGN-099"; // Gear, Mind, 2 Energy
 const MUSHROOM_POUCH = "OGN-101"; // Gear, Mind, 2 Energy
 const FALLING_COMET = "OGN-085"; // Spell — the non-gear that must NOT be offered
+
+/** The Gold gear tokens `playerIndex` controls. Read off `activeGear` by the
+ *  token's runtime defId rather than by name, so a rename upstream shows up as a
+ *  failure here instead of as a test that quietly counts nothing. */
+const goldTokens = (state: GameState, playerIndex: 0 | 1): GearInstance[] =>
+  state.players[playerIndex]!.activeGear.filter((g) => g.defId === GOLD_TOKEN_DEF_ID);
 
 /** Ready Mind runes, ids distinct across a whole test so a payment can never
  *  accidentally name the same rune for Energy and for Power. */
@@ -308,5 +322,282 @@ describe("Dropboarder (SFD-072): enters ready if you control two or more gear", 
     const after = playUnit(state, 0, dropboarder);
 
     expect(inPlay(after, dropboarder.instanceId).exhausted).toBe(true);
+  });
+});
+
+/**
+ * The four Gold-token cards.
+ *
+ * Every one of these was blocked on `token.ts` being able to mint a
+ * `GearInstance` at all, so the positive control that matters for each is the
+ * same: a Gold token, in the right player's `activeGear`, EXHAUSTED. Counted by
+ * `goldTokens` off the runtime defId rather than by `activeGear.length`, because
+ * three of these boards have other gear on them and a length check would pass on
+ * the wrong card entirely.
+ */
+
+describe("Plundering Poro (SFD-069): when I conquer, a Gold gear token exhausted", () => {
+  /** The Poro standing at `battlefieldId`, ready to be the body that takes it. */
+  function poroState(battlefieldId: string): GameState {
+    const state = makeState({ phase: "Action", players: [makePlayer("p1"), makePlayer("p2")] });
+    const bf = state.battlefields.find((b) => b.id === battlefieldId)!;
+    bf.units = { p1: [unitCard(PLUNDERING_PORO)] };
+    return state;
+  }
+
+  it("makes ONE exhausted Gold token on its controller's conquest", () => {
+    // `recordConquest` is the real scoring path — it HOLDS the trigger (383), so
+    // `resolveHeldTriggers` is what actually resolves it. Asserting on the board
+    // straight after the conquest would read "the Poro did nothing" whether the
+    // card works or not, which is the trap this suite's header describes.
+    const after = resolveHeldTriggers(recordConquest(poroState("bf1"), 0, "bf1"));
+
+    const gold = goldTokens(after, 0);
+    expect(gold, "the conquer trigger produced no Gold token").toHaveLength(1);
+    expect(gold[0]!.exhausted, "the card prints 'exhausted'").toBe(true);
+    expect(goldTokens(after, 1), "the opponent was paid instead").toHaveLength(0);
+  });
+
+  it("does not fire for a battlefield it is not standing at ('when I conquer')", () => {
+    // The positional reading. A Poro at bf1 watching bf2 fall is Kai'Sa -
+    // Evolutionary's own distinction between "when I" and a Legend's "when you".
+    const after = resolveHeldTriggers(recordConquest(poroState("bf1"), 0, "bf2"));
+    expect(goldTokens(after, 0)).toHaveLength(0);
+  });
+
+  it("does not fire when the OPPONENT conquers the battlefield it is at", () => {
+    const after = resolveHeldTriggers(recordConquest(poroState("bf1"), 1, "bf1"));
+    expect(goldTokens(after, 0)).toHaveLength(0);
+    expect(goldTokens(after, 1)).toHaveLength(0);
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(isCardImplemented(registry.get(PLUNDERING_PORO))).toBe(true);
+  });
+});
+
+describe("Wages of Pain (SFD-070): deal 3 at a battlefield, then a Gold token", () => {
+  /** The caster holding the spell, with a 5-Might enemy at bf1 that survives the
+   *  3 — so the damage is readable as MARKED damage rather than as a death. */
+  function wagesState(): { state: GameState; spell: CardInstance; victim: UnitInstance } {
+    const spell = card(WAGES_OF_PAIN);
+    const victim = makeUnit({ name: "Victim", might: 5 });
+    const state = makeState({
+      phase: "Action",
+      players: [makePlayer("p1", { hand: [spell], channeled: mindRunes(6) }), makePlayer("p2")],
+    });
+    state.battlefields[0]!.units = { p2: [victim] };
+    return { state, spell, victim };
+  }
+
+  /** The victim as the board holds it, wherever it stands. */
+  const victimOnBoard = (state: GameState, instanceId: string) =>
+    state.battlefields.flatMap((bf) => Object.values(bf.units).flat()).find((u) => u.instanceId === instanceId);
+
+  it("deals 3 AND plays an exhausted Gold token, through a real cast", () => {
+    const { state, spell, victim } = wagesState();
+
+    const after = resolveChain(play(state, 0, spell, { targetUnitInstanceId: victim.instanceId }));
+
+    expect(victimOnBoard(after, victim.instanceId)?.damage, "the damage half did not fire").toBe(3);
+    const gold = goldTokens(after, 0);
+    expect(gold, "the token half did not fire").toHaveLength(1);
+    expect(gold[0]!.exhausted).toBe(true);
+    expect(goldTokens(after, 1), "the token went to the wrong player").toHaveLength(0);
+  });
+
+  it("still plays the token when the target left play during the response window", () => {
+    // 359.3.e with 135.2.b's worked Void Seeker example: two instructions, ignored
+    // separately, and "play a Gold gear token" names nothing that could become
+    // illegal. Contrast Retreat, whose second sentence says "ITS owner".
+    //
+    // The victim is removed AFTER the spell is announced and BEFORE the chain
+    // resolves, which is exactly the window an opponent has.
+    const { state, spell, victim } = wagesState();
+    const cast = play(state, 0, spell, { targetUnitInstanceId: victim.instanceId });
+    const vanished = { ...cast, battlefields: cast.battlefields.map((bf) => ({ ...bf, units: {} })) };
+
+    const after = resolveChain(vanished);
+
+    expect(goldTokens(after, 0), "the token was dropped along with the illegal target").toHaveLength(1);
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(isCardImplemented(registry.get(WAGES_OF_PAIN))).toBe(true);
+  });
+});
+
+describe("Chemtech Cask (SFD-063): a spell on the opponent's turn, for an exhaust", () => {
+  /**
+   * The Cask in play with a [Reaction] spell in hand, on the OPPONENT'S turn with
+   * Focus held by us.
+   *
+   * This shape is forced rather than incidental, and Viktor - Innovator's test
+   * records why: a plain card cannot legally be played on someone else's turn at
+   * all, so only a `[Reaction]` (or an `[Action]` in a Showdown) reaches the
+   * trigger. Premonition is this domain's [Reaction] and needs a deck to draw
+   * from, which is the only reason the deck is here.
+   */
+  function caskState(activePlayerIndex: 0 | 1, caskExhausted = false): { state: GameState; spell: CardInstance } {
+    const spell = card(PREMONITION);
+    const cask = { ...gearCard(CHEMTECH_CASK), exhausted: caskExhausted };
+    const state = makeState({
+      phase: "Action",
+      activePlayerIndex,
+      turnState: activePlayerIndex === 0 ? "Neutral" : "Showdown",
+      showdownBattlefieldId: activePlayerIndex === 0 ? null : "bf1",
+      showdownKind: activePlayerIndex === 0 ? null : "NonCombat",
+      focusHolder: 0,
+      players: [
+        makePlayer("p1", {
+          hand: [spell],
+          activeGear: [cask],
+          channeled: mindRunes(8),
+          deck: [card(FALLING_COMET), card(FALLING_COMET), card(FALLING_COMET)],
+        }),
+        makePlayer("p2"),
+      ],
+    });
+    return { state, spell };
+  }
+
+  /** The Cask as the board holds it — never the object handed to `makePlayer`,
+   *  which says nothing about whether the cost was paid. */
+  const caskOnBoard = (state: GameState) => state.players[0]!.activeGear.find((g) => g.defId === CHEMTECH_CASK)!;
+
+  it("asks, and on 'yes' exhausts itself and plays an exhausted Gold token", () => {
+    const { state, spell } = caskState(1);
+
+    const asked = resolveHeldTriggers(play(state, 0, spell));
+    const question = pendingDecision(asked);
+    expect(question?.kind, "the cardPlayed trigger parked no question").toBe("SFD-063-gold");
+
+    const after = answerDecision(asked, question!.id, "gold")!;
+
+    expect(caskOnBoard(after).exhausted, "the cost was not paid").toBe(true);
+    const gold = goldTokens(after, 0);
+    expect(gold).toHaveLength(1);
+    expect(gold[0]!.exhausted).toBe(true);
+  });
+
+  it("declining costs nothing and makes nothing — a real 'you may'", () => {
+    const { state, spell } = caskState(1);
+    const asked = resolveHeldTriggers(play(state, 0, spell));
+
+    const after = answerDecision(asked, pendingDecision(asked)!.id, "decline")!;
+
+    expect(caskOnBoard(after).exhausted).toBe(false);
+    expect(goldTokens(after, 0)).toHaveLength(0);
+  });
+
+  it("does not ask on YOUR OWN turn", () => {
+    const { state, spell } = caskState(0);
+    const after = resolveHeldTriggers(play(state, 0, spell));
+    expect(pendingDecision(after)).toBeUndefined();
+    expect(goldTokens(after, 0)).toHaveLength(0);
+  });
+
+  it("does not ask when the Cask is already exhausted — a cost it cannot pay", () => {
+    const { state, spell } = caskState(1, true);
+    const after = resolveHeldTriggers(play(state, 0, spell));
+    expect(pendingDecision(after)).toBeUndefined();
+    expect(goldTokens(after, 0)).toHaveLength(0);
+  });
+
+  it("ignores a non-Spell, and the opponent's spell on their own turn", () => {
+    // The only two conditions the executor cannot be made to produce: a Unit
+    // cannot legally be played on someone else's turn, and the opponent casting
+    // on their own turn needs their own hand and pool. Both are read by `applies`,
+    // which `holdEventTrigger` consults — so this asks whether the trigger is
+    // PLACED, which is the honest question once events are held. The positive
+    // control above still runs through `executePlayCard`.
+    const { state } = caskState(1);
+    const held = (event: Parameters<typeof holdEventTrigger>[1]) =>
+      holdEventTrigger(state, event).pendingTriggers.map((t) => t.listenerDefId);
+
+    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "x" })).toContain(
+      CHEMTECH_CASK,
+    ); // the control: this one DOES place it
+    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: "x" })).not.toContain(
+      CHEMTECH_CASK,
+    );
+    expect(held({ kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "x" })).not.toContain(
+      CHEMTECH_CASK,
+    );
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(isCardImplemented(registry.get(CHEMTECH_CASK))).toBe(true);
+  });
+});
+
+describe("Card Sharp (SFD-081): you and each opponent may, and you are paid for theirs", () => {
+  function sharpState(): { state: GameState; sharp: UnitInstance } {
+    const sharp = unitCard(CARD_SHARP);
+    const state = makeState({
+      phase: "Action",
+      players: [makePlayer("p1", { hand: [sharp], channeled: mindRunes(5) }), makePlayer("p2")],
+    });
+    return { state, sharp };
+  }
+
+  /** Answers the two queued questions by their `kind`, so a test never depends on
+   *  the queue order it is also asserting. */
+  const answerBoth = (state: GameState, mine: string, theirs: string) =>
+    answerDecisions(state, (_options, decision) => (decision.kind === "SFD-081-mine" ? mine : theirs));
+
+  it("queues BOTH questions, the caster's first and the opponent's second", () => {
+    const { state, sharp } = sharpState();
+
+    const asked = playUnit(state, 0, sharp);
+
+    expect(asked.pendingDecisions.map((d) => [d.kind, d.playerIndex])).toEqual([
+      ["SFD-081-mine", 0],
+      ["SFD-081-theirs", 1],
+    ]);
+  });
+
+  it("both accept: the opponent gets one and the caster gets TWO", () => {
+    // The whole card. One token for the caster's own "may", a second for "for each
+    // opponent who did" — and a bug that dropped either half leaves the caster on
+    // one, which is why this asserts 2 rather than "more than 0".
+    const { state, sharp } = sharpState();
+
+    const after = answerBoth(playUnit(state, 0, sharp), "gold", "gold");
+
+    expect(goldTokens(after, 0)).toHaveLength(2);
+    expect(goldTokens(after, 1)).toHaveLength(1);
+    expect([...goldTokens(after, 0), ...goldTokens(after, 1)].every((g) => g.exhausted)).toBe(true);
+  });
+
+  it("the opponent declining costs the caster the bonus token", () => {
+    const { state, sharp } = sharpState();
+
+    const after = answerBoth(playUnit(state, 0, sharp), "gold", "decline");
+
+    expect(goldTokens(after, 0), "the bonus was paid for an opponent who did not").toHaveLength(1);
+    expect(goldTokens(after, 1)).toHaveLength(0);
+  });
+
+  it("the caster may decline their own and still be paid for the opponent's", () => {
+    // The two clauses are independent: "for each opponent who did" says nothing
+    // about what YOU did. A single shared flag would get exactly this case wrong.
+    const { state, sharp } = sharpState();
+
+    const after = answerBoth(playUnit(state, 0, sharp), "decline", "gold");
+
+    expect(goldTokens(after, 0)).toHaveLength(1);
+    expect(goldTokens(after, 1)).toHaveLength(1);
+  });
+
+  it("both declining makes nothing at all", () => {
+    const { state, sharp } = sharpState();
+    const after = answerBoth(playUnit(state, 0, sharp), "decline", "decline");
+    expect(goldTokens(after, 0)).toHaveLength(0);
+    expect(goldTokens(after, 1)).toHaveLength(0);
+  });
+
+  it("is reported as implemented by coverage", () => {
+    expect(isCardImplemented(registry.get(CARD_SHARP))).toBe(true);
   });
 });

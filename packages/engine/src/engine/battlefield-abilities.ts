@@ -11,9 +11,10 @@ import {
   holdCardsRecycled,
   readyRunes,
   relocateToBaseUnchanged,
+  payEnergyFromPool,
   spendBuff,
 } from "./effect-helpers.js";
-import { placeRecruitToken } from "./token.js";
+import { placeRecruitToken, placeGoldTokens } from "./token.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 
 /**
@@ -164,6 +165,12 @@ const SIGIL_OF_THE_STORM = "OGN-287";
 /** Targon's Peak — "When you conquer here, ready up to 2 runes at the end of
  *  this turn." */
 const TARGONS_PEAK = "OGN-289";
+
+/** Spiritforged's first implemented battlefield. The other 14 are unwritten and
+ *  reported as progress by battlefield-coverage.test.ts, which is scoped to
+ *  COMPLETE_SETS so OGN's 24 stay hard-gated while SFD is under construction. */
+const TREASURE_HOARD = "SFD-220";
+const TREASURE_HOARD_ENERGY = 1;
 /** How many runes Targon's Peak arms per conquest. */
 const TARGONS_PEAK_RUNES = 2;
 /** The Candlelit Sanctum — "When you conquer here, look at the top two cards of
@@ -292,6 +299,26 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
       // hold opens can buff one or spend the only one there was.
       resolve: (state, event) =>
         parkDecision(state, { kind: `${MONASTERY_OF_HIRANA}-spend`, playerIndex: event.playerIndex }),
+    },
+  ],
+
+  [TREASURE_HOARD]: [
+    {
+      on: "conquer",
+      // Treasure Hoard (SFD) — "When you conquer here, you may pay
+      // :rb_energy_1: to play a Gold gear token exhausted."
+      //
+      // The FIRST battlefield in this table to make a gear token, and it could
+      // not be written at all until `token.ts` learned to mint one: it minted
+      // `UnitInstance` only, which is the blocker eleven SFD cards and this
+      // battlefield shared.
+      //
+      // Asked at RESOLUTION rather than in `applies`, for the same reason
+      // Monastery of Hirana is: "can I afford 1 Energy" is a question about
+      // the board, and the response window this hold opens can spend the
+      // Energy that was there when it fired.
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${TREASURE_HOARD}-buy`, playerIndex: event.playerIndex }),
     },
   ],
 
@@ -565,6 +592,39 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
             { id: "decline", label: "Decline" },
           ],
     resolve: (state, d, optionId) => (optionId === "channel" ? channelRunesExhausted(state, d.playerIndex, 1) : state),
+  },
+
+  [`${TREASURE_HOARD}-buy`]: {
+    prompt: () => "Treasure Hoard: pay 1 Energy to play a Gold gear token exhausted?",
+    options: (state, d) =>
+      // Unaffordable is not a question — the decision is dropped whole rather
+      // than offered as a lone "Decline", which would be theatre. Same shape,
+      // and same reasoning, as the Monastery below.
+      //
+      // **Affordability is asked of `payEnergyFromPool` itself**, not
+      // recomputed here. There is no `energy` FIELD to compare against —
+      // Energy is floating Energy plus Ready channeled runes, and the first
+      // draft of this compared a property that does not exist, so
+      // `undefined < 1` was false, the option was always offered, and the
+      // payment then failed silently. Asking the payer is also what stops an
+      // offer and its validator disagreeing, which is the shape behind three
+      // recorded offered-then-refused bugs in this codebase.
+      payEnergyFromPool(state, d.playerIndex, TREASURE_HOARD_ENERGY) === undefined
+        ? []
+        : [
+            { id: "buy", label: `Pay ${TREASURE_HOARD_ENERGY} Energy for a Gold token` },
+            { id: "decline", label: "Decline" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Pay FIRST. `payEnergyFromPool` returns undefined when the pool cannot
+      // cover it, and handing over the token for a cost that could not be paid
+      // is the shape this file already records for Solari Shrine's exhaust —
+      // the Energy can be gone by the time this resolves, because the hold
+      // opened a response window.
+      const paid = payEnergyFromPool(state, d.playerIndex, TREASURE_HOARD_ENERGY);
+      return paid === undefined ? state : placeGoldTokens(paid, d.playerIndex, 1);
+    },
   },
 
   [`${MONASTERY_OF_HIRANA}-spend`]: {

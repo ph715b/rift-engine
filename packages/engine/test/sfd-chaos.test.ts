@@ -5,6 +5,7 @@ import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
 import {
@@ -33,15 +34,21 @@ import {
 
 const registry = defaultCardRegistry();
 
+const BLACK_MARKET_BROKER = "SFD-121";
 const CORRUPT_ENFORCER = "SFD-123";
 const FAE_PORTER = "SFD-125";
 const LOYAL_PUP = "SFD-126";
 const OVERZEALOUS_FAN = "SFD-128";
 const BEAST_BELOW = "SFD-132";
+const TREASURE_HUNTER = "SFD-130";
 const HARPOON_SQUAD = "SFD-137";
 const WINDSINGER = "SFD-138";
 const SWITCHEROO = "SFD-145";
 const DOWNWELL = "SFD-147";
+/** A [Hidden][Reaction] "Draw 2" from OGN — the facedown card Black Market
+ *  Broker's tests actually play, chosen because it needs no target and 811 makes
+ *  it free from facedown, so the fixture is about the Broker and nothing else. */
+const CONSULT_THE_PAST = "OGN-083";
 
 function accept(state: GameState, action: unknown): GameState {
   const { state: next, result } = submit(state, action as never);
@@ -93,6 +100,94 @@ const findAnywhere = (state: GameState, instanceId: string): UnitInstance | unde
  */
 const heldFor = (state: GameState): string[] =>
   state.spellChain.filter((e) => e.kind === "trigger").map((e) => e.listenerDefId as string);
+
+/** The Gold gear tokens `playerIndex` currently has. Keyed off the token's own
+ *  runtime defId rather than its name, so a rename upstream cannot make this
+ *  count zero and read as a passing negative control. */
+const goldOf = (state: GameState, playerIndex: 0 | 1) =>
+  state.players[playerIndex]!.activeGear.filter((g) => g.defId === GOLD_TOKEN_DEF_ID);
+
+describe("Black Market Broker (SFD-121): a Gold token per card played from face down", () => {
+  /**
+   * The Broker in p1's base, and a REAL facedown card at bf2 hidden last turn.
+   *
+   * Deliberately a live facedown zone and a real enumerated play rather than a
+   * hand-built `cardPlayed` event with `fromHidden: true` — which is how Ember
+   * Monk (the same condition, cards-hidden.test.ts) is tested, and which would
+   * assert nothing about whether `executePlayCard` actually sets the flag. That
+   * dispatch hop is the one that has repeatedly been dead here.
+   *
+   * Consult the Past is [Hidden][Reaction] "Draw 2": no target, and free from
+   * facedown by 811, so the play needs neither runes nor a board to point at.
+   */
+  function brokerState(hiddenOwner: 0 | 1 = 0): GameState {
+    const state = makeState({
+      phase: "Action",
+      turnNumber: 3,
+      activePlayerIndex: hiddenOwner,
+      focusHolder: hiddenOwner,
+      chainPriority: hiddenOwner,
+    });
+    state.players[0]!.baseUnits = [realUnitInstance(BLACK_MARKET_BROKER)];
+    state.battlefields[1]!.hiddenCards = [{ ownerIndex: hiddenOwner, card: spellInstance(CONSULT_THE_PAST), hiddenOnTurn: 1 }];
+    return state;
+  }
+
+  const hiddenPlay = (state: GameState) => {
+    const action = legalActions(state).find((a) => a.type === "PlayCard" && a.fromHiddenBattlefieldId !== undefined);
+    expect(action, "no from-hidden play was enumerated — the fixture measures nothing").toBeDefined();
+    return action!;
+  };
+
+  it("makes one exhausted Gold token on a real play from facedown", () => {
+    const state = brokerState();
+    const after = resolveChain(accept(state, hiddenPlay(state)));
+
+    const gold = goldOf(after, 0);
+    expect(gold, "the facedown play minted no Gold").toHaveLength(1);
+    // "Play a Gold gear token EXHAUSTED" — entering ready would be a free
+    // rainbow Power on the turn it was made.
+    expect(gold[0]!.exhausted).toBe(true);
+    expect(gold[0]!.isToken).toBe(true);
+    expect(gold[0]!.kind).toBe("Gear");
+  });
+
+  it("is HELD — the trigger reaches the chain rather than resolving at the play", () => {
+    const state = brokerState();
+    const played = accept(state, hiddenPlay(state));
+    expect(heldFor(played)).toContain(BLACK_MARKET_BROKER);
+    expect(goldOf(played, 0), "resolved inline instead of waiting on the chain").toHaveLength(0);
+  });
+
+  it("does NOT fire on an ordinary play from hand", () => {
+    // The whole point of the card, and the reason it needed `cardPlayed` to carry
+    // `fromHidden`: without that fact the only available reading would be "when
+    // you play a card", which is strictly stronger than printed.
+    const card = spellInstance(DOWNWELL);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [realUnitInstance(BLACK_MARKET_BROKER)];
+    state.players[0]!.hand = [card];
+    state.players[0]!.floatingEnergy = 20;
+    state.players[0]!.floatingPower = { Chaos: 9 };
+
+    const play = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === card.instanceId);
+    expect(play, "Downwell was never enumerated — the control measures nothing").toBeDefined();
+    const played = accept(state, play);
+
+    expect(heldFor(played)).not.toContain(BLACK_MARKET_BROKER);
+    expect(goldOf(resolveChain(played), 0)).toHaveLength(0);
+  });
+
+  it("does NOT fire for the OPPONENT's facedown play — 'when YOU play'", () => {
+    const state = brokerState(1);
+    const played = accept(state, hiddenPlay(state));
+
+    expect(heldFor(played)).not.toContain(BLACK_MARKET_BROKER);
+    const after = resolveChain(played);
+    expect(goldOf(after, 0), "the Broker paid out for the enemy's hidden card").toHaveLength(0);
+    expect(goldOf(after, 1), "the opponent got a token they never had a Broker for").toHaveLength(0);
+  });
+});
 
 describe("Corrupt Enforcer (SFD-123): when I move to a battlefield, discard 1", () => {
   it("discards on a real MoveUnit, through the held chain", () => {
@@ -412,6 +507,90 @@ describe("Beast Below (SFD-132): return a friendly AND an enemy unit", () => {
   });
 });
 
+describe("Treasure Hunter (SFD-130): a Gold token every time I move", () => {
+  /** The Hunter at `from`, with [Ganking] for the turn so a battlefield-to-
+   *  battlefield redeploy is enumerable — he does not print the keyword. */
+  function hunterState(from: "base" | "bf1"): { state: GameState; hunter: UnitInstance } {
+    const hunter = { ...realUnitInstance(TREASURE_HUNTER), keywordsThisTurn: { Ganking: 1 } } as UnitInstance;
+    const state = makeState({ phase: "Action" });
+    if (from === "base") state.players[0]!.baseUnits = [hunter];
+    else state.battlefields[0]!.units = { p1: [hunter] };
+    return { state, hunter };
+  }
+
+  it("mints one exhausted Gold token walking out of base", () => {
+    const { state, hunter } = hunterState("base");
+
+    const after = resolveHeldTriggers(accept(state, moveTo(state, hunter, "bf1")));
+
+    const gold = goldOf(after, 0);
+    expect(gold, "the move minted no Gold").toHaveLength(1);
+    expect(gold[0]!.exhausted, "it entered ready — a free rainbow Power").toBe(true);
+    expect(goldOf(after, 1), "the opponent got one").toHaveLength(0);
+  });
+
+  it("mints one on a battlefield-to-battlefield move too — BARE 'when I move'", () => {
+    // The contrast with Harpoon Squad below, whose printed "from a battlefield"
+    // is exactly what the Hunter does not have. Both halves are asserted because
+    // reading `event.from` here would silently narrow the card.
+    const { state, hunter } = hunterState("bf1");
+
+    const after = resolveHeldTriggers(accept(state, moveTo(state, hunter, "bf2")));
+
+    expect(goldOf(after, 0)).toHaveLength(1);
+  });
+
+  it("mints one PER move, with distinct instance ids", () => {
+    // Two tokens sharing an instanceId would make the second unkillable — every
+    // lookup would find the first.
+    //
+    // Both battlefields are p1's ALREADY, so neither arrival applies Contested
+    // (190.4) and the turn stays Neutral Open between the two moves. Without
+    // that the first move stages a Showdown, `legalActions` offers PassFocus
+    // alone, and the second move is simply never enumerated — measured, and it
+    // is why this fixture differs from the ones above.
+    const { state, hunter } = hunterState("base");
+    state.battlefields.forEach((bf) => (bf.controllerId = "p1"));
+
+    const once = resolveHeldTriggers(accept(state, moveTo(state, hunter, "bf1")));
+    expect(goldOf(once, 0), "the first move already failed").toHaveLength(1);
+
+    const moved = findAnywhere(once, hunter.instanceId)!;
+    // The Standard Move exhausted him (415.1.b); ready him so the second is legal.
+    const readied = {
+      ...once,
+      battlefields: once.battlefields.map((bf) =>
+        bf.id === "bf1" ? { ...bf, units: { ...bf.units, p1: [{ ...moved, exhausted: false }] } } : bf,
+      ),
+    };
+    const twice = resolveHeldTriggers(accept(readied, moveTo(readied, moved, "bf2")));
+
+    const gold = goldOf(twice, 0);
+    expect(gold, "the second move paid nothing").toHaveLength(2);
+    expect(new Set(gold.map((g) => g.instanceId)).size).toBe(2);
+  });
+
+  it("is HELD — the trigger reaches the chain rather than resolving at the move", () => {
+    const { state, hunter } = hunterState("base");
+
+    const moved = accept(state, moveTo(state, hunter, "bf1"));
+    expect(heldFor(moved)).toContain(TREASURE_HUNTER);
+    expect(goldOf(moved, 0), "resolved inline instead of waiting on the chain").toHaveLength(0);
+  });
+
+  it("does NOT fire for someone else's move — 'when I move'", () => {
+    const { state, hunter } = hunterState("bf1");
+    const other = makeUnit({ name: "Other" });
+    state.players[0]!.baseUnits = [other];
+
+    const moved = accept(state, moveTo(state, other, "bf2"));
+    expect(heldFor(moved)).not.toContain(TREASURE_HUNTER);
+    expect(goldOf(resolveHeldTriggers(moved), 0)).toHaveLength(0);
+    // The Hunter himself never moved, so this also pins that the fixture is real.
+    expect(findAnywhere(moved, hunter.instanceId), "the Hunter vanished").toBeDefined();
+  });
+});
+
 describe("Harpoon Squad (SFD-137): +2 Might when I move FROM a battlefield", () => {
   /** [Ganking] granted for the turn, since battlefield-to-battlefield is the only
    *  move that satisfies "from a battlefield" and he does not print the keyword. */
@@ -614,9 +793,11 @@ describe("coverage sees each of them", () => {
   // half written and a card that is finished are exactly what this file must
   // keep apart.
   for (const defId of [
+    BLACK_MARKET_BROKER,
     FAE_PORTER,
     LOYAL_PUP,
     OVERZEALOUS_FAN,
+    TREASURE_HUNTER,
     BEAST_BELOW,
     HARPOON_SQUAD,
     WINDSINGER,

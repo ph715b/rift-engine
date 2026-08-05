@@ -253,3 +253,68 @@ describe("The Candlelit Sanctum (OGN-291): look at 2, recycle one or both", () =
     });
   });
 });
+
+/**
+ * Treasure Hoard (SFD-220) — "When you conquer here, you may pay 1 Energy to
+ * play a Gold gear token exhausted."
+ *
+ * The first SFD battlefield implemented, and the first battlefield in this
+ * engine to make a GEAR token. It could not be written at all until `token.ts`
+ * learned to mint one — it minted `UnitInstance` only, which is the blocker it
+ * shared with eleven SFD cards.
+ */
+describe("Treasure Hoard (SFD-220): pay 1 Energy for a Gold gear token", () => {
+  const TREASURE_HOARD = "SFD-220";
+
+  it("is the card it claims to be", () => {
+    // The same pin the five OGN conquer battlefields carry: an ability keyed to
+    // a defId that is not the card would fire on the wrong battlefield, silently.
+    expect(battlefieldDefIdFor("Treasure Hoard")).toBe(TREASURE_HOARD);
+  });
+
+  it("plays ONE Gold token, exhausted, and takes the Energy", () => {
+    const state = withBattlefield(TREASURE_HOARD);
+    // Energy is floating Energy plus READY channeled runes — there is no
+    // `energy` field, and the first draft of this test set one that does not
+    // exist, which made it measure nothing.
+    state.players[0]!.channeled = [rune("r1"), rune("r2")];
+
+    const after = settleConquest(state);
+
+    const gear = after.players[0]!.activeGear;
+    expect(gear, "no Gold token was made").toHaveLength(1);
+    expect(gear[0]!.name).toBe("Gold");
+    expect(gear[0]!.kind).toBe("Gear");
+    expect(gear[0]!.exhausted, "a ready Gold is a free rainbow Power this turn").toBe(true);
+    expect(
+      after.players[0]!.channeled.filter((r) => r.state === "Ready"),
+      "the Energy was not paid",
+    ).toHaveLength(1);
+  });
+
+  it("asks NOTHING when the Energy cannot be paid", () => {
+    // Unaffordable is not a question. A lone "Decline" would be theatre, and it
+    // is also the shape that has produced a prompt a player cannot answer.
+    const state = withBattlefield(TREASURE_HOARD);
+    // No floating Energy and no READY rune: genuinely unaffordable.
+    state.players[0]!.channeled = [rune("r1", "Exhausted")];
+
+    const after = settleConquest(state);
+
+    expect(after.players[0]!.activeGear).toHaveLength(0);
+    expect(after.pendingDecisions, "an unaffordable question was still asked").toHaveLength(0);
+  });
+
+  it("gives the token to the CONQUEROR, not the turn player", () => {
+    // The conquer family fires for whoever conquered — reachable on the other
+    // player's turn via Charm, which contests for the moved unit's controller.
+    const state = withBattlefield(TREASURE_HOARD);
+    state.players[1]!.channeled = [rune("r1"), rune("r2")];
+
+    const after = settleConquest(state, 1);
+
+    expect(after.players[1]!.activeGear).toHaveLength(1);
+    expect(after.players[0]!.activeGear, "the turn player got it instead").toHaveLength(0);
+    expect(after.players[1]!.channeled.filter((r) => r.state === "Ready")).toHaveLength(1);
+  });
+});

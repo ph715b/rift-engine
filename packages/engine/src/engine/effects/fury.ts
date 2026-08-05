@@ -27,7 +27,7 @@ import {
 } from "../effect-helpers.js";
 import { effectiveKeywords, isMighty } from "../granted-keywords.js";
 import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
-import { placeToken, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeToken, type TokenSpec } from "../token.js";
 import {
   ARMORY_WARD_POWER,
   clearPaidDeathWard,
@@ -304,13 +304,13 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Bushwhack — "[Hidden] Friendly units enter ready this turn. Play a Gold
     // gear token exhausted."
     //
-    // **Only the first sentence is here.** There is no gear-token primitive in
-    // this engine at all — `token.ts` mints UnitInstances and nothing else — and
-    // the Gold token is a Gear with its own activated ability ("Kill this, [T]:
-    // [Reaction] Add [1 rainbow Power]"), so it is a subsystem rather than a
-    // helper call. Registered anyway because half of this card genuinely works
-    // and the other half cannot be faked; recorded for
-    // coverage.PARTIALLY_IMPLEMENTED.
+    // **WHOLE as of 2026-08-05.** Only the first sentence was implemented when
+    // this card landed, because there was no gear-token primitive in the engine
+    // at all — `token.ts` minted UnitInstances and nothing else. That was the
+    // wave's largest single blocker (eleven cards, four agents, two
+    // battlefields), and `placeGoldTokens` now closes it, so the
+    // coverage.PARTIALLY_IMPLEMENTED entry for this card is deleted rather than
+    // reworded — a card is either finished or it is on that list.
     //
     // The enter-ready half reuses `unitsEnterReadyThisTurn`, the flag Confront
     // already sets, rather than `nextUnitsEnterReady`: this is a DURATION ("this
@@ -326,7 +326,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx) => {
       const players = [...state.players] as [PlayerState, PlayerState];
       players[ctx.casterIndex] = { ...players[ctx.casterIndex], unitsEnterReadyThisTurn: true };
-      return { ...state, players };
+      // "Play a Gold gear token EXHAUSTED" — the second sentence, and it is
+      // unconditional: nothing about the enter-ready half gates it.
+      return placeGoldTokens({ ...state, players }, ctx.casterIndex, 1);
     },
   },
   "SFD-017": {

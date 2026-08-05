@@ -22,7 +22,7 @@ import {
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
-import { placeRecruitToken, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
@@ -359,6 +359,54 @@ export const cardEffects: Record<string, EffectDefinition> = {
       });
     },
   },
+  "SFD-162": {
+    // Blood Money — "[Action] Kill a unit at a battlefield with 2 Might or less.
+    // If it was an enemy unit, play a Gold gear token exhausted. If it was a
+    // friendly unit, play two Gold gear tokens exhausted."
+    //
+    // No `owner` on the spec, and that is the card: it will happily eat one of
+    // YOUR OWN small units, and pays double when it does. A 2-Energy spell that
+    // turns a spent Recruit into two rainbow Power is the reason the friendly
+    // branch is worth more than the enemy one.
+    //
+    // **`maxMight` is EFFECTIVE Might, not printed.** The rules evaluate a unit
+    // on the board "according to their current Might" (the Mighty section's own
+    // sentence), reserving printed Might for units in Non-Board Zones — so a
+    // 2-Might unit standing under Garen - Commander's "+1 here" is a 3 and is not
+    // a legal victim. `unitWithinMaxMight` is already that reading, and it is the
+    // same route Gust's and Sandshifter's "N Might or less" take; the alternative
+    // (printed) is the reading a "costing no more than" filter gets, and this is
+    // not a cost filter. Enforced by the enumerator and the validator rather than
+    // here, for Sandshifter's reason: a resolver check comes after the spell is
+    // paid for.
+    //
+    // `scope` left at its default "battlefield" — the text names one, so a unit
+    // sheltering in either base is out of reach (355.9.b).
+    targeting: { kind: "unit", maxMight: 2 },
+    resolve: (state, ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      // Whose it was, read BEFORE the kill — the same capture Hidden Blade above
+      // makes for the same reason: by the time the second sentence is evaluated
+      // the unit is in a trash and no longer anybody's at a battlefield. A lookup
+      // afterwards would find nothing and pay out neither branch.
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId);
+      // 359.3's null: the victim was gone by resolution, so "it" is nothing and
+      // neither branch is satisfied — no Gold either way.
+      if (!location) return state;
+      const wasFriendly = location.ownerIndex === ctx.casterIndex;
+
+      const killed = destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex);
+      // **"If it WAS an enemy/friendly unit" is a question about WHOSE it was,
+      // not about whether the kill landed** — so unlike Deathgrip's "if you do"
+      // just below, this deliberately does NOT re-ask the board. The past tense
+      // is forced by the ordering (the unit is in a trash by the time the clause
+      // is read), and a card that meant to gate on the death says "if you do".
+      // Consequence, stated: a victim saved by a death ward (809.1.b.1) still
+      // pays out. Hidden Blade takes the same shape — its "its controller draws
+      // 2" also survives a replaced kill.
+      return placeGoldTokens(killed, ctx.casterIndex, wasFriendly ? 2 : 1);
+    },
+  },
   "SFD-163": {
     // Deathgrip — "[Reaction] Kill a friendly unit. If you do, give +Might equal
     // to its Might to another friendly unit this turn. Draw 1."
@@ -636,6 +684,29 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx, _unitId, event) =>
       event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
   },
+  "SFD-174": {
+    // Trove Golem — "When you play me, play four Gold gear tokens exhausted."
+    //
+    // An 8-Energy 2-Power 9-Might body that refunds four rainbow Power over the
+    // following turns, which is the whole card.
+    //
+    // **No "here", and none is possible**: gear lives in `PlayerState.activeGear`,
+    // a flat per-player list with no location at all, so `event.destination` —
+    // load-bearing for Royal Guard and Vanguard Captain, whose tokens are UNITS —
+    // has nothing to say here. A Golem played to a battlefield and one played to
+    // base make the same four tokens.
+    //
+    // `placeGoldTokens` rather than four calls: it mints four distinct game
+    // objects with four instanceIds (pinned in test/gear-tokens.test.ts), which is
+    // the property Vanguard Captain's "two separate placements" note is really
+    // about — one token per placement, not one placement per count.
+    //
+    // "EXHAUSTED" is printed, and the helper is the exhausted form. A ready Gold
+    // token would be four rainbow Power on the turn the Golem lands, which is a
+    // different and much better card.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeGoldTokens(state, ctx.casterIndex, 4),
+  },
   "SFD-175": {
     // Undertitan, FIRST clause only — "When you play me, give your other units +2
     // Might this turn."
@@ -700,6 +771,21 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // token and three tokens are three game objects with three instanceIds.
   "OGN-239": (state, ctx) =>
     [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
+
+  // Honest Broker — "[Deathknell] — Play a Gold gear token exhausted." (rule 808)
+  //
+  // A 2-Energy 2-Might body that cashes itself in when it dies: the token is
+  // GEAR, so it outlives the unit that made it and sits in `activeGear` waiting
+  // to be spent, which is what makes trading the Broker off a gain rather than a
+  // loss.
+  //
+  // `ctx.casterIndex` is the dying unit's controller — what "you" means for a
+  // Deathknell — and NOT whoever killed it. Reading the killer would hand the
+  // Gold to an opponent who removed him, which inverts the card.
+  //
+  // Nothing is read off `death.unit`, unlike Unsung Hero below: this Deathknell
+  // has no condition, so there is nothing about the corpse to ask about.
+  "SFD-155": (state, ctx) => placeGoldTokens(state, ctx.casterIndex, 1),
 
   // Unsung Hero — "[Deathknell] — If I was [Mighty], draw 2." (rule 808)
   //
@@ -822,6 +908,35 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       event.kind === "cardsRecycled" && ownUnits(state, listener.ownerIndex).length > 0
         ? parkDecision(state, { kind: "OGN-235-buff", playerIndex: listener.ownerIndex })
         : state,
+  },
+  "SFD-152": {
+    // Eminent Benefactor — "When I hold, play two Gold gear tokens exhausted."
+    //
+    // "When **I** hold" is the positional reading Ahri - Alluring and
+    // Blitzcrank - Impassive take of the same phrase (effects/calm.ts): the
+    // battlefield being held has to be the one the Benefactor is standing at, not
+    // merely one his controller held somewhere. The event carries a battlefield
+    // for exactly that reason, and `listener.battlefieldId` is where he stands.
+    //
+    // A hold is the SCORING moment (471.1.a — "maintains Control of a Battlefield
+    // they did not yet Score this turn"), so a battlefield already conquered this
+    // turn fires nothing (471.1.b) and pays no Gold. That is the event's own
+    // contract; nothing here has to check it.
+    //
+    // Both conditions are fixed at FIRE time, which matters more here than the
+    // ordinary reason: this trigger is held, and the window it opens is exactly
+    // when an opponent would move or kill him. Re-asking at resolution would let
+    // them cancel a payout that has already been earned (809.1.b — the ability is
+    // independent of its source once it is on the chain).
+    //
+    // No guard on there being anything to do: `placeGoldTokens` always has
+    // somewhere to put them, so unlike Karma - Channeler there is no "nothing to
+    // affect" case worth suppressing the Pending Item for.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) =>
+      event.kind === "battlefieldHeld" ? placeGoldTokens(state, listener.ownerIndex, 2) : state,
   },
   "SFD-170": {
     // Rek'Sai - Swarm Queen — "When I attack, you may reveal the top 2 cards of
