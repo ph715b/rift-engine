@@ -814,17 +814,20 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Corrupt Enforcer, FIRST clause only — "When I move to a battlefield,
     // discard 1."
     //
-    // **His second clause is NOT implemented**: "When I win a combat, draw 1"
-    // needs a combat-WON event, and there is none. 466.5.a defines the concept
-    // ("a Player has won a combat if they received either the attacker or
-    // defender designation and are the only Player that has units remaining at
-    // this battlefield during this step"), but `GameEvent` carries only
-    // `combatBegan` and `battlefieldConquered` and neither is that: a conquest is
-    // also what a walk-in produces, so paying out on one would draw for a combat
-    // that never happened. Adding the event is a change to combat.ts and
-    // triggers.ts. Recorded for coverage.PARTIALLY_IMPLEMENTED rather than
-    // approximated. (effects/fury.ts's Draven - Vanquisher is blocked on the same
-    // missing event, from the other side of the pool.)
+    // **WHOLE as of 2026-08-05.** The second clause — "When I win a combat,
+    // draw 1" — needed a combat-WON event, which did not exist: `GameEvent`
+    // carried only `combatBegan` and `battlefieldConquered`, and neither is
+    // that. A conquest also fires on a walk-in, so paying out on one would
+    // draw for a combat that never happened. `combatWon` now exists (466.5.a),
+    // fired by combat.ts at both resolution shapes.
+    //
+    // It ALSO needed `EventTriggerDefinition.on` to accept a list: this
+    // registry is keyed by defId, so before that a card could hold exactly one
+    // event trigger and this clause had nowhere to live. Two blockers wearing
+    // one symptom, and the wave report named only the first.
+    //
+    // Both clauses branch on `event.kind`, which is what makes one definition
+    // able to serve two moments without the chain having to say which fired.
     //
     // The `unitMoved` EVENT rather than the per-card `ON_MOVE_TRIGGERS` table,
     // which lives in unit-triggers.ts and is not this file's to edit — Yasuo -
@@ -840,9 +843,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // it stops and ASKS rather than taking the front of hand, and it fires
     // `cardsDiscarded` once for the instruction — a Jinx - Rebel across the table
     // readies once, not never.
-    on: "unitMoved",
-    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
-    resolve: (state, listener, event) => (event.kind === "unitMoved" ? discardCards(state, listener.ownerIndex, 1) : state),
+    on: ["unitMoved", "combatWon"],
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved"
+        ? event.unitInstanceId === listener.card.instanceId
+        : // "I win a combat" — my controller won, and I am standing where it
+          // happened. A unit that died in the exchange is not a listener at all,
+          // since the walk only finds permanents still in play, so surviving
+          // needs no separate check.
+          event.kind === "combatWon" &&
+          event.winnerIndex === listener.ownerIndex &&
+          listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) =>
+      event.kind === "unitMoved"
+        ? discardCards(state, listener.ownerIndex, 1)
+        : event.kind === "combatWon"
+          ? drawCards(state, listener.ownerIndex, 1)
+          : state,
   },
   "SFD-125": {
     // Fae Porter — "When I move to a battlefield, you may pay [Chaos] to move a

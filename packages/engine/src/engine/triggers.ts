@@ -623,6 +623,35 @@ export type GameEvent =
       designated: readonly string[];
     }
   /**
+   * A combat WAS WON at `battlefieldId`, by `winnerIndex` — rule 466.5.a: a
+   * player has won when they "are the only Player that has units remaining at
+   * this battlefield during this step".
+   *
+   * **Not the same question as a conquest**, which is why this exists rather
+   * than the cards reusing `battlefieldConquered`. A conquest also fires when a
+   * unit simply walks into an empty battlefield, with no combat at all; and a
+   * combat can be won at a battlefield the winner ALREADY controlled, which
+   * establishes no new control and so conquers nothing. Three SFD cards read
+   * "when I win a combat" and neither of those substitutes is that.
+   *
+   * **Only fired when exactly one side is left.** 466.5.d makes the other two
+   * shapes a No Result rather than a win: both sides still standing after the
+   * damage step (which is precisely when 466 step 3d recalls the attackers),
+   * and neither side standing. So a mutual wipe wins nothing for anybody, and
+   * a failed attack is not a defender's victory.
+   *
+   * Carries no unit list. A listener asks the ordinary positional question —
+   * "am I at this battlefield and is my controller the winner" — and a unit
+   * that died in the exchange is no longer a listener at all, because the walk
+   * only finds permanents still in play. Carrying survivors would be a second
+   * copy of the board, free to disagree with it.
+   */
+  | {
+      kind: "combatWon";
+      battlefieldId: string;
+      winnerIndex: 0 | 1;
+    }
+  /**
    * `stunnerIndex` just stunned these units (rule 422) — ONE event per
    * instruction, carrying every unit that actually became stunned.
    *
@@ -741,6 +770,7 @@ export type HeldEventKind =
   | "unitKilledBySpell"
   | "cardsRecycled"
   | "combatBegan"
+  | "combatWon"
   | "unitsStunned"
   | "cardsDiscarded"
   | "unitDied"
@@ -754,7 +784,28 @@ export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;
 export type EventTriggerEffect = (state: GameState, listener: Listener, event: GameEvent, captured?: unknown) => GameState;
 
 export interface EventTriggerDefinition {
-  on: GameEvent["kind"];
+  /**
+   * The moment(s) this ability fires at.
+   *
+   * **A LIST is allowed, and SFD is why.** Corrupt Enforcer prints "when I move
+   * to a battlefield, discard 1" AND "when I win a combat, draw 1"; Draven -
+   * Vanquisher pairs an attack-or-defend trigger with a combat-won one. This
+   * registry is keyed by defId, so before this a card could hold exactly one
+   * event trigger and those second clauses had nowhere to live.
+   *
+   * Widening `on` rather than making the registry a list of definitions is the
+   * smaller change and the one that keeps the chain honest:
+   * `resolvePendingTrigger` finds a definition by `listenerDefId` alone, so two
+   * separate definitions per card would need the chain entry to say WHICH, and
+   * an entry that cannot say would resolve the wrong half. One definition that
+   * branches on `event.kind` cannot get that wrong.
+   *
+   * `SelfTriggerDefinition.on` is already a list for the same reason (Scrapheap
+   * wants all three of its moments), so this is the shape that file already
+   * uses rather than a new idea. `applies` and `resolve` are handed the event,
+   * so a multi-moment ability branches on `event.kind` exactly as they do.
+   */
+  on: GameEvent["kind"] | readonly GameEvent["kind"][];
   /**
    * Whether the ability actually TRIGGERS for this listener and event, as opposed
    * to merely listening for the right event kind.
@@ -861,6 +912,12 @@ export function eventTriggerDefIds(): string[] {
  * function. `applies` is the caller's to ignore, and Reckoner's Arena does
  * ignore it: nothing triggered, so there is no trigger condition to test.
  */
+/** Does this trigger fire at `kind`? One place, so the three dispatch sites
+ *  cannot disagree about what a list-valued `on` means. */
+export function listensFor(trigger: EventTriggerDefinition, kind: GameEvent["kind"]): boolean {
+  return Array.isArray(trigger.on) ? trigger.on.includes(kind) : trigger.on === kind;
+}
+
 export function eventTriggerFor(defId: string): EventTriggerDefinition | undefined {
   return allEventTriggers()[defId];
 }
@@ -930,7 +987,7 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
         });
   if (!listener) return state; // pre-`listenerCard` entry, and nothing on the board
   const event = entry.event as GameEvent;
-  if (trigger.on !== event.kind) return state;
+  if (!listensFor(trigger, event.kind)) return state;
   return trigger.resolve(state, listener, event, entry.captured);
 }
 
@@ -985,7 +1042,7 @@ export function holdEventTrigger(
   const held: TriggerChainEntry[] = [];
   for (const listener of allListeningPermanents(state, placesFirst)) {
     const trigger = registry[listener.card.defId];
-    if (trigger?.on !== event.kind) continue;
+    if (!trigger || !listensFor(trigger, event.kind)) continue;
     if (trigger.applies && !trigger.applies(state, listener, event)) continue;
     // Captured against the board as it stands NOW — before any other listener in
     // this same walk has resolved, which is what makes it a snapshot of the
@@ -1035,7 +1092,7 @@ export function dispatchEvent(state: GameState, event: InlineEvent): GameState {
   let next = state;
   for (const listener of allListeningPermanents(next)) {
     const trigger = registry[listener.card.defId];
-    if (trigger?.on !== event.kind) continue;
+    if (!trigger || !listensFor(trigger, event.kind)) continue;
     next = trigger.resolve(next, listener, event);
   }
   return next;

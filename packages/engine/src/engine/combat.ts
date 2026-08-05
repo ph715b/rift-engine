@@ -6,6 +6,7 @@ import { takesNoDamage } from "./damage-modifiers.js";
 import { hasKeyword } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
+import { holdEventTrigger } from "./triggers.js";
 
 /**
  * Combat resolution (a "Showdown" in the core rules), ported from
@@ -289,6 +290,42 @@ function resolveNonCombatShowdown(state: GameState, battlefieldId: string): Game
 }
 
 /**
+ * Rule 466.5.a's winner: the only player with units remaining here, or
+ * undefined when that is nobody or both.
+ *
+ * The two undefined cases are 466.5.d's **No Result**, not an oversight — both
+ * sides standing (which is exactly when step 3d recalls the attackers) and
+ * neither side standing. So a mutual wipe wins nothing, and a failed attack is
+ * not a defender's victory.
+ *
+ * Asked in one place and used by both fire sites below, so the uncontested
+ * walkout and the fought-out exchange cannot come to different answers about
+ * what winning is.
+ */
+function combatWinner(
+  attackerSurvivors: readonly unknown[],
+  defenderSurvivors: readonly unknown[],
+  attackerIndex: 0 | 1,
+  defenderIndex: 0 | 1,
+): 0 | 1 | undefined {
+  if (attackerSurvivors.length > 0 && defenderSurvivors.length === 0) return attackerIndex;
+  if (defenderSurvivors.length > 0 && attackerSurvivors.length === 0) return defenderIndex;
+  return undefined;
+}
+
+/** Holds the 466.5.a win, if there was one. A no-op on a No Result, so callers
+ *  do not each repeat the check. */
+function holdCombatWon(
+  state: GameState,
+  battlefieldId: string,
+  winnerIndex: 0 | 1 | undefined,
+): GameState {
+  return winnerIndex === undefined
+    ? state
+    : holdEventTrigger(state, { kind: "combatWon", battlefieldId, winnerIndex }, winnerIndex);
+}
+
+/**
  * Resolves combat at `battlefieldId` between `attackerIndex` (whoever just
  * moved a unit in) and the other player. Mirrors
  * ShowdownResolver.resolveWithAssignments (engine/ShowdownResolver.java:24-90).
@@ -330,7 +367,12 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // `establishControlAfterCombat` also covers the empty-empty case on its own
   // terms: nobody present makes the battlefield Uncontrolled (466.7.b).
   if (attackerUnits.length === 0 || defenderUnits.length === 0) {
-    return establishControlAfterCombat(healAllUnits(state), bfIndex);
+    // 466.5.a applies here too, and this is the shape that produces most of
+    // them: the `walkout` probe counts 191 of these in 200 games. Whoever is
+    // still standing has WON, which is the same reading the comment above
+    // already took for establishing control.
+    const walkoverWinner = combatWinner(attackerUnits, defenderUnits, attackerIndex, defenderIndex);
+    return establishControlAfterCombat(holdCombatWon(healAllUnits(state), battlefieldId, walkoverWinner), bfIndex);
   }
 
   const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(state, u, attackerIndex, battlefieldId, true), 0);
@@ -417,6 +459,11 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // the attackers exactly when defenders remain, so both sides can never still
   // be present afterward. It exists for multiplayer, where a third player's
   // units can be at the battlefield. Deliberately not implemented.
+
+  // 466.5.a, after the exchange. Held BEFORE control is established so the
+  // win resolves ahead of any conquer trigger the same combat produces —
+  // winning is what caused the conquest, not the other way round.
+  next = holdCombatWon(next, battlefieldId, combatWinner(survivingAttackers, survivingDefenders, attackerIndex, defenderIndex));
 
   // ── Establish control, rule 466.7 ──────────────────────────────────────
   // The rules ask one question, not three: whoever still has units here takes

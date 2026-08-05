@@ -776,13 +776,16 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Draven - Vanquisher, SECOND clause only — "When I attack or defend, you may
     // pay [1 Fury]. If you do, give me +2 Might this turn."
     //
-    // **His first clause is NOT implemented**: "When I win a combat, play a Gold
-    // gear token exhausted" needs two things this engine does not have — a
-    // combat-WON event (there is none; `GameEvent` has `combatBegan` and
-    // `battlefieldConquered`, and neither is "only your units remain"), and gear
-    // tokens at all. Recorded for coverage.PARTIALLY_IMPLEMENTED rather than
-    // approximated, since a conquest is not a combat win and using one for the
-    // other would pay out on a walk-in.
+    // **WHOLE as of 2026-08-05.** The first clause — "When I win a combat, play
+    // a Gold gear token exhausted" — was blocked on THREE things, and each was
+    // closed separately: gear tokens (`placeGoldTokens`), a combat-WON event
+    // (466.5.a, fired by combat.ts at both resolution shapes), and
+    // `EventTriggerDefinition.on` accepting a list, since this registry is keyed
+    // by defId and he already had a `combatBegan` trigger.
+    //
+    // A conquest is still NOT a substitute for the win, which is why the event
+    // exists: a walk-in conquers without a combat, and a combat can be won at a
+    // battlefield its winner already controlled.
     //
     // "Attack OR DEFEND" is `isFightingAt` — Ahri - Inquisitive's predicate, which
     // exists so the cards that deliberately ignore the designation say so in a
@@ -794,10 +797,18 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // so an unaffordable board places no Pending Item — a held trigger that
     // resolves to nothing still costs both players a PassFocus, and this one would
     // otherwise fire at every single combat he is in.
-    on: "combatBegan",
+    on: ["combatBegan", "combatWon"],
     applies: (state, listener, event) =>
-      isFightingAt(state, listener, event) && payPowerFromChanneled(state, listener.ownerIndex, "Fury", 1) !== undefined,
+      event.kind === "combatWon"
+        ? // "I win a combat" — my controller won, and I am standing where it
+          // happened. Surviving needs no separate check: a unit that died is
+          // not a listener, because the walk only finds permanents in play.
+          // Unconditional, unlike the pump below — the token costs nothing.
+          event.winnerIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId
+        : isFightingAt(state, listener, event) &&
+          payPowerFromChanneled(state, listener.ownerIndex, "Fury", 1) !== undefined,
     resolve: (state, listener, event) => {
+      if (event.kind === "combatWon") return placeGoldTokens(state, listener.ownerIndex, 1);
       if (event.kind !== "combatBegan") return state;
       // Re-asked here as well as in `applies`, for the reason Immortal Phoenix
       // records: the window the hold opens is exactly when that Fury could be

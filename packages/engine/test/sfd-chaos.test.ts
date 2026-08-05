@@ -793,6 +793,7 @@ describe("coverage sees each of them", () => {
   // half written and a card that is finished are exactly what this file must
   // keep apart.
   for (const defId of [
+    CORRUPT_ENFORCER,
     BLACK_MARKET_BROKER,
     FAE_PORTER,
     LOYAL_PUP,
@@ -811,16 +812,13 @@ describe("coverage sees each of them", () => {
   }
 
 
-  it("Corrupt Enforcer is only HALF written, and nothing here claims otherwise", () => {
-    // Registration is per defId, so his move clause makes the whole card report
-    // DONE. "When I win a combat, draw 1" needs a combat-WON event this engine
-    // does not have (466.5.a defines the concept; `GameEvent` has no producer for
-    // it). The honest record is a coverage.PARTIALLY_IMPLEMENTED entry, which
-    // the card-wave pass could not add because coverage.ts is shared — it has
-    // since been written, so this test now asserts the RESULT rather than just
-    // pinning the printed text and hoping somebody noticed.
+  it("Corrupt Enforcer is WHOLE now — both clauses, and no partial note", () => {
+    // He was registered for his move clause only, and reported DONE on the
+    // strength of it; "when I win a combat, draw 1" needed a combat-WON event
+    // (466.5.a) that GameEvent did not carry. It does now, so his
+    // PARTIALLY_IMPLEMENTED entry was DELETED rather than reworded.
     expect(registry.get(CORRUPT_ENFORCER).text).toContain("When I win a combat");
-    expect(isCardImplemented(registry.get(CORRUPT_ENFORCER))).toBe(false);
-    expect(partialImplementationNote(registry.get(CORRUPT_ENFORCER))).toContain("combat-won event");
+    expect(isCardImplemented(registry.get(CORRUPT_ENFORCER))).toBe(true);
+    expect(partialImplementationNote(registry.get(CORRUPT_ENFORCER))).toBeUndefined();
   });
 });

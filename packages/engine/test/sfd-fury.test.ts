@@ -401,7 +401,15 @@ describe("coverage reports these as implemented", () => {
   // list has to split. Keeping the old assertion would have meant asserting
   // that three half-written cards still read as finished — the premise changed,
   // and this is the premise being fixed rather than the assertion weakened.
-  for (const defId of [AGAINST_THE_ODDS, BUSHWHACK, GEM_JAMMER, SUDDEN_STORM, FERROUS_FORERUNNER, LUCIAN_GUNSLINGER]) {
+  for (const defId of [
+    AGAINST_THE_ODDS,
+    BUSHWHACK,
+    GEM_JAMMER,
+    SUDDEN_STORM,
+    DRAVEN_VANQUISHER,
+    FERROUS_FORERUNNER,
+    LUCIAN_GUNSLINGER,
+  ]) {
     it(`${defId} (${registry.get(defId).name}) is whole`, () => {
       expect(isCardImplemented(registry.get(defId))).toBe(true);
       expect(partialImplementationNote(registry.get(defId))).toBeUndefined();
@@ -411,14 +419,12 @@ describe("coverage reports these as implemented", () => {
   // The three written as HALF a card. Each must report NOT implemented, and the
   // note must say which half is missing — a bare `false` would be
   // indistinguishable from a card nobody has started.
-  // Bushwhack LEFT this list on 2026-08-05: the gear-token primitive landed and
-  // its second sentence is written, so its PARTIALLY_IMPLEMENTED entry was
-  // DELETED rather than reworded — a card is either finished or it is on that
-  // list. Draven still needs a combat-WON event on top of the token.
-  for (const [defId, missing] of [
-    [DRAVEN_VANQUISHER, "combat-won event"],
-    [DUNEBREAKER, "deploy.unitEntersReady"],
-  ] as const) {
+  // Bushwhack and Draven have both LEFT this list, and their
+  // PARTIALLY_IMPLEMENTED entries were DELETED rather than reworded — a card is
+  // either finished or it is on that list. Bushwhack needed the gear-token
+  // primitive; Draven needed that AND a combat-WON event AND a list-valued
+  // `EventTriggerDefinition.on`, since he already had a combatBegan trigger.
+  for (const [defId, missing] of [[DUNEBREAKER, "deploy.unitEntersReady"]] as const) {
     it(`${defId} (${registry.get(defId).name}) is PARTIAL, and says why`, () => {
       expect(isCardImplemented(registry.get(defId))).toBe(false);
       expect(partialImplementationNote(registry.get(defId))).toContain(missing);
