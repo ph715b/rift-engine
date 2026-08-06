@@ -5,6 +5,7 @@ import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 import type { Keyword } from "../model/keyword.js";
+import type { Listener } from "./triggers.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem, and the one the survey called
@@ -367,4 +368,62 @@ export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): 
  *  art-only ability, and which are therefore implemented HERE. */
 export function equipmentKeywordDefIds(): string[] {
   return Object.keys(EQUIP_GRANTED_KEYWORDS);
+}
+
+/**
+ * The unit an attached Equipment is worn by, with where it is standing.
+ *
+ * `attachedToInstanceId` points one way only — gear -> unit — so this is the
+ * reverse of `equipmentAttachedTo` and is the lookup every "when I ..." ability
+ * printed on a piece of Equipment needs.
+ */
+export function wearerOf(
+  state: GameState,
+  gear: GearInstance,
+): { unit: UnitInstance; ownerIndex: 0 | 1; battlefieldId?: string } | undefined {
+  const wornBy = gear.attachedToInstanceId;
+  if (!wornBy) return undefined;
+  for (const ownerIndex of [0, 1] as const) {
+    const player = state.players[ownerIndex];
+    const inBase = player.baseUnits.find((u) => u.instanceId === wornBy);
+    if (inBase) return { unit: inBase, ownerIndex };
+    for (const bf of state.battlefields) {
+      const atBattlefield = (bf.units[player.id] ?? []).find((u) => u.instanceId === wornBy);
+      if (atBattlefield) return { unit: atBattlefield, ownerIndex, battlefieldId: bf.id };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * An attached Equipment's listener, rewritten as its WEARER's.
+ *
+ * **This is the whole wearer's-moments mechanism**, and it is one function
+ * because of what `listeningPermanents` already does: every piece of active Gear
+ * is ALREADY walked as a listener. What it lacks is a location — gear sits in a
+ * flat `activeGear` list with no battlefield — so a "when I conquer" written
+ * against `listener.battlefieldId` could never match.
+ *
+ * Rather than teach the walk about attachment (which would change what a Gear
+ * listener means for Mask of Foresight and every future one), this hands a card
+ * the listener its wearer WOULD have had: same owner, the wearer's card, the
+ * wearer's battlefield. Every existing predicate then works unchanged —
+ * `isFightingAt`'s `listener.card.kind === "Unit"` check passes because the card
+ * really is the unit, and `listener.battlefieldId === event.battlefieldId` means
+ * what it says.
+ *
+ * `undefined` for anything that is not an ATTACHED Equipment, which is the
+ * card's own "I am not being worn, so nothing of mine happens" — an unattached
+ * Recurve Bow sitting in base watches no combats.
+ */
+export function wearerListener(state: GameState, listener: Listener): Listener | undefined {
+  if (listener.card.kind !== "Gear") return undefined;
+  const worn = wearerOf(state, listener.card as GearInstance);
+  if (!worn) return undefined;
+  return {
+    card: worn.unit,
+    ownerIndex: worn.ownerIndex,
+    zone: "board",
+    ...(worn.battlefieldId !== undefined ? { battlefieldId: worn.battlefieldId } : {}),
+  };
 }

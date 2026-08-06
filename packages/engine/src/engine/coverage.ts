@@ -291,12 +291,29 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // express. Attachment itself works — these are cost shapes, not a missing
   // subsystem — and each is here rather than under a keyword flag so the 25
   // Equipment that DO work are not greyed with them.
-  ["SFD-150", "[Equip] costs a rune AND Recycle 2 from your trash; the compound cost is unparsed"],
+  ["SFD-150", "[Equip] costs a rune AND Recycle 2 from your trash (unparsed compound cost), AND its art-only 'when I conquer or hold, play a unit from your trash' is unwritten"],
   ["SFD-178", "[Equip] costs a rune AND Kill a friendly unit; the compound cost is unparsed"],
   ["SFD-186", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
-  ["SFD-190", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
-  ["SFD-191", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
-  ["SFD-192", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
+  ["SFD-190", "[Equip] costs RAINBOW Power (ActivationCost cannot express it), AND its art-only 'when I attack or defend, deal 2 to ALL enemy units here' is unwritten"],
+  ["SFD-191", "[Equip] costs RAINBOW Power (ActivationCost cannot express it), AND its art-only 'your spells and abilities deal 3 Bonus Damage' is unwritten"],
+  ["SFD-192", "[Equip] costs RAINBOW Power (ActivationCost cannot express it); the art-only ready-half is written, the positional [Ganking] aura is not"],
+  // **The Equipment whose printed ability exists ONLY on the card art**, and the
+  // worst blind spot this file has had. `needsImplementation` reads the card
+  // text; for every one of these `text.plain` holds the `[Equip]` line and
+  // nothing else, so the generated equip ability made them report
+  // `isCardImplemented = true` — a card that looks finished while doing NONE of
+  // what it prints, which this map's own doc comment calls the wrong direction to
+  // err in. Fifteen cards read that way until 2026-08-06; the eight
+  // wearer's-moments ones are now written and have left this list, and these
+  // seven are what is honestly left. Transcribed abilities in
+  // docs/sfd-equipment-abilities.md.
+  ["SFD-030", "art-only: 'My hold effects are also conquer effects, and vice versa' needs a moment-rewriting layer, which has no precedent here"],
+  ["SFD-042", "art-only: 'if this was attached to me THIS TURN, +2 Might' needs a per-attachment turn stamp on the gear"],
+  ["SFD-051", "art-only: 'if I would die, kill Guardian Angel instead' needs a death replacement sourced from a GEAR (death-ward.ts shape)"],
+  ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
+  ["SFD-073", "art-only: 'I am a Mech' grants a TAG rather than a keyword, and `tags` is printed-only today"],
+  ["SFD-090", "art-only: 'play all units banished with this' needs banish-with-source tracking"],
+  ["SFD-172", "art-only: a [Deathknell] on the WEARER sourced from the gear"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

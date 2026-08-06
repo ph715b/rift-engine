@@ -44,6 +44,7 @@ import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
+import { wearerListener } from "../equipment.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -692,6 +693,59 @@ function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefiel
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-124": {
+    // Doran's Ring — "When I conquer, discard 1, then draw 1."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // `discardThenDraw`, NOT `drawCards(discardCards(...))`: the "then" is
+    // load-bearing and the discard stops to ask, so the draw has to be queued
+    // BEHIND the question or the card just drawn joins the hand being chosen
+    // from. Scrapyard Champion's comment records the same trap.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldConquered" &&
+        wearer !== undefined &&
+        event.conquerorIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : discardThenDraw(state, wearer.ownerIndex, 1, 1);
+    },
+  },
+  "SFD-134": {
+    // Cull — "When I conquer, play a Gold gear token exhausted."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // Plundering Poro's sentence exactly, on a piece of gear instead of a body.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldConquered" &&
+        wearer !== undefined &&
+        event.conquerorIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : placeGoldTokens(state, wearer.ownerIndex, 1);
+    },
+  },
   "OGN-177": {
     // Stealthy Pursuer — "When a friendly unit moves FROM MY LOCATION, I may be
     // moved with it."

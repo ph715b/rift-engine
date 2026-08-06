@@ -48,6 +48,7 @@ import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
+import { wearerListener } from "../equipment.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -576,6 +577,42 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-016": {
+    // Recurve Bow — "When I attack or defend, deal 2 to an enemy unit here."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // `isFightingAt` is Ahri - Inquisitive's predicate and requires
+    // `listener.card.kind === "Unit"` — precisely why a raw Gear listener could
+    // never satisfy it, and why the rewrite is the whole mechanism.
+    on: "combatBegan",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return wearer !== undefined && isFightingAt(state, wearer, event);
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      const wearer = wearerListener(state, listener);
+      if (wearer?.battlefieldId === undefined) return state;
+      // "AN enemy unit" is a CHOICE, so this parks a decision rather than
+      // auto-selecting in board order the way Yasuo and Teemo do. That inherits
+      // only the divergence rules-conformance already records for every held
+      // trigger — the choice happens at resolution rather than at finalization
+      // (402) — instead of adding auto-selection as a second one. A lone
+      // candidate auto-resolves without prompting.
+      return enemiesAt(state, wearer.ownerIndex, wearer.battlefieldId).length === 0
+        ? state
+        : parkDecision(state, {
+            kind: "SFD-016-shot",
+            playerIndex: wearer.ownerIndex,
+            battlefieldId: wearer.battlefieldId,
+          });
+    },
+  },
   "OGN-034": {
     // Tryndamere - Barbarian — "When I conquer AFTER AN ATTACK, if you assigned
     // 5 or more EXCESS damage to enemy units, you score 1 point."
@@ -1014,6 +1051,17 @@ function payForMech(state: GameState, playerIndex: 0 | 1, energy: number, mech: 
  *  because that one is not exported and this file may not edit it. The ORDER is
  *  the same (board order, both players' lists walked as stored), which is what
  *  makes an auto-selecting trigger's test meaningful rather than incidental. */
+/** The enemy units at one battlefield, in the same board order `firstEnemyAt`
+ *  walks — the pool Recurve Bow's question offers. */
+function enemiesAt(state: GameState, ownerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  const ownId = state.players[ownerIndex].id;
+  return Object.entries(bf.units)
+    .filter(([id]) => id !== ownId)
+    .flatMap(([, units]) => units);
+}
+
 function firstEnemyAt(state: GameState, ownerIndex: 0 | 1, battlefieldId: string, selfInstanceId: string): string | undefined {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   if (!bf) return undefined;
@@ -1060,6 +1108,25 @@ function canPayPhoenix(state: GameState, playerIndex: 0 | 1): boolean {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Recurve Bow's "deal 2 to an enemy unit here", raised by its WEARER attacking
+   * or defending. `battlefieldId` is captured when the question is raised, so it
+   * means where the combat happened rather than wherever the wearer has ended up
+   * by the time the answer arrives — the same reason Blitzcrank - Impassive's
+   * decision carries one.
+   */
+  "SFD-016-shot": {
+    prompt: () => "Recurve Bow: deal 2 to which enemy unit here?",
+    options: (state, d) =>
+      d.battlefieldId === undefined
+        ? []
+        : enemiesAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
+            id: u.instanceId,
+            label: u.name,
+            instanceId: u.instanceId,
+          })),
+    resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, 2),
+  },
   // Immortal Phoenix's "you may pay [1 Energy][1 Fury] to play me from your
   // trash", raised by his spell-kill trigger.
   //

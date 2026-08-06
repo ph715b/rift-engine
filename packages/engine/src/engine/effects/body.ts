@@ -35,6 +35,8 @@ import { effectiveKeywords, isMighty } from "../granted-keywords.js";
 import { isFightingAt } from "../combat-designation.js";
 import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
+import { wearerListener } from "../equipment.js";
+import { gainPoints } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Body** — one file, one owner.
@@ -507,6 +509,88 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-108": {
+    // Warmog's Armor — "When I conquer, buff me."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // "Buff ME" is the WEARER, not the gear: a buff is a +1 Might counter and
+    // gear has no Might to counter. `addBuff` is idempotent per 143 (a unit that
+    // already has a buff does not gain a second), so a repeat conquest is safe.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldConquered" &&
+        wearer !== undefined &&
+        event.conquerorIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : addBuff(state, wearer.card.instanceId);
+    },
+  },
+  "SFD-115": {
+    // Trinity Force — "When I hold, score 1 point."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // Through `gainPoints`, the choke point every point-gain goes through so
+    // Tianna Crownguard's "opponents can't gain points" reaches it. It does NOT
+    // record a battlefield as scored: this is a point awarded BY the hold, not a
+    // second scoring of the battlefield, so 471.1.b's lockout is untouched.
+    on: "battlefieldHeld",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldHeld" &&
+        wearer !== undefined &&
+        event.holderIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : gainPoints(state, wearer.ownerIndex, 1);
+    },
+  },
+  "SFD-118": {
+    // Boneshiver — "When I conquer, channel 1 rune exhausted."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // EXHAUSTED is the printed word and `channelRunesExhausted` is the helper
+    // that exists for it — the Channel *Phase* always reveals Ready, so a plain
+    // channel would hand over usable Power this turn.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldConquered" &&
+        wearer !== undefined &&
+        event.conquerorIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : channelRunesExhausted(state, wearer.ownerIndex, 1);
+    },
+  },
   "OGN-160": {
     // Dazzling Aurora — "At the end of your turn, reveal cards from the top of
     // your Main Deck until you reveal a unit and banish it. Play it, ignoring its

@@ -37,6 +37,7 @@ import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
+import { wearerListener } from "../equipment.js";
 
 /**
  * Card implementations for **Mind** — one file, one owner.
@@ -657,6 +658,35 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-086": {
+    // World Atlas — "When I hold, play two Gold gear tokens exhausted."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // Positional, like every "when I hold": the wearer has to be standing at the
+    // battlefield that was held, which `listener.battlefieldId` on the rewritten
+    // listener now genuinely answers.
+    on: "battlefieldHeld",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldHeld" &&
+        wearer !== undefined &&
+        event.holderIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      // TWO tokens through one call — `placeGoldTokens` mints them as separate
+      // game objects, which is what "two tokens" means.
+      return wearer === undefined ? state : placeGoldTokens(state, wearer.ownerIndex, 2);
+    },
+  },
   "OGN-112": {
     // Kai'Sa - Evolutionary — "[Ganking] When I conquer, you may play a spell
     // from your trash with Energy cost less than your points without paying its

@@ -35,12 +35,24 @@ among the 31. `equipment.ts`'s `EQUIP_GRANTED_KEYWORDS`, folded into
 | SFD-102 Hexdrinker | `[Deflect]` |
 | SFD-133 Boots of Swiftness | `[Ganking]` |
 
-## Not implemented — the wearer's moments (7)
+## Implemented — the wearer's moments (8) — DONE 2026-08-06
 
 All of the shape "when I \<moment\>, \<effect\>", where **I** is the unit wearing
-the Equipment. They need one shared piece of work: an attached Equipment's
-trigger firing on its WEARER's hold/conquer/move/attack, which no dispatch does
-today. Doing that once covers all seven.
+the Equipment. They shared one piece of work and it is now written:
+`equipment.wearerListener`, which hands a gear's ability the listener its WEARER
+would have had.
+
+**The mechanism is one function, because the walk was already right.**
+`listeningPermanents` has always walked every piece of active Gear as a listener.
+What a gear listener lacked was a LOCATION — `activeGear` is a flat per-player
+list with no battlefield — so a "when I conquer" written against
+`listener.battlefieldId` could never match, and `isFightingAt` rejected it
+outright for not being a Unit. Rewriting the listener rather than teaching the
+walk about attachment leaves Mask of Foresight, a gear listener that is
+deliberately NOT a combatant, untouched.
+
+Tests in `equipment-wearer-moments.test.ts`; nine of its seventeen fail with
+`wearerListener` stubbed out.
 
 | card | printed |
 |---|---|
@@ -53,7 +65,15 @@ today. Doing that once covers all seven.
 | SFD-134 Cull | When I conquer, play a Gold gear token exhausted. |
 | SFD-153 Eye of the Herald | When I move, play a 1 Might Recruit unit token here. |
 
-(Eight rows — Eye of the Herald shares the mechanism but fires on a move.)
+Two of the eight are worth a note. **Eye of the Herald** is the only one that is
+not positional — it matches on the moving unit's id, and its "here" is
+`event.to`, the battlefield the wearer ARRIVED at, because by resolution the
+listener's own location would be right only by luck. **Recurve Bow** names a
+choice ("an enemy unit"), so it parks a decision rather than auto-selecting in
+board order the way Yasuo and Teemo do; that inherits only the divergence
+`rules-conformance.md` already records for every held trigger — the choice
+happens at resolution rather than at finalization (402) — instead of adding
+auto-selection as a second one.
 
 ## Not implemented — one-offs (8)
 
@@ -79,8 +99,22 @@ Nothing to implement beyond the `[Equip]` cost and the Might badge, both of whic
 are done: **SFD-022 Long Sword, SFD-056 Sterak's Gage, SFD-095 Doran's Blade,
 SFD-161 B.F. Sword, SFD-178 Blade of the Ruined King.**
 
-## The single highest-value next step
+## What this cost the coverage number, and why that is the point
 
-**The wearer's-moments dispatch.** Eight cards share it, it is one mechanism, and
-every one of those cards is currently weaker than printed with nothing able to
-report it.
+**Fifteen Equipment reported `isCardImplemented = true` while doing none of what
+they print.** Not invisible to the instrument — actively misreported by it:
+`needsImplementation` reads the card text, the text is a bare `[Equip]` line, the
+generated equip ability is registered, so the card reads as finished.
+
+Eight are now written. The other seven were added to `PARTIALLY_IMPLEMENTED`,
+each naming the primitive it waits on. **SFD therefore fell from 100/198 to
+93/198**, and the drop is the fix rather than a regression: the eight were
+already being counted, so implementing them added nothing, and the seven had been
+inflating the number all along.
+
+## The next step here
+
+The seven one-offs below, each needing its own primitive — no shared mechanism
+left in this group. `SFD-172 Sacred Shears` is the cheapest (a `[Deathknell]` on
+the wearer, sourced from the gear) and `SFD-059 Svellsongur` the most expensive
+(text copying, which nothing in the engine models).

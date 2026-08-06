@@ -33,6 +33,7 @@ import { isMighty } from "../granted-keywords.js";
 import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
+import { wearerListener } from "../equipment.js";
 
 /**
  * Shurima's Sand Soldier: a 2-Might unit token, entering exhausted like any
@@ -910,6 +911,31 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
 };
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-153": {
+    // Eye of the Herald — "When I move, play a 1 [Might] Recruit unit token here."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER. `wearerListener` rewrites this gear's listener as the
+    // unit wearing it, so every existing predicate applies unchanged.
+    // The only one of the eight that is NOT positional: it fires on the wearer's
+    // own move, so it matches on the moving unit's id rather than on a
+    // battlefield. "HERE" is where the wearer ARRIVED — `event.to` — which is why
+    // the destination comes off the event and not off the listener, whose
+    // battlefieldId is re-derived and would be right only by luck.
+    on: "unitMoved",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return event.kind === "unitMoved" && wearer !== undefined && event.unitInstanceId === wearer.card.instanceId;
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      const wearer = wearerListener(state, listener);
+      return wearer === undefined ? state : placeRecruitToken(state, wearer.ownerIndex, { battlefieldId: event.to });
+    },
+  },
   "OGN-235": {
     // Karma - Channeler — "[Vision] When you recycle one or more cards to your
     // Main Deck, buff a friendly unit."
