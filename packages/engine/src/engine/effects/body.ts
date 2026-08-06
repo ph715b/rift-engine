@@ -167,6 +167,37 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? state
         : dealDamageToEnemyUnitsAtBattlefield(state, ctx.casterIndex, state.showdownBattlefieldId, 2),
   },
+  "SFD-114": {
+    // Marching Orders — "[Action] [Repeat] [3] Choose a friendly unit ANYWHERE
+    // and an enemy unit AT A BATTLEFIELD. They deal damage equal to their Mights
+    // to each other."
+    //
+    // Challenge (OGN-128, below) with one word changed, and the word is
+    // load-bearing: Challenge scopes BOTH duellists "anywhere", while this card
+    // prints the two halves differently. So `slotScopes` rather than a shared
+    // `scope` — the enemy must be at a battlefield, and an opposing unit sitting
+    // safe in its own base is NOT a legal second target here even though it is
+    // for Challenge. Reading the spec-wide scope for both would have offered a
+    // target 355.9.b does not allow.
+    //
+    // Everything else is Challenge's, including the ORDER that matters: both
+    // Mights are read before either damage instance lands, so the first duellist
+    // to die still deals its full Might on the way out.
+    //
+    // Repeating it may name a different pair (820.1.d) — and, unlike Challenge,
+    // repeating it at all is possible, which makes the read-before-deal snapshot
+    // observable twice: the second execution reads the board the first left
+    // behind, so a duellist already dead is simply gone (359.3) rather than
+    // dealing its Might again from the trash.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 2,
+      slotScopes: ["anywhere", "battlefield"],
+    },
+    resolve: (state, ctx, event) =>
+      unitsDuel(state, ctx.casterIndex, event.targetUnitInstanceId!, event.secondTargetUnitInstanceId!),
+  },
   "OGN-128": {
     // Challenge — "[Action] Choose a friendly unit and an enemy unit. They deal
     // damage equal to their Mights to each other."

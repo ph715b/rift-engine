@@ -42,6 +42,7 @@ const BLOOD_RUSH = "SFD-003"; // [Repeat] [1]; give a unit [Assault 2] this turn
 const FRIGID_TOUCH = "SFD-066"; // [Repeat] [2]; give a unit -2 Might this turn
 const BONDS_OF_STRENGTH = "SFD-151"; // [Repeat] [2]; give two friendly units each +1
 const PIERCING_LIGHT = "SFD-023"; // [Repeat] [2][Fury] — the Power-carrying shape
+const MARCHING_ORDERS = "SFD-114"; // [Repeat] [3]; friendly anywhere duels enemy at a battlefield
 
 function accept(state: GameState, action: unknown): GameState {
   const { state: next, result } = submit(state, action as never);
@@ -183,7 +184,15 @@ describe("[Repeat] is priced as an additional cost at announce (820.1.c.1)", () 
 
   it("prices a Repeat that carries Power as well as Energy", () => {
     // Piercing Light is 2 Energy + 1 Fury with a [Repeat] [2][Fury].
-    const { state, spellId } = caster(PIERCING_LIGHT, "Fury", 10, 2);
+    //
+    // Its first slot is scoped "at a battlefield", so the fixture has to STAND a
+    // unit at one — a board with units only in base offers this card no legal
+    // target and therefore no play at all, repeat or otherwise. That is the card
+    // working, not the test being awkward: `slotScopes: ["battlefield", ...]` is
+    // the printed restriction.
+    const { state, spellId } = caster(PIERCING_LIGHT, "Fury", 10);
+    state.battlefields[0]!.units["p1"] = [makeUnit({ name: "Front", instanceId: "front", might: 3 })];
+
     const repeated = playsOf(state, spellId).find((a) => a.repeatPaid);
     expect(repeated, "no repeat variant offered for the Power-carrying shape").toBeDefined();
     expect(repeated!.payment.energyRunes).toHaveLength(4);
@@ -411,6 +420,75 @@ describe("the second execution makes its OWN choices (820.1.d)", () => {
     const result = validatePlayCard(state, play);
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).toContain("does not have [Repeat]");
+  });
+
+  /**
+   * **The repeat may DECLINE an optional slot the first execution filled.**
+   *
+   * Piercing Light is "Deal 2 to a unit at a battlefield, then deal 2 to up to
+   * one OTHER unit" — the second slot is genuinely optional each time (`min: 1`).
+   * So a caster may hit two units, then repeat onto only the first.
+   *
+   * This is the case that decides `repeatChoices`' merge semantics. It WHOLLY
+   * REPLACES the choice fields rather than merging: under a field-by-field merge
+   * the omitted second target would silently inherit the first execution's, and
+   * `back` would take 4 instead of the 2 the caster actually named.
+   */
+  it("Piercing Light's repeat may decline the optional second slot", () => {
+    const { state, spellId } = caster(PIERCING_LIGHT, "Fury", 12);
+    state.battlefields[0]!.units["p1"] = [
+      makeUnit({ name: "Front", instanceId: "front", might: 10 }),
+      makeUnit({ name: "Back", instanceId: "back", might: 10 }),
+    ];
+
+    const base = playsOf(state, spellId).find(
+      (a) => a.repeatPaid && a.targetUnitInstanceId === "front" && a.secondTargetUnitInstanceId === "back",
+    )!;
+    // The second execution names ONLY the first slot — the "up to one other" is
+    // declined this time round.
+    const play: PlayCardAction = { ...base, repeatChoices: { targetUnitInstanceId: "front" } };
+    expect(validatePlayCard(state, play)).toMatchObject({ ok: true });
+
+    const after = resolveChain(accept(state, play));
+    const at = (id: string) => after.battlefields[0]!.units["p1"]!.find((u) => u.instanceId === id)!;
+    expect(at("front").damage, "front: 2 from each execution").toBe(4);
+    expect(at("back").damage, "back: hit once, NOT inherited by the repeat").toBe(2);
+  });
+
+  /**
+   * Marching Orders scopes its two slots differently from Challenge, which is
+   * the one word that separates the cards: the enemy must be AT A BATTLEFIELD.
+   * The negative is the assertion with information in it — an enemy sitting in
+   * its own base is not a legal second target here, though it is for Challenge.
+   */
+  it("Marching Orders will not duel an enemy standing in its own base", () => {
+    const { state, spellId } = caster(MARCHING_ORDERS, "Body", 10, 1);
+    state.players[1]!.baseUnits = [makeUnit({ name: "Homebody", instanceId: "homebody", might: 4 })];
+
+    const plays = playsOf(state, spellId);
+    expect(
+      plays.some((a) => a.secondTargetUnitInstanceId === "homebody"),
+      "offered an enemy in base as a duellist",
+    ).toBe(false);
+    // And with no enemy at a battlefield at all, the card is uncastable (min: 2).
+    expect(plays).toHaveLength(0);
+  });
+
+  it("Marching Orders duels twice when repeated, reading Mights before dealing", () => {
+    const { state, spellId } = caster(MARCHING_ORDERS, "Body", 10, 1);
+    state.battlefields[0]!.units["p2"] = [makeUnit({ name: "Foe", instanceId: "foe", might: 9 })];
+
+    const play = playsOf(state, spellId).find(
+      (a) => a.repeatPaid && a.targetUnitInstanceId === "ally0" && a.secondTargetUnitInstanceId === "foe",
+    )!;
+    const after = resolveChain(accept(state, play));
+
+    // ally0 is 3 Might, foe is 9. First duel: foe takes 3, ally takes 9 and dies
+    // (3 Might, 9 damage). The SECOND execution then finds its friendly duellist
+    // gone — 359.3 ignores a check on something no longer available — so foe
+    // takes nothing further and is left on the 3 from the first exchange.
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "ally0")).toBeUndefined();
+    expect(after.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === "foe")!.damage).toBe(3);
   });
 
   /**

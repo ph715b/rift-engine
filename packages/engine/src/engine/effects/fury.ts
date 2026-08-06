@@ -101,6 +101,44 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", BLOOD_RUSH_ASSAULT)
         : state,
   },
+  "SFD-023": {
+    // Piercing Light — "[Repeat] [2][Fury] Deal 2 to a unit at a battlefield,
+    // then deal 2 to up to one other unit."
+    //
+    // Two slots scoped DIFFERENTLY in print, so `slotScopes` rather than one
+    // shared scope: the first target is "at a battlefield", the second is "up to
+    // one other unit" with no location clause at all, which 355.9.b reads as
+    // reaching either base. Zenith Blade is the precedent for the split and for
+    // why a spec-wide scope would refuse a target the card allows.
+    //
+    // `min: 1`, because "UP TO one other" makes the second slot genuinely
+    // optional — a board with a single unit on it is a legal cast that deals 2
+    // once. That is the difference between this and Challenge's `min: 2`, and it
+    // is printed.
+    //
+    // "OTHER" is enforced by `unitSlots` itself, which rejects a pair naming the
+    // same unit twice — so this cannot be pointed at one unit for 4.
+    //
+    // No owner on either slot: neither half names one, so a caster may shoot
+    // their own. Legal and usually a misplay, the standing reading here.
+    //
+    // **The [Repeat] case worth naming**: 820.1.d lets the second execution
+    // DECLINE the optional slot the first one filled, which is why
+    // `repeatChoices` wholly replaces the choice fields rather than merging with
+    // the first set — under a merge, an omitted second target would silently
+    // inherit the first execution's and hit a unit the caster deliberately did
+    // not name. See card-effect-resolution.ts's `repeatChoicesOf`.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["any", "any"],
+      min: 1,
+      slotScopes: ["battlefield", "anywhere"],
+    },
+    resolve: (state, ctx, event) =>
+      [event.targetUnitInstanceId, event.secondTargetUnitInstanceId]
+        .filter((id): id is string => id !== undefined)
+        .reduce((next, id) => dealDamage(next, ctx.casterIndex, id, PIERCING_LIGHT_DAMAGE), state),
+  },
   "OGN-025": {
     // Blind Fury — "[Action] Each opponent reveals the top card of their Main
     // Deck. Choose one and banish it, then play it, ignoring its cost. Then
@@ -398,6 +436,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
  *  literal beside another bare literal. */
 const AGAINST_THE_ODDS_PER_ENEMY = 2;
 const BLOOD_RUSH_ASSAULT = 2;
+const PIERCING_LIGHT_DAMAGE = 2;
 const SUDDEN_STORM_BASE = 2;
 const SUDDEN_STORM_VS_ATTACKER = 4;
 
