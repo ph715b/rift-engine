@@ -173,3 +173,52 @@ describe("the two cards this event unblocked are whole", () => {
     expect(registry.get(CORRUPT_ENFORCER).text).toContain("win a combat");
   });
 });
+
+/**
+ * Draven - Glorious Executioner (SFD-185) — "When you win a combat, draw 1."
+ *
+ * A LEGEND, which is why this needed its own hook rather than an event-trigger
+ * entry: a Legend is not on the board, so no listener walk reaches it. He is
+ * also the card that shows why `combatWon` had to exist at all — on a conquer
+ * hook he would draw for walk-ins that never fought, and miss combats won at a
+ * battlefield he already controlled.
+ */
+describe("Draven - Glorious Executioner: the Legend side of combatWon", () => {
+  const DRAVEN_EXECUTIONER = "SFD-185";
+
+  /** p0's legend IS Draven, and p0 is about to fight at bf1. */
+  function withDraven(): GameState {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    const legend = registry.get(DRAVEN_EXECUTIONER);
+    state.players[0]!.legend = { ...state.players[0]!.legend, defId: legend.id, name: legend.name };
+    state.players[0]!.deck = [realUnitInstance("OGN-164"), realUnitInstance("OGN-164")];
+    return state;
+  }
+
+  it("draws when his side wins the fight", () => {
+    const state = withDraven();
+    state.battlefields[0]!.units = { p1: [makeUnit({ might: 9 })], p2: [makeUnit({ might: 1 })] };
+    expect(fightAt(state).players[0]!.hand, "Draven won and drew nothing").toHaveLength(1);
+  });
+
+  it("draws nothing on a mutual wipe — a No Result is not a win", () => {
+    const state = withDraven();
+    state.battlefields[0]!.units = { p1: [makeUnit({ might: 3 })], p2: [makeUnit({ might: 3 })] };
+    expect(fightAt(state).players[0]!.hand).toHaveLength(0);
+  });
+
+  it("draws nothing when the OPPONENT wins", () => {
+    const state = withDraven();
+    state.battlefields[0]!.units = { p1: [makeUnit({ might: 1 })], p2: [makeUnit({ might: 9 })] };
+    expect(fightAt(state).players[0]!.hand, "Draven drew off a loss").toHaveLength(0);
+  });
+
+  it("draws on a WALKOUT too — winning is not fighting", () => {
+    // The shape the probe counts 191 of in 200 games, and the one a conquer hook
+    // would also catch — but for the wrong reason, since a walk-in onto an
+    // already-controlled battlefield conquers nothing.
+    const state = withDraven();
+    state.battlefields[0]!.units = { p1: [makeUnit({ might: 4 })], p2: [] };
+    expect(fightAt(state).players[0]!.hand).toHaveLength(1);
+  });
+});

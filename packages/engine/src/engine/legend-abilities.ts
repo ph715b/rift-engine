@@ -79,6 +79,19 @@ export interface LegendAbilityDefinition {
    * second field beside it.
    */
   conquerCondition?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => boolean;
+  /**
+   * "When you win a combat..." — rule 466.5.a, the moment `combatWon` names.
+   *
+   * A Legend needs its own hook for this rather than riding the event trigger
+   * registry, for the reason every hook here exists: a Legend is not on the
+   * board, so no listener walk reaches it.
+   *
+   * NOT a conquest, and Draven - Glorious Executioner is exactly the card that
+   * shows why: a walk-in conquers without a combat, and a combat can be won at
+   * a battlefield its winner already controlled. Paying out on `onConquer`
+   * would be wrong in both directions.
+   */
+  onCombatWon?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -115,6 +128,21 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-185": {
+    // Draven - Glorious Executioner (SFD) — "When you win a combat, draw 1."
+    //
+    // The card that shows why `combatWon` had to be its own event rather than
+    // the cards reusing `battlefieldConquered`: a walk-in conquers with no
+    // combat at all, and a combat can be won at a battlefield its winner
+    // already controlled, which establishes no control and conquers nothing.
+    // On a conquer hook he would draw for fights that never happened and miss
+    // fights he won.
+    //
+    // 466.5.d's No Result shapes deliberately pay nothing — a mutual wipe is
+    // not a win — and that is handled once, in `combat.combatWinner`, rather
+    // than restated here.
+    onCombatWon: (state, ownerIndex) => drawCards(state, ownerIndex, 1),
+  },
   "OGS-017": {
     // Annie - Dark Child — "At the end of your turn, ready up to 2 runes."
     onEndOfTurn: (state, ownerIndex) => readyRunes(state, ownerIndex, 2),
@@ -459,7 +487,8 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
   };
 
   for (const [defId, ability] of Object.entries(LEGEND_ABILITIES)) {
-    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned, onSpellCast, onUnitPlayed } = ability;
+    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned, onSpellCast, onUnitPlayed, onCombatWon } =
+      ability;
 
     if (onEndOfTurn) {
       add(defId, {
@@ -538,6 +567,17 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           event.kind === "cardPlayed"
             ? onUnitPlayed(state, listener.ownerIndex, { unit: { instanceId: event.playedInstanceId } as UnitInstance, casterIndex: event.casterIndex })
             : state,
+      });
+    }
+
+    if (onCombatWon) {
+      add(defId, {
+        on: "combatWon",
+        // Positional only in the sense that it is HIS combat: the event
+        // already carries the winner, so this asks nothing about the board.
+        applies: (_state, listener, event) => event.kind === "combatWon" && event.winnerIndex === listener.ownerIndex,
+        resolve: (state, listener, event) =>
+          event.kind === "combatWon" ? onCombatWon(state, listener.ownerIndex, event.battlefieldId) : state,
       });
     }
 
