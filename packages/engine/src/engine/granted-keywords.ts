@@ -4,6 +4,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
+import { equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 
 /**
  * Keywords a unit has RIGHT NOW, printed ones plus any it is currently being
@@ -84,7 +85,11 @@ const GEMCRAFT_SEER = "OGN-100";
 /** The cards whose printed text this module implements — for coverage.ts, which
  *  would otherwise report them inert. */
 export function grantedKeywordDefIds(): string[] {
-  return [RAGING_SOUL, BILGEWATER_BULLY, FIORA_VICTORIOUS, ...Object.keys(KEYWORD_AURAS)];
+  // The Equipment whose granted keyword IS their whole art-only ability are
+  // implemented in equipment.ts, and coverage must be able to see them: their
+  // printed JSON text is nothing but an `[Equip]` line, so nothing else claims
+  // them.
+  return [RAGING_SOUL, BILGEWATER_BULLY, FIORA_VICTORIOUS, ...Object.keys(KEYWORD_AURAS), ...equipmentKeywordDefIds()];
 }
 
 /**
@@ -329,16 +334,27 @@ export function effectiveKeywords(
   // a keyword, and it grants to BOTH sides, so it is looked up from the location
   // rather than from a source card someone controls.
   const fromBattlefield = battlefieldKeywordsAt(state, locationOf(state, unit));
+  // Keywords from ATTACHED EQUIPMENT (SFD). Read fresh rather than stored, so
+  // detaching Doran's Shield takes `[Tank]` with it in the same instant — the
+  // same reasoning the Might badge is read at the gate in effective-might.
+  const fromEquipment = equipmentKeywordsFor(state, unit.instanceId);
   if (
     !hasThisTurn &&
     fromAuras.length === 0 &&
     fromBattlefield.length === 0 &&
+    Object.keys(fromEquipment).length === 0 &&
     (!grant || !grant.when(state, unit, ownerIndex))
   ) {
     return unit.keywords;
   }
 
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
+  // Higher wins, matching how every other source here merges: two Equipment
+  // granting `[Shield 2]` do not add up to `[Shield 4]`.
+  for (const [keyword, value] of Object.entries(fromEquipment)) {
+    const key = keyword as Keyword;
+    out[key] = Math.max(out[key] ?? 0, value);
+  }
   // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
   // holds for the turn; a conditional grant is re-asked every time. Both end up
   // in the same answer, because every reader wants "does it have this NOW".

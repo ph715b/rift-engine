@@ -17,6 +17,7 @@ import {
 } from "../src/engine/equipment.js";
 import { activatedAbilityFor, activationCostOf, hasActivatableAbility } from "../src/engine/activated-abilities.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
+import { effectiveKeywords, hasKeyword } from "../src/engine/granted-keywords.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { partialImplementationNote } from "../src/engine/coverage.js";
@@ -477,5 +478,93 @@ describe("[Weaponmaster] is reachable through the real on-play dispatch", () => 
     state.players[0]!.baseUnits = [ordinary];
 
     expect(pendingDecision(dispatchOnPlayUnit(state, ordinary, 0, "base"))).toBeUndefined();
+  });
+});
+
+/**
+ * Keywords an attached Equipment grants its wearer.
+ *
+ * **Transcribed from the card ART**, because — like the Might badge — it is in
+ * no field of the JSON: `text.plain` for every one of these is nothing but its
+ * `[Equip]` line, and the granted keyword sits in the box the printed card
+ * devotes to what the WEARER gains.
+ *
+ * Read off contact sheets built from the `media.image_url` already in the data,
+ * which also re-verified all 31 Might badges against the art independently of
+ * the oracle table they were ported from. Every one matched.
+ */
+describe("an attached Equipment grants its wearer keywords", () => {
+  const SERRATED_DIRK = "SFD-009"; // [Assault 2]
+  const DORANS_SHIELD = "SFD-033"; // [Tank]
+  const CLOTH_ARMOR = "SFD-064"; // [Shield 2]
+  const BOOTS = "SFD-133"; // [Ganking]
+
+  /** A bare unit with `gearDefIds` attached to it. */
+  function wearing(...gearDefIds: string[]): { state: GameState; unitId: string } {
+    const unit = makeUnit({ name: "Wearer", might: 3 });
+    const state = makeState();
+    state.players[0]!.baseUnits = [unit];
+    state.players[0]!.activeGear = gearDefIds.map((id) => realGearInstance(id));
+    let next = state;
+    for (const gear of state.players[0]!.activeGear) {
+      next = attachEquipment(next, 0, gear.instanceId, unit.instanceId);
+    }
+    return { state: next, unitId: unit.instanceId };
+  }
+
+  const keywordsOf = (state: GameState, unitId: string) => {
+    const unit = state.players[0]!.baseUnits.find((u) => u.instanceId === unitId)!;
+    return effectiveKeywords(state, unit, 0);
+  };
+
+  it("grants the printed keyword, at its printed value", () => {
+    // Four distinct keywords at three distinct values, so a table returning a
+    // constant would fail rather than look plausible.
+    const dirk = wearing(SERRATED_DIRK);
+    expect(keywordsOf(dirk.state, dirk.unitId).Assault).toBe(2);
+    const shield = wearing(DORANS_SHIELD);
+    expect(keywordsOf(shield.state, shield.unitId).Tank).toBe(1);
+    const cloth = wearing(CLOTH_ARMOR);
+    expect(keywordsOf(cloth.state, cloth.unitId).Shield).toBe(2);
+    const boots = wearing(BOOTS);
+    expect(keywordsOf(boots.state, boots.unitId).Ganking).toBe(1);
+  });
+
+  it("takes it away the instant the Equipment detaches", () => {
+    // Continuous, not stored — the same reasoning as the Might badge.
+    const { state, unitId } = wearing(DORANS_SHIELD);
+    expect(keywordsOf(state, unitId).Tank).toBe(1);
+    const gearId = state.players[0]!.activeGear[0]!.instanceId;
+    const bare = detachEquipment(state, 0, gearId);
+    expect(keywordsOf(bare, unitId).Tank, "the keyword survived the detach").toBeUndefined();
+  });
+
+  it("grants nothing from an UNATTACHED Equipment sitting in play", () => {
+    // The negative control that matters: owning the gear is not wearing it.
+    const unit = makeUnit({ name: "Bare" });
+    const state = makeState();
+    state.players[0]!.baseUnits = [unit];
+    state.players[0]!.activeGear = [realGearInstance(DORANS_SHIELD)];
+    expect(effectiveKeywords(state, unit, 0).Tank).toBeUndefined();
+  });
+
+  it("stacks two different Equipment, and does not ADD two of the same keyword", () => {
+    const both = wearing(SERRATED_DIRK, BOOTS);
+    const kw = keywordsOf(both.state, both.unitId);
+    expect(kw.Assault).toBe(2);
+    expect(kw.Ganking).toBe(1);
+
+    // Two Cloth Armors are [Shield 2], not [Shield 4] — higher wins, which is how
+    // every other source in effectiveKeywords already merges.
+    const twoCloth = wearing(CLOTH_ARMOR, CLOTH_ARMOR);
+    expect(keywordsOf(twoCloth.state, twoCloth.unitId).Shield, "two Shields were added together").toBe(2);
+  });
+
+  it("reaches COMBAT — Doran's Shield really makes its wearer a Tank", () => {
+    // The keyword is only worth granting if the rules engine sees it, and combat
+    // is where [Tank] means anything.
+    const { state, unitId } = wearing(DORANS_SHIELD);
+    const unit = state.players[0]!.baseUnits.find((u) => u.instanceId === unitId)!;
+    expect(hasKeyword(state, unit, 0, "Tank")).toBe(true);
   });
 });

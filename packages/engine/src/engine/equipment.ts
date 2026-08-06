@@ -4,6 +4,7 @@ import type { Domain } from "../model/domain.js";
 import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
+import type { Keyword } from "../model/keyword.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem, and the one the survey called
@@ -313,4 +314,57 @@ export function holdWeaponmasterOffer(state: GameState, playerIndex: 0 | 1, unit
   );
   if (!anyAffordable) return state;
   return parkDecision(state, { kind: WEAPONMASTER_DECISION, playerIndex, cardInstanceId: unit.instanceId });
+}
+
+/**
+ * Keywords an attached Equipment grants to the unit wearing it.
+ *
+ * **Transcribed from the card ART, like the Might badges, because it is not in
+ * the JSON either.** The `text.plain` of every card below is nothing but its
+ * `[Equip]` line — the granted keyword sits in the box the printed card devotes
+ * to what the WEARER gains, and no field of the export carries it.
+ *
+ * Read off contact sheets built from `media.image_url` (all 31 Equipment, text
+ * boxes cropped and stacked), which also re-verified every one of the 31 Might
+ * badges in `card-loader`'s EQUIP_MIGHT_BONUS against the art independently of
+ * the oracle they were ported from. All 31 matched.
+ *
+ * These five are the shared-mechanism subset. The other art-only abilities are
+ * per-card work and are listed in `docs/sfd-equipment-abilities.md` rather than
+ * left to be rediscovered by re-reading the images.
+ */
+const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> = {
+  "SFD-009": { Assault: 2 }, // Serrated Dirk — "[Assault 2]"
+  "SFD-033": { Tank: 1 }, // Doran's Shield — "[Tank]"
+  "SFD-064": { Shield: 2 }, // Cloth Armor — "[Shield 2]"
+  "SFD-102": { Deflect: 1 }, // Hexdrinker — "[Deflect]"
+  "SFD-133": { Ganking: 1 }, // Boots of Swiftness — "[Ganking]"
+};
+
+/**
+ * The keywords this unit gains from the Equipment attached to it.
+ *
+ * Folded into `effectiveKeywords` rather than stored, so it comes and goes with
+ * the attachment exactly as the Might badge does — detaching Doran's Shield
+ * takes `[Tank]` with it in the same instant.
+ *
+ * A unit wearing two Equipment that grant the same keyword takes the HIGHER
+ * value, matching how `effectiveKeywords` already merges every other source: a
+ * second `[Shield 2]` is not `[Shield 4]`.
+ */
+export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): Partial<Record<Keyword, number>> {
+  const out: Partial<Record<Keyword, number>> = {};
+  for (const gear of equipmentAttachedTo(state, unitInstanceId)) {
+    for (const [keyword, value] of Object.entries(EQUIP_GRANTED_KEYWORDS[gear.defId] ?? {})) {
+      const key = keyword as Keyword;
+      out[key] = Math.max(out[key] ?? 0, value);
+    }
+  }
+  return out;
+}
+
+/** For coverage.ts — the Equipment whose granted keyword is their whole
+ *  art-only ability, and which are therefore implemented HERE. */
+export function equipmentKeywordDefIds(): string[] {
+  return Object.keys(EQUIP_GRANTED_KEYWORDS);
 }
