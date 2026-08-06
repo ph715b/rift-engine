@@ -53,7 +53,43 @@ import type { GameState, PlayerState } from "../../model/game-state.js";
  * See effects/fury.ts's header for what adding a card owes: registration, a rule
  * or oracle citation, and an engine test.
  */
+const DANGER_ZONE_MIGHT = 1;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-182": {
+    // Danger Zone (Fury + Mind) — "[Reaction] [Repeat] [1][rainbow] Give your
+    // Mechs +1 Might this turn."
+    //
+    // Tribal, and the tag is PRINTED, so the filter is a definition-level
+    // question — the same `tags.includes("Mech")` that granted-keywords.ts's
+    // `isMech` asks for the three tribal keyword auras. Spelled out here rather
+    // than imported because that predicate takes a DEFINITION and this walks
+    // live `UnitInstance`s, which carry their own `tags`.
+    //
+    // **This is the card that the tribal-aura bug of 2026-08-06 was about**: three
+    // auras granted their keyword to EVERY friendly unit because they consulted
+    // `appliesTo` and never `appliesToDef`, and every test for them passed
+    // because each only asserted that the Mech got the keyword. So the assertion
+    // that matters for this card is the NEGATIVE — a non-Mech friendly gets
+    // nothing — and the test carries it.
+    //
+    // "YOUR Mechs", so no enemy Mech is pumped and there is no "here": a Mech in
+    // base is pumped too, which is `ownUnitsEverywhere`'s whole reason for
+    // reaching both zones.
+    //
+    // `kind: "none"`: the card names no target, it names a GROUP. Nothing is
+    // chosen, so 820.1.d's "may make different choices" has nothing to vary —
+    // repeating this is simply +1 twice to whatever Mechs are standing when each
+    // execution runs, and the second execution reads the board the first left.
+    //
+    // A caster with no Mechs at all still casts it for nothing; the group is the
+    // instruction, not a condition on it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      ownUnitsEverywhere(state, ctx.casterIndex)
+        .filter((u) => u.tags.includes("Mech"))
+        .reduce((next, u) => giveMightThisTurn(next, u.instanceId, DANGER_ZONE_MIGHT), state),
+  },
   "OGN-258": {
     // Dragon's Rage (Calm + Body) — "Move an enemy unit. Then do this: Choose
     // another enemy unit at its destination. They deal damage equal to their

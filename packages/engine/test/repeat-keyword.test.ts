@@ -498,6 +498,73 @@ describe("Marai Spire discounts friendly [Repeat] costs", () => {
   });
 });
 
+/**
+ * Danger Zone (SFD-182) — "[Reaction] [Repeat] [1][rainbow] Give your Mechs +1
+ * Might this turn."
+ *
+ * The ONLY card whose Repeat cost carries a RAINBOW pip, so it is the only thing
+ * that exercises `RepeatCostSpec.rainbowPower` at all — a bucket that until now
+ * had a table entry, pricing code and no card behind it.
+ *
+ * It is also a tribal buff, which is the shape that produced a live bug on
+ * 2026-08-06: three keyword auras granted to EVERY friendly unit because they
+ * consulted `appliesTo` and never `appliesToDef`, and every test passed because
+ * each only asserted that the MECH got the keyword. So the negative below is the
+ * assertion with the information in it.
+ */
+describe("Danger Zone buffs Mechs only, and pays a RAINBOW repeat", () => {
+  function mechBoard(runeCount = 12) {
+    const { state, spellId } = caster("SFD-182", "Mind", runeCount);
+    state.players[0]!.baseUnits = [
+      makeUnit({ name: "Mech", instanceId: "mech", might: 3, tags: ["Mech"] }),
+      makeUnit({ name: "Footsoldier", instanceId: "grunt", might: 3, tags: [] }),
+    ];
+    state.players[1]!.baseUnits = [makeUnit({ name: "Enemy Mech", instanceId: "foemech", might: 3, tags: ["Mech"] })];
+    return { state, spellId };
+  }
+
+  it("prices the rainbow half of the repeat cost", () => {
+    const { state, spellId } = mechBoard();
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+
+    // 1 printed Energy + 1 repeat Energy; 1 printed Power; 1 RAINBOW for the repeat.
+    expect(repeated.payment.energyRunes).toHaveLength(2);
+    expect(repeated.payment.powerRunes).toHaveLength(1);
+    expect(repeated.payment.rainbowRunes ?? [], "the repeat's rainbow pip was not charged").toHaveLength(1);
+    expect(validatePlayCard(state, repeated), "enumerated but refused").toMatchObject({ ok: true });
+  });
+
+  it("and charges no rainbow when the repeat is declined", () => {
+    const { state, spellId } = mechBoard();
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid)!;
+    expect(plain.payment.rainbowRunes ?? []).toHaveLength(0);
+  });
+
+  /** The negative the tribal-aura bug is a monument to. */
+  it("pumps YOUR Mechs and nothing else", () => {
+    const { state, spellId } = mechBoard();
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid)!;
+    const after = resolveChain(accept(state, plain));
+
+    const mine = (id: string) => after.players[0]!.baseUnits.find((u) => u.instanceId === id)!;
+    expect(mine("mech").mightThisTurn, "the Mech").toBe(1);
+    expect(mine("grunt").mightThisTurn, "a friendly NON-Mech was pumped").toBe(0);
+    expect(
+      after.players[1]!.baseUnits.find((u) => u.instanceId === "foemech")!.mightThisTurn,
+      "an ENEMY Mech was pumped",
+    ).toBe(0);
+  });
+
+  it("repeated, it is +2 on the Mech and still nothing on the rest", () => {
+    const { state, spellId } = mechBoard();
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+    const after = resolveChain(accept(state, repeated));
+
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "mech")!.mightThisTurn).toBe(2);
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "grunt")!.mightThisTurn).toBe(0);
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**
