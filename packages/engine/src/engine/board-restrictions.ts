@@ -36,8 +36,52 @@ const MISS_FORTUNE_BUCCANEER = "OGN-193";
  *  than in an effect registry, so nothing else would report them. */
 const TIANNA_CROWNGUARD = "SFD-060";
 
+/**
+ * Renata Glasc - Industrialist (SFD-171) — "Your tokens enter ready."
+ *
+ * The one entry in this module that GRANTS at a gate rather than forbidding at
+ * one, and it is here for the module's stated reason: a card whose whole text is
+ * a statement about how the rules run has no resolver to live in.
+ *
+ * # Why this beats the printed word "exhausted"
+ *
+ * Sixteen SFD cards say "play a Gold gear token **exhausted**", and none of them
+ * loses to her by accident — this was read off the rules and is worth writing
+ * down, because the naive reading (a card's own explicit instruction is more
+ * specific than a blanket grant, so it wins) is wrong here and looks right.
+ *
+ *  - **149.1: "Gear enter play Ready."** A Gold gear token's DEFAULT is ready.
+ *    Unit tokens are the opposite — 359.2.c enters them exhausted.
+ *  - **184.1**: a token-making effect "may state that the token enters ready or
+ *    exhausted, **if that state is contrary to the default for the token's
+ *    type**". That is the whole reason those sixteen cards print the word: they
+ *    are overriding gear's ready default, not restating it.
+ *  - **369.3** identifies a replacement effect applying as an object enters "by
+ *    describing how the unit enters", and gives Master Yi, Honed — "I enter
+ *    ready" — as the worked example: "the event of him entering exhausted is
+ *    replaced by one where he enters ready". Renata's text is that shape.
+ *  - **375**'s second example settles the collision: where a modification from
+ *    the generating effect "cannot apply, **so we ignore it**". Her replacement
+ *    fixes the entry state, so the generating effect's "exhausted" is ignored.
+ *
+ * So a ready Gold — a free rainbow Power the turn it is made — is the intended
+ * payoff on a 4-cost champion, not an overreach. `createGearToken`'s comment
+ * used to argue the other way and has been corrected in place.
+ *
+ * # Two things she is not
+ *
+ * **Not positional.** Her text names no battlefield for herself, so `inPlayFor`
+ * and not `atOwnBattlefield` — she works from base, unlike Tianna above and the
+ * Warden, and like Miss Fortune below.
+ *
+ * **Not restricted to unit tokens.** 185.2.d gives tokens a type and has them
+ * follow their type's rules; a Gold gear token is still a token, and "your
+ * tokens" carries no restriction. She reaches both kinds.
+ */
+const RENATA_INDUSTRIALIST = "SFD-171";
+
 export function boardRestrictionDefIds(): string[] {
-  return [TIANNA_CROWNGUARD, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
+  return [TIANNA_CROWNGUARD, RENATA_INDUSTRIALIST, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
 }
 
 /** Is `defId` in play for `playerIndex`, AT A BATTLEFIELD? The positional test
@@ -125,4 +169,19 @@ export function mayGainPoints(state: GameState, playerIndex: 0 | 1): boolean {
 
 export function grantsOpenBattlefieldPlacement(state: GameState, playerIndex: 0 | 1): boolean {
   return inPlayFor(state, playerIndex, MISS_FORTUNE_BUCCANEER);
+}
+
+/**
+ * Renata Glasc - Industrialist's replacement effect — do `ownerIndex`'s tokens
+ * enter ready regardless of what the effect making them asked for?
+ *
+ * Asked at the two placement gates in `token.ts` (`placeToken` for units,
+ * `placeGearToken` for gear), which between them are the only paths that put a
+ * token on the board — `token.ts` is the only module in the engine that sets
+ * `isToken: true`, so there is no third way in for this to miss.
+ *
+ * Asked of the token's OWN controller, not an opponent: "YOUR tokens".
+ */
+export function tokensEnterReady(state: GameState, ownerIndex: 0 | 1): boolean {
+  return inPlayFor(state, ownerIndex, RENATA_INDUSTRIALIST);
 }

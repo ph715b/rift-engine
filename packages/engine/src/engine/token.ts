@@ -1,6 +1,7 @@
 import type { GearInstance, UnitInstance } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { applyContested } from "./cleanup.js";
+import { tokensEnterReady } from "./board-restrictions.js";
 
 /** Where a created token is put — "base", or a specific battlefield. */
 export type TokenDestination = "base" | { battlefieldId: string };
@@ -91,7 +92,13 @@ export function placeToken(
   destination: TokenDestination,
   spec: TokenSpec,
 ): GameState {
-  const token = createToken(spec);
+  // Renata Glasc - Industrialist's "your tokens enter ready" (369.3), applied
+  // HERE rather than in `createToken` because this is the first point that knows
+  // whose token it is. It overrides the spec either way round: a Recruit that
+  // would enter exhausted enters ready, and it is a no-op on Sprite Call, which
+  // already asked for ready.
+  const spawned = createToken(spec);
+  const token = tokensEnterReady(state, casterIndex) ? { ...spawned, exhausted: false } : spawned;
   const casterId = state.players[casterIndex].id;
 
   if (destination === "base") {
@@ -172,6 +179,12 @@ export function createGearToken(spec: GearTokenSpec, entersExhausted: boolean): 
     // Every SFD card that makes one says "play a Gold gear token EXHAUSTED", so
     // the caller states it rather than defaulting: a gear token that quietly
     // entered ready would be a free rainbow Power on the turn it was made.
+    //
+    // That word is the GENERATING EFFECT's modification, not the type's default —
+    // 149.1 enters gear ready, and 184.1 is what lets those cards say otherwise.
+    // So it is overridable, and `placeGearToken` below overrides it for Renata
+    // Glasc - Industrialist. This comment previously read as though "exhausted"
+    // were inherent to a gear token; it never was.
     exhausted: entersExhausted,
     isToken: true,
     kind: "Gear",
@@ -199,7 +212,10 @@ export function placeGearToken(
   spec: GearTokenSpec,
   entersExhausted: boolean,
 ): GameState {
-  const token = createGearToken(spec, entersExhausted);
+  // Renata Glasc - Industrialist replaces the entering event, so the caller's
+  // `entersExhausted` — which is the generating effect's 184.1 modification, not
+  // gear's 149.1 default — is ignored while she is in play (375).
+  const token = createGearToken(spec, entersExhausted && !tokensEnterReady(state, casterIndex));
   const players = [...state.players] as [PlayerState, PlayerState];
   players[casterIndex] = { ...players[casterIndex], activeGear: [...players[casterIndex].activeGear, token] };
   return { ...state, players };

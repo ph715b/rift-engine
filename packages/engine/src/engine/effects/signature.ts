@@ -12,6 +12,7 @@ import {
   discardCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
   ownUnitsEverywhere,
   payEnergyFromPool,
   payPowerFromChanneled,
@@ -24,6 +25,7 @@ import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { isHiddenCard } from "../hidden.js";
 import { parkDecision } from "../decisions.js";
+import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
@@ -576,6 +578,63 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => parkDecision(state, { kind: "SFD-188-banish", playerIndex: ctx.casterIndex }),
   },
+  "SFD-206": {
+    // Riposte (Body + Order) — "[Reaction] Choose a friendly unit AND a spell.
+    // Counter that spell and give that unit +[Might] equal to that spell's
+    // Energy cost this turn."
+    //
+    // # The divergence, stated first because it is the reason this shape was chosen
+    //
+    // The card names TWO targets in one sentence, and `TargetingSpec` has no kind
+    // that carries both — `chainSpell` and `unitSlots` are separate union members,
+    // and `ResolveEvent` has a field for each but nothing that enumerates the pair.
+    // So the SPELL is a real announce-time target and the UNIT is asked at
+    // resolution, exactly as Mystic Reversal asks its re-aim question.
+    //
+    // **What that costs: castability.** 355.8 makes a spell uncastable when it has
+    // no legal target, so printed Riposte cannot be cast with no friendly unit on
+    // the board. This version can — the chain spell alone satisfies the announce,
+    // and the buff half simply finds nobody. Recorded Divergent in
+    // docs/rules-conformance.md, and it is the whole of the difference: with at
+    // least one friendly unit anywhere, this plays exactly as printed.
+    //
+    // The response window moves with it. Printed, an opponent seeing Riposte
+    // announced already knows which unit it will grow; here they learn that when
+    // it resolves. Nothing in this pool responds to that knowledge, which is why
+    // the trade was acceptable — but it is the second half of the same divergence,
+    // not a separate one.
+    //
+    // # The rest is as printed
+    //
+    // **The Energy cost is read BEFORE the counter**, because `counterSpell` takes
+    // the entry off the chain and the amount would be unrecoverable after. PRINTED
+    // Energy, not what was paid — the same reading `matchesCostFilter` already
+    // applies for Defy's cost filter, so a Repeat-boosted spell still gives its
+    // printed number.
+    //
+    // **"A friendly unit" is a bare noun**, so 355.9.b's reading applies and a unit
+    // in base is a legal choice — the reading Blitzcrank - Impassive's decision
+    // already uses.
+    //
+    // A vanished target is a no-op on both halves: two counters can name the same
+    // spell and the second finds nothing, which `counterSpell`'s own comment calls
+    // out as a real case rather than defensive padding. No spell means no cost to
+    // read, so there is nothing to give either.
+    targeting: { kind: "chainSpell" },
+    resolve: (state, ctx, event) => {
+      if (!event.targetChainCardInstanceId) return state;
+      const target = spellsOnChain(state).find((e) => e.entry.card.instanceId === event.targetChainCardInstanceId);
+      if (!target) return state;
+      const amount = target.entry.card.energyCost;
+      const countered = counterSpell(state, event.targetChainCardInstanceId);
+      // A 0-Energy spell gives +0, which is not a question worth asking. Guarded
+      // here rather than in the decision so no empty prompt is ever raised.
+      if (amount <= 0) return countered;
+      return ownUnitsEverywhere(countered, ctx.casterIndex).length === 0
+        ? countered
+        : parkDecision(countered, { kind: "SFD-206-buff", playerIndex: ctx.casterIndex, count: amount });
+    },
+  },
 };
 
 /** Void Rush's "reducing its cost by [2 Energy]". */
@@ -739,6 +798,31 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Riposte's "give that unit +[Might] equal to that spell's Energy cost this
+   * turn" — the half that printed Riposte chooses at announce and this engine
+   * asks at resolution. See the SFD-206 entry above for the divergence.
+   *
+   * `count` carries the AMOUNT rather than a repeat tally. That is an established
+   * second use of the field — the shared `draw` decision reads `d.count` as "draw
+   * N" — and it is captured when the question is raised, because by the time the
+   * answer arrives the spell it was measured from is off the chain entirely.
+   *
+   * NOT a "you may": the printed text is an instruction, so there is no decline
+   * option. With exactly one friendly unit the list is a single option and
+   * `advanceDecisions` retires it without prompting, which is the correct
+   * behaviour rather than a shortcut — one candidate is not a choice.
+   */
+  "SFD-206-buff": {
+    prompt: (state, d) => `Riposte: give which unit +${d.count ?? 0} Might this turn?`,
+    options: (state, d): DecisionOption[] =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({
+        id: u.instanceId,
+        label: `${u.name} (+${d.count ?? 0} Might)`,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => giveMightThisTurnToOwnUnit(state, d.playerIndex, optionId, d.count ?? 0),
+  },
   // Super Mega Death Rocket's "you may discard 1 to return this from your trash
   // to your hand", raised by its conquer trigger.
   //

@@ -32,7 +32,7 @@ const registry = defaultCardRegistry();
 const WIND_WALL = "OGN-064"; // "[Reaction] Counter a spell."
 const DEFY = "OGN-045"; // "... a spell that costs no more than [4] and no more than [1 rainbow]."
 const MYSTIC_REVERSAL = "OGN-080"; // "Gain control of a spell. You may make new choices for it."
-const HEXTECH_RAY = "OGN-009"; // Fury 2E/1P — "Deal 3 to a unit at a battlefield."
+const HEXTECH_RAY = "OGN-009"; // Fury 1E/1P — "Deal 3 to a unit at a battlefield."
 const THERMO_BEAM = "OGN-022"; // Fury 5E/2P — over BOTH halves of Defy's filter
 const DARIUS_TRIFARIAN = "OGN-027"; // "When you play your SECOND card in a turn, give me +2 Might."
 
