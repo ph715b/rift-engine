@@ -72,7 +72,7 @@ describe("a combat is WON when exactly one side is left (466.5.a)", () => {
     expect(goldOf(after, 1)).toHaveLength(0);
   });
 
-  it("cannot reach the both-sides-survive No Result at all, and here is why", () => {
+  it("plain units cannot reach the both-sides-survive No Result, and here is why", () => {
     // 466.5.d has TWO No Result shapes. The mutual wipe above is reachable; the
     // other one — both sides still standing, which is when step 3d recalls the
     // attackers — **is not reachable in this pool**, and that is arithmetic
@@ -88,10 +88,14 @@ describe("a combat is WON when exactly one side is left (466.5.a)", () => {
     // the symmetry the wrong way, raising the attacker's pool without raising
     // what it takes to kill them.
     //
-    // Asserted rather than left as prose, because `combatWinner`'s
-    // both-survive branch is a GUARD on an unreachable state, and the next
-    // card that adds real damage absorption makes it live. This is what will
-    // say so.
+    // **That prediction came true the same day.** This comment used to end "the
+    // next card that adds real damage absorption makes it live" — and Ezreal -
+    // Dashing (SFD-082) does exactly that from the other side: he DEALS no
+    // combat damage, so the defenders survive while he does too, and 466 step
+    // 3d recalls him. `combatWinner`'s both-survive branch is a live path now,
+    // not a guard, and the test below is the one that exercises it.
+    //
+    // The claim kept here is the narrower true one: PLAIN units cannot do it.
     for (const [a, d] of [
       [3, 3],
       [9, 1],
@@ -220,5 +224,85 @@ describe("Draven - Glorious Executioner: the Legend side of combatWon", () => {
     const state = withDraven();
     state.battlefields[0]!.units = { p1: [makeUnit({ might: 4 })], p2: [] };
     expect(fightAt(state).players[0]!.hand).toHaveLength(1);
+  });
+});
+
+/**
+ * Ezreal - Dashing (SFD-082) — "I don't deal combat damage."
+ *
+ * His DRAWBACK, and it was written the moment the rest of his card was. His
+ * attack trigger deals damage equal to his Might; without this he would deal
+ * that AND his Might in the damage step, i.e. strictly stronger than printed —
+ * the one direction this codebase does not ship. The agent that wrote the
+ * trigger flagged the over-strength rather than leaving it to be discovered.
+ */
+describe("Ezreal - Dashing deals no combat damage", () => {
+  const EZREAL_DASHING = "SFD-082";
+
+  it("contributes NOTHING to the damage step, so a lone Ezreal kills nobody", () => {
+    const ezreal = realUnitInstance(EZREAL_DASHING);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    // A 9-Might Ezreal against a 1-Might defender: without the drawback the
+    // defender is obliterated. With it, nothing is dealt at all.
+    state.battlefields[0]!.units = { p1: [{ ...ezreal, might: 9 }], p2: [makeUnit({ might: 1 })] };
+
+    const after = resolveShowdown(state, "bf1", 0);
+
+    expect(after.battlefields[0]!.units.p2 ?? [], "the defender took Ezreal's Might").toHaveLength(1);
+  });
+
+  it("is no EASIER to kill for it — remainingMight is untouched", () => {
+    // The half the Stun rule gets right and a naive "set his Might to 0" would
+    // get wrong: he hits for nothing and still takes his full Might to kill.
+    const ezreal = realUnitInstance(EZREAL_DASHING);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [{ ...ezreal, might: 5 }], p2: [makeUnit({ might: 4 })] };
+
+    const after = resolveShowdown(state, "bf1", 0);
+
+    // He SURVIVES — but he is not standing at the battlefield, because both
+    // sides survived and 466 step 3d recalls the attackers. Asserting on the
+    // battlefield alone would read that as a death; the first draft of this
+    // test did exactly that and reported him killed by 4 damage at 5 Might.
+    expect(after.players[0]!.baseUnits, "4 damage killed a 5-Might Ezreal").toHaveLength(1);
+    expect(after.battlefields[0]!.units.p2 ?? [], "he dealt damage after all").toHaveLength(1);
+  });
+
+  it("does not silence anyone else", () => {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [makeUnit({ might: 9 })], p2: [makeUnit({ might: 1 })] };
+    expect(resolveShowdown(state, "bf1", 0).battlefields[0]!.units.p2 ?? []).toHaveLength(0);
+  });
+});
+
+/**
+ * The both-sides-survive No Result, now that a card can produce one.
+ *
+ * This was asserted UNREACHABLE hours earlier, correctly: a plain unit's
+ * outgoing Might is its remaining Might, so surviving needs A < D < A. Ezreal -
+ * Dashing breaks the symmetry from the side `[Shield]` could not — he deals
+ * nothing while still taking his full Might to kill — and that is precisely the
+ * "next card that adds damage absorption" the old comment predicted.
+ */
+describe("466.5.d's other No Result is reachable now", () => {
+  it("nobody wins when Ezreal survives a fight he cannot win", () => {
+    const ezreal = realUnitInstance("SFD-082");
+    const draven = realUnitInstance(DRAVEN_VANQUISHER);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    // Ezreal attacks a defender too small to kill him. He deals 0, so the
+    // defender lives; the defender deals 4, so Ezreal lives. Both sides remain.
+    state.battlefields[0]!.units = { p1: [{ ...ezreal, might: 9 }], p2: [makeUnit({ might: 4 })] };
+    // Draven sits at the OTHER battlefield, so if a win were wrongly declared
+    // for p0 anywhere he would mint a Gold token.
+    state.battlefields[1]!.units = { p1: [{ ...draven, might: 4 }] };
+
+    const after = fightAt(state);
+
+    // Both survived — the attacker went home under step 3d, which is what makes
+    // it a No Result rather than a defender's victory.
+    expect(after.players[0]!.baseUnits, "Ezreal did not survive").toHaveLength(1);
+    expect(after.battlefields[0]!.units.p2 ?? [], "the defender did not survive").toHaveLength(1);
+    expect(goldOf(after, 0), "a No Result paid out").toHaveLength(0);
+    expect(goldOf(after, 1)).toHaveLength(0);
   });
 });

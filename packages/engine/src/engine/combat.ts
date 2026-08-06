@@ -38,6 +38,17 @@ function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, 
   // It hits for nothing and is no easier to kill; the two functions exist
   // precisely because those are different questions.
   if (unit.stunned) return 0;
+  // "I don't deal combat damage" — Ezreal - Dashing (SFD-082). The exact
+  // counterpart of the Stun line above, and it belongs in the same place for
+  // the same reason: this function is the one question "how hard does this unit
+  // hit" is asked, and `remainingMight` below is deliberately untouched, so he
+  // is no easier to kill for dealing nothing.
+  //
+  // Written the moment the rest of his card was, because it is his DRAWBACK:
+  // his attack trigger deals damage equal to his Might, and without this he
+  // would deal it AND his Might in the damage step — strictly stronger than
+  // printed, which is the one direction this codebase does not ship.
+  if (DEALS_NO_COMBAT_DAMAGE_DEF_IDS.has(unit.defId)) return 0;
   return effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "outgoing", battlefieldId });
 }
 
@@ -89,6 +100,10 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
  */
 const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling
 
+/** Units whose printed text says they deal no combat damage. Read by
+ *  `outgoingMight`, beside the Stun rule it mirrors. */
+const DEALS_NO_COMBAT_DAMAGE_DEF_IDS = new Set(["SFD-082"]); // Ezreal - Dashing
+
 /** Symbol of the Solari: "If a combat where you are the attacker ends in a tie,
  *  recall ALL units instead." A Gear that changes rule 466's step 3d, so it is
  *  read here rather than registered as an effect. */
@@ -123,7 +138,7 @@ function assignmentOrder(state: GameState, units: readonly UnitInstance[], owner
 /** The cards whose printed text this module implements, for coverage.ts — the
  *  same reason effective-might.ts and granted-keywords.ts export theirs. */
 export function combatAssignmentDefIds(): string[] {
-  return [...ASSIGNED_LAST_DEF_IDS, SYMBOL_OF_THE_SOLARI];
+  return [...ASSIGNED_LAST_DEF_IDS, ...DEALS_NO_COMBAT_DAMAGE_DEF_IDS, SYMBOL_OF_THE_SOLARI];
 }
 
 /**
