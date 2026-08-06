@@ -8,6 +8,7 @@ import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
+import { holdQuickDrawAttach } from "../engine/equipment.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -491,6 +492,14 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
 
   const players = [...nextState.players] as [PlayerState, PlayerState];
   players[action.playerIndex] = updatedActor;
+  let placed: GameState = { ...nextState, players };
 
-  return { ...nextState, players };
+  // `[Quick-Draw]` (SFD) — "When you play it, attach it to a unit you control."
+  // Here rather than anywhere else because this is the ONE place a Gear enters
+  // `activeGear`, so a Gear arriving by another route cannot silently skip it.
+  // A no-op for every Gear without the keyword, and for a board with no unit
+  // to attach to.
+  if (card.kind === "Gear") placed = holdQuickDrawAttach(placed, action.playerIndex, card);
+
+  return placed;
 }

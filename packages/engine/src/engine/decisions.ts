@@ -1,6 +1,7 @@
 import type { GameState, PendingDecision } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
+import { equipmentDecisions } from "./equipment.js";
 import { legendDecisions } from "./legend-abilities.js";
 import { battlefieldDecisions } from "./battlefield-abilities.js";
 import { freePlayDecisions } from "./free-play.js";
@@ -132,6 +133,10 @@ function allDecisions(): Record<string, DecisionDefinition> {
     // The shared placement step for a unit played free — owned by no card, so it
     // sits beside the generic questions rather than in a per-domain file.
     { name: "engine/free-play.ts", entries: freePlayDecisions },
+    // `[Quick-Draw]`'s attach. Owned by the KEYWORD rather than by any card —
+    // four Gear print it and Jax - Unmatched grants it to every Equipment its
+    // controller has — so a per-domain file would be the wrong home twice over.
+    { name: "engine/equipment.ts", entries: equipmentDecisions },
     // Legends' questions live with their abilities rather than in a per-domain
     // file — every Legend is dual-domain, so filing one by domain is meaningless
     // (see legend-abilities.ts's own note).

@@ -9,14 +9,17 @@ import {
   equipmentAttachedTo,
   equipmentMightBonusFor,
   isEquipmentGear,
+  holdQuickDrawAttach,
+  QUICK_DRAW_DECISION,
 } from "../src/engine/equipment.js";
 import { activatedAbilityFor, activationCostOf, hasActivatableAbility } from "../src/engine/activated-abilities.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { partialImplementationNote } from "../src/engine/coverage.js";
+import { pendingDecision } from "../src/engine/decisions.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, realGearInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, realGearInstance, realUnitInstance } from "./fixtures.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem.
@@ -256,5 +259,100 @@ describe("the generated [Equip] ability", () => {
       expect(hasActivatableAbility(defId)).toBe(false);
       expect(partialImplementationNote(registry.get(defId))).toContain("compound cost");
     }
+  });
+});
+
+/**
+ * `[Quick-Draw]` — "This has [Reaction]. When you play it, attach it to a unit
+ * you control."
+ *
+ * Keyword-driven, so one implementation covers the four Gear that print it AND
+ * Jax - Unmatched, who grants it to every Equipment his controller has. Hooked
+ * at the one place a Gear enters `activeGear`.
+ */
+describe("[Quick-Draw]", () => {
+  const LONG_SWORD = "SFD-022"; // prints [Quick-Draw], +2 Might
+  const JAX_UNMATCHED = "SFD-054"; // "Your Equipment everywhere have [Quick-Draw]"
+
+  it("the [Reaction] half needed nothing — the loader already had it", () => {
+    // The keyword's own reminder text contains the substring "[Reaction]", and
+    // `isReaction` is set from exactly that. Measured across all four rather
+    // than assumed from one.
+    for (const defId of [LONG_SWORD, "SFD-056", "SFD-064", "SFD-186"]) {
+      const def = registry.get(defId);
+      expect(def.type).toBe("Gear");
+      expect(def.type === "Gear" ? def.isReaction : false, `${defId} ${def.name}`).toBe(true);
+      expect(def.type === "Gear" ? def.keywords["Quick-Draw"] : undefined, `${defId}`).toBe(1);
+    }
+  });
+
+  it("attaches with NO prompt when there is only one unit", () => {
+    // A decision with exactly one option is auto-resolved and never prompts —
+    // a documented trap here, and the first version of this test asserted a
+    // pending decision and failed on it. One unit means no choice to make, so
+    // the attach simply happens.
+    const wearer = makeUnit({ name: "Wearer", might: 2 });
+    const gear = realGearInstance(LONG_SWORD);
+    const state = makeState();
+    state.players[0]!.baseUnits = [wearer];
+    state.players[0]!.activeGear = [gear];
+
+    const after = holdQuickDrawAttach(state, 0, gear);
+
+    expect(pendingDecision(after), "a one-option question was asked").toBeUndefined();
+    expect(equipmentAttachedTo(after, wearer.instanceId)).toHaveLength(1);
+    expect(effectiveMight(after, wearer, 0, combat)).toBe(4); // 2 + Long Sword's +2
+  });
+
+  it("ASKS when there are two units, and attaches to the answer", () => {
+    const first = makeUnit({ name: "First", might: 2 });
+    const second = makeUnit({ name: "Second", might: 5 });
+    const gear = realGearInstance(LONG_SWORD);
+    const state = makeState();
+    state.players[0]!.baseUnits = [first, second];
+    state.players[0]!.activeGear = [gear];
+
+    const parked = holdQuickDrawAttach(state, 0, gear);
+    expect(pendingDecision(parked)?.kind, "no attach was offered").toBe(QUICK_DRAW_DECISION);
+
+    const answered = answerDecisions(parked, (options) => options[1]!.id);
+    expect(equipmentAttachedTo(answered, second.instanceId), "attached to the wrong unit").toHaveLength(1);
+    expect(equipmentAttachedTo(answered, first.instanceId)).toHaveLength(0);
+  });
+
+  it("asks NOTHING when there is no unit to attach to", () => {
+    // A lone "Decline" would be theatre, and `[Quick-Draw]` prints no "you may"
+    // — so with a unit available the attach is mandatory and only the target is
+    // a choice.
+    const state = makeState();
+    state.players[0]!.baseUnits = [];
+    expect(holdQuickDrawAttach(state, 0, realGearInstance(LONG_SWORD))).toEqual(state);
+  });
+
+  it("does not fire for a Gear without the keyword", () => {
+    const state = makeState();
+    state.players[0]!.baseUnits = [makeUnit()];
+    // Doran's Blade is an Equipment and prints [Equip], but NOT [Quick-Draw].
+    expect(holdQuickDrawAttach(state, 0, realGearInstance(DORANS_BLADE))).toEqual(state);
+  });
+
+  it("Jax - Unmatched GRANTS it, so an ordinary Equipment gains the attach", () => {
+    // The half a printed-keyword-only reading would miss entirely.
+    const jax = realUnitInstance(JAX_UNMATCHED);
+    const blade = realGearInstance(DORANS_BLADE);
+    const state = makeState();
+    // TWO units so the question is really asked rather than auto-resolved,
+    // which is what makes "Jax granted it" observable as a prompt.
+    state.players[0]!.baseUnits = [jax, makeUnit({ name: "Other" })];
+    state.players[0]!.activeGear = [blade];
+
+    const granted = holdQuickDrawAttach(state, 0, blade);
+    expect(pendingDecision(granted)?.kind, "Jax granted nothing").toBe(QUICK_DRAW_DECISION);
+
+    // And only to HIS controller's Equipment — "YOUR Equipment everywhere".
+    const theirs = makeState();
+    theirs.players[1]!.baseUnits = [jax];
+    theirs.players[0]!.baseUnits = [makeUnit()];
+    expect(holdQuickDrawAttach(theirs, 0, realGearInstance(DORANS_BLADE))).toEqual(theirs);
   });
 });

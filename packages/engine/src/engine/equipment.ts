@@ -1,6 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance } from "../model/card.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
+import { parkDecision, type DecisionDefinition } from "./decisions.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem, and the one the survey called
@@ -131,4 +132,86 @@ export function equipmentAttachedTo(state: GameState, unitInstanceId: string): G
  *  detaching the gear removes the Might in the same instant. */
 export function equipmentMightBonusFor(state: GameState, unitInstanceId: string): number {
   return equipmentAttachedTo(state, unitInstanceId).reduce((sum, g) => sum + equipMightBonusOf(g), 0);
+}
+
+/**
+ * `[Quick-Draw]` — "This has [Reaction]. When you play it, attach it to a unit
+ * you control."
+ *
+ * Keyword-driven, so ONE implementation covers every card that prints it and
+ * every card that GRANTS it — Jax - Unmatched gives "your Equipment everywhere"
+ * the keyword, and nothing about this asks which Gear it started on.
+ *
+ * The `[Reaction]` half needs nothing: the keyword's reminder text literally
+ * contains the substring "[Reaction]", and `card-loader` already sets
+ * `isReaction` from exactly that. Measured, not assumed — all four printed
+ * Quick-Draw Gear come out of the loader with `isReaction: true` already.
+ *
+ * The attach is a QUESTION rather than automatic, because "a unit you control"
+ * is a choice and a board with several units has no canonical first. With no
+ * friendly unit at all the decision is dropped whole rather than offered as a
+ * lone Decline, matching Monastery of Hirana and Treasure Hoard.
+ */
+export const QUICK_DRAW_DECISION = "quick-draw-attach";
+
+export const equipmentDecisions: Record<string, DecisionDefinition> = {
+  [QUICK_DRAW_DECISION]: {
+    prompt: (state, d) => {
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === d.cardInstanceId);
+      return `${gear?.name ?? "Equipment"}: attach it to which unit?`;
+    },
+    options: (state, d) => {
+      const owner = state.players[d.playerIndex];
+      const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+      // Nothing to attach to is not a question. `[Quick-Draw]` prints no "you
+      // may", so with a unit available there is deliberately NO decline option:
+      // the attach is mandatory and only the target is chosen.
+      return units.map((u) => ({ id: u.instanceId, label: `Attach to ${u.name}`, instanceId: u.instanceId }));
+    },
+    resolve: (state, d, optionId) =>
+      d.cardInstanceId === undefined ? state : attachEquipment(state, d.playerIndex, d.cardInstanceId, optionId),
+  },
+};
+
+/**
+ * Parks `[Quick-Draw]`'s attach for a Gear that has just been played, if it has
+ * the keyword and there is anything to attach it to.
+ *
+ * Called from `execute-play-card`'s Gear branch — the one place a Gear enters
+ * `activeGear` — so a Gear arriving by any other route does not silently skip
+ * it, and neither does a future caller.
+ */
+export function holdQuickDrawAttach(state: GameState, playerIndex: 0 | 1, gear: GearInstance): GameState {
+  if (!hasQuickDraw(state, playerIndex, gear)) return state;
+  const owner = state.players[playerIndex];
+  const anyUnit =
+    owner.baseUnits.length > 0 || state.battlefields.some((bf) => (bf.units[owner.id] ?? []).length > 0);
+  if (!anyUnit) return state;
+  return parkDecision(state, { kind: QUICK_DRAW_DECISION, playerIndex, cardInstanceId: gear.instanceId });
+}
+
+/** Does this Gear have `[Quick-Draw]`, printed OR granted? Jax - Unmatched is
+ *  the granting case ("Your Equipment everywhere have [Quick-Draw]"), and a
+ *  keyword that only ever read the printed one would miss every card he arms. */
+export function hasQuickDraw(state: GameState, ownerIndex: 0 | 1, gear: GearInstance): boolean {
+  const def = defaultCardRegistry().tryGet(gear.defId);
+  if (def?.type === "Gear" && def.keywords["Quick-Draw"] !== undefined) return true;
+  return isEquipmentGear(gear) && grantsQuickDrawToEquipment(state, ownerIndex);
+}
+
+/** Jax - Unmatched (SFD-054): "Your Equipment everywhere have [Quick-Draw]."
+ *  Positional-free — "everywhere" is the card's own word — and asked of the
+ *  gear's controller, since it is HIS Equipment the card arms. */
+function grantsQuickDrawToEquipment(state: GameState, ownerIndex: 0 | 1): boolean {
+  const owner = state.players[ownerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  return units.some((u) => u.defId === JAX_UNMATCHED);
+}
+
+const JAX_UNMATCHED = "SFD-054";
+
+/** For coverage.ts — the cards this module implements by name rather than by
+ *  keyword. Jax's grant is his whole second clause. */
+export function equipmentDefIds(): string[] {
+  return [JAX_UNMATCHED];
 }
