@@ -110,8 +110,14 @@ export function grantedKeywordDefIds(): string[] {
  */
 interface KeywordAura {
   /** Where the source lives. Gear is never at a battlefield here, so a gear
-   *  source can only ever be `scope: "anywhere"`. */
-  source: "unit" | "gear";
+   *  source can only ever be `scope: "anywhere"`.
+   *
+   *  `"legend"` is SFD's addition: a Legend sits in its own zone rather than on
+   *  the board, so neither the unit walk nor the gear list can find one. It is
+   *  always in play and never at a battlefield, which makes it the only source
+   *  for which `scope: "here"` is meaningless — the same constraint gear has,
+   *  and for the same reason. */
+  source: "unit" | "gear" | "legend";
   /** `"here"` is the source's own battlefield and nothing else — so a source
    *  sitting in BASE reaches nobody, the same positional reading Lee Sin -
    *  Centered's and Leona - Zealot's Might auras take. */
@@ -147,6 +153,9 @@ const FORECASTER = "SFD-065";
 const BREAKNECK_MECH = "SFD-071";
 const RUMBLE_HOTHEADED = "SFD-026";
 const PETRICITE_MONUMENT = "SFD-104";
+/** Rumble - Mechanized Menace — "Your Mechs have [Shield]." The pool's first
+ *  LEGEND-sourced keyword aura, and the third Rumble to grant Mechs something. */
+const RUMBLE_MECHANIZED_MENACE = "SFD-181";
 
 const KEYWORD_AURAS: Record<string, KeywordAura> = {
   [CAPTAIN_FARRON]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Assault"] },
@@ -176,6 +185,16 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     excludesSelf: false,
     appliesToDef: isMech,
     keywords: ["Deflect", "Ganking"],
+  },
+  [RUMBLE_MECHANIZED_MENACE]: {
+    // A LEGEND source, so it is in play from turn one and never leaves — no
+    // `excludesSelf` question either, since a Legend is not a unit and cannot be
+    // a Mech.
+    source: "legend",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesToDef: isMech,
+    keywords: ["Shield"],
   },
   [RUMBLE_HOTHEADED]: {
     source: "unit",
@@ -253,12 +272,30 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
 
   for (const [sourceDefId, aura] of Object.entries(KEYWORD_AURAS)) {
     if (aura.appliesTo && !aura.appliesTo(unit)) continue;
+    // **`appliesToDef` has to be asked HERE too, and was not until 2026-08-06.**
+    // It was added for `keywordOnEntry`, which reads a printed definition, and
+    // the BOARD-side read was never taught about it — so every tribal aura in
+    // this table granted its keyword to EVERY friendly unit rather than to the
+    // tribe. Forecaster gave [Vision] to non-Mechs, Breakneck Mech gave them
+    // [Deflect] and [Ganking], Rumble - Hotheaded gave them [Assault]. Silent in
+    // play and in every existing test, because each of those tests asserted only
+    // that the MECH got the keyword.
+    //
+    // A `UnitInstance` carries `tags`, so the predicate works on one directly;
+    // it is handed `{ id, tags }` because the definition's key is `id` and an
+    // instance's is `defId`.
+    if (aura.appliesToDef && !aura.appliesToDef({ id: unit.defId, tags: unit.tags })) continue;
     // "OTHER friendly units" excludes this unit as an OBJECT, never as a card —
     // see ownUnitAtLocation. The exclusion is therefore applied to the SOURCE
     // search below rather than by comparing defIds here.
     const except = aura.excludesSelf ? unit.instanceId : undefined;
 
-    if (aura.source === "gear") {
+    if (aura.source === "legend") {
+      // A Legend is ALWAYS in play — there is no "did it leave" question, which
+      // is exactly what makes this the shortest branch rather than a special
+      // case dressed up as one.
+      if (owner.legend.defId !== sourceDefId) continue;
+    } else if (aura.source === "gear") {
       if (!owner.activeGear.some((g) => g.defId === sourceDefId)) continue;
     } else if (aura.scope === "here") {
       if (!located) {
@@ -424,7 +461,9 @@ export function keywordOnEntry(state: GameState, playerIndex: 0 | 1, def: { id: 
     // controller played, Mech or not — `[Vision]` is entry-triggered, so this is
     // the one place that question gets asked.
     if (aura.appliesToDef !== undefined && !aura.appliesToDef(def)) continue;
-    if (aura.source === "gear") {
+    if (aura.source === "legend") {
+      if (state.players[playerIndex].legend.defId === sourceDefId) return true;
+    } else if (aura.source === "gear") {
       if (state.players[playerIndex].activeGear.some((g) => g.defId === sourceDefId)) return true;
     } else if (ownUnitAnywhereExcept(state, playerIndex, sourceDefId)) {
       // No instance exclusion: the card being played is not on the board yet, so
