@@ -502,6 +502,28 @@ export type GameEvent =
    */
   | { kind: "endOfTurn"; playerIndex: 0 | 1 }
   /**
+   * A unit was CHOSEN as a target — Irelia - Fervent's "when you choose or ready
+   * me", Irelia - Blade Dancer's "when you choose a friendly unit".
+   *
+   * **The moment is ANNOUNCEMENT, not resolution** (355): a unit moved or killed
+   * while the Spell that named it waits on the chain was still chosen. That is
+   * why both firing sites are in the `execute-*` action handlers rather than in
+   * any resolver — by the time an effect runs, "was it chosen" is unanswerable.
+   *
+   * **Fired from BOTH choosing paths**, which is the half
+   * `battlefield-abilities.holdUnitsChosenBySpell` never had: that one is keyed
+   * to a BATTLEFIELD, is raised only for Spells, and drops a unit standing in
+   * base. The Dreaming Tree wants exactly those restrictions ("a friendly unit
+   * HERE"); a unit watching itself be chosen wants none of them, so this is a
+   * second event rather than a widening of the first.
+   *
+   * `chooserIndex` is who did the choosing, which is not always the unit's
+   * controller — "when YOU choose me" is satisfied only by its own side, and an
+   * opponent paying `[Deflect]` to choose it is a different sentence. Cards ask
+   * for themselves.
+   */
+  | { kind: "unitChosen"; chooserIndex: 0 | 1; unitInstanceId: string }
+  /**
    * A unit that was EXHAUSTED became Ready — Pirate's Haven's "when you ready a
    * friendly unit, give it +1 Might this turn".
    *
@@ -775,6 +797,7 @@ export type GameEvent =
  * `test/turn-boundary-triggers.test.ts` pins the behaviour across the rotation.
  */
 export type HeldEventKind =
+  | "unitChosen"
   | "unitBuffed"
   | "battlefieldConquered"
   | "cardPlayed"
@@ -1227,4 +1250,23 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
   // already left, the same ordering killUnit uses. HELD (383) rather than
   // dispatched, so the gear's payout is respondable like everything else.
   return holdSelfTrigger({ ...state, players }, "killed", gear, ownerIndex);
+}
+
+/**
+ * Holds a `unitChosen` for each unit named as a target — the counterpart to
+ * `battlefield-abilities.holdUnitsChosenBySpell`, and raised beside it.
+ *
+ * One event per chosen unit, because choosing two units is two choices: a Spell
+ * that names the same unit twice (a `unitList` spec allows it) has chosen it
+ * twice, and a card counting choices must count both.
+ *
+ * Deliberately does NOT check that the unit still exists. 355 fixes the choice
+ * at announcement, and the only caller that could be wrong about it is one that
+ * passes an id it never validated — which `validate-play-card` already refuses.
+ */
+export function holdUnitsChosen(state: GameState, chooserIndex: 0 | 1, chosenInstanceIds: readonly string[]): GameState {
+  return chosenInstanceIds.reduce(
+    (next, unitInstanceId) => holdEventTrigger(next, { kind: "unitChosen", chooserIndex, unitInstanceId }),
+    state,
+  );
 }

@@ -281,7 +281,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Three of the six are blocked on the SAME missing primitive — a gear-token
   // (the Gold token, `sfd-t03`) — which four separate agents hit independently
   // across eleven cards. That is the wave's largest single finding.
-  ["SFD-057", "the 'ready me' half works; 'when you CHOOSE me' needs a unitChosen GameEvent — no board-wide choosing moment exists"],
   ["SFD-101", "'buff up to four friendly units' works; 'when you spend a buff, play a Gold gear token' needs a buffSpent event, held from effect-helpers.spendBuff"],
   ["SFD-026", "the conquer/scrap clause works; 'Your Mechs each have [Assault]' is a keyword aura and needs a KEYWORD_AURAS entry in granted-keywords.ts"],
   ["SFD-082", "the attack/defend damage trigger and 'I don't deal combat damage' both work; ':rb_rune_mind:: [Action] — Move me to your base' needs an activated-abilities.ts entry"],

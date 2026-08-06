@@ -9,6 +9,7 @@ import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 import { holdQuickDrawAttach } from "../engine/equipment.js";
+import { holdUnitsChosen } from "../engine/triggers.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -477,6 +478,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // Fired against the board BEFORE the Spell resolves, which is where the
     // chosen units still are.
     nextState = holdUnitsChosenBySpell(nextState, action.playerIndex, chosen);
+    // The board-wide counterpart, for the cards that watch a unit being chosen
+    // rather than a battlefield it was standing at. Raised from the same list and
+    // at the same moment (355's announcement) — the two differ only in what they
+    // reach, which is why they are two calls rather than one event with a filter.
+    nextState = holdUnitsChosen(nextState, action.playerIndex, chosen);
   } else {
     updatedActor = {
       ...actor,

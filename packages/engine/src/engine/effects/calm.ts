@@ -1170,17 +1170,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Irelia - Fervent — "[Deflect] When you choose or ready me, give me
     // +1 Might this turn."
     //
-    // **HALF the ability, and the half that is missing is named rather than
-    // quietly dropped.** "When you READY me" is here; "when you CHOOSE me" is
-    // NOT, and cannot be from this file: there is no board-wide "a unit was
-    // chosen" event. The only choosing moment the engine has is
-    // battlefield-abilities.ts's `unitChosenBySpell`, which is a
-    // BATTLEFIELD-keyed hold raised only from `execute-play-card` — it cannot
-    // reach a unit listener, it never sees an ABILITY choosing her, and it drops
-    // a unit standing in base. Wiring that half needs a `unitChosen` GameEvent
-    // in triggers.ts fired from both choosing paths, which is a shared-file
-    // change. Until it lands she is PARTIAL: coverage.ts's registration is per
-    // defId and will report her DONE.
+    // **WHOLE as of 2026-08-06.** The comment here used to say the choose half
+    // "cannot be [written] from this file", and named exactly what it needed: a
+    // `unitChosen` GameEvent fired from BOTH choosing paths. That is now in
+    // triggers.ts, raised by `holdUnitsChosen` from `execute-play-card` (Spells)
+    // and `execute-activate-ability` (abilities).
+    //
+    // It is a second event rather than a widening of
+    // `battlefield-abilities.unitChosenBySpell`, for the three reasons that
+    // comment listed: the old one is keyed to a BATTLEFIELD so it cannot reach a
+    // unit listener, it never saw an ability choosing her, and it drops a unit
+    // standing in base. The Dreaming Tree wants all three restrictions; she
+    // wants none of them.
+    //
+    // "When YOU choose me" is her CONTROLLER choosing, not an opponent — which
+    // is the sentence `[Deflect]` exists alongside rather than in tension with:
+    // an opponent may still pay the rainbow to choose her, and she simply does
+    // not grow from it.
     //
     // The ready half is not a consolation prize — `unitReadied` includes the
     // Awakening Phase's mass ready (415, and the event's own note), so a
@@ -1188,11 +1194,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // Fires only for a ready that actually happened: `readyUnit` refuses an
     // already-ready unit (415), so the event never exists for a no-op.
-    on: "unitReadied",
+    on: ["unitReadied", "unitChosen"],
     applies: (_state, listener, event) =>
-      event.kind === "unitReadied" &&
-      event.unitInstanceId === listener.card.instanceId &&
-      event.ownerIndex === listener.ownerIndex,
+      event.kind === "unitReadied"
+        ? event.unitInstanceId === listener.card.instanceId && event.ownerIndex === listener.ownerIndex
+        : event.kind === "unitChosen" &&
+          event.unitInstanceId === listener.card.instanceId &&
+          // "YOU choose", so her own side only.
+          event.chooserIndex === listener.ownerIndex,
+    // Both moments pay the same +1, so one resolver serves both — and it is
+    // deliberately NOT capped: choosing her twice with one spell is two choices
+    // (two `unitChosen` events), and the card says nothing about once per turn.
     resolve: (state, listener) => giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 1),
   },
   "SFD-058": {

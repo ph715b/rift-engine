@@ -3,6 +3,7 @@ import type { ActivateAbilityAction } from "./player-action.js";
 import { payActivationCost, recordModeUsed, resolveActivation, resolveMode, tracksModeUse } from "../engine/activated-abilities.js";
 import { contextFor } from "../engine/effect-context.js";
 import { validateActivateAbility } from "./validate-activate-ability.js";
+import { holdUnitsChosen } from "../engine/triggers.js";
 
 /**
  * Resolves a validated ActivateAbility action: pay the exhaust cost, then run the
@@ -44,8 +45,22 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
     ? recordModeUsed(paid, action.playerIndex, action.permanentInstanceId, mode.id)
     : paid;
 
+  // An ABILITY choosing a unit is a choice too, and this is the half
+  // `holdUnitsChosenBySpell` never covered — Irelia - Fervent's own comment named
+  // "it never sees an ABILITY choosing her" as one of three reasons it could not
+  // be reused.
+  //
+  // Held BEFORE the ability resolves, matching 355's announcement moment. An
+  // ability's effect runs inline rather than on the chain, so the held trigger
+  // resolves after it — the opposite order from the Spell path, and it follows
+  // from where each effect happens rather than from a choice made here.
+  const chosen =
+    action.targetUnitInstanceId !== undefined
+      ? holdUnitsChosen(recorded, action.playerIndex, [action.targetUnitInstanceId])
+      : recorded;
+
   return mode.resolve(
-    recorded,
+    chosen,
     contextFor(action.playerIndex),
     {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
