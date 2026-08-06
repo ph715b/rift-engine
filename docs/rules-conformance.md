@@ -310,21 +310,19 @@ targets for the next pass, by blast radius:
    - **Tianna Crownguard (SFD-060)**: “while I'm at a battlefield, opponents can't gain points”. “Every instance of Scoring is also an instance of Gaining points” — so if the point is blocked, is the battlefield still recorded in `scoredBattlefieldsThisTurn`? It matters twice: 471.1.b's once-per-battlefield-per-turn lockout, and 474's Final Point sweep. **The card should not be implemented until this is settled.**
    - **Renata Glasc - Industrialist (SFD-171)**: “your tokens enter ready”, while every SFD card that mints a Gold token says “play a Gold gear token **exhausted**”. Does a continuous ability override a card's explicit instruction, and does “tokens” include GEAR tokens or only unit tokens?
    - **Riposte (SFD-206)**: whether to accept a resolution-time unit choice (castable with no friendly unit, diverging from 355.8) rather than wait for a combined `chainSpell`+unit targeting kind.
-2. **Are OGN's ten dual-domain Signature spells and OGS-024 split pips too?**
-   *(2026-08-05, and the newest thing here.)* Confirming SFD's fourteen split
-   pips meant pulling the OGN/OGS candidates' art as controls — and each of the
-   ten OGN dual-domain Signature spells, plus OGS-024 Decisive Strike, shows the
-   SAME left/right two-colour capsule that Tibbers has and that defines a hybrid
-   pip. A single-domain card renders a solid capsule with its own icon repeated
-   (checked against Anivia, Body, 2 Power), so the two are easy to tell apart.
-   **That contradicts `card-loader`'s own note**, which says Decisive Strike's
-   "pip is a solid single color and is NOT hybrid". If the reading is right,
-   eleven cards in two DECLARED-COMPLETE sets charge their whole Power cost in
-   one domain while half their pip says otherwise — the same defect the SFD
-   entries just fixed. Deliberately not acted on: it re-costs cards across OGN
-   and OGS and moves every probe that plays them, so it wants its own change and
-   its own before/after run. Held open by an `it.todo` in
-   `test/card-loader.test.ts` beside the census that names all 26 candidates.
+2. **SETTLED 2026-08-06 — OGN's ten dual-domain Signature spells and OGS-024
+   WERE split pips, and are fixed.** They were found as CONTROLS while
+   confirming SFD's fourteen, which is the only reason anyone looked. Read at
+   4x beside a single-domain control (Anivia, Body, 2 Power — one SOLID orange
+   capsule with two Body glyphs), all eleven show the same left/right
+   two-colour capsule Tibbers has. `card-loader`'s own note said the opposite
+   of one of them ("Decisive Strike's pip is a solid single color and is NOT
+   hybrid"); that note is corrected and the two tests pinning it are flipped.
+   **No probe moved**, and that is worth stating rather than glossing: the fix
+   only ever WIDENS what a rune can pay, so preset self-play cannot see it —
+   its effect is visible to a player holding the other domain's runes and to
+   nobody else. Eleven cards in two declared-complete sets were demanding their
+   whole Power cost in one domain while half their pip said otherwise.
 3. **Showdown/Combat step order** — rule 463's steps, HOT FEPR, and when the
    Attacker/Defender designations attach. Two divergences already found here.
 4. **Costs and payment** — floating resources, rune recycling, exhaust-vs-recycle

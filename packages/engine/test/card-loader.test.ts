@@ -66,15 +66,20 @@ describe("card loader", () => {
     expect(def.might).toBe(7);
   });
 
-  it("does NOT set powerDomainAlt for Decisive Strike (OGS-024) — but see the OPEN QUESTION", () => {
-    // This pins CURRENT BEHAVIOUR, and as of 2026-08-04 that behaviour is in
-    // doubt: pulling the art while confirming SFD's fourteen split pips showed
-    // OGS-024 with the same two-colour split capsule as Tibbers, which would
-    // make the "non-hybrid" in this test's old name wrong. Not changed here —
-    // it re-costs cards in a declared-complete set and wants its own change.
-    // See the it.todo in the POWER_DOMAIN_ALT_OVERRIDES census below.
+  it("DOES set powerDomainAlt for Decisive Strike (OGS-024) — the open question is settled", () => {
+    // **This test asserted the opposite until 2026-08-06**, and the note it
+    // pointed at said Decisive Strike's "pip is a solid single color and is NOT
+    // hybrid". Pulled off the CMS and read at 4x beside a single-domain control
+    // (Anivia, Body, 2 Power — one SOLID orange capsule with two Body glyphs),
+    // it shows the same left/right two-colour capsule Tibbers has.
+    //
+    // Ten OGN Signature spells were wrong the same way. All eleven now have an
+    // entry, which is a behaviour change in two DECLARED-COMPLETE sets: each was
+    // demanding its whole Power cost in one domain while half its pip said
+    // otherwise.
     const def = defaultCardRegistry().get("OGS-024");
-    expect(def.powerDomainAlt).toBeUndefined();
+    expect(def.powerDomain).toBe("Body");
+    expect(def.powerDomainAlt).toBe("Order");
   });
 });
 
@@ -279,18 +284,18 @@ describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art",
       "a multi-domain card with a Power cost — check whether its printed pip is a SPLIT one, " +
         "then add it to POWER_DOMAIN_ALT_OVERRIDES or extend this list to record that it is not",
     ).toEqual([
-      "OGN-248 -", // Icathian Rain
-      "OGN-250 -", // Stormbringer
-      "OGN-252 -", // Super Mega Death Rocket!
-      "OGN-254 -", // Noxian Guillotine
-      "OGN-258 -", // Dragon's Rage
-      "OGN-260 -", // Last Breath
-      "OGN-262 -", // Zenith Blade
-      "OGN-264 -", // Guerilla Warfare
-      "OGN-266 -", // Siphon Power
-      "OGN-270 -", // Showstopper
+      "OGN-248 Mind", // Icathian Rain
+      "OGN-250 Body", // Stormbringer
+      "OGN-252 Chaos", // Super Mega Death Rocket!
+      "OGN-254 Order", // Noxian Guillotine
+      "OGN-258 Body", // Dragon's Rage
+      "OGN-260 Chaos", // Last Breath
+      "OGN-262 Order", // Zenith Blade
+      "OGN-264 Chaos", // Guerilla Warfare
+      "OGN-266 Order", // Siphon Power
+      "OGN-270 Order", // Showstopper
       "OGS-018 Chaos", // Tibbers — the one confirmed split pip
-      "OGS-024 -", // Decisive Strike — see the OPEN QUESTION below
+      "OGS-024 Order", // Decisive Strike
       // SFD's fourteen, all confirmed split by inspection of the card art.
       // Every dual-domain SFD card with a Power cost is a split pip, so the
       // alt is always the higher-ordinal of its two domains.
@@ -312,29 +317,16 @@ describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art",
   });
 
   /**
-   * **OPEN QUESTION, raised 2026-08-04 and deliberately NOT acted on here.**
+   * **SETTLED 2026-08-06.** This block held an `it.todo` asking whether OGN's
+   * ten dual-domain Signature spells and OGS-024 were split pips too. They
+   * are: every one shows the same left/right two-colour capsule as Tibbers,
+   * read at 4x against a single-domain control.
    *
-   * Confirming SFD's fourteen meant pulling the art for the OGN/OGS candidates
-   * too, as controls — and they look identical in kind to the SFD ones and to
-   * Tibbers. Each of the ten OGN dual-domain Signature spells, and OGS-024
-   * Decisive Strike, shows the same left/right two-colour split capsule that
-   * this table treats as the definition of a hybrid pip.
-   *
-   * That directly contradicts the loader's own note, which says Decisive
-   * Strike's "pip is a solid single color and is NOT hybrid". A single-domain
-   * card really does render a solid capsule with that domain's icon repeated
-   * (Anivia, Body, 2 Power) — so the two appearances are easy to tell apart,
-   * and these eleven have the split one.
-   *
-   * If that reading is right, eleven cards in two DECLARED-COMPLETE sets are
-   * charging their whole Power cost in one domain when half their pip says
-   * otherwise. It is left alone in this change on purpose: it re-costs cards
-   * across OGN and OGS, moves every probe that plays them, and is not SFD work.
-   * It wants its own change, its own before/after probe run, and someone
-   * looking at the art a second time. The census above is what keeps it visible
-   * until then.
+   * All eleven now carry an entry, so this census lists no bare "-" for a
+   * dual-domain card at all. That is the state worth pinning: a NEW
+   * dual-domain card with a Power cost arrives here as a failure with the
+   * card named, and somebody looks at the art.
    */
-  it.todo("decide whether OGN's ten dual-domain Signature spells and OGS-024 are split pips too");
 });
 
 /**

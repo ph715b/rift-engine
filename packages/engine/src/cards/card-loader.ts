@@ -86,10 +86,8 @@ const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
  * Cards whose printed Power pip is VISUALLY split between two domains
  * (confirmed by direct inspection of the card art), as opposed to merely
  * listing two raw domains in classification.domain — the ordinary
- * multi-domain-identity case (e.g. Decisive Strike's Body+Order, whose pip
- * is a solid single color and is NOT hybrid; that raw list is a Signature
- * card's inherited Legend color identity, used for deckbuilding, not a
- * dual Power cost). Hardcoded rather than derived from card data — precise
+ * multi-domain-identity case — a Signature card's inherited Legend colour
+ * identity, used for deckbuilding rather than as a dual Power cost. Hardcoded rather than derived from card data — precise
  * and safe for a handful of confirmed cases, mirroring CARD_EFFECTS
  * (engine/card-effects.ts)'s identical "not worth a parsing scheme until
  * there are enough registered cases" reasoning. Add another entry here
@@ -98,6 +96,33 @@ const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
  */
 const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
   "OGS-018": "Chaos", // Tibbers — Fury/Chaos split pip; lowestOrdinalDomain already yields "Fury" as the primary domain below
+
+  // **OGN and OGS's eleven, added 2026-08-06 — and this table's own note used to
+  // say the opposite about one of them.** It read "Decisive Strike's Body+Order,
+  // whose pip is a solid single color and is NOT hybrid". That is false: pulled
+  // off the CMS and read at 4x beside a single-domain control (Anivia, Body, 2
+  // Power — one SOLID orange capsule with two Body glyphs), all eleven show the
+  // same left/right two-colour capsule Tibbers has and that this table treats as
+  // the definition of a hybrid pip.
+  //
+  // They were found as CONTROLS while confirming SFD's fourteen, which is the
+  // only reason anyone looked: nothing in the pool distinguishes a mis-costed
+  // card from a correctly-costed one, because the wrong answer is simply a cost
+  // that cannot be paid off runes that should cover it.
+  //
+  // The alt is always the higher-ordinal of the card's two domains, exactly as
+  // for SFD's.
+  "OGN-248": "Mind", // Icathian Rain — Fury/Mind, 3 Power
+  "OGN-250": "Body", // Stormbringer — Fury/Body, 2 Power
+  "OGN-252": "Chaos", // Super Mega Death Rocket! — Fury/Chaos
+  "OGN-254": "Order", // Noxian Guillotine — Fury/Order
+  "OGN-258": "Body", // Dragon's Rage — Calm/Body
+  "OGN-260": "Chaos", // Last Breath — Calm/Chaos, 2 Power
+  "OGN-262": "Order", // Zenith Blade — Calm/Order, 2 Power
+  "OGN-264": "Chaos", // Guerilla Warfare — Mind/Chaos
+  "OGN-266": "Order", // Siphon Power — Mind/Order
+  "OGN-270": "Order", // Showstopper — Body/Order
+  "OGS-024": "Order", // Decisive Strike — Body/Order
 
   // SFD's fourteen, every one confirmed by pulling the card art off Riot's CMS
   // (the `media.image_url` already in the JSON) and looking at the pip at 4x
