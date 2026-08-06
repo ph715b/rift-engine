@@ -220,6 +220,38 @@ export type TargetingSpec =
    */
   | { kind: "chainSpell"; maxPrintedEnergy?: number; maxPrintedPower?: number }
   /**
+   * A SPELL ON THE CHAIN **AND** A UNIT, both named in one announcement —
+   * Riposte's "choose a friendly unit and a spell".
+   *
+   * The pool's first spec that crosses a chain item with a permanent, and it
+   * exists rather than being approximated because of what 355.8 does with it:
+   * a card whose targeting cannot be satisfied is **uncastable**, so printed
+   * Riposte cannot be played with no friendly unit on the board. Choosing the
+   * unit later — at resolution, the way `parkDecision` would — makes the card
+   * castable in a state the rules forbid, which is WIDER than printed. That is
+   * the direction this codebase does not ship, so the kind is real instead.
+   *
+   * Both halves are therefore asked of `hasAnyLegalEffectChoice` together, and
+   * `legal-actions` fans out their CROSS PRODUCT — one variant per (spell, unit)
+   * pair, because the rules make each a separate choice the caster announces.
+   *
+   * `owner`/`scope` mean exactly what they do on the `unit` kind. Riposte passes
+   * `scope: "anywhere"`, since "a friendly unit" carries no location word and
+   * 355.9.b's bare-noun reading reaches base — the same reading Blitzcrank -
+   * Impassive's decision already uses.
+   *
+   * The cost filters are carried for the same reason `chainSpell` carries them,
+   * and read the target's PRINTED cost. Riposte sets neither: it counters any
+   * spell.
+   */
+  | {
+      kind: "chainSpellAndUnit";
+      owner?: "friendly" | "enemy";
+      scope?: TargetScope;
+      maxPrintedEnergy?: number;
+      maxPrintedPower?: number;
+    }
+  /**
    * `owner`, `excludesSelf` and `includesFacedown` are Pack of Wonders' — "Return
    * ANOTHER FRIENDLY gear, unit, OR FACEDOWN CARD to its owner's hand."
    *

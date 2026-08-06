@@ -424,6 +424,16 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // is uncastable rather than castable-and-inert, which is what the spec's
       // own "targeting IS the effect" rule for Spells requires.
       return counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower).length > 0;
+    case "chainSpellAndUnit":
+      // BOTH, and this `&&` IS rule 355.8 for Riposte: with a spell to counter
+      // but no friendly unit the card is uncastable, not castable-and-half-inert.
+      // Splitting this into two independent questions is the bug it exists to
+      // prevent — the enumerator's cross product answers the same way by
+      // producing zero variants.
+      return (
+        counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower).length > 0 &&
+        eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).length > 0
+      );
     case "unitOrGear":
       return (
         unitOrGearTargets(state, {

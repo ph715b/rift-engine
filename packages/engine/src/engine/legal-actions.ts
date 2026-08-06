@@ -641,6 +641,24 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower)) {
         effectVariants.push({ targetChainCardInstanceId: entry.card.instanceId });
       }
+    } else if (targeting.kind === "chainSpellAndUnit") {
+      // The CROSS PRODUCT of the two choices (Riposte). Both are announced, so
+      // every legal pairing is a distinct play — and with either side empty this
+      // emits nothing, which is how 355.8 makes the card uncastable rather than
+      // castable-and-half-inert.
+      //
+      // Through the same two helpers the `chainSpell` and `unit` branches use, so
+      // the enumerator cannot offer a pair the validator then refuses — the drift
+      // this file's own notes keep warning about.
+      for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower)) {
+        for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
+          if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
+          effectVariants.push({
+            targetChainCardInstanceId: entry.card.instanceId,
+            targetUnitInstanceId: target.instanceId,
+          });
+        }
+      }
     } else if (targeting.kind === "unitList") {
       // A BOUNDED sample, not the powerset — see `unitListCandidates`, which is
       // also what `validate-play-card` measures a submitted set against, so the

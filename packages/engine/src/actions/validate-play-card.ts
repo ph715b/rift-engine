@@ -2,6 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import {
   findUnitAnywhere,
+  eligibleTargets,
   findUnitInScope,
   findUnitOnBattlefield,
   hasAnyLegalEffectChoice,
@@ -258,6 +259,30 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
     if (!counterable.some(({ entry }) => entry.card.instanceId === action.targetChainCardInstanceId)) {
       return fail(`${card.name} cannot target that spell`);
+    }
+  } else if (targeting.kind === "chainSpellAndUnit") {
+    // Both halves are mandatory — Riposte names two targets in one sentence, and
+    // a play carrying only one of them is not a legal announcement.
+    if (!action.targetChainCardInstanceId) {
+      return fail(`${card.name} requires a spell on the chain to target`);
+    }
+    if (!action.targetUnitInstanceId) {
+      return fail(`${card.name} requires a target unit`);
+    }
+    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
+    if (!counterable.some(({ entry }) => entry.card.instanceId === action.targetChainCardInstanceId)) {
+      return fail(`${card.name} cannot target that spell`);
+    }
+    // Asked through `eligibleTargets` rather than this file's own
+    // `findUnitInScope` + owner checks, because that is the helper the
+    // ENUMERATOR uses for this kind. Two spellings of the same rule is exactly
+    // how the two gates have drifted apart here before.
+    if (
+      !eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope).some(
+        (u) => u.instanceId === action.targetUnitInstanceId,
+      )
+    ) {
+      return fail(`${card.name} cannot target that unit`);
     }
   } else if (targeting.kind === "unitList") {
     // Accepts ANY legal set, not only the ones `legal-actions` sampled — that

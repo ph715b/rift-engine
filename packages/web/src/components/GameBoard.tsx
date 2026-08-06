@@ -722,6 +722,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         return `${card.name} needs a battlefield to target.`;
       case "ownTrashCard":
         return `${card.name} needs a ${targeting.cardKind ?? "card"} in your trash — you have none there.`;
+      case "chainSpellAndUnit": {
+        // Two ways to be blocked and they look nothing alike from the player's
+        // side, so they are named separately — "can't be played right now" on a
+        // Reaction with a full chain reads as a bug.
+        const who = targeting.owner === "friendly" ? "friendly " : targeting.owner === "enemy" ? "enemy " : "";
+        return `${card.name} needs both a spell on the chain to counter and a ${who}unit to buff.`;
+      }
       default:
         return `${card.name} can't be played right now.`;
     }
@@ -855,7 +862,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       if (room && offers("targetUnitInstanceIds")) return "listTarget";
     }
     if (
-      (targeting.kind === "unit" || targeting.kind === "unitSlots") &&
+      // `chainSpellAndUnit` (Riposte) fills the SAME field as a plain `unit`
+      // spec — its other half, the spell on the chain, is already carried by
+      // every candidate the enumerator emitted. See pendingMinTargets.
+      (targeting.kind === "unit" || targeting.kind === "unitSlots" || targeting.kind === "chainSpellAndUnit") &&
       pending.targetUnitInstanceId === undefined &&
       stillChoosing
     ) {
@@ -1397,7 +1407,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     if (!pendingPlay) return 0;
     const targeting = targetingForAnyCard(pendingPlay.card);
     if (targeting.kind === "unitSlots" || targeting.kind === "unitList") return targeting.min;
-    return targeting.kind === "unit" ? 1 : 0;
+    // Riposte's unit is mandatory (355.8 makes it uncastable without one), so it
+    // counts here exactly as a plain single-target card's does.
+    return targeting.kind === "unit" || targeting.kind === "chainSpellAndUnit" ? 1 : 0;
   }
 
   /** Can the player stop picking targets right now — i.e. has an "up to N"

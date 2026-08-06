@@ -31,9 +31,6 @@ import { answerDecisions, makeState, makeUnit, realGearInstance, spellInstance }
  *    controller field and a way back"), so nothing on the state can say which unit
  *    to hand back when the `endOfTurn` event arrives. Writing only the steal would
  *    turn a one-turn loan into a permanent theft — strictly worse than leaving it.
- *  - **Riposte (SFD-206)** "choose a friendly unit AND a spell". `TargetingSpec`
- *    is a union, and `chainSpell` carries no unit slot; a combined kind touches
- *    card-effects, legal-actions, validate-play-card and target-lookup.
  *  - **Spinning Axe (SFD-186), Forgefire Cape (SFD-190), Rabadon's Deathcrown
  *    (SFD-191)** print no rules text beyond keywords. Their `[Equip]` cost is a
  *    RAINBOW rune, which `ActivationCost.power` (one `Domain`) cannot express —
