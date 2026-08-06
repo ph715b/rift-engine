@@ -47,6 +47,7 @@ import { playCardIgnoringCost } from "../play-free.js";
 import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
+import { gainPoints } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -601,12 +602,9 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     applies: (state, listener, event) => tryndamereQualifies(state, listener, event),
     resolve: (state, listener, event) => {
       if (!tryndamereQualifies(state, listener, event)) return state;
-      const players = [...state.players] as [PlayerState, PlayerState];
-      players[listener.ownerIndex] = {
-        ...players[listener.ownerIndex],
-        points: players[listener.ownerIndex].points + 1,
-      };
-      return { ...state, players };
+      // Through `gainPoints`, the single choke point every point-gain goes
+      // through so Tianna Crownguard's "opponents can't gain points" reaches it.
+      return gainPoints(state, listener.ownerIndex, 1);
     },
   },
   "OGN-035": {

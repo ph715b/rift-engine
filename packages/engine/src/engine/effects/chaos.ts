@@ -43,6 +43,7 @@ import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
+import { gainPoints } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -625,8 +626,9 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
     // Draven's side, not the killer's.
     const opponentIndex = ctx.opponentIndex;
     const players = [...state.players] as [PlayerState, PlayerState];
-    players[opponentIndex] = { ...players[opponentIndex], points: players[opponentIndex].points + 1 };
-    return { ...state, players };
+    // Through `gainPoints`, the single choke point every point-gain goes through
+    // so Tianna Crownguard's "opponents can't gain points" reaches it.
+    return gainPoints(state, opponentIndex, 1);
   },
   // Undercover Agent — "[Deathknell] Discard 2, then draw 2." (rule 808)
   //
@@ -753,7 +755,9 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) => {
       if (event.kind !== "unitMoved") return state;
       const players = [...state.players] as [PlayerState, PlayerState];
-      players[listener.ownerIndex] = { ...players[listener.ownerIndex], points: players[listener.ownerIndex].points + 1 };
+      // Through `gainPoints`, the single choke point every point-gain goes through
+      // so Tianna Crownguard's "opponents can't gain points" reaches it.
+      return gainPoints({ ...state, players }, listener.ownerIndex, 1);
       return { ...state, players };
     },
   },
@@ -1147,9 +1151,13 @@ function scoreFirstCombatWin(state: GameState, ownerIndex: 0 | 1, unitInstanceId
   const live = findUnitAnywhere(state, unitInstanceId);
   if (live?.unit.abilityModesUsedThisTurn.includes(DRAVEN_WIN_SCORED)) return state;
 
-  const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...players[ownerIndex], points: players[ownerIndex].points + 1 };
-  const scored: GameState = { ...state, players };
+  // Through `gainPoints`, the single choke point every point-gain goes through
+  // so Tianna Crownguard's "opponents can't gain points" reaches it.
+  //
+  // The MARK is applied either way, below: "the first time I win a combat each
+  // turn" is spent by winning, not by scoring, so a Tianna who blocks the point
+  // does not also hand him a second attempt.
+  const scored = gainPoints(state, ownerIndex, 1);
 
   // He can be GONE by the time this resolves — `resolvePendingTrigger` falls
   // back to the captured card rather than bailing (359.3, and its own note), so

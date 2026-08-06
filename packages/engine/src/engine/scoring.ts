@@ -2,6 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+import { gainPoints } from "./effect-helpers.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -44,11 +45,17 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
     .filter((bf) => !player.scoredBattlefieldsThisTurn.includes(bf.id))
     .map((bf) => bf.id);
   if (held.length === 0) return state;
-  const scored = updatePlayer(state, playerIndex, (p) => ({
+  // **Recording the scoring and AWARDING the points are two steps now**, and
+  // they are deliberately separable: Tianna Crownguard blocks the second while
+  // the first still happens, so 471.1.b's once-per-battlefield-per-turn lockout
+  // fires either way and the opponent cannot retry the battlefield this turn.
+  // That is the project-owner ruling of 2026-08-06, and this is the site that
+  // makes the difference visible.
+  const recorded = updatePlayer(state, playerIndex, (p) => ({
     ...p,
-    points: p.points + held.length,
     scoredBattlefieldsThisTurn: [...p.scoredBattlefieldsThisTurn, ...held],
   }));
+  const scored = gainPoints(recorded, playerIndex, held.length);
 
   // Permanents watch the hold itself (Ahri - Alluring, Blitzcrank - Impassive).
   // This function's own doc comment used to end "minus ... hold-trigger dispatch
@@ -157,5 +164,11 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
     }
   }
 
-  return updatePlayer(next, playerIndex, (p) => ({ ...p, points: p.points + 1 }));
+  // Through `gainPoints`, the single choke point every point-gain goes through
+  // so Tianna Crownguard's "opponents can't gain points" reaches it.
+  //
+  // The battlefield is recorded as scored ABOVE regardless — blocking a point
+  // does not unrecord the scoring (project-owner ruling), so 471.1.b's
+  // once-per-turn lockout still fires.
+  return gainPoints(next, playerIndex, 1);
 }

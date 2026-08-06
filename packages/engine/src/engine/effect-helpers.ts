@@ -17,6 +17,7 @@ import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
 import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
 import { detachAllFrom } from "./equipment.js";
+import { mayGainPoints } from "./board-restrictions.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -1037,7 +1038,8 @@ function burnOut(state: GameState, playerIndex: 0 | 1): GameState {
   const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
   const players = [...state.players] as [PlayerState, PlayerState];
   players[playerIndex] = { ...players[playerIndex], deck: [...players[playerIndex].trash], trash: [] };
-  players[opponentIndex] = { ...players[opponentIndex], points: players[opponentIndex].points + 1 };
+  // Through `gainPoints`, so Tianna blocks Burn Out's point like any other.
+  players[opponentIndex] = gainPoints({ ...state, players }, opponentIndex, 1).players[opponentIndex];
   return { ...state, players };
 }
 
@@ -1110,6 +1112,28 @@ export function readyRunes(state: GameState, ownerIndex: 0 | 1, max: number): Ga
  * Floating first, exactly as `computeEffectiveCost` prices a card, so an
  * activation and a play agree about what a player can afford.
  */
+/**
+ * Awards points, subject to every restriction on GAINING them.
+ *
+ * **The single choke point, and it had to become one.** Points were written at
+ * nine separate sites — two in `scoring.ts`, Burn Out here, a battlefield, and
+ * five cards doing a plain `points + 1` inline — and Tianna Crownguard
+ * ("opponents can't gain points") cannot be expressed as a check bolted onto
+ * any one of them. `scoring.ts`'s own doc comment already named her as a known
+ * omission.
+ *
+ * **Blocking a point does NOT unrecord the scoring.** Project-owner ruling,
+ * 2026-08-06: the scoring EVENT still happened, it just paid nothing, so
+ * 471.1.b's once-per-battlefield-per-turn lockout still fires and the opponent
+ * cannot retry that battlefield this turn. Which is why this function awards
+ * points and nothing else — `scoredBattlefieldsThisTurn` is written by
+ * `recordConquest` and `scoreHolds` regardless of what this returns.
+ */
+export function gainPoints(state: GameState, playerIndex: 0 | 1, amount: number): GameState {
+  if (amount <= 0 || !mayGainPoints(state, playerIndex)) return state;
+  return updatePlayer(state, playerIndex, (p) => ({ ...p, points: p.points + amount }));
+}
+
 export function payEnergyFromPool(state: GameState, playerIndex: 0 | 1, amount: number): GameState | undefined {
   if (amount <= 0) return state;
   const actor = state.players[playerIndex];

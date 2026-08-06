@@ -44,6 +44,7 @@ import { spellsOnChain } from "../counter-spell.js";
 import { eligibleTargets } from "../target-lookup.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
+import { gainPoints } from "../effect-helpers.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -804,7 +805,9 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldHeld") return state;
       const players = [...state.players] as [PlayerState, PlayerState];
-      players[listener.ownerIndex] = { ...players[listener.ownerIndex], points: players[listener.ownerIndex].points + 1 };
+      // Through `gainPoints`, the single choke point every point-gain goes through
+      // so Tianna Crownguard's "opponents can't gain points" reaches it.
+      return gainPoints({ ...state, players }, listener.ownerIndex, 1);
       return { ...state, players };
     },
   },

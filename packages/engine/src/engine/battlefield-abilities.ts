@@ -19,6 +19,7 @@ import { placeRecruitToken, placeGoldTokens } from "./token.js";
 import { detachEquipment, isEquipmentGear } from "./equipment.js";
 import { effectiveMight } from "./effective-might.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
+import { gainPoints } from "./effect-helpers.js";
 
 /**
  * The 24 printed Battlefield cards' abilities.
@@ -983,7 +984,9 @@ export function runBattlefieldBeginningPhase(state: GameState, playerIndex: 0 | 
   for (const bf of state.battlefields) {
     if (bf.defId === OBELISK_OF_POWER) next = channelRunes(next, playerIndex, 1);
     if (bf.defId === THE_ARENAS_GREATEST) {
-      next = updatePlayer(next, playerIndex, (p) => ({ ...p, points: p.points + 1 }));
+      // Through `gainPoints`, the single choke point every point-gain goes through
+      // so Tianna Crownguard's "opponents can't gain points" reaches it.
+      next = gainPoints(next, playerIndex, 1);
     }
   }
   return next;

@@ -34,8 +34,10 @@ const MISS_FORTUNE_BUCCANEER = "OGN-193";
 
 /** The cards this module implements, for coverage.ts — they live at gates rather
  *  than in an effect registry, so nothing else would report them. */
+const TIANNA_CROWNGUARD = "SFD-060";
+
 export function boardRestrictionDefIds(): string[] {
-  return [BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
+  return [TIANNA_CROWNGUARD, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
 }
 
 /** Is `defId` in play for `playerIndex`, AT A BATTLEFIELD? The positional test
@@ -105,6 +107,22 @@ export function mayReadyPermanent(state: GameState, ownerIndex: 0 | 1): boolean 
  * NOT positional — her text names no battlefield for herself, unlike the Warden's
  * two sentences, so she grants it from base as well.
  */
+/**
+ * Tianna Crownguard (SFD-060) — "While I'm AT A BATTLEFIELD, opponents can't
+ * gain points."
+ *
+ * Positional, like the Mageseeker Warden's and unlike Miss Fortune's: her text
+ * names a battlefield for herself, so she does nothing from base.
+ *
+ * Asked of the player who is ABOUT TO GAIN, and answers "is an ENEMY Tianna
+ * standing at a battlefield" — she blocks her controller's opponents, not
+ * everybody.
+ */
+export function mayGainPoints(state: GameState, playerIndex: 0 | 1): boolean {
+  const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
+  return !atOwnBattlefield(state, opponentIndex, TIANNA_CROWNGUARD);
+}
+
 export function grantsOpenBattlefieldPlacement(state: GameState, playerIndex: 0 | 1): boolean {
   return inPlayFor(state, playerIndex, MISS_FORTUNE_BUCCANEER);
 }
