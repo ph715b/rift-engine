@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
 import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
+import { equipmentMightBonusFor } from "./equipment.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -283,7 +284,16 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
   // the only card that can raise it, and every other unit leaves it undefined.
   const buffCount = unit.buffed ? 1 + (unit.extraBuffs ?? 0) : 0;
   const buffValue = buffCount * (1 + state.players[ownerIndex].extraMightPerBuffThisTurn);
-  let m = unit.might + unit.mightThisTurn + buffValue;
+  // The "+N Might" badge of every Equipment attached to this unit (SFD).
+  //
+  // Read at the GATE rather than stored as a buff, which is what makes it
+  // continuous: detaching the Equipment removes the Might in the same instant,
+  // and a gear that changes hands takes its badge with it. A stored bonus would
+  // need every detach path to remember to undo it.
+  //
+  // The badge is ART-ONLY data — it is in no field of the card JSON — so it
+  // comes from a hand-transcribed table. See card-loader's EQUIP_MIGHT_BONUS.
+  let m = unit.might + unit.mightThisTurn + buffValue + equipmentMightBonusFor(state, unit.instanceId);
   if (ctx.isCombat) {
     // Granted keywords count: Raging Soul's [Assault] arrives from its own text
     // rather than from the card frame, and combat must not be able to tell the

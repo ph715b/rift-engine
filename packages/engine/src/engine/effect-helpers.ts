@@ -16,6 +16,7 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
 import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
+import { detachAllFrom } from "./equipment.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -105,6 +106,16 @@ export function killUnit(
   /** Who did it, when anyone did — see DeathContext.killerIndex. */
   killerIndex?: 0 | 1,
 ): GameState {
+  // A unit leaving play DETACHES its Equipment rather than destroying it (SFD).
+  // Two cards presuppose exactly that — The Zero Drive's "Use only if
+  // unattached" and Spinning Axe's "if this is unattached, kill it" — so a gear
+  // outliving its wearer is the printed behaviour, not a convenience.
+  //
+  // Done FIRST, before any death ward or replacement can send the unit
+  // somewhere else, so no path out of this function can leave a gear pointing
+  // at a unit that is no longer where it was. A dangling attachment reads in
+  // play as a Might bonus from an Equipment attached to nothing.
+  state = detachAllFrom(state, unit.instanceId);
   if (isDeathWarded(state, unit.instanceId)) {
     return reviveWithDeathWard(state, unit, ownerIndex);
   }

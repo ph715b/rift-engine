@@ -138,6 +138,107 @@ const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
 
 /** Rune/Battlefield/Token-supertype/Showcase-rarity/alternate-art entries never become playable
  *  CardDefinitions. Mirrors CardLoader.java's `skip()` (registry/CardLoader.java:274-282). */
+/**
+ * The "+N Might" badge an Equipment grants the unit it is attached to.
+ *
+ * **This data is NOT in the card JSON anywhere**, and that was confirmed rather
+ * than assumed: `attributes.might` is null on every Equipment, the badge appears
+ * in neither `text.plain` nor `text.rich`, and it is absent from
+ * `accessibility_text` too. It exists only on the printed card art — Doran's
+ * Blade shows a shield reading "+2" in its bottom-right corner and its JSON says
+ * nothing at all about it.
+ *
+ * So this is the same class of gap as `POWER_DOMAIN_ALT_OVERRIDES` above: data a
+ * parser cannot reach because it is in the picture. Values are the frozen Java
+ * oracle's `CardLoader.EQUIP_MIGHT_BONUS`, which hand-transcribed all 31 from
+ * the art — and two of them (Doran's Blade 2, Forgefire Cape 3) were read off
+ * the images independently here before that table was found, and agreed.
+ *
+ * **Keyed by defId, not by name.** The oracle keys this by card name; this repo
+ * already learned why that is unsafe when `HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS`
+ * was converted — a name key is correct exactly while no two cards in the pool
+ * share a name, which nothing here states or would notice changing.
+ *
+ * **A second gap is NOT covered here and is the larger one.** The oracle records
+ * that about 20 of these same 31 cards also carry a non-Might ability rendered
+ * the same art-only way (Trinity Force: "When I hold, score 1 point"; Warmog's
+ * Armor: "When I conquer, buff me"; Cloth Armor grants [Shield 2]). Those need
+ * per-card wiring rather than one table, and until they exist those cards are
+ * WEAKER than printed, never stronger.
+ */
+const EQUIP_MIGHT_BONUS: Record<string, number> = {
+  "SFD-009": 0, // Serrated Dirk
+  "SFD-016": 0, // Recurve Bow
+  "SFD-022": 2, // Long Sword
+  "SFD-030": 2, // Skyfall of Areion
+  "SFD-033": 1, // Doran's Shield
+  "SFD-042": 1, // Brutalizer
+  "SFD-051": 1, // Guardian Angel
+  "SFD-056": 3, // Sterak's Gage
+  "SFD-059": 0, // Svellsongur
+  "SFD-064": 0, // Cloth Armor
+  "SFD-073": 1, // Experimental Hexplate
+  "SFD-086": 2, // World Atlas
+  "SFD-090": 2, // The Zero Drive
+  "SFD-095": 2, // Doran's Blade
+  "SFD-102": 1, // Hexdrinker
+  "SFD-108": 1, // Warmog's Armor
+  "SFD-115": 2, // Trinity Force
+  "SFD-118": 2, // Boneshiver
+  "SFD-124": 1, // Doran's Ring
+  "SFD-133": 2, // Boots of Swiftness
+  "SFD-134": 1, // Cull
+  "SFD-139": 2, // Edge of Night
+  "SFD-150": 2, // Last Rites
+  "SFD-153": 0, // Eye of the Herald
+  "SFD-161": 3, // B.F. Sword
+  "SFD-172": 1, // Sacred Shears
+  "SFD-178": 4, // Blade of the Ruined King
+  "SFD-186": 3, // Spinning Axe
+  "SFD-190": 3, // Forgefire Cape
+  "SFD-191": 3, // Rabadon's Deathcrown
+  "SFD-192": 2, // Shurelya's Requiem
+};
+
+/**
+ * The `[Equip]` cost printed immediately after the keyword — e.g.
+ * "[Equip] :rb_energy_1::rb_rune_fury:". Energy is optional and at most one
+ * rune symbol follows it.
+ *
+ * **Deliberately does NOT match the two COMPOUND costs**, and that exclusion is
+ * the point rather than a gap in the regex. Last Rites reads "[Equip] —
+ * :rb_rune_chaos:, Recycle 2 cards from your trash" and Blade of the Ruined
+ * King "[Equip] — :rb_rune_order:, Kill a friendly unit": both have a second,
+ * non-rune half. A pattern loose enough to take the rune out of those would
+ * hand each card an ability costing ONLY the rune, i.e. strictly CHEAPER than
+ * printed — the one direction this codebase never ships. They are reported
+ * unparsed instead, and pinned by a test so the exclusion cannot become
+ * accidental. Both extras (`recycleFromTrash`, `killFriendlyPermanent`) already
+ * exist as activation costs, so wiring them is a per-card job, not a parser one.
+ */
+const EQUIP_COST_PATTERN = /\[Equip\]\s*(?::rb_energy_(\d+):)?\s*:rb_rune_([a-z]+):/i;
+
+/**
+ * What a Gear's `[Equip]` ability costs, or undefined if it prints none.
+ *
+ * Parsed rather than tabulated, which is what makes the 25 single-domain
+ * Equipment need no per-card code at all: the cost parses, the attach ability is
+ * generic, done. `rainbow` is carried through as itself rather than mapped to a
+ * Domain, because "any domain" is not a domain — `Colorless` is a real printed
+ * identity and conflating the two would let a Colorless rune pay a rainbow cost
+ * and nothing else.
+ */
+export function parseEquipCost(plain: string): { energy: number; domain: Domain | "rainbow"; count: number } | undefined {
+  const match = EQUIP_COST_PATTERN.exec(plain);
+  if (!match) return undefined;
+  const energy = match[1] ? Number.parseInt(match[1], 10) : 0;
+  const rune = match[2]!.toLowerCase();
+  if (rune === "rainbow") return { energy, domain: "rainbow", count: 1 };
+  const capitalized = rune.charAt(0).toUpperCase() + rune.slice(1);
+  if (!isDomain(capitalized)) return undefined;
+  return { energy, domain: capitalized, count: 1 };
+}
+
 function shouldSkip(card: RawCard): boolean {
   const { classification, metadata } = card;
   if (classification.type === "Rune" || classification.type === "Battlefield") return true;
@@ -468,6 +569,14 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         keywords: printedKeywords(id, plain),
         isReaction: plain.includes("[Reaction]"),
         hidden: isGenuinelyHidden(plain, id),
+        // The three Equipment fields. Two are parsed and one is a table,
+        // because the badge is art-only data no parser can reach.
+        ...(parseEquipCost(plain) !== undefined ? { equipCost: parseEquipCost(plain)! } : {}),
+        ...(EQUIP_MIGHT_BONUS[id] !== undefined ? { equipMightBonus: EQUIP_MIGHT_BONUS[id] } : {}),
+        // The rules' own marker for what `[Weaponmaster]` and Angle Shot mean
+        // by "an Equipment", and it really is a printed tag — every one of the
+        // 29 Gear printing `[Equip]` carries it, measured.
+        ...((card.tags ?? []).includes("Equipment") ? { isEquipment: true } : {}),
         text: plain,
       };
     case "Rune":

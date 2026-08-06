@@ -30,6 +30,8 @@ import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
+import { attachEquipment } from "./equipment.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
 
 /**
  * Abilities you activate by exhausting the permanent that has them — the
@@ -337,7 +339,56 @@ function retrieveTeemo(state: GameState, playerIndex: 0 | 1): GameState {
 /** Malzahar - Fanatic's yield — two rainbow Power for one friendly permanent. */
 const MALZAHAR_POWER = 2;
 
+/**
+ * Every Gear whose printed `[Equip]` cost this engine can express, as a
+ * generated activated ability.
+ *
+ * **This is what makes 25 Equipment cards need no per-card code at all.** The
+ * cost parses out of the printed text, the attach is generic, and the ability
+ * is the same shape for all of them — so a table entry per card would be 25
+ * copies of one thing, each free to drift.
+ *
+ * Four are EXCLUDED and each is named rather than silently dropped:
+ *
+ *   The 4 rainbow-cost Equipment (Spinning Axe, Forgefire Cape, Rabadon's
+ *   Deathcrown, Shurelya's Requiem). `ActivationCost.power` names ONE domain,
+ *   and rainbow is not a domain — `Colorless` is a real printed identity, so
+ *   reusing it would let a Colorless rune pay a rainbow cost and nothing else.
+ *   The `rainbowRunes` payment bucket exists but belongs to the `[Deflect]`
+ *   surcharge, and sharing it would make "what this ability costs" and "what
+ *   the opponent taxed" indistinguishable. Needs its own cost kind.
+ *
+ * The two COMPOUND costs (Last Rites, Blade of the Ruined King) are excluded
+ * one step earlier, by `parseEquipCost` refusing to match them — see its own
+ * comment for why a looser pattern would make both cards cheaper than printed.
+ */
+function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
+  const out: Record<string, ActivatedAbilityDefinition> = {};
+  for (const def of defaultCardRegistry().all()) {
+    if (def.type !== "Gear" || def.equipCost === undefined) continue;
+    const { energy, domain, count } = def.equipCost;
+    if (domain === "rainbow") continue;
+    out[def.id] = {
+      kind: "Gear",
+      // NO exhaust: the printed reminder is "<rune>: Attach this to a unit you
+      // control", and an exhaust nobody printed would make every Equipment a
+      // once-per-turn attach. Re-equipping is legal and is the point —
+      // [Weaponmaster] says so outright ("even if it's already attached").
+      cost: { power: { domain, count }, ...(energy > 0 ? { energy } : {}) },
+      targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+      // `sourceInstanceId` is the 4th argument, not a field on the event — it
+      // is the gear being activated, i.e. the thing that gets attached.
+      resolve: (state, ctx, event, sourceInstanceId) =>
+        event.targetUnitInstanceId === undefined
+          ? state
+          : attachEquipment(state, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId),
+    };
+  }
+  return out;
+}
+
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
+  ...equipAbilities(),
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
   [GOLD_TOKEN_DEF_ID]: {
     // The Gold token (SFD, printed card `sfd-t03` "Gold // Buff") — "Kill this,

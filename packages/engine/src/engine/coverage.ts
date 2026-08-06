@@ -92,8 +92,11 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //
   // Each string is what a deck builder shows for a card whose only remaining
   // gap is this keyword, so it says what is missing rather than greying it.
-  ["Equip", "Equipment attachment does not exist — no way to attach a Gear to a unit"],
-  ["Weaponmaster", "needs [Equip]: attach one of your Equipment on play, for 1 rainbow less"],
+  // `[Equip]` LEFT this map on 2026-08-05: attachment exists, and 25 of the 31
+  // Equipment carry a generated ability that works. The 6 it does not reach are
+  // named individually in PARTIALLY_IMPLEMENTED below rather than held here,
+  // because a keyword-level flag would wrongly grey the 25 that work.
+  ["Weaponmaster", "needs the on-play half of [Equip]: attach one of your Equipment to me, for 1 rainbow less"],
   ["Quick-Draw", "needs [Equip]: a Gear with [Reaction] that attaches to a unit when played"],
   ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled"],
 ]);
@@ -282,6 +285,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   ["SFD-027", "'when I hold, draw 2' works; 'If you have two or fewer cards in hand, I enter ready' needs a clause in deploy.unitEntersReady"],
   ["SFD-057", "the 'ready me' half works; 'when you CHOOSE me' needs a unitChosen GameEvent — no board-wide choosing moment exists"],
   ["SFD-175", "the on-play pump works; 'As I'm revealed from your deck, [Add] 2 Energy' needs a reveal-from-deck hook"],
+  // The six Equipment whose printed `[Equip]` cost this engine cannot yet
+  // express. Attachment itself works — these are cost shapes, not a missing
+  // subsystem — and each is here rather than under a keyword flag so the 25
+  // Equipment that DO work are not greyed with them.
+  ["SFD-150", "[Equip] costs a rune AND Recycle 2 from your trash; the compound cost is unparsed"],
+  ["SFD-178", "[Equip] costs a rune AND Kill a friendly unit; the compound cost is unparsed"],
+  ["SFD-186", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
+  ["SFD-190", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
+  ["SFD-191", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
+  ["SFD-192", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

@@ -1,5 +1,5 @@
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { createCardInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
+import { createCardInstance, type GearInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
 import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
@@ -21,6 +21,13 @@ export function spellInstance(defId: string): SpellInstance {
  *  on-play-unit-trigger tests, which key off a card's real defId. */
 export function realUnitInstance(defId: string): UnitInstance {
   return createCardInstance(defaultCardRegistry().get(defId)) as UnitInstance;
+}
+
+/** A real Gear CardInstance from the registry — the Gear-side twin of the
+ *  above, needed by the Equipment tests, which key off a card's real defId to
+ *  reach its `[Equip]` cost and its art-only Might badge. */
+export function realGearInstance(defId: string): GearInstance {
+  return createCardInstance(defaultCardRegistry().get(defId)) as GearInstance;
 }
 
 let unitCounter = 0;

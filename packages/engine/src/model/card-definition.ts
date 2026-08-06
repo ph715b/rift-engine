@@ -80,6 +80,26 @@ export interface GearDefinition extends CardDefinitionBase {
   keywords: Partial<Record<Keyword, number>>;
   isReaction: boolean;
   hidden: boolean;
+  /**
+   * What this Gear's `[Equip]` ability costs, or undefined for a Gear that has
+   * none. **Completely independent of the Gear's own PLAY cost** — Doran's
+   * Blade is played for 2 Energy and equipped for 1 Body Power, and the two
+   * never interact. A Gear is played to `activeGear` exactly as before;
+   * `[Equip]` is a second, separately-paid ability that attaches it later.
+   */
+  equipCost?: { energy: number; domain: Domain | "rainbow"; count: number };
+  /**
+   * The "+N Might" badge an Equipment grants the unit it is attached to.
+   *
+   * **This is art-only data and is NOT in the card JSON at all** — not in
+   * `attributes.might` (null on every Equipment), not in `text.plain`, not even
+   * in `accessibility_text`. Same class of gap as `powerDomainAlt`, and hand
+   * -transcribed for the same reason. See `card-loader`'s EQUIP_MIGHT_BONUS.
+   */
+  equipMightBonus?: number;
+  /** Carries the printed "Equipment" tag — the rules' own marker, and what
+   *  `[Weaponmaster]` and Angle Shot mean by "an Equipment". */
+  isEquipment?: boolean;
 }
 
 export type CardDefinition = LegendDefinition | UnitDefinition | SpellDefinition | GearDefinition;
