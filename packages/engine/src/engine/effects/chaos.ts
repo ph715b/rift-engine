@@ -137,6 +137,37 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unit" },
     resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state),
   },
+  "SFD-122": {
+    // Called Shot — "[Action] [Repeat] [Chaos] Look at the top 2 cards of your
+    // Main Deck. Draw one and recycle the other."
+    //
+    // Stacked Deck (OGN-183, below) at 2 instead of 3. "Draw one" and "put 1
+    // into your hand" are the same instruction, so it is the same helper —
+    // `takeOneFromTopAndRecycleRest` — and a decision for the same forced
+    // reason: `legal-actions` enumerates from PUBLIC state and the top of a deck
+    // is not public, so fanning the choice onto the action would hand the AI its
+    // own deck order.
+    //
+    // **Repeating this parks a SECOND decision**, and that is correct rather
+    // than incidental. Both executions run back to back inside one resolution
+    // (820.1.d), each parking its own question; `parkDecision` mints a fresh id
+    // per call and appends FIFO, so the two are distinct queue entries answered
+    // in order. The second decision's options are rebuilt from LIVE state when
+    // it is answered, so it names the top 2 cards as they stand AFTER the first
+    // draw-and-recycle — not a stale snapshot taken during resolution. That is
+    // the whole reason `DecisionDefinition.options` is a function of state.
+    //
+    // Its Repeat cost is `[Chaos]` with NO Energy, the only such cost in the
+    // set, which is why Marai Spire's Energy discount cannot touch it — see
+    // `modifiedRepeatEnergy`'s floor.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      // Nocturne's offer first, for the reason Reinforce's own resolve gives.
+      parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, state.players[ctx.casterIndex].deck.slice(0, 2)), {
+        kind: "SFD-122-keep",
+        playerIndex: ctx.casterIndex,
+      }),
+  },
   "OGN-183": {
     // Stacked Deck — "Look at the top 3 cards of your Main Deck. Put 1 into your
     // hand and recycle the rest."
@@ -1416,6 +1447,17 @@ export const decisions: Record<string, DecisionDefinition> = {
     options: (state, d) =>
       state.players[d.playerIndex].deck.slice(0, 3).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
     resolve: (state, d, optionId) => takeOneFromTopAndRecycleRest(state, d.playerIndex, 3, optionId),
+  },
+  "SFD-122-keep": {
+    // Called Shot's half of Stacked Deck's question, at 2 rather than 3.
+    //
+    // `options` reads LIVE state rather than a snapshot, which is what makes a
+    // repeated Called Shot correct: the second execution's question is asked of
+    // the deck the first one left behind.
+    prompt: () => "Called Shot: draw one, recycle the other",
+    options: (state, d) =>
+      state.players[d.playerIndex].deck.slice(0, 2).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => takeOneFromTopAndRecycleRest(state, d.playerIndex, 2, optionId),
   },
 
   // Mindsplitter's "choose a card from it, and they discard that card".

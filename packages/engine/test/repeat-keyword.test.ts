@@ -9,7 +9,7 @@ import { effectiveMight } from "../src/engine/effective-might.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { Domain } from "../src/model/domain.js";
-import { makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, pickCard, spellInstance } from "./fixtures.js";
 
 /**
  * `[Repeat]` — rule 820.1.
@@ -562,6 +562,73 @@ describe("Danger Zone buffs Mechs only, and pays a RAINBOW repeat", () => {
 
     expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "mech")!.mightThisTurn).toBe(2);
     expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "grunt")!.mightThisTurn).toBe(0);
+  });
+});
+
+/**
+ * Called Shot (SFD-122) — "[Action] [Repeat] [Chaos] Look at the top 2 cards of
+ * your Main Deck. Draw one and recycle the other."
+ *
+ * The `[Repeat]` case that is NOT a second set of targets: the choice is a
+ * parked DECISION (the top of a deck is not public, so it cannot be enumerated
+ * onto the action), and repeating parks a SECOND one. Two questions, asked in
+ * order, the second against the deck the first left behind.
+ */
+describe("Called Shot parks one decision per execution", () => {
+  /** A caster with a known 4-card deck and enough Chaos to repeat. */
+  function board(runeCount = 8) {
+    const { state, spellId } = caster("SFD-122", "Chaos", runeCount);
+    state.players[0]!.deck = ["a", "b", "c", "d"].map((n) =>
+      makeUnit({ name: `Card${n.toUpperCase()}`, instanceId: n, might: 1 }),
+    );
+    return { state, spellId };
+  }
+
+  it("declined, it asks ONCE and draws one of the top two", () => {
+    const { state, spellId } = board();
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid)!;
+    const after = answerDecisions(resolveChain(accept(state, plain)), pickCard("a"));
+
+    expect(after.players[0]!.hand.map((c) => c.instanceId)).toContain("a");
+    // "Recycle the other" — b goes to the BOTTOM, so the deck is c, d, b.
+    expect(after.players[0]!.deck.map((c) => c.instanceId)).toEqual(["c", "d", "b"]);
+  });
+
+  /**
+   * Repeated: two questions. The second is asked of the deck the FIRST left, so
+   * it offers c and b (b having been recycled to the bottom behind d)... which
+   * is to say it offers whatever is on top THEN, not a snapshot taken during
+   * resolution. Picking by name rather than by position is what makes this
+   * assertion about the live re-read rather than about ordering luck.
+   */
+  it("repeated, it asks TWICE and the second question sees the first's leftovers", () => {
+    const { state, spellId } = board();
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+    const resolved = resolveChain(accept(state, repeated));
+
+    // Both executions have run and BOTH questions are queued before either is
+    // answered — 820.1.d puts them inside one resolution.
+    expect(resolved.pendingDecisions.filter((d) => d.kind === "SFD-122-keep")).toHaveLength(2);
+
+    const after = answerDecisions(resolved, pickCard("a"));
+    // Two draws from one play: `a` (named), plus whichever the second question
+    // offered — two cards in hand either way.
+    expect(after.players[0]!.hand).toHaveLength(2);
+    expect(after.players[0]!.hand.map((c) => c.instanceId)).toContain("a");
+    // Four cards started in the deck; two are now in hand.
+    expect(after.players[0]!.deck).toHaveLength(2);
+  });
+
+  /** Its Repeat is `[Chaos]` with NO Energy — the only such cost in the set. */
+  it("charges a Power-only repeat cost", () => {
+    const { state, spellId } = board();
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid)!;
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+
+    expect(plain.payment.energyRunes, "Called Shot prints 0 Energy").toHaveLength(0);
+    expect(repeated.payment.energyRunes, "its Repeat adds no Energy either").toHaveLength(0);
+    expect(plain.payment.powerRunes).toHaveLength(1);
+    expect(repeated.payment.powerRunes, "1 printed Chaos + 1 repeat Chaos").toHaveLength(2);
   });
 });
 
