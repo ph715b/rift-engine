@@ -5,6 +5,7 @@ import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { unitEntersReady } from "../src/engine/deploy.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
+import { resolveShowdown } from "../src/engine/combat.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
@@ -33,11 +34,12 @@ import {
  * gets a full `submit` cast, which is the hop that carries a chosen target
  * through validation, payment and the chain.
  *
- * TWO of these cards are registered for only PART of their printed text (it was
- * three until the gear-token primitive landed and finished Bushwhack). Each
- * one's describe block says which part, and asserts nothing about the missing
- * half — an assertion about text nobody wrote would be the thing that makes a
- * partial look finished.
+ * ONE of these cards is registered for only PART of its printed text — Rumble -
+ * Hotheaded, whose keyword aura is unwritten. It was three (Bushwhack, Draven,
+ * Dunebreaker) until the gear-token primitive, the `combatWon` event and the
+ * conditional enter-ready in deploy.ts finished those. Its describe block says
+ * which half, and asserts nothing about the missing one — an assertion about text
+ * nobody wrote would be the thing that makes a partial look finished.
  */
 
 const registry = defaultCardRegistry();
@@ -48,8 +50,12 @@ const GEM_JAMMER = "SFD-007";
 const SUDDEN_STORM = "SFD-017";
 const DRAVEN_VANQUISHER = "SFD-020";
 const FERROUS_FORERUNNER = "SFD-021";
+const RUMBLE_HOTHEADED = "SFD-026";
 const DUNEBREAKER = "SFD-027";
 const LUCIAN_GUNSLINGER = "SFD-028";
+/** Mega-Mech (OGN-088) — 7 Energy, no Power, and NO printed text, so a test that
+ *  plays it from a trash is measuring the price and nothing else. */
+const MEGA_MECH = "OGN-088";
 
 const fury = (id: string): RuneCard => ({ id, domain: "Fury", state: "Ready" });
 
@@ -359,10 +365,11 @@ describe("Draven - Vanquisher (SFD-020): pay [Fury] for +2 Might when he fights 
   });
 });
 
-describe("Dunebreaker (SFD-027): when I hold, draw 2 — HALF the card", () => {
-  // "If you have two or fewer cards in your hand, I enter ready" is NOT
-  // implemented: a conditional enter-ready lives in deploy.ts. Nothing here
-  // asserts anything about how he arrives.
+describe("Dunebreaker (SFD-027): when I hold, draw 2", () => {
+  // These cases cover the HOLD clause only. His conditional enter-ready is
+  // written now and lives in deploy.ts, so it is tested where it lives — nothing
+  // here asserts anything about how he arrives, which is why this block says
+  // nothing about the card being partial any more.
   function holdingBf1(units: ReturnType<typeof makeUnit>[]): GameState {
     const state = makeState({ phase: "Beginning", activePlayerIndex: 0 });
     state.players[0]!.deck = [makeUnit(), makeUnit(), makeUnit()];
@@ -385,6 +392,152 @@ describe("Dunebreaker (SFD-027): when I hold, draw 2 — HALF the card", () => {
     const settled = resolveHeldTriggers(runBeginning(state));
     expect(settled.players[0]!.points).toBe(2); // both held
     expect(settled.players[0]!.hand, "he drew for someone else's battlefield").toHaveLength(2);
+  });
+});
+
+describe("Rumble - Hotheaded (SFD-026): recycle a friendly unit to play a Mech from your trash — HALF the card", () => {
+  // "Your Mechs each have [Assault]" is NOT implemented — a keyword aura lives in
+  // granted-keywords.ts's table, a shared file. Nothing below asserts anything
+  // about [Assault], on Rumble or on the Mech he pulls back.
+  //
+  // Every fixture here drives a REAL conquest: `resolveShowdown` wipes the lone
+  // defender, the Cleanup establishes control and records the conquest, and the
+  // trigger is held and finalized like any other. Nothing calls the resolver by
+  // hand, so a registration the dispatcher cannot reach fails on the first
+  // assertion rather than passing while the card is dead in a game.
+
+  interface Board {
+    /** Decides the discount: Mega-Mech prints 7 Energy, so this is 7 - it. */
+    fodderMight?: number;
+    runes?: number;
+    /** false puts a plain unit in the trash instead — "a MECH from your trash". */
+    mechInTrash?: boolean;
+    /** false leaves him with no OTHER friendly unit to spend. */
+    withFodder?: boolean;
+    /** "bf2" makes a stand-in take bf1 while he watches — "when *I* conquer". */
+    rumbleAt?: "bf1" | "bf2";
+    /** Which Mech waits in the trash. Mega-Mech prints NO Power, so the default
+     *  never exercises the Power half of the payment; Ferrous Forerunner does. */
+    mechDefId?: string;
+  }
+
+  function conquest(opts: Board = {}) {
+    const rumble = realUnitInstance(RUMBLE_HOTHEADED);
+    const fodder = makeUnit({ name: "Scrap Fodder", might: opts.fodderMight ?? 3 });
+    const mech = realUnitInstance(opts.mechDefId ?? MEGA_MECH);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.baseUnits = opts.withFodder === false ? [] : [fodder];
+    state.players[0]!.trash = [opts.mechInTrash === false ? makeUnit({ name: "Cardboard" }) : mech];
+    state.players[0]!.channeled = Array.from({ length: opts.runes ?? 4 }, (_, i) => fury(`f${i}`));
+
+    const elsewhere = opts.rumbleAt === "bf2";
+    state.battlefields[0]!.units = {
+      p1: [elsewhere ? makeUnit({ name: "Stand-in", might: 4 }) : rumble],
+      p2: [makeUnit({ might: 1 })],
+    };
+    if (elsewhere) {
+      state.battlefields[1]!.units = { p1: [rumble] };
+      // Already his, so standing there alone establishes nothing: control is
+      // GAINED or not at all ("if that player does not already Control the
+      // Battlefield"), and no control means no Conquer (469.1). Otherwise the
+      // positional control would fire the trigger for the OTHER battlefield and
+      // prove the opposite of what it claims.
+      state.battlefields[1]!.controllerId = "p1";
+    }
+    return { state: resolveHeldTriggers(resolveShowdown(state, "bf1", 0)), rumble, fodder, mech };
+  }
+
+  /** Answers the trade with the one pair on offer, and anything else (the free
+   *  play's placement question) with its first option. */
+  function takeTheTrade(state: GameState, seen?: (labels: string[]) => void): GameState {
+    return answerDecisions(state, (options, decision) => {
+      if (decision.kind !== "SFD-026-scrap") return options[0]!.id;
+      seen?.(options.map((o) => o.label));
+      return options.find((o) => o.id !== "decline")!.id;
+    });
+  }
+
+  it("recycles the unit, pays the DISCOUNTED cost, and puts the Mech in play", () => {
+    const { state, fodder, mech } = conquest();
+    expect(pendingDecision(state)?.kind, "the conquer trigger never asked").toBe("SFD-026-scrap");
+
+    let offered: string[] = [];
+    const done = takeTheTrade(state, (labels) => (offered = labels));
+
+    // Mega-Mech's printed 7, minus a 3-Might Scrap Fodder, priced in the offer
+    // itself — the player is choosing a price, not just a card.
+    expect(offered, "decline must lead, and exactly one pair was payable").toHaveLength(2);
+    expect(offered[1]).toContain("Scrap Fodder");
+    expect(offered[1]).toContain("4 Energy");
+
+    expect(unitAt(done, mech.instanceId), "the Mech never reached the board").toBeDefined();
+    expect(done.players[0]!.trash.map((c) => c.instanceId)).not.toContain(mech.instanceId);
+    // Recycled, so the fodder is on the bottom of the DECK — a Recycle is a zone
+    // change and never a death, which is what makes this different from a kill.
+    expect(unitAt(done, fodder.instanceId)).toBeUndefined();
+    expect(done.players[0]!.deck.at(-1)?.instanceId).toBe(fodder.instanceId);
+    expect(done.players[0]!.trash.map((c) => c.instanceId)).not.toContain(fodder.instanceId);
+    // All four runes went, which is 7 - 3 and not 7.
+    expect(done.players[0]!.channeled.filter((r) => r.state === "Ready"), "the Energy was never paid").toHaveLength(0);
+  });
+
+  it("pays a Mech's POWER as well as its Energy — the discount touches Energy only", () => {
+    // Ferrous Forerunner prints 6 Energy AND [1 Fury] Power. "Reduce its ENERGY
+    // cost" is all Rumble says, so the pip is still owed in full — and this is
+    // the only case that reaches the Power half of the payment at all.
+    const { state, mech } = conquest({ mechDefId: FERROUS_FORERUNNER });
+    expect(pendingDecision(state)?.kind).toBe("SFD-026-scrap");
+
+    const done = takeTheTrade(state);
+    expect(unitAt(done, mech.instanceId), "the Mech never reached the board").toBeDefined();
+    // Paying Power RECYCLES its rune (416) and banks the Energy that rune could
+    // have paid, so of four Fury runes: one goes back to the rune deck for the
+    // pip, and 6 - 3 = 3 Energy comes from that 1 banked plus 2 exhausted —
+    // leaving three runes channeled, exactly one of them still Ready.
+    expect(done.players[0]!.channeled).toHaveLength(3);
+    expect(done.players[0]!.channeled.filter((r) => r.state === "Ready")).toHaveLength(1);
+    expect(done.players[0]!.floatingEnergy, "the banked Energy was not spent").toBe(0);
+  });
+
+  it("does not even ASK when the discount does not cover the Mech — 3 runes, 3 Might, 7 Energy", () => {
+    // The negative half of the pair below. 7 - 3 = 4 and there are 3 runes, so
+    // 416.3 says the trade is not one you may choose to take.
+    expect(pendingDecision(conquest({ runes: 3 }).state)).toBeUndefined();
+  });
+
+  it("and DOES ask on the same 3 runes when the fodder is a 4-Might unit", () => {
+    // The positive half: the ONLY difference is the recycled unit's Might, so a
+    // resolver that ignored the discount would refuse this too, and one that
+    // played the Mech for free would have offered the case above.
+    const { state } = conquest({ runes: 3, fodderMight: 4 });
+    expect(pendingDecision(state)?.kind).toBe("SFD-026-scrap");
+
+    const done = takeTheTrade(state);
+    expect(done.players[0]!.channeled.filter((r) => r.state === "Ready"), "7 - 4 = 3, and 3 runes were channeled").toHaveLength(0);
+  });
+
+  it("declining leads, and costs nothing", () => {
+    const { state, fodder, mech } = conquest();
+    const declined = answerDecisions(state); // first option, which is Decline
+
+    expect(unitAt(declined, fodder.instanceId), "the fodder was recycled anyway").toBeDefined();
+    expect(declined.players[0]!.trash.map((c) => c.instanceId)).toContain(mech.instanceId);
+    expect(declined.players[0]!.channeled.filter((r) => r.state === "Ready")).toHaveLength(4);
+  });
+
+  it("does not ask with no Mech in the trash", () => {
+    expect(pendingDecision(conquest({ mechInTrash: false }).state)).toBeUndefined();
+  });
+
+  it("does not ask with no OTHER friendly unit to recycle", () => {
+    // He may not spend himself — "recycle ANOTHER friendly unit".
+    expect(pendingDecision(conquest({ withFodder: false }).state)).toBeUndefined();
+  });
+
+  it("does not ask when he is not standing at the battlefield conquered", () => {
+    // Everything else about this board is payable; the only thing wrong with it
+    // is where he is standing, which is what "when I conquer" asks.
+    expect(pendingDecision(conquest({ rumbleAt: "bf2" }).state)).toBeUndefined();
   });
 });
 

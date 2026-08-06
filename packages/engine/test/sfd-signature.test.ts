@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
-import { isCardImplemented } from "../src/engine/coverage.js";
+import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { answerDecisions, makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { answerDecisions, makeState, makeUnit, realGearInstance, spellInstance } from "./fixtures.js";
 
 /**
- * The four Spiritforged dual-domain signature cards that could be written against
+ * The Spiritforged dual-domain signature cards that could be written against
  * primitives this engine already has.
  *
  * Every case here goes through `submit` and the real `legalActions` enumeration
@@ -19,17 +19,32 @@ import { answerDecisions, makeState, makeUnit, spellInstance } from "./fixtures.
  * this repo has actually shipped. The assertions are on BOARD STATE after the
  * chain has settled.
  *
- * Three of the seven cards on the list are deliberately absent — Counter Strike
- * (Prevent, rule 2312's own section, needs a per-unit Prevent Value the engine has
- * no field for), Hostile Takeover (a control change that leaves the unit standing,
- * plus a delayed end-of-turn hand-back) and Riposte (one target that is a chain
- * spell AND one that is a unit, which `TargetingSpec` cannot express). Each needs
- * a shared file this pass was not allowed to touch.
+ * # What is still absent, and why — each is a missing primitive, not a gap in effort
+ *
+ *  - **Counter Strike (SFD-194)** "the next time that unit would be dealt damage
+ *    this turn, prevent it" needs a per-unit, single-use prevention marker.
+ *    `GameState` has the exact opposite (`markedForDeathOnDamageInstanceIds`) and
+ *    nothing symmetric; the consume point is inside `dealDamage`.
+ *  - **Hostile Takeover (SFD-202)** "lose control of that unit and recall it at
+ *    end of turn". Control in this engine IS which player's list a unit sits in
+ *    (`takeControlOfUnit`'s own comment says a temporary one "would need a real
+ *    controller field and a way back"), so nothing on the state can say which unit
+ *    to hand back when the `endOfTurn` event arrives. Writing only the steal would
+ *    turn a one-turn loan into a permanent theft — strictly worse than leaving it.
+ *  - **Riposte (SFD-206)** "choose a friendly unit AND a spell". `TargetingSpec`
+ *    is a union, and `chainSpell` carries no unit slot; a combined kind touches
+ *    card-effects, legal-actions, validate-play-card and target-lookup.
+ *  - **Spinning Axe (SFD-186), Forgefire Cape (SFD-190), Rabadon's Deathcrown
+ *    (SFD-191)** print no rules text beyond keywords. Their `[Equip]` cost is a
+ *    RAINBOW rune, which `ActivationCost.power` (one `Domain`) cannot express —
+ *    see `equipAbilities()`, which names all four exclusions. Nothing about them
+ *    belongs in this file.
  */
 
 const registry = defaultCardRegistry();
 
 const VOID_RUSH = "SFD-188"; // Fury+Order — reveal 2, banish one and play it 2 Energy cheaper, draw the rest
+const SHURELYAS_REQUIEM = "SFD-192"; // Calm+Mind Gear — "when you play this, ready your units"
 const DEFIANT_DANCE = "SFD-196"; // Calm+Chaos — +2 [M] to one unit, -2 [M] to another
 const ARCANE_SHIFT = "SFD-200"; // Mind+Chaos — blink a friendly, deal 3, banish this
 const ON_THE_HUNT = "SFD-204"; // Body+Chaos — ready your units
@@ -165,6 +180,60 @@ describe("On the Hunt (SFD-204): ready your units", () => {
 
   it("is reported as implemented by coverage", () => {
     expect(isCardImplemented(registry.get(ON_THE_HUNT))).toBe(true);
+  });
+});
+
+describe("Shurelya's Requiem (SFD-192): a GEAR whose on-play clause readies your units", () => {
+  /** An exhausted board on both sides, and the Requiem in hand with Calm runes to
+   *  pay its 4 Energy / 2 Power. Its pip is a Calm|Mind split capsule
+   *  (`POWER_DOMAIN_ALT_OVERRIDES`), so a Calm-only pool is a legal payment. */
+  function requiemState(): GameState {
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [makeUnit({ instanceId: "home", exhausted: true })];
+    state.battlefields[0]!.units = {
+      p1: [makeUnit({ instanceId: "front", exhausted: true }), makeUnit({ instanceId: "awake", exhausted: false })],
+      p2: [makeUnit({ instanceId: "enemy", exhausted: true })],
+    };
+    state.players[0]!.hand = [realGearInstance(SHURELYAS_REQUIEM)];
+    state.players[0]!.channeled = runes(12, "Calm");
+    return state;
+  }
+
+  it("readies friendly units in BASE and at battlefields, and nothing of the opponent's", () => {
+    // The measurement that matters: this is a SELF-trigger on a GEAR, a dispatch
+    // hop that only `execute-play-card`'s Gear branch reaches. Calling the
+    // resolver directly would pass whether or not the card is ever wired to it,
+    // so the whole path is exercised — enumerate, submit, settle the chain.
+    const state = requiemState();
+    const settled = castAndSettle(state, playsFor(state, SHURELYAS_REQUIEM)[0], SHURELYAS_REQUIEM);
+
+    expect(settled.players[0]!.activeGear.map((g) => g.defId), "the gear never entered play").toContain(SHURELYAS_REQUIEM);
+    expect(settled.players[0]!.baseUnits[0]!.exhausted, "the base unit stayed exhausted").toBe(false);
+    const front = settled.battlefields[0]!.units["p1"]!.find((u) => u.instanceId === "front");
+    expect(front!.exhausted, "the battlefield unit stayed exhausted").toBe(false);
+    const enemy = settled.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === "enemy");
+    expect(enemy!.exhausted, "an ENEMY unit was readied — 'your units' is not 'all units'").toBe(true);
+  });
+
+  it("HOLDS the clause on the chain rather than resolving it inline", () => {
+    // 383 / 809.1.b.3: a self-trigger is a Chain Pending Item, finalized by the
+    // Cleanup and resolved by a pass. So the board immediately after the play is
+    // still asleep, and that is the respondable window. A version that readied
+    // inside `executePlayCard` would pass the test above and fail this one.
+    const state = requiemState();
+    const played = accept(state, playsFor(state, SHURELYAS_REQUIEM)[0]);
+
+    expect(played.spellChain.length, "nothing was put on the chain").toBeGreaterThan(0);
+    expect(played.players[0]!.baseUnits[0]!.exhausted, "the ready happened inline, before anyone could respond").toBe(true);
+  });
+
+  it("is still reported as PARTIAL — the [Equip] half is a rainbow cost and is unwired", () => {
+    // Registration is per defId, so writing one clause of a two-clause card makes
+    // it read as finished unless something says otherwise. `PARTIALLY_IMPLEMENTED`
+    // already carries this defId for the rainbow `[Equip]` cost, and this asserts
+    // that note is still the thing standing between "one clause" and "done".
+    expect(isCardImplemented(registry.get(SHURELYAS_REQUIEM))).toBe(false);
+    expect(partialImplementationNote(registry.get(SHURELYAS_REQUIEM))).toContain("RAINBOW");
   });
 });
 

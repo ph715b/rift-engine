@@ -672,9 +672,64 @@ function trashUnitsAndGear(state: GameState, playerIndex: 0 | 1) {
   return state.players[playerIndex].trash.filter((c) => c.kind === "Unit" || c.kind === "Gear");
 }
 
+/**
+ * "Are there no other friendly units HERE?" — the Poro's own reminder text, and
+ * the rules' Special Terms definition it restates: "A unit is alone when there
+ * are no other friendly units at the same location."
+ *
+ * LOCATION, not battlefield, so a death in base asks about the base. That is the
+ * same bare-noun reading (355.9.b) that Discipline and Rune Prison take of "a
+ * unit", applied to "here": a Base is a place on the Board like any other, and a
+ * Poro that dies at home surrounded by its friends did not die alone.
+ *
+ * "OTHER friendly" needs no self-exclusion written out: `completeDeath` puts the
+ * corpse in the trash BEFORE the [Deathknell] is held, so the dying unit is
+ * already gone from whatever this counts.
+ */
+function noOtherFriendlyUnitsAt(state: GameState, ownerIndex: 0 | 1, battlefieldId: string | undefined): boolean {
+  if (battlefieldId === undefined) return state.players[ownerIndex].baseUnits.length === 0;
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return (bf?.units[state.players[ownerIndex].id] ?? []).length === 0;
+}
+
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {};
+export const deathTriggers: Record<string, DeathknellEffect> = {
+  // Lonely Poro — "[Deathknell] — If I died alone, draw 1. (When I die, get the
+  // effect. I'm alone if there are no other friendly units here.)" (rule 808)
+  //
+  // `ctx.casterIndex` is the DYING unit's controller — what "friendly" and "draw"
+  // both mean for a Deathknell — and not whoever killed it. `death.battlefieldId`
+  // is "here", captured when the Poro died and therefore still right even though
+  // the corpse has since moved to the trash.
+  //
+  // **DIVERGENCE, and it is a real one rather than a theoretical one.** "I DIED
+  // alone" is past tense: the rules note a dying unit's "location, attributes,
+  // and other relevant information" as the [Deathknell] is added to the chain as
+  // a Pending Item (Cleanup step 3a, and again under Kill Instruction), and
+  // information a trigger condition references "is checked when the trigger
+  // condition is fulfilled". This asks the question at RESOLUTION instead, which
+  // is a chain-pop later.
+  //
+  // The two answers differ whenever a friendly unit leaves that location in
+  // between, and the reachable case is a MUTUAL WIPE: combat.ts's
+  // `processDefeated` kills the losing side's units one at a time, so a Poro that
+  // died beside an ally reads as alone by the time its Deathknell pops and draws
+  // a card the rules would not give it. Measured, not assumed — see the mutual-
+  // death case in test/sfd-calm.test.ts.
+  //
+  // It is written this way because closing it needs a primitive that does not
+  // exist: `DeathknellEffect` is a bare resolver with no `applies`/`capture` pair
+  // (unlike `EventTriggerDefinition` and `DeathWatchDefinition`, both of which
+  // have one), and `DeathContext` carries no room to note the answer. Giving it
+  // one is a triggers.ts change. Deliberately NOT worked around by reading the
+  // other deaths still sitting on the chain: that answer is placement-order
+  // dependent — a Poro killed FIRST has its Deathknell at the bottom of the LIFO
+  // chain and would see none of them — so it would be right by accident half the
+  // time, which is worse than a divergence that is stated.
+  "SFD-036": (state, ctx, death) =>
+    noOtherFriendlyUnitsAt(state, ctx.casterIndex, death.battlefieldId) ? drawCards(state, ctx.casterIndex, 1) : state,
+};
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */

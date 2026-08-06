@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
+import { runEnd } from "../src/engine/turn-manager.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -45,6 +47,7 @@ const HARPOON_SQUAD = "SFD-137";
 const WINDSINGER = "SFD-138";
 const SWITCHEROO = "SFD-145";
 const DOWNWELL = "SFD-147";
+const DRAVEN_AUDACIOUS = "SFD-148";
 /** A [Hidden][Reaction] "Draw 2" from OGN — the facedown card Black Market
  *  Broker's tests actually play, chosen because it needs no target and 811 makes
  *  it free from facedown, so the fixture is about the Broker and nothing else. */
@@ -785,13 +788,184 @@ describe("Downwell (SFD-147): return ALL units and gear to their owners' hands",
   });
 });
 
+describe("Draven - Audacious (SFD-148): the first combat he wins each turn scores", () => {
+  /**
+   * **Every assertion here is a DELTA against a control board, never an absolute
+   * point total, and that is a correction rather than a style.** Winning a combat
+   * at a battlefield you did not control also CONQUERS it, and a conquest scores
+   * 1 point of its own — so the first draft of these tests read `points === 1`
+   * and every one of them failed at 2 against working code. An absolute total
+   * cannot tell Draven's point from the conquest's.
+   *
+   * The control is the same board with a plain unit in his place, fought the same
+   * way, so the difference between the two totals is exactly what his text adds.
+   */
+  const RIVAL_MIGHT = 1;
+  const DRAVEN_MIGHT = 9;
+
+  /** `hero` at bf1 for p0 against one rival, contested by `contestedBy`. */
+  function boardWith(hero: UnitInstance, heroMight: number, rivalMight: number, contestedBy: 0 | 1): GameState {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [{ ...hero, might: heroMight }], p2: [makeUnit({ name: "Rival", might: rivalMight })] };
+    state.battlefields[0]!.contestedByIndex = contestedBy;
+    return state;
+  }
+
+  const dravenBoard = (heroMight = DRAVEN_MIGHT, rivalMight = RIVAL_MIGHT, contestedBy: 0 | 1 = 0) =>
+    boardWith(realUnitInstance(DRAVEN_AUDACIOUS), heroMight, rivalMight, contestedBy);
+  /** The same fight with a nobody in his place — the conquest baseline. */
+  const controlBoard = (heroMight = DRAVEN_MIGHT, rivalMight = RIVAL_MIGHT, contestedBy: 0 | 1 = 0) =>
+    boardWith(makeUnit({ name: "Nobody" }), heroMight, rivalMight, contestedBy);
+
+  /**
+   * Opens the Showdown through the real Cleanup and then CLOSES it the way a game
+   * does — two consecutive PassFocus, which is `closeShowdown`'s only entry (349)
+   * and therefore the only path `resolveShowdown` and its `combatWon` hold are
+   * ever reached by.
+   *
+   * Deliberately not a direct `resolveShowdown` call, which is one hop below the
+   * real path and exactly the kind of hop that has been dead here before.
+   */
+  function fightOut(state: GameState): GameState {
+    let next = resolveHeldTriggers(state);
+    for (let guard = 0; guard < 8 && next.turnState === "Showdown"; guard += 1) {
+      next = executePassFocus(next, { type: "PassFocus", playerIndex: next.focusHolder });
+    }
+    return answerDecisions(resolveHeldTriggers(next));
+  }
+
+  const pointsAfter = (state: GameState): [number, number] => {
+    const after = fightOut(state);
+    return [after.players[0]!.points, after.players[1]!.points];
+  };
+
+  it("scores 1 point MORE than the same fight without him — through a real Showdown close", () => {
+    const after = fightOut(dravenBoard());
+    const control = fightOut(controlBoard());
+
+    expect(at(after, "bf1", "p2"), "the rival survived — this fixture won nothing").toHaveLength(0);
+    expect(at(control, "bf1", "p2"), "the control fixture won nothing either").toHaveLength(0);
+    expect(after.players[0]!.points - control.players[0]!.points, "Draven won and scored nothing").toBe(1);
+    expect(after.players[1]!.points, "the loser scored").toBe(0);
+  });
+
+  it("scores nothing when the OPPONENT wins the fight", () => {
+    // Draven loses at 1 Might against 9, so his side is the one wiped out.
+    //
+    // **This control is WEAK by construction, and measured to be so** — the same
+    // hole combat-won.test.ts's mutual-wipe test documents. Deleting the
+    // `winnerIndex === listener.ownerIndex` condition from `applies` leaves this
+    // PASSING, because a losing Draven is a dead Draven: 466.5.a makes the winner
+    // "the only player that has units remaining", so a unit alive at the
+    // battlefield where a combat was won is on the winning side by definition and
+    // one on the losing side is not a listener at all. The condition is therefore
+    // unfalsifiable here rather than untested — it is redundant with the
+    // positional check the test below DOES fail on.
+    //
+    // **His SECOND clause landed after this test was written, and it changes the
+    // answer.** "When I die in combat, choose an opponent. They score 1 point"
+    // is now implemented, so a loss does NOT pay nobody — it pays the opponent,
+    // by design. That is his drawback, and the price his win clause is written
+    // against.
+    //
+    // What is still pinned, and is what this test was really for: the WIN clause
+    // does not fire on a loss. Draven scores nothing himself, and the opponent
+    // gets exactly ONE more than the control board — the death point, not a
+    // stray win.
+    const draven = realUnitInstance(DRAVEN_AUDACIOUS);
+    const state = boardWith(draven, 1, 9, 0);
+
+    const after = fightOut(state);
+    const [, controlOpponent] = pointsAfter(boardWith(makeUnit({ name: "Nobody" }), 1, 9, 0));
+
+    expect(findAnywhere(after, draven.instanceId), "Draven survived — this is not a loss").toBeUndefined();
+    expect(after.players[1]!.points - controlOpponent, "his death clause paid the wrong amount").toBe(1);
+    expect(after.players[0]!.points, "the dead Draven scored anyway").toBe(0);
+  });
+
+  it("scores nothing for a combat won somewhere ELSE — 'I win a combat' is positional", () => {
+    // Draven sits at bf2 while his side wins at bf1. His CONTROLLER won a
+    // combat; he did not, and the card says "I".
+    const withDraven = controlBoard();
+    withDraven.battlefields[1]!.units = { p1: [{ ...realUnitInstance(DRAVEN_AUDACIOUS), might: 4 }] };
+
+    const after = fightOut(withDraven);
+    const control = fightOut(controlBoard());
+
+    expect(at(after, "bf1", "p2"), "nobody won the fixture's fight").toHaveLength(0);
+    expect(after.players[0]!.points, "Draven scored for a fight he was not in").toBe(control.players[0]!.points);
+  });
+
+  it("scores ONCE a turn however many combats he wins", () => {
+    // Two fights in one turn with the same Draven: he wins at bf1, then the
+    // opponent contests bf1 again with a fresh unit and loses to him again. The
+    // rematch conquers nothing (he already controls bf1 and already scored it),
+    // so a second point could only come from his text.
+    const first = fightOut(dravenBoard());
+    const control = fightOut(controlBoard());
+    expect(first.players[0]!.points - control.players[0]!.points, "the first win did not score — the rest proves nothing").toBe(1);
+
+    const second = fightOut(rematchAt(first));
+
+    expect(at(second, "bf1", "p2"), "the rematch was never fought").toHaveLength(0);
+    expect(second.players[0]!.points, "the allowance did not hold — he scored twice in one turn").toBe(first.players[0]!.points);
+  });
+
+  it("re-arms at the end of the turn", () => {
+    // The whole risk of recording the allowance on the unit: if it never expired
+    // Draven would score once per GAME. This is the positive control for the
+    // test above — the SAME rematch, with only a turn boundary in between.
+    const first = fightOut(dravenBoard());
+    const nextTurn = runEnd({ ...first, turnState: "Neutral", phase: "Action" });
+
+    const second = fightOut({ ...rematchAt(nextTurn), phase: "Action", activePlayerIndex: 0 });
+
+    expect(at(second, "bf1", "p2"), "the rematch was never fought").toHaveLength(0);
+    expect(second.players[0]!.points - first.players[0]!.points, "the once-a-turn mark never expired").toBe(1);
+  });
+
+  it("holds the trigger on the CHAIN rather than resolving it inside the combat", () => {
+    // 383: the win is a Pending Item, so the point lands a chain-pop later and
+    // both players get a window in between.
+    //
+    // `runCleanup` is what finalizes the pen onto the chain, so it is run here
+    // rather than reading `pendingTriggers` — the pen and the chain are different
+    // places and this file's `heldFor` note records which one an assertion means.
+    let opened = resolveHeldTriggers(dravenBoard());
+    for (let guard = 0; guard < 8 && opened.turnState === "Showdown"; guard += 1) {
+      opened = executePassFocus(opened, { type: "PassFocus", playerIndex: opened.focusHolder });
+    }
+
+    expect(opened.pendingTriggers.map((t) => t.listenerDefId), "the win never reached the pen").toContain(DRAVEN_AUDACIOUS);
+    expect(heldFor(runCleanup(opened)), "the win never reached the chain").toContain(DRAVEN_AUDACIOUS);
+    expect(opened.players[0]!.points, "the point was scored inline instead of waiting on the chain").toBe(1); // the conquest's, not his
+  });
+
+  /** p1 walks a fresh rival back into bf1 and contests it again. */
+  function rematchAt(state: GameState): GameState {
+    return {
+      ...state,
+      battlefields: state.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p2: [makeUnit({ name: "Fresh Rival", might: RIVAL_MIGHT })] }, contestedByIndex: 1 as 0 | 1 }
+          : bf,
+      ),
+    };
+  }
+});
+
 describe("coverage sees each of them", () => {
-  // Corrupt Enforcer is NOT in this list: only his on-move half is written,
-  // and "when I win a combat, draw 1" needs a combat-won event GameEvent does
-  // not have. He now carries a coverage.PARTIALLY_IMPLEMENTED entry, so he must
-  // report NOT implemented — asserted separately below, because a card that is
-  // half written and a card that is finished are exactly what this file must
-  // keep apart.
+  // Corrupt Enforcer IS in this list now: his second clause landed with
+  // `combatWon`, so his PARTIALLY_IMPLEMENTED entry was deleted rather than
+  // reworded, and the assertion below pins that.
+  //
+  // **Draven - Audacious (SFD-148) is deliberately NOT in this list.** Only his
+  // combat-win clause is written; "when I die in combat" needs a `diedInCombat`
+  // flag on `DeathContext` that does not exist. He is awaiting a
+  // coverage.PARTIALLY_IMPLEMENTED entry, and asserting either answer here would
+  // break the moment it lands — a card that is half written and a card that is
+  // finished are exactly what this file must keep apart, so it says neither
+  // until the entry is in.
   for (const defId of [
     CORRUPT_ENFORCER,
     BLACK_MARKET_BROKER,

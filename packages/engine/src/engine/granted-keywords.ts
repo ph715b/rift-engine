@@ -118,8 +118,30 @@ interface KeywordAura {
   /** A condition on the RECEIVING unit — Spirit's Refuge's "buffed". Asked fresh
    *  on every read, so it comes and goes with the buff. */
   appliesTo?: (unit: UnitInstance) => boolean;
+  /**
+   * A condition answerable from the receiving card's DEFINITION alone — SFD's
+   * "your MECHS have ...", where the tag is printed and cannot change in play.
+   *
+   * Separate from `appliesTo` because of where each can be asked.
+   * `keywordOnEntry` runs BEFORE the unit exists as an instance, so it cannot
+   * consult `appliesTo` at all — and `[Vision]` is entry-triggered, so an aura
+   * with only an instance-level predicate would offer the Vision recycle to a
+   * non-Mech entering under Forecaster. That trap was spotted by the agent that
+   * refused to write the card, and this field is the answer to it: a tag is
+   * printed on the definition, so it CAN be asked at entry.
+   */
+  appliesToDef?: (def: { id: string; tags?: readonly string[] }) => boolean;
   keywords: Keyword[];
 }
+
+/** "Your Mechs" — a printed tag, so it is answerable from the definition and
+ *  can therefore be asked at ENTRY as well as on the board. */
+const isMech = (def: { tags?: readonly string[] }): boolean => def.tags?.includes("Mech") === true;
+
+const FORECASTER = "SFD-065";
+const BREAKNECK_MECH = "SFD-071";
+const RUMBLE_HOTHEADED = "SFD-026";
+const PETRICITE_MONUMENT = "SFD-104";
 
 const KEYWORD_AURAS: Record<string, KeywordAura> = {
   [CAPTAIN_FARRON]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Assault"] },
@@ -130,6 +152,39 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     scope: "anywhere",
     excludesSelf: false,
     appliesTo: (unit) => unit.buffed,
+    keywords: ["Deflect"],
+  },
+
+  // SFD's four. Three are tribal ("your MECHS have ..."), which is what
+  // `appliesToDef` exists for; Petricite Monument reaches every friendly unit
+  // and needs no predicate at all.
+  [FORECASTER]: {
+    source: "unit",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesToDef: isMech,
+    keywords: ["Vision"],
+  },
+  [BREAKNECK_MECH]: {
+    source: "unit",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesToDef: isMech,
+    keywords: ["Deflect", "Ganking"],
+  },
+  [RUMBLE_HOTHEADED]: {
+    source: "unit",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesToDef: isMech,
+    keywords: ["Assault"],
+  },
+  [PETRICITE_MONUMENT]: {
+    // A GEAR source, so `scope` can only be "anywhere" — and "friendly units"
+    // carries no tribe, so no predicate. Its own `[Temporary]` is the loader's.
+    source: "gear",
+    scope: "anywhere",
+    excludesSelf: false,
     keywords: ["Deflect"],
   },
 };
@@ -343,10 +398,16 @@ export function keywordOnEntry(state: GameState, playerIndex: 0 | 1, def: { id: 
           `a destination this question does not carry. See this function's scope note.`,
       );
     }
-    // `appliesTo` is deliberately not consulted: it reads the entering unit,
-    // which does not exist yet. No Vision aura has one, and a future conditional
-    // grant of an entry-triggered keyword would need the card instance rather
-    // than the definition.
+    // `appliesTo` is deliberately not consulted: it reads the entering unit's
+    // INSTANCE (Spirit's Refuge asks whether it is buffed), which does not exist
+    // yet.
+    //
+    // `appliesToDef` IS consulted, and has to be: it reads the printed
+    // definition, which does exist here. Without it Forecaster's "your Mechs
+    // have [Vision]" would offer the Vision recycle to every unit its
+    // controller played, Mech or not — `[Vision]` is entry-triggered, so this is
+    // the one place that question gets asked.
+    if (aura.appliesToDef !== undefined && !aura.appliesToDef(def)) continue;
     if (aura.source === "gear") {
       if (state.players[playerIndex].activeGear.some((g) => g.defId === sourceDefId)) return true;
     } else if (ownUnitAnywhereExcept(state, playerIndex, sourceDefId)) {

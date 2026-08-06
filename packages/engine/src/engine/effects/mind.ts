@@ -1015,6 +1015,81 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "SFD-082": {
+    // Ezreal - Dashing — "When I attack or defend, deal damage equal to my Might
+    // to an enemy unit here. I don't deal combat damage. [Mind]: [Action] — Move
+    // me to your base."
+    //
+    // **ONE of THREE clauses. Deliberately, and it is the clause that makes him
+    // stronger rather than weaker, so it is worth being loud about:**
+    //
+    //  - "I don't deal combat damage" is a COMBAT-ASSIGNMENT fact and belongs
+    //    beside `combatAssignmentDefIds` in engine/combat.ts. Without it this
+    //    Ezreal deals his trigger damage AND his Might in the damage step, i.e.
+    //    he is played better than he is printed. That is the drawback the trigger
+    //    is priced against.
+    //  - ":rb_rune_mind:: [Action] — Move me to your base" is an activated
+    //    ability with a Power cost, which engine/activated-abilities.ts already
+    //    expresses (`ActivationCost.power`, Treasure Trove's shape) — it needs a
+    //    registry entry there, not a new subsystem.
+    //
+    // Neither file is this one's to edit. The clause below is whole on its own
+    // terms and is written rather than withheld, the same call Wallop (OGN-146,
+    // effects/body.ts) records for its unreachable half.
+    //
+    // "When I attack OR DEFEND" is `isFightingAt` — Ahri - Inquisitive's
+    // indifference to which side started the fight, not Yasuo - Remorseful's
+    // attacker-only reading. The designation is fixed when the combat opens
+    // (383), so it is asked here and NOT re-asked below: moving him away during
+    // the response window must not cancel an ability that has already triggered.
+    on: "combatBegan",
+    applies: isFightingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
+      if (!bf) return state;
+      // **"MY Might" is read LIVE at resolution, not off `listener.card`**, and
+      // the rules work this exact sentence to say so. 359.3.e.14's own example is
+      // Strike Down — "It deals damage equal to its Might to an enemy unit" —
+      // where the answer is "null" once the unit's information is no longer
+      // available, "and the instructions related to it are ignored"; the very
+      // next clause is that information about a permanent whose zone and status
+      // HAVE NOT changed "is accessible". A fire-time snapshot gets both ends
+      // wrong: it pays out for an Ezreal who has left the board, and it misses a
+      // pump landed in the response window this hold opens.
+      //
+      // **This is a divergence from Yasuo - Remorseful (OGN-076, effects/calm.ts),
+      // which reads `listener.card` for the same sentence.** Reported rather than
+      // fixed — that file belongs to another owner.
+      const self = findUnitAnywhere(state, listener.card.instanceId);
+      if (!self) return state; // off the board: null Might, so the deal is ignored
+      // `isCombat: false` for the reason Yasuo's entry records: `[Assault]` and
+      // `[Shield]` are terms of the COMBAT damage step, and counting them in a
+      // damage INSTRUCTION would pay them twice in one fight. Buffs, this-turn
+      // pumps and continuous auras all count, and the context is built from where
+      // he is standing NOW rather than from the event, so an aura at a
+      // battlefield he was moved to is the one that applies.
+      const might = effectiveMight(state, self.unit, self.ownerIndex, mightContextFor(state, self));
+      // "An enemy unit HERE" — the first at the battlefield the combat opened at,
+      // in board order, auto-selected rather than asked. Same simplification and
+      // the same structural reason (no action to hang the choice on) as Yasuo,
+      // Ahri, Teemo and Crackshot Corsair; filed Unverified in
+      // docs/rules-conformance.md.
+      const ownerId = state.players[listener.ownerIndex].id;
+      const enemyId = Object.entries(bf.units)
+        .filter(([id]) => id !== ownerId)
+        .flatMap(([, units]) => units.map((u) => u.instanceId))[0];
+      if (enemyId === undefined) return state;
+      // 718.5 — "If no damage was Dealt, then Bonus Damage will not apply." A
+      // 0-Might Ezreal (Smoke Screen has a floor, Thousand-Tailed Watcher does
+      // not reach him, but a future -Might card will) must skip `dealDamage`
+      // rather than call it with 0, or Annie - Fiery's +1 in damage-modifiers.ts
+      // would turn "no damage" into 1. Teemo - Strategist's guard, and the rule
+      // is the same one.
+      if (might <= 0) return state;
+      return dealDamage(state, listener.ownerIndex, enemyId, might);
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed

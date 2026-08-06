@@ -695,7 +695,44 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
-export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "SFD-192": {
+    // Shurelya's Requiem (Calm + Mind) — "[Unique] [Equip] :rainbow:. When you
+    // play this, ready your units."
+    //
+    // **HALF a card, deliberately, and the other half is not writable here.** Its
+    // `[Equip]` cost is a RAINBOW rune, and `ActivationCost.power` names one
+    // `Domain` — rainbow is not one. So `equipAbilities()` skips it by name along
+    // with the other three rainbow-cost Equipment, and this Gear can be played and
+    // will fire the clause below, but can never attach by its own ability.
+    // `coverage.PARTIALLY_IMPLEMENTED` already carries exactly that note for this
+    // defId, so the card keeps reporting as partial rather than flipping to done
+    // the moment something was registered for it — which is the failure this
+    // repo's registration-is-per-defId rule exists to catch.
+    //
+    // A SELF-trigger rather than an event listener, the same shape Forge of the
+    // Future needs and for the same reason: a Gear's OWN arrival is not a moment
+    // `allListeningPermanents` reaches for that Gear, so keying it by the played
+    // card's defId is what makes it fire at all.
+    //
+    // The body is On the Hunt's (SFD-204 above) word for word, because the printed
+    // clause is: "ready your units" — no location, so base and every battlefield,
+    // and no type widening, so the Gear and the Legend stay exhausted
+    // (`readyPermanent` exists for Miss Fortune - Captain, who names no type).
+    // The id list is snapshotted before the first ready for the reason recorded
+    // there: `readyUnit` holds a `unitReadied` event and Pirate's Haven answers
+    // it, so the instruction applies to the units that existed when it began.
+    //
+    // `event.ownerIndex` is who PLAYED it — "your units" is the caster's board.
+    // A self-trigger's owner is `action.playerIndex` at every hold site, so this
+    // stays right for a free play (play-free.ts) as well as a paid one.
+    on: ["played"],
+    resolve: (state, event) =>
+      ownUnitsEverywhere(state, event.ownerIndex)
+        .map((u) => u.instanceId)
+        .reduce((next, id) => readyUnit(next, id), state),
+  },
+};
 
 /** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
  *  a `kind` string rather than a defId, since one card can ask more than one

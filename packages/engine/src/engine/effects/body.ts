@@ -13,6 +13,7 @@ import {
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   ownUnitsEverywhere,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyPermanent,
   readyUnit,
@@ -20,13 +21,14 @@ import {
   spendBuff,
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
-import { playUnitToBase } from "../deploy.js";
+import { playUnitToBattlefield } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
+import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
-import { parkDecision, type DecisionOption } from "../decisions.js";
+import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
-import type { UnitInstance } from "../../model/card.js";
+import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { Keyword } from "../../model/keyword.js";
 import { effectiveMight } from "../effective-might.js";
 import { effectiveKeywords, isMighty } from "../granted-keywords.js";
@@ -303,6 +305,27 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx) =>
       drawCards(state, ctx.casterIndex, ownUnitsEverywhere(state, ctx.casterIndex).filter((u) => isMighty(state, u, ctx.casterIndex)).length),
   },
+  "SFD-111": {
+    // Here to Help — "[Hidden][Action] You may play a unit from hand to a
+    // battlefield you control, reducing its cost by [3 Energy]."
+    //
+    // Targeting is "none" and both choices are DECISIONS, because neither can be
+    // decided when the spell is announced: the card played is chosen from a hand
+    // that this spell's own resolution may have changed, and 355.11 makes a
+    // target something the effect ACTS on — a card in hand being played is not.
+    // Void Rush (SFD-188, effects/signature.ts) prices and plays a card the same
+    // way, and this borrows its payment shape wholesale (see `hereToHelpPayment`).
+    //
+    // TWO questions rather than one option per (unit, battlefield) pair. The
+    // second is auto-retired by `advanceDecisions` whenever the caster controls
+    // exactly one battlefield, which is the common board — so the pair encoding
+    // would have bought nothing and cost a composite option id.
+    //
+    // `[Hidden]` and `[Action]` are timing keywords, parsed from the card and
+    // enforced by hidden.ts and timing.ts; nothing about them belongs here.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "SFD-111-play", playerIndex: ctx.casterIndex }),
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -440,6 +463,35 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, unitInstanceId) =>
       parkDecision(state, { kind: "SFD-091-choose", playerIndex: ctx.casterIndex, cardInstanceId: unitInstanceId }),
+  },
+  "SFD-101": {
+    // Fae Dragon — "When you play me, buff up to four friendly units."
+    //
+    // **HALF THE CARD, and registration is per defId, so this file reports
+    // SFD-101 as DONE the moment this entry exists.** Her second sentence,
+    // "when you spend a buff, play a Gold gear token exhausted", is NOT
+    // implemented and cannot be from here: there is no `buffSpent` event.
+    // `effect-helpers.spendBuff` is the single funnel every spend goes through
+    // (Wildclaw Shaman, Kraken Hunter, Overt Operation, Mistfall's payers) and it
+    // fires nothing, where its mirror `addBuff` holds `unitBuffed`. The clause
+    // needs one `holdEventTrigger` there plus the event kind — both in shared
+    // files. Until then she needs a coverage.PARTIALLY_IMPLEMENTED row.
+    //
+    // FOUR targets, which no TargetingSpec on this path can carry. `unitSlots` is
+    // a fixed 2-tuple, and `unitList` — which would be exactly right — is
+    // enumerated for a Unit by legal-actions but dropped on the dispatch hop:
+    // `UnitTriggerEvent` has no `targetUnitInstanceIds` field, so the ids reach
+    // `dispatchOnPlayUnit` and vanish. Adding it is a change to unit-triggers.ts.
+    //
+    // So the four choices are a repeated DECISION instead, Overt Operation's
+    // mechanism one row down. **The divergence that buys is WHEN they are chosen**:
+    // 355 chooses targets as the ability goes on the chain, and these are chosen at
+    // resolution. It is small here and named rather than hidden — a Unit's on-play
+    // trigger is held and resolved as one chain item, so the only thing an opponent
+    // loses is seeing which four units are named while the item is still pending.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      parkDecision(state, { kind: "SFD-101-buff", playerIndex: ctx.casterIndex, count: FAE_DRAGON_BUFFS }),
   },
 };
 
@@ -774,6 +826,50 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "SFD-113": {
+    // Lucian - Merciless — "[Weaponmaster] The first time I conquer each turn,
+    // ready me." (The keyword is implemented in engine/equipment.ts and fires
+    // from the on-play funnel, so only the second sentence is here.)
+    //
+    // "When *I* conquer" is Sett - Brawler's and Qiyana - Victorious' positional
+    // reading above: he must be standing at the battlefield that was taken. Same
+    // split too — both that check and the conqueror check gate whether this
+    // reaches the chain, and the LOCATION one is deliberately not re-asked in
+    // `resolve` (383 fixes what triggered at the moment of the event, and
+    // re-asking would let an opponent cancel a fired trigger by pushing him one
+    // battlefield sideways).
+    //
+    // **"THE FIRST TIME EACH TURN" is load-bearing rather than flavour**, because
+    // this card is the thing that makes a second conquest possible: a Standard
+    // Move exhausts (`execute-move-unit`), so readying him is what lets him walk
+    // on and take a second battlefield in the same turn. Without the limit he
+    // would ready again there and the loop would only end when the board did.
+    //
+    // The memory is per UNIT and per TURN, and it is written into
+    // `UnitInstance.abilityModesUsedThisTurn` — see `hasConqueredThisTurn`. The
+    // alternative, a `conquestsThisTurn` counter beside `movesThisTurn`, is the
+    // tidier field and was rejected only because it lives in model/card.ts and
+    // turn-manager.ts, which this file's owner does not own.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      !hasConqueredThisTurn(listener.card),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      // Re-read from the LIVE board rather than from `listener.card`, which is the
+      // snapshot taken when the trigger fired for a Lucian that has since left
+      // play. Nothing can mark him between the two, so this is belt and braces —
+      // but it is the copy that would matter if a second conquest ever landed
+      // inside one submit.
+      const live = findUnitAnywhere(state, listener.card.instanceId);
+      if (!live) return state; // 359.3 — he is gone, and there is nothing to ready
+      if (hasConqueredThisTurn(live.unit)) return state;
+      return readyUnit(markConquestUsed(state, listener.card.instanceId), listener.card.instanceId);
+    },
+  },
   "SFD-120": {
     // Sivir - Ambitious — "[Deflect 2] When I conquer after an attack, if you
     // assigned 5 or more excess damage to enemy units, you may deal that much to
@@ -1061,6 +1157,125 @@ export const decisions: Record<string, DecisionDefinition> = {
       return amount > 0 ? dealDamage(state, d.playerIndex, optionId, amount) : state;
     },
   },
+  // Fae Dragon's "buff up to four friendly units", raised by her on-play trigger
+  // with `count: 4` and re-parked one lower per unit taken — the `discard`
+  // handler's shape in decisions.ts, and the reason `PendingDecision.count`
+  // exists at all.
+  //
+  // `repeatDecision` rather than four `parkDecision`s, and the difference is the
+  // queue position: a continuation goes to the FRONT, so a question raised behind
+  // this one (Mistfall's, which each buff can raise) cannot land between two of
+  // her four. Four separate parks would have interleaved them.
+  //
+  // OPTIONS ARE UNBUFFED FRIENDLIES ONLY. Rule 708 makes a second buff on an
+  // already-buffed unit a no-op and `addBuff` implements that by doing nothing at
+  // all — not even firing `unitBuffed` — so offering one would be an answer that
+  // visibly does nothing, the same asymmetry Buhru Captain's buff option draws.
+  // It also gives "up to four units" its distinctness for free: a unit taken in
+  // one question is buffed and so is not on offer in the next.
+  //
+  // SHE IS A CANDIDATE HERSELF. "Four FRIENDLY units" prints no "other" (contrast
+  // Kinkou Monk), and unlike his, this choice is made after she has landed — so
+  // she is genuinely on the board to be picked rather than excluded by accident of
+  // when the enumeration ran.
+  //
+  // DECLINING ENDS THE SEQUENCE rather than skipping one slot. The four are
+  // interchangeable, so "decline this one and take the next" cannot differ from
+  // "stop" in any board state; ending is what stops a player who wants two buffs
+  // from being asked twice more for nothing.
+  "SFD-101-buff": {
+    prompt: (_state, d) => `Fae Dragon: buff a friendly unit (up to ${d.count ?? 1} more)`,
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...ownUnitsEverywhere(state, d.playerIndex)
+        .filter((u) => !u.buffed)
+        .map((u) => ({ id: u.instanceId, label: `Buff ${u.name}`, instanceId: u.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const buffed = addBuff(state, optionId);
+      const remaining = (d.count ?? 1) - 1;
+      return remaining > 0 ? repeatDecision(buffed, { ...d, count: remaining }) : buffed;
+    },
+  },
+  // Here to Help's "you may play a unit from hand", the first of its two
+  // questions.
+  //
+  // Priced when the OPTIONS are built, so a unit whose reduced cost cannot be
+  // paid is never offered — 416.3's "the action must be able to be completed for
+  // the cost to be paid", the same shape Void Rush's offer takes.
+  //
+  // The destination is checked here as well, and it has to be: with no battlefield
+  // under the caster's control the whole instruction is unperformable, and offering
+  // a unit that then hits a question with no answers would take the payment and
+  // leave the card in hand.
+  "SFD-111-play": {
+    prompt: () => "Here to Help: play a unit from hand for 3 less Energy?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (controlledBattlefields(state, d.playerIndex).length === 0) return options;
+      for (const card of state.players[d.playerIndex].hand) {
+        if (card.kind !== "Unit") continue; // "play a UNIT from hand"
+        if (hereToHelpPayment(state, d.playerIndex, card) === undefined) continue;
+        options.push({ id: card.instanceId, label: hereToHelpLabel(state, d.playerIndex, card), instanceId: card.instanceId });
+      }
+      return options;
+    },
+    // The unit is left IN HAND and named on the follow-up question rather than
+    // pulled out and carried: `PendingDecision` has no field for a card, and a
+    // unit removed from hand while a question is outstanding would be in no zone
+    // at all if that question were then dropped.
+    resolve: (state, d, optionId) =>
+      optionId === "decline"
+        ? state
+        : parkDecision(state, { kind: "SFD-111-where", playerIndex: d.playerIndex, cardInstanceId: optionId }),
+  },
+  // Here to Help's "to a battlefield you control", the second question.
+  //
+  // Never shown on the usual board: `advanceDecisions` executes a one-option
+  // question without prompting, and controlling two battlefields at once is
+  // already most of a win.
+  //
+  // **"A battlefield you control" is not "a battlefield you have units at"**, and
+  // that is the whole placement clause — it is what lets this reinforce a
+  // battlefield the caster holds while barring it as a way to drop a body into an
+  // empty or enemy one. It also makes `applyContested` provably unnecessary here
+  // rather than merely omitted: `cleanup.applyContested` returns the state
+  // unchanged when the arriving player already controls the battlefield, which is
+  // the only case this can reach.
+  "SFD-111-where": {
+    prompt: (state, d) => `Here to Help: where does ${handUnit(state, d.playerIndex, d.cardInstanceId)?.name ?? "it"} enter play?`,
+    options: (state, d) =>
+      handUnit(state, d.playerIndex, d.cardInstanceId) === undefined
+        ? []
+        : controlledBattlefields(state, d.playerIndex).map((bf) => ({ id: bf.id, label: bf.name })),
+    resolve: (state, d, optionId) => {
+      const unit = handUnit(state, d.playerIndex, d.cardInstanceId);
+      if (!unit) return state;
+      // Re-paid here rather than trusted from the option list, which was built
+      // against the state one question ago. An unpayable cost withholds the play
+      // instead of handing the unit over free — Void Rush's reading, and the
+      // convention `spendBuff` and `payPowerFromChanneled` share.
+      const paid = hereToHelpPayment(state, d.playerIndex, unit);
+      if (paid === undefined) return state;
+
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        hand: players[d.playerIndex].hand.filter((c) => c.instanceId !== unit.instanceId),
+        // "PLAY a unit" — this IS a card the caster played, so [Legion] and Viktor
+        // - Innovator both count it. Same call Void Rush and Ava Achiever make.
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      // `playUnitToBattlefield` fires everything a play fires — the unit's own
+      // on-play trigger, `cardPlayed`, and its self-trigger. With NO targets,
+      // because nothing announced it: a unit whose on-play trigger names a target
+      // does as much as it can and no more, which is the divergence every free
+      // play in this engine already carries (docs/rules-conformance.md,
+      // play-free.ts).
+      return playUnitToBattlefield({ ...paid, players }, d.playerIndex, unit, optionId);
+    },
+  },
 };
 
 /**
@@ -1169,6 +1384,113 @@ function unitsDuel(state: GameState, casterIndex: 0 | 1, firstId: string, second
 
   const afterSecondDamage = dealDamage(state, casterIndex, secondId, firstMight);
   return dealDamage(afterSecondDamage, casterIndex, firstId, secondMight);
+}
+
+/** Fae Dragon's "up to FOUR friendly units", as the count her repeated question
+ *  starts from. */
+const FAE_DRAGON_BUFFS = 4;
+
+/**
+ * Lucian - Merciless' "the FIRST TIME I conquer each turn", as a mark on the unit.
+ *
+ * **`abilityModesUsedThisTurn` is being read for something other than an
+ * activated ability's modes, and that is deliberate.** It is the only per-unit,
+ * per-turn, string-keyed memory in the model, it is cleared by `runEnd` alongside
+ * `mightThisTurn` and `movesThisTurn`, and it is per UNIT rather than per player —
+ * which two Lucians need, since each gets his own first conquest. The one other
+ * reader (`activated-abilities`' hasUsedMode/rememberMode) only ever asks about a
+ * mode id of the SAME unit's own ability, and Lucian has no activated ability, so
+ * the two cannot collide; the mark is prefixed with his defId regardless.
+ *
+ * Rejected: a `conquestsThisTurn: number` beside `movesThisTurn`, which is what
+ * Miss Fortune - Captain's "first time I move each turn" got and is the shape this
+ * should eventually take. It needs model/card.ts, turn-manager.ts and every unit
+ * fixture, none of which this file owns.
+ */
+const LUCIAN_CONQUERED_MARK = "SFD-113-conquered";
+
+function hasConqueredThisTurn(card: CardInstance): boolean {
+  return card.kind === "Unit" && card.abilityModesUsedThisTurn.includes(LUCIAN_CONQUERED_MARK);
+}
+
+/** Writes Lucian's once-per-turn mark onto whichever zone he is standing in.
+ *  Hand-rolled rather than `updateUnitAnywhere`, which effect-helpers.ts keeps
+ *  private — exporting it is a change to a file this one does not own. */
+function markConquestUsed(state: GameState, unitInstanceId: string): GameState {
+  const mark = (u: UnitInstance): UnitInstance =>
+    u.instanceId === unitInstanceId
+      ? { ...u, abilityModesUsedThisTurn: [...u.abilityModesUsedThisTurn, LUCIAN_CONQUERED_MARK] }
+      : u;
+  return {
+    ...state,
+    players: state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(mark) })) as [PlayerState, PlayerState],
+    battlefields: state.battlefields.map((bf) => ({
+      ...bf,
+      units: Object.fromEntries(Object.entries(bf.units).map(([id, units]) => [id, units.map(mark)])),
+    })),
+  };
+}
+
+/** Here to Help's "reducing its cost by [3 Energy]". */
+const HERE_TO_HELP_DISCOUNT = 3;
+
+/** The battlefields `playerIndex` CONTROLS — Here to Help's destination clause,
+ *  which is about control (`controllerId`) and not about presence. */
+function controlledBattlefields(state: GameState, playerIndex: 0 | 1) {
+  return state.battlefields.filter((bf) => bf.controllerId === state.players[playerIndex].id);
+}
+
+/** The unit Here to Help's second question is about, still sitting in hand. Re-read
+ *  live, so a card discarded or played between the two questions simply is not
+ *  there and the offer becomes moot (359.3). */
+function handUnit(state: GameState, playerIndex: 0 | 1, cardInstanceId: string | undefined): UnitInstance | undefined {
+  if (cardInstanceId === undefined) return undefined;
+  const card = state.players[playerIndex].hand.find((c) => c.instanceId === cardInstanceId);
+  return card?.kind === "Unit" ? card : undefined;
+}
+
+/**
+ * Pays a unit's cost with Here to Help's [3 Energy] taken off, or `undefined` when
+ * the pool cannot cover it.
+ *
+ * `voidRushPayment` (effects/signature.ts) at a different number, and it inherits
+ * that function's reasoning whole rather than restating it:
+ *  - **POWER FIRST, then Energy**, because `payPowerFromChanneled` banks 1
+ *    floating Energy for a Ready rune it spends, which is the same credit
+ *    `computeAutoPayment` gives. Paying Energy first burns the rune and loses it,
+ *    refusing plays the ordinary cost pipeline allows.
+ *  - The discount comes off AFTER the cross-cutting modifiers (`modifiedEnergyCost`),
+ *    and is floored at 0.
+ *  - A split pip (`powerDomainAlt`) is tried all-primary then all-alt; a MIXED
+ *    payment is not attempted, because the helper takes one domain. That
+ *    UNDER-offers — the unit is withheld, never handed over unpaid.
+ *
+ * Not folded into a shared helper with Void Rush's copy: that file has a different
+ * owner, and the two differ in more than the number (this one is units-only, from
+ * hand, and never sees a Legend).
+ */
+function hereToHelpPayment(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): GameState | undefined {
+  let paid: GameState | undefined = state;
+  if (unit.powerCost > 0) {
+    paid =
+      payPowerFromChanneled(state, playerIndex, unit.powerDomain, unit.powerCost) ??
+      (unit.powerDomainAlt !== undefined
+        ? payPowerFromChanneled(state, playerIndex, unit.powerDomainAlt, unit.powerCost)
+        : undefined);
+  }
+  if (!paid) return undefined;
+  return payEnergyFromPool(paid, playerIndex, hereToHelpEnergy(state, playerIndex, unit));
+}
+
+function hereToHelpEnergy(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): number {
+  return Math.max(0, modifiedEnergyCost(state, playerIndex, "Unit", unit.energyCost, unit.defId) - HERE_TO_HELP_DISCOUNT);
+}
+
+/** What one offered unit says it costs, so a caster choosing between two prices
+ *  can see both — Void Rush's label, and for its reason. */
+function hereToHelpLabel(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): string {
+  const power = unit.powerCost > 0 ? `, ${unit.powerCost} ${unit.powerDomain ?? "any"} Power` : "";
+  return `Play ${unit.name} (pay ${hereToHelpEnergy(state, playerIndex, unit)} Energy${power})`;
 }
 
 /** Exhausts a gear its controller owns — Mistfall pays with itself. */

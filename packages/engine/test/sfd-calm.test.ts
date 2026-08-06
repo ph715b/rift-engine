@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
-import { addBuff, readyUnit } from "../src/engine/effect-helpers.js";
+import { addBuff, destroyUnit, readyUnit } from "../src/engine/effect-helpers.js";
+import { isCardImplemented } from "../src/engine/coverage.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance } from "../src/model/card.js";
@@ -38,6 +39,7 @@ import {
 
 const registry = defaultCardRegistry();
 
+const LONELY_PORO = "SFD-036";
 const DISARMING_RAKE = "SFD-032";
 const GUARDIAN_OF_THE_PASSAGE = "SFD-035";
 const RIBBON_DANCER = "SFD-038";
@@ -585,6 +587,98 @@ describe("Simian Ancestor (SFD-047): when you buff me, ready me", () => {
     const twice = resolveHeldTriggers(addBuff(reExhausted, ancestor.instanceId));
 
     expect(unitAnywhere(twice, ancestor.instanceId)!.exhausted, "a second buff readied him again").toBe(true);
+  });
+});
+
+describe("Lonely Poro (SFD-036): [Deathknell] — if I died ALONE, draw 1", () => {
+  /** The Poro somewhere killable, with exactly one card in the deck so a draw is
+   *  unambiguous: `hand` is `["Drawn"]` or it is empty. */
+  function poroState(place: (state: GameState, poro: UnitInstance) => void): { state: GameState; poro: UnitInstance } {
+    const state = makeState({ phase: "Action" });
+    const poro = realUnitInstance(LONELY_PORO);
+    state.players[0]!.deck = [makeUnit({ name: "Drawn" })];
+    place(state, poro);
+    return { state, poro };
+  }
+
+  /** Player 1 kills it, so "draw" paying the DYING unit's controller is separated
+   *  from paying the killer — a symmetric fixture cannot tell those apart. */
+  const kill = (state: GameState, instanceId: string) => resolveHeldTriggers(destroyUnit(state, instanceId, 1));
+
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(LONELY_PORO))).toBe(true);
+  });
+
+  it("draws for its own controller when it dies alone at a battlefield", () => {
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p] };
+    });
+
+    const after = kill(state, poro.instanceId);
+    expect(names(after.players[0]!.hand), "the Deathknell never drew").toEqual(["Drawn"]);
+    expect(after.players[1]!.hand, "the killer was paid instead of the owner").toHaveLength(0);
+  });
+
+  it("draws NOTHING when a friendly unit is standing there", () => {
+    // The negative control the whole card turns on.
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p, makeUnit({ instanceId: "ally", name: "Ally" })] };
+    });
+
+    expect(kill(state, poro.instanceId).players[0]!.hand, "it drew despite an ally here").toHaveLength(0);
+  });
+
+  it("an ENEMY unit here does not make it un-alone — 'other FRIENDLY units'", () => {
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p], p2: [makeUnit({ instanceId: "enemy", name: "Enemy" })] };
+    });
+
+    expect(names(kill(state, poro.instanceId).players[0]!.hand), "an enemy was counted as company").toEqual(["Drawn"]);
+  });
+
+  it("a friendly unit ELSEWHERE does not make it un-alone — 'HERE'", () => {
+    // Both other places at once: another battlefield and its own base.
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p] };
+      s.battlefields[1]!.units = { p1: [makeUnit({ instanceId: "far", name: "Far" })] };
+      s.players[0]!.baseUnits = [makeUnit({ instanceId: "home", name: "Home" })];
+    });
+
+    expect(names(kill(state, poro.instanceId).players[0]!.hand), "'here' reached the whole board").toEqual(["Drawn"]);
+  });
+
+  it("counts the BASE as a location when it dies at home", () => {
+    // "A unit is alone when there are no other friendly units at the same
+    // LOCATION" — a base is one, so a Poro that dies at home among friends did
+    // not die alone.
+    const { state, poro } = poroState((s, p) => {
+      s.players[0]!.baseUnits = [p, makeUnit({ instanceId: "ally", name: "Ally" })];
+    });
+    expect(kill(state, poro.instanceId).players[0]!.hand, "base was treated as no location at all").toHaveLength(0);
+
+    const alone = poroState((s, p) => {
+      s.players[0]!.baseUnits = [p];
+    });
+    expect(names(kill(alone.state, alone.poro.instanceId).players[0]!.hand)).toEqual(["Drawn"]);
+  });
+
+  it("DIVERGENCE: a mutual wipe reads as 'alone' and draws", () => {
+    // Two friendly units at one battlefield, killed one after the other with no
+    // chain resolution in between — exactly what combat.ts's `processDefeated`
+    // does to a losing side. The rules note "alone" as each [Deathknell] is added
+    // to the chain (Cleanup step 3a), so the Poro was NOT alone and must not
+    // draw; this engine asks the question at resolution, by which time the ally
+    // has already gone to the trash.
+    //
+    // Asserted so the divergence is a measurement rather than a suspicion, and so
+    // that closing it (a `capture` hook on DeathknellEffect) fails here loudly
+    // instead of silently. See the card's entry in effects/calm.ts.
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p, makeUnit({ instanceId: "ally", name: "Ally" })] };
+    });
+
+    const wiped = resolveHeldTriggers(destroyUnit(destroyUnit(state, "ally", 1), poro.instanceId, 1));
+    expect(names(wiped.players[0]!.hand), "the recorded divergence is gone — update the note").toEqual(["Drawn"]);
   });
 });
 

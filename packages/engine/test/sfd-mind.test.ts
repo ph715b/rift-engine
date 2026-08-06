@@ -2,16 +2,18 @@ import { describe, expect, it } from "vitest";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { answerDecision, optionsFor, pendingDecision } from "../src/engine/decisions.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
-import { isCardImplemented } from "../src/engine/coverage.js";
+import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { answerDecisions, makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
+import { answerDecisions, beginCombatAt, makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures.js";
+import { resolveShowdown } from "../src/engine/combat.js";
 
 /**
  * The Spiritforged (SFD) Mind cards — effects/mind.ts.
@@ -44,6 +46,7 @@ const CHEMTECH_CASK = "SFD-063"; // Gear, 1 Energy — "you may exhaust me to pl
 const PLUNDERING_PORO = "SFD-069"; // Unit, 2 Energy 2 Might — "when I conquer"
 const WAGES_OF_PAIN = "SFD-070"; // Spell, 3 Energy — "[Hidden][Action] Deal 3 ... Play a Gold gear token"
 const CARD_SHARP = "SFD-081"; // Unit, 3 Energy 3 Might — "you and each opponent may..."
+const EZREAL_DASHING = "SFD-082"; // Unit, 4 Energy + 1 Mind, 3 Might — "when I attack or defend..."
 const GARBAGE_GRABBER = "OGN-099"; // Gear, Mind, 2 Energy
 const MUSHROOM_POUCH = "OGN-101"; // Gear, Mind, 2 Energy
 const FALLING_COMET = "OGN-085"; // Spell — the non-gear that must NOT be offered
@@ -599,5 +602,186 @@ describe("Card Sharp (SFD-081): you and each opponent may, and you are paid for 
 
   it("is reported as implemented by coverage", () => {
     expect(isCardImplemented(registry.get(CARD_SHARP))).toBe(true);
+  });
+});
+
+describe("Ezreal - Dashing (SFD-082): damage equal to my Might when I fight — ONE of THREE clauses", () => {
+  /**
+   * "I don't deal combat damage" (engine/combat.ts) and ":rb_rune_mind:: [Action]
+   * — Move me to your base" (engine/activated-abilities.ts) are NOT implemented,
+   * and nothing in this block asserts anything about either. That is deliberate:
+   * an assertion about text nobody wrote is exactly what makes a partial card
+   * look finished, which is why the coverage block at the foot asserts the
+   * OPPOSITE of the whole cards above it.
+   *
+   * The missing drawback makes this Ezreal STRONGER than printed, not weaker —
+   * he deals his trigger damage and then his Might again in the damage step.
+   */
+  const VICTIM = "victim";
+
+  /** Ezreal at bf1 with a 20-Might enemy who survives whatever he does, so the
+   *  damage reads as MARKED damage rather than as a death. */
+  function fighting(mightThisTurn = 0): { state: GameState; ezreal: UnitInstance } {
+    const ezreal = { ...unitCard(EZREAL_DASHING), mightThisTurn };
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = {
+      p1: [ezreal],
+      p2: [makeUnit({ instanceId: VICTIM, name: "Victim", might: 20 })],
+    };
+    return { state, ezreal };
+  }
+
+  /** The victim wherever it stands. Never the object handed to `makeState` — that
+   *  one is a snapshot from before the trigger ran and would read 0 forever. */
+  const victimDamage = (state: GameState) =>
+    state.battlefields.flatMap((bf) => Object.values(bf.units).flat()).find((u) => u.instanceId === VICTIM)?.damage;
+
+  it("deals his Might to an enemy here when he ATTACKS", () => {
+    // The positive control, through the real Cleanup: `beginCombatAt` contests
+    // the battlefield and lets the Showdown hand out the designations, so a card
+    // registered for the wrong side or never dispatched at all fails here rather
+    // than passing on a hand-built event.
+    const { state } = fighting();
+
+    const after = beginCombatAt(state, "bf1", 0);
+
+    expect(victimDamage(after), "the attack trigger never fired").toBe(3); // his printed Might
+  });
+
+  it("deals it when he DEFENDS too — 'attack OR defend'", () => {
+    // The clause that separates him from Yasuo - Remorseful, whose identical
+    // sentence says "when I attack" and uses `isAttackingAt`. p2 applies
+    // Contested, so Ezreal is the Defender.
+    const { state } = fighting();
+
+    const after = beginCombatAt(state, "bf1", 1);
+
+    expect(victimDamage(after), "the defend half did not fire").toBe(3);
+  });
+
+  it("uses EFFECTIVE Might, so a this-turn pump is dealt too", () => {
+    const { state } = fighting(4);
+
+    const after = beginCombatAt(state, "bf1", 0);
+
+    expect(victimDamage(after), "printed Might was dealt instead of effective").toBe(7);
+  });
+
+  /**
+   * The trigger PLACED but not yet resolved — the opponent's response window,
+   * which `beginCombatAt` closes in the same call and so cannot expose.
+   *
+   * Contest the battlefield and run the Cleanup that stages the Showdown — the
+   * first half of `beginCombatAt`, stopped before its PassFocus loop. Going
+   * through the real Cleanup rather than `holdEventTrigger` with a hand-built
+   * event is what keeps the designation check honest, and it is also what avoids
+   * DOUBLE-firing: a hand-placed trigger plus the Cleanup's own staging resolved
+   * twice and dealt 16, which is how this helper came to exist.
+   */
+  function staged(): { held: GameState; ezreal: UnitInstance } {
+    const { state, ezreal } = fighting();
+    const held = runCleanup({
+      ...state,
+      battlefields: state.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, contestedByIndex: 0 as const } : bf)),
+    });
+    // **The assertion is not decoration.** The first version of the two tests
+    // below never staged a combat at all, and the "he left the board" one PASSED
+    // anyway — 0 damage from a trigger that had never fired reads exactly like 0
+    // damage from a trigger that fired and correctly found null Might.
+    //
+    // Read off `spellChain`, not `pendingTriggers`: `runCleanup` ends with
+    // `finalizePendingTriggers`, which empties the pen onto the chain. Asserting
+    // the pen here is a check that can only ever report [].
+    expect(
+      held.spellChain.flatMap((e) => (e.kind === "trigger" ? [e.listenerDefId] : [])),
+      "the trigger was never placed",
+    ).toContain(EZREAL_DASHING);
+    return { held, ezreal };
+  }
+
+  it("reads his Might at RESOLUTION, not when the trigger fired (359.3.e)", () => {
+    // The response window this hold opens is real, and a pump landed inside it
+    // must count — 359.3.e's own Strike Down example works this exact sentence
+    // and says information about a permanent whose zone and status have not
+    // changed "is accessible".
+    //
+    // `staged()` rather than `beginCombatAt` because that is the only way to get
+    // BETWEEN the fire and the resolve; the Cleanup and `applies` both still run,
+    // so the designation check is not being skipped. The three tests above are
+    // the controls that this path agrees with the real one.
+    const { held } = staged();
+
+    // The opponent's window: +5 Might onto the Ezreal ON THE BOARD.
+    const pumped = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p1: bf.units.p1!.map((u) => ({ ...u, mightThisTurn: 5 })) } }
+          : bf,
+      ),
+    };
+
+    const after = resolveHeldTriggers(pumped);
+
+    expect(victimDamage(after), "a fire-time snapshot of his Might was used").toBe(8);
+  });
+
+  it("deals nothing when he left the board during the response window (359.3.e.14)", () => {
+    // "A unit that is no longer on the board is treated as having null Might",
+    // "and the instructions related to it are ignored" — the rules' own words on
+    // Strike Down's "It deals damage equal to its Might". The trigger still
+    // resolves (809.1.b), it just has no number to deal.
+    const { held } = staged();
+    const gone = {
+      ...held,
+      battlefields: held.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, units: { ...bf.units, p1: [] } } : bf)),
+    };
+
+    const after = resolveHeldTriggers(gone);
+
+    expect(victimDamage(after)).toBe(0);
+  });
+
+  it("hits nobody when there is no enemy unit here", () => {
+    // No defender means no Showdown and no designations at all, so this asserts
+    // only that it does not throw — the same negative Lucian - Gunslinger's test
+    // records.
+    const ezreal = unitCard(EZREAL_DASHING);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = { p1: [ezreal] };
+
+    const after = beginCombatAt(state, "bf1", 0);
+
+    expect(inPlay(after, ezreal.instanceId).damage).toBe(0);
+  });
+
+  it("reports as PARTIAL, naming the clause still missing", () => {
+    // **This is the replacement the previous version of this test asked for**, and
+    // it arrived the same session: it asserted `isCardImplemented === true` to
+    // make the over-report VISIBLE rather than bless it, and said outright that
+    // when the coverage entry landed it must be REPLACED, not deleted.
+    //
+    // Two of his three clauses now work. "I don't deal combat damage" was
+    // written centrally the moment this agent flagged that leaving it out made
+    // the card STRICTLY STRONGER than printed — his trigger deals his Might, and
+    // without the drawback he dealt that AND his Might in the damage step. It
+    // lives in `combat.outgoingMight`, beside the Stun rule it mirrors.
+    //
+    // What is left is the activated ability, and the note says so.
+    expect(isCardImplemented(registry.get(EZREAL_DASHING))).toBe(false);
+    expect(partialImplementationNote(registry.get(EZREAL_DASHING))).toContain("Move me to your base");
+  });
+
+  it("really does deal no combat damage now", () => {
+    // The clause that was missing when this file was written, asserted from the
+    // side this file owns: a 9-Might Ezreal contributes nothing to the damage
+    // step, so a 1-Might defender walks away.
+    const ezreal = unitCard(EZREAL_DASHING);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = { p1: [{ ...ezreal, might: 9 }], p2: [makeUnit({ might: 1 })] };
+
+    const after = resolveShowdown(state, "bf1", 0);
+
+    expect(after.battlefields[0]!.units.p2 ?? [], "the defender took Ezreal's Might").toHaveLength(1);
   });
 });

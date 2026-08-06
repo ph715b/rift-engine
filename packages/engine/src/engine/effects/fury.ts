@@ -23,9 +23,12 @@ import {
   payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
+  recycleUnitFromPlayToDeck,
   returnUnitToHand,
 } from "../effect-helpers.js";
 import { effectiveKeywords, isMighty } from "../granted-keywords.js";
+import { effectiveMight } from "../effective-might.js";
+import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
 import { placeGoldTokens, placeToken, type TokenSpec } from "../token.js";
 import {
@@ -43,6 +46,7 @@ import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
+import type { UnitInstance } from "../../model/card.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -822,15 +826,15 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     },
   },
   "SFD-027": {
-    // Dunebreaker, SECOND clause only — "When I hold, draw 2."
+    // Dunebreaker, the "When I hold, draw 2" half — "When I hold, draw 2."
     //
-    // **His first clause is NOT implemented**: "If you have two or fewer cards in
-    // your hand, I enter ready" is a conditional enter-ready, which belongs with
-    // Leona - Zealot's and Vayne - Hunter's in `deploy.unitEntersReady` — a shared
-    // file. card-loader.ts already knows about it: its `QUICK_TEXT_OVERRIDES`
-    // comment names the four SFD cards that print "I enter ready IF ..." and
-    // explains why an unconditional Quick would make each of them strictly
-    // better. Recorded for coverage.PARTIALLY_IMPLEMENTED.
+    // **WHOLE as of 2026-08-05.** His other clause — "if you have two or fewer
+    // cards in your hand, I enter ready" — is a conditional enter-ready and lives
+    // with Leona - Zealot's and Vayne - Hunter's in `deploy.unitEntersReady`,
+    // which is where every board-conditional arrival belongs; it landed there and
+    // this card's coverage.PARTIALLY_IMPLEMENTED entry is gone with it. This
+    // comment used to claim the clause was unwritten, which stopped being true
+    // without anything failing — the reason the claim is dated.
     //
     // "When **I** hold" is positional, the same reading Ahri - Alluring and
     // Blitzcrank - Impassive take: the battlefield scored has to be the one he is
@@ -845,7 +849,165 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? drawCards(state, listener.ownerIndex, 2) : state),
   },
+  "SFD-026": {
+    // Rumble - Hotheaded, SECOND clause only — "When I conquer, you may recycle
+    // another friendly unit to play a Mech from your trash. Reduce its Energy
+    // cost by the Might of the unit you recycled."
+    //
+    // **His FIRST clause is NOT implemented.** "Your Mechs each have [Assault]"
+    // is a keyword AURA, and every aura in this engine lives in one table in
+    // granted-keywords.ts — a shared file this one may not edit. Nothing here
+    // grants [Assault] to anything and no test asserts that it does. Recorded for
+    // coverage.PARTIALLY_IMPLEMENTED, the same way Dunebreaker's missing
+    // enter-ready clause is one entry up.
+    //
+    // "When I CONQUER" is positional — the reading Kai'Sa - Survivor and Vayne -
+    // Hunter take, and he has to be standing at the battlefield taken. Settled in
+    // `applies` because the event is held (383) and the window a hold opens is
+    // exactly when he could be moved off it.
+    //
+    // "Recycle another friendly unit TO play a Mech" is a COST INSIDE an
+    // instruction, and the rules name this exact shape: 355.10.c.1's "costs
+    // within instructions, identified by phrases like '[do X] to [do Y]'. The
+    // cost within that instruction is '[do X]'" — so the recycled unit is not a
+    // target and is chosen as part of paying. The Mech *is* a target (355.10.a.1
+    // lists a Trash among the Public zones), but this is a TRIGGERED ability, so 355.5.b
+    // puts both choices at the moment the trigger is finalized rather than when
+    // anything was played — which is why this is a decision and not a
+    // TargetingSpec.
+    //
+    // ONE question over PAIRS rather than two chained ones, and that is the
+    // card's own shape: the price depends on both halves at once, so "recycle
+    // Pantheon (3 Might) to play Mega-Mech for 4 Energy" is the choice actually
+    // being made. Splitting it would ask for the fodder before the player could
+    // see what it buys, and would need the Might to survive between two
+    // questions — PendingDecision has no field for a number that is not a repeat
+    // count, and borrowing `count` for it would be a second meaning on one field.
+    //
+    // Nothing is asked when no pair can be paid for — 416.3, and the same reason
+    // Draven's pump and Immortal Phoenix's return are gated in `applies`: a held
+    // trigger that resolves to nothing still costs both players a PassFocus, and
+    // this one would otherwise fire at every conquest he is standing at.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      rumbleTrades(state, listener.ownerIndex, listener.card.instanceId).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      // Re-asked here as well as in `applies`, for the reason Immortal Phoenix
+      // records: the response window the hold opens is exactly when the runes
+      // could be spent elsewhere or the last Mech pulled out of the trash, and
+      // paying is a cost rather than a trigger condition.
+      if (rumbleTrades(state, listener.ownerIndex, listener.card.instanceId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "SFD-026-scrap",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
 };
+
+/** The tag Rumble - Hotheaded's trash-play reads. A constant rather than a bare
+ *  string because Ferrous Forerunner's token mints the same tag above, and the
+ *  two have to agree for the archetype to work at all. */
+const MECH_TAG = "Mech";
+
+/** One "recycle X to play Y" bargain Rumble - Hotheaded is offering, priced.
+ *
+ *  Rebuilt from live state wherever it is needed rather than stored on the
+ *  decision — the discipline `DecisionDefinition.options` states, applied to the
+ *  answering side too, so an answer can never name a pair the board has stopped
+ *  supporting. */
+interface RumbleTrade {
+  /** Opaque, and matched by EQUALITY rather than parsed: an instanceId is an
+   *  engine-minted string in play and an arbitrary one in tests, so splitting a
+   *  composite id back apart would be a decode step that can silently fail. */
+  id: string;
+  label: string;
+  fodderInstanceId: string;
+  mech: UnitInstance;
+  /** What the Mech still costs in Energy: every cross-cutting modifier, then
+   *  Rumble's own discount, floored at 0. */
+  energy: number;
+}
+
+/** Every pair Rumble could name right now, priced and filtered to the ones that
+ *  can actually be paid for (416.3 — an action that cannot be completed is not
+ *  one you may choose to take).
+ *
+ *  `rumbleInstanceId` is HIS body, excluded because the card says "ANOTHER
+ *  friendly unit". A Rumble who died in the response window matches nothing here,
+ *  which leaves every friendly unit eligible — correct, since he is no longer one
+ *  of them. */
+function rumbleTrades(state: GameState, playerIndex: 0 | 1, rumbleInstanceId: string | undefined): RumbleTrade[] {
+  // "A MECH from your trash" — a Unit card carrying the tag. The `kind` check is
+  // not a restriction the card prints: it is what "play it" can mean from here,
+  // since a Gear or a Spell in the trash goes into play by a different funnel.
+  const mechs = state.players[playerIndex].trash.filter(
+    (card): card is UnitInstance => card.kind === "Unit" && card.tags.includes(MECH_TAG),
+  );
+  if (mechs.length === 0) return [];
+
+  const trades: RumbleTrade[] = [];
+  // The clause names no battlefield, so a unit sitting in base is fodder too —
+  // 355.9.b's bare noun, the same reading Cleave and Gem Jammer take.
+  for (const fodder of ownUnitsEverywhere(state, playerIndex).filter((u) => u.instanceId !== rumbleInstanceId)) {
+    const might = currentMight(state, playerIndex, fodder);
+    for (const mech of mechs) {
+      // The general modifiers come off the printed cost first and Rumble's
+      // discount off what is left. Both are floored at 0 and neither has a
+      // minimum of its own, so the order is unobservable for every card in this
+      // pool — it is written this way round because a card-specific discount
+      // applying to an already-modified cost is what modifiedEnergyCost's own
+      // ordering note establishes for the cross-cutting ones.
+      const energy = Math.max(0, modifiedEnergyCost(state, playerIndex, "Unit", mech.energyCost, mech.defId) - might);
+      if (payForMech(state, playerIndex, energy, mech) === undefined) continue;
+      trades.push({
+        id: `${fodder.instanceId}+${mech.instanceId}`,
+        label: `Recycle ${fodder.name} (${might} Might) to play ${mech.name} for ${energy} Energy`,
+        fodderInstanceId: fodder.instanceId,
+        mech,
+        energy,
+      });
+    }
+  }
+  return trades;
+}
+
+/** A unit's Might as this cost question asks it — rule 711's CURRENT Might, so an
+ *  aura or a this-turn pump counts and a printed number would be wrong the moment
+ *  the card is doing its job. `isCombat: false` for the reason `isMighty`'s doc
+ *  gives: Might is a property of the unit, not of a fight, so [Assault] never
+ *  raises the discount. The battlefield is passed because the positional auras
+ *  (Garen - Commander, Lee Sin - Centered) cannot be read without it. */
+function currentMight(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): number {
+  const at = findUnitAnywhere(state, unit.instanceId);
+  const battlefieldId = at && at.zone !== "base" ? state.battlefields[at.zone.battlefieldIndex]?.id : undefined;
+  return effectiveMight(state, unit, playerIndex, {
+    isCombat: false,
+    ...(battlefieldId !== undefined ? { battlefieldId } : {}),
+  });
+}
+
+/** Pays what the Mech still costs, or `undefined` when it cannot be paid — the
+ *  contract `payPowerFromChanneled` and `spendBuff` share, so an unaffordable
+ *  pair is never offered rather than being half-paid for.
+ *
+ *  Power FIRST and Energy second, which is Immortal Phoenix's order and its
+ *  reason: recycling a Ready rune for Power banks the Energy it could have paid,
+ *  so pricing the Energy against the pre-Power pool would let one rune be spent
+ *  twice.
+ *
+ *  **`powerDomainAlt` is not honoured** — the hybrid-pip second domain, which
+ *  `payPowerFromChanneled` has no parameter for. No Mech in this pool prints one;
+ *  a card that did would be offered less often than it should be, never more. */
+function payForMech(state: GameState, playerIndex: 0 | 1, energy: number, mech: UnitInstance): GameState | undefined {
+  const withPower = payPowerFromChanneled(state, playerIndex, mech.powerDomain, mech.powerCost);
+  return withPower === undefined ? undefined : payEnergyFromPool(withPower, playerIndex, energy);
+}
 
 /** The enemy units at one battlefield in board order, minus the trigger's own
  *  unit — Lucian - Gunslinger's "an enemy unit here".
@@ -995,6 +1157,61 @@ export const decisions: Record<string, DecisionDefinition> = {
       const paid = payPowerFromChanneled(state, d.playerIndex, "Fury", 1);
       if (!paid) return state;
       return giveMightThisTurnToOwnUnit(paid, d.playerIndex, d.cardInstanceId, DRAVEN_PUMP);
+    },
+  },
+  // Rumble - Hotheaded's "you may recycle another friendly unit to play a Mech
+  // from your trash. Reduce its Energy cost by the Might of the unit you
+  // recycled" — raised by his conquer trigger, which has already established that
+  // at least one pair can be paid for.
+  //
+  // The options are PAIRS, one per (fodder, Mech) that is affordable right now,
+  // each labelled with what it actually costs. See the trigger for why the
+  // question is not split in two.
+  "SFD-026-scrap": {
+    prompt: () => "Rumble - Hotheaded: recycle a friendly unit to play a Mech from your trash?",
+    options: (state, d) => [
+      // "You MAY", so declining leads and is offered even when nothing else is —
+      // a mis-click and the AI's tie-break both land on doing nothing.
+      { id: "decline", label: "Decline" },
+      ...rumbleTrades(state, d.playerIndex, d.cardInstanceId).map((trade) => ({
+        id: trade.id,
+        label: trade.label,
+        instanceId: trade.mech.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      // Declining, and "the board moved while the question waited", are the same
+      // answer here: neither names a pair that is still on offer.
+      const trade = rumbleTrades(state, d.playerIndex, d.cardInstanceId).find((t) => t.id === optionId);
+      if (!trade) return state;
+
+      // Both costs are paid before anything is played, and the whole trade is
+      // abandoned if either fails — returning the ORIGINAL state discards the
+      // recycle along with it. A recycle that had already happened when the runes
+      // turned out to be gone would be the worst of both halves, and the failure
+      // is reachable: `rumbleTrades` prices against a state that a queued
+      // question ahead of this one may have changed.
+      const recycled = recycleUnitFromPlayToDeck(state, d.playerIndex, trade.fodderInstanceId);
+      if (recycled === state) return state;
+      const paid = payForMech(recycled, d.playerIndex, trade.energy, trade.mech);
+      if (paid === undefined) return state;
+
+      // Out of the trash before it is played, so it exists in exactly one zone —
+      // and `cardsPlayedThisTurn` moves, because this is a PLAY: [Legion] reads
+      // that counter and Darius - Trifarian triggers off it. Flame Chompers'
+      // answer does both for the same reason.
+      //
+      // `playUnitFree` decides WHERE, asking only when there is more than one
+      // answer — 355.2.a's "By default, Valid locations include the controller's
+      // Base or a Battlefield the controller controls", which right after a
+      // conquest is at least two places.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== trade.mech.instanceId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      return playUnitFree({ ...paid, players }, d.playerIndex, trade.mech);
     },
   },
   // Vayne - Hunter's "when I conquer, you may pay [1 Energy] to return me to my

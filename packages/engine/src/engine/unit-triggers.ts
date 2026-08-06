@@ -127,6 +127,11 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "OGN-176": "openBattlefield", // Sneaky Deckhand
   "OGN-174": "openBattlefield", // Sai Scout
   "OGN-161": "occupiedEnemyBattlefield", // Deadbloom Predator
+  // SFD-093 Dauntless Vanguard — "You may play me to an occupied enemy
+  // battlefield." Byte-identical to Deadbloom Predator above, which is why it
+  // is one row and not a card implementation: the validator and the enumerator
+  // both already read this table.
+  "SFD-093": "occupiedEnemyBattlefield", // Dauntless Vanguard
 };
 
 export function canPlayToOpenBattlefield(defId: string): boolean {

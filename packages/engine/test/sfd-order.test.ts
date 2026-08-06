@@ -48,6 +48,7 @@ const TROVE_GOLEM = "SFD-174";
 const ROYAL_GUARD = "SFD-157";
 const SANDSHIFTER = "SFD-158";
 const DEATHGRIP = "SFD-163";
+const RALLY_THE_TROOPS = "SFD-166";
 const UNSUNG_HERO = "SFD-167";
 const ALTAR_OF_MEMORIES = "SFD-169";
 const REKSAI_SWARM_QUEEN = "SFD-170";
@@ -757,6 +758,62 @@ describe("Trove Golem (SFD-174): four Gold gear tokens on play", () => {
     expect(unitsAt(after, "bf1", "p1").map((u) => u.instanceId)).toContain(unitId);
     expectGold(after, 0, 4);
     expect(unitsAt(after, "bf1", "p1").filter((u) => u.isToken)).toHaveLength(0);
+  });
+});
+
+// ── Rally the Troops (SFD-166) ──────────────────────────────────────────────
+
+describe("Rally the Troops (SFD-166): Draw 1 — and only that", () => {
+  /** Rally in hand, 2 floating Energy to pay for it, and `deckSize` cards to draw
+   *  from. Floating Energy rather than channeled runes so the draw count cannot be
+   *  confused with a rune being recycled. */
+  function rallyState(deckSize: number): { state: GameState; spellId: string } {
+    const spell = spellInstance(RALLY_THE_TROOPS);
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [spell];
+    state.players[0]!.floatingEnergy = 2;
+    state.players[0]!.deck = Array.from({ length: deckSize }, () => spellInstance(HEXTECH_RAY));
+    return { state, spellId: spell.instanceId };
+  }
+
+  const castRally = (state: GameState, spellId: string) =>
+    castAndResolve(
+      state,
+      legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === spellId),
+      "Rally the Troops",
+    );
+
+  it("draws exactly 1 through the real play path", () => {
+    const { state, spellId } = rallyState(3);
+    const after = castRally(state, spellId);
+    // The Rally itself has left the hand for the trash, so the hand is purely
+    // what was drawn — asserting on the DECK too, because a hand that grew by
+    // one and a deck that did not shrink would be a card conjured from nowhere.
+    expect(after.players[0]!.hand).toHaveLength(1);
+    expect(after.players[0]!.deck).toHaveLength(2);
+    expect(after.players[0]!.trash.some((c) => c.defId === RALLY_THE_TROOPS)).toBe(true);
+  });
+
+  it("does NOT buff a unit played afterwards — the delayed clause is unwritten", () => {
+    // A negative control with a name on it. This is the HALF that is missing, and
+    // pinning it here means the day someone writes the delayed trigger this test
+    // fails and has to be replaced deliberately, rather than the gap being
+    // rediscovered from a game.
+    //
+    // A REAL unit played through `submit`, not a synthetic one handed to the
+    // trigger dispatcher: the clause would fire from the play path, so a fixture
+    // that skips it could not tell "unimplemented" from "implemented but never
+    // reached". Unsung Hero is 2 Energy, no Power, and his only text is a
+    // [Deathknell] that cannot go off here.
+    const { state, spellId } = rallyState(3);
+    const hero = realUnitInstance(UNSUNG_HERO);
+    state.players[0]!.hand.push(hero);
+    state.players[0]!.floatingEnergy = 4; // the Rally's 2, then the Hero's 2
+    const after = castRally(state, spellId);
+
+    const play = legalActions(after).find((a) => a.type === "PlayCard" && a.card.instanceId === hero.instanceId);
+    const played = resolveHeldTriggers(accept(after, play, "Unsung Hero"));
+    expect(played.players[0]!.baseUnits.find((u) => u.instanceId === hero.instanceId)!.buffed).toBe(false);
   });
 });
 
