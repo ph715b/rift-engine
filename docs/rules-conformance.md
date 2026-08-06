@@ -125,6 +125,7 @@ are `Unverified`, not `Conformant`.
 
 | Rule | Should be | We do | Rule # | Status |
 |---|---|---|---|---|
+| `[Deathknell]` reading the board it died on | The dying unit's location and “other relevant information” are noted as the Deathknell is added to the chain (Cleanup step 3a) | **Read at RESOLUTION**, after the rest of the deaths have happened | 383 / Cleanup 3a | **DIVERGENT and reachable**, found while implementing Lonely Poro (SFD-036), whose whole text is “if I died ALONE”. `combat.processDefeated` kills a losing side one unit at a time, so a Poro that died beside an ally reads as alone by the time its Deathknell pops — it draws when it should not. **Measured, not inferred**: `sfd-calm.test.ts` carries a labelled DIVERGENCE test that kills the ally then the Poro with no chain resolution between, and asserts the wrong answer, so closing the gap fails loudly. The fix needs a primitive that does not exist — `DeathknellEffect` is a bare resolver with no `applies`/`capture` pair, unlike `EventTriggerDefinition` and `DeathWatchDefinition` which both have one. The agent explicitly refused the cheap workaround (reading the other deaths still on the chain), because placement is LIFO and a Poro killed FIRST would see none of them — right by accident about half the time |
 | Observing a mutual-wipe No Result | A “when I win a combat” card could tell a No Result from a loss | **No card can ever observe one**, because in a mutual wipe the listener is dead | 466.5.d | Not a defect — a consequence, and recorded because it makes a whole class of negative control WEAK. Measured: widening `combatWinner` to hand the attacker the win regardless leaves the mutual-wipe test passing, since nothing is alive at that battlefield to witness the event. The load-bearing control for that mutation is “pays the DEFENDER”. Any future test asserting “no win fired on a mutual wipe” is asserting something unobservable |
 | A created token being “PLAYED” | Every SFD card says “**play** a Gold gear token”, and playing a card fires `cardPlayed` | **No event fires.** `placeGearToken` puts the token straight into `activeGear`, so nothing watching for a card being played sees it | — | Found by the agent implementing Chemtech Cask, which is itself a “when you play a spell” trigger — so a second Cask does not see a Gold token arrive, and neither would any future “when you play a card” card. **Identical to `placeRecruitToken`'s long-standing behaviour**, so this is consistent rather than new, and it is recorded rather than changed on one agent's reading: firing `cardPlayed` for a token would also make every existing Recruit wake those triggers, which is a behaviour change across OGN. Unreachable today — no card in the pool watches for a plain “play a card” |
 | Two players both choosing on one trigger | Simultaneous, or APNAP | **Sequential, caster first** — the opponent answers knowing what the caster chose | — | Card Sharp (SFD-081): “you and each opponent may play a Gold gear token exhausted.” There is one decision queue and no simultaneous-choice primitive. **Same divergence Promising Future already carries**, and no worse here: Card Sharp is a plain Unit, so the caster is always the active player and text order and APNAP agree. `parkDecision` already takes an arbitrary `playerIndex`, which is how the opponent is asked at all |
@@ -305,7 +306,11 @@ Two more worth recording, both found only by running the thing:
 Everything else, including all 93 oracle-mirrored behaviours. Highest-value
 targets for the next pass, by blast radius:
 
-1. **Are OGN's ten dual-domain Signature spells and OGS-024 split pips too?**
+1. **Three SFD rules calls nobody should guess at.** Raised 2026-08-06 by the agents that refused to write the cards rather than pick quietly, and each blocks a specific card:
+   - **Tianna Crownguard (SFD-060)**: “while I'm at a battlefield, opponents can't gain points”. “Every instance of Scoring is also an instance of Gaining points” — so if the point is blocked, is the battlefield still recorded in `scoredBattlefieldsThisTurn`? It matters twice: 471.1.b's once-per-battlefield-per-turn lockout, and 474's Final Point sweep. **The card should not be implemented until this is settled.**
+   - **Renata Glasc - Industrialist (SFD-171)**: “your tokens enter ready”, while every SFD card that mints a Gold token says “play a Gold gear token **exhausted**”. Does a continuous ability override a card's explicit instruction, and does “tokens” include GEAR tokens or only unit tokens?
+   - **Riposte (SFD-206)**: whether to accept a resolution-time unit choice (castable with no friendly unit, diverging from 355.8) rather than wait for a combined `chainSpell`+unit targeting kind.
+2. **Are OGN's ten dual-domain Signature spells and OGS-024 split pips too?**
    *(2026-08-05, and the newest thing here.)* Confirming SFD's fourteen split
    pips meant pulling the OGN/OGS candidates' art as controls — and each of the
    ten OGN dual-domain Signature spells, plus OGS-024 Decisive Strike, shows the
@@ -320,9 +325,9 @@ targets for the next pass, by blast radius:
    and OGS and moves every probe that plays them, so it wants its own change and
    its own before/after run. Held open by an `it.todo` in
    `test/card-loader.test.ts` beside the census that names all 26 candidates.
-2. **Showdown/Combat step order** — rule 463's steps, HOT FEPR, and when the
+3. **Showdown/Combat step order** — rule 463's steps, HOT FEPR, and when the
    Attacker/Defender designations attach. Two divergences already found here.
-3. **Costs and payment** — floating resources, rune recycling, exhaust-vs-recycle
+4. **Costs and payment** — floating resources, rune recycling, exhaust-vs-recycle
    (rule 430 and neighbours).
 4. **Triggered abilities** — the patch notes changed Attack/Defend triggers to
    *once per combat, the first time* (a change from prior FAQ guidance). We
