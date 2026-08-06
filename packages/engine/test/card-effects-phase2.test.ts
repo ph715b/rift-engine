@@ -4,6 +4,7 @@ import { contextFor } from "../src/engine/effect-context.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import { makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { legalActions } from "../src/engine/legal-actions.js";
 
 function resolve(defId: string, casterIndex: 0 | 1, state: ReturnType<typeof makeState>, event: Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2] = {}) {
   const effect = effectForCard(spellInstance(defId))!;
@@ -65,6 +66,12 @@ describe("Confront: units played this turn enter ready; draw 1", () => {
   });
 });
 
+/** Every enumerated PlayCard variant for this defId — where `min` is enforced. */
+const playVariants = (state: GameState, defId: string) =>
+  legalActions(state).filter((a) => a.type === "PlayCard" && a.card.defId === defId);
+
+const rune = (id: string) => ({ id, domain: "Calm" as const, state: "Ready" as const });
+
 describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
   it("buffs exactly the two the caster picked, ignoring a third", () => {
     // Used to auto-pick the first two friendly units found; which two get the
@@ -86,7 +93,13 @@ describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
     expect(state.battlefields[1]!.units["p1"]![0]!.mightThisTurn).toBe(2); // c
   });
 
-  it("buffs just one when that's all the caster picked", () => {
+  it("the RESOLVER still buffs one, though no legal action can now name one", () => {
+    // Kept deliberately, and its meaning has changed. The resolver is lenient —
+    // it buffs whatever it is handed — but as of the 2026-08-06 strict ruling
+    // `min: 2` means `legalActions` never offers a one-target variant, so this
+    // state is unreachable through play. It pins that the resolver does not
+    // throw on a shape the enumerator will not produce, which is the safe
+    // direction; the enumeration itself is asserted in the test below.
     const only = makeUnit({ might: 3 });
     let state = makeState();
     state.battlefields[0]!.units = { p1: [only] };
@@ -94,6 +107,31 @@ describe("Back to Back: +2 Might each to two CHOSEN friendly units", () => {
     state = resolve("OGN-206", 0, state, { targetUnitInstanceId: only.instanceId });
 
     expect(state.battlefields[0]!.units["p1"]![0]!.mightThisTurn).toBe(2);
+  });
+
+  it("is NOT castable with only one friendly unit — the strict fixed-count ruling", () => {
+    // **This is where `min` actually bites**: it governs ENUMERATION, not the
+    // resolver, which is why flipping Back to Back from `min: 0` to `min: 2`
+    // broke no existing test — every one of them called the resolver directly.
+    //
+    // The ruling (2026-08-06) is that a bare fixed count with no "up to" is
+    // strict per 355.8, and it REVERSED an earlier project-owner call recorded
+    // in this card's own comment. Back to Back was the only card in the pool
+    // still taking the looser reading.
+    const one = makeState({ phase: "Action", activePlayerIndex: 0 });
+    one.players[0]!.hand = [spellInstance("OGN-206")];
+    one.players[0]!.channeled = [rune("r1"), rune("r2"), rune("r3")];
+    one.battlefields[0]!.units = { p1: [makeUnit()] };
+    expect(playVariants(one, "OGN-206"), "offered with a single friendly unit").toHaveLength(0);
+
+    // Two units, same board otherwise: now it is offered. Without this pairing
+    // the assertion above would pass just as well against a card that is never
+    // castable at all.
+    const two = makeState({ phase: "Action", activePlayerIndex: 0 });
+    two.players[0]!.hand = [spellInstance("OGN-206")];
+    two.players[0]!.channeled = [rune("r1"), rune("r2"), rune("r3")];
+    two.battlefields[0]!.units = { p1: [makeUnit(), makeUnit()] };
+    expect(playVariants(two, "OGN-206").length, "not offered even with two").toBeGreaterThan(0);
   });
 });
 

@@ -613,14 +613,25 @@ const CARD_EFFECTS: Record<string, EffectDefinition> = {
     // Back to Back — "Give two friendly units each +2 Might this turn." No
     // battlefield named, so units at home count.
     //
-    // `min: 0`, not 2, even though the text says "two": with only one friendly
-    // unit the card still buffs that one rather than being uncastable. Same
-    // "do as much as you can rather than withhold the card" rule the on-play
-    // triggers follow (project owner's call). The oracle auto-picks here
-    // (`Math.min(2, friendlies.size())`, OriginEffects.java:343-346) — that's
-    // an oracle gap, not a rules statement: WHICH two units get +2 is a real
-    // decision, so it's the player's.
-    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 0, scope: "anywhere" },
+    // **`min: 2`, changed 2026-08-06 on a project-owner ruling that REVERSES an
+    // earlier one.** This comment used to read "`min: 0`, not 2, even though the
+    // text says two ... (project owner's call)". The later ruling is general: a
+    // card printing a bare fixed count with NO "up to" is strict, per 355.8
+    // ("valid choices must be made for all targets"), and Back to Back was the
+    // only card in the pool still taking the looser reading.
+    //
+    // The consequence is real and is the point of writing it down: with one
+    // friendly unit the card is now UNCASTABLE rather than buffing that one. It
+    // is strictly worse for its controller, and it is in preset decks.
+    //
+    // Cards that genuinely print "up to" (Kinkou Monk) or "any number"
+    // (Emperor's Divide, Bullet Time) keep `min: 0` — that is what those words
+    // mean, and the ruling does not touch them.
+    //
+    // The oracle auto-picks here (`Math.min(2, friendlies.size())`,
+    // OriginEffects.java:343-346) — an oracle gap rather than a rules statement:
+    // WHICH two units get +2 is a real decision, so it is the player's.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
     resolve: (state, _ctx, event) => {
       let next = state;
       for (const id of chosenTargets(event)) next = giveMightThisTurn(next, id, 2);
