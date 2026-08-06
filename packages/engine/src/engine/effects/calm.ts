@@ -45,7 +45,7 @@ import { eligibleTargets } from "../target-lookup.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
-import { placeToken, type TokenSpec } from "../token.js";
+import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -74,10 +74,6 @@ import { placeToken, type TokenSpec } from "../token.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
-/** Desert's Call's token. No keywords and no "ready" clause, so it enters
- *  exhausted on 143.4.a's default — unlike Sprite Call's, which overrides it. */
-const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
-
 const FERAL_STRENGTH_MIGHT = 2;
 
 export const cardEffects: Record<string, EffectDefinition> = {

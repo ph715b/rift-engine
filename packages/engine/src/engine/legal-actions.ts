@@ -22,7 +22,7 @@ import {
   unitOrGearTargets,
   unitWithinMaxMight,
 } from "./target-lookup.js";
-import { modifiedEnergyCost } from "./cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy } from "./cost-modifiers.js";
 import {
   cardMovesTarget,
   cardPlacesTokens,
@@ -1030,7 +1030,8 @@ export function legalActions(state: GameState): PlayerAction[] {
         const repeatEffective = computeEffectiveCost(
           actor.floatingEnergy,
           actor.floatingPower,
-          modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) + repeatCost.energy,
+          modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
+            modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
           card.powerCost + (repeatCost.power ?? 0),
           card.powerDomain,
           card.powerDomainAlt,

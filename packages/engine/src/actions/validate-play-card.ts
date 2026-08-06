@@ -17,7 +17,7 @@ import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy } from "../engine/cost-modifiers.js";
 import {
   cardMovesTarget,
   cardPlacesTokens,
@@ -583,7 +583,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // which is sound only because the Repeat domain and the printed domain agree
   // for all fourteen cards; `repeat-cost-table.test.ts` asserts that card by
   // card rather than trusting this comment.
-  const repeatEnergy = action.repeatPaid ? repeatCost?.energy ?? 0 : 0;
+  // Marai Spire's "while you control this battlefield, friendly [Repeat] costs
+  // cost [1] less" — applied through the shared modifier so the enumerator
+  // cannot price it differently.
+  const repeatEnergy = action.repeatPaid
+    ? modifiedRepeatEnergy(state, action.playerIndex, repeatCost?.energy ?? 0)
+    : 0;
   const repeatPower = action.repeatPaid ? repeatCost?.power ?? 0 : 0;
   const repeatRainbow = action.repeatPaid ? repeatCost?.rainbowPower ?? 0 : 0;
 

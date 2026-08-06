@@ -57,11 +57,27 @@ interface ContinuousBattlefield {
    *  scoring rule rather than a board effect, and the only entry here that
    *  reaches into `scoring.ts` — see `mayScoreAt` below. */
   noScoringBeforeTurn?: number;
+  /**
+   * "While you control this battlefield, friendly `[Repeat]` costs cost N
+   * Energy less" (Marai Spire).
+   *
+   * **The first entry in this table that is neither positional nor symmetric**,
+   * and it is both of those at once. Every other ability here is either "units
+   * HERE" (read off the unit's own location) or applies to both players
+   * (`extraPointsToWin`). This one is game-wide — it discounts a spell cast
+   * from anywhere — but only for whoever CONTROLS the battlefield, so it cannot
+   * be answered by `at()` from a location and needs its own controller-scoped
+   * query. See `repeatEnergyDiscountFor`.
+   */
+  repeatEnergyDiscountForController?: number;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
  *  turn". */
 const FORGOTTEN_MONUMENT = "SFD-209";
+/** Marai Spire (SFD-211) — "While you control this battlefield, friendly
+ *  [Repeat] costs cost [1 Energy] less." */
+const MARAI_SPIRE = "SFD-211";
 
 const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [TRIFARIAN_WAR_CAMP]: { mightBonusHere: 1 },
@@ -74,6 +90,10 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   // every other restriction in this repo, which is why it is read off the
   // battlefield rather than asked of an opponent's board.
   [FORGOTTEN_MONUMENT]: { noScoringBeforeTurn: 3 },
+  // "While you control this battlefield, friendly [Repeat] costs cost [1] less."
+  // The Energy half only — the pip printed is an Energy pip, and Called Shot's
+  // Repeat is 0 Energy + 1 Chaos Power, which this therefore cannot touch.
+  [MARAI_SPIRE]: { repeatEnergyDiscountForController: 1 },
 };
 
 
@@ -103,6 +123,35 @@ export function mayScoreAt(state: GameState, battlefieldId: string): boolean {
  *  printed battlefields do something. */
 export function continuousBattlefieldDefIds(): string[] {
   return Object.keys(BATTLEFIELD_CONTINUOUS);
+}
+
+/**
+ * Marai Spire's discount on `[Repeat]` costs, in Energy, for this player.
+ *
+ * Controller-scoped rather than positional, so this walks the battlefields the
+ * player CONTROLS instead of asking `at()` about one location — the spell being
+ * discounted may be cast from anywhere, and "friendly" here means the caster's,
+ * not "at this battlefield".
+ *
+ * SUMMED across controlled battlefields rather than taken as a max. Two copies
+ * cannot happen in a real game (each battlefield is a distinct card), so this is
+ * the general form of an unreachable case — but summing is what the text says
+ * and a `max` would be inventing a non-stacking rule the card does not print.
+ *
+ * Floored by the CALLER, not here: this returns the discount, and the cost it
+ * applies to cannot go below zero. Keeping the floor at the application site is
+ * what lets Called Shot — whose Repeat is 0 Energy — be discounted by nothing
+ * rather than into a negative that a later addition would silently unwind.
+ */
+export function repeatEnergyDiscountFor(state: GameState, playerIndex: 0 | 1): number {
+  const playerId = state.players[playerIndex]?.id;
+  if (playerId === undefined) return 0;
+  let total = 0;
+  for (const bf of state.battlefields) {
+    if (bf.controllerId !== playerId || bf.defId === undefined) continue;
+    total += BATTLEFIELD_CONTINUOUS[bf.defId]?.repeatEnergyDiscountForController ?? 0;
+  }
+  return total;
 }
 
 /** The continuous ability of the battlefield with this id, if it has one.

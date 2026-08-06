@@ -4,6 +4,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { repeatCostOf, repeatCostDefIds } from "../src/engine/card-effects.js";
+import { modifiedRepeatEnergy } from "../src/engine/cost-modifiers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
@@ -418,6 +419,82 @@ describe("[Repeat] pays [Deflect] once per choice, so twice for the same unit", 
     };
 
     expect(validatePlayCard(state, paid)).toMatchObject({ ok: true });
+  });
+});
+
+/**
+ * Marai Spire (SFD-211) — "While you control this battlefield, friendly
+ * `[Repeat]` costs cost [1] less."
+ *
+ * The first battlefield in this repo whose continuous ability is neither
+ * positional nor symmetric: it discounts a spell cast from ANYWHERE, but only
+ * for whoever controls it. So it cannot be answered from a location, and every
+ * assertion here is really about that asymmetry.
+ */
+describe("Marai Spire discounts friendly [Repeat] costs", () => {
+  /** `spire` decides who controls the Spire; `null` leaves it uncontrolled. */
+  function withSpire(defId: string, domain: Domain, controller: 0 | 1 | null, runeCount = 12) {
+    const { state, spellId } = caster(defId, domain, runeCount, 1);
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      defId: "SFD-211",
+      controllerId: controller === null ? null : state.players[controller]!.id,
+    };
+    return { state, spellId };
+  }
+
+  it("takes 1 Energy off the repeat cost for the controller", () => {
+    // Feral Strength: 2 printed + [Repeat] [2] = 4, less the Spire's 1 = 3.
+    const { state, spellId } = withSpire(FERAL_STRENGTH, "Calm", 0);
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+
+    expect(repeated.payment.energyRunes).toHaveLength(3);
+    expect(validatePlayCard(state, repeated), "enumerated but refused").toMatchObject({ ok: true });
+  });
+
+  /** The negative that carries the "while YOU control" clause. */
+  it("does NOT discount the opponent's repeat", () => {
+    const { state, spellId } = withSpire(FERAL_STRENGTH, "Calm", 1);
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+
+    expect(repeated.payment.energyRunes, "the enemy's Spire discounted our repeat").toHaveLength(4);
+  });
+
+  /** And an uncontrolled Spire discounts nobody — "while you CONTROL". */
+  it("does nothing while nobody controls it", () => {
+    const { state, spellId } = withSpire(FERAL_STRENGTH, "Calm", null);
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid)!;
+
+    expect(repeated.payment.energyRunes).toHaveLength(4);
+  });
+
+  /**
+   * It discounts the REPEAT cost, not the card. A play that declines the repeat
+   * pays its printed cost in full — otherwise this would be a general discount,
+   * which is a different card.
+   */
+  it("leaves the printed cost alone when the repeat is declined", () => {
+    const { state, spellId } = withSpire(FERAL_STRENGTH, "Calm", 0);
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid)!;
+
+    expect(plain.payment.energyRunes).toHaveLength(2);
+  });
+
+  /**
+   * Called Shot's `[Repeat]` is `[Chaos]` — one Power pip and NO Energy — so
+   * there is nothing for an Energy discount to take off, and it must not go
+   * negative and silently offset the Power half.
+   *
+   * Asserted through the modifier directly rather than through the card, because
+   * Called Shot has no effect registered yet and so is not enumerable.
+   */
+  it("cannot discount a Repeat that costs no Energy below zero", () => {
+    const { state } = withSpire(FERAL_STRENGTH, "Calm", 0);
+    expect(repeatCostOf("SFD-122")).toMatchObject({ energy: 0, power: 1 });
+    expect(modifiedRepeatEnergy(state, 0, 0)).toBe(0);
+    // And the controller's discount really is live in that same state, so the
+    // zero above is the floor doing its job rather than the Spire being absent.
+    expect(modifiedRepeatEnergy(state, 0, 2)).toBe(1);
   });
 });
 

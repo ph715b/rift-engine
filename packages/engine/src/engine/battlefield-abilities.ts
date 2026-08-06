@@ -21,7 +21,7 @@ import { effectiveMight } from "./effective-might.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
-import { placeToken, type TokenSpec } from "./token.js";
+import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
 
 /**
  * The 24 printed Battlefield cards' abilities.
@@ -191,10 +191,6 @@ const RAVENBLOOM_CONSERVATORY = "SFD-215";
 const POWER_NEXUS_PIPS = 4;
 /** Emperor's Dais' optional Energy. */
 const EMPERORS_DAIS_ENERGY = 1;
-/** A local copy of effects/order.ts's private spec — that file may not be edited
- *  from here, and the numbers are printed on the token card. */
-const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
-
 /** The units `playerIndex` controls standing at `battlefieldId`. */
 function ownUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string) {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);

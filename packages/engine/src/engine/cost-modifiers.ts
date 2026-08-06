@@ -3,6 +3,7 @@ import { defaultCardRegistry } from "../cards/card-registry.js";
 import { opponentNearVictory } from "./constants.js";
 import { legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
+import { repeatEnergyDiscountFor } from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
 
 /** Every unit a player controls, each with the MightContext its location
@@ -234,4 +235,24 @@ export function modifiedEnergyCost(
   }
 
   return cost;
+}
+
+/**
+ * A `[Repeat]` cost's Energy after Marai Spire's discount — the ONE function the
+ * enumerator and the validator both call.
+ *
+ * Its own entry point rather than a branch inside `modifiedEnergyCost`, because
+ * the two modify different things and stack independently: `modifiedEnergyCost`
+ * prices the card's PRINTED cost, this prices the ADDITIONAL cost 820.1.c.1
+ * charges beside it. Folding them together would have let Eager Apprentice's
+ * "spells cost 1 less, minimum 1" clamp the repeat surcharge too, which is not
+ * what either card says.
+ *
+ * Floored at 0, which is where Called Shot lands: its Repeat is `[Chaos]` with
+ * no Energy at all, so Marai Spire discounts it by nothing. A card cannot be
+ * paid a negative cost, and letting it go below zero would silently offset the
+ * Power half when the two are summed downstream.
+ */
+export function modifiedRepeatEnergy(state: GameState, playerIndex: 0 | 1, printedRepeatEnergy: number): number {
+  return Math.max(0, printedRepeatEnergy - repeatEnergyDiscountFor(state, playerIndex));
 }

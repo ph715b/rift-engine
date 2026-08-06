@@ -29,6 +29,21 @@ export interface TokenSpec {
 export const RECRUIT_TOKEN: TokenSpec = { name: "Recruit", might: 1, tag: "Recruit" };
 
 /**
+ * Desert's Call's and Emperor's Dais' token — SHARED, because two owners make it.
+ *
+ * It lived as two private copies: one in `effects/calm.ts` for the spell, one in
+ * `battlefield-abilities.ts` for the battlefield, the latter commented "a local
+ * copy of effects/order.ts's private spec" — naming a file that never held it,
+ * since Desert's Call is Calm. A stat line copied into two files under a comment
+ * pointing at a third is the drift this repo keeps recording; `RECRUIT_TOKEN`
+ * and `GOLD_TOKEN` are already shared from here for exactly this reason.
+ *
+ * No keywords and no "ready" clause, so it enters exhausted on 143.4.a's default
+ * — unlike Sprite Call's, which overrides it.
+ */
+export const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
+
+/**
  * Builds a runtime-only token unit — a raw UnitInstance object literal,
  * deliberately NOT going through createCardInstance/CardRegistry, since no
  * CardDefinition exists for it (Token-supertype entries are filtered out of the
