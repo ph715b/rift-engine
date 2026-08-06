@@ -27,6 +27,7 @@ import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
 import { isAttackingAt } from "./combat-designation.js";
 import type { EventTriggerDefinition } from "./triggers.js";
+import { holdWeaponmasterOffer } from "./equipment.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -416,6 +417,20 @@ export function dispatchOnPlayUnit(
     ? applyVision(state, casterIndex, extra?.visionRecycle)
     : state;
 
+  // `[Weaponmaster]` (SFD) fires HERE, for the same reason `[Vision]` does: it
+  // is a KEYWORD, so it belongs to the funnel rather than to eleven per-card
+  // entries, and firing from the funnel reaches every unit that enters with it
+  // however it got there.
+  //
+  // **It was first hooked in `execute-play-card` and that was UNREACHABLE.** A
+  // Unit returns from one of two earlier branches (base play and battlefield
+  // play), so the line at the foot of that function narrows to "Spell" | "Gear"
+  // and the check could never be true. `tsc` caught it; the unit tests did not,
+  // because vitest strips types and the tests called the helper directly. The
+  // comment two branches above records the same class of bug on the same
+  // function — a field dropped at "both call sites".
+  const withWeaponmaster = holdWeaponmasterOffer(withVision, casterIndex, unit);
+
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
   // straight to the inline one, so a Unit registered in a per-domain effects
   // file validated, cost runes, deployed — and then its ability silently never
@@ -438,8 +453,8 @@ export function dispatchOnPlayUnit(
   // creates (on-attack still resolves inline, i.e. BEFORE a held on-play) is
   // unobservable today. It becomes real for the first card with both.
   const trigger = allUnitTriggers()[unit.defId];
-  if (!trigger) return withVision;
-  return holdUnitTrigger(withVision, unit, casterIndex, {
+  if (!trigger) return withWeaponmaster;
+  return holdUnitTrigger(withWeaponmaster, unit, casterIndex, {
     destination,
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.secondTargetUnitInstanceId !== undefined

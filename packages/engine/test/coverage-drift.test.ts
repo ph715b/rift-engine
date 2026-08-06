@@ -273,12 +273,15 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
   it("flags exactly SFD's four, and nothing in the finished sets", () => {
     // The four are named rather than counted, because a count cannot tell
     // "Equip is still pending" from "Deflect silently regressed".
-    // `Equip` LEFT this list on 2026-08-05: Equipment attachment exists, and 25
-    // of the 31 Equipment carry a generated ability that works. The 6 it does
-    // not reach are named individually in PARTIALLY_IMPLEMENTED — a
-    // keyword-level flag would have greyed the 25 that work along with them.
+    // **All three Equipment keywords have LEFT this list.** `[Equip]`,
+    // `[Quick-Draw]` and `[Weaponmaster]` are implemented; the 6 Equipment whose
+    // COST this engine cannot price are named individually in
+    // PARTIALLY_IMPLEMENTED instead, because a keyword-level flag would have
+    // greyed the 25 that work along with them.
+    //
+    // `[Repeat]` is the one left, and it is a subsystem rather than a card.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged].sort()).toEqual(["Quick-Draw", "Repeat", "Weaponmaster"]);
+    expect([...flagged].sort()).toEqual(["Repeat"]);
 
     // And the direction that matters for OGN/OGS: a keyword losing its
     // implementation would show up here as a card from a finished set, which is

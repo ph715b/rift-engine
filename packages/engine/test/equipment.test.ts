@@ -11,6 +11,9 @@ import {
   isEquipmentGear,
   holdQuickDrawAttach,
   QUICK_DRAW_DECISION,
+  holdWeaponmasterOffer,
+  weaponmasterCostFor,
+  WEAPONMASTER_DECISION,
 } from "../src/engine/equipment.js";
 import { activatedAbilityFor, activationCostOf, hasActivatableAbility } from "../src/engine/activated-abilities.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
@@ -18,6 +21,7 @@ import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { partialImplementationNote } from "../src/engine/coverage.js";
 import { pendingDecision } from "../src/engine/decisions.js";
+import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import type { GameState } from "../src/model/game-state.js";
 import { answerDecisions, makeState, makeUnit, realGearInstance, realUnitInstance } from "./fixtures.js";
 
@@ -354,5 +358,124 @@ describe("[Quick-Draw]", () => {
     theirs.players[1]!.baseUnits = [jax];
     theirs.players[0]!.baseUnits = [makeUnit()];
     expect(holdQuickDrawAttach(theirs, 0, realGearInstance(DORANS_BLADE))).toEqual(theirs);
+  });
+});
+
+/**
+ * `[Weaponmaster]` — "When you play me, you may [Equip] one of your Equipment to
+ * me for :rb_rune_rainbow: less, even if it's already attached."
+ *
+ * The discount is on the EQUIPMENT's cost, not a cost of its own, so this needed
+ * none of the rainbow-payment machinery the four rainbow-cost Equipment are
+ * still blocked on.
+ */
+describe("[Weaponmaster]", () => {
+  const SENTINEL_ADEPT = "SFD-008"; // Weaponmaster and nothing else
+
+  const fury = (id: string) => ({ id, domain: "Fury" as const, state: "Ready" as const });
+
+  it("discounts the [Equip] cost by one rune, which usually makes it free", () => {
+    // 25 of the 31 print a cost of exactly one rune, so the discount takes it to
+    // nothing — that is the card's whole point.
+    expect(weaponmasterCostFor(DORANS_BLADE)).toEqual({ energy: 0, domain: "Body", count: 0 });
+    // Skyfall of Areion is 1 Energy + 1 Fury: the rune goes, the Energy stays.
+    expect(weaponmasterCostFor("SFD-030")).toEqual({ energy: 1, domain: "Fury", count: 0 });
+    // A rainbow cost cannot be priced, so it is not offered at all.
+    expect(weaponmasterCostFor(FORGEFIRE_CAPE)).toBeUndefined();
+  });
+
+  it("offers the attach on play, and attaches free when the cost is one rune", () => {
+    const adept = realUnitInstance(SENTINEL_ADEPT);
+    const blade = realGearInstance(DORANS_BLADE);
+    const state = makeState();
+    state.players[0]!.baseUnits = [adept];
+    state.players[0]!.activeGear = [blade];
+    state.players[0]!.channeled = [fury("r1")];
+
+    const offered = holdWeaponmasterOffer(state, 0, adept);
+    expect(pendingDecision(offered)?.kind, "no Weaponmaster offer was made").toBe(WEAPONMASTER_DECISION);
+
+    const taken = answerDecisions(offered, (options) => options[0]!.id);
+    expect(equipmentAttachedTo(taken, adept.instanceId), "the Equipment did not attach").toHaveLength(1);
+    // Free: Doran's Blade costs one Body rune and the discount removes it, so the
+    // Fury rune in the pool is untouched.
+    expect(taken.players[0]!.channeled.filter((r) => r.state === "Ready"), "something was paid").toHaveLength(1);
+  });
+
+  it("can be DECLINED — the card prints 'you may'", () => {
+    const adept = realUnitInstance(SENTINEL_ADEPT);
+    const state = makeState();
+    state.players[0]!.baseUnits = [adept];
+    state.players[0]!.activeGear = [realGearInstance(DORANS_BLADE)];
+
+    const offered = holdWeaponmasterOffer(state, 0, adept);
+    const declined = answerDecisions(offered, (options) => options.find((o) => o.id === "decline")!.id);
+    expect(equipmentAttachedTo(declined, adept.instanceId)).toHaveLength(0);
+  });
+
+  it("offers an ALREADY-ATTACHED Equipment too", () => {
+    // "even if it's already attached" — re-equipping is a relocation and is
+    // explicitly legal, so the offer lists every Equipment rather than only the
+    // unattached ones.
+    const adept = realUnitInstance(SENTINEL_ADEPT);
+    const other = makeUnit({ name: "Other" });
+    const blade = realGearInstance(DORANS_BLADE);
+    const state = makeState();
+    state.players[0]!.baseUnits = [adept, other];
+    state.players[0]!.activeGear = [blade];
+    const armed = attachEquipment(state, 0, blade.instanceId, other.instanceId);
+
+    const taken = answerDecisions(holdWeaponmasterOffer(armed, 0, adept), (options) => options[0]!.id);
+    expect(equipmentAttachedTo(taken, adept.instanceId), "the attached blade was not offered").toHaveLength(1);
+    expect(equipmentAttachedTo(taken, other.instanceId)).toHaveLength(0);
+  });
+
+  it("asks NOTHING with no Equipment to offer, and not for a unit without the keyword", () => {
+    const adept = realUnitInstance(SENTINEL_ADEPT);
+    const bare = makeState();
+    bare.players[0]!.baseUnits = [adept];
+    expect(holdWeaponmasterOffer(bare, 0, adept), "offered with no Equipment").toEqual(bare);
+
+    const plain = makeState();
+    plain.players[0]!.activeGear = [realGearInstance(DORANS_BLADE)];
+    const noKeyword = makeUnit({ name: "Ordinary" });
+    plain.players[0]!.baseUnits = [noKeyword];
+    expect(holdWeaponmasterOffer(plain, 0, noKeyword)).toEqual(plain);
+  });
+});
+
+/**
+ * The hop that the first version of `[Weaponmaster]` got wrong.
+ *
+ * It was hooked at the foot of `execute-play-card`, where a Unit can never
+ * arrive — a Unit returns from one of two earlier branches, so the check
+ * narrowed to "Spell" | "Gear" and was dead code. **`tsc` caught it and the unit
+ * tests did not**, because vitest strips types and those tests called the helper
+ * directly. This one goes through the real dispatcher instead.
+ */
+describe("[Weaponmaster] is reachable through the real on-play dispatch", () => {
+  it("fires from dispatchOnPlayUnit, not from a direct call", () => {
+    const adept = realUnitInstance("SFD-008");
+    const blade = realGearInstance(DORANS_BLADE);
+    const state = makeState();
+    state.players[0]!.baseUnits = [adept];
+    state.players[0]!.activeGear = [blade];
+
+    // The same funnel `[Vision]` fires from, and the one every route into play
+    // goes through — base play, battlefield play, and free play alike.
+    const played = dispatchOnPlayUnit(state, adept, 0, "base");
+
+    expect(pendingDecision(played)?.kind, "the offer never reached the dispatcher").toBe(WEAPONMASTER_DECISION);
+    const taken = answerDecisions(played, (options) => options[0]!.id);
+    expect(equipmentAttachedTo(taken, adept.instanceId)).toHaveLength(1);
+  });
+
+  it("does not fire for an ordinary unit going through the same funnel", () => {
+    const state = makeState();
+    state.players[0]!.activeGear = [realGearInstance(DORANS_BLADE)];
+    const ordinary = makeUnit({ name: "Ordinary" });
+    state.players[0]!.baseUnits = [ordinary];
+
+    expect(pendingDecision(dispatchOnPlayUnit(state, ordinary, 0, "base"))).toBeUndefined();
   });
 });

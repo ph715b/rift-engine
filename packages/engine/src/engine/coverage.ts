@@ -92,12 +92,11 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //
   // Each string is what a deck builder shows for a card whose only remaining
   // gap is this keyword, so it says what is missing rather than greying it.
-  // `[Equip]` LEFT this map on 2026-08-05: attachment exists, and 25 of the 31
+  // `[Equip]`, `[Quick-Draw]` and `[Weaponmaster]` have all LEFT this map:
+  // attachment exists, and 25 of the 31
   // Equipment carry a generated ability that works. The 6 it does not reach are
   // named individually in PARTIALLY_IMPLEMENTED below rather than held here,
   // because a keyword-level flag would wrongly grey the 25 that work.
-  ["Weaponmaster", "needs the on-play half of [Equip]: attach one of your Equipment to me, for 1 rainbow less"],
-  ["Quick-Draw", "needs [Equip]: a Gear with [Reaction] that attaches to a unit when played"],
   ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled"],
 ]);
 

@@ -1,7 +1,7 @@
 import type { GameState, PendingDecision } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
-import { equipmentDecisions } from "./equipment.js";
+import { equipmentDecisions, weaponmasterDecisions } from "./equipment.js";
 import { legendDecisions } from "./legend-abilities.js";
 import { battlefieldDecisions } from "./battlefield-abilities.js";
 import { freePlayDecisions } from "./free-play.js";
@@ -137,6 +137,7 @@ function allDecisions(): Record<string, DecisionDefinition> {
     // four Gear print it and Jax - Unmatched grants it to every Equipment its
     // controller has — so a per-domain file would be the wrong home twice over.
     { name: "engine/equipment.ts", entries: equipmentDecisions },
+    { name: "engine/equipment.ts (weaponmaster)", entries: weaponmasterDecisions },
     // Legends' questions live with their abilities rather than in a per-domain
     // file — every Legend is dual-domain, so filing one by domain is meaningless
     // (see legend-abilities.ts's own note).

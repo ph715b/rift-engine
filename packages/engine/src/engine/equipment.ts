@@ -1,5 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
-import type { GearInstance } from "../model/card.js";
+import type { GearInstance, UnitInstance } from "../model/card.js";
+import type { Domain } from "../model/domain.js";
+import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 
@@ -214,4 +216,101 @@ const JAX_UNMATCHED = "SFD-054";
  *  keyword. Jax's grant is his whole second clause. */
 export function equipmentDefIds(): string[] {
   return [JAX_UNMATCHED];
+}
+
+/**
+ * `[Weaponmaster]` — "When you play me, you may [Equip] one of your Equipment to
+ * me for :rb_rune_rainbow: less, even if it's already attached."
+ *
+ * Keyword-driven like `[Quick-Draw]`, so one implementation covers all eleven
+ * cards that print it.
+ *
+ * **"For 1 rainbow LESS" is a discount on the Equipment's own `[Equip]` cost**,
+ * not a cost of its own — so it needs none of the rainbow-payment machinery the
+ * four rainbow-cost Equipment are still blocked on. Since 25 of the 31 print an
+ * `[Equip]` cost of exactly one rune, the discount usually makes the attach
+ * FREE, which is the card's whole point.
+ *
+ * **"Even if it's already attached"** is why the offer lists every Equipment its
+ * controller has rather than only unattached ones: re-equipping is a relocation
+ * and is explicitly legal.
+ *
+ * The four rainbow-cost Equipment are still excluded, because this engine cannot
+ * price the un-discounted remainder of a rainbow cost — a rainbow minus a
+ * rainbow is zero, but nothing here can express the general case, and offering
+ * only the ones that happen to reduce to nothing would be a rule that held by
+ * accident. They are named in PARTIALLY_IMPLEMENTED already.
+ */
+export const WEAPONMASTER_DECISION = "weaponmaster-equip";
+
+/** The `[Equip]` cost after `[Weaponmaster]`'s one-rune discount, or undefined
+ *  for an Equipment this engine cannot price. */
+export function weaponmasterCostFor(defId: string): { energy: number; domain: Domain; count: number } | undefined {
+  const def = defaultCardRegistry().tryGet(defId);
+  if (def?.type !== "Gear" || def.equipCost === undefined) return undefined;
+  const { energy, domain, count } = def.equipCost;
+  if (domain === "rainbow") return undefined;
+  return { energy, domain, count: Math.max(0, count - 1) };
+}
+
+/** Can this player pay the discounted cost right now? Asked of the same helpers
+ *  that will take the payment, so the offer and the payment cannot disagree —
+ *  the shape behind three recorded offered-then-refused bugs here. */
+function canPayWeaponmaster(state: GameState, playerIndex: 0 | 1, defId: string): boolean {
+  const cost = weaponmasterCostFor(defId);
+  if (cost === undefined) return false;
+  let next: GameState | undefined = state;
+  if (cost.count > 0) next = payPowerFromChanneled(next, playerIndex, cost.domain, cost.count);
+  if (next !== undefined && cost.energy > 0) next = payEnergyFromPool(next, playerIndex, cost.energy);
+  return next !== undefined;
+}
+
+export const weaponmasterDecisions: Record<string, DecisionDefinition> = {
+  [WEAPONMASTER_DECISION]: {
+    prompt: () => "Weaponmaster: attach one of your Equipment to me for 1 less?",
+    options: (state, d) => {
+      const affordable = state.players[d.playerIndex].activeGear.filter(
+        (g) => isEquipmentGear(g) && canPayWeaponmaster(state, d.playerIndex, g.defId),
+      );
+      // Nothing to offer is not a question. With something to offer the DECLINE
+      // is real — the card prints "you MAY" — unlike [Quick-Draw]'s mandatory
+      // attach one function up.
+      if (affordable.length === 0) return [];
+      return [
+        ...affordable.map((g) => ({ id: g.instanceId, label: `Equip ${g.name}`, instanceId: g.instanceId })),
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.cardInstanceId === undefined) return state;
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === optionId);
+      if (!gear) return state;
+      const cost = weaponmasterCostFor(gear.defId);
+      if (cost === undefined) return state;
+      // Pay FIRST, and bail if it cannot be paid — the response window this
+      // question opened is exactly when that Power could be spent elsewhere.
+      let paid: GameState | undefined = state;
+      if (cost.count > 0) paid = payPowerFromChanneled(paid, d.playerIndex, cost.domain, cost.count);
+      if (paid !== undefined && cost.energy > 0) paid = payEnergyFromPool(paid, d.playerIndex, cost.energy);
+      if (paid === undefined) return state;
+      return attachEquipment(paid, d.playerIndex, gear.instanceId, d.cardInstanceId);
+    },
+  },
+};
+
+/**
+ * Parks `[Weaponmaster]`'s offer for a Unit that has just been played.
+ *
+ * Called from `execute-play-card`'s Unit branch — the one place a played Unit
+ * enters play — for the same reason `holdQuickDrawAttach` is called from the
+ * Gear branch.
+ */
+export function holdWeaponmasterOffer(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): GameState {
+  const def = defaultCardRegistry().tryGet(unit.defId);
+  if (def?.type !== "Unit" || def.keywords.Weaponmaster === undefined) return state;
+  const anyAffordable = state.players[playerIndex].activeGear.some(
+    (g) => isEquipmentGear(g) && canPayWeaponmaster(state, playerIndex, g.defId),
+  );
+  if (!anyAffordable) return state;
+  return parkDecision(state, { kind: WEAPONMASTER_DECISION, playerIndex, cardInstanceId: unit.instanceId });
 }
