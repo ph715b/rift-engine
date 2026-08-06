@@ -20,6 +20,8 @@ import { detachEquipment, isEquipmentGear } from "./equipment.js";
 import { effectiveMight } from "./effective-might.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
+import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
+import { placeToken, type TokenSpec } from "./token.js";
 
 /**
  * The 24 printed Battlefield cards' abilities.
@@ -180,6 +182,24 @@ const SUNKEN_TEMPLE = "SFD-218";
 const THE_PAPERTREE = "SFD-219";
 const HALL_OF_LEGENDS = "SFD-210";
 const VEILED_TEMPLE = "SFD-221";
+const EMPERORS_DAIS = "SFD-207";
+const POWER_NEXUS = "SFD-214";
+const RAVENBLOOM_CONSERVATORY = "SFD-215";
+
+/** Power Nexus asks for four RAINBOW pips — `payPowerFromChanneled` already
+ *  takes `null` to mean "any domain pays", so this needed no cost machinery. */
+const POWER_NEXUS_PIPS = 4;
+/** Emperor's Dais' optional Energy. */
+const EMPERORS_DAIS_ENERGY = 1;
+/** A local copy of effects/order.ts's private spec — that file may not be edited
+ *  from here, and the numbers are printed on the token card. */
+const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
+
+/** The units `playerIndex` controls standing at `battlefieldId`. */
+function ownUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string) {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return bf ? (bf.units[state.players[playerIndex].id] ?? []) : [];
+}
 const MINEFIELD_MILL = 2;
 const SUNKEN_TEMPLE_ENERGY = 1;
 const HALL_OF_LEGENDS_ENERGY = 1;
@@ -227,6 +247,66 @@ const THE_DREAMING_TREE = "OGN-292";
  * nothing would report it as part of the card.
  */
 export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDefinition[]> = {
+  [POWER_NEXUS]: [
+    {
+      // "When you hold here, you may pay [4 rainbow] to score 1 point."
+      on: "hold",
+      // Asked in `applies` so a board that cannot pay places no Pending Item:
+      // a held trigger costs both players a PassFocus even when it resolves to
+      // nothing, and 416.3 says a cost you cannot complete is not one you may
+      // choose to pay. Treasure Hoard's entry makes the same call.
+      applies: (state, event) =>
+        payPowerFromChanneled(state, event.playerIndex, null, POWER_NEXUS_PIPS) !== undefined,
+      resolve: (state, event) =>
+        parkDecision(state, { kind: `${POWER_NEXUS}-score`, playerIndex: event.playerIndex }),
+    },
+  ],
+  [RAVENBLOOM_CONSERVATORY]: [
+    {
+      // "When you defend here, reveal the top card of your Main Deck. If it's a
+      // spell, put it in your hand. Otherwise, recycle it."
+      on: "defend",
+      resolve: (state, event) => {
+        const player = state.players[event.playerIndex];
+        const [top, ...rest] = player.deck;
+        // An empty deck reveals nothing — 422's do-as-much-as-you-can, not a
+        // guard against a crash.
+        if (!top) return state;
+        const players = [...state.players] as [PlayerState, PlayerState];
+        if (top.kind === "Spell") {
+          players[event.playerIndex] = { ...player, deck: rest, hand: [...player.hand, top] };
+          return { ...state, players };
+        }
+        // "Recycle" is 416/425 — the BOTTOM of the same deck it came off.
+        players[event.playerIndex] = { ...player, deck: [...rest, top] };
+        // Karma - Channeler watches every recycle in this engine, including the
+        // ones written inline like this one.
+        return holdCardsRecycled({ ...state, players }, event.playerIndex, 1);
+      },
+    },
+  ],
+  [EMPERORS_DAIS]: [
+    {
+      // "When you conquer here, you may pay [1] and return a unit you control
+      // here to its owner's hand. If you do, play a 2 [Might] Sand Soldier unit
+      // token here."
+      on: "conquer",
+      // BOTH halves of the cost have to be payable, and the unit is half of it:
+      // "pay [1] AND return a unit you control here" is one price, so a
+      // battlefield you just took with nothing standing on it cannot pay. That
+      // is not merely unreachable — a conquest by a Spell leaves exactly that
+      // board.
+      applies: (state, event) =>
+        ownUnitsAt(state, event.playerIndex, event.battlefieldId).length > 0 &&
+        payEnergyFromPool(state, event.playerIndex, EMPERORS_DAIS_ENERGY) !== undefined,
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${EMPERORS_DAIS}-return`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
   [ALTAR_TO_UNITY]: [
     {
       on: "hold",
@@ -662,6 +742,49 @@ function activateConquerEffectsHere(state: GameState, event: BattlefieldTriggerE
  * live beside their abilities.
  */
 export const battlefieldDecisions: Record<string, DecisionDefinition> = {
+  [`${POWER_NEXUS}-score`]: {
+    prompt: () => "Power Nexus: pay 4 Power of any domain to score 1 point?",
+    options: (state, d) =>
+      payPowerFromChanneled(state, d.playerIndex, null, POWER_NEXUS_PIPS) === undefined
+        ? []
+        : [
+            { id: "pay", label: "Pay 4 Power of any domain to score 1 point" },
+            { id: "decline", label: "Decline" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Pay FIRST, and re-check: the hold opened a response window, so the Power
+      // can be gone by the time this resolves. Treasure Hoard records the same.
+      const paid = payPowerFromChanneled(state, d.playerIndex, null, POWER_NEXUS_PIPS);
+      // Through `gainPoints`, the choke point Tianna Crownguard reaches.
+      return paid === undefined ? state : gainPoints(paid, d.playerIndex, 1);
+    },
+  },
+  [`${EMPERORS_DAIS}-return`]: {
+    prompt: () => "Emperor's Dais: pay 1 Energy and return a unit here to hand, for a 2 Might Sand Soldier?",
+    options: (state, d) => {
+      if (d.battlefieldId === undefined) return [];
+      if (payEnergyFromPool(state, d.playerIndex, EMPERORS_DAIS_ENERGY) === undefined) return [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...ownUnitsAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
+          id: u.instanceId,
+          label: `Return ${u.name}`,
+          instanceId: u.instanceId,
+        })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.battlefieldId === undefined) return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, EMPERORS_DAIS_ENERGY);
+      if (paid === undefined) return state;
+      // "IF YOU DO" — the token is conditional on the whole cost being paid, so
+      // the return has to happen before it and the unit has to still be there.
+      const returned = returnUnitToHand(paid, optionId);
+      if (returned === paid) return paid;
+      return placeToken(returned, d.playerIndex, { battlefieldId: d.battlefieldId }, SAND_SOLDIER_TOKEN);
+    },
+  },
   [`${HALLOWED_TOMB}-return`]: {
     prompt: () => "Hallowed Tomb: return your Chosen Champion to your Champion Zone?",
     options: (state, d) => {

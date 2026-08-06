@@ -3,6 +3,7 @@ import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 import { gainPoints } from "./effect-helpers.js";
+import { mayScoreAt } from "./battlefield-continuous.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -43,6 +44,12 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
     // "did not yet Score this turn" — one score per battlefield per turn from
     // either method (rule 471.1.b).
     .filter((bf) => !player.scoredBattlefieldsThisTurn.includes(bf.id))
+    // Forgotten Monument's "players can't score here until their third turn".
+    // Filtered OUT rather than scored-for-nothing, which is the opposite of
+    // Tianna Crownguard's treatment two lines down and deliberately so: she
+    // blocks the POINT while the scoring happens, this blocks the SCORING, so
+    // 471.1.b's lockout never fires and the battlefield is still scoreable later.
+    .filter((bf) => mayScoreAt(state, bf.id))
     .map((bf) => bf.id);
   if (held.length === 0) return state;
   // **Recording the scoring and AWARDING the points are two steps now**, and
@@ -99,7 +106,12 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
  * minus every named-card conquest-trigger dispatch and blocking check.
  */
 export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefieldId: string): GameState {
-  const alreadyScored = state.players[playerIndex].scoredBattlefieldsThisTurn.includes(battlefieldId);
+  // Forgotten Monument again. Taking the battlefield still HAPPENED — the
+  // conquer triggers below still fire — but no scoring is recorded and no point
+  // is paid, so the battlefield can still be scored on a later turn.
+  const scoringBlocked = !mayScoreAt(state, battlefieldId);
+  const alreadyScored =
+    scoringBlocked || state.players[playerIndex].scoredBattlefieldsThisTurn.includes(battlefieldId);
 
   let next = updatePlayer(state, playerIndex, (p) => ({
     ...p,

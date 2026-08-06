@@ -53,7 +53,15 @@ interface ContinuousBattlefield {
   /** "You may hide an ADDITIONAL card here" — a raise on 811's one-per-
    *  battlefield limit, not a replacement for it. */
   extraHiddenCards?: number;
+  /** "Players can't score here until their Nth turn" (Forgotten Monument). A
+   *  scoring rule rather than a board effect, and the only entry here that
+   *  reaches into `scoring.ts` — see `mayScoreAt` below. */
+  noScoringBeforeTurn?: number;
 }
+
+/** Forgotten Monument (SFD-209) — "players can't score here until their third
+ *  turn". */
+const FORGOTTEN_MONUMENT = "SFD-209";
 
 const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [TRIFARIAN_WAR_CAMP]: { mightBonusHere: 1 },
@@ -62,7 +70,34 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [VOID_GATE]: { bonusDamageHere: 1 },
   [ASPIRANTS_CLIMB]: { extraPointsToWin: 1 },
   [BANDLE_TREE]: { extraHiddenCards: 1 },
+  // "Players can't score here until their third turn." BOTH players, unlike
+  // every other restriction in this repo, which is why it is read off the
+  // battlefield rather than asked of an opponent's board.
+  [FORGOTTEN_MONUMENT]: { noScoringBeforeTurn: 3 },
 };
+
+
+/**
+ * May `playerIndex` score `battlefieldId` at all right now?
+ *
+ * **Distinct from `mayGainPoints`, and the difference is the whole ruling.**
+ * Tianna Crownguard blocks GAINING A POINT while the scoring still happens, so
+ * 471.1.b's once-per-battlefield-per-turn lockout fires and the opponent cannot
+ * retry. Forgotten Monument blocks SCORING ITSELF — the event does not happen —
+ * so nothing is recorded and the battlefield is still there to be scored on the
+ * third turn. A card that says "can't score" and a card that says "can't gain
+ * points" are two different sentences, and this engine now models both.
+ *
+ * "THEIR third turn" is read against `GameState.turnNumber`, which advances when
+ * play wraps back to the First Player — so both players reach their third turn
+ * at the same count. Recorded in docs/rules-conformance.md, because a per-player
+ * turn counter would be the stricter reading and no field carries one.
+ */
+export function mayScoreAt(state: GameState, battlefieldId: string): boolean {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const before = bf?.defId ? BATTLEFIELD_CONTINUOUS[bf.defId]?.noScoringBeforeTurn : undefined;
+  return before === undefined || state.turnNumber >= before;
+}
 
 /** For coverage.ts, and for the completeness gate that asks whether all 24
  *  printed battlefields do something. */
