@@ -10,7 +10,7 @@ import {
 import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { chosenUnitsOfActivation, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets } from "../engine/target-lookup.js";
+import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets, unitSatisfiesAttackingOnly } from "../engine/target-lookup.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
@@ -145,7 +145,7 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     // this codebase before, when legal-actions offered a destination the
     // validator refused.
     const legal = eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope).filter(
-      (u) => !targeting.exhaustedOnly || u.exhausted,
+      (u) => (!targeting.exhaustedOnly || u.exhausted) && unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
     );
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {
       return fail(`${action.targetUnitInstanceId} is not a legal target for ${card.name}'s ability`);

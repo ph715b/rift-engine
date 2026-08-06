@@ -10,6 +10,7 @@ import {
   shareABattlefield,
   unitListChoiceError,
   unitOrGearTargets,
+  unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "../engine/target-lookup.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
@@ -177,6 +178,9 @@ function targetingRejection(
     }
     if (!unitWithinMaxMight(state, location.unit, targeting.maxMight)) {
       return `${cardName} can only target a unit with ${targeting.maxMight} Might or less`;
+    }
+    if (!unitSatisfiesAttackingOnly(state, location.unit, targeting.attackingOnly)) {
+      return `${cardName} can only target an ATTACKING unit`;
     }
   } else if (targeting.kind === "battlefield") {
     if (!choices.targetBattlefieldId) {

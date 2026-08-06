@@ -20,6 +20,7 @@ import {
   shareABattlefield,
   unitListCandidates,
   unitOrGearTargets,
+  unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "./target-lookup.js";
 import { modifiedEnergyCost, modifiedRepeatEnergy } from "./cost-modifiers.js";
@@ -189,6 +190,11 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope)) {
           if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
           if (mode.targeting.exhaustedOnly && !target.exhausted) continue;
+          // Wired on the ability path too, though no ability prints it today.
+          // `exhaustedOnly` was wired ONLY here and not on the spell path, which
+          // is the mirror-image gap; one filter reaching only half its call
+          // sites is how a spec field comes to be silently ignored.
+          if (!unitSatisfiesAttackingOnly(state, target, mode.targeting.attackingOnly)) continue;
           if (!mode.movesTarget) {
             variants.push({ ...withMode, targetUnitInstanceId: target.instanceId });
             continue;
@@ -615,6 +621,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // two gates drift apart in the first place.
       for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
         if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
+        if (!unitSatisfiesAttackingOnly(state, target, targeting.attackingOnly)) continue;
         if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetUnitInstanceId: target.instanceId });
       }

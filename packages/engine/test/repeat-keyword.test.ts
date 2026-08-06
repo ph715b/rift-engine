@@ -768,6 +768,111 @@ describe("Hard Bargain ransoms a spell once per execution", () => {
   });
 });
 
+/**
+ * Thwonk! (SFD-040) — "[Action] [Repeat] [2] Stun an attacking unit."
+ *
+ * The first card that targets by combat DESIGNATION (465 Step 1) rather than by
+ * owner, Might or zone. The restriction lives in the SPEC, so a board with
+ * nobody attacking makes the card UNCASTABLE rather than castable-and-inert —
+ * and that negative is the assertion worth having, because a resolver-level
+ * check would pass a "it stunned nothing" test just as happily.
+ */
+describe("Thwonk! targets by combat designation", () => {
+  /** p1 has contested bf1, so p1's unit there is the ATTACKER and p0's is not. */
+  function showdown() {
+    const { state, spellId } = caster("SFD-040", "Calm", 10);
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      contestedByIndex: 1,
+      units: {
+        [state.players[0]!.id]: [makeUnit({ name: "Defender", instanceId: "defender", might: 3 })],
+        [state.players[1]!.id]: [makeUnit({ name: "Attacker", instanceId: "attacker", might: 3 })],
+      },
+    };
+    return { state, spellId };
+  }
+
+  it("offers the attacker and NOT the defender", () => {
+    const { state, spellId } = showdown();
+    const targets = playsOf(state, spellId).map((a) => a.targetUnitInstanceId);
+
+    expect(targets, "the attacker was not offered").toContain("attacker");
+    expect(targets, "a DEFENDER was offered as an attacking unit").not.toContain("defender");
+  });
+
+  /** A bystander at an UNCONTESTED battlefield is attacking nobody. */
+  it("does not offer a unit at a battlefield nobody is contesting", () => {
+    const { state, spellId } = showdown();
+    state.battlefields[1] = {
+      ...state.battlefields[1]!,
+      units: { [state.players[1]!.id]: [makeUnit({ name: "Idler", instanceId: "idler", might: 3 })] },
+    };
+    const targets = playsOf(state, spellId).map((a) => a.targetUnitInstanceId);
+
+    expect(targets).toContain("attacker");
+    expect(targets, "an uncontested bystander was offered").not.toContain("idler");
+  });
+
+  /**
+   * The negative that decides where the restriction lives: with nobody
+   * attacking, the card must not be castable at all. A resolver-level check
+   * would leave it castable and inert, which for a Spell means paid-for and
+   * wasted.
+   */
+  it("is UNCASTABLE with nobody attacking", () => {
+    const { state, spellId } = caster("SFD-040", "Calm", 10);
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      contestedByIndex: null,
+      units: { [state.players[1]!.id]: [makeUnit({ name: "Idler", instanceId: "idler", might: 3 })] },
+    };
+
+    expect(playsOf(state, spellId), "castable with no attacker to stun").toHaveLength(0);
+  });
+
+  it("stuns the attacker it names", () => {
+    const { state, spellId } = showdown();
+    const play = playsOf(state, spellId).find((a) => !a.repeatPaid && a.targetUnitInstanceId === "attacker")!;
+    const after = resolveChain(accept(state, play));
+
+    const at = after.battlefields[0]!.units[after.players[1]!.id]!.find((u) => u.instanceId === "attacker")!;
+    expect(at.stunned).toBe(true);
+  });
+
+  /**
+   * A second stun on the SAME unit is redundant — `stunned` is a flag, not a
+   * counter — so repeating Thwonk! earns its cost only by naming a different
+   * attacker, which 820.1.d expressly allows.
+   */
+  it("repeated onto a second attacker, it stuns both", () => {
+    const { state, spellId } = showdown();
+    state.battlefields[0]!.units[state.players[1]!.id] = [
+      makeUnit({ name: "Attacker", instanceId: "attacker", might: 3 }),
+      makeUnit({ name: "Attacker2", instanceId: "attacker2", might: 3 }),
+    ];
+
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "attacker")!;
+    const play: PlayCardAction = { ...base, repeatChoices: { targetUnitInstanceId: "attacker2" } };
+    expect(validatePlayCard(state, play)).toMatchObject({ ok: true });
+
+    const after = resolveChain(accept(state, play));
+    const units = after.battlefields[0]!.units[after.players[1]!.id]!;
+    expect(units.find((u) => u.instanceId === "attacker")!.stunned).toBe(true);
+    expect(units.find((u) => u.instanceId === "attacker2")!.stunned).toBe(true);
+  });
+
+  /** And the repeat's own choice is checked by the same designation rule. */
+  it("refuses a repeat choice that is not attacking", () => {
+    const { state, spellId } = showdown();
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "attacker")!;
+    const play: PlayCardAction = { ...base, repeatChoices: { targetUnitInstanceId: "defender" } };
+
+    const result = validatePlayCard(state, play);
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("ATTACKING");
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**

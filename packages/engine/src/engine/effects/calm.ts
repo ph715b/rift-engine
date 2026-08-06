@@ -102,6 +102,34 @@ export const cardEffects: Record<string, EffectDefinition> = {
         SAND_SOLDIER_TOKEN,
       ),
   },
+  "SFD-040": {
+    // Thwonk! — "[Action] [Repeat] [2] Stun an attacking unit. (It doesn't deal
+    // combat damage this turn.)"
+    //
+    // The first card in the pool to target by combat DESIGNATION rather than by
+    // owner, Might or zone — see `attackingOnly` on TargetingSpec, and
+    // `unitSatisfiesAttackingOnly` for why the predicate is shared across the
+    // enumerator, the validator and `hasAnyLegalEffectChoice`.
+    //
+    // No owner clause: "an attacking unit" is whoever is attacking, and in a
+    // Showdown you started that is YOUR unit. Stunning your own attacker is a
+    // legal misplay rather than a shape the targeting should forbid — the same
+    // reading Blood Rush and Frigid Touch take.
+    //
+    // UNCASTABLE with nobody attacking, which is the point of putting the
+    // restriction in the spec rather than in the resolver: for a Spell the
+    // targeting IS the effect, so "no legal target" really does mean "cannot
+    // cast" rather than "cast it and waste it".
+    //
+    // **Repeating it is usually pointless and legal anyway.** Stunning is a flag,
+    // not a counter (`stunUnits` sets `stunned`), so a second stun on the same
+    // unit changes nothing — the same redundancy 817.1.a gives Blood Rush's
+    // keyword. It earns its Repeat cost only by naming a DIFFERENT attacker the
+    // second time, which 820.1.d expressly allows.
+    targeting: { kind: "unit", attackingOnly: true },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
+  },
   "SFD-034": {
     // Feral Strength — "[Reaction] [Repeat] [2] Give a unit +2 Might this turn."
     //

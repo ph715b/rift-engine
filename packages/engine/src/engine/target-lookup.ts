@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 import { counterableSpells } from "./counter-spell.js";
+import { attackerIndexAt } from "./combat-designation.js";
 
 export interface BattlefieldUnitLocation {
   unit: UnitInstance;
@@ -94,6 +95,38 @@ export function shareABattlefield(state: GameState, firstInstanceId: string, sec
   const first = findUnitOnBattlefield(state, firstInstanceId);
   const second = findUnitOnBattlefield(state, secondInstanceId);
   return first !== undefined && second !== undefined && first.battlefieldIndex === second.battlefieldIndex;
+}
+
+/**
+ * Does this unit satisfy an `attackingOnly` restriction (Thwonk!'s "stun an
+ * ATTACKING unit")?
+ *
+ * The Attacker designation is 465 Step 1's: the units standing at a Contested
+ * battlefield that belong to the player who contested it. Asked through
+ * `attackerIndexAt`, which is the one function in this engine that answers "who
+ * is attacking here" — the same one `isAttackingAt` uses for the "when I attack"
+ * triggers, so a card that TARGETS attackers and a card that TRIGGERS on
+ * attacking cannot come to disagree about who they are.
+ *
+ * A unit in BASE is never an attacker, so it is refused rather than waved
+ * through. That is the opposite default from `unitWithinMaxMight` below, which
+ * returns `true` for a unit it cannot locate — and deliberately: an unfindable
+ * Might restriction should not silently forbid a target, while an unfindable
+ * ATTACKER genuinely is not attacking.
+ *
+ * One shared predicate, called by the enumerator, the validator and
+ * `hasAnyLegalEffectChoice`, for the reason this file keeps repeating: three
+ * spellings of the same rule is how a target comes to be offered and refused.
+ */
+export function unitSatisfiesAttackingOnly(
+  state: GameState,
+  unit: UnitInstance,
+  attackingOnly: true | undefined,
+): boolean {
+  if (attackingOnly !== true) return true;
+  const at = findUnitOnBattlefield(state, unit.instanceId);
+  if (!at) return false;
+  return attackerIndexAt(state, state.battlefields[at.battlefieldIndex]!.id) === at.ownerIndex;
 }
 
 /**
@@ -381,8 +414,10 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
     case "battlefield":
       return state.battlefields.length > 0;
     case "unit":
-      return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some((u) =>
-        unitWithinMaxMight(state, u, targeting.maxMight),
+      return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some(
+        (u) =>
+          unitWithinMaxMight(state, u, targeting.maxMight) &&
+          unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
       );
     case "unitSlots": {
       // Nothing is REQUIRED when min is 0, so nothing can be missing — the

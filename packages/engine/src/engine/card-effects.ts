@@ -56,7 +56,30 @@ export type TargetingSpec =
    *  restriction on the target's state rather than its owner or its Might, and
    *  the first of that shape. Filtered during enumeration like every other part
    *  of this spec, so a ready unit is never offered and then refused. */
-  | { kind: "unit"; owner?: "friendly" | "enemy"; maxMight?: number; scope?: TargetScope; exhaustedOnly?: true }
+  /**
+   * `attackingOnly` is Thwonk!'s "stun an ATTACKING unit" — a restriction on the
+   * target's combat DESIGNATION (465 Step 1) rather than on its owner, its Might
+   * or its zone, and the first of its kind here.
+   *
+   * A property of the SPEC rather than a check inside the resolver, for the
+   * reason `sameBattlefield` records below: by the time a resolver runs the
+   * choice has been made and paid for, so a resolver that refused would leave
+   * the card spent and doing nothing. It also has to be the spec so that a card
+   * with no legal target is UNCASTABLE rather than castable-and-inert, which is
+   * what "the targeting IS the effect" means for a Spell.
+   *
+   * Implies the target is at a battlefield — a unit in base is never an attacker
+   * — but it is NOT the same as `scope: "battlefield"`, which would also offer
+   * the defender and every bystander at an uncontested battlefield.
+   */
+  | {
+      kind: "unit";
+      owner?: "friendly" | "enemy";
+      maxMight?: number;
+      scope?: TargetScope;
+      exhaustedOnly?: true;
+      attackingOnly?: true;
+    }
   | { kind: "battlefield" }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
   /**
