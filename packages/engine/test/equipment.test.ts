@@ -25,6 +25,7 @@ import { pendingDecision } from "../src/engine/decisions.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import type { GameState } from "../src/model/game-state.js";
 import { answerDecisions, makeState, makeUnit, realGearInstance, realUnitInstance } from "./fixtures.js";
+import type { GearDefinition } from "../src/model/card-definition.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem.
@@ -52,17 +53,35 @@ const LAST_RITES = "SFD-150"; // compound cost — deliberately unwired
 
 const combat = { isCombat: false } as const;
 
+/**
+ * `registry.get` returns the `CardDefinition` UNION, and `equipCost`,
+ * `equipMightBonus` and `isEquipment` are all declared on `GearDefinition`
+ * alone. Narrowed once here rather than cast at each of the eight uses below.
+ *
+ * The `expect` is the narrowing's own premise check: a defId that stopped being
+ * Gear would otherwise be silently cast into one and read `undefined` for every
+ * field, which passes several of the assertions below for the wrong reason.
+ */
+function gearDef(defId: string): GearDefinition {
+  const def = registry.get(defId);
+  expect(def.type, `${defId} is not Gear`).toBe("Gear");
+  return def as GearDefinition;
+}
+
 describe("the Equipment data, which is mostly not in the data", () => {
   it("reads the +N badge from the table, since the JSON has none", () => {
     // The three values are independent, so a table that returned a constant
     // would fail here rather than looking plausible.
-    expect(registry.get(DORANS_BLADE).equipMightBonus).toBe(2);
-    expect(registry.get(BFS).equipMightBonus).toBe(3);
-    expect(registry.get(SERRATED_DIRK).equipMightBonus).toBe(0);
+    expect(gearDef(DORANS_BLADE).equipMightBonus).toBe(2);
+    expect(gearDef(BFS).equipMightBonus).toBe(3);
+    expect(gearDef(SERRATED_DIRK).equipMightBonus).toBe(0);
     // And the gap itself, asserted so nobody "fixes" the table by parsing.
-    const raw = registry.get(DORANS_BLADE);
+    const raw = gearDef(DORANS_BLADE);
     expect(raw.text).not.toContain("+2");
-    expect(raw.type === "Gear" ? raw.might : undefined).toBeUndefined();
+    // `GearDefinition` declares no `might` at all, so this is an index read
+    // rather than a property access — the assertion is "the badge is not in the
+    // data", and it has to be able to look for a field the type denies exists.
+    expect((raw as { might?: number }).might, "a Might field appeared on Gear").toBeUndefined();
   });
 
   it("parses the [Equip] cost, which IS in the text", () => {
@@ -77,16 +96,18 @@ describe("the Equipment data, which is mostly not in the data", () => {
     // Recycle 2 cards from your trash" and hand the card an ability costing only
     // the rune — strictly CHEAPER than printed, which is the one direction this
     // codebase never ships.
-    expect(registry.get(LAST_RITES).equipCost).toBeUndefined();
-    expect(registry.get("SFD-178").equipCost).toBeUndefined();
-    expect(registry.get(LAST_RITES).text).toContain("Recycle 2");
+    expect(gearDef(LAST_RITES).equipCost).toBeUndefined();
+    expect(gearDef("SFD-178").equipCost).toBeUndefined();
+    expect(gearDef(LAST_RITES).text).toContain("Recycle 2");
   });
 
   it("marks Equipment from the printed tag, not from having [Equip]", () => {
-    expect(registry.get(DORANS_BLADE).isEquipment).toBe(true);
+    expect(gearDef(DORANS_BLADE).isEquipment).toBe(true);
     // A non-Equipment Gear must not be swept in — Equipment is a printed tag and
     // `[Weaponmaster]`/Angle Shot mean exactly it.
-    const plainGear = registry.all().find((c) => c.type === "Gear" && c.isEquipment !== true)!;
+    const plainGear = registry
+      .all()
+      .find((c): c is GearDefinition => c.type === "Gear" && (c as GearDefinition).isEquipment !== true)!;
     expect(plainGear.isEquipment).toBeUndefined();
     expect(isEquipmentGear({ defId: plainGear.id })).toBe(false);
     expect(isEquipmentGear({ defId: DORANS_BLADE })).toBe(true);

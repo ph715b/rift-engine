@@ -5,6 +5,7 @@ import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import { makeState, makeUnit, spellInstance } from "./fixtures.js";
 import { legalActions } from "../src/engine/legal-actions.js";
+import type { GameState } from "../src/model/game-state.js";
 
 function resolve(defId: string, casterIndex: 0 | 1, state: ReturnType<typeof makeState>, event: Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2] = {}) {
   const effect = effectForCard(spellInstance(defId))!;

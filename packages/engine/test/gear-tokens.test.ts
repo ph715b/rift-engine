@@ -101,7 +101,11 @@ describe("the Gold gear token", () => {
     const ability = activatedAbilityFor(GOLD_TOKEN_DEF_ID);
     expect(ability, "the Gold token has no registered ability").toBeDefined();
 
-    const after = ability!.resolve(state, contextFor(0), {});
+    // `resolve` is OPTIONAL on the ability type (a card may carry a
+    // `targeting`/`resolve` pair instead) and takes a fourth argument, the
+    // source's instance id. Both were being skipped by a bare `!`.
+    expect(ability?.resolve, "the Gold token's ability has no resolver").toBeDefined();
+    const after = ability!.resolve!(state, contextFor(0), {}, "token-gold-1");
     expect(after.players[0]!.floatingRainbowPower).toBe(before + 1);
     expect(after.players[0]!.floatingPower, "rainbow leaked into a domain pool").toEqual(
       state.players[0]!.floatingPower,
