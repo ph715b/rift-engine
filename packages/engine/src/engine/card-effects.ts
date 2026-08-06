@@ -211,6 +211,23 @@ export type TargetingSpec =
        *  battlefield, which the PDF works by name. */
       sameBattlefield?: true;
       /**
+       * Bellows Breath's "up to three units at the same LOCATION" — strictly
+       * WIDER than `sameBattlefield` above, and the difference is a rule rather
+       * than a synonym.
+       *
+       * **828: "Locations include the Battlefields and the Bases."** So three
+       * units standing in one player's base share a location and are a legal
+       * group, while `sameBattlefield` refuses them — its own comment records
+       * that a unit in base "is at no battlefield, so it can never join a
+       * group". Each base is its OWN location, so a unit in each base is two
+       * locations and not a group.
+       *
+       * Kept as a separate flag rather than a widening of `sameBattlefield`,
+       * because Fox-Fire really does say "at a battlefield" and must keep
+       * refusing base units.
+       */
+      sameLocation?: true;
+      /**
        * A GROUP requirement (355): the chosen set must collectively satisfy this
        * when the card is finalized. Fox-Fire's "with total Might 4 or less", read
        * as EFFECTIVE Might — the PDF's worked example turns on a Reaction raising

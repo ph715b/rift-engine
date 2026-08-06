@@ -873,6 +873,100 @@ describe("Thwonk! targets by combat designation", () => {
   });
 });
 
+/**
+ * Bellows Breath (SFD-080) — "[Action] [Repeat] [1][Mind] Deal 1 to up to three
+ * units at the same LOCATION."
+ *
+ * The word is the card. Rule **828**: "Locations include the Battlefields and
+ * the Bases", so `sameLocation` is strictly wider than the existing
+ * `sameBattlefield` — three units in one base are a legal group, and each base
+ * is its own location so one unit in each base is not.
+ */
+describe("Bellows Breath groups by LOCATION, which includes bases", () => {
+  /** Two units in p0's base, two in p1's base, two at bf1. */
+  function spread() {
+    const { state, spellId } = caster("SFD-080", "Mind", 10);
+    state.players[0]!.baseUnits = [
+      makeUnit({ name: "Mine1", instanceId: "mine1", might: 5 }),
+      makeUnit({ name: "Mine2", instanceId: "mine2", might: 5 }),
+    ];
+    state.players[1]!.baseUnits = [makeUnit({ name: "Theirs1", instanceId: "theirs1", might: 5 })];
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      units: {
+        [state.players[0]!.id]: [makeUnit({ name: "Front1", instanceId: "front1", might: 5 })],
+        [state.players[1]!.id]: [makeUnit({ name: "Front2", instanceId: "front2", might: 5 })],
+      },
+    };
+    return { state, spellId };
+  }
+
+  const sets = (state: GameState, spellId: string) =>
+    playsOf(state, spellId).map((a) => [...(a.targetUnitInstanceIds ?? [])].sort().join(","));
+
+  /** The assertion `sameBattlefield` would have failed: a base IS a location. */
+  it("accepts a group standing in one BASE", () => {
+    const { state, spellId } = spread();
+    expect(sets(state, spellId), "two units in the same base were not offered as a group").toContain("mine1,mine2");
+  });
+
+  it("accepts a group at one battlefield, across both sides", () => {
+    const { state, spellId } = spread();
+    expect(sets(state, spellId)).toContain("front1,front2");
+  });
+
+  /** Each base is its OWN location — the negative that keeps `sameLocation` from
+   *  degenerating into "anywhere". */
+  it("refuses a unit from each base — two bases are two locations", () => {
+    const { state, spellId } = spread();
+    expect(sets(state, spellId), "units in DIFFERENT bases were grouped").not.toContain("mine1,theirs1");
+    // And validation agrees with enumeration, which is the pair that matters.
+    const base = playsOf(state, spellId)[0]!;
+    const illegal: PlayCardAction = { ...base, targetUnitInstanceIds: ["mine1", "theirs1"] };
+    expect(validatePlayCard(state, illegal)).toMatchObject({ ok: false });
+  });
+
+  it("refuses a base unit grouped with a battlefield unit", () => {
+    const { state, spellId } = spread();
+    expect(sets(state, spellId)).not.toContain("front1,mine1");
+  });
+
+  it("deals 1 to each unit it names", () => {
+    const { state, spellId } = spread();
+    const play = playsOf(state, spellId).find(
+      (a) => !a.repeatPaid && [...(a.targetUnitInstanceIds ?? [])].sort().join(",") === "mine1,mine2",
+    )!;
+    const after = resolveChain(accept(state, play));
+
+    for (const id of ["mine1", "mine2"]) {
+      expect(after.players[0]!.baseUnits.find((u) => u.instanceId === id)!.damage, id).toBe(1);
+    }
+  });
+
+  /** "Up to three" means zero is a legal choice — the card is castable on an
+   *  empty board and does nothing. */
+  it("is castable with no units at all", () => {
+    const { state, spellId } = caster("SFD-080", "Mind", 10);
+    expect(playsOf(state, spellId).length, "an empty board made it uncastable").toBeGreaterThan(0);
+  });
+
+  /** Repeated, the second execution may name a group at a DIFFERENT location. */
+  it("repeated, it may hit a different location the second time", () => {
+    const { state, spellId } = spread();
+    const base = playsOf(state, spellId).find(
+      (a) => a.repeatPaid && [...(a.targetUnitInstanceIds ?? [])].sort().join(",") === "mine1,mine2",
+    )!;
+    const play: PlayCardAction = { ...base, repeatChoices: { targetUnitInstanceIds: ["front1", "front2"] } };
+    expect(validatePlayCard(state, play)).toMatchObject({ ok: true });
+
+    const after = resolveChain(accept(state, play));
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "mine1")!.damage).toBe(1);
+    const atBf = after.battlefields[0]!;
+    expect(atBf.units[after.players[0]!.id]!.find((u) => u.instanceId === "front1")!.damage).toBe(1);
+    expect(atBf.units[after.players[1]!.id]!.find((u) => u.instanceId === "front2")!.damage).toBe(1);
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**

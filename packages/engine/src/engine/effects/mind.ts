@@ -71,6 +71,7 @@ import { wearerListener } from "../equipment.js";
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
 const FRIGID_TOUCH_MIGHT = 2;
+const BELLOWS_BREATH_DAMAGE = 1;
 
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
@@ -82,6 +83,36 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-080": {
+    // Bellows Breath — "[Action] [Repeat] [1][Mind] Deal 1 to up to three units
+    // at the same location."
+    //
+    // "At the same LOCATION", not "at the same battlefield", and rule **828**
+    // settles that they are different: "Locations include the Battlefields and
+    // the Bases." So three units standing in one player's base are a legal
+    // group, which `sameBattlefield` would refuse — its own comment records that
+    // a base unit "is at no battlefield, so it can never join a group". Hence
+    // `sameLocation`, and hence `scope: "anywhere"` to put base units in the
+    // pool at all.
+    //
+    // Each base is its OWN location, so one unit in each base is two locations
+    // and not a group — the reason the constraint is keyed by zone rather than
+    // by "is it a battlefield".
+    //
+    // `min: 0` because "UP TO three" — the card is castable with an empty board
+    // and deals nothing, which is what the rules say outright for a zero choice.
+    // No owner clause, so a group of enemies, a group of your own, or a mix at a
+    // contested battlefield are all legal.
+    //
+    // Distinct units (no `allowsDuplicates`): "three units" is three units, and
+    // the 1 damage is dealt once per entry.
+    targeting: { kind: "unitList", min: 0, max: 3, scope: "anywhere", sameLocation: true },
+    resolve: (state, ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce(
+        (next, id) => dealDamage(next, ctx.casterIndex, id, BELLOWS_BREATH_DAMAGE),
+        state,
+      ),
+  },
   "SFD-066": {
     // Frigid Touch — "[Reaction] [Repeat] [2] Give a unit -2 Might this turn."
     //

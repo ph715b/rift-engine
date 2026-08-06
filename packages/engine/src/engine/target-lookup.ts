@@ -218,6 +218,7 @@ export function unitListChoiceError(
   }
 
   const battlefieldIds = new Set<string>();
+  const locationKeys = new Set<string>();
   let totalMight = 0;
   for (const id of ids) {
     const location = findUnitInScope(state, id, spec.scope);
@@ -233,6 +234,13 @@ export function unitListChoiceError(
       if (!at) return `${location.unit.name} is not at a battlefield`;
       battlefieldIds.add(state.battlefields[at.battlefieldIndex]!.id);
     }
+    // "At the same LOCATION" (828: Locations include the Battlefields and the
+    // Bases). Keyed by zone rather than by battlefield id, so each base is its
+    // own location and a unit in each base is two locations, not one group.
+    if (spec.sameLocation) {
+      const at = findUnitOnBattlefield(state, id);
+      locationKeys.add(at ? `bf:${state.battlefields[at.battlefieldIndex]!.id}` : `base:${location.ownerIndex}`);
+    }
     if (spec.maxTotalMight !== undefined) {
       const at = findUnitOnBattlefield(state, id);
       const ctx = at ? { isCombat: false, battlefieldId: state.battlefields[at.battlefieldIndex]!.id } : { isCombat: false };
@@ -241,6 +249,7 @@ export function unitListChoiceError(
   }
 
   if (spec.sameBattlefield && battlefieldIds.size > 1) return "requires every unit at the SAME battlefield";
+  if (spec.sameLocation && locationKeys.size > 1) return "requires every unit at the SAME location";
   if (spec.maxTotalMight !== undefined && totalMight > spec.maxTotalMight) {
     return `requires total Might ${spec.maxTotalMight} or less, got ${totalMight}`;
   }
