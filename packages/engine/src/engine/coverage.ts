@@ -86,9 +86,31 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //   never at a battlefield in this pool") is falsified by an Equipment
   //   attached to a unit, which the rules place at that unit's battlefield.
   //
-  //   [Repeat] — a spell may pay an additional cost to repeat its effect. The
-  //   Java oracle implements it as a resumable choice (pendingRepeatChoice /
-  //   effectiveRepeatCost / maybeOfferRepeat), not as a unit keyword.
+  //   [Repeat] — a spell may pay an additional cost to repeat its effect.
+  //
+  //   **The blocker was mis-stated here until 2026-08-06, and the correction
+  //   makes it much smaller.** This note said the Java oracle models it as a
+  //   "resumable choice (pendingRepeatChoice / effectiveRepeatCost /
+  //   maybeOfferRepeat)", which was read as needing a Cleanup that can suspend
+  //   mid-resolution and continue on an answer — the same shape the turn-advance
+  //   state machine has, and the reason this sat untouched. That is the ORACLE's
+  //   implementation, not what the rules require.
+  //
+  //   Rule 820.1.d states the whole keyword: "You may pay [Cost] as an
+  //   additional cost AS YOU PLAY THIS. If you do, execute the instructions of
+  //   this chain item one additional time DURING RESOLUTION." So the choice is
+  //   made at ANNOUNCE (820.1.c.1 puts the cost "during the steps of playing"),
+  //   and both executions happen back-to-back inside one resolution of one chain
+  //   item. Rules 320/321 make Cleanup and resolution mutually exclusive, so no
+  //   Cleanup can occur between the two executions and none needs to be resumed.
+  //
+  //   What it actually needs, all of which exists in some form: a per-card cost
+  //   table (14 cards, all Energy and/or Power pips except Temporal Portal's
+  //   "equal to its cost"), an optional additional cost on the PlayCard action
+  //   beside OPTIONAL_POWER_COSTS and cardHasOptionalExhaustCost, a flag on the
+  //   chain entry, and a second `effect.resolve` call at resolution.
+  //   820.1.c.2/c.3: a card with two Repeat instances offers each separately,
+  //   and each may be paid only once.
   //
   // Each string is what a deck builder shows for a card whose only remaining
   // gap is this keyword, so it says what is missing rather than greying it.
@@ -97,7 +119,7 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   // Equipment carry a generated ability that works. The 6 it does not reach are
   // named individually in PARTIALLY_IMPLEMENTED below rather than held here,
   // because a keyword-level flag would wrongly grey the 25 that work.
-  ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled"],
+  ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled (announce-time cost + a doubled resolution; see the note above)"],
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.
