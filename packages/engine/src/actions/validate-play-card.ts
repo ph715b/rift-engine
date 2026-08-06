@@ -25,6 +25,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
+  repeatCostOf,
   slotScope,
 } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -124,6 +125,178 @@ function additionalCostRejection(
   return null;
 }
 
+/**
+ * One execution's worth of chosen targets — everything the targeting checks
+ * below read. `PlayCardAction` satisfies it structurally, and so does a
+ * `[Repeat]`'s second choice set.
+ */
+interface TargetChoices {
+  targetUnitInstanceId?: string;
+  secondTargetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+  targetBattlefieldId?: string;
+  targetPermanentInstanceId?: string;
+  trashCardInstanceId?: string;
+  targetChainCardInstanceId?: string;
+  destinationBattlefieldId?: string;
+}
+
+/**
+ * Why this choice set is not a legal set of targets for `targeting`, or null.
+ *
+ * Extracted from the body of `validatePlayCard` so that `[Repeat]`'s SECOND
+ * execution is checked by the very same code as the first (820.1.d: "choices
+ * must be made at the usual time during the Make Relevant Choices step" — the
+ * same choices, so the same rules). A second copy of these checks is precisely
+ * how a repeat would come to accept a target the first execution rejects, which
+ * is the drift `slotScope`'s own comment records this file having suffered.
+ */
+function targetingRejection(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardName: string,
+  targeting: ReturnType<typeof targetingForAnyCard>,
+  choices: TargetChoices,
+): string | null {
+  if (targeting.kind === "unit") {
+    if (!choices.targetUnitInstanceId) {
+      return `${cardName} requires a target unit`;
+    }
+    // Which lookup depends on the card's own text: "a unit" reaches base,
+    // "a unit at a battlefield" does not. Must match legal-actions.ts's
+    // enumeration exactly, or the UI offers clicks this then rejects.
+    const location = findUnitInScope(state, choices.targetUnitInstanceId, targeting.scope);
+    if (!location) {
+      return `No unit with id ${choices.targetUnitInstanceId} found ${scopeDescription(targeting.scope)}`;
+    }
+    if (targeting.owner === "friendly" && location.ownerIndex !== playerIndex) {
+      return `${cardName} can only target a friendly unit`;
+    }
+    if (targeting.owner === "enemy" && location.ownerIndex === playerIndex) {
+      return `${cardName} can only target an enemy unit`;
+    }
+    if (!unitWithinMaxMight(state, location.unit, targeting.maxMight)) {
+      return `${cardName} can only target a unit with ${targeting.maxMight} Might or less`;
+    }
+  } else if (targeting.kind === "battlefield") {
+    if (!choices.targetBattlefieldId) {
+      return `${cardName} requires a target battlefield`;
+    }
+    if (!state.battlefields.some((bf) => bf.id === choices.targetBattlefieldId)) {
+      return `No battlefield with id ${choices.targetBattlefieldId}`;
+    }
+  } else if (targeting.kind === "unitOrGear") {
+    if (!choices.targetPermanentInstanceId) {
+      return `${cardName} requires a target unit or gear`;
+    }
+    if (!unitOrGearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
+      return `${choices.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`;
+    }
+  } else if (targeting.kind === "ownTrashCard") {
+    if (!choices.trashCardInstanceId) {
+      return `${cardName} requires a card from your trash`;
+    }
+    const actor = state.players[playerIndex]!;
+    const trashCard = actor.trash.find((c) => c.instanceId === choices.trashCardInstanceId);
+    if (!trashCard) {
+      return `No card with id ${choices.trashCardInstanceId} found in ${actor.name}'s trash`;
+    }
+    if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
+      return `${cardName} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`;
+    }
+  } else if (targeting.kind === "chainSpell") {
+    if (!choices.targetChainCardInstanceId) {
+      return `${cardName} requires a spell on the chain to target`;
+    }
+    // Asked through the same predicate the enumerator fans out from, so a cost
+    // filter can never offer a target it then refuses. The cost is the target's
+    // PRINTED one — see counterableSpells.
+    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
+    if (!counterable.some(({ entry }) => entry.card.instanceId === choices.targetChainCardInstanceId)) {
+      return `${cardName} cannot target that spell`;
+    }
+  } else if (targeting.kind === "chainSpellAndUnit") {
+    // Both halves are mandatory — Riposte names two targets in one sentence, and
+    // a play carrying only one of them is not a legal announcement.
+    if (!choices.targetChainCardInstanceId) {
+      return `${cardName} requires a spell on the chain to target`;
+    }
+    if (!choices.targetUnitInstanceId) {
+      return `${cardName} requires a target unit`;
+    }
+    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
+    if (!counterable.some(({ entry }) => entry.card.instanceId === choices.targetChainCardInstanceId)) {
+      return `${cardName} cannot target that spell`;
+    }
+    // Asked through `eligibleTargets` rather than this file's own
+    // `findUnitInScope` + owner checks, because that is the helper the
+    // ENUMERATOR uses for this kind. Two spellings of the same rule is exactly
+    // how the two gates have drifted apart here before.
+    if (
+      !eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some(
+        (u) => u.instanceId === choices.targetUnitInstanceId,
+      )
+    ) {
+      return `${cardName} cannot target that unit`;
+    }
+  } else if (targeting.kind === "unitList") {
+    // Accepts ANY legal set, not only the ones `legal-actions` sampled — that
+    // asymmetry is the point of the announce-time design: the enumeration is
+    // bounded for the AI's sake, and a human clicking a combination the sampler
+    // never emitted must still be able to cast the card.
+    const chosen = choices.targetUnitInstanceIds ?? [];
+    const error = unitListChoiceError(state, playerIndex, targeting, chosen);
+    if (error) return `${cardName} ${error}`;
+  } else if (targeting.kind === "unitSlots") {
+    const chosen = [choices.targetUnitInstanceId, choices.secondTargetUnitInstanceId];
+    const filled = chosen.filter((id): id is string => id !== undefined);
+
+    if (filled.length < targeting.min) {
+      return `${cardName} requires ${targeting.min} target unit${targeting.min === 1 ? "" : "s"}`;
+    }
+    // Slots fill in order, so a second target with no first would leave the
+    // slot-0 role unchecked — and legal-actions never enumerates that shape.
+    if (choices.targetUnitInstanceId === undefined && choices.secondTargetUnitInstanceId !== undefined) {
+      return `${cardName}'s second target requires a first target`;
+    }
+    if (filled.length === 2 && filled[0] === filled[1]) {
+      return `${cardName} requires two different units`;
+    }
+
+    const roleHolds = (ownerIndex: 0 | 1, role: UnitSlotRole) =>
+      role === "any" ? true : role === "friendly" ? ownerIndex === playerIndex : ownerIndex !== playerIndex;
+
+    for (const [slot, id] of chosen.entries()) {
+      if (id === undefined) continue;
+      // Per SLOT, not per spec: Zenith Blade's first target is "at a
+      // battlefield" and its second is not. Reading the spec-wide scope for both
+      // would refuse the friendly-in-base target legal-actions offered.
+      const scope = slotScope(targeting, slot as 0 | 1);
+      const location = findUnitInScope(state, id, scope);
+      if (!location) return `No unit with id ${id} found ${scopeDescription(scope)}`;
+      const role = targeting.slots[slot]!;
+      if (!roleHolds(location.ownerIndex, role)) {
+        return `${cardName}'s ${slot === 0 ? "first" : "second"} target must be ${role}`;
+      }
+    }
+
+    // Facebreaker's "at the same battlefield" — a relation between the two
+    // targets, so it cannot be checked slot by slot above. Asked through the
+    // same helper legal-actions' fan-out uses, so "offered" and "legal" cannot
+    // drift apart.
+    if (targeting.sameBattlefield && filled.length === 2 && !shareABattlefield(state, filled[0]!, filled[1]!)) {
+      return `${cardName} requires two units at the same battlefield`;
+    }
+    // Dragon's Rage — the second target must stand where the first is GOING, not
+    // where it is now. Asked through the same predicate the enumerator filters
+    // with, so the pair cannot drift.
+    if (!secondTargetIsAtDestination(state, targeting, choices)) {
+      return `${cardName} requires its second target at the first one's destination`;
+    }
+  }
+  return null;
+}
+
 export function validatePlayCard(state: GameState, action: PlayCardAction): ValidationResult {
   if (state.phase !== "Action") {
     return fail(`Cards can only be played during the Action phase, currently: ${state.phase}`);
@@ -202,142 +375,30 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     action.targetUnitInstanceIds === undefined &&
     action.trashCardInstanceId === undefined;
 
-  if (omitted) {
-    // fall through to the cost/destination checks below
-  } else if (targeting.kind === "unit") {
-    if (!action.targetUnitInstanceId) {
-      return fail(`${card.name} requires a target unit`);
-    }
-    // Which lookup depends on the card's own text: "a unit" reaches base,
-    // "a unit at a battlefield" does not. Must match legal-actions.ts's
-    // enumeration exactly, or the UI offers clicks this then rejects.
-    const location = findUnitInScope(state, action.targetUnitInstanceId, targeting.scope);
-    if (!location) {
-      return fail(`No unit with id ${action.targetUnitInstanceId} found ${scopeDescription(targeting.scope)}`);
-    }
-    if (targeting.owner === "friendly" && location.ownerIndex !== action.playerIndex) {
-      return fail(`${card.name} can only target a friendly unit`);
-    }
-    if (targeting.owner === "enemy" && location.ownerIndex === action.playerIndex) {
-      return fail(`${card.name} can only target an enemy unit`);
-    }
-    if (!unitWithinMaxMight(state, location.unit, targeting.maxMight)) {
-      return fail(`${card.name} can only target a unit with ${targeting.maxMight} Might or less`);
-    }
-  } else if (targeting.kind === "battlefield") {
-    if (!action.targetBattlefieldId) {
-      return fail(`${card.name} requires a target battlefield`);
-    }
-    if (!state.battlefields.some((bf) => bf.id === action.targetBattlefieldId)) {
-      return fail(`No battlefield with id ${action.targetBattlefieldId}`);
-    }
-  } else if (targeting.kind === "unitOrGear") {
-    if (!action.targetPermanentInstanceId) {
-      return fail(`${card.name} requires a target unit or gear`);
-    }
-    if (!unitOrGearTargets(state).some((t) => t.instanceId === action.targetPermanentInstanceId)) {
-      return fail(`${action.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`);
-    }
-  } else if (targeting.kind === "ownTrashCard") {
-    if (!action.trashCardInstanceId) {
-      return fail(`${card.name} requires a card from your trash`);
-    }
-    const trashCard = actor.trash.find((c) => c.instanceId === action.trashCardInstanceId);
-    if (!trashCard) {
-      return fail(`No card with id ${action.trashCardInstanceId} found in ${actor.name}'s trash`);
-    }
-    if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
-      return fail(`${card.name} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`);
-    }
-  } else if (targeting.kind === "chainSpell") {
-    if (!action.targetChainCardInstanceId) {
-      return fail(`${card.name} requires a spell on the chain to target`);
-    }
-    // Asked through the same predicate the enumerator fans out from, so a cost
-    // filter can never offer a target it then refuses. The cost is the target's
-    // PRINTED one — see counterableSpells.
-    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
-    if (!counterable.some(({ entry }) => entry.card.instanceId === action.targetChainCardInstanceId)) {
-      return fail(`${card.name} cannot target that spell`);
-    }
-  } else if (targeting.kind === "chainSpellAndUnit") {
-    // Both halves are mandatory — Riposte names two targets in one sentence, and
-    // a play carrying only one of them is not a legal announcement.
-    if (!action.targetChainCardInstanceId) {
-      return fail(`${card.name} requires a spell on the chain to target`);
-    }
-    if (!action.targetUnitInstanceId) {
-      return fail(`${card.name} requires a target unit`);
-    }
-    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
-    if (!counterable.some(({ entry }) => entry.card.instanceId === action.targetChainCardInstanceId)) {
-      return fail(`${card.name} cannot target that spell`);
-    }
-    // Asked through `eligibleTargets` rather than this file's own
-    // `findUnitInScope` + owner checks, because that is the helper the
-    // ENUMERATOR uses for this kind. Two spellings of the same rule is exactly
-    // how the two gates have drifted apart here before.
-    if (
-      !eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope).some(
-        (u) => u.instanceId === action.targetUnitInstanceId,
-      )
-    ) {
-      return fail(`${card.name} cannot target that unit`);
-    }
-  } else if (targeting.kind === "unitList") {
-    // Accepts ANY legal set, not only the ones `legal-actions` sampled — that
-    // asymmetry is the point of the announce-time design: the enumeration is
-    // bounded for the AI's sake, and a human clicking a combination the sampler
-    // never emitted must still be able to cast the card.
-    const chosen = action.targetUnitInstanceIds ?? [];
-    const error = unitListChoiceError(state, action.playerIndex, targeting, chosen);
-    if (error) return fail(`${card.name} ${error}`);
-  } else if (targeting.kind === "unitSlots") {
-    const chosen = [action.targetUnitInstanceId, action.secondTargetUnitInstanceId];
-    const filled = chosen.filter((id): id is string => id !== undefined);
+  // Both `[Repeat]` executions are checked by ONE function, so the second can
+  // never accept a target the first rejects — see targetingRejection.
+  if (!omitted) {
+    const targetError = targetingRejection(state, action.playerIndex, card.name, targeting, action);
+    if (targetError !== null) return fail(targetError);
+  }
 
-    if (filled.length < targeting.min) {
-      return fail(`${card.name} requires ${targeting.min} target unit${targeting.min === 1 ? "" : "s"}`);
-    }
-    // Slots fill in order, so a second target with no first would leave the
-    // slot-0 role unchecked — and legal-actions never enumerates that shape.
-    if (action.targetUnitInstanceId === undefined && action.secondTargetUnitInstanceId !== undefined) {
-      return fail(`${card.name}'s second target requires a first target`);
-    }
-    if (filled.length === 2 && filled[0] === filled[1]) {
-      return fail(`${card.name} requires two different units`);
-    }
-
-    const roleHolds = (ownerIndex: 0 | 1, role: UnitSlotRole) =>
-      role === "any" ? true : role === "friendly" ? ownerIndex === action.playerIndex : ownerIndex !== action.playerIndex;
-
-    for (const [slot, id] of chosen.entries()) {
-      if (id === undefined) continue;
-      // Per SLOT, not per spec: Zenith Blade's first target is "at a
-      // battlefield" and its second is not. Reading the spec-wide scope for both
-      // would refuse the friendly-in-base target legal-actions offered.
-      const scope = slotScope(targeting, slot as 0 | 1);
-      const location = findUnitInScope(state, id, scope);
-      if (!location) return fail(`No unit with id ${id} found ${scopeDescription(scope)}`);
-      const role = targeting.slots[slot]!;
-      if (!roleHolds(location.ownerIndex, role)) {
-        return fail(`${card.name}'s ${slot === 0 ? "first" : "second"} target must be ${role}`);
-      }
-    }
-
-    // Facebreaker's "at the same battlefield" — a relation between the two
-    // targets, so it cannot be checked slot by slot above. Asked through the
-    // same helper legal-actions' fan-out uses, so "offered" and "legal" cannot
-    // drift apart.
-    if (targeting.sameBattlefield && filled.length === 2 && !shareABattlefield(state, filled[0]!, filled[1]!)) {
-      return fail(`${card.name} requires two units at the same battlefield`);
-    }
-    // Dragon's Rage — the second target must stand where the first is GOING, not
-    // where it is now. Asked through the same predicate the enumerator filters
-    // with, so the pair cannot drift.
-    if (!secondTargetIsAtDestination(state, targeting, action)) {
-      return fail(`${card.name} requires its second target at the first one's destination`);
-    }
+  // `[Repeat]` (820.1). Three separate questions, and they fail differently.
+  const repeatCost = repeatCostOf(card.defId);
+  if (action.repeatPaid && repeatCost === undefined) {
+    return fail(`${card.name} does not have [Repeat]`);
+  }
+  // Choices for a repeat that was never paid for are not a smaller mistake than
+  // paying without choosing — they would be silently ignored at resolution,
+  // which is exactly the class of dropped-field bug this pipeline has shipped.
+  if (action.repeatChoices !== undefined && !action.repeatPaid) {
+    return fail(`${card.name} named [Repeat] choices without paying its [Repeat] cost`);
+  }
+  // 820.1.d's second execution names its OWN targets, checked by the same
+  // function as the first. `undefined` is legal and means "the same choices
+  // again" — see RepeatChoices.
+  if (action.repeatPaid && action.repeatChoices !== undefined) {
+    const repeatError = targetingRejection(state, action.playerIndex, card.name, targeting, action.repeatChoices);
+    if (repeatError !== null) return fail(`${card.name}'s [Repeat] execution: ${repeatError}`);
   }
 
   // Board-aware, and it must stay the SAME question `legal-actions` asks: a
@@ -513,17 +574,34 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     }
   }
 
+  // `[Repeat]`'s additional cost (820.1.c.1, "an Additional Cost to be paid
+  // during the steps of playing"). Re-derived from the same action and the same
+  // table the enumerator priced from, so the two cannot disagree about what the
+  // play costs — the invariant every other optional cost here is built around.
+  //
+  // The Power half rides the card's OWN power bucket rather than a third one,
+  // which is sound only because the Repeat domain and the printed domain agree
+  // for all fourteen cards; `repeat-cost-table.test.ts` asserts that card by
+  // card rather than trusting this comment.
+  const repeatEnergy = action.repeatPaid ? repeatCost?.energy ?? 0 : 0;
+  const repeatPower = action.repeatPaid ? repeatCost?.power ?? 0 : 0;
+  const repeatRainbow = action.repeatPaid ? repeatCost?.rainbowPower ?? 0 : 0;
+
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
-          accelerateEnergy,
+          accelerateEnergy +
+          repeatEnergy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
-        Math.max(0, card.powerCost - repeatableDiscount) + acceleratePower + (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
+        Math.max(0, card.powerCost - repeatableDiscount) +
+          acceleratePower +
+          repeatPower +
+          (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
         // The optional cost's own domain wins when it was paid, for the reason
         // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so
         // `card.powerDomain` is null and would accept any rune.
@@ -575,11 +653,25 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // No domain check on this bucket: rainbow means any domain, which is precisely
   // why it is a separate bucket from `powerRunes` above rather than more entries
   // in it.
+  //
+  // **Reads only the FIRST execution's targets**, deliberately. 820.1.d makes a
+  // `[Repeat]`'s second choice set chosen too, so on a strict reading a Deflect
+  // unit named only there is owed a surcharge as well — but this figure is
+  // derived from `variant` in the enumerator and from `action` here, so taxing
+  // one and not the other is the offered-then-refused split this codebase has
+  // shipped three times. Recorded in docs/rules-conformance.md rather than
+  // half-fixed. Unreachable through the enumerator, whose repeat choices mirror
+  // the first set, so any Deflect unit is already counted once.
   const deflected = deflectSurchargeForTargets(state, action.playerIndex, chosenUnitsOfPlay(action));
   const rainbow = payment.rainbowRunes ?? [];
-  if (rainbow.length < deflected) {
+  // Danger Zone's Repeat is `[1][rainbow]`, and a rainbow pip is not
+  // domain-checked — so it rides this bucket beside the Deflect tax rather than
+  // `powerRunes`. Owed ON TOP of any surcharge: they are two different debts
+  // that happen to be payable with the same kind of rune.
+  if (rainbow.length < deflected + repeatRainbow) {
     return fail(
-      `${card.name} must pay ${deflected} rainbow Power for [Deflect] on its target${deflected === 1 ? "" : "s"}, ` +
+      `${card.name} must pay ${deflected + repeatRainbow} rainbow Power ` +
+        `(${deflected} for [Deflect] on its target${deflected === 1 ? "" : "s"}, ${repeatRainbow} for [Repeat]), ` +
         `but named ${rainbow.length}`,
     );
   }

@@ -78,6 +78,29 @@ import { wearerListener } from "../equipment.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-003": {
+    // Blood Rush — "[Action] [Repeat] [1] Give a unit [Assault 2] this turn."
+    //
+    // "A unit" with no battlefield clause and no owner clause: 355.9.b puts a
+    // unit in either base on the list, and nothing stops the caster arming an
+    // enemy. [Assault N] is only worth anything to an ATTACKER, so pointing it at
+    // an enemy is a legal misplay rather than a shape the targeting should
+    // forbid.
+    //
+    // **Repeating this does nothing, and that is the correct outcome** — 817.1.a
+    // makes multiple instances of a keyword redundant rather than cumulative, so
+    // a second [Assault 2] is still [Assault 2] and NOT [Assault 4].
+    // `grantKeywordThisTurn` takes a `Math.max` against what is already there,
+    // which is exactly what "redundant" means for a numbered keyword. Paying this
+    // card's Repeat cost is therefore a legal way to waste 1 Energy; the engine
+    // offers it because the rules do, and repeat-keyword.test.ts asserts the
+    // no-op so a future "fix" that makes it stack fails.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", BLOOD_RUSH_ASSAULT)
+        : state,
+  },
   "OGN-025": {
     // Blind Fury — "[Action] Each opponent reveals the top card of their Main
     // Deck. Choose one and banish it, then play it, ignoring its cost. Then
@@ -374,6 +397,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
  *  because each is a printed number the resolver would otherwise read as a bare
  *  literal beside another bare literal. */
 const AGAINST_THE_ODDS_PER_ENEMY = 2;
+const BLOOD_RUSH_ASSAULT = 2;
 const SUDDEN_STORM_BASE = 2;
 const SUDDEN_STORM_VS_ATTACKER = 4;
 

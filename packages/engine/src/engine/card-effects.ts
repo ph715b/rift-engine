@@ -486,6 +486,86 @@ export function optionalPowerCostOf(defId: string): { domain: Domain; count: num
 }
 
 /**
+ * `[Repeat]`'s additional cost — rule 820.1.
+ *
+ * "Repeat is an Optional Additional Cost keyword ... The Cost is an Additional
+ * Cost to be paid during the steps of playing the spell or ability", and
+ * 820.1.d spells the keyword out in full: *"You may pay [Cost] as an additional
+ * cost as you play this. If you do, execute the instructions of this chain item
+ * one additional time during resolution."*
+ *
+ * The `domain` is recorded here rather than read off `card.powerDomain`, for the
+ * reason `OPTIONAL_POWER_COSTS` records one table up — a printed cost and an
+ * additional cost are two different pips and nothing makes them agree. For all
+ * fourteen cards in this pool they DO agree, and `repeat-cost-table.test.ts`
+ * asserts it card by card rather than leaving it as a comment: the day a set
+ * prints a Repeat cost in a domain the card itself does not, that test fails
+ * instead of the pricing quietly accepting the wrong rune.
+ *
+ * `rainbowPower` is its own field for the same reason `RunePayment` gives the
+ * rainbow bucket its own: Danger Zone's Repeat is `[1][rainbow]`, and a rainbow
+ * pip is by definition not domain-checked. Folding it into `power` above would
+ * have priced it against Danger Zone's Mind and refused a Fury rune the rules
+ * accept.
+ */
+export interface RepeatCostSpec {
+  energy: number;
+  power?: number;
+  /** Only meaningful when `power` is set. */
+  domain?: Domain;
+  /** Rainbow Power — any domain (Danger Zone). */
+  rainbowPower?: number;
+}
+
+/**
+ * Every card printing `[Repeat]`, with the cost it asks for.
+ *
+ * A table rather than a parse of the reminder text, and deliberately: the pip
+ * run after `[Repeat]` is the ONLY place the cost appears, the text carries it
+ * as emoji shortcodes (`:rb_energy_2::rb_rune_fury:`), and a mis-parse would
+ * silently under-price a card rather than fail. Fourteen entries is cheaper to
+ * read than the grammar that would replace them.
+ *
+ * **Each of these prints exactly ONE instance of Repeat**, checked across the
+ * set. 820.1.c.2/c.3 ("if a spell or ability has more than one instance of
+ * Repeat, each Cost may be paid or not paid individually... each Repeat Cost can
+ * be paid only a single time") therefore has no card to exercise it here, so
+ * this models one instance and `repeat-cost-table.test.ts` asserts the premise —
+ * the day a set prints two, that test fails and this shape is what changes.
+ *
+ * Temporal Portal (SFD-078) is absent on purpose: it GRANTS Repeat "equal to its
+ * cost" to another spell rather than printing one of its own, so its cost is not
+ * a constant and cannot live in a table. See `grantedRepeatCostFor`.
+ */
+const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
+  "SFD-003": { energy: 1 }, // Blood Rush — [Repeat] [1]
+  "SFD-023": { energy: 2, power: 1, domain: "Fury" }, // Piercing Light — [Repeat] [2][Fury]
+  "SFD-031": { energy: 2 }, // Desert's Call — [Repeat] [2]; 820.1.d's own worked example
+  "SFD-034": { energy: 2 }, // Feral Strength — [Repeat] [2]
+  "SFD-040": { energy: 2 }, // Thwonk! — [Repeat] [2]
+  "SFD-066": { energy: 2 }, // Frigid Touch — [Repeat] [2]
+  "SFD-077": { energy: 4, power: 1, domain: "Mind" }, // Rocket Barrage — [Repeat] [4][Mind]
+  "SFD-080": { energy: 1, power: 1, domain: "Mind" }, // Bellows Breath — [Repeat] [1][Mind]
+  "SFD-114": { energy: 3 }, // Marching Orders — [Repeat] [3]
+  "SFD-122": { energy: 0, power: 1, domain: "Chaos" }, // Called Shot — [Repeat] [Chaos], no Energy at all
+  "SFD-129": { energy: 2 }, // Temptation — [Repeat] [2]
+  "SFD-136": { energy: 2 }, // Hard Bargain — [Repeat] [2]
+  "SFD-151": { energy: 2 }, // Bonds of Strength — [Repeat] [2]
+  "SFD-182": { energy: 1, rainbowPower: 1 }, // Danger Zone — [Repeat] [1][rainbow]
+};
+
+/** What this card's `[Repeat]` costs, or undefined if it has none. */
+export function repeatCostOf(defId: string): RepeatCostSpec | undefined {
+  return REPEAT_COSTS[defId];
+}
+
+/** Every defId printing `[Repeat]` — for the table test, and for the coverage
+ *  gate that has to know which cards the keyword still greys. */
+export function repeatCostDefIds(): string[] {
+  return Object.keys(REPEAT_COSTS);
+}
+
+/**
  * Cards that make the caster pick a card from hand to discard.
  *
  * Two different roles, one field, because both are "which card from hand":

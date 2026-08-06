@@ -15,6 +15,45 @@ import type { Phase, TurnState } from "./phase.js";
  *  this shape and absent from the other — and omission reproduces exactly the
  *  behaviour that exists today. Making it required would churn a dozen test
  *  literals to assert something the type system already knows. */
+/**
+ * The targets chosen for `[Repeat]`'s SECOND execution (rule 820.1.d).
+ *
+ * **A separate choice set, not a flag.** The engine's own note on this keyword
+ * said all a repeat needed was "a flag on the chain entry, and a second
+ * `effect.resolve` call" — which would have silently re-run the first
+ * execution's targets. 820.1.d is explicit that it does not work that way:
+ *
+ *   "When a spell or ability's effect is performed an additional time with
+ *   Repeat, choices must be made at the usual time during the Make Relevant
+ *   Choices step of Playing a Card. **Choices made for the additional execution
+ *   do not have to be the same as the choices made for the initial
+ *   execution.**"
+ *
+ * Rocket Barrage prints the point in its own reminder text — "(You may pay the
+ * additional cost to repeat this spell's effect, **and may make different
+ * choices**.)" — and the rulebook's worked example for it turns on choosing two
+ * DIFFERENT gear and naming which dies first.
+ *
+ * "At the usual time" is what makes this a field on the announcement rather than
+ * a question asked mid-resolution: both choice sets are fixed when the spell is
+ * played, exactly like every other target in this engine.
+ *
+ * Structurally a subset of engine/card-effects.ts's `ResolveEvent` — the fields
+ * a repeat execution can actually vary across the fourteen cards. Declared here
+ * rather than imported from there to keep `model/` free of an import from
+ * `engine/`, the same split `TriggerChainEntry.event` makes.
+ */
+export interface RepeatChoices {
+  targetUnitInstanceId?: string;
+  secondTargetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+  targetBattlefieldId?: string;
+  targetChainCardInstanceId?: string;
+  /** Temptation's "move an enemy unit to a location where..." — the second move
+   *  may pick a different destination as well as a different unit. */
+  destinationBattlefieldId?: string;
+}
+
 export interface SpellChainEntry {
   kind?: "spell";
   playerIndex: 0 | 1;
@@ -61,6 +100,13 @@ export interface SpellChainEntry {
    *  unit and must never reach a reader expecting one. */
   targetPermanentInstanceId?: string;
   discardCardInstanceId?: string;
+  /** `[Repeat]`'s additional cost was paid as this spell was announced (820.1.c.1),
+   *  so its instructions run one additional time when it resolves (820.1.d). */
+  repeatPaid?: true;
+  /** The second execution's own targets — see RepeatChoices. Absent with
+   *  `repeatPaid` set means "the same choices again", which is a legal thing to
+   *  choose and is what the enumerator samples. */
+  repeatChoices?: RepeatChoices;
 }
 
 /**

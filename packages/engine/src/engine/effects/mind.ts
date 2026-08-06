@@ -70,6 +70,8 @@ import { wearerListener } from "../equipment.js";
  *  controller's next Beginning Phase (rule 816). */
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
+const FRIGID_TOUCH_MIGHT = 2;
+
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
  *  because Convergent Mutation compares two units' Might across zones. */
@@ -80,6 +82,22 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-066": {
+    // Frigid Touch — "[Reaction] [Repeat] [2] Give a unit -2 Might this turn."
+    //
+    // Smoke Screen's shape with a smaller number and, importantly, **no floor**:
+    // that card prints "to a minimum of 1 Might" and this one does not, so the
+    // `floor` argument is deliberately omitted rather than defaulted to 1. A unit
+    // can be taken to 0 Might and below by this card, which is how it kills a
+    // 2-Might body outright — reading a minimum into text that has none would
+    // have quietly removed the card's whole point.
+    //
+    // "A unit", so 355.9.b reaches base as well; no owner clause, so debuffing
+    // your own is legal and pointless, the usual pair.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, -FRIGID_TOUCH_MIGHT) : state,
+  },
   "OGN-115": {
     // Promising Future — "Each player looks at the top 5 cards of their Main
     // Deck, banishes one of them, then recycles the rest. Starting with the next

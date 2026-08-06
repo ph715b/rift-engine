@@ -400,10 +400,26 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // the moment is here rather than at resolution: a unit moved or killed while
     // the Spell waits on the chain was still chosen. Placed after the Spell, so
     // under LIFO (343) the Tree's draw resolves BEFORE the Spell it watched.
+    // `[Repeat]`'s second execution chooses its units HERE too, not at
+    // resolution: 820.1.d puts those choices "at the usual time during the Make
+    // Relevant Choices step of Playing a Card", which is this moment. So a unit
+    // named only by the repeat has still been chosen with a spell, and the Tree
+    // has still seen it.
+    //
+    // Deliberately NOT extended to the `[Deflect]` surcharge, which reads the
+    // same question for PRICE rather than for triggers — see
+    // docs/rules-conformance.md. The enumerator prices from the variant and the
+    // validator from the whole action, so taxing the repeat's choices in one and
+    // not the other would produce the offered-then-refused split this codebase
+    // has shipped three times. Unreachable in practice (the enumerator's repeat
+    // choices mirror the first set, so any Deflect unit is already taxed once).
     const chosen = [
       action.targetUnitInstanceId,
       action.secondTargetUnitInstanceId,
       ...(action.targetUnitInstanceIds ?? []),
+      action.repeatChoices?.targetUnitInstanceId,
+      action.repeatChoices?.secondTargetUnitInstanceId,
+      ...(action.repeatChoices?.targetUnitInstanceIds ?? []),
     ].filter((id): id is string => id !== undefined);
     updatedActor = {
       ...actor,
@@ -472,6 +488,14 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           ...(action.targetPermanentInstanceId !== undefined
             ? { targetPermanentInstanceId: action.targetPermanentInstanceId }
             : {}),
+          // `[Repeat]` (820.1.c.1) — the additional cost is paid as the spell is
+          // PLAYED, so whether it was paid, and the second execution's own
+          // targets, are settled here at announce and ride the chain to
+          // resolution. Same reasoning as every target field above: the chain
+          // moves between announcing and resolving, and a choice re-derived at
+          // resolution would be a different choice.
+          ...(action.repeatPaid !== undefined ? { repeatPaid: action.repeatPaid } : {}),
+          ...(action.repeatChoices !== undefined ? { repeatChoices: action.repeatChoices } : {}),
         },
       ],
     };

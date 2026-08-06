@@ -77,7 +77,33 @@ const JUDGMENT_KEEP = 2;
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
+const BONDS_OF_STRENGTH_MIGHT = 1;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-151": {
+    // Bonds of Strength — "[Reaction] [Repeat] [2] Give two friendly units each
+    // +1 Might this turn."
+    //
+    // `min: 2` because the card says "two", not "up to two" — a play naming one
+    // unit is not a legal announcement, and the enumerator will not offer this
+    // card at all with fewer than two friendly units on the board. That is the
+    // difference between this and the `min: 0` slot cards a few entries down,
+    // and it is printed.
+    //
+    // `scope: "anywhere"`: "two friendly units" names no battlefield, so 355.9.b
+    // reaches base.
+    //
+    // "EACH +1", so the same amount goes to both — one instruction applied per
+    // chosen unit, which is what `chosenTargets`-style iteration is for. Repeating
+    // it may name a DIFFERENT pair (820.1.d), so a repeat can spread +1 across
+    // four units or stack +2 on the same two; both are legal and the choice is
+    // the caster's.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      [event.targetUnitInstanceId, event.secondTargetUnitInstanceId]
+        .filter((id): id is string => id !== undefined)
+        .reduce((next, id) => giveMightThisTurn(next, id, BONDS_OF_STRENGTH_MIGHT), state),
+  },
   "OGN-221": {
     // Imperial Decree — "When ANY unit takes damage this turn, kill it."
     //

@@ -1,4 +1,7 @@
 import type { CardInstance } from "../model/card.js";
+import type { RepeatChoices } from "../model/game-state.js";
+
+export type { RepeatChoices };
 
 /**
  * A rune payment: which specific channeled runes (by id) cover a cost's
@@ -110,6 +113,29 @@ export interface PlayCardAction {
    *  `payment.rainbowRunes.length`, because that bucket also holds a [Deflect]
    *  surcharge and the two must never be confused for one another. */
   xAmount?: number;
+  /**
+   * `[Repeat]` (820.1): the caster paid the optional additional cost as they
+   * played this, so its instructions run one additional time at resolution.
+   *
+   * Its OWN flag rather than `optionalPowerPaid`, which prices a single named
+   * Power pip and means nothing at resolution — this one is the opposite, a cost
+   * of mixed Energy/Power/rainbow whose entire point is what happens when the
+   * spell resolves. When set, `payment` covers the card's own cost PLUS
+   * `repeatCostOf(defId)`.
+   */
+  repeatPaid?: true;
+  /**
+   * The targets for `[Repeat]`'s SECOND execution — 820.1.d's "choices made for
+   * the additional execution do not have to be the same as the choices made for
+   * the initial execution", made "at the usual time" and so carried on the
+   * announcement like every other target here.
+   *
+   * Only meaningful with `repeatPaid`. Omitting it with `repeatPaid` set means
+   * "make the same choices again" — legal, and what the enumerator samples; see
+   * legal-actions.ts for why the sampler stops there while the validator below
+   * accepts any legal second set.
+   */
+  repeatChoices?: RepeatChoices;
 }
 
 /**

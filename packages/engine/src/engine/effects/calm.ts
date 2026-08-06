@@ -45,6 +45,7 @@ import { eligibleTargets } from "../target-lookup.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
+import { placeToken, type TokenSpec } from "../token.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -73,7 +74,53 @@ import { gainPoints } from "../effect-helpers.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
+/** Desert's Call's token. No keywords and no "ready" clause, so it enters
+ *  exhausted on 143.4.a's default — unlike Sprite Call's, which overrides it. */
+const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
+
+const FERAL_STRENGTH_MIGHT = 2;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-031": {
+    // Desert's Call — "[Repeat] [2] Play a 2 Might Sand Soldier unit token."
+    //
+    // **Rule 820.1.d's own worked example**, quoted in full: "Desert's Call is a
+    // spell with [Repeat] [2] and 'Play a 2 [Might] Sand Soldier unit token.' If
+    // its controller pays its Repeat cost as they play it, the card's instruction
+    // to play a Sand Soldier is executed twice, as though the card says 'Play a 2
+    // [Might] Sand Soldier unit token. Play a 2 [Might] Sand Soldier unit
+    // token.'" So two tokens, from one play, and this resolver needs to know
+    // nothing about that — card-effect-resolution.ts calls it twice.
+    //
+    // Placement follows Sprite Call exactly: base by default, and the
+    // destination the caster named when there is one. Both executions read the
+    // SAME `destinationBattlefieldId`, which is right — 820.1.d lets the second
+    // execution make different CHOICES, and this card's instruction makes none;
+    // where a played unit lands is 813's question, answered once for the play.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) =>
+      placeToken(
+        state,
+        ctx.casterIndex,
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base",
+        SAND_SOLDIER_TOKEN,
+      ),
+  },
+  "SFD-034": {
+    // Feral Strength — "[Reaction] [Repeat] [2] Give a unit +2 Might this turn."
+    //
+    // "A unit", not "a unit at a battlefield", so 355.9.b puts a unit in either
+    // base on the target list — the same reading Smoke Screen and En Garde take,
+    // and no owner clause, so an enemy is a legal (if odd) target.
+    //
+    // Repeating this STACKS: +2 Might twice is +4, because `mightThisTurn`
+    // accumulates. That is the opposite of what repeating Blood Rush does, and
+    // the difference is 817.1.a — a KEYWORD's duplicate instances are redundant,
+    // a numeric Might modifier is not a keyword and simply adds.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, FERAL_STRENGTH_MIGHT) : state,
+  },
   "OGN-062": {
     // Reinforce — "Look at the top 5 cards of your Main Deck. You may banish a
     // unit from among them, then play it, reducing its cost by [5 Energy].

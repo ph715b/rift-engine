@@ -86,40 +86,39 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //   never at a battlefield in this pool") is falsified by an Equipment
   //   attached to a unit, which the rules place at that unit's battlefield.
   //
-  //   [Repeat] — a spell may pay an additional cost to repeat its effect.
-  //
-  //   **The blocker was mis-stated here until 2026-08-06, and the correction
-  //   makes it much smaller.** This note said the Java oracle models it as a
-  //   "resumable choice (pendingRepeatChoice / effectiveRepeatCost /
-  //   maybeOfferRepeat)", which was read as needing a Cleanup that can suspend
-  //   mid-resolution and continue on an answer — the same shape the turn-advance
-  //   state machine has, and the reason this sat untouched. That is the ORACLE's
-  //   implementation, not what the rules require.
-  //
-  //   Rule 820.1.d states the whole keyword: "You may pay [Cost] as an
-  //   additional cost AS YOU PLAY THIS. If you do, execute the instructions of
-  //   this chain item one additional time DURING RESOLUTION." So the choice is
-  //   made at ANNOUNCE (820.1.c.1 puts the cost "during the steps of playing"),
-  //   and both executions happen back-to-back inside one resolution of one chain
-  //   item. Rules 320/321 make Cleanup and resolution mutually exclusive, so no
-  //   Cleanup can occur between the two executions and none needs to be resumed.
-  //
-  //   What it actually needs, all of which exists in some form: a per-card cost
-  //   table (14 cards, all Energy and/or Power pips except Temporal Portal's
-  //   "equal to its cost"), an optional additional cost on the PlayCard action
-  //   beside OPTIONAL_POWER_COSTS and cardHasOptionalExhaustCost, a flag on the
-  //   chain entry, and a second `effect.resolve` call at resolution.
-  //   820.1.c.2/c.3: a card with two Repeat instances offers each separately,
-  //   and each may be paid only once.
-  //
   // Each string is what a deck builder shows for a card whose only remaining
   // gap is this keyword, so it says what is missing rather than greying it.
-  // `[Equip]`, `[Quick-Draw]` and `[Weaponmaster]` have all LEFT this map:
-  // attachment exists, and 25 of the 31
+  // `[Equip]`, `[Quick-Draw]`, `[Weaponmaster]` and now `[Repeat]` have all LEFT
+  // this map: attachment exists, and 25 of the 31
   // Equipment carry a generated ability that works. The 6 it does not reach are
   // named individually in PARTIALLY_IMPLEMENTED below rather than held here,
   // because a keyword-level flag would wrongly grey the 25 that work.
-  ["Repeat", "paying an additional cost to repeat a spell's effect is not modelled (announce-time cost + a doubled resolution; see the note above)"],
+  //
+  // **`[Repeat]` left on 2026-08-06**, and the shape of its removal is worth
+  // recording because the note that stood here was wrong TWICE.
+  //
+  // It first claimed the Java oracle's "resumable choice (pendingRepeatChoice /
+  // effectiveRepeatCost / maybeOfferRepeat)" meant the keyword needed a Cleanup
+  // that could suspend mid-resolution and continue on an answer — the same shape
+  // the turn-advance state machine has, and the reason this sat untouched for
+  // weeks. That was the ORACLE's implementation, not what the rules require;
+  // 320/321 make Cleanup and resolution mutually exclusive, so nothing can fall
+  // between the two executions and none needs resuming.
+  //
+  // The correction that replaced it was itself incomplete. It said the keyword
+  // needed "a FLAG on the chain entry, and a second `effect.resolve` call" — but
+  // 820.1.d also says: "When a spell or ability's effect is performed an
+  // additional time with Repeat, choices must be made at the usual time during
+  // the Make Relevant Choices step of Playing a Card. **Choices made for the
+  // additional execution do not have to be the same as the choices made for the
+  // initial execution.**" A flag alone would have silently re-run the FIRST
+  // execution's targets. Rocket Barrage prints the point in its own reminder
+  // text ("and may make different choices"), and the rulebook's worked example
+  // for it turns on killing two DIFFERENT gear in a chosen order. So the chain
+  // entry carries a second choice SET (`repeatChoices`), not a boolean.
+  //
+  // Both corrections came from re-reading the PDF rather than the note. A
+  // comment is a claim, and claims are checkable.
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.

@@ -270,18 +270,31 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
    * Equipment-attachment subsystem this engine does not have, and `[Repeat]`
    * needs a spell to be able to pay an additional cost to repeat itself.
    */
-  it("flags exactly SFD's four, and nothing in the finished sets", () => {
-    // The four are named rather than counted, because a count cannot tell
-    // "Equip is still pending" from "Deflect silently regressed".
-    // **All three Equipment keywords have LEFT this list.** `[Equip]`,
-    // `[Quick-Draw]` and `[Weaponmaster]` are implemented; the 6 Equipment whose
-    // COST this engine cannot price are named individually in
-    // PARTIALLY_IMPLEMENTED instead, because a keyword-level flag would have
-    // greyed the 25 that work along with them.
+  it("flags nothing at all, now that [Repeat] has landed too", () => {
+    // Named rather than counted, because a count cannot tell "Equip is still
+    // pending" from "Deflect silently regressed".
     //
-    // `[Repeat]` is the one left, and it is a subsystem rather than a card.
+    // **All four of SFD's keywords have now LEFT this list.** `[Equip]`,
+    // `[Quick-Draw]` and `[Weaponmaster]` went on 2026-08-05; the 6 Equipment
+    // whose COST this engine cannot price are named individually in
+    // PARTIALLY_IMPLEMENTED instead, because a keyword-level flag would have
+    // greyed the 25 that work along with them. `[Repeat]` went on 2026-08-06.
+    //
+    // **An empty list does NOT mean every card carrying those keywords is
+    // finished**, and conflating the two is the mistake this file exists to
+    // catch. `[Repeat]` the KEYWORD is implemented — the announce-time cost, the
+    // second choice set and the doubled resolution all work — while 9 of the 14
+    // cards printing it still have no effect registered at all. Those 9 are
+    // caught by `isCardImplemented`'s registry check, not by this mechanism,
+    // which is exactly the split intended: this flags cards whose gap is a
+    // keyword, and a card with no implementation is a different (and louder)
+    // kind of missing.
+    //
+    // The list being empty is also the state it was in from 2026-08-02 to
+    // 2026-08-04, and the mechanism was kept through that emptiness on purpose —
+    // SFD reopened it within two days. Keep it.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged].sort()).toEqual(["Repeat"]);
+    expect([...flagged].sort()).toEqual([]);
 
     // And the direction that matters for OGN/OGS: a keyword losing its
     // implementation would show up here as a card from a finished set, which is
@@ -292,7 +305,7 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
         .filter((def) => unimplementedKeywordsOn(def).length > 0)
         .map((def) => def.id.split("-")[0]!),
     );
-    expect([...flaggedSets]).toEqual(["SFD"]);
+    expect([...flaggedSets]).toEqual([]);
   });
 
   it("a keyword-only card is now genuinely finished — Pouty Poro's whole text is [Deflect]", () => {

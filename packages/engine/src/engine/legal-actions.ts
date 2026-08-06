@@ -30,6 +30,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
+  repeatCostOf,
   slotOwner,
   slotScope,
 } from "./card-effects.js";
@@ -991,6 +992,64 @@ export function legalActions(state: GameState): PlayerAction[] {
         // afford plainly but not with the extra simply has no paid variant.
         if (paid) {
           actions.push({ type: "PlayCard", playerIndex, card, payment: paid, ...variant, ...hiddenFields, optionalPowerPaid: true });
+        }
+      }
+      // `[Repeat]` (820.1) — a second candidate priced with the additional cost
+      // on top, exactly as Clockwork Keeper's optional Power is just above.
+      //
+      // **The repeat's own choices are sampled, not fanned out.** 820.1.d lets
+      // the second execution name DIFFERENT targets, so the complete
+      // enumeration is the cross product of the two choice sets — quadratic in
+      // the board, and for Bellows Breath's up-to-three it is worse than that.
+      // So this emits the one variant that repeats the SAME choices, and
+      // `validate-play-card` accepts any legal second set. That asymmetry is
+      // this engine's standing answer to an unbounded choice space (see
+      // `unitList` targeting and the repeatable additional costs, which are
+      // sampled the same way and for the same reason): the AI gets a bounded
+      // list, and a human clicking a combination the sampler never emitted is
+      // still able to cast the card.
+      //
+      // `!fromHidden` matches the optional-Power and Accelerate branches. Rule
+      // 811 ignores a hidden card's BASE cost and an additional cost is not
+      // that, so this is a real (if unreachable) simplification — no card in
+      // the pool prints both [Hidden] and [Repeat], asserted in the table test.
+      const repeatCost = repeatCostOf(card.defId);
+      if (repeatCost && !fromHidden) {
+        // **Re-priced through `computeEffectiveCost` from the PRINTED cost, not
+        // by adding the Repeat to the already-float-reduced `effectiveCost`.**
+        // Floating Energy reduces the TOTAL a play costs, additional costs
+        // included, so adding afterwards double-counts the float away: with 1
+        // printed Energy, a [Repeat] [1] and 2 floating Energy, adding-after
+        // quotes 0 + 1 = one rune while the validator prices the whole 2 against
+        // the float and demands zero. That is the offered-then-refused split,
+        // and it is the SAME mistake the discounted branch above records having
+        // made — see this function's own note at the `effectiveCost` binding.
+        // Also found by a self-play probe rather than by the suite, and for the
+        // same reason: no unit test had floating Energy banked.
+        const repeatEffective = computeEffectiveCost(
+          actor.floatingEnergy,
+          actor.floatingPower,
+          modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) + repeatCost.energy,
+          card.powerCost + (repeatCost.power ?? 0),
+          card.powerDomain,
+          card.powerDomainAlt,
+          card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+          card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+          actor.floatingRainbowPower,
+        );
+        const paidRepeat = computeAutoPayment(
+          actor.channeled,
+          repeatEffective.energyCost,
+          repeatEffective.powerCost,
+          card.powerDomain,
+          card.powerDomainAlt,
+          deflected + (repeatCost.rainbowPower ?? 0),
+        );
+        // Offered only when the bigger payment is really payable — a spell you
+        // can afford plainly but not with the repeat simply has no paid variant,
+        // the same rule the optional-Power branch above applies.
+        if (paidRepeat) {
+          actions.push({ type: "PlayCard", playerIndex, card, payment: paidRepeat, ...variant, ...hiddenFields, repeatPaid: true });
         }
       }
       const acceleratedForVariant =
