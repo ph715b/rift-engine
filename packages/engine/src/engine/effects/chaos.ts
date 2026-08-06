@@ -604,6 +604,30 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
 export const deathTriggers: Record<string, DeathknellEffect> = {
+  "SFD-148": (state, ctx, death) => {
+    // Draven - Audacious, SECOND clause — "When I die IN COMBAT, choose an
+    // opponent. They score 1 point."
+    //
+    // A drawback, and it is the price his first clause is written against, so
+    // shipping one without the other would have made him strictly stronger
+    // than printed.
+    //
+    // `diedInCombat` is the whole test. A removal spell at a battlefield must
+    // NOT pay out, which is exactly what a `battlefieldId !== undefined` check
+    // would have done.
+    //
+    // "Choose an opponent" reduces to the one opponent in a 2-player game, so
+    // no question is asked. Named rather than silently dropped: it is the line
+    // that changes for multiplayer, not a simplification of a real choice.
+    if (death.diedInCombat !== true) return state;
+    // `ctx.opponentIndex` is the dying unit's controller's opponent, which is
+    // who "an opponent" means — the effect context is built for the dead
+    // Draven's side, not the killer's.
+    const opponentIndex = ctx.opponentIndex;
+    const players = [...state.players] as [PlayerState, PlayerState];
+    players[opponentIndex] = { ...players[opponentIndex], points: players[opponentIndex].points + 1 };
+    return { ...state, players };
+  },
   // Undercover Agent — "[Deathknell] Discard 2, then draw 2." (rule 808)
   //
   // Order matters and the card spells it out with "then": the two discards leave
@@ -1033,7 +1057,124 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) =>
       event.kind === "unitMoved" ? giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, HARPOON_PUMP) : state,
   },
+  "SFD-148": {
+    // Draven - Audacious, FIRST clause only — "The first time I win a combat
+    // each turn, you score 1 point."
+    //
+    // His SECOND clause — "When I die in combat, choose an opponent. They score
+    // 1 point" — lives in `deathTriggers` below, and needed the `diedInCombat`
+    // flag on `DeathContext` that combat.ts's `processDefeated` now sets. That
+    // flag exists because `battlefieldId !== undefined` is NOT the same question
+    // (a spell kills units standing at battlefields too), and the Showdown state
+    // is no substitute either — `execute-pass-focus` nulls
+    // `showdownBattlefieldId` the instant `closeShowdown` returns, long before a
+    // held death trigger resolves.
+    //
+    // His printed `[Deflect]` is the card frame's and needs nothing here.
+    //
+    // `combatWon` (466.5.a) rather than `battlefieldConquered`, for the reason
+    // Corrupt Enforcer's entry above gives at length: a conquest also fires on a
+    // walk-in that never fought, and a combat can be won at a battlefield its
+    // winner already controlled, which conquers nothing.
+    //
+    // "**I** win a combat" is positional — my controller won and I am standing
+    // where it happened — and it is settled at fire time (383). A unit that died
+    // in the exchange is not a listener at all, since the walk only finds
+    // permanents still in play, so surviving needs no separate check.
+    //
+    // **The `winnerIndex` half of that is REDUNDANT, and measured to be** —
+    // deleting it leaves every test in test/sfd-chaos.test.ts green, because
+    // 466.5.a defines the winner as "the only player that has units remaining",
+    // so a listener alive at that battlefield is on the winning side by
+    // construction. Kept because it is what the card says and because it is the
+    // shape Corrupt Enforcer's identical clause above already uses; recorded here
+    // so nobody reads the passing suite as evidence that it bites.
+    //
+    // "The FIRST TIME each turn" is deliberately NOT in `applies`. The allowance
+    // is a RESOURCE, not a trigger condition: a second win still triggers and
+    // resolves to nothing, which is the same reading (and the same wording) as
+    // The Dreaming Tree's entry in battlefield-abilities.ts and Wraith of
+    // Echoes' in triggers.ts.
+    //
+    // A plain `points + 1`, deliberately not routed through `recordConquest` —
+    // rule 474's Final Point restriction covers only a point gained "through a
+    // Conquer", and Yasuo - Windrider's entry above records the same call.
+    on: "combatWon",
+    applies: (_state, listener, event) =>
+      event.kind === "combatWon" &&
+      event.winnerIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) =>
+      event.kind === "combatWon" ? scoreFirstCombatWin(state, listener.ownerIndex, listener.card.instanceId) : state,
+  },
 };
+
+/**
+ * Draven - Audacious's once-a-turn allowance, spent as it pays out.
+ *
+ * **The memory is written into `abilityModesUsedThisTurn`, a field named for
+ * something else, and that is a choice with a rejected alternative rather than
+ * an accident.** What "the first time I win a combat each turn" needs is a
+ * PER-UNIT marker that expires with the turn: per-unit because two Dravens each
+ * get their own point and a per-player flag would let one spend the other's, and
+ * expiring because a new turn re-arms it. `abilityModesUsedThisTurn` is exactly
+ * that and nothing else — turn-manager's `expireMightThisTurn` clears it for
+ * every unit in base and at every battlefield, alongside `movesThisTurn` and
+ * `keywordsThisTurn`, and `activated-abilities` is its only other reader, for
+ * units that print an activated ability. Draven prints none, and the marker
+ * below is prefixed with his defId so it could not collide with a mode id
+ * anyway.
+ *
+ * The alternative — and what the pool's other two "first time each turn" cards
+ * did — is a dedicated field: Wraith of Echoes has
+ * `firstFriendlyDeathUsedThisTurn` on the PLAYER, The Dreaming Tree has
+ * `spellChoiceDrawnBattlefieldIds`. Neither shape fits a per-unit allowance, and
+ * adding a third field is a change to model/card.ts and turn-manager.ts, which
+ * this file does not own. If a second per-unit once-a-turn card lands, that
+ * field is the right answer and this is the entry to move onto it.
+ */
+const DRAVEN_WIN_SCORED = "SFD-148-win-scored";
+
+/**
+ * Scores the point unless this unit has already scored one this turn.
+ *
+ * The already-scored question is asked of the LIVE unit rather than of the
+ * listener snapshot the chain carries: the snapshot was taken when the combat
+ * was won, and a second win resolving off the same board must see the first
+ * one's mark.
+ */
+function scoreFirstCombatWin(state: GameState, ownerIndex: 0 | 1, unitInstanceId: string): GameState {
+  const live = findUnitAnywhere(state, unitInstanceId);
+  if (live?.unit.abilityModesUsedThisTurn.includes(DRAVEN_WIN_SCORED)) return state;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = { ...players[ownerIndex], points: players[ownerIndex].points + 1 };
+  const scored: GameState = { ...state, players };
+
+  // He can be GONE by the time this resolves — `resolvePendingTrigger` falls
+  // back to the captured card rather than bailing (359.3, and its own note), so
+  // the point is still his controller's. There is then nowhere to write the
+  // memory and nothing that could spend it: a unit that has left play is not a
+  // listener, so it cannot win a second combat this turn.
+  return live ? rememberCombatWinScored(scored, unitInstanceId) : scored;
+}
+
+/** Writes the once-a-turn mark onto the live unit, wherever it stands. Both
+ *  zones, because "I win a combat" only ever fires for a unit at a battlefield
+ *  but a chain item can bounce it home before this resolves. */
+function rememberCombatWinScored(state: GameState, unitInstanceId: string): GameState {
+  const mark = (u: UnitInstance): UnitInstance =>
+    u.instanceId === unitInstanceId
+      ? { ...u, abilityModesUsedThisTurn: [...u.abilityModesUsedThisTurn, DRAVEN_WIN_SCORED] }
+      : u;
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(mark) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(mark);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
 
 /** Harpoon Squad's redeployment bonus. */
 const HARPOON_PUMP = 2;

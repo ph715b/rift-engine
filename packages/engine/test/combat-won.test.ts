@@ -5,6 +5,7 @@ import { isCardImplemented, partialImplementationNote } from "../src/engine/cove
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
+import { destroyUnit } from "../src/engine/effect-helpers.js";
 
 /**
  * `combatWon` — rule 466.5.a, the event three SFD cards read and nothing in this
@@ -304,5 +305,54 @@ describe("466.5.d's other No Result is reachable now", () => {
     expect(after.battlefields[0]!.units.p2 ?? [], "the defender did not survive").toHaveLength(1);
     expect(goldOf(after, 0), "a No Result paid out").toHaveLength(0);
     expect(goldOf(after, 1)).toHaveLength(0);
+  });
+});
+
+/**
+ * `DeathContext.diedInCombat` — the flag that separates "died at a battlefield"
+ * from "died IN a combat".
+ *
+ * Draven - Audacious (SFD-148) is the card that needed it: "when I die in
+ * combat, choose an opponent. They score 1 point." A `battlefieldId !== undefined`
+ * test would have handed the opponent a point for a removal spell, and the
+ * Showdown state is no substitute because `execute-pass-focus` nulls
+ * `showdownBattlefieldId` the instant the Showdown closes — long before a held
+ * death trigger resolves. Both alternatives were measured and rejected by the
+ * agent that refused to fake the clause.
+ */
+describe("dying IN COMBAT is not the same as dying at a battlefield", () => {
+  const DRAVEN_AUDACIOUS = "SFD-148";
+
+  it("pays the opponent a point when Draven dies to combat damage", () => {
+    // **Asserted as a DELTA against a control board**, because winning a combat
+    // also CONQUERS, and a conquest scores its own point. An absolute
+    // assertion here reads 2 and looks like a double-payout; the first draft of
+    // this test did exactly that. The control is the same board with a plain
+    // unit in Draven's place, so the difference is his clause and nothing else.
+    const board = (defender: ReturnType<typeof makeUnit>): GameState => {
+      const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+      state.battlefields[0]!.units = { p1: [defender], p2: [makeUnit({ might: 9 })] };
+      return state;
+    };
+    const draven = realUnitInstance(DRAVEN_AUDACIOUS);
+
+    const withDraven = fightAt(board({ ...draven, might: 1 })).players[1]!.points;
+    const control = fightAt(board(makeUnit({ might: 1 }))).players[1]!.points;
+
+    expect(withDraven - control, "Draven's death paid the opponent nothing").toBe(1);
+  });
+
+  it("pays NOTHING when a spell kills him at the same battlefield", () => {
+    // The case the flag exists for. `destroyUnit` is the spell/effect funnel and
+    // passes no `diedInCombat`, so the same board and the same location produce
+    // a different — and correct — answer.
+    const draven = realUnitInstance(DRAVEN_AUDACIOUS);
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.battlefields[0]!.units = { p1: [{ ...draven, might: 1 }] };
+    const before = state.players[1]!.points;
+
+    const after = answerDecisions(resolveHeldTriggers(destroyUnit(state, draven.instanceId, 1)));
+
+    expect(after.players[1]!.points, "a removal spell paid the opponent").toBe(before);
   });
 });

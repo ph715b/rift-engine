@@ -586,6 +586,9 @@ export interface PendingDeath {
   ownerIndex: 0 | 1;
   battlefieldId?: string;
   killerIndex?: 0 | 1;
+  /** True only for a death in the COMBAT DAMAGE STEP. See DeathContext for
+   *  why `battlefieldId` is not this question. */
+  diedInCombat?: true;
 }
 
 export interface GameState {

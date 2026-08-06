@@ -105,6 +105,8 @@ export function killUnit(
   battlefieldId?: string,
   /** Who did it, when anyone did — see DeathContext.killerIndex. */
   killerIndex?: 0 | 1,
+  /** Only `combat.processDefeated` passes this — see DeathContext.diedInCombat. */
+  diedInCombat?: true,
 ): GameState {
   // A unit leaving play DETACHES its Equipment rather than destroying it (SFD).
   // Two cards presuppose exactly that — The Zero Drive's "Use only if
@@ -143,6 +145,7 @@ export function killUnit(
     ownerIndex,
     ...(battlefieldId !== undefined ? { battlefieldId } : {}),
     ...(killerIndex !== undefined ? { killerIndex } : {}),
+    ...(diedInCombat === true ? { diedInCombat } : {}),
   };
 
   // A replacement that has to be OFFERED, not one armed in advance. Asked before

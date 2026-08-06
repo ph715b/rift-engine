@@ -282,6 +282,7 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // (the Gold token, `sfd-t03`) — which four separate agents hit independently
   // across eleven cards. That is the wave's largest single finding.
   ["SFD-057", "the 'ready me' half works; 'when you CHOOSE me' needs a unitChosen GameEvent — no board-wide choosing moment exists"],
+  ["SFD-082", "the attack/defend damage trigger and 'I don't deal combat damage' both work; ':rb_rune_mind:: [Action] — Move me to your base' needs an activated-abilities.ts entry"],
   ["SFD-166", "'Draw 1' works; 'When a friendly unit is played this turn, buff it' needs a delayed-trigger flag on PlayerState read at the play site"],
   ["SFD-175", "the on-play pump works; 'As I'm revealed from your deck, [Add] 2 Energy' needs a reveal-from-deck hook"],
   // The six Equipment whose printed `[Equip]` cost this engine cannot yet

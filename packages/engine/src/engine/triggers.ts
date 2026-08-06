@@ -180,6 +180,21 @@ export interface DeathContext {
    * behind it, and naming a killer there would be an invention.
    */
   killerIndex?: 0 | 1;
+  /**
+   * True only for a death dealt in the COMBAT DAMAGE STEP.
+   *
+   * **`battlefieldId !== undefined` is NOT this question**, which is the whole
+   * reason the flag exists: a spell kills units at a battlefield too, and
+   * Draven - Audacious ("when I die IN COMBAT, choose an opponent — they score
+   * 1 point") would hand an opponent a point for a removal spell.
+   *
+   * The Showdown state is no substitute either: `execute-pass-focus` nulls
+   * `showdownBattlefieldId` the instant the Showdown closes, long before a held
+   * death trigger resolves. Measured by the agent that refused to fake it.
+   *
+   * Set only by `combat.processDefeated`, which is the one site that knows.
+   */
+  diedInCombat?: true;
 }
 
 /**

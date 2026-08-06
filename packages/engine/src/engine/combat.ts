@@ -255,7 +255,9 @@ function processDefeated(
   const killerIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
   let next = state;
   for (const unit of defeated) {
-    next = killUnit(next, unit, ownerIndex, battlefieldId, killerIndex);
+    // `true` here and nowhere else: this is the combat damage step, and it is
+    // the one site that can honestly say so.
+    next = killUnit(next, unit, ownerIndex, battlefieldId, killerIndex, true);
   }
   return next;
 }
