@@ -2,9 +2,19 @@ import { describe, expect, it } from "vitest";
 import { recordConquest } from "../src/engine/scoring.js";
 import { runEnd } from "../src/engine/turn-manager.js";
 import { battlefieldDefIdFor } from "../src/decks/battlefield-setup.js";
+import { optionsFor } from "../src/engine/decisions.js";
+import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { answerDecisions, makeState, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  makeState,
+  makeUnit,
+  realGearInstance,
+  realUnitInstance,
+  resolveHeldTriggers,
+  spellInstance,
+} from "./fixtures.js";
 
 /**
  * The five "when you conquer here" battlefields, plus the one delayed ability
@@ -316,5 +326,135 @@ describe("Treasure Hoard (SFD-220): pay 1 Energy for a Gold gear token", () => {
     expect(after.players[1]!.activeGear).toHaveLength(1);
     expect(after.players[0]!.activeGear, "the turn player got it instead").toHaveLength(0);
     expect(after.players[1]!.channeled.filter((r) => r.state === "Ready")).toHaveLength(1);
+  });
+});
+
+/**
+ * SFD's conquer battlefields — five of the six added on 2026-08-06.
+ *
+ * All ride the same `recordConquest` moment as OGN's, so nothing here is new
+ * machinery; what is new is that two of them needed subsystems that did not
+ * exist a day earlier (Veiled Temple's detach, Treasure Hoard's gear token).
+ */
+describe("SFD's conquer battlefields", () => {
+  const MINEFIELD = "SFD-212";
+  const SEAT_OF_POWER = "SFD-217";
+  const SUNKEN_TEMPLE = "SFD-218";
+  const HALL_OF_LEGENDS = "SFD-210";
+  const VEILED_TEMPLE = "SFD-221";
+
+  it("each is the card it claims to be", () => {
+    for (const [defId, name] of [
+      [MINEFIELD, "Minefield"],
+      [SEAT_OF_POWER, "Seat of Power"],
+      [SUNKEN_TEMPLE, "Sunken Temple"],
+      [HALL_OF_LEGENDS, "Hall of Legends"],
+      [VEILED_TEMPLE, "Veiled Temple"],
+    ] as const) {
+      expect(battlefieldDefIdFor(name), `${name}`).toBe(defId);
+    }
+  });
+
+  it("Minefield puts the conqueror's OWN top 2 into their trash", () => {
+    const state = withBattlefield(MINEFIELD);
+    state.players[0]!.deck = [realUnitInstance(FILLER), realUnitInstance(FILLER), realUnitInstance(FILLER)];
+    state.players[1]!.deck = [realUnitInstance(FILLER), realUnitInstance(FILLER)];
+
+    const after = settleConquest(state);
+
+    expect(after.players[0]!.deck, "the conqueror's deck was not milled").toHaveLength(1);
+    expect(after.players[0]!.trash).toHaveLength(2);
+    expect(after.players[1]!.deck, "the OPPONENT was milled").toHaveLength(2);
+  });
+
+  it("Seat of Power draws one per OTHER battlefield held, not counting this one", () => {
+    // The conquest has already established control here, so counting every
+    // controlled battlefield would draw one too many. That off-by-one is the
+    // whole reason "other" is printed.
+    // The fixture has exactly two battlefields, so bf2 held by the conqueror is
+    // the ONE "other" — and this is the pairing that catches the off-by-one,
+    // since counting bf1 as well would draw 2.
+    const state = withBattlefield(SEAT_OF_POWER);
+    // bf2 needs a UNIT, not just a controllerId: `lapseUnoccupiedControl`
+    // (323.11) runs in the Cleanup between the conquest and this trigger
+    // resolving, so an unoccupied battlefield is no longer controlled by the
+    // time the count is taken. The first draft of this test set only the
+    // controllerId and measured zero.
+    state.battlefields[1] = { ...state.battlefields[1]!, controllerId: "p1", units: { p1: [makeUnit()] } };
+    state.players[0]!.deck = [realUnitInstance(FILLER), realUnitInstance(FILLER), realUnitInstance(FILLER)];
+
+    const after = settleConquest(state);
+
+    expect(after.players[0]!.hand, "1 for bf2; counting bf1 too would give 2").toHaveLength(1);
+
+    // And nothing at all when the only other battlefield is the opponent's.
+    const theirs = withBattlefield(SEAT_OF_POWER);
+    theirs.battlefields[1] = { ...theirs.battlefields[1]!, controllerId: "p2", units: { p2: [makeUnit()] } };
+    theirs.players[0]!.deck = [realUnitInstance(FILLER)];
+    expect(settleConquest(theirs).players[0]!.hand).toHaveLength(0);
+  });
+
+  it("Sunken Temple asks NOTHING without a Mighty unit, and draws with one", () => {
+    // The Mighty check is in `applies`, so an unqualified conquest places no
+    // Pending Item at all rather than holding one that resolves to nothing.
+    const weak = withBattlefield(SUNKEN_TEMPLE);
+    weak.battlefields[0]!.units = { p1: [makeUnit({ might: 4 })] };
+    weak.players[0]!.channeled = [rune("r1")];
+    weak.players[0]!.deck = [realUnitInstance(FILLER)];
+    expect(resolveHeldTriggers(recordConquest(weak, 0, "bf1")).pendingDecisions).toHaveLength(0);
+
+    const mighty = withBattlefield(SUNKEN_TEMPLE);
+    mighty.battlefields[0]!.units = { p1: [makeUnit({ might: 5 })] };
+    mighty.players[0]!.channeled = [rune("r1")];
+    mighty.players[0]!.deck = [realUnitInstance(FILLER)];
+    const after = settleConquest(mighty);
+    expect(after.players[0]!.hand, "the Mighty conquest drew nothing").toHaveLength(1);
+  });
+
+  it("Hall of Legends readies an exhausted legend, and asks nothing about a ready one", () => {
+    const state = withBattlefield(HALL_OF_LEGENDS);
+    state.players[0]!.legend = { ...state.players[0]!.legend, exhausted: true };
+    state.players[0]!.channeled = [rune("r1")];
+
+    const after = settleConquest(state);
+    expect(after.players[0]!.legend.exhausted, "the legend was not readied").toBe(false);
+
+    // A ready legend gains nothing, so there is no question to ask.
+    const ready = withBattlefield(HALL_OF_LEGENDS);
+    ready.players[0]!.channeled = [rune("r1")];
+    expect(resolveHeldTriggers(recordConquest(ready, 0, "bf1")).pendingDecisions).toHaveLength(0);
+  });
+
+  it("Veiled Temple readies a gear AND can detach it when it is an Equipment", () => {
+    // The half the frozen Java oracle recorded as unreachable — "no Gear in this
+    // codebase can ever BE an Equipment attachment". It can now.
+    const wearer = makeUnit({ name: "Wearer" });
+    const blade = realGearInstance("SFD-095"); // Doran's Blade, an Equipment
+    const state = withBattlefield(VEILED_TEMPLE);
+    state.players[0]!.baseUnits = [wearer];
+    state.players[0]!.activeGear = [{ ...blade, exhausted: true, attachedToInstanceId: wearer.instanceId }];
+
+    // Options are ready-only, ready-and-detach, decline — so index 1 is the
+    // detach, and picking it proves both halves in one answer.
+    const asked = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
+    expect(asked.pendingDecisions, "Veiled Temple asked nothing").toHaveLength(1);
+    const after = answerDecisions(asked, (options) => options[1]!.id);
+
+    expect(after.players[0]!.activeGear[0]!.exhausted, "the gear was not readied").toBe(false);
+    expect(after.players[0]!.activeGear[0]!.attachedToInstanceId, "the gear was not detached").toBeNull();
+  });
+
+  it("Veiled Temple offers NO detach for a gear that is not an Equipment", () => {
+    // The second "may" only exists for an Equipment, so a plain gear gets one
+    // option and a decline.
+    const plainGear = defaultCardRegistry()
+      .all()
+      .find((c) => c.type === "Gear" && c.isEquipment !== true)!;
+    const state = withBattlefield(VEILED_TEMPLE);
+    state.players[0]!.activeGear = [{ ...realGearInstance(plainGear.id), exhausted: true }];
+
+    const asked = resolveHeldTriggers(recordConquest(state, 0, "bf1"));
+    const options = optionsFor(asked, asked.pendingDecisions[0]!);
+    expect(options.filter((o) => o.id.includes("detach")), "a detach was offered for a plain gear").toEqual([]);
   });
 });

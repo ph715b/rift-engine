@@ -34,6 +34,9 @@ const THE_GRAND_PLAZA = "OGN-293";
  *  Arena activates without a conquest. */
 const SETT_BRAWLER = "OGN-164";
 
+/** A Ready rune for the rune DECK — The Papertree channels from there. */
+const rune = (id: string) => ({ id, domain: "Calm" as const, state: "Ready" as const });
+
 /**
  * Player 0 in their Beginning Phase, holding bf1, which IS the named battlefield
  * card. `isHeldBy` wants units present and none of the opponent's.
@@ -261,5 +264,47 @@ describe("The Grand Plaza (OGN-293): 7+ units here wins the game", () => {
       ),
     };
     expect(winner(resolveHeldTriggers(oneFewer))).toBeNull();
+  });
+});
+
+/**
+ * The Papertree (SFD-219) — "When you hold here, each player channels 1 rune
+ * exhausted."
+ *
+ * Symmetric, which is the whole card: the holder gains a rune and so does the
+ * opponent. That symmetry is the only thing worth testing here, and it is the
+ * thing a "channel for the holder" implementation would get wrong while looking
+ * right from the holder's side.
+ */
+describe("The Papertree (SFD-219): each player channels 1 exhausted", () => {
+  const THE_PAPERTREE = "SFD-219";
+
+  it("is the card it claims to be", () => {
+    expect(battlefieldDefIdFor("The Papertree")).toBe(THE_PAPERTREE);
+  });
+
+  it("channels for BOTH players, exhausted", () => {
+    const state = holding(THE_PAPERTREE);
+    state.players[0]!.runeDeck = [rune("a1"), rune("a2")];
+    state.players[1]!.runeDeck = [rune("b1"), rune("b2")];
+
+    const after = settleHold(state);
+
+    for (const index of [0, 1] as const) {
+      const channeled = after.players[index]!.channeled;
+      expect(channeled, `player ${index} channeled nothing`).toHaveLength(1);
+      expect(channeled[0]!.state, `player ${index}'s rune arrived ready`).toBe("Exhausted");
+      expect(after.players[index]!.runeDeck).toHaveLength(1);
+    }
+  });
+
+  it("does not throw when a player's rune deck is empty", () => {
+    // `channelRunesExhausted` channels what it can, so an empty deck simply
+    // gains nothing rather than failing the hold.
+    const state = holding(THE_PAPERTREE);
+    state.players[0]!.runeDeck = [rune("a1")];
+    state.players[1]!.runeDeck = [];
+    expect(() => settleHold(state)).not.toThrow();
+    expect(settleHold(state).players[1]!.channeled).toHaveLength(0);
   });
 });

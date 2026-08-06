@@ -12,9 +12,12 @@ import {
   readyRunes,
   relocateToBaseUnchanged,
   payEnergyFromPool,
+  readyPermanent,
   spendBuff,
 } from "./effect-helpers.js";
 import { placeRecruitToken, placeGoldTokens } from "./token.js";
+import { detachEquipment, isEquipmentGear } from "./equipment.js";
+import { effectiveMight } from "./effective-might.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 
 /**
@@ -170,6 +173,15 @@ const TARGONS_PEAK = "OGN-289";
  *  reported as progress by battlefield-coverage.test.ts, which is scoped to
  *  COMPLETE_SETS so OGN's 24 stay hard-gated while SFD is under construction. */
 const TREASURE_HOARD = "SFD-220";
+const MINEFIELD = "SFD-212";
+const SEAT_OF_POWER = "SFD-217";
+const SUNKEN_TEMPLE = "SFD-218";
+const THE_PAPERTREE = "SFD-219";
+const HALL_OF_LEGENDS = "SFD-210";
+const VEILED_TEMPLE = "SFD-221";
+const MINEFIELD_MILL = 2;
+const SUNKEN_TEMPLE_ENERGY = 1;
+const HALL_OF_LEGENDS_ENERGY = 1;
 const TREASURE_HOARD_ENERGY = 1;
 /** How many runes Targon's Peak arms per conquest. */
 const TARGONS_PEAK_RUNES = 2;
@@ -299,6 +311,119 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
       // hold opens can buff one or spend the only one there was.
       resolve: (state, event) =>
         parkDecision(state, { kind: `${MONASTERY_OF_HIRANA}-spend`, playerIndex: event.playerIndex }),
+    },
+  ],
+
+  [MINEFIELD]: [
+    {
+      on: "conquer",
+      // "When you conquer here, put the top 2 cards of your Main Deck into
+      // your trash." Yours, not the loser's — the cost of taking the ground.
+      //
+      // Not a Recycle and not a discard: straight from deck to trash, so it
+      // fires no `cardsRecycled` and no `cardsDiscarded`. Karma - Channeler and
+      // Jinx - Rebel both watch those funnels and neither should wake for this.
+      resolve: (state, event) =>
+        updatePlayer(state, event.playerIndex, (p) => ({
+          ...p,
+          deck: p.deck.slice(MINEFIELD_MILL),
+          trash: [...p.trash, ...p.deck.slice(0, MINEFIELD_MILL)],
+        })),
+    },
+  ],
+
+  [SEAT_OF_POWER]: [
+    {
+      on: "conquer",
+      // "Draw 1 for each OTHER battlefield you or allies control." Counted at
+      // resolution off the live board, and the conquest that fired this has
+      // already established control here — so `id !== event.battlefieldId` is
+      // what "other" means and is why the count is not simply every
+      // battlefield held.
+      //
+      // "or allies" reduces to "you" in a 2-player game; named rather than
+      // silently dropped, because it is the line that changes in multiplayer.
+      resolve: (state, event) => {
+        const others = state.battlefields.filter(
+          (bf) => bf.id !== event.battlefieldId && bf.controllerId === state.players[event.playerIndex].id,
+        ).length;
+        return others === 0 ? state : drawCards(state, event.playerIndex, others);
+      },
+    },
+  ],
+
+  [SUNKEN_TEMPLE]: [
+    {
+      on: "conquer",
+      // "When you conquer here WITH ONE OR MORE [Mighty] units, you may pay 1
+      // Energy to draw 1."
+      //
+      // The Mighty check is in `applies`, not in `resolve`: it is a fact about
+      // the conquest, and a held trigger that resolves to nothing still costs
+      // both players a PassFocus. Asked of the units standing HERE, since
+      // "conquer here with" is about the force that took the ground.
+      applies: (state, event) => mightyUnitsAt(state, event.playerIndex, event.battlefieldId) > 0,
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${SUNKEN_TEMPLE}-draw`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
+
+  [THE_PAPERTREE]: [
+    {
+      on: "hold",
+      // "When you hold here, EACH PLAYER channels 1 rune exhausted." Symmetric,
+      // which is the whole card — the holder gains a rune and so does the
+      // opponent. Both go through `channelRunesExhausted`, so a player with an
+      // empty rune deck simply channels nothing rather than throwing.
+      resolve: (state, event) =>
+        channelRunesExhausted(channelRunesExhausted(state, event.playerIndex, 1), event.playerIndex === 0 ? 1 : 0, 1),
+    },
+  ],
+
+  [HALL_OF_LEGENDS]: [
+    {
+      on: "conquer",
+      // "When you conquer here, you may pay 1 Energy to READY YOUR LEGEND."
+      //
+      // A Legend is a permanent that exhausts to pay for its own ability, so
+      // readying it is a second activation this turn. Asked at resolution
+      // rather than in `applies` for the reason Monastery of Hirana is: whether
+      // the Energy is there is a question about the board, and the response
+      // window this hold opens can spend it.
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${HALL_OF_LEGENDS}-ready`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
+    },
+  ],
+
+  [VEILED_TEMPLE]: [
+    {
+      on: "conquer",
+      // "When you conquer here, you may ready a friendly gear. If it's an
+      // Equipment, you may detach it."
+      //
+      // **The detach half was unreachable until 2026-08-05** — the frozen Java
+      // oracle's own notes record it reducing this card to "you may ready a
+      // friendly gear" because no Gear in that codebase could BE an attachment.
+      // Equipment attachment exists here now, so both halves are written.
+      //
+      // Two "may"s are flattened into one question — ready-only, or ready-and-
+      // detach — rather than asked in sequence. Lossless in outcomes, and it
+      // avoids a second decision whose only option would be Decline whenever
+      // the chosen gear is not an Equipment.
+      resolve: (state, event) =>
+        parkDecision(state, {
+          kind: `${VEILED_TEMPLE}-ready`,
+          playerIndex: event.playerIndex,
+          battlefieldId: event.battlefieldId,
+        }),
     },
   ],
 
@@ -592,6 +717,77 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
             { id: "decline", label: "Decline" },
           ],
     resolve: (state, d, optionId) => (optionId === "channel" ? channelRunesExhausted(state, d.playerIndex, 1) : state),
+  },
+
+  [`${SUNKEN_TEMPLE}-draw`]: {
+    prompt: () => "Sunken Temple: pay 1 Energy to draw 1?",
+    options: (state, d) =>
+      // Affordability asked of the PAYER, so the offer and the payment cannot
+      // disagree — there is no `energy` field to compare against, and reading
+      // one that does not exist is how Treasure Hoard's first draft always
+      // offered an option it could not honour.
+      payEnergyFromPool(state, d.playerIndex, SUNKEN_TEMPLE_ENERGY) === undefined
+        ? []
+        : [
+            { id: "buy", label: `Pay ${SUNKEN_TEMPLE_ENERGY} Energy to draw 1` },
+            { id: "decline", label: "Decline" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, SUNKEN_TEMPLE_ENERGY);
+      return paid === undefined ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
+
+  [`${HALL_OF_LEGENDS}-ready`]: {
+    prompt: () => "Hall of Legends: pay 1 Energy to ready your legend?",
+    options: (state, d) => {
+      const legend = state.players[d.playerIndex].legend;
+      // Nothing to ready is not a question — a ready legend gains nothing, and
+      // rule 415 makes readying a ready permanent do nothing anyway.
+      if (!legend.exhausted) return [];
+      return payEnergyFromPool(state, d.playerIndex, HALL_OF_LEGENDS_ENERGY) === undefined
+        ? []
+        : [
+            { id: "ready", label: `Pay ${HALL_OF_LEGENDS_ENERGY} Energy to ready ${legend.name}` },
+            { id: "decline", label: "Decline" },
+          ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, HALL_OF_LEGENDS_ENERGY);
+      return paid === undefined
+        ? state
+        : readyPermanent(paid, d.playerIndex, paid.players[d.playerIndex].legend.instanceId);
+    },
+  },
+
+  [`${VEILED_TEMPLE}-ready`]: {
+    prompt: () => "Veiled Temple: ready a friendly gear?",
+    options: (state, d) => {
+      const gear = state.players[d.playerIndex].activeGear.filter((g) => g.exhausted);
+      if (gear.length === 0) return [];
+      return [
+        ...gear.flatMap((g) =>
+          // The second "may" only exists for an Equipment, so the detach option
+          // is offered only where the card allows it — and only when the gear is
+          // actually attached, since detaching nothing is not a choice.
+          isEquipmentGear(g) && g.attachedToInstanceId !== null
+            ? [
+                { id: g.instanceId, label: `Ready ${g.name}`, instanceId: g.instanceId },
+                { id: `${g.instanceId}:detach`, label: `Ready ${g.name} and detach it`, instanceId: g.instanceId },
+              ]
+            : [{ id: g.instanceId, label: `Ready ${g.name}`, instanceId: g.instanceId }],
+        ),
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const [gearId, detach] = optionId.split(":");
+      const readied = readyPermanent(state, d.playerIndex, gearId!);
+      return detach === "detach" ? detachEquipment(readied, d.playerIndex, gearId!) : readied;
+    },
   },
 
   [`${TREASURE_HOARD}-buy`]: {
@@ -953,3 +1149,15 @@ export function resolveHeldBattlefieldTrigger(state: GameState, entry: TriggerCh
 export function battlefieldAbilityDefIds(): string[] {
   return Object.keys(BATTLEFIELD_TRIGGERS);
 }
+
+/** How many of this player's units at `battlefieldId` are [Mighty] (5+ Might,
+ *  rule 711's threshold). Asked through `effectiveMight` so a unit made Mighty
+ *  by a pump or an aura counts, which is what the keyword means. */
+function mightyUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string): number {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return 0;
+  const units = bf.units[state.players[playerIndex].id] ?? [];
+  return units.filter((u) => effectiveMight(state, u, playerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD).length;
+}
+
+const MIGHTY_THRESHOLD = 5;
