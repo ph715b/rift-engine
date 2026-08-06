@@ -16,7 +16,7 @@ import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
-import { chosenUnitsOfPlay, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
+import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import {
   cardMovesTarget,
@@ -654,15 +654,21 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // why it is a separate bucket from `powerRunes` above rather than more entries
   // in it.
   //
-  // **Reads only the FIRST execution's targets**, deliberately. 820.1.d makes a
-  // `[Repeat]`'s second choice set chosen too, so on a strict reading a Deflect
-  // unit named only there is owed a surcharge as well — but this figure is
-  // derived from `variant` in the enumerator and from `action` here, so taxing
-  // one and not the other is the offered-then-refused split this codebase has
-  // shipped three times. Recorded in docs/rules-conformance.md rather than
-  // half-fixed. Unreachable through the enumerator, whose repeat choices mirror
-  // the first set, so any Deflect unit is already counted once.
-  const deflected = deflectSurchargeForTargets(state, action.playerIndex, chosenUnitsOfPlay(action));
+  // **BOTH `[Repeat]` executions are taxed, and the same unit chosen twice owes
+  // twice** — project-owner ruling, 2026-08-06. 820.1.d puts the additional
+  // execution's choices at the same Make Relevant Choices step, so they are
+  // choices, and 355 makes each choice a target in its own right. It is the same
+  // reading `chosenUnitsOfPlay` already applied WITHIN one execution, so no
+  // dedup: a repeat that names the same Deflect unit again pays again.
+  //
+  // The enumerator prices its repeat variant through these same two helpers
+  // rather than doubling `deflected` by hand — this figure is the one the
+  // offered-then-refused split lives in, and two spellings of it is exactly how
+  // that split has been shipped three times.
+  const deflected = deflectSurchargeForTargets(state, action.playerIndex, [
+    ...chosenUnitsOfPlay(action),
+    ...chosenUnitsOfRepeat(action),
+  ]);
   const rainbow = payment.rainbowRunes ?? [];
   // Danger Zone's Repeat is `[1][rainbow]`, and a rainbow pip is not
   // domain-checked — so it rides this bucket beside the Deflect tax rather than

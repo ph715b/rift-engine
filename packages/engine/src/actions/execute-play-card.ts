@@ -406,13 +406,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // named only by the repeat has still been chosen with a spell, and the Tree
     // has still seen it.
     //
-    // Deliberately NOT extended to the `[Deflect]` surcharge, which reads the
-    // same question for PRICE rather than for triggers — see
-    // docs/rules-conformance.md. The enumerator prices from the variant and the
-    // validator from the whole action, so taxing the repeat's choices in one and
-    // not the other would produce the offered-then-refused split this codebase
-    // has shipped three times. Unreachable in practice (the enumerator's repeat
-    // choices mirror the first set, so any Deflect unit is already taxed once).
+    // The `[Deflect]` surcharge asks the same question for PRICE rather than for
+    // triggers, and as of the 2026-08-06 ruling it reaches the repeat's choices
+    // too — see `chosenUnitsOfRepeat`. The two are still separate calls: this one
+    // is a multiset of ids for TRIGGERS, deduped implicitly by the listeners
+    // themselves, while the surcharge is summed per choice precisely because the
+    // same unit chosen twice owes twice.
     const chosen = [
       action.targetUnitInstanceId,
       action.secondTargetUnitInstanceId,

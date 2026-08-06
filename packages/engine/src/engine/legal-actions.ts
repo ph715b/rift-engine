@@ -55,6 +55,7 @@ import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEn
 import {
   chosenUnitsOfActivation,
   chosenUnitsOfPlay,
+  chosenUnitsOfRepeat,
   deflectSurchargeForTargets,
   hasKeyword,
 } from "./granted-keywords.js";
@@ -1037,13 +1038,24 @@ export function legalActions(state: GameState): PlayerAction[] {
           card.kind === "Spell" ? actor.restrictedSpellPower : 0,
           actor.floatingRainbowPower,
         );
+        // **The `[Deflect]` tax is owed by BOTH executions** (project-owner
+        // ruling, 2026-08-06 — the same unit chosen twice owes twice). This
+        // variant repeats the SAME choices, so its taxable set is the first
+        // set twice over. Asked through the very helpers the validator uses,
+        // against the candidate action itself, rather than doubling `deflected`
+        // by hand: this figure is where the offered-then-refused split lives.
+        const repeatVariant = { ...variant, repeatPaid: true as const };
+        const repeatDeflected = deflectSurchargeForTargets(state, playerIndex, [
+          ...chosenUnitsOfPlay(repeatVariant),
+          ...chosenUnitsOfRepeat(repeatVariant),
+        ]);
         const paidRepeat = computeAutoPayment(
           actor.channeled,
           repeatEffective.energyCost,
           repeatEffective.powerCost,
           card.powerDomain,
           card.powerDomainAlt,
-          deflected + (repeatCost.rainbowPower ?? 0),
+          repeatDeflected + (repeatCost.rainbowPower ?? 0),
         );
         // Offered only when the bigger payment is really payable — a spell you
         // can afford plainly but not with the repeat simply has no paid variant,

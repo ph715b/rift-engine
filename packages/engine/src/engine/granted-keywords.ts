@@ -561,6 +561,51 @@ export function chosenUnitsOfPlay(choice: {
 }
 
 /**
+ * Every unit a `[Repeat]`'s SECOND execution chooses — empty when the additional
+ * cost was not paid.
+ *
+ * **Taxed SEPARATELY from the first execution, and NOT deduplicated against it**
+ * — project-owner ruling, 2026-08-06: choosing the same unit in both executions
+ * owes the surcharge twice. That is the same reading `chosenUnitsOfPlay` above
+ * already applies within one execution ("a spell naming the same `[Deflect 1]`
+ * unit twice owes 2"), and it follows from 355 making each choice a target in
+ * its own right: 820.1.d puts the additional execution's choices at the same
+ * Make Relevant Choices step, so they are choices, so they are taxed.
+ *
+ * The fallback when `repeatChoices` is absent is the FIRST execution's own
+ * choices, because that is what absent MEANS (see RepeatChoices) — so the
+ * default repeat doubles the tax rather than escaping it.
+ *
+ * Mirrors `card-effect-resolution.ts`'s `repeatChoicesOf` exactly, including
+ * that `targetPermanentInstanceId` CARRIES OVER: `repeatChoices` replaces only
+ * the six choice fields it declares, so the permanent slot is still chosen a
+ * second time and still owes its tax. Two spellings of that rule is how the
+ * price and the effect would come to disagree about what was chosen.
+ */
+export function chosenUnitsOfRepeat(action: {
+  repeatPaid?: true;
+  repeatChoices?: {
+    targetUnitInstanceId?: string;
+    secondTargetUnitInstanceId?: string;
+    targetUnitInstanceIds?: readonly string[];
+  };
+  targetUnitInstanceId?: string;
+  secondTargetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+  targetPermanentInstanceId?: string;
+}): (string | undefined)[] {
+  if (!action.repeatPaid) return [];
+  const second = action.repeatChoices;
+  if (second === undefined) return chosenUnitsOfPlay(action);
+  return [
+    second.targetUnitInstanceId,
+    second.secondTargetUnitInstanceId,
+    ...(second.targetUnitInstanceIds ?? []),
+    action.targetPermanentInstanceId,
+  ];
+}
+
+/**
  * The units an ACTIVATED ABILITY chooses.
  *
  * `[Deflect N]` reads "opponents must pay N rainbow Power to choose me with a

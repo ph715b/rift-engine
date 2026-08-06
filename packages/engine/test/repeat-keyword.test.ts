@@ -337,6 +337,90 @@ describe("[Repeat] executes the instructions one additional time (820.1.d)", () 
   });
 });
 
+/**
+ * `[Repeat]` × `[Deflect]` — project-owner ruling, 2026-08-06.
+ *
+ * "Opponents must pay N rainbow Power to choose me with a spell or ability."
+ * 820.1.d puts the additional execution's choices at the same Make Relevant
+ * Choices step, so they ARE choices; 355 makes each choice a target in its own
+ * right; therefore **choosing the same unit in both executions owes the tax
+ * twice**. No dedup.
+ *
+ * That is the same reading `chosenUnitsOfPlay` already applied WITHIN one
+ * execution — a `unitList` naming one unit twice has always owed 2 — so the
+ * ruling made the two consistent rather than introducing a new rule.
+ *
+ * Feral Strength is the vehicle: "give A UNIT +2 Might", no owner clause, so an
+ * enemy is a legal target and the surcharge is actually reachable.
+ */
+describe("[Repeat] pays [Deflect] once per choice, so twice for the same unit", () => {
+  /** An enemy `[Deflect 1]` unit in its own base, targetable by "a unit". */
+  function withDeflectEnemy(runeCount = 12) {
+    const { state, spellId } = caster(FERAL_STRENGTH, "Calm", runeCount);
+    state.players[1]!.baseUnits = [
+      makeUnit({ name: "Warded", instanceId: "warded", might: 5, keywords: { Deflect: 1 } }),
+    ];
+    return { state, spellId };
+  }
+
+  it("declining the repeat pays the tax ONCE", () => {
+    const { state, spellId } = withDeflectEnemy();
+    const plain = playsOf(state, spellId).find((a) => !a.repeatPaid && a.targetUnitInstanceId === "warded")!;
+
+    expect(plain.payment.rainbowRunes ?? []).toHaveLength(1);
+    expect(validatePlayCard(state, plain)).toMatchObject({ ok: true });
+  });
+
+  /** The assertion the ruling settles. */
+  it("paying the repeat on the same unit pays it TWICE", () => {
+    const { state, spellId } = withDeflectEnemy();
+    const repeated = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "warded")!;
+
+    expect(repeated.payment.rainbowRunes ?? [], "same unit chosen twice owes 2").toHaveLength(2);
+    expect(validatePlayCard(state, repeated), "enumerated but refused").toMatchObject({ ok: true });
+  });
+
+  /**
+   * The escape hatch that existed while only the first execution was taxed: name
+   * an ordinary unit first and the Deflect unit ONLY in `repeatChoices`. The tax
+   * is owed for the repeat's choice on its own.
+   */
+  it("taxes a Deflect unit named ONLY by the repeat's choice set", () => {
+    const { state, spellId } = withDeflectEnemy();
+    state.players[0]!.baseUnits = [makeUnit({ name: "Ally0", instanceId: "ally0", might: 3 })];
+
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "ally0")!;
+    expect(base.payment.rainbowRunes ?? [], "no Deflect unit chosen yet").toHaveLength(0);
+
+    // Now point the SECOND execution at the warded unit. The payment the
+    // enumerator quoted for an untaxed pair no longer covers it.
+    const dodging: PlayCardAction = { ...base, repeatChoices: { targetUnitInstanceId: "warded" } };
+    const result = validatePlayCard(state, dodging);
+    expect(result.ok, "the repeat's own choice escaped the surcharge").toBe(false);
+    expect(JSON.stringify(result)).toContain("Deflect");
+  });
+
+  /**
+   * And the same action WITH the surcharge paid is legal — otherwise the check
+   * above would pass for a card that had simply become uncastable.
+   */
+  it("and accepts that same play once the repeat's surcharge is actually paid", () => {
+    const { state, spellId } = withDeflectEnemy();
+    state.players[0]!.baseUnits = [makeUnit({ name: "Ally0", instanceId: "ally0", might: 3 })];
+
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "ally0")!;
+    const spent = new Set([...base.payment.energyRunes, ...base.payment.powerRunes]);
+    const spare = state.players[0]!.channeled.find((r) => !spent.has(r.id))!;
+    const paid: PlayCardAction = {
+      ...base,
+      repeatChoices: { targetUnitInstanceId: "warded" },
+      payment: { ...base.payment, rainbowRunes: [spare.id] },
+    };
+
+    expect(validatePlayCard(state, paid)).toMatchObject({ ok: true });
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**
