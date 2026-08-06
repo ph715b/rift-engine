@@ -404,6 +404,7 @@ describe("coverage reports these as implemented", () => {
   for (const defId of [
     AGAINST_THE_ODDS,
     BUSHWHACK,
+    DUNEBREAKER,
     GEM_JAMMER,
     SUDDEN_STORM,
     DRAVEN_VANQUISHER,
@@ -419,15 +420,16 @@ describe("coverage reports these as implemented", () => {
   // The three written as HALF a card. Each must report NOT implemented, and the
   // note must say which half is missing — a bare `false` would be
   // indistinguishable from a card nobody has started.
-  // Bushwhack and Draven have both LEFT this list, and their
-  // PARTIALLY_IMPLEMENTED entries were DELETED rather than reworded — a card is
-  // either finished or it is on that list. Bushwhack needed the gear-token
-  // primitive; Draven needed that AND a combat-WON event AND a list-valued
-  // `EventTriggerDefinition.on`, since he already had a combatBegan trigger.
-  for (const [defId, missing] of [[DUNEBREAKER, "deploy.unitEntersReady"]] as const) {
-    it(`${defId} (${registry.get(defId).name}) is PARTIAL, and says why`, () => {
-      expect(isCardImplemented(registry.get(defId))).toBe(false);
-      expect(partialImplementationNote(registry.get(defId))).toContain(missing);
-    });
-  }
+  // **Every one of this file's three partials has since been finished**, and
+  // each entry was DELETED rather than reworded — a card is either finished or
+  // it is on that list. Bushwhack needed the gear-token primitive; Draven
+  // needed that AND a combat-WON event AND a list-valued
+  // `EventTriggerDefinition.on`; Dunebreaker needed a clause in
+  // `deploy.unitEntersReady`, which now carries all four of SFD's conditional
+  // enter-readys.
+  it("Dunebreaker is WHOLE now — both clauses, and no partial note", () => {
+    expect(registry.get(DUNEBREAKER).text).toContain("I enter ready");
+    expect(isCardImplemented(registry.get(DUNEBREAKER))).toBe(true);
+    expect(partialImplementationNote(registry.get(DUNEBREAKER))).toBeUndefined();
+  });
 });

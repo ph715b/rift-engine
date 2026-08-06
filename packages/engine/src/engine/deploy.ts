@@ -75,7 +75,19 @@ export function gearEntersExhausted(defId: string): boolean {
  *  half, and coverage merges both), and Iron Ballista's enters-exhausted clause
  *  (its ability is in activated-abilities.ts). */
 export function playCardDefIds(): string[] {
-  return [MAGMA_WURM, LEONA_ZEALOT, VAYNE_HUNTER, ...GEAR_ENTERING_EXHAUSTED];
+  // SFD's four conditional enter-readys are implemented HERE, so coverage must
+  // be able to see them — a card whose whole text is "I enter ready if X" has
+  // no other registration anywhere.
+  return [
+    MAGMA_WURM,
+    LEONA_ZEALOT,
+    VAYNE_HUNTER,
+    DUNEBREAKER,
+    DIREWING,
+    BREAKNECK_MECH,
+    XIN_ZHAO_VIGILANT,
+    ...GEAR_ENTERING_EXHAUSTED,
+  ];
 }
 
 /**
@@ -110,9 +122,69 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     // an opponent standing at an uncontrolled battlefield does not count, which
     // is what separates "controls" from "is present at".
     (card.defId === VAYNE_HUNTER &&
-      state.battlefields.some((bf) => bf.controllerId === state.players[playerIndex === 0 ? 1 : 0].id))
+      state.battlefields.some((bf) => bf.controllerId === state.players[playerIndex === 0 ? 1 : 0].id)) ||
+    // SFD's four conditional enter-readys. Every one is a property of the
+    // board at the moment the unit arrives, which is exactly what this
+    // predicate is for.
+    //
+    // **Deliberately NOT faked as an on-play `readyUnit` trigger**, and three
+    // separate agents reached that conclusion independently while refusing to
+    // write them. Three reasons, all observable: the trigger is a held Chain
+    // Pending Item, so the unit would sit EXHAUSTED through the whole response
+    // window; it would fire `unitReadied`, paying out Pirate's Haven for a
+    // readying the rules say never happened; and it would be blockable by
+    // Mageseeker Warden. "I enter ready" is a replacement, not a readying.
+    //
+    // `card-loader`'s QUICK_TEXT_OVERRIDES comment already rejected "a
+    // redundant on-play un-exhaust effect" for this exact text.
+    sfdConditionalEntersReady(state, playerIndex, card)
   );
 }
+
+/**
+ * The four SFD units whose "I enter ready" carries a condition.
+ *
+ * Asked BEFORE the unit is inserted into its zone (see this function's only
+ * caller in execute-play-card), so a count of "other units" needs no
+ * self-exclusion — the arriving unit is not there yet. Pinned by a test,
+ * because that is exactly the sort of off-by-one that reads correct.
+ */
+function sfdConditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: UnitInstance): boolean {
+  const player = state.players[playerIndex];
+  switch (card.defId) {
+    case DUNEBREAKER:
+      // "If you have two or fewer cards in your hand, I enter ready." Read
+      // AFTER he has left hand to be played, which is what "you have" means at
+      // the moment he arrives.
+      return player.hand.length <= DUNEBREAKER_MAX_HAND;
+    case DIREWING:
+      // "I enter ready if you control another Dragon." ANOTHER, so he cannot
+      // be his own Dragon — and he is not in a zone yet, so this counts only
+      // the ones already there.
+      return ownUnitsOf(state, playerIndex).some((u) => u.tags.includes("Dragon"));
+    case BREAKNECK_MECH:
+      return ownUnitsOf(state, playerIndex).some((u) => u.tags.includes("Mech"));
+    case XIN_ZHAO_VIGILANT:
+      // "if you have two or more OTHER units in your BASE" — base only, not
+      // the battlefields, and "other" is free for the same reason.
+      return player.baseUnits.length >= XIN_ZHAO_OTHER_UNITS;
+    default:
+      return false;
+  }
+}
+
+/** Every unit this player has in play, base and battlefields alike. */
+function ownUnitsOf(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  const player = state.players[playerIndex];
+  return [...player.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[player.id] ?? [])];
+}
+
+const DUNEBREAKER = "SFD-027";
+const DUNEBREAKER_MAX_HAND = 2;
+const DIREWING = "SFD-094";
+const BREAKNECK_MECH = "SFD-071";
+const XIN_ZHAO_VIGILANT = "SFD-176";
+const XIN_ZHAO_OTHER_UNITS = 2;
 
 /**
  * Spends one Sun Disc charge, if the unit that just entered play used one.

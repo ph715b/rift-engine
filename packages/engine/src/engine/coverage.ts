@@ -281,8 +281,8 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Three of the six are blocked on the SAME missing primitive — a gear-token
   // (the Gold token, `sfd-t03`) — which four separate agents hit independently
   // across eleven cards. That is the wave's largest single finding.
-  ["SFD-027", "'when I hold, draw 2' works; 'If you have two or fewer cards in hand, I enter ready' needs a clause in deploy.unitEntersReady"],
   ["SFD-057", "the 'ready me' half works; 'when you CHOOSE me' needs a unitChosen GameEvent — no board-wide choosing moment exists"],
+  ["SFD-166", "'Draw 1' works; 'When a friendly unit is played this turn, buff it' needs a delayed-trigger flag on PlayerState read at the play site"],
   ["SFD-175", "the on-play pump works; 'As I'm revealed from your deck, [Add] 2 Energy' needs a reveal-from-deck hook"],
   // The six Equipment whose printed `[Equip]` cost this engine cannot yet
   // express. Attachment itself works — these are cost shapes, not a missing
