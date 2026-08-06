@@ -22,6 +22,7 @@ import {
   grantTemporary,
   ownUnitsEverywhere,
   payPowerFromChanneled,
+  payEnergyFromPool,
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
@@ -41,6 +42,7 @@ import { RAINBOW } from "../hidden.js";
 import { placeGoldTokens } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
+import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
@@ -73,6 +75,9 @@ import { wearerListener } from "../equipment.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
+/** Hard Bargain's ransom — "unless its controller pays [2]". */
+const HARD_BARGAIN_RANSOM = 2;
+
 export const cardEffects: Record<string, EffectDefinition> = {
   "OGN-203": {
     // Possession — "Choose an enemy unit at a battlefield. Take control of it and
@@ -136,6 +141,46 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // from it") — both already handled there, which is why this is one call.
     targeting: { kind: "unit" },
     resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state),
+  },
+  "SFD-136": {
+    // Hard Bargain — "[Reaction] [Repeat] [2] Counter a spell unless its
+    // controller pays [2]."
+    //
+    // Wind Wall's targeting with Shakedown's second half: the CASTER picks the
+    // spell, and then the spell's CONTROLLER picks the poison — pay 2 Energy, or
+    // be countered. So the target is an ordinary `chainSpell` fan-out on the
+    // action and the ransom is a decision belonging to the other seat.
+    //
+    // No cost filter — unlike Defy, the card names none, so any spell on the
+    // chain is a legal target including the caster's own. Countering your own
+    // spell to dodge something worse is a real (if rare) line, and nothing in the
+    // text forbids it; the decision then simply belongs to the caster.
+    //
+    // The controller is read from the CHAIN ENTRY when the question is raised and
+    // travels on the decision, the same reasoning Shakedown records: by the time
+    // it is answered the chain has moved.
+    //
+    // **Repeating it is a DOUBLE ransom, not a double counter, and that falls out
+    // of the ordering rather than being arranged.** Both executions run back to
+    // back inside one resolution (820.1.d) and decisions are answered afterwards,
+    // so two ransom questions are queued against the same spell. Answering the
+    // first by paying leaves the spell on the chain for the second to ask again —
+    // 2 Energy, then 2 more. Answering the first by declining counters it, and
+    // the second question then finds nothing to counter and resolves to nothing.
+    // That second case is why the decision re-checks the chain at ANSWER time
+    // instead of trusting that its target still exists (359.3).
+    targeting: { kind: "chainSpell" },
+    resolve: (state, _ctx, event) => {
+      const spellId = event.targetChainCardInstanceId;
+      if (!spellId) return state;
+      const target = spellsOnChain(state).find((s) => s.entry.card.instanceId === spellId);
+      if (!target) return state; // already countered — 359.3
+      return parkDecision(state, {
+        kind: "SFD-136-ransom",
+        playerIndex: target.entry.playerIndex,
+        cardInstanceId: spellId,
+      });
+    },
   },
   "SFD-122": {
     // Called Shot — "[Action] [Repeat] [Chaos] Look at the top 2 cards of your
@@ -1447,6 +1492,56 @@ export const decisions: Record<string, DecisionDefinition> = {
     options: (state, d) =>
       state.players[d.playerIndex].deck.slice(0, 3).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
     resolve: (state, d, optionId) => takeOneFromTopAndRecycleRest(state, d.playerIndex, 3, optionId),
+  },
+  // Hard Bargain's "unless its controller pays [2]" — answered by the SPELL'S
+  // controller, whose seat is `d.playerIndex`.
+  //
+  // Every branch re-asks whether the spell is still on the chain, because a
+  // repeated Hard Bargain queues two of these against the same target and the
+  // first may already have countered it. 359.3: a check on something no longer
+  // available returns null and the instruction is ignored.
+  "SFD-136-ransom": {
+    prompt: (state, d) => {
+      const spell = spellsOnChain(state).find((s) => s.entry.card.instanceId === d.cardInstanceId);
+      return spell ? `Hard Bargain: pay [2] or ${spell.entry.card.name} is countered` : "Hard Bargain: nothing left to counter";
+    },
+    options: (state, d) => {
+      const spell = spellsOnChain(state).find((s) => s.entry.card.instanceId === d.cardInstanceId);
+      // Already countered by the first execution's ransom. ONE option, which
+      // `advanceDecisions` auto-resolves, so nobody is prompted for a question
+      // that no longer has a subject.
+      if (!spell) return [{ id: "gone", label: "Nothing to counter" }];
+      // Declining first, so a mis-click and the AI's tie-break both land on the
+      // option that costs nothing — the convention Flame Chompers records. Here
+      // that means being countered, which is the card working as printed.
+      const options: DecisionOption[] = [{ id: "decline", label: `Let ${spell.entry.card.name} be countered` }];
+      // Offered only when the 2 Energy is really payable — floating first, then
+      // Ready runes, which is what `payEnergyFromPool` does. A controller who
+      // cannot pay is simply countered.
+      if (payEnergyFromPool(state, d.playerIndex, HARD_BARGAIN_RANSOM)) {
+        options.push({ id: "pay", label: `Pay [${HARD_BARGAIN_RANSOM}] to save it` });
+      }
+      return options;
+    },
+    // The "is it still there?" guard lives in `options` above, NOT here. A
+    // duplicate scan in this function was written first and then deleted for
+    // failing its own mutation test: removing it changed no observable
+    // behaviour, because `options` never offers "pay" for a spell that is gone
+    // and `counterSpell` on a missing id is a no-op. Deleting the `options`
+    // guard, by contrast, throws. One of the two was load-bearing and it is that
+    // one — so this branches on the option and trusts the offer, which is the
+    // same contract every other decision here works under.
+    resolve: (state, d, optionId) => {
+      if (!d.cardInstanceId || optionId === "gone") return state;
+      if (optionId === "pay") {
+        // Re-derived rather than trusted: the Energy may have gone between the
+        // offer and the answer, and a payment that cannot be made does not save
+        // the spell.
+        const paid = payEnergyFromPool(state, d.playerIndex, HARD_BARGAIN_RANSOM);
+        return paid ?? counterSpell(state, d.cardInstanceId);
+      }
+      return counterSpell(state, d.cardInstanceId);
+    },
   },
   "SFD-122-keep": {
     // Called Shot's half of Stacked Deck's question, at 2 rather than 3.

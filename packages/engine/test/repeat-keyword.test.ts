@@ -6,7 +6,9 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { repeatCostOf, repeatCostDefIds } from "../src/engine/card-effects.js";
 import { modifiedRepeatEnergy } from "../src/engine/cost-modifiers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
+import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import type { GameState } from "../src/model/game-state.js";
+import { isSpellChainEntry } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { Domain } from "../src/model/domain.js";
 import { answerDecisions, makeState, makeUnit, pickCard, spellInstance } from "./fixtures.js";
@@ -60,6 +62,27 @@ function resolveChain(state: GameState): GameState {
     current = accept(current, pass);
   }
   expect(current.spellChain, "the chain never resolved").toHaveLength(0);
+  return current;
+}
+
+/**
+ * Passes focus until a decision is parked or the chain empties — for the cards
+ * whose effect ASKS something.
+ *
+ * Distinct from `resolveChain`, which insists the chain empties: a spell that
+ * parks a question stops the chain dead, because while a decision is pending the
+ * only legal action is an answer. Using `resolveChain` on one of those hangs on
+ * a PassFocus that is never offered.
+ */
+function untilDecision(state: GameState): GameState {
+  let current = state;
+  for (let guard = 0; guard < 8; guard += 1) {
+    if (pendingDecision(current) !== undefined) return current;
+    if (current.spellChain.length === 0) return current;
+    const pass = legalActions(current).find((a) => a.type === "PassFocus");
+    if (!pass) return current;
+    current = accept(current, pass);
+  }
   return current;
 }
 
@@ -629,6 +652,119 @@ describe("Called Shot parks one decision per execution", () => {
     expect(repeated.payment.energyRunes, "its Repeat adds no Energy either").toHaveLength(0);
     expect(plain.payment.powerRunes).toHaveLength(1);
     expect(repeated.payment.powerRunes, "1 printed Chaos + 1 repeat Chaos").toHaveLength(2);
+  });
+});
+
+/**
+ * Hard Bargain (SFD-136) — "[Reaction] [Repeat] [2] Counter a spell unless its
+ * controller pays [2]."
+ *
+ * Repeating it is a DOUBLE RANSOM rather than a double counter, and that falls
+ * out of the ordering: both executions run inside one resolution (820.1.d) and
+ * queue their questions, so the controller is asked twice against the same
+ * spell. Pay both and it lives; decline the first and the second finds nothing
+ * left to counter (359.3).
+ */
+describe("Hard Bargain ransoms a spell once per execution", () => {
+  /** p1 has a spell on the chain; p0 holds Hard Bargain and can afford it. */
+  function chainWithVictim(victimRunes: number) {
+    const bargain = spellInstance("SFD-136");
+    const victim = spellInstance("OGN-064"); // Wind Wall — any spell will do
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [bargain];
+    state.players[0]!.channeled = runes("Chaos", 12);
+    state.players[1]!.channeled = runes("Calm", victimRunes);
+    state.spellChain = [{ playerIndex: 1, card: victim }];
+    return { state, bargainId: bargain.instanceId, victimId: victim.instanceId };
+  }
+
+  // Through `isSpellChainEntry` rather than reading `.card` off a raw ChainEntry:
+  // the chain is a UNION of spell and trigger entries and only one of them has a
+  // card. The engine's `build` tsconfig excludes tests, so a raw access here
+  // typechecks green under `npm run build` and red under `npm run typecheck` —
+  // which is the split that once sat red for 12 errors behind a green build.
+  const chainHas = (state: GameState, id: string) =>
+    state.spellChain.some((e) => isSpellChainEntry(e) && e.card.instanceId === id);
+
+  it("declined, the spell is countered", () => {
+    const { state, bargainId, victimId } = chainWithVictim(8);
+    const play = playsOf(state, bargainId).find((a) => !a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    // "decline" is the first option, which is what the default picker takes.
+    const after = answerDecisions(untilDecision(accept(state, play)));
+
+    expect(chainHas(after, victimId), "declining did not counter it").toBe(false);
+  });
+
+  it("paid, the spell survives and the ransom is actually taken", () => {
+    const { state, bargainId, victimId } = chainWithVictim(8);
+    const play = playsOf(state, bargainId).find((a) => !a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const after = answerDecisions(untilDecision(accept(state, play)), (options) => options.find((o) => o.id === "pay")!.id);
+
+    expect(chainHas(after, victimId), "paying did not save it").toBe(true);
+    // Two Ready runes went to pay the ransom.
+    expect(after.players[1]!.channeled.filter((r) => r.state === "Exhausted")).toHaveLength(2);
+  });
+
+  /**
+   * A controller who cannot pay is simply countered, and is never even asked.
+   *
+   * With only 1 rune against a ransom of 2 the "pay" option is not offered, which
+   * leaves ONE option — and a one-option decision is AUTO-RESOLVED rather than
+   * prompted. So the assertion is about the outcome and about the absence of any
+   * prompt; there is deliberately no parked decision to inspect, and looking for
+   * one is how this test was wrong the first time.
+   */
+  it("never even asks a controller who cannot afford the ransom", () => {
+    const { state, bargainId, victimId } = chainWithVictim(1); // 1 rune, ransom is 2
+    const play = playsOf(state, bargainId).find((a) => !a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const after = untilDecision(accept(state, play));
+
+    expect(pendingDecision(after), "a question with one answer should not have been asked").toBeUndefined();
+    expect(chainHas(after, victimId), "the unaffordable ransom did not counter it").toBe(false);
+    // The lone rune is untouched — nothing was part-paid on the way to failing.
+    expect(after.players[1]!.channeled.filter((r) => r.state === "Exhausted")).toHaveLength(0);
+  });
+
+  /** The positive control for the test above: with 2 runes the question IS asked. */
+  it("and does ask when the ransom is affordable", () => {
+    const { state, bargainId, victimId } = chainWithVictim(2);
+    const play = playsOf(state, bargainId).find((a) => !a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const parked = untilDecision(accept(state, play));
+
+    const decision = pendingDecision(parked)!;
+    expect(decision.kind).toBe("SFD-136-ransom");
+    expect(optionsFor(parked, decision).map((o) => o.id).sort()).toEqual(["decline", "pay"]);
+  });
+
+  /** Repeated and paid twice: 4 Energy total, and the spell lives. */
+  it("repeated, it ransoms TWICE — pay both and the spell survives", () => {
+    const { state, bargainId, victimId } = chainWithVictim(8);
+    const play = playsOf(state, bargainId).find((a) => a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const parked = untilDecision(accept(state, play));
+
+    expect(parked.pendingDecisions.filter((d) => d.kind === "SFD-136-ransom"), "two ransoms").toHaveLength(2);
+
+    const after = answerDecisions(parked, (options) => (options.find((o) => o.id === "pay") ?? options[0]!).id);
+    expect(chainHas(after, victimId)).toBe(true);
+    expect(after.players[1]!.channeled.filter((r) => r.state === "Exhausted"), "2 + 2").toHaveLength(4);
+  });
+
+  /**
+   * Decline the FIRST ransom and the spell is countered; the second question
+   * then has no subject. It must not counter anything again, and must not charge
+   * a second ransom for a spell that is already gone — which is why the decision
+   * re-checks the chain at answer time rather than trusting its stored target.
+   */
+  it("repeated, declining the first leaves the second with nothing to counter", () => {
+    const { state, bargainId, victimId } = chainWithVictim(8);
+    const play = playsOf(state, bargainId).find((a) => a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const parked = untilDecision(accept(state, play));
+
+    // Decline everything: the first counters, the second must no-op.
+    const after = answerDecisions(parked, (options) => options[0]!.id);
+    expect(chainHas(after, victimId)).toBe(false);
+    // And nothing was charged for the second, dead question.
+    expect(after.players[1]!.channeled.filter((r) => r.state === "Exhausted")).toHaveLength(0);
   });
 });
 
