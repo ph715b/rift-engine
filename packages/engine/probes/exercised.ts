@@ -54,7 +54,15 @@
  * Nothing observes a resolver. Instrumenting `card-effects.ts` would have been the
  * obvious implementation and would have counted the AI thinking as the AI acting.
  */
-import { chooseAction, defaultCardRegistry, needsImplementation, setCodeOf, submit } from "@rift-engine/engine";
+import {
+  activatedAbilityFor,
+  chooseAction,
+  defaultCardRegistry,
+  generateCoveringDecks,
+  needsImplementation,
+  setCodeOf,
+  submit,
+} from "@rift-engine/engine";
 import { at, legacyBattlefields, PRESET_DECKS, report, startedGame } from "./harness.ts";
 import { ExerciseLog, topCounts } from "./exercise-log.ts";
 
@@ -62,6 +70,37 @@ const GAMES = Number(process.env.GAMES ?? 40);
 const ACTION_CAP = 3000;
 
 const registry = defaultCardRegistry();
+
+/**
+ * `DECKS=sfd` swaps the seven pinned presets for one GENERATED deck per SFD
+ * Legend, every implemented SFD card deliberately seated.
+ *
+ * Opt-in rather than the default, and the presets are untouched, because four
+ * other probes read `PRESET_DECKS` and three of them pin recorded figures
+ * (walkout's 191/107/32, chain-depth's Sett decks). Changing what everyone
+ * plays to measure one set would move numbers that exist to catch regressions.
+ *
+ * The reason this mode exists at all: SFD reached 60 implemented cards while
+ * this probe reported 0 of them exercised, because a card no deck contains
+ * cannot be played however many games run. That is a DECK problem, and it is
+ * fixed by decks.
+ */
+const DECK_SET = process.env.DECKS?.toUpperCase();
+const GENERATED = DECK_SET === undefined ? undefined : generateCoveringDecks(DECK_SET, registry);
+if (GENERATED) {
+  if (GENERATED.unbuildable.length > 0) {
+    throw new Error(`DECKS=${DECK_SET}: ${GENERATED.unbuildable.length} unbuildable — ${GENERATED.unbuildable.join("; ")}`);
+  }
+  if (GENERATED.decks.length === 0) throw new Error(`DECKS=${DECK_SET}: no Legend in that set`);
+  // Loud, because a covering run that silently covers nothing is the exact
+  // shape `make-buffdeck.mjs` failed in: reporting its input as its output.
+  console.error(
+    `DECKS=${DECK_SET}: ${GENERATED.decks.length} generated decks, ` +
+      `${GENERATED.covered} subjects seated, ${GENERATED.orphans.length} orphans`,
+  );
+  for (const orphan of GENERATED.orphans) console.error(`  ORPHAN (no Legend can hold it): ${orphan}`);
+}
+const DECKS: readonly (typeof PRESET_DECKS)[number][] = GENERATED ? GENERATED.decks.map((d) => d.deck) : PRESET_DECKS;
 const log = new ExerciseLog();
 
 /** Every defId the decks in this run could put in front of a player. Legend and
@@ -73,8 +112,8 @@ let invalid = 0;
 let gamesRun = 0;
 
 for (let seed = 1; seed <= GAMES; seed++) {
-  const deckA = at(PRESET_DECKS, seed);
-  const deckB = at(PRESET_DECKS, seed + 1);
+  const deckA = at(DECKS, seed);
+  const deckB = at(DECKS, seed + 1);
   for (const deck of [deckA, deckB]) {
     decksUsed.add(deck.name);
     inDecks.add(deck.legendId);
@@ -186,11 +225,35 @@ const inDeckButNeverOffered = [...inDecks]
  *  than played. Anything else here means this observer resolved a defId wrongly. */
 const exercisedOutsideDecks = [...exercised].filter((id) => !inDecks.has(id)).sort();
 
+/** Cards in these decks carrying an activated ability the AI would consider —
+ *  `banksResource` ones are excluded because `heuristic-ai` deliberately drops
+ *  them, so counting them would make the control demand the impossible. */
+const activatableInDecks = [...inDecks].filter((id) => {
+  const ability = activatedAbilityFor(id);
+  return ability !== undefined && ability.banksResource !== true;
+}).length;
+
 const controls = {
   /** All three signals fired. A zero in any of them means that whole detection
    *  path is broken, which no coverage percentage would reveal. */
   playedSeen: log.played.size > 0,
-  activatedSeen: log.activated.size > 0,
+  /**
+   * **Conditioned on the decks CONTAINING something the AI would activate**,
+   * because otherwise this control measures the decks rather than the observer.
+   *
+   * `DECKS=SFD` found that the hard way: 40 games, zero activations, gate red —
+   * and correctly so, because the only activatable SFD card in the pool is the
+   * Gold token, whose ability is flagged `banksResource` and is therefore
+   * dropped from the AI's candidate pool ON PURPOSE (`evaluate` scores board
+   * state, so a banked resource can only tie with Pass). There was nothing to
+   * activate and nothing wrong.
+   *
+   * So the premise is checked instead of the gate being weakened: if no card in
+   * these decks has an ability this AI would ever take, the control has no
+   * subject and says so rather than failing. If one DOES and none fired, that is
+   * still a red gate, which is the case this exists for.
+   */
+  activatedSeen: activatableInDecks === 0 || log.activated.size > 0,
   triggeredSeen: log.triggered.size > 0,
   /** The negative control. If everything in the pool reports exercised, the
    *  observer is marking rather than measuring. */
@@ -226,6 +289,12 @@ report(
       activated: log.activated.size,
       triggered: log.triggered.size,
       activationsUnresolved: log.activationsUnresolved,
+      /** Cards in these decks with an ability the AI would ever take. Reported
+       *  because `controls.activatedSeen` passes vacuously when this is 0, and
+       *  a bare `true` cannot be told from "activations really happened" — the
+       *  reporting flaw `inDeckButNeverOffered` vs `offeredButNeverTaken` was
+       *  split apart to fix. A DECKS=SFD run reads 0 here, and should. */
+      activatableInDecks,
     },
     offered: log.offered.size,
     inDeckButNeverOffered,

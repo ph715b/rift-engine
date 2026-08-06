@@ -28,6 +28,11 @@ export * from "./actions/execute-float-rune.js";
 
 export * from "./decks/deck-list.js";
 export * from "./decks/deck-validation.js";
+export * from "./decks/deck-generator.js";
+// Named rather than a star re-export: activated-abilities.ts exports a large
+// surface, and probes need exactly this one to ask whether a deck holds an
+// ability the AI would ever take.
+export { activatedAbilityFor } from "./engine/activated-abilities.js";
 export * from "./decks/deck-file-parser.js";
 export * from "./decks/decklist-text-parser.js";
 export * from "./decks/player-setup.js";
