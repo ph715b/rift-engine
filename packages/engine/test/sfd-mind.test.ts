@@ -7,6 +7,10 @@ import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
+import { legalActions } from "../src/engine/legal-actions.js";
+import { activationCostOf } from "../src/engine/activated-abilities.js";
+import { submit } from "../src/engine/game-engine.js";
+import type { ActivateAbilityAction } from "../src/actions/player-action.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type GearInstance, type UnitInstance } from "../src/model/card.js";
@@ -767,9 +771,79 @@ describe("Ezreal - Dashing (SFD-082): damage equal to my Might when I fight — 
     // without the drawback he dealt that AND his Might in the damage step. It
     // lives in `combat.outgoingMight`, beside the Stun rule it mirrors.
     //
-    // What is left is the activated ability, and the note says so.
-    expect(isCardImplemented(registry.get(EZREAL_DASHING))).toBe(false);
-    expect(partialImplementationNote(registry.get(EZREAL_DASHING))).toContain("Move me to your base");
+    // **And the third has now landed**, which is what this test was told to
+    // become: its predecessor asserted the over-report to make it VISIBLE and
+    // said outright that when the coverage entry arrived it must be REPLACED,
+    // not deleted. So it asserts the finished card, and the clause itself is
+    // driven below.
+    expect(isCardImplemented(registry.get(EZREAL_DASHING))).toBe(true);
+    expect(partialImplementationNote(registry.get(EZREAL_DASHING)), "a note outlived its clause").toBeUndefined();
+  });
+
+  describe("his third clause — :rb_rune_mind:: [Action] — Move me to your base", () => {
+    /** Ezreal at bf1 with `runes` Mind runes channeled, and an enemy beside him
+     *  so the battlefield is a place worth leaving. */
+    function atBattlefield(runes: number, domain: "Mind" | "Fury" = "Mind"): GameState {
+      const ezreal = unitCard(EZREAL_DASHING);
+      const state = makeState({ phase: "Action" });
+      state.battlefields[0]!.units = { p1: [ezreal], p2: [makeUnit({ might: 1 })] };
+      state.players[0]!.channeled = Array.from({ length: runes }, (_, i) => ({
+        id: `r${i}`,
+        domain,
+        state: "Ready" as const,
+      }));
+      return state;
+    }
+
+    const ezrealAction = (state: GameState) =>
+      legalActions(state).find(
+        (a): a is ActivateAbilityAction =>
+          a.type === "ActivateAbility" &&
+          (state.battlefields[0]!.units.p1 ?? []).some((u) => u.instanceId === a.permanentInstanceId),
+      );
+
+    it("walks him home for one Mind Power", () => {
+      const state = atBattlefield(1);
+      const use = ezrealAction(state);
+      expect(use, "the ability was not offered").toBeDefined();
+
+      const { state: after, result } = submit(state, use!);
+      expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+      expect(after.battlefields[0]!.units.p1 ?? [], "he is still at the battlefield").toHaveLength(0);
+      expect(after.players[0]!.baseUnits, "he did not arrive in base").toHaveLength(1);
+      // A Power cost RECYCLES the rune (416) rather than exhausting it.
+      expect(after.players[0]!.channeled, "the Mind Power was not paid").toHaveLength(0);
+    });
+
+    /** The domain is printed, so a rune of another domain cannot pay it. */
+    it("is not offered off a rune of the wrong domain", () => {
+      expect(ezrealAction(atBattlefield(1, "Fury")), "a Fury rune paid a Mind pip").toBeUndefined();
+    });
+
+    /**
+     * **The ability's COST takes no exhaust, because none is printed** — asserted
+     * on the cost itself, which is the only place the distinction is visible.
+     *
+     * He arrives in base EXHAUSTED all the same, and that is not this ability:
+     * `recallUnitToBase` force-exhausts on arrival, and whether a card-driven
+     * recall should is an OPEN QUESTION already filed in
+     * docs/rules-conformance.md — Flash and Maddened Marauder both say "move",
+     * not "recall", and neither mentions exhaustion. Ezreal is the third card to
+     * ride it and the first where the recall is a REPEATABLE ability.
+     *
+     * Asserted rather than left silent, so that settling the question fails this
+     * test instead of being discovered in play.
+     */
+    it("takes no exhaust as a COST, though the recall exhausts him on arrival", () => {
+      expect(activationCostOf(EZREAL_DASHING).exhaust, "an exhaust nobody printed was added to the cost").toBeUndefined();
+      expect(activationCostOf(EZREAL_DASHING)).toEqual({ power: { domain: "Mind", count: 1 } });
+
+      const state = atBattlefield(1);
+      const after = submit(state, ezrealAction(state)!).state;
+      expect(after.players[0]!.baseUnits[0]!.exhausted, "see the open question above — this is the RECALL's exhaust").toBe(
+        true,
+      );
+    });
   });
 
   it("really does deal no combat damage now", () => {

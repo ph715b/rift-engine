@@ -518,6 +518,30 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         ? attachEquipment(state, ctx.casterIndex, event.targetPermanentInstanceId, event.targetUnitInstanceId)
         : state,
   },
+  "SFD-082": {
+    // Ezreal - Dashing, his THIRD clause — ":rb_rune_mind:: [Action] — Move me to
+    // your base."
+    //
+    // The other two are written elsewhere and this was the whole of his partial
+    // note: the attack/defend damage trigger and "I don't deal combat damage".
+    //
+    // **No exhaust**, because none is printed — the same call `equipAbilities`
+    // makes for an `[Equip]` cost, and it is the difference between a unit that
+    // can bail out repeatedly while the Power lasts and one that can do it once.
+    // A cost this engine adds is a cost the card does not have.
+    //
+    // "Move ME", so there is nothing to target: the source IS the subject, which
+    // arrives as `resolve`'s 4th argument. `recallUnitToBase` rather than the
+    // MoveUnit executor, exactly as Yasuo - Unforgiven's own move does — 415.1.b
+    // puts the exhaust on the Standard Move ACTION, and this is not one.
+    //
+    // `[Action]` needs nothing: `validate-activate-ability` applies no timing
+    // check to any activation, a standing permissiveness recorded in that file.
+    kind: "Unit",
+    cost: { power: { domain: "Mind", count: 1 } },
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _event, sourceInstanceId) => recallUnitToBase(state, sourceInstanceId),
+  },
   "SFD-078": {
     // Temporal Portal — ":rb_rune_rainbow:, [Exhaust]: Give the next spell you
     // play this turn [Repeat] equal to its cost."

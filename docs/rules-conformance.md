@@ -376,6 +376,15 @@ targets for the next pass, by blast radius:
    cleanup's own recall was given a separate state-preserving helper rather
    than changing these on a guess. Also covers the player-initiated
    `RecallUnit` action (`execute-recall-unit.ts`), which exhausts too.
+   **A THIRD card now rides it: Ezreal - Dashing (SFD-082)**, whose ability is
+   ":rb_rune_mind:: [Action] — Move me to your base" — again *move*, again no
+   mention of exhaustion. His ability itself takes no exhaust as a COST (none is
+   printed), and that is a separate fact from the arrival exhaust this question
+   is about; `test/sfd-mind.test.ts` asserts the cost shape and documents the
+   arrival exhaust as this row rather than as his behaviour. He also makes the
+   question slightly sharper: he is the first card where the recall is a
+   REPEATABLE ability, so if the arrival exhaust is wrong, it is wrong every
+   time the Power is available rather than once per spell.
 
 ## Card errata
 
