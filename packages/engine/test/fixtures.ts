@@ -108,6 +108,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
+    conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,

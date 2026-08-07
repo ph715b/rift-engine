@@ -137,7 +137,17 @@ export function recordConquest(
   const alreadyScored =
     scoringBlocked || state.players[playerIndex].scoredBattlefieldsThisTurn.includes(battlefieldId);
 
+  // Perched Grimwyrm's list. Recorded here rather than beside the scoring
+  // bookkeeping below because taking the battlefield and scoring for it are
+  // different facts: a conquest whose point is withheld (Tianna Crownguard) or
+  // whose scoring is blocked (Forgotten Monument) is still a conquest.
   let next = updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    conqueredBattlefieldsThisTurn: p.conqueredBattlefieldsThisTurn.includes(battlefieldId)
+      ? p.conqueredBattlefieldsThisTurn
+      : [...p.conqueredBattlefieldsThisTurn, battlefieldId],
+  }));
+  next = updatePlayer(next, playerIndex, (p) => ({
     ...p,
     scoredBattlefieldsThisTurn: alreadyScored ? p.scoredBattlefieldsThisTurn : [...p.scoredBattlefieldsThisTurn, battlefieldId],
   }));

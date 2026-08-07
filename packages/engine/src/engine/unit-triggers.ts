@@ -26,7 +26,7 @@ import { defaultCardRegistry } from "../cards/card-registry.js";
 import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
-import { isAttackingAt } from "./combat-designation.js";
+import { attackerIndexAt, isAttackingAt } from "./combat-designation.js";
 import type { EventTriggerDefinition } from "./triggers.js";
 import { holdWeaponmasterOffer } from "./equipment.js";
 
@@ -126,7 +126,7 @@ export function unitTriggerHasVisionChoice(state: GameState, playerIndex: 0 | 1,
  * the specific drift that has bitten this codebase before (see
  * mayPlaceWithoutPresence below).
  */
-type PlacementGrant = "openBattlefield" | "occupiedEnemyBattlefield";
+type PlacementGrant = "openBattlefield" | "occupiedEnemyBattlefield" | "attackingBattlefield";
 
 const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "OGN-176": "openBattlefield", // Sneaky Deckhand
@@ -137,6 +137,15 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   // is one row and not a card implementation: the validator and the enumerator
   // both already read this table.
   "SFD-093": "occupiedEnemyBattlefield", // Dauntless Vanguard
+  // Rengar - Pouncing — "I can be played to a battlefield you're ATTACKING."
+  //
+  // A GRANT like the three above, and it needs no new field on the action: the
+  // Attacker designation is `contestedByIndex`, which is already on the
+  // battlefield and is exactly what `attackerIndexAt` reads. His `[Reaction]`
+  // timing is the loader's and is what makes the grant reachable at all — a
+  // battlefield is only "one you're attacking" while a Showdown is open, and a
+  // Default-tier card could never be played then.
+  "SFD-025": "attackingBattlefield", // Rengar - Pouncing
 };
 
 export function canPlayToOpenBattlefield(defId: string): boolean {
@@ -203,6 +212,14 @@ export function mayPlaceWithoutPresence(
       return isOpenBattlefield(battlefield);
     case "occupiedEnemyBattlefield":
       return isOccupiedByEnemy(state, playerIndex, battlefield);
+    case "attackingBattlefield":
+      // "A battlefield you're ATTACKING" — the Attacker designation is 465 Step
+      // 1's, i.e. the player who applied Contested, which is the same question
+      // `isAttackingAt` asks for the "when I attack" triggers. Asking it through
+      // the one function that answers "who is attacking here" is what stops a
+      // card that is PLAYED to an attack and a card that TRIGGERS on attacking
+      // from disagreeing about who is doing it.
+      return attackerIndexAt(state, battlefield.id) === playerIndex;
     default:
       // Miss Fortune - Buccaneer grants the open-battlefield placement to EVERY
       // friendly unit while she is in play, so a card with no grant of its own

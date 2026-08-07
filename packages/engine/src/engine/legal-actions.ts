@@ -56,6 +56,7 @@ import {
   actingPlayerIndex,
   hasAccelerate,
   mayPlayCardNow,
+  mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
@@ -1322,8 +1323,14 @@ export function legalActions(state: GameState): PlayerAction[] {
       // which is what the doc had recorded as unreachable on the strength of the
       // PRESET decks, while the pool holds six hidden units and a hidden gear.
       // Every one of them was playable straight into base for free.
+      //
+      // Perched Grimwyrm adds a second, card-keyed reason: "(You can't play me
+      // anywhere else.)" makes his narrowing TOTAL, so he has no base play at
+      // all. Asked through the same predicate the validator uses, so a base play
+      // cannot be offered and then refused.
       const baseVariantForbidden =
-        fromHidden && ((card.kind === "Spell" && cardPlacesTokens(card.defId)) || card.kind === "Unit");
+        (fromHidden && ((card.kind === "Spell" && cardPlacesTokens(card.defId)) || card.kind === "Unit")) ||
+        (card.kind === "Unit" && !mayPlayUnitToBase(card.defId));
       if (!baseVariantForbidden) actions.push(play);
 
       // A Unit may ALSO be played directly to a battlefield where the actor
@@ -1355,7 +1362,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             // offered a [Reaction] Unit a reinforce destination the validator then
             // refused, and the AI (which trusts legalActions and calls the executor
             // directly) threw on it mid-game.
-            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id)) continue;
+            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id, card.defId)) continue;
           }
           const reinforce: PlayCardAction = {
             type: "PlayCard",

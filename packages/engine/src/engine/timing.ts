@@ -137,7 +137,49 @@ export function mayPlayCardNow(
  * validator then refused, and the AI — which trusts `legalActions` and calls the
  * executor directly — threw on it.
  */
-export function mayPlayUnitToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: string): boolean {
+/**
+ * Perched Grimwyrm — "Play me ONLY to a battlefield you conquered this turn.
+ * (You can't play me anywhere else.)"
+ *
+ * **A RESTRICTION, not a grant**, which is what separates it from everything in
+ * `PLACEMENT_GRANTS`: those WIDEN where a card may go, and this narrows it to
+ * one set — and the parenthetical makes the narrowing total, so BASE is refused
+ * too. That is why it cannot live in that table, whose default answer for a card
+ * with no entry is "the ordinary rules apply".
+ *
+ * Read from `conqueredBattlefieldsThisTurn` rather than
+ * `scoredBattlefieldsThisTurn`: the latter records the once-per-turn SCORING
+ * lockout and is also written by HOLDING, which is not conquering.
+ */
+const PLAY_ONLY_AT_CONQUERED = new Set(["SFD-015"]);
+
+/** May this card be played to BASE at all? False only for a card whose text
+ *  forbids everywhere but a named battlefield. Asked by the enumerator and the
+ *  validator alike, so a base play cannot be offered and then refused. */
+export function mayPlayUnitToBase(defId: string): boolean {
+  return !PLAY_ONLY_AT_CONQUERED.has(defId);
+}
+
+/** For coverage.ts — Perched Grimwyrm's whole printed text is this restriction. */
+export function playRestrictionDefIds(): string[] {
+  return [...PLAY_ONLY_AT_CONQUERED];
+}
+
+export function mayPlayUnitToBattlefield(
+  state: GameState,
+  playerIndex: 0 | 1,
+  battlefieldId: string,
+  /** The card being played, for the card-keyed restrictions above. Optional so
+   *  callers that ask the board-wide question alone are unchanged. */
+  defId?: string,
+): boolean {
+  // Perched Grimwyrm's "only". Checked FIRST because it is the narrowest gate:
+  // it refuses destinations the ordinary rules would allow, and composing it
+  // with the rest the same way every other gate here composes keeps "every gate
+  // must allow it" the single rule.
+  if (defId !== undefined && PLAY_ONLY_AT_CONQUERED.has(defId)) {
+    if (!state.players[playerIndex].conqueredBattlefieldsThisTurn.includes(battlefieldId)) return false;
+  }
   // Mageseeker Warden bars every battlefield destination, in every turn state —
   // composed WITH rule 813's own restriction below rather than replacing it, so
   // both have to allow a destination for it to be offered.

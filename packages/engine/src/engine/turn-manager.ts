@@ -353,6 +353,9 @@ export function runEnd(state: GameState): GameState {
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
+    // Annotated because this object is cast to a PlayerState tuple below, and a
+    // bare `[]` infers `never[]`, which does not overlap `string[]`.
+    conqueredBattlefieldsThisTurn: [] as string[],
     unitsLostThisTurn: 0,
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.

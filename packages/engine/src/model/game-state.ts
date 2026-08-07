@@ -536,6 +536,19 @@ export interface PlayerState {
    */
   buffUnitsPlayedThisTurn: number;
   /**
+   * Battlefields this player CONQUERED this turn — Perched Grimwyrm's "play me
+   * only to a battlefield you conquered this turn".
+   *
+   * **Deliberately NOT `scoredBattlefieldsThisTurn`**, which is the neighbouring
+   * field and a different fact. That one records the once-per-turn SCORING
+   * lockout (471.1.b) and is written even when the point is withheld — and it is
+   * also written by HOLDING, which is not conquering. Grimwyrm asks about the
+   * act of taking a battlefield, so it is recorded where conquests happen.
+   *
+   * Cleared at runEnd with the rest of the turn.
+   */
+  conqueredBattlefieldsThisTurn: string[];
+  /**
    * Has a unit THIS player controls died this turn? Spoils of War costs 2 less
    * "if an enemy unit has died this turn", which each player has to answer about
    * the other, so it is stored per victim rather than as a global flag.

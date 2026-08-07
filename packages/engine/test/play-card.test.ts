@@ -50,6 +50,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
+    conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,

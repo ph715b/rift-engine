@@ -43,6 +43,7 @@ import {
   ACCELERATE_POWER,
   acceleratePowerDomain,
   hasAccelerate,
+  mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
   timingRejection,
 } from "../engine/timing.js";
@@ -348,9 +349,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     card.kind === "Unit" &&
     action.fromHiddenBattlefieldId === undefined &&
     action.destinationBattlefieldId !== undefined &&
-    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId)
+    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId, card.defId)
   ) {
     return fail(`${card.name} can only be played to your base or a battlefield you control while a Showdown is open`);
+  }
+  // Perched Grimwyrm's "(You can't play me anywhere else.)" — the parenthetical
+  // makes the narrowing TOTAL, so BASE is refused as well. A separate check from
+  // the destination gate above, which only ever sees a named battlefield: a base
+  // play carries no `destinationBattlefieldId` at all.
+  if (card.kind === "Unit" && action.destinationBattlefieldId === undefined && !mayPlayUnitToBase(card.defId)) {
+    return fail(`${card.name} can only be played to a battlefield you conquered this turn`);
   }
 
   // A card is playable from hand OR from the Champion Zone (the one

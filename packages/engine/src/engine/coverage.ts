@@ -20,7 +20,7 @@ import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
 import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
 import { chooseRestrictionDefIds } from "./target-lookup.js";
-import { accelerateGrantDefIds } from "./timing.js";
+import { accelerateGrantDefIds, playRestrictionDefIds } from "./timing.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -255,6 +255,11 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // have [Accelerate] right now". His printed [Accelerate] and [Assault] are
   // the loader's; only the grant is written by hand.
   { label: "accelerate grants", defIds: accelerateGrantDefIds },
+  // Perched Grimwyrm's whole printed text is a play RESTRICTION — "play me only
+  // to a battlefield you conquered this turn" — so it lives in timing.ts beside
+  // the destination gate, and needs its own claim for the same reason Minotaur
+  // Reckoner and Ruin Runner do.
+  { label: "play restrictions", defIds: playRestrictionDefIds },
 ];
 
 /**
