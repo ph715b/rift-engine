@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { findUnitAnywhere } from "./target-lookup.js";
 import type { GearInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
@@ -334,6 +335,10 @@ export function holdWeaponmasterOffer(state: GameState, playerIndex: 0 | 1, unit
  * per-card work and are listed in `docs/sfd-equipment-abilities.md` rather than
  * left to be rediscovered by re-reading the images.
  */
+/** Lucian - Purifier (SFD-183) — "Your Equipment each give [Assault]." */
+const LUCIAN_PURIFIER = "SFD-183";
+const LUCIAN_ASSAULT = 1;
+
 const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> = {
   "SFD-009": { Assault: 2 }, // Serrated Dirk — "[Assault 2]"
   "SFD-033": { Tank: 1 }, // Doran's Shield — "[Tank]"
@@ -355,19 +360,50 @@ const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> =
  */
 export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): Partial<Record<Keyword, number>> {
   const out: Partial<Record<Keyword, number>> = {};
-  for (const gear of equipmentAttachedTo(state, unitInstanceId)) {
+  const worn = equipmentAttachedTo(state, unitInstanceId);
+  for (const gear of worn) {
     for (const [keyword, value] of Object.entries(EQUIP_GRANTED_KEYWORDS[gear.defId] ?? {})) {
       const key = keyword as Keyword;
       out[key] = Math.max(out[key] ?? 0, value);
     }
   }
+  // Lucian - Purifier — "YOUR Equipment each give [Assault]."
+  //
+  // A modifier on what every Equipment grants rather than a keyword of his own,
+  // so it belongs HERE, folded in beside the per-card table, and not in
+  // `KEYWORD_AURAS`: an aura would grant [Assault] to units wearing nothing.
+  // Being equipped is the condition.
+  //
+  // "YOUR Equipment" is the WEARER's controller — the gear and the unit it is
+  // attached to always share one, since `attachEquipment` only ever attaches to
+  // "a unit you control".
+  //
+  // `Math.max`, like every other source here: Serrated Dirk's [Assault 2] under
+  // Lucian is still [Assault 2], not 3. 817.1.a makes duplicate keyword
+  // instances redundant, and taking the larger is what redundant means for a
+  // numbered one.
+  if (worn.length > 0) {
+    const wearer = findUnitAnywhere(state, unitInstanceId);
+    if (wearer && state.players[wearer.ownerIndex]?.legend.defId === LUCIAN_PURIFIER) {
+      out.Assault = Math.max(out.Assault ?? 0, LUCIAN_ASSAULT);
+    }
+  }
   return out;
 }
 
-/** For coverage.ts — the Equipment whose granted keyword is their whole
- *  art-only ability, and which are therefore implemented HERE. */
+/**
+ * For coverage.ts — the cards whose granted keyword is their whole ability, and
+ * which are therefore implemented HERE.
+ *
+ * **Lucian - Purifier is in this list although he is a LEGEND, not an Equipment.**
+ * Coverage is per-defId and asks which module claims a card; his "your Equipment
+ * each give [Assault]" is a modifier on what every Equipment grants, so it lives
+ * in `equipmentKeywordsFor` above and nothing else can claim him. Without this
+ * line he works in play and reports INERT — the exact split coverage.ts exists to
+ * close, and the reason `effectiveMightDefIds` exists for Master Yi.
+ */
 export function equipmentKeywordDefIds(): string[] {
-  return Object.keys(EQUIP_GRANTED_KEYWORDS);
+  return [...Object.keys(EQUIP_GRANTED_KEYWORDS), LUCIAN_PURIFIER];
 }
 
 /**
