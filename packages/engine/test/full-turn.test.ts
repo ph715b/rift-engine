@@ -47,6 +47,7 @@ function buildInitialGameState(): GameState {
     killDamagedUnitsThisTurn: false,
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
+    damagePreventedOnceInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     lastShowdownExcessDamage: null,

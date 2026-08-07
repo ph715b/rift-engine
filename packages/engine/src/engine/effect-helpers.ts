@@ -266,6 +266,25 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // modified rather than after: a prevented 0 is still prevented, and Annie's
   // bonus damage has nothing to add to.
   if (takesNoDamage(unit)) return state;
+  // Counter Strike — "the NEXT time that unit would be dealt damage this turn,
+  // prevent it."
+  //
+  // Checked beside the two preventions above and SPENT here, which is the whole
+  // difference from them: Unyielding Spirit is per-player and unlimited, this is
+  // one instance on one unit. Removing exactly ONE id rather than filtering them
+  // all out is what lets two Counter Strikes on one unit prevent two instances —
+  // each is its own "next time".
+  //
+  // Spent even when the amount would have been 0, for the reason `takesNoDamage`
+  // sits before the modifiers: this is a "would be dealt damage" replacement, and
+  // the instance happened whatever its size.
+  const preventionIndex = state.damagePreventedOnceInstanceIds.indexOf(targetInstanceId);
+  if (preventionIndex !== -1) {
+    return {
+      ...state,
+      damagePreventedOnceInstanceIds: state.damagePreventedOnceInstanceIds.filter((_, i) => i !== preventionIndex),
+    };
+  }
 
   // The DAMAGED unit's battlefield, for Void Gate — the first damage modifier
   // that is about where the target stands rather than about the caster.

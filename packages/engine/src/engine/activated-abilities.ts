@@ -22,6 +22,7 @@ import {
   grantKeywordThisTurn,
   legionActive,
   gainPoints,
+  swapUnitLocations,
   payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
@@ -1015,6 +1016,51 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     cost: { recycleFromTrash: 3, energy: 1, exhaust: true },
     targeting: { kind: "none" },
     resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "SFD-050": {
+    // Azir - Ascendant — "[Calm]: [Action] — Choose a unit you control. Move me
+    // to its location and it to my original location. If it's equipped, you may
+    // attach one of its Equipment to me. Use only once per turn."
+    //
+    // A SWAP, not two moves: `swapUnitLocations` places each where the other
+    // was, reading BOTH originals before writing either — which is the whole
+    // difference, since moving Azir first would leave the other unit heading for
+    // a square he had already left. It also refuses a unit that is not the
+    // caster's, which is "a unit YOU control".
+    //
+    // **"This isn't a move" is not printed here, and that matters**: unlike
+    // Soraka's recall, Azir says "move me", so `movesThisTurn` and everything
+    // keyed on it (Kayn - Unleashed) see it as one. `swapUnitLocations` is the
+    // shared helper that already decides this for the pool's other swap.
+    //
+    // **"Use only ONCE PER TURN" with no exhaust**, which is why it is expressed
+    // as a single-mode `modesOncePerTurn` rather than `{ exhaust: true }`: an
+    // exhaust would also stop him being readied and used again, and would make
+    // him unable to attack in the turn he swaps. The per-source record
+    // (`abilityModesUsedThisTurn`) is cleared by `turn-manager`'s runEnd for
+    // every unit, so nothing new needs resetting.
+    //
+    // The Equipment half is NOT written, and the card therefore carries a
+    // partial note: "you may attach one of its Equipment to me" is a second,
+    // optional choice made mid-resolution, and this engine chooses targets at
+    // announce time. Recorded rather than silently dropped.
+    kind: "Unit",
+    modesOncePerTurn: true,
+    modes: [
+      {
+        id: "swap",
+        label: "Swap places with a unit you control",
+        cost: { power: { domain: "Calm", count: 1 } },
+        // "A unit you control", no battlefield named — so `anywhere`, the scope
+        // that also reaches BASE. Swapping with a unit at home is exactly how he
+        // teleports out of a losing fight.
+        targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+        resolve: (state, ctx, event, sourceInstanceId) =>
+          event.targetUnitInstanceId === undefined
+            ? state
+            : swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId),
+      },
+    ],
   },
   "SFD-088": {
     // Renata Glasc - Mastermind — "[1][Mind]: Draw 1. [4][Mind][Mind][Mind]

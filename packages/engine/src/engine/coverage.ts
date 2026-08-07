@@ -333,6 +333,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // parser. What remains is the art-only half, and the note now names that and
   // nothing else, which is the shape the definition of done requires: a partial
   // may name missing CARD TEXT, never missing engine.
+  // Azir - Ascendant's swap is written; his "if it's equipped, you may attach
+  // one of its Equipment to me" is not. That is a second, OPTIONAL choice made
+  // mid-resolution, and this engine chooses targets at announce time — so it
+  // needs an attach axis on the activation, not just a resolver line. Names
+  // missing CARD TEXT, which is what a partial note is allowed to name.
+  ["SFD-050", "the swap works; 'if it's equipped, you may attach one of its Equipment to me' is unwritten"],
   ["SFD-150", "its art-only 'when I conquer or hold, you may play a unit from your trash (still paying costs)' is unwritten; the [Equip] cost is whole"],
   // **The Equipment whose printed ability exists ONLY on the card art**, and the
   // worst blind spot this file has had. `needsImplementation` reads the card

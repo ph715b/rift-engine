@@ -122,6 +122,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     killDamagedUnitsThisTurn: false,
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
+    damagePreventedOnceInstanceIds: [],
     extraTurns: 0,
     extraTurnsForIndex: 0,
     lastShowdownExcessDamage: null,

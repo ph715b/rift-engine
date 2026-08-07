@@ -35,6 +35,7 @@ import { effectiveKeywords, isMighty } from "../granted-keywords.js";
 import { isFightingAt } from "../combat-designation.js";
 import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
+import { detachEquipment, equipmentAttachedTo } from "../equipment.js";
 import { wearerListener } from "../equipment.js";
 import { gainPoints } from "../effect-helpers.js";
 import { placeGoldTokens } from "../token.js";
@@ -67,6 +68,51 @@ import { placeGoldTokens } from "../token.js";
  * already handles throws at import rather than silently shadowing it.
  */
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-107": {
+    // Strike Down — "Choose an EQUIPPED friendly unit. It deals damage equal to
+    // its Might to an enemy unit. Then detach an Equipment from it."
+    //
+    // Two targets that are NOT interchangeable — slot 0 is the striker and slot
+    // 1 is the victim — so the slots take different roles and `asymmetricSlots`
+    // is unnecessary: the roles themselves already stop the pair being offered
+    // both ways round.
+    //
+    // **"EQUIPPED" is a condition the targeting spec cannot express**, so it is
+    // checked in the resolver. The consequence is honest rather than hidden: an
+    // unequipped friendly CAN be named and the spell then does nothing, which is
+    // 422's do-as-much-as-you-can rather than an illegal play. Recorded in
+    // docs/rules-conformance.md; narrowing the enumeration would need a
+    // per-slot predicate the spec has no field for.
+    //
+    // Damage equal to its CURRENT Might, read through `effectiveMight` in a
+    // NON-combat context — this is not a damage step, so [Assault] and [Shield]
+    // do not apply, the same reading every other "equal to its Might" effect in
+    // the pool takes. It is read BEFORE the detach, because the Equipment being
+    // removed is usually what is paying for the damage.
+    //
+    // "Then DETACH an Equipment from it" is mandatory and takes the first one —
+    // WHICH Equipment is a real choice only for a unit wearing several, and the
+    // engine cannot pause mid-resolution to ask. Recorded with the same note.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const strikerId = event.targetUnitInstanceId;
+      const victimId = event.secondTargetUnitInstanceId;
+      if (strikerId === undefined || victimId === undefined) return state;
+      const striker = findUnitAnywhere(state, strikerId);
+      if (striker === undefined) return state;
+      const worn = equipmentAttachedTo(state, strikerId);
+      // "An EQUIPPED friendly unit" — an unequipped one is not a legal subject,
+      // so neither half happens.
+      if (worn.length === 0) return state;
+      const ctxFor =
+        striker.zone === "base"
+          ? { isCombat: false as const }
+          : { isCombat: false as const, battlefieldId: state.battlefields[striker.zone.battlefieldIndex]!.id };
+      const might = effectiveMight(state, striker.unit, striker.ownerIndex, ctxFor);
+      const struck = dealDamage(state, ctx.casterIndex, victimId, might);
+      return detachEquipment(struck, striker.ownerIndex, worn[0]!.instanceId);
+    },
+  },
   "OGN-145": {
     // Unyielding Spirit — "Prevent all spell and ability damage this turn."
     //

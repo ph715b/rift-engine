@@ -997,6 +997,24 @@ export interface GameState {
    * rebuilds a unit had to remember to carry it.
    */
   markedForDeathOnDamageInstanceIds: string[];
+  /**
+   * Counter Strike's "the NEXT time that unit would be dealt damage this turn,
+   * prevent it" — units holding a single-use damage shield.
+   *
+   * The same list-of-ids shape as `markedForDeathOnDamageInstanceIds` above and
+   * `deathWardedUnitInstanceIds`, and for the same three reasons: it is
+   * per-unit, it expires with the turn, and putting it on the unit would mean
+   * every helper that rebuilds a unit had to remember to carry it.
+   *
+   * **Distinct from `preventsSpellDamageThisTurn`, which is per-PLAYER and
+   * unlimited.** Unyielding Spirit stops everything all turn; this stops one
+   * instance on one unit and is then spent — so the id is REMOVED when it
+   * fires, which is what "the next time" means.
+   *
+   * An id may appear more than once: two Counter Strikes on one unit prevent two
+   * instances, because each is its own "next time".
+   */
+  damagePreventedOnceInstanceIds: string[];
   extraTurns: number;
   /** Whose extra turns those are. Meaningless while `extraTurns` is 0. */
   extraTurnsForIndex: 0 | 1;

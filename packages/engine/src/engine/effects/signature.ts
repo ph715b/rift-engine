@@ -10,6 +10,7 @@ import {
   legionActive,
   dealDamageToEnemyUnitsAtBattlefield,
   discardCards,
+  drawCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
@@ -526,6 +527,41 @@ export const cardEffects: Record<string, EffectDefinition> = {
       ownUnitsEverywhere(state, ctx.casterIndex)
         .map((u) => u.instanceId)
         .reduce((next, id) => readyUnit(next, id), state),
+  },
+  "SFD-194": {
+    // Counter Strike — "[Reaction] Choose a unit. The NEXT time that unit would
+    // be dealt damage this turn, prevent it. Draw 1."
+    //
+    // The pool's first PER-UNIT, single-use prevention.
+    // `preventsSpellDamageThisTurn` is the neighbouring shape and is a different
+    // card: it is per-PLAYER and unlimited for the turn. This is one instance on
+    // one unit and is then spent, which is what "the next time" means — so the
+    // id is REMOVED by `dealDamage` when it fires rather than filtered at end of
+    // turn.
+    //
+    // "Choose A UNIT", unqualified — either side's. Shielding your own attacker
+    // and blanking an enemy's removal are both real plays, and `[Reaction]`
+    // timing is what makes the second one possible.
+    //
+    // The id is PUSHED rather than set: two Counter Strikes on one unit prevent
+    // two instances, because each is its own "next time".
+    //
+    // The draw is unconditional and on its own line (135.2.b), so it happens
+    // even if the chosen unit is never damaged.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const shielded =
+        event.targetUnitInstanceId === undefined
+          ? state
+          : {
+              ...state,
+              damagePreventedOnceInstanceIds: [
+                ...state.damagePreventedOnceInstanceIds,
+                event.targetUnitInstanceId,
+              ],
+            };
+      return drawCards(shielded, ctx.casterIndex, 1);
+    },
   },
   "SFD-200": {
     // Arcane Shift (Mind + Chaos) — "[Action] Banish a friendly unit, then its

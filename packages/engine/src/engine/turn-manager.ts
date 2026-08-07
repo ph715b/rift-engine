@@ -402,5 +402,6 @@ export function runEnd(state: GameState): GameState {
     // turn would kill on a board the caster never saw.
     killDamagedUnitsThisTurn: false,
     markedForDeathOnDamageInstanceIds: [],
+    damagePreventedOnceInstanceIds: [],
   });
 }
