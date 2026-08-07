@@ -1053,11 +1053,38 @@ export function legalActions(state: GameState): PlayerAction[] {
         // Priced against the cost's OWN domain, not the card's `powerDomain` —
         // Clockwork Keeper prints no Power at all, so that field is null and
         // pricing through it accepted any rune.
+        // **Both halves, because an optional cost can carry either or both.**
+        // Clockwork Keeper is Power-only, Sea Monkey is Energy-only, and Blast
+        // Corps Cadet prints one of each — a version that priced only the rune
+        // would sell the Cadet's bonus for the rune alone.
+        //
+        // The Energy is added to the ALREADY-FLOAT-REDUCED figure here, which is
+        // the mistake this file records making twice (the discount branch, then
+        // `[Repeat]`) — and it is correct in this one case for a reason worth
+        // naming rather than inheriting: `effectiveCost` is what the play owes
+        // AFTER float, so float is already spent, and adding to it charges the
+        // extra in full. That is what these cards say: an ADDITIONAL cost, not a
+        // larger printed one. The two differ only when float remains unspent,
+        // which by construction it does not.
+        //
+        // **The `[Deflect]` surcharge rides this branch too**, and it did not
+        // until Frostcoat Cub. Clockwork Keeper — the only card here before —
+        // targets nothing, so an optional-cost variant could never owe a tax and
+        // the omission was unreachable. The Cub targets a unit, and a `[Deflect]`
+        // unit made the enumerator offer a play the validator then refused:
+        // "must pay 1 rainbow Power for [Deflect] on its target, but named 0".
+        // Found by `DECKS=sfd`, not by the suite, which is the fifth time.
+        //
+        // `powerDomainAlt` is passed for the same reason every other branch
+        // passes it: a split-pip card has two domains and pricing through one
+        // rejects runes the card accepts.
         const paid = computeAutoPayment(
           actor.channeled,
-          effectiveCost.energyCost,
-          effectiveCost.powerCost + optionalPower.count,
-          optionalPower.domain,
+          effectiveCost.energyCost + (optionalPower.energy ?? 0),
+          effectiveCost.powerCost + (optionalPower.count ?? 0),
+          optionalPower.domain ?? card.powerDomain,
+          card.powerDomainAlt,
+          deflected,
         );
         // Offered only when the bigger payment is really payable — a card you can
         // afford plainly but not with the extra simply has no paid variant.

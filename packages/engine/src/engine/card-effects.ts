@@ -575,8 +575,14 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
  * offered to a player holding nothing but Fury. The domain the pip shows is the
  * card's own, and the only place that survives a 0-Power printing is a table.
  */
-const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain: Domain; count: number }>> = {
+const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: number; energy?: number }>> = {
   "OGN-044": { domain: "Calm", count: 1 }, // Clockwork Keeper — "you may pay [1 Calm] as an additional cost"
+  // SFD's three, and between them they are why every field above is optional.
+  // The table was Power-only because Clockwork Keeper is; these print an Energy
+  // pip beside the rune, or instead of it.
+  "SFD-013": { energy: 1, domain: "Fury", count: 1 }, // Blast Corps Cadet — [1][Fury]
+  "SFD-067": { domain: "Mind", count: 1 }, // Frostcoat Cub — [Mind], no Energy
+  "SFD-098": { energy: 1 }, // Sea Monkey — [1], no rune at all
 };
 
 /**
@@ -598,7 +604,7 @@ export function hasXRainbowCost(defId: string): boolean {
 }
 
 /** What extra Power this card MAY be played for, or undefined. */
-export function optionalPowerCostOf(defId: string): { domain: Domain; count: number } | undefined {
+export function optionalPowerCostOf(defId: string): { domain?: Domain; count?: number; energy?: number } | undefined {
   return OPTIONAL_POWER_COSTS[defId];
 }
 

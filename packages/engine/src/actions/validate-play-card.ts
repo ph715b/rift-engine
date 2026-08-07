@@ -670,7 +670,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
           accelerateEnergy +
           repeatEnergy +
-          grantedEnergy,
+          grantedEnergy +
+          // The optional cost's ENERGY half — Sea Monkey pays only Energy and
+          // Blast Corps Cadet pays one of each, so the Power line below is not
+          // the whole price. Re-derived from the same table the enumerator
+          // priced against, which is what keeps the two from disagreeing.
+          (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0),
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
@@ -682,7 +687,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         // The optional cost's own domain wins when it was paid, for the reason
         // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so
         // `card.powerDomain` is null and would accept any rune.
-        action.optionalPowerPaid && optionalPower ? optionalPower.domain : action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
+        // The optional cost's own domain wins ONLY when it names one — Sea
+        // Monkey's is pure Energy, so the card's own printed domain must stay in
+        // force or its Power pip would accept any rune.
+        action.optionalPowerPaid && optionalPower?.domain
+          ? optionalPower.domain
+          : action.acceleratePaid
+            ? acceleratePowerDomain(card)
+            : card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
         restrictedPowerFor(actor, card.kind),

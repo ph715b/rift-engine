@@ -363,6 +363,21 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-098": {
+    // Sea Monkey — "You may pay [1] as an additional cost to play me. When you
+    // play me, if you paid the additional cost, buff me."
+    //
+    // **Pure ENERGY, no rune at all** — the case that made the optional-cost
+    // table's `domain` optional. It also makes the pricing distinction visible:
+    // a version that let the optional cost's domain override the card's would
+    // leave a Sea Monkey's own printed Power pip payable by any rune, because
+    // this cost names no domain to override it with.
+    //
+    // "Buff ME", so the target is the unit itself — `_unitId` is the instance
+    // that just entered, which is what every self-referential on-play here uses.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, unitId, event) => (event.optionalPowerPaid ? addBuff(state, unitId) : state),
+  },
   "OGN-150": {
     // Kraken Hunter — "As you play me, you may spend ANY NUMBER of buffs as an
     // additional cost. Reduce my cost by [1 Body] for each buff you spend."

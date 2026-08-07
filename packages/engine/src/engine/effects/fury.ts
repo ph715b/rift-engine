@@ -469,7 +469,34 @@ const PIERCING_LIGHT_DAMAGE = 2;
 const SUDDEN_STORM_BASE = 2;
 const SUDDEN_STORM_VS_ATTACKER = 4;
 
+/** Blast Corps Cadet's paid-for hit. */
+const BLAST_CORPS_DAMAGE = 2;
+
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-013": {
+    // Blast Corps Cadet — "You may pay [1][Fury] as an additional cost to play
+    // me. When you play me, if you paid the additional cost, deal 2 to a unit at
+    // a battlefield."
+    //
+    // The FIRST optional additional cost in the pool with an ENERGY half —
+    // Clockwork Keeper's is a rune alone, which is why `OPTIONAL_POWER_COSTS`
+    // held only a domain and a count until now.
+    //
+    // Gated on the cost having been PAID, read off the action, for the reason
+    // the Keeper's own comment gives: by the time this runs, nothing about the
+    // board records how the Cadet was paid for.
+    //
+    // **The target is chosen whether or not the cost was paid**, which is a
+    // consequence of targeting being declared per card rather than per branch. A
+    // Cadet played cheap names a unit and then does nothing to it — harmless,
+    // and the alternative is a second targeting spec keyed on a flag the
+    // enumerator would have to read.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.optionalPowerPaid && event.targetUnitInstanceId
+        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, BLAST_CORPS_DAMAGE)
+        : state,
+  },
   "OGN-026": {
     // Brynhir Thundersong — "When you play me, opponents can't play cards this
     // turn."

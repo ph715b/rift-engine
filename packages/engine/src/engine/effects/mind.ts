@@ -534,7 +534,28 @@ function readyableMechs(state: GameState, playerIndex: 0 | 1, selfInstanceId: st
   );
 }
 
+/** Frostcoat Cub's paid-for debuff, as a POSITIVE number — the sign is applied
+ *  at the call site so the floor argument beside it reads plainly. */
+const FROSTCOAT_DEBUFF = 2;
+
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-067": {
+    // Frostcoat Cub — "You may pay [Mind] as an additional cost to play me. When
+    // you play me, if you paid the additional cost, give a unit -2 Might this
+    // turn."
+    //
+    // A rune and no Energy, which is Clockwork Keeper's shape exactly.
+    //
+    // FLOORED AT 1, like Orb of Regret's reduction: `giveMightThisTurn`'s floor
+    // caps the stored modifier rather than the displayed Might, so a Cub does
+    // not dig a hole a later buff has to climb out of. The card does not print a
+    // floor — 707.2 does, since Might cannot fall below 1.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.optionalPowerPaid && event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, -FROSTCOAT_DEBUFF, 1)
+        : state,
+  },
   "OGN-110": {
     // Ekko - Recurrent — "[Accelerate] — Recycle me to ready your runes."
     //
