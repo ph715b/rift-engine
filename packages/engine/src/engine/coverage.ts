@@ -326,8 +326,15 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // express. Attachment itself works — these are cost shapes, not a missing
   // subsystem — and each is here rather than under a keyword flag so the 25
   // Equipment that DO work are not greyed with them.
-  ["SFD-150", "[Equip] costs a rune AND Recycle 2 from your trash (unparsed compound cost), AND its art-only 'when I conquer or hold, play a unit from your trash' is unwritten"],
-  ["SFD-178", "[Equip] costs a rune AND Kill a friendly unit; the compound cost is unparsed"],
+  // **Reworded, not deleted, and the distinction matters.** This list's own
+  // convention is that entries are DELETED when the rest lands rather than
+  // amended — an amended entry is how a card stays "nearly done" forever. Half
+  // of this one HAS landed (the compound `[Equip]` cost now parses and is
+  // wired), so leaving the old text would assert something false about the
+  // parser. What remains is the art-only half, and the note now names that and
+  // nothing else, which is the shape the definition of done requires: a partial
+  // may name missing CARD TEXT, never missing engine.
+  ["SFD-150", "its art-only 'when I conquer or hold, you may play a unit from your trash (still paying costs)' is unwritten; the [Equip] cost is whole"],
   ["SFD-190", "art-only: 'when I attack or defend, deal 2 to ALL enemy units here' is unwritten. Its [Equip] half works"],
   ["SFD-191", "art-only: 'your spells and abilities deal 3 Bonus Damage' is unwritten. Its [Equip] half works"],
   ["SFD-192", "art-only: the ready-half is written, the positional [Ganking] aura is not. Its [Equip] half works"],

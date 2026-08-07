@@ -230,18 +230,54 @@ const EQUIP_MIGHT_BONUS: Record<string, number> = {
  * "[Equip] :rb_energy_1::rb_rune_fury:". Energy is optional and at most one
  * rune symbol follows it.
  *
- * **Deliberately does NOT match the two COMPOUND costs**, and that exclusion is
- * the point rather than a gap in the regex. Last Rites reads "[Equip] —
- * :rb_rune_chaos:, Recycle 2 cards from your trash" and Blade of the Ruined
- * King "[Equip] — :rb_rune_order:, Kill a friendly unit": both have a second,
- * non-rune half. A pattern loose enough to take the rune out of those would
- * hand each card an ability costing ONLY the rune, i.e. strictly CHEAPER than
- * printed — the one direction this codebase never ships. They are reported
- * unparsed instead, and pinned by a test so the exclusion cannot become
- * accidental. Both extras (`recycleFromTrash`, `killFriendlyPermanent`) already
- * exist as activation costs, so wiring them is a per-card job, not a parser one.
+ * **The two COMPOUND costs are matched by a SECOND pattern, not by loosening
+ * this one**, and that is still the same rule rather than a reversal of it.
+ * Last Rites reads "[Equip] — :rb_rune_chaos:, Recycle 2 cards from your trash"
+ * and Blade of the Ruined King "[Equip] — :rb_rune_order:, Kill a friendly
+ * unit". Loosening this pattern would have taken the rune out of both and handed
+ * each an ability costing ONLY the rune — strictly CHEAPER than printed, the one
+ * direction this codebase never ships. So the extra half is READ rather than
+ * discarded: a card matches here only when nothing follows the rune, and
+ * `EQUIP_EXTRA_PATTERNS` below claims the rest.
+ *
+ * The `(?!,)` is what enforces that. Without it this pattern would match the
+ * rune in both compound costs and win, because it is tried first.
  */
-const EQUIP_COST_PATTERN = /\[Equip\]\s*(?::rb_energy_(\d+):)?\s*:rb_rune_([a-z]+):/i;
+const EQUIP_COST_PATTERN = /\[Equip\]\s*[\u2014\u2013-]?\s*(?::rb_energy_(\d+):)?\s*:rb_rune_([a-z]+):(?!,)/i;
+
+/**
+ * The SECOND half of a compound `[Equip]` cost, keyed by what it costs.
+ *
+ * Both extras already existed as `ActivationCost` fields — `recycleFromTrash`
+ * takes a count and `killFriendlyPermanent` a boolean — so this is a parser
+ * change plus one line of wiring rather than a new cost model, exactly as the
+ * old comment here predicted.
+ *
+ * A pattern per shape rather than one general clause parser: there are two of
+ * them in the whole pool, and a general "read the English after the comma"
+ * reader is the kind of speculation this codebase refuses. A third card gets a
+ * third entry.
+ */
+const EQUIP_EXTRA_PATTERNS: { pattern: RegExp; extra: (m: RegExpExecArray) => EquipExtraCost }[] = [
+  {
+    // "Recycle 2 cards from your trash"
+    pattern: /,\s*Recycle\s+(\d+)\s+cards?\s+from\s+your\s+trash/i,
+    extra: (m) => ({ recycleFromTrash: Number.parseInt(m[1]!, 10) }),
+  },
+  {
+    // "Kill a friendly unit"
+    pattern: /,\s*Kill\s+a\s+friendly\s+unit/i,
+    extra: () => ({ killFriendlyPermanent: true }),
+  },
+];
+
+/** The non-rune half of a compound `[Equip]` cost. Mirrors the `ActivationCost`
+ *  fields it becomes, so wiring is a spread rather than a translation. */
+export type EquipExtraCost = { recycleFromTrash?: number; killFriendlyPermanent?: true };
+
+/** The rune half of a COMPOUND `[Equip]` cost — the same shape as the simple
+ *  pattern, but requiring the comma that the simple one refuses. */
+const EQUIP_COMPOUND_RUNE = /\[Equip\]\s*[\u2014\u2013-]?\s*(?::rb_energy_(\d+):)?\s*:rb_rune_([a-z]+):(?=,)/i;
 
 /**
  * What a Gear's `[Equip]` ability costs, or undefined if it prints none.
@@ -253,9 +289,33 @@ const EQUIP_COST_PATTERN = /\[Equip\]\s*(?::rb_energy_(\d+):)?\s*:rb_rune_([a-z]
  * identity and conflating the two would let a Colorless rune pay a rainbow cost
  * and nothing else.
  */
-export function parseEquipCost(plain: string): { energy: number; domain: Domain | "rainbow"; count: number } | undefined {
-  const match = EQUIP_COST_PATTERN.exec(plain);
-  if (!match) return undefined;
+export function parseEquipCost(
+  plain: string,
+): { energy: number; domain: Domain | "rainbow"; count: number; extra?: EquipExtraCost } | undefined {
+  // The simple pattern first; it refuses a rune followed by a comma, so a
+  // compound cost falls through to the branch below rather than being
+  // half-read. Getting that order wrong is what would make both compound cards
+  // cheaper than printed.
+  const simple = EQUIP_COST_PATTERN.exec(plain);
+  if (simple) return runeCost(simple);
+
+  const compound = EQUIP_COMPOUND_RUNE.exec(plain);
+  if (!compound) return undefined;
+  const base = runeCost(compound);
+  if (base === undefined) return undefined;
+  for (const { pattern, extra } of EQUIP_EXTRA_PATTERNS) {
+    const match = pattern.exec(plain);
+    if (match) return { ...base, extra: extra(match) };
+  }
+  // A compound cost whose second half nothing here recognises is reported
+  // UNPARSED rather than as the rune alone — the original refusal, kept for the
+  // case it was written for. Half a cost is cheaper than the printed one.
+  return undefined;
+}
+
+/** The rune-and-Energy half, shared by both branches above so the two cannot
+ *  disagree about what a domain is. */
+function runeCost(match: RegExpExecArray): { energy: number; domain: Domain | "rainbow"; count: number } | undefined {
   const energy = match[1] ? Number.parseInt(match[1], 10) : 0;
   const rune = match[2]!.toLowerCase();
   if (rune === "rainbow") return { energy, domain: "rainbow", count: 1 };

@@ -1,5 +1,6 @@
 import type { Domain } from "./domain.js";
 import type { Keyword } from "./keyword.js";
+import type { EquipExtraCost } from "../cards/card-loader.js";
 
 /**
  * Static, printed-card data — one entry per real card, loaded once from the
@@ -87,7 +88,7 @@ export interface GearDefinition extends CardDefinitionBase {
    * never interact. A Gear is played to `activeGear` exactly as before;
    * `[Equip]` is a second, separately-paid ability that attaches it later.
    */
-  equipCost?: { energy: number; domain: Domain | "rainbow"; count: number };
+  equipCost?: { energy: number; domain: Domain | "rainbow"; count: number; extra?: EquipExtraCost };
   /**
    * The "+N Might" badge an Equipment grants the unit it is attached to.
    *

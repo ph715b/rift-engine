@@ -93,14 +93,29 @@ describe("the Equipment data, which is mostly not in the data", () => {
     expect(parseEquipCost("no equip here")).toBeUndefined();
   });
 
-  it("refuses the two COMPOUND costs rather than half-reading them", () => {
-    // A looser pattern would take the rune out of "[Equip] — :rb_rune_chaos:,
-    // Recycle 2 cards from your trash" and hand the card an ability costing only
-    // the rune — strictly CHEAPER than printed, which is the one direction this
-    // codebase never ships.
-    expect(gearDef(LAST_RITES).equipCost).toBeUndefined();
-    expect(gearDef("SFD-178").equipCost).toBeUndefined();
+  it("reads the two COMPOUND costs WHOLE — the rune AND its second half", () => {
+    // These were refused outright while nothing could carry the second half, on
+    // the grounds that a looser pattern would hand each card an ability costing
+    // only the rune — strictly CHEAPER than printed, the one direction this
+    // codebase never ships. The refusal is still in force: `EQUIP_COST_PATTERN`
+    // will not match a rune followed by a comma, so a compound cost that this
+    // parser cannot fully read is still reported UNPARSED rather than halved.
+    // What changed is that both halves are now READ.
+    expect(gearDef(LAST_RITES).equipCost).toMatchObject({ domain: "Chaos", count: 1, extra: { recycleFromTrash: 2 } });
+    expect(gearDef("SFD-178").equipCost).toMatchObject({
+      domain: "Order",
+      count: 1,
+      extra: { killFriendlyPermanent: true },
+    });
     expect(gearDef(LAST_RITES).text).toContain("Recycle 2");
+  });
+
+  /** The refusal that protected them is still load-bearing for any future card
+   *  whose second half nothing here recognises. */
+  it("still refuses a compound cost whose second half is unrecognised", () => {
+    expect(parseEquipCost("[Equip] — :rb_rune_fury:, Sacrifice your firstborn")).toBeUndefined();
+    // ...while the plain form is unaffected.
+    expect(parseEquipCost("[Equip] :rb_rune_fury:")).toMatchObject({ domain: "Fury", count: 1 });
   });
 
   it("marks Equipment from the printed tag, not from having [Equip]", () => {
@@ -239,19 +254,21 @@ describe("a unit leaving play", () => {
 });
 
 describe("the generated [Equip] ability", () => {
-  it("gives 29 of the 31 Equipment a working ability, with no per-card code", () => {
+  it("gives ALL 31 Equipment a working ability, with no per-card code", () => {
     // The scope-reducer: the cost parses, the attach is generic, so a table
-    // entry per card would be 29 copies of one thing, each free to drift.
+    // entry per card would be 31 copies of one thing, each free to drift.
     //
-    // **25 until the rainbow four joined them.** They were skipped outright while
+    // **25, then 29, then 31.** The rainbow four were skipped outright while
     // `ActivationCost.power.domain` was `Domain` — not weak, UNATTACHABLE — and
-    // Temporal Portal's own rainbow pip widened the type to `Domain | null`,
-    // which is what `payPowerFromChanneled` has always read as "any domain".
-    // The two left are the compound costs, below.
+    // Temporal Portal's own rainbow pip widened it to `Domain | null`, which is
+    // what `payPowerFromChanneled` has always read as "any domain". The last two
+    // were the COMPOUND costs, which the parser refused whole rather than
+    // half-read; it now reads both halves, and the extras were already
+    // `ActivationCost` fields.
     const equipment = registry.all().filter((c) => c.type === "Gear" && c.isEquipment === true);
     expect(equipment).toHaveLength(31);
     const wired = equipment.filter((c) => hasActivatableAbility(c.id));
-    expect(wired).toHaveLength(29);
+    expect(wired, `unwired: ${equipment.filter((c) => !hasActivatableAbility(c.id)).map((c) => c.id).join(", ")}`).toHaveLength(31);
   });
 
   /** The four that the widening freed, asserted as a group and by cost, because
@@ -316,18 +333,23 @@ describe("the generated [Equip] ability", () => {
     expect(effectiveMight(after, unit, 0, combat)).toBe(5);
   });
 
-  it("leaves the 2 it cannot price UNWIRED, and each says why", () => {
-    // The COMPOUND costs, and only those — a rune AND a Recycle, a rune AND a
-    // kill. `EQUIP_COST_PATTERN` refuses to half-read them on purpose: a looser
-    // pattern would hand the card an ability costing only the rune, which is
-    // strictly CHEAPER than printed, the one direction this codebase never ships.
-    //
-    // Named individually rather than under a keyword flag, which would have
-    // greyed the 29 that work along with them.
+  it("wires the 2 COMPOUND costs too, each carrying its second half", () => {
+    // Both were UNWIRED while the parser refused them. The extras already
+    // existed as ACTIVATION costs (Vi's Recycle, Malzahar's kill), so this was a
+    // parser change plus one spread — no new cost model, exactly as the old
+    // refusal's own comment predicted.
     for (const defId of [LAST_RITES, "SFD-178"]) {
-      expect(hasActivatableAbility(defId)).toBe(false);
-      expect(partialImplementationNote(registry.get(defId))).toContain("compound cost");
+      expect(hasActivatableAbility(defId), `${defId} still has no ability`).toBe(true);
     }
+    expect(activationCostOf(LAST_RITES)).toMatchObject({ recycleFromTrash: 2 });
+    expect(activationCostOf("SFD-178")).toMatchObject({ killFriendlyPermanent: true });
+
+    // Blade of the Ruined King is genuinely vanilla besides this (see
+    // docs/sfd-equipment-abilities.md's "flavour text only" list), so it is now
+    // whole and carries no note. Last Rites still has its art-only
+    // conquer/hold half, so it keeps one — naming that and only that.
+    expect(partialImplementationNote(registry.get("SFD-178"))).toBeUndefined();
+    expect(partialImplementationNote(registry.get(LAST_RITES))).toContain("art-only");
   });
 });
 

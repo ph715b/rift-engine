@@ -425,7 +425,7 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
   const out: Record<string, ActivatedAbilityDefinition> = {};
   for (const def of defaultCardRegistry().all()) {
     if (def.type !== "Gear" || def.equipCost === undefined) continue;
-    const { energy, domain, count } = def.equipCost;
+    const { energy, domain, count, extra } = def.equipCost;
     out[def.id] = {
       kind: "Gear",
       // NO exhaust: the printed reminder is "<rune>: Attach this to a unit you
@@ -442,7 +442,16 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
       // Not mapped to `Colorless`, which is a real printed identity: conflating
       // the two would let a Colorless rune pay a rainbow cost and nothing else.
       // `parseEquipCost`'s own comment draws the same line for the same reason.
-      cost: { power: { domain: domain === "rainbow" ? null : domain, count }, ...(energy > 0 ? { energy } : {}) },
+      // The COMPOUND half — Last Rites' "Recycle 2 cards from your trash" and
+      // Blade of the Ruined King's "Kill a friendly unit". Spread rather than
+      // translated, because `EquipExtraCost` is deliberately shaped as the
+      // `ActivationCost` fields it becomes; both already existed for ABILITIES
+      // (Vi's Recycle, Malzahar's kill) and needed no new cost model.
+      cost: {
+        power: { domain: domain === "rainbow" ? null : domain, count },
+        ...(energy > 0 ? { energy } : {}),
+        ...(extra ?? {}),
+      },
       targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
       // `sourceInstanceId` is the 4th argument, not a field on the event — it
       // is the gear being activated, i.e. the thing that gets attached.
