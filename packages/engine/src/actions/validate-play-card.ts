@@ -16,7 +16,7 @@ import {
 } from "../engine/target-lookup.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
-import { computeEffectiveCost, matchesPowerDomain } from "../engine/rune-payment.js";
+import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost, modifiedRepeatEnergy } from "../engine/cost-modifiers.js";
@@ -666,7 +666,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         action.optionalPowerPaid && optionalPower ? optionalPower.domain : action.acceleratePaid ? acceleratePowerDomain(card) : card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-        card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+        restrictedPowerFor(actor, card.kind),
         actor.floatingRainbowPower,
       );
 

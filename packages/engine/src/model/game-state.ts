@@ -409,6 +409,19 @@ export interface PlayerState {
    */
   equipmentPlayedThisTurn: number;
   /**
+   * Ornn - Fire Below the Mountain's rainbow Power — "[Add] [rainbow]. Use only
+   * to play gear or use gear abilities."
+   *
+   * A THIRD restricted pool beside `restrictedSpellEnergy` and
+   * `restrictedSpellPower` (Kai'Sa's, Spells only). Rainbow like hers, so no
+   * domain match is asked; unlike hers it is spendable on GEAR.
+   *
+   * The two can never both apply to one card — a Gear is not a Spell — which is
+   * why `restrictedPowerFor` picks between them rather than
+   * `computeEffectiveCost` growing a fourth pool parameter.
+   */
+  restrictedGearPower: number;
+  /**
    * Malzahar - Fanatic's "Kill a friendly unit or gear, Exhaust: → rainbow
    * rainbow" — Power that pays a pip of ANY domain, with no Spells-only
    * restriction.

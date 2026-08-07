@@ -71,6 +71,29 @@ export function powerAfterFloat(
  *  floating (fungible for anything) is spent before restricted (Spells
  *  only), so this parameter stays a distinct, later step rather than being
  *  folded into `energyCost` before this function ever sees it. */
+/**
+ * The RESTRICTED rainbow Power pool this card kind may drain — Kai'Sa's for a
+ * Spell, Ornn's for a Gear, nothing for a Unit.
+ *
+ * One accessor rather than the ternary written out at each of the five cost
+ * sites (three in `legal-actions`, one in `validate-play-card`, one in
+ * `execute-play-card`'s float math). Those five must agree exactly or a play is
+ * offered at one price and refused at another, which is this codebase's most
+ * repeated bug.
+ *
+ * It picks BETWEEN the pools rather than summing them, and that is not a
+ * simplification: a Gear is not a Spell and a Spell is not a Gear, so no card can
+ * ever be owed both.
+ */
+export function restrictedPowerFor(
+  actor: { restrictedSpellPower: number; restrictedGearPower: number },
+  cardKind: string,
+): number {
+  if (cardKind === "Spell") return actor.restrictedSpellPower;
+  if (cardKind === "Gear") return actor.restrictedGearPower;
+  return 0;
+}
+
 export function computeEffectiveCost(
   floatingEnergy: number,
   floatingPower: Partial<Record<Domain, number>>,

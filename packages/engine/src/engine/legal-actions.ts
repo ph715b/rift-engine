@@ -11,7 +11,7 @@ import type {
   RecallUnitAction,
   RunePayment,
 } from "../actions/player-action.js";
-import { computeAutoPayment, computeEffectiveCost } from "./rune-payment.js";
+import { computeAutoPayment, computeEffectiveCost, restrictedPowerFor } from "./rune-payment.js";
 import { counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
@@ -540,7 +540,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-        card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+        restrictedPowerFor(actor, card.kind),
         // Malzahar's rainbow, unlike Kai'Sa's, has no Spells-only clause — so no
         // kind check, and a Unit may be bought with it.
         actor.floatingRainbowPower,
@@ -567,7 +567,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             card.powerDomain,
             card.powerDomainAlt,
             card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-            card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+            restrictedPowerFor(actor, card.kind),
             actor.floatingRainbowPower,
           )
         : undefined;
@@ -1078,7 +1078,7 @@ export function legalActions(state: GameState): PlayerAction[] {
           card.powerDomain,
           card.powerDomainAlt,
           card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-          card.kind === "Spell" ? actor.restrictedSpellPower : 0,
+          restrictedPowerFor(actor, card.kind),
           actor.floatingRainbowPower,
         );
         // **The `[Deflect]` tax is owed by BOTH executions** (project-owner

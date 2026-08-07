@@ -96,6 +96,7 @@ export function buildPlayerFromDeckList(
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    restrictedGearPower: 0,
     gearPlayedThisTurn: 0,
     equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,

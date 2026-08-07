@@ -6,6 +6,7 @@ import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
+import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
@@ -241,8 +242,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // domains but usable for any card, so spending it before the more restricted
   // pool would strand the restricted one. Same order computeEffectiveCost prices.
   const rainbowPowerSpent = Math.min(actor.floatingRainbowPower, powerToPay - floatingPowerSpent);
-  const restrictedPowerSpent =
-    card.kind === "Spell" ? Math.min(actor.restrictedSpellPower, powerToPay - floatingPowerSpent - rainbowPowerSpent) : 0;
+  // Kai'Sa's pool for a Spell, Ornn's for a Gear — asked through the SAME
+  // accessor the three enumeration sites and the validator use, so what is
+  // priced and what is spent cannot disagree.
+  const restrictedPowerSpent = Math.min(
+    restrictedPowerFor(actor, card.kind),
+    powerToPay - floatingPowerSpent - rainbowPowerSpent,
+  );
 
   // A from-hidden card was never in hand; it comes off the battlefield instead,
   // which happens on `battlefields` further down.
@@ -253,7 +259,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
-    restrictedSpellPower: actor.restrictedSpellPower - restrictedPowerSpent,
+    // Deducted from whichever pool paid — they are mutually exclusive by card
+    // kind, so at most one of these two ever moves.
+    restrictedSpellPower: actor.restrictedSpellPower - (card.kind === "Spell" ? restrictedPowerSpent : 0),
+    restrictedGearPower: actor.restrictedGearPower - (card.kind === "Gear" ? restrictedPowerSpent : 0),
     floatingRainbowPower: actor.floatingRainbowPower - rainbowPowerSpent,
     floatingPower:
       floatingPowerSpent > 0

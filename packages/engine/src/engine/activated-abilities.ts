@@ -3,6 +3,8 @@ import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.j
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
+/** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
+const ORNN_GEAR_POWER = 1;
 /** Renata Glasc - Chem-Baroness's "an additional [1]" on each Gold. */
 const RENATA_GOLD_BONUS_ENERGY = 1;
 import { contextFor, type EffectContext } from "./effect-context.js";
@@ -393,6 +395,38 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...equipAbilities(),
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "SFD-189": {
+    // Ornn - Fire Below the Mountain — "[Exhaust]: [Reaction] — [Add] [rainbow].
+    // Use only to play gear or use gear abilities."
+    //
+    // A THIRD restricted pool, beside Kai'Sa's two. Rainbow like hers, so no
+    // domain is matched; unlike hers it is spendable on GEAR — and since a Gear
+    // is never a Spell, `restrictedPowerFor` picks between them rather than
+    // `computeEffectiveCost` growing a fourth parameter.
+    //
+    // **DIVERGENCE, recorded in docs/rules-conformance.md: the "or use gear
+    // ABILITIES" half does not reach an activation's Power cost.** An activated
+    // ability's `power` cost is paid by `payPowerFromChanneled`, which RECYCLES a
+    // matching rune out of the channeled pool and never reads a floating pool at
+    // all — so no floating pool, restricted or otherwise, can pay one today. That
+    // is structural and predates this card; the play half (23 of the 72 gear in
+    // the pool carry a Power cost) works in full.
+    //
+    // `banksResource`, like the Seals and Malzahar: it changes nothing the board
+    // evaluator can price, so the AI will not take it. Recorded rather than
+    // worked around — this project has a standing rule against speculative
+    // heuristics with no evaluative basis.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, restrictedGearPower: actor.restrictedGearPower + ORNN_GEAR_POWER };
+      return { ...state, players };
+    },
+  },
   "SFD-197": {
     // Azir - Emperor of the Sands, second half — "[1], [Exhaust]: Play a 2 Might
     // Sand Soldier unit token to your base. Use only if you've played an

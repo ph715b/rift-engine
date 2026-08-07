@@ -335,6 +335,7 @@ export function runEnd(state: GameState): GameState {
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    restrictedGearPower: 0,
     gearPlayedThisTurn: 0,
     equipmentPlayedThisTurn: 0,
     // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
