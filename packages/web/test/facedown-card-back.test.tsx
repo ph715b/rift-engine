@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HoverPreviewProvider } from "../src/hover-preview.js";
 import { render, cleanup } from "@testing-library/react";
 import {
   allPresetDecks,
@@ -51,6 +52,7 @@ function renderView(ownerIndex: 0 | 1) {
   const { battlefield, human, ai } = boardWithHidden(ownerIndex);
   cleanup();
   return render(
+    <HoverPreviewProvider>
     <BattlefieldView
       battlefield={battlefield}
       human={human}
@@ -71,7 +73,8 @@ function renderView(ownerIndex: 0 | 1) {
       canDragUnit={() => false}
       onUnitDrag={() => {}}
       onUnitDragEnd={() => {}}
-    />,
+    />
+    </HoverPreviewProvider>,
   );
 }
 

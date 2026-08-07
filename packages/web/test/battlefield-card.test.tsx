@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HoverPreviewProvider } from "../src/hover-preview.js";
 import { render, cleanup } from "@testing-library/react";
 import { LEGACY_BATTLEFIELDS, loadBattlefieldDefinitions } from "@rift-engine/engine";
 import { battlefieldCard } from "../src/battlefield-cards.js";
@@ -54,7 +55,7 @@ describe("the battlefield card behind a battlefield in play", () => {
 });
 
 describe("BattlefieldView renders that card", () => {
-  it("shows the art and the ability text", async () => {
+  it("shows the art at real card size, naming the battlefield", async () => {
     const { BattlefieldView } = await import("../src/components/BattlefieldView.js");
     const { createNewGame } = await import("../src/game-setup.js");
     const { allPresetDecks, presetDeckList } = await import("@rift-engine/engine");
@@ -70,6 +71,7 @@ describe("BattlefieldView renders that card", () => {
 
     cleanup();
     const { container } = render(
+      <HoverPreviewProvider>
       <BattlefieldView
         battlefield={bf}
         human={state.players[0]!}
@@ -90,14 +92,19 @@ describe("BattlefieldView renders that card", () => {
         onUnitDrag={() => {}}
         onUnitDragEnd={() => {}}
         isUnitChainTargeted={() => false}
-      />,
+      />
+      </HoverPreviewProvider>,
     );
 
     const art = container.querySelector(".battlefield-card-art");
     expect(art, "the battlefield's art was not rendered").not.toBeNull();
     expect(art!.getAttribute("src")).toBe(battlefieldCard("Zaun Warrens")!.imageUrl);
-    expect(container.querySelector(".battlefield-card-text")?.textContent).toBe(
-      battlefieldCard("Zaun Warrens")!.text,
-    );
+    // The ability TEXT is no longer on the board — it moved to the hover preview
+    // when the card became full size, because there is no room for it beside a
+    // real card and the clamped three lines could not show a long ability anyway.
+    // What the board owes is the art at real size; the text is covered by
+    // `battlefield-hover.test.tsx`.
+    expect(container.querySelector(".battlefield-card-text"), "the clamped text should be gone").toBeNull();
+    expect(art!.getAttribute("alt"), "the art must still NAME the battlefield").toBe("Zaun Warrens");
   });
 });

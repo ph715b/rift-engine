@@ -727,11 +727,17 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // `powerRunes`. Owed ON TOP of any surcharge: they are two different debts
   // that happen to be payable with the same kind of rune.
   if (rainbow.length < deflected + repeatRainbow) {
-    return fail(
-      `${card.name} must pay ${deflected + repeatRainbow} rainbow Power ` +
-        `(${deflected} for [Deflect] on its target${deflected === 1 ? "" : "s"}, ${repeatRainbow} for [Repeat]), ` +
-        `but named ${rainbow.length}`,
-    );
+    // The [Repeat] half is named only when it is actually owed. Every card in the
+    // pool but Danger Zone owes zero, and a breakdown reading "0 for [Repeat]" on
+    // the other 300 was noise — it also silently rewrote the sentence the web
+    // package asserts on, which is how this message came to be tested by a suite
+    // the engine's own verification loop does not run.
+    const owed = deflected + repeatRainbow;
+    const why =
+      repeatRainbow > 0
+        ? `(${deflected} for [Deflect], ${repeatRainbow} for [Repeat])`
+        : `for [Deflect] on its target${deflected === 1 ? "" : "s"}`;
+    return fail(`${card.name} must pay ${owed} rainbow Power ${why}, but named ${rainbow.length}`);
   }
   const alreadySpent = new Set([...payment.energyRunes, ...payment.powerRunes]);
   for (const id of rainbow) {

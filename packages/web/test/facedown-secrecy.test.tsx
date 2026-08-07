@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { HoverPreviewProvider } from "../src/hover-preview.js";
 import { render, cleanup } from "@testing-library/react";
 import {
   allPresetDecks,
@@ -61,6 +62,7 @@ function withFacedown(ownerIndex: 0 | 1) {
 
 function renderBattlefield(props: ReturnType<typeof withFacedown>) {
   return render(
+    <HoverPreviewProvider>
     <BattlefieldView
       {...props}
       selectedUnitIds={new Set()}
@@ -79,7 +81,8 @@ function renderBattlefield(props: ReturnType<typeof withFacedown>) {
       canDragUnit={() => false}
       onUnitDrag={() => {}}
       onUnitDragEnd={() => {}}
-    />,
+    />
+    </HoverPreviewProvider>,
   );
 }
 

@@ -921,15 +921,38 @@ button:disabled {
   min-height: 0;
 }
 
+/* A battlefield is laid out like the paper table seen from your seat: the
+   battlefield CARD itself on the left at real size, and the two sides stacked
+   beside it — theirs far, yours near.
+
+   ROW rather than column, and that is what lets the card be full size at all.
+   The board is a fixed-height 100dvh grid and `use-board-card-size` sizes every
+   card on it from the SHORTEST row, so height spent inside a battlefield shrinks
+   every card in the game — the same measurement that showed removing the hand's
+   row gained 30px of card height at 1600x950. Width, by contrast, is already
+   absorbed by the fan in use-row-fit.ts. */
 .battlefield {
   border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 0.5rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
   cursor: default;
   transition: border-color 0.15s ease;
+  min-height: 0;
+}
+
+/* The two sides, and the name above them. `min-width: 0` is load-bearing: without
+   it this flex child refuses to shrink below its content width, and the unit rows
+   push the battlefield card off its own box. */
+.battlefield-lanes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -968,38 +991,50 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-/* The battlefield's own card: art thumbnail + its ability text.
+/* The battlefield's own card, at REAL card size.
 
-   `flex: 0 0 auto` for the same reason the floating readout uses it — this box
-   holds two unit rows that measure their own available width (use-row-fit.ts), so
-   anything here that could grow or shrink would move the cards. The text is
-   clamped rather than scrolled; the full string is in the title. */
+   Battlefield cards are printed LANDSCAPE, so real size is the same card stock
+   rotated: width is a portrait card's HEIGHT, height is a portrait card's WIDTH.
+   Both read `--board-card-*`, which `use-board-card-size` publishes, so this
+   scales with every unit on the board rather than being sized on its own.
+
+   `flex: 0 0 auto` for the same reason it always had: this sits beside two unit
+   rows that measure their own available width (use-row-fit.ts), so anything here
+   that could grow or shrink would move the cards.
+
+   The rules text moved to the HOVER PREVIEW. The clamped three lines that used to
+   sit beside a thumbnail could not show a long ability anyway, and there is no
+   room for them beside a full-size card. */
 .battlefield-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
   flex: 0 0 auto;
-  margin-bottom: 0.35rem;
+  width: var(--board-card-h, 5.2rem);
+  height: var(--board-card-w, 3.7rem);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0.35rem;
+  overflow: hidden;
+  cursor: help;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.battlefield-card:hover {
+  box-shadow: 0 0 0 2px var(--color-accent);
+  transform: translateY(-2px);
 }
 
 .battlefield-card-art {
-  width: 2.4rem;
-  border-radius: 0.2rem;
-  flex: 0 0 auto;
-  /* Battlefield cards are printed LANDSCAPE, unlike every other card here. */
-  aspect-ratio: 1039 / 744;
+  width: 100%;
+  height: 100%;
+  display: block;
   object-fit: cover;
 }
 
-.battlefield-card-text {
-  font-size: 0.68rem;
-  line-height: 1.25;
-  color: var(--color-text-dim);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* The preview's art is portrait for a card and LANDSCAPE for a battlefield —
+   letting a landscape image fill a portrait slot stretched it. */
+.card-preview-art.battlefield {
+  aspect-ratio: 1039 / 744;
+  object-fit: cover;
 }
 
 /*

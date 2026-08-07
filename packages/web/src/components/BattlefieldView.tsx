@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { CardView, type DragPoint } from "./CardView.js";
 import { useRowFit } from "./use-row-fit.js";
 import { battlefieldCard } from "../battlefield-cards.js";
+import { useCardHover } from "../hover-preview.js";
 import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/engine";
 
 interface BattlefieldViewProps {
@@ -81,6 +82,7 @@ export function BattlefieldView({
   onUnitDrag,
   onUnitDragEnd,
 }: BattlefieldViewProps) {
+  const setHovered = useCardHover();
   const humanUnits = battlefield.units[human.id] ?? [];
   const aiUnits = battlefield.units[ai.id] ?? [];
   const controllerName =
@@ -143,7 +145,18 @@ export function BattlefieldView({
                   : `${h.card.name} — hidden here. Playable from your next turn (rule 811).`
                 : "A facedown card. You can see it is there, not what it is."
             }
-            onClick={playable ? () => onPlayHidden!(h.card.instanceId, battlefield.id) : undefined}
+            // `stopPropagation` because the battlefield itself is clickable while
+            // a unit is selected or it is a target — without this, playing a
+            // facedown card ALSO fired `onMoveHere`, so the play was immediately
+            // followed by a move/target commit against the same battlefield.
+            onClick={
+              playable
+                ? (event) => {
+                    event.stopPropagation();
+                    onPlayHidden!(h.card.instanceId, battlefield.id);
+                  }
+                : undefined
+            }
           >
             <span className="facedown-back" aria-hidden="true" />
             <span className="facedown-label">{mine ? h.card.name : "Facedown"}</span>
@@ -154,63 +167,79 @@ export function BattlefieldView({
 
   return (
     <div className={classes.join(" ")} onClick={isClickable ? onMoveHere : undefined} data-dropzone-id={battlefield.id}>
-      <div className="battlefield-name">
-        <span>{battlefield.name}</span>
-        <span>{isShowdownActive ? "Showdown!" : controllerName}</span>
-      </div>
-      {/* The battlefield's own CARD. Its ability was previously readable only in
-          the deck builder, so a player could choose a battlefield for its text and
-          then never see that text again — which is also why "are battlefield
-          abilities working?" was unanswerable from inside a game.
+      {/* The battlefield's own CARD, at REAL card size and in its own column.
+          Battlefield cards are printed LANDSCAPE, so "real size" is the same card
+          stock rotated: its width is a portrait card's HEIGHT and its height is a
+          portrait card's WIDTH. Both come from `--board-card-*`, so it scales with
+          every other card on the board instead of being sized on its own.
 
-          The art is a thumbnail rather than a full card because this box has to
-          hold two unit rows that measure their own width (use-row-fit.ts); the
-          text sits beside it so the ability is legible WITHOUT a hover, and the
-          title carries it in full for when it is clipped. */}
+          A COLUMN rather than a strip above the rows, and that is the whole reason
+          this can be full size at all: the board is a fixed-height 100dvh grid and
+          every card is sized from the SHORTEST row, so height spent here would
+          shrink every card in the game (measured before: a hand ROW cost 30px of
+          card height at 1600x950). Beside the rows it costs width, which the fan
+          in use-row-fit.ts already absorbs.
+
+          Hovering it opens the same preview a unit gets, which is where the full
+          rules text now lives — the clamped text that used to sit beside a
+          thumbnail had room for three lines and no more. */}
       {card && (
-        <div className="battlefield-card" title={`${card.name} — ${card.text}`}>
-          <img className="battlefield-card-art" src={card.imageUrl} alt="" loading="lazy" />
-          <span className="battlefield-card-text">{card.text}</span>
+        <div
+          className="battlefield-card"
+          onMouseEnter={() =>
+            setHovered({ kind: "battlefield", name: card.name, imageUrl: card.imageUrl, text: card.text })
+          }
+          onMouseLeave={() => setHovered(null)}
+        >
+          <img className="battlefield-card-art" src={card.imageUrl} alt={card.name} loading="lazy" />
         </div>
       )}
-      <div
-        className="battlefield-side"
-        ref={aiFit.rowRef}
-        style={{ "--row-fit-margin": `${aiFit.marginLeft}px` } as CSSProperties}
-      >
-        {facedownCards(humanIndex === 0 ? 1 : 0)}
-        {aiUnits.map((unit) => (
-          <CardView
-            key={unit.instanceId}
-            card={unit}
-            isEnemy
-            isSelectable={isUnitTargetable(unit)}
-            isTargetable={isUnitTargetable(unit)}
-            isChainTargeted={isUnitChainTargeted(unit)}
-            isSelected={chosenUnitIds.has(unit.instanceId)}
-            onClick={() => onUnitClick(unit)}
-          />
-        ))}
-      </div>
-      <div
-        className="battlefield-side"
-        ref={humanFit.rowRef}
-        style={{ "--row-fit-margin": `${humanFit.marginLeft}px` } as CSSProperties}
-      >
-        {facedownCards(humanIndex)}
-        {humanUnits.map((unit) => (
-          <CardView
-            key={unit.instanceId}
-            card={unit}
-            isSelectable={isFriendlySelectable(unit)}
-            isTargetable={isUnitTargetable(unit)}
-            isChainTargeted={isUnitChainTargeted(unit)}
-            isSelected={selectedUnitIds.has(unit.instanceId) || chosenUnitIds.has(unit.instanceId)}
-            onClick={() => onUnitClick(unit)}
-            onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}
-            onDragEnd={canDragUnit(unit) ? (info) => onUnitDragEnd(unit, info) : undefined}
-          />
-        ))}
+      <div className="battlefield-lanes">
+        <div className="battlefield-name">
+          <span>{battlefield.name}</span>
+          <span>{isShowdownActive ? "Showdown!" : controllerName}</span>
+        </div>
+        {/* THEIR side, farthest from you — the paper table seen from your seat. */}
+        <div
+          className="battlefield-side enemy"
+          ref={aiFit.rowRef}
+          style={{ "--row-fit-margin": `${aiFit.marginLeft}px` } as CSSProperties}
+        >
+          {facedownCards(humanIndex === 0 ? 1 : 0)}
+          {aiUnits.map((unit) => (
+            <CardView
+              key={unit.instanceId}
+              card={unit}
+              isEnemy
+              isSelectable={isUnitTargetable(unit)}
+              isTargetable={isUnitTargetable(unit)}
+              isChainTargeted={isUnitChainTargeted(unit)}
+              isSelected={chosenUnitIds.has(unit.instanceId)}
+              onClick={() => onUnitClick(unit)}
+            />
+          ))}
+        </div>
+        {/* YOUR side, nearest you. */}
+        <div
+          className="battlefield-side mine"
+          ref={humanFit.rowRef}
+          style={{ "--row-fit-margin": `${humanFit.marginLeft}px` } as CSSProperties}
+        >
+          {facedownCards(humanIndex)}
+          {humanUnits.map((unit) => (
+            <CardView
+              key={unit.instanceId}
+              card={unit}
+              isSelectable={isFriendlySelectable(unit)}
+              isTargetable={isUnitTargetable(unit)}
+              isChainTargeted={isUnitChainTargeted(unit)}
+              isSelected={selectedUnitIds.has(unit.instanceId) || chosenUnitIds.has(unit.instanceId)}
+              onClick={() => onUnitClick(unit)}
+              onDrag={canDragUnit(unit) ? (info) => onUnitDrag(unit, info) : undefined}
+              onDragEnd={canDragUnit(unit) ? (info) => onUnitDragEnd(unit, info) : undefined}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
