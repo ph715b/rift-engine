@@ -1,4 +1,16 @@
-# SFD — the final 18
+# SFD — the final 18 (SUPERSEDED)
+
+> **SUPERSEDED 2026-08-07 by `docs/sfd-final-11-prompt.md`.**
+>
+> The (A)/(B) question below is ANSWERED: the human chose **(A) — finish all 18
+> and hard-gate SFD**. Seven of the eighteen are done (SFD-150, 175, 011, 042,
+> 073, 050, 024) and the set is at **187/198**, so every count in this file is
+> stale by construction.
+>
+> Two of its five "recommended NOT to do" cards were **mis-priced** and are now
+> written: Brutalizer needed one flag at one site, and `tags` was never
+> printed-only. Read the new file for what is actually left.
+
 
 **This is the prompt for the session that finishes Spiritforged.** It supersedes
 `docs/sfd-continuation-prompt.md`, whose six phases are done and whose numbers
