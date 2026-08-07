@@ -313,10 +313,9 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Equipment that DO work are not greyed with them.
   ["SFD-150", "[Equip] costs a rune AND Recycle 2 from your trash (unparsed compound cost), AND its art-only 'when I conquer or hold, play a unit from your trash' is unwritten"],
   ["SFD-178", "[Equip] costs a rune AND Kill a friendly unit; the compound cost is unparsed"],
-  ["SFD-186", "[Equip] costs RAINBOW Power, which ActivationCost cannot express"],
-  ["SFD-190", "[Equip] costs RAINBOW Power (ActivationCost cannot express it), AND its art-only 'when I attack or defend, deal 2 to ALL enemy units here' is unwritten"],
-  ["SFD-191", "[Equip] costs RAINBOW Power (ActivationCost cannot express it), AND its art-only 'your spells and abilities deal 3 Bonus Damage' is unwritten"],
-  ["SFD-192", "[Equip] costs RAINBOW Power (ActivationCost cannot express it); the art-only ready-half is written, the positional [Ganking] aura is not"],
+  ["SFD-190", "art-only: 'when I attack or defend, deal 2 to ALL enemy units here' is unwritten. Its [Equip] half works"],
+  ["SFD-191", "art-only: 'your spells and abilities deal 3 Bonus Damage' is unwritten. Its [Equip] half works"],
+  ["SFD-192", "art-only: the ready-half is written, the positional [Ganking] aura is not. Its [Equip] half works"],
   // **The Equipment whose printed ability exists ONLY on the card art**, and the
   // worst blind spot this file has had. `needsImplementation` reads the card
   // text; for every one of these `text.plain` holds the `[Equip]` line and

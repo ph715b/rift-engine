@@ -224,13 +224,20 @@ describe("Shurelya's Requiem (SFD-192): a GEAR whose on-play clause readies your
     expect(played.players[0]!.baseUnits[0]!.exhausted, "the ready happened inline, before anyone could respond").toBe(true);
   });
 
-  it("is still reported as PARTIAL — the [Equip] half is a rainbow cost and is unwired", () => {
+  it("is still reported as PARTIAL — but for the AURA now, not the cost", () => {
     // Registration is per defId, so writing one clause of a two-clause card makes
     // it read as finished unless something says otherwise. `PARTIALLY_IMPLEMENTED`
-    // already carries this defId for the rainbow `[Equip]` cost, and this asserts
-    // that note is still the thing standing between "one clause" and "done".
+    // carries this defId, and this asserts that note is still the thing standing
+    // between "one clause" and "done".
+    //
+    // **What it stands for has CHANGED**, which is the half worth pinning: the
+    // rainbow `[Equip]` cost is wired now, and the note names the positional
+    // [Ganking] aura instead. A partial note that stops matching the card is how
+    // this repo has shipped a blocker that no longer existed.
     expect(isCardImplemented(registry.get(SHURELYAS_REQUIEM))).toBe(false);
-    expect(partialImplementationNote(registry.get(SHURELYAS_REQUIEM))).toContain("RAINBOW");
+    const note = partialImplementationNote(registry.get(SHURELYAS_REQUIEM))!;
+    expect(note).toContain("Ganking");
+    expect(note, "the note still blames a cost this engine can now express").not.toContain("RAINBOW");
   });
 });
 

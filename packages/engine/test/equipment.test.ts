@@ -21,6 +21,8 @@ import { effectiveKeywords, hasKeyword } from "../src/engine/granted-keywords.js
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { partialImplementationNote } from "../src/engine/coverage.js";
+import { legalActions } from "../src/engine/legal-actions.js";
+import { submit } from "../src/engine/game-engine.js";
 import { pendingDecision } from "../src/engine/decisions.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -237,13 +239,54 @@ describe("a unit leaving play", () => {
 });
 
 describe("the generated [Equip] ability", () => {
-  it("gives 25 of the 31 Equipment a working ability, with no per-card code", () => {
+  it("gives 29 of the 31 Equipment a working ability, with no per-card code", () => {
     // The scope-reducer: the cost parses, the attach is generic, so a table
-    // entry per card would be 25 copies of one thing, each free to drift.
+    // entry per card would be 29 copies of one thing, each free to drift.
+    //
+    // **25 until the rainbow four joined them.** They were skipped outright while
+    // `ActivationCost.power.domain` was `Domain` — not weak, UNATTACHABLE — and
+    // Temporal Portal's own rainbow pip widened the type to `Domain | null`,
+    // which is what `payPowerFromChanneled` has always read as "any domain".
+    // The two left are the compound costs, below.
     const equipment = registry.all().filter((c) => c.type === "Gear" && c.isEquipment === true);
     expect(equipment).toHaveLength(31);
     const wired = equipment.filter((c) => hasActivatableAbility(c.id));
-    expect(wired).toHaveLength(25);
+    expect(wired).toHaveLength(29);
+  });
+
+  /** The four that the widening freed, asserted as a group and by cost, because
+   *  "wired" alone would not catch a rainbow cost quietly wired as Colorless —
+   *  which would let one domain pay it and no other. */
+  it("prices a RAINBOW [Equip] cost as any-domain, not as Colorless", () => {
+    for (const defId of [FORGEFIRE_CAPE, "SFD-191", "SFD-192", "SFD-186"]) {
+      expect(hasActivatableAbility(defId), `${defId} is still unwired`).toBe(true);
+      expect(activationCostOf(defId), `${defId} priced its rainbow pip as a domain`).toMatchObject({
+        power: { domain: null, count: 1 },
+      });
+    }
+  });
+
+  /** And it really attaches, through the real enumerate-and-submit path — off a
+   *  rune of a domain the card does not print, which is the whole of "rainbow". */
+  it("attaches a rainbow-cost Equipment off a rune of ANY domain", () => {
+    const cape = realGearInstance(FORGEFIRE_CAPE);
+    const unit = makeUnit({ name: "Wearer", instanceId: "wearer" });
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [unit];
+    state.players[0]!.activeGear = [cape];
+    // Body runes for a card printing no Body pip at all.
+    state.players[0]!.channeled = [{ id: "r1", domain: "Body", state: "Ready" }];
+
+    const attach = legalActions(state).find(
+      (a) => a.type === "ActivateAbility" && a.permanentInstanceId === cape.instanceId,
+    );
+    expect(attach, "no attach was offered for a rainbow-cost Equipment").toBeDefined();
+
+    const { state: after, result } = submit(state, attach!);
+    expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+    expect(equipmentAttachedTo(after, "wearer"), "the rainbow-cost Equipment did not attach").toHaveLength(1);
+    // Paid by recycling the rune (416), not by exhausting it.
+    expect(after.players[0]!.channeled, "the rainbow Power was not paid").toHaveLength(0);
   });
 
   it("costs what the card prints, and does NOT exhaust", () => {
@@ -273,14 +316,14 @@ describe("the generated [Equip] ability", () => {
     expect(effectiveMight(after, unit, 0, combat)).toBe(5);
   });
 
-  it("leaves the 6 it cannot price UNWIRED, and each says why", () => {
-    // Four rainbow costs (ActivationCost names one domain, and rainbow is not a
-    // domain) and two compound costs. Named individually rather than under a
-    // keyword flag, which would have greyed the 25 that work along with them.
-    for (const defId of [FORGEFIRE_CAPE, "SFD-191", "SFD-192", "SFD-186"]) {
-      expect(hasActivatableAbility(defId), `${defId} should be unwired`).toBe(false);
-      expect(partialImplementationNote(registry.get(defId))).toContain("RAINBOW");
-    }
+  it("leaves the 2 it cannot price UNWIRED, and each says why", () => {
+    // The COMPOUND costs, and only those — a rune AND a Recycle, a rune AND a
+    // kill. `EQUIP_COST_PATTERN` refuses to half-read them on purpose: a looser
+    // pattern would hand the card an ability costing only the rune, which is
+    // strictly CHEAPER than printed, the one direction this codebase never ships.
+    //
+    // Named individually rather than under a keyword flag, which would have
+    // greyed the 29 that work along with them.
     for (const defId of [LAST_RITES, "SFD-178"]) {
       expect(hasActivatableAbility(defId)).toBe(false);
       expect(partialImplementationNote(registry.get(defId))).toContain("compound cost");
@@ -402,8 +445,11 @@ describe("[Weaponmaster]", () => {
     expect(weaponmasterCostFor(DORANS_BLADE)).toEqual({ energy: 0, domain: "Body", count: 0 });
     // Skyfall of Areion is 1 Energy + 1 Fury: the rune goes, the Energy stays.
     expect(weaponmasterCostFor("SFD-030")).toEqual({ energy: 1, domain: "Fury", count: 0 });
-    // A rainbow cost cannot be priced, so it is not offered at all.
-    expect(weaponmasterCostFor(FORGEFIRE_CAPE)).toBeUndefined();
+    // A rainbow cost discounts like any other now: one rainbow rune minus one
+    // rune is nothing, so the attach is free. `null` is the any-domain marker,
+    // and at count 0 it is moot — but a 2-rainbow cost would reduce to 1 rainbow
+    // and still be payable, which is the general case that used to be dropped.
+    expect(weaponmasterCostFor(FORGEFIRE_CAPE)).toEqual({ energy: 0, domain: null, count: 0 });
   });
 
   it("offers the attach on play, and attaches free when the cost is one rune", () => {

@@ -265,31 +265,32 @@ export function equipmentDefIds(): string[] {
  * cards that print it.
  *
  * **"For 1 rainbow LESS" is a discount on the Equipment's own `[Equip]` cost**,
- * not a cost of its own — so it needs none of the rainbow-payment machinery the
- * four rainbow-cost Equipment are still blocked on. Since 25 of the 31 print an
- * `[Equip]` cost of exactly one rune, the discount usually makes the attach
- * FREE, which is the card's whole point.
+ * not a cost of its own. Since 25 of the 31 print an `[Equip]` cost of exactly
+ * one rune, the discount usually makes the attach FREE, which is the card's
+ * whole point.
  *
  * **"Even if it's already attached"** is why the offer lists every Equipment its
  * controller has rather than only unattached ones: re-equipping is a relocation
  * and is explicitly legal.
  *
- * The four rainbow-cost Equipment are still excluded, because this engine cannot
- * price the un-discounted remainder of a rainbow cost — a rainbow minus a
- * rainbow is zero, but nothing here can express the general case, and offering
- * only the ones that happen to reduce to nothing would be a rule that held by
- * accident. They are named in PARTIALLY_IMPLEMENTED already.
+ * **The four rainbow-cost Equipment are no longer excluded.** They were, on the
+ * reasoning that "a rainbow minus a rainbow is zero, but nothing here can
+ * express the general case" — and the general case is expressible now: a rainbow
+ * Power cost is `domain: null`, which `payPowerFromChanneled` has always read as
+ * "any domain". So a hypothetical 2-rainbow `[Equip]` discounts to 1 rainbow and
+ * is priced correctly rather than dropped.
  */
 export const WEAPONMASTER_DECISION = "weaponmaster-equip";
 
 /** The `[Equip]` cost after `[Weaponmaster]`'s one-rune discount, or undefined
  *  for an Equipment this engine cannot price. */
-export function weaponmasterCostFor(defId: string): { energy: number; domain: Domain; count: number } | undefined {
+export function weaponmasterCostFor(defId: string): { energy: number; domain: Domain | null; count: number } | undefined {
   const def = defaultCardRegistry().tryGet(defId);
   if (def?.type !== "Gear" || def.equipCost === undefined) return undefined;
   const { energy, domain, count } = def.equipCost;
-  if (domain === "rainbow") return undefined;
-  return { energy, domain, count: Math.max(0, count - 1) };
+  // `null` is RAINBOW — see this function's doc comment, and
+  // `payPowerFromChanneled`, which `canPayWeaponmaster` hands it straight to.
+  return { energy, domain: domain === "rainbow" ? null : domain, count: Math.max(0, count - 1) };
 }
 
 /** Can this player pay the discounted cost right now? Asked of the same helpers

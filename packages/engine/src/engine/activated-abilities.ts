@@ -423,14 +423,23 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
   for (const def of defaultCardRegistry().all()) {
     if (def.type !== "Gear" || def.equipCost === undefined) continue;
     const { energy, domain, count } = def.equipCost;
-    if (domain === "rainbow") continue;
     out[def.id] = {
       kind: "Gear",
       // NO exhaust: the printed reminder is "<rune>: Attach this to a unit you
       // control", and an exhaust nobody printed would make every Equipment a
       // once-per-turn attach. Re-equipping is legal and is the point —
       // [Weaponmaster] says so outright ("even if it's already attached").
-      cost: { power: { domain, count }, ...(energy > 0 ? { energy } : {}) },
+      // **RAINBOW is `null`**, which is what `payPowerFromChanneled` has always
+      // meant by it (811's pip, Sett - The Boss's). These four — Spinning Axe,
+      // Forgefire Cape, Rabadon's Deathcrown, Shurelya's Requiem — were skipped
+      // outright while `ActivationCost.power.domain` was `Domain`, so they could
+      // not be attached AT ALL. Temporal Portal widened the type for its own
+      // rainbow pip; that is the whole of what these needed.
+      //
+      // Not mapped to `Colorless`, which is a real printed identity: conflating
+      // the two would let a Colorless rune pay a rainbow cost and nothing else.
+      // `parseEquipCost`'s own comment draws the same line for the same reason.
+      cost: { power: { domain: domain === "rainbow" ? null : domain, count }, ...(energy > 0 ? { energy } : {}) },
       targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
       // `sourceInstanceId` is the 4th argument, not a field on the event — it
       // is the gear being activated, i.e. the thing that gets attached.
