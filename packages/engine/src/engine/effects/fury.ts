@@ -49,6 +49,7 @@ import type { PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
 import { wearerListener } from "../equipment.js";
+import { revealedFromDeck } from "../top-of-deck.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -194,7 +195,18 @@ export const cardEffects: Record<string, EffectDefinition> = {
       if (!top) return state;
       const players = [...state.players] as [PlayerState, PlayerState];
       players[victimIndex] = { ...players[victimIndex], deck: players[victimIndex].deck.slice(1) };
-      return playCardIgnoringCost({ ...state, players }, ctx.casterIndex, top);
+      const played = playCardIgnoringCost({ ...state, players }, ctx.casterIndex, top);
+      // **This reveal was never funnelled, and that was a PRE-EXISTING gap** —
+      // found 2026-08-07 while surveying every reveal site for Undertitan.
+      // Nocturne's "as you look at or reveal me" and Undertitan's "as I'm
+      // revealed from your deck" are both owed here, and neither fired.
+      //
+      // The deck owner is the VICTIM, not the caster: both clauses are written
+      // from the revealed card's own point of view ("your deck"), and the deck
+      // being turned over is the opponent's. Raised AFTER the play for the
+      // ordering Dazzling Aurora records — nothing here stops to ask, and a
+      // Nocturne that was just played finds his own offer moot.
+      return revealedFromDeck(played, victimIndex, [top]);
     },
   },
   "OGN-014": {

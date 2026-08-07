@@ -35,7 +35,7 @@ import {
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision } from "../decisions.js";
-import { offerTopOfDeckBanish } from "../top-of-deck.js";
+import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -1073,7 +1073,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
       };
       const shuffled = holdCardsRecycled({ ...damaged, players }, listener.ownerIndex, survivors.length);
-      return offerTopOfDeckBanish(shuffled, listener.ownerIndex, revealed);
+      return revealedFromDeck(shuffled, listener.ownerIndex, revealed);
     },
   },
   "OGN-119": {

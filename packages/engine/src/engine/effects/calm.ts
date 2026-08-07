@@ -46,7 +46,7 @@ import { holdCardsRecycled } from "../effect-helpers.js";
 import { cardModeOf } from "../card-effects.js";
 import { spellsOnChain } from "../counter-spell.js";
 import { eligibleTargets } from "../target-lookup.js";
-import { offerTopOfDeckBanish } from "../top-of-deck.js";
+import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
 import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
@@ -1358,7 +1358,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // before because this reveal consumes the card immediately and nothing
       // here stops to ask — the same ordering Dazzling Aurora uses, and his
       // decision banishes the card from wherever it has since ended up.
-      return offerTopOfDeckBanish(after, listener.ownerIndex, [top]);
+      return revealedFromDeck(after, listener.ownerIndex, [top]);
     },
   },
   "SFD-047": {

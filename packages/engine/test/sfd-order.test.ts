@@ -843,12 +843,20 @@ describe("Rally the Troops (SFD-166): Draw 1 — and only that", () => {
 
 describe("Undertitan (SFD-175): your OTHER units get +2 Might this turn", () => {
   it("is reported implemented", () => {
-    // HALF a card: the on-play pump is written, "As I'm revealed from your deck,
-    // [Add] 2 Energy" is not, and there is no reveal-from-deck hook to hang it on.
-    // He now carries a coverage.PARTIALLY_IMPLEMENTED entry, so "implemented" is
-    // exactly what he must NOT report.
-    expect(isCardImplemented(registry.get(UNDERTITAN))).toBe(false);
-    expect(partialImplementationNote(registry.get(UNDERTITAN))).toContain("reveal-from-deck");
+    // **REPLACED 2026-08-07, premise fixed rather than assertion weakened.** This
+    // asserted the OPPOSITE — that Undertitan must NOT report implemented —
+    // because his second clause ("As I'm revealed from your deck, [Add] 2
+    // Energy") had no reveal-from-deck hook to hang on, and he carried a
+    // PARTIALLY_IMPLEMENTED entry saying so.
+    //
+    // That hook now exists: `top-of-deck.revealedFromDeck`, the REVEAL funnel
+    // beside Nocturne's LOOK one. The note was deleted per that map's own
+    // convention, so the assertion is inverted rather than removed with it —
+    // this test still pins his coverage, now from the other side. His reveal
+    // clause has its own file, `reveal-from-deck.test.ts`; what is tested below
+    // is the on-play pump, unchanged.
+    expect(isCardImplemented(registry.get(UNDERTITAN)), "SFD-175 is not reported implemented").toBe(true);
+    expect(partialImplementationNote(registry.get(UNDERTITAN)), "a note outlived its clause").toBeUndefined();
   });
 
   it("pumps every other friendly unit, in base and at battlefields, but not itself", () => {

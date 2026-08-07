@@ -22,6 +22,7 @@ import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
 import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
+import { revealedFromDeck } from "./top-of-deck.js";
 
 /**
  * The 24 printed Battlefield cards' abilities.
@@ -269,15 +270,20 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
         // guard against a crash.
         if (!top) return state;
         const players = [...state.players] as [PlayerState, PlayerState];
+        // **This reveal was never funnelled either** — the second of the two
+        // pre-existing gaps found while surveying reveal sites for Undertitan
+        // (Blind Fury is the other). Nocturne and Undertitan are both owed here.
+        // Raised after the card has been dealt with, like the other reveals that
+        // consume what they turn over.
         if (top.kind === "Spell") {
           players[event.playerIndex] = { ...player, deck: rest, hand: [...player.hand, top] };
-          return { ...state, players };
+          return revealedFromDeck({ ...state, players }, event.playerIndex, [top]);
         }
         // "Recycle" is 416/425 — the BOTTOM of the same deck it came off.
         players[event.playerIndex] = { ...player, deck: [...rest, top] };
         // Karma - Channeler watches every recycle in this engine, including the
         // ones written inline like this one.
-        return holdCardsRecycled({ ...state, players }, event.playerIndex, 1);
+        return revealedFromDeck(holdCardsRecycled({ ...state, players }, event.playerIndex, 1), event.playerIndex, [top]);
       },
     },
   ],

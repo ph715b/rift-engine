@@ -25,7 +25,7 @@ import { playUnitToBattlefield } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
-import { offerTopOfDeckBanish } from "../top-of-deck.js";
+import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
@@ -851,7 +851,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // rather than before it, because nothing here stops to ask: he may be the
       // unit that was just played, in which case his own offer finds him gone
       // from the deck and drops itself.
-      return offerTopOfDeckBanish(played, listener.ownerIndex, revealed);
+      return revealedFromDeck(played, listener.ownerIndex, revealed);
     },
   },
   "OGN-143": {

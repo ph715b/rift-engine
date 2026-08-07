@@ -803,8 +803,10 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx) => placeGoldTokens(state, ctx.casterIndex, 4),
   },
   "SFD-175": {
-    // Undertitan, FIRST clause only — "When you play me, give your other units +2
-    // Might this turn."
+    // Undertitan's FIRST clause — "When you play me, give your other units +2
+    // Might this turn." His second ("As I'm revealed from your deck, [Add] [2]
+    // Energy") is not an on-play trigger at all and lives in `top-of-deck.ts`
+    // beside Nocturne, at the funnel every reveal in the pool goes through.
     //
     // "YOUR OTHER units", so `giveMightThisTurnToAllFriendlies` is not it: that
     // helper has no way to exclude the source, and the Undertitan pumping itself
