@@ -6,6 +6,7 @@ import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
+import { isMechUnit } from "./equipment.js";
 
 /** Every unit a player controls, each with the MightContext its location
  *  implies — a base unit has no battlefield id, so a positional aura resolves it
@@ -162,14 +163,12 @@ const MECH_TAG = "Mech";
 /** Does this player control a Mech? Asked of the DEFINITION's printed tag, which
  *  is what `granted-keywords.isMech` asks and what the Mech token carries. */
 function controlsAMech(state: GameState, playerIndex: 0 | 1): boolean {
-  return ownUnitsWithLocation(state, playerIndex).some(({ unit }) => {
-    const def = defaultCardRegistry().tryGet(unit.defId);
-    // A TOKEN has no definition at all, so its own instance tags are the only
-    // record — which is why the Mech token carries the tag rather than relying
-    // on a registry entry it does not have.
-    if (def === undefined) return unit.tags.includes(MECH_TAG);
-    return "tags" in def && def.tags.includes(MECH_TAG);
-  });
+  // Through `isMechUnit`, which reads the instance's tags and adds any GRANTED
+  // by an attached Equipment (Experimental Hexplate's "I am a Mech"). The
+  // instance is the right thing to ask for a unit in play: a TOKEN has no
+  // definition at all, which is why the Mech token carries the tag itself, and a
+  // granted tag exists nowhere but the board.
+  return ownUnitsWithLocation(state, playerIndex).some(({ unit }) => isMechUnit(state, unit));
 }
 
 function isDragon(defId: string | undefined): boolean {

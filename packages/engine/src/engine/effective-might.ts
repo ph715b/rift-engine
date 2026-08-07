@@ -6,6 +6,7 @@ import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
 import { equipmentMightBonusFor } from "./equipment.js";
 import { isMechDef } from "./constants.js";
 import { sivirConditionMet } from "./granted-keywords.js";
+import { isMechUnit } from "./equipment.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -317,7 +318,7 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // is seen, because `ownUnitLocation` reports the FIRST copy and this asks a
   // yes/no question of it. That under-report is the one already documented on
   // that helper, and it is unreachable in practice for a Champion.
-  if (isMechDef(unit) && ownUnitLocation(state, ownerIndex, RUMBLE_SCRAPPER) !== undefined) {
+  if (isMechUnit(state, unit) && ownUnitLocation(state, ownerIndex, RUMBLE_SCRAPPER) !== undefined) {
     bonus += 1;
   }
 

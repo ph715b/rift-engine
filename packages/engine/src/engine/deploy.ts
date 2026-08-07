@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { dispatchOnPlayUnit } from "./unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 import { opponentNearVictory } from "./constants.js";
+import { isMechUnit } from "./equipment.js";
 
 /**
  * A unit arriving in play, and the state it arrives in.
@@ -163,7 +164,7 @@ function sfdConditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: U
       // the ones already there.
       return ownUnitsOf(state, playerIndex).some((u) => u.tags.includes("Dragon"));
     case BREAKNECK_MECH:
-      return ownUnitsOf(state, playerIndex).some((u) => u.tags.includes("Mech"));
+      return ownUnitsOf(state, playerIndex).some((u) => isMechUnit(state, u));
     case XIN_ZHAO_VIGILANT:
       // "if you have two or more OTHER units in your BASE" — base only, not
       // the battlefields, and "other" is free for the same reason.

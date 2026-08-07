@@ -32,6 +32,7 @@ import { playCardIgnoringCost } from "../play-free.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
+import { isMechUnit } from "../equipment.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -88,7 +89,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) =>
       ownUnitsEverywhere(state, ctx.casterIndex)
-        .filter((u) => u.tags.includes("Mech"))
+        .filter((u) => isMechUnit(state, u))
         .reduce((next, u) => giveMightThisTurn(next, u.instanceId, DANGER_ZONE_MIGHT), state),
   },
   "OGN-258": {

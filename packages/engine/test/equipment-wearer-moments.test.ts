@@ -58,7 +58,8 @@ const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONES
  * half is a free, MANDATORY death replacement sourced from a GEAR, written beside
  * Zhonya's Hourglass in death-ward.ts.
  *
- * **Last Rites (SFD-150) and Brutalizer (SFD-042) left on 2026-08-07**, under the
+ * **Last Rites (SFD-150), Brutalizer (SFD-042) and Experimental Hexplate
+ * (SFD-073) left on 2026-08-07**, under the
  * decision to finish SFD rather than stop at 193/198. Brutalizer is the one worth
  * a note here, because the reason it sat on the do-not-do list for two sessions
  * was a MIS-PRICING rather than a subsystem: the standing note called for "a
@@ -68,7 +69,7 @@ const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONES
  *
  * This list shrinks as each lands; it is not a fixed set.
  */
-const STILL_ART_ONLY = ["SFD-030", "SFD-059", "SFD-073", "SFD-090"];
+const STILL_ART_ONLY = ["SFD-030", "SFD-059", "SFD-090"];
 /** Sacred Shears — art-only like the six above, and written now, but NOT by the
  *  wearer's-moments mechanism. See its own describe block at the bottom. */
 const SACRED_SHEARS = "SFD-172";

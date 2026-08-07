@@ -40,6 +40,7 @@ import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import { wearerListener } from "../equipment.js";
+import { isMechUnit } from "../equipment.js";
 
 /**
  * Card implementations for **Mind** — one file, one owner.
@@ -545,7 +546,7 @@ function gearsInTrash(state: GameState, playerIndex: 0 | 1) {
  *  backwards. Same reading granted-keywords.ts takes for "other friendly units". */
 function readyableMechs(state: GameState, playerIndex: 0 | 1, selfInstanceId: string) {
   return ownUnitsEverywhere(state, playerIndex).filter(
-    (u) => u.instanceId !== selfInstanceId && u.exhausted && u.tags.includes("Mech"),
+    (u) => u.instanceId !== selfInstanceId && u.exhausted && isMechUnit(state, u),
   );
 }
 

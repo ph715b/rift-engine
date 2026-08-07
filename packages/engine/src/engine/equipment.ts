@@ -165,6 +165,52 @@ export function equipmentPairedWith(
 }
 
 /**
+ * Experimental Hexplate's art-only "**I am a Mech**".
+ *
+ * **ART-ONLY.** `text.plain` holds the `[Equip]` line and nothing else; see
+ * docs/sfd-equipment-abilities.md.
+ *
+ * **"I" is the WEARER, not the gear**, which is the reading the eight
+ * wearer's-moments Equipment already establish for the pronoun on an Equipment —
+ * and here it is also the only reading that does anything at all. Every Mech
+ * check in this engine asks about a UNIT (Rumble Scrapper's Might aura, the
+ * Mech-token discount, "another exhausted Mech", "your Mechs"), so a piece of
+ * gear that was itself a Mech would satisfy none of them and the card would be
+ * blank.
+ *
+ * **The note this replaces said `tags` is "printed-only", and that was wrong.**
+ * `card.ts` copies a definition's tags onto every `UnitInstance` at creation, and
+ * the Mech TOKEN already relies on that — it has no registry entry at all, so its
+ * instance tags are its only record. So a granted tag needed no new storage; what
+ * it needed was for the readers to ask one function.
+ */
+const EXPERIMENTAL_HEXPLATE = "SFD-073";
+const MECH_TAG = "Mech";
+
+/**
+ * This unit's tags, printed AND granted — the one question every tribal check
+ * should ask about a unit IN PLAY.
+ *
+ * Continuous rather than a stored mutation, exactly like
+ * `equipmentMightBonusFor`: detaching the Hexplate takes the tag away in the same
+ * instant, and nothing has to remember to undo a write.
+ *
+ * Only meaningful for a unit on the board. A unit in a TRASH or a deck wears
+ * nothing, so those readers (Rumble Scrapper's "a Mech from your trash") keep
+ * asking `tags` directly and are deliberately untouched.
+ */
+export function effectiveTagsOf(state: GameState, unit: UnitInstance): readonly string[] {
+  const wearsHexplate = equipmentAttachedTo(state, unit.instanceId).some((g) => g.defId === EXPERIMENTAL_HEXPLATE);
+  if (!wearsHexplate || unit.tags.includes(MECH_TAG)) return unit.tags;
+  return [...unit.tags, MECH_TAG];
+}
+
+/** Is this unit a Mech right now — printed, tokened, or granted by a Hexplate? */
+export function isMechUnit(state: GameState, unit: UnitInstance): boolean {
+  return effectiveTagsOf(state, unit).includes(MECH_TAG);
+}
+
+/**
  * Drops Brutalizer's freshness flag.
  *
  * The key is REMOVED rather than set to `undefined`: `attachedThisTurn` is

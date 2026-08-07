@@ -6,6 +6,7 @@ import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
 import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
+import { effectiveTagsOf } from "./equipment.js";
 
 /**
  * Keywords a unit has RIGHT NOW, printed ones plus any it is currently being
@@ -360,7 +361,13 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
     // A `UnitInstance` carries `tags`, so the predicate works on one directly;
     // it is handed `{ id, tags }` because the definition's key is `id` and an
     // instance's is `defId`.
-    if (aura.appliesToDef && !aura.appliesToDef({ id: unit.defId, tags: unit.tags })) continue;
+    // Tags come from `effectiveTagsOf`, not straight off the instance, so a tag
+    // GRANTED by an attached Equipment (Experimental Hexplate's "I am a Mech")
+    // satisfies a tribal aura exactly as a printed one does. Four of the auras
+    // in this table are Mech-keyed, so reading `unit.tags` here would have made
+    // the Hexplate work for the discount and the Might aura but silently not for
+    // the keywords.
+    if (aura.appliesToDef && !aura.appliesToDef({ id: unit.defId, tags: effectiveTagsOf(state, unit) })) continue;
     // "OTHER friendly units" excludes this unit as an OBJECT, never as a card —
     // see ownUnitAtLocation. The exclusion is therefore applied to the SOURCE
     // search below rather than by comparing defIds here.
