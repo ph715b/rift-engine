@@ -99,6 +99,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
     gearPlayedThisTurn: 0,
+    equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,

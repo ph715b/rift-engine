@@ -149,9 +149,16 @@ interface KeywordAura {
  *  can therefore be asked at ENTRY as well as on the board. */
 const isMech = (def: { tags?: readonly string[] }): boolean => def.tags?.includes("Mech") === true;
 
+/** "Your Sand Soldiers" — Azir. A printed tag like Mech's, so it is answerable
+ *  from the definition and therefore askable at ENTRY as well as on the board.
+ *  The tokens Desert's Call and Azir himself make carry the tag too. */
+const isSandSoldier = (def: { tags?: readonly string[] }): boolean => def.tags?.includes("Sand Soldier") === true;
+
 const FORECASTER = "SFD-065";
 const BREAKNECK_MECH = "SFD-071";
 const RUMBLE_HOTHEADED = "SFD-026";
+/** Azir - Emperor of the Sands — "Your Sand Soldiers have [Weaponmaster]." */
+const AZIR_EMPEROR = "SFD-197";
 const PETRICITE_MONUMENT = "SFD-104";
 /** Rumble - Mechanized Menace — "Your Mechs have [Shield]." The pool's first
  *  LEGEND-sourced keyword aura, and the third Rumble to grant Mechs something. */
@@ -185,6 +192,22 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     excludesSelf: false,
     appliesToDef: isMech,
     keywords: ["Deflect", "Ganking"],
+  },
+  [AZIR_EMPEROR]: {
+    // Azir - Emperor of the Sands — "Your Sand Soldiers have [Weaponmaster]."
+    //
+    // Same shape as Rumble - Mechanized Menace below: a LEGEND source, so it is
+    // in play from turn one and never leaves, and `excludesSelf` has no meaning
+    // because a Legend is not a unit and cannot be a Sand Soldier.
+    //
+    // `appliesToDef` rather than `appliesTo`, for the reason that field's own doc
+    // records: the tag is printed, so it survives being asked BEFORE the unit
+    // exists as an instance — which is what `keywordOnEntry` needs.
+    source: "legend",
+    scope: "anywhere",
+    excludesSelf: false,
+    appliesToDef: isSandSoldier,
+    keywords: ["Weaponmaster"],
   },
   [RUMBLE_MECHANIZED_MENACE]: {
     // A LEGEND source, so it is in play from turn one and never leaves — no

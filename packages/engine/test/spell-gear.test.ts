@@ -53,6 +53,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
     gearPlayedThisTurn: 0,
+    equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,

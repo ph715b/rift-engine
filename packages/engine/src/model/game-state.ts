@@ -398,6 +398,17 @@ export interface PlayerState {
    */
   gearPlayedThisTurn: number;
   /**
+   * How many EQUIPMENT this player has played this turn — Azir's "use only if
+   * you've played an Equipment this turn".
+   *
+   * **A second counter rather than a reuse of `gearPlayedThisTurn` above**, and
+   * the distinction is printed: Equipment is a strict SUBSET of Gear, so a
+   * Scrapheap played this turn satisfies Ornn's Forge and must NOT satisfy Azir.
+   * One counter serving both would have turned every gear into an Equipment for
+   * his purposes.
+   */
+  equipmentPlayedThisTurn: number;
+  /**
    * Malzahar - Fanatic's "Kill a friendly unit or gear, Exhaust: → rainbow
    * rainbow" — Power that pays a pip of ANY domain, with no Spells-only
    * restriction.

@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
-import { GOLD_TOKEN_DEF_ID } from "./token.js";
+import { GOLD_TOKEN_DEF_ID, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Renata Glasc - Chem-Baroness's "an additional [1]" on each Gold. */
 const RENATA_GOLD_BONUS_ENERGY = 1;
@@ -393,6 +393,35 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...equipAbilities(),
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
+  "SFD-197": {
+    // Azir - Emperor of the Sands, second half — "[1], [Exhaust]: Play a 2 Might
+    // Sand Soldier unit token to your base. Use only if you've played an
+    // Equipment this turn."
+    //
+    // His first half ("Your Sand Soldiers have [Weaponmaster]") is a keyword AURA
+    // and lives in granted-keywords.ts, not here — a continuous grant is not a
+    // triggered or activated ability, the same split Master Yi's `mightBonus`
+    // makes.
+    //
+    // **"Use only if" is a restriction on ACTIVATING**, so it goes in
+    // `availableWhile` rather than into the resolver: a resolver that refused
+    // would already have taken the Energy and the exhaust, and the player would
+    // have paid for nothing. Both the enumerator and the validator reach it
+    // through `canPayActivationCost`, so the ability cannot be offered and then
+    // refused.
+    //
+    // It reads `equipmentPlayedThisTurn`, NOT `gearPlayedThisTurn`: Equipment is
+    // a strict subset of Gear, so a Scrapheap played this turn satisfies Ornn's
+    // Forge and must not satisfy Azir.
+    //
+    // "TO YOUR BASE" is printed and is the whole placement rule — no destination
+    // is chosen, unlike Recruit the Vanguard's.
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) => state.players[playerIndex].equipmentPlayedThisTurn > 0,
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", SAND_SOLDIER_TOKEN),
+  },
   [GOLD_TOKEN_DEF_ID]: {
     // The Gold token (SFD, printed card `sfd-t03` "Gold // Buff") — "Kill this,
     // [Exhaust]: [Reaction] — [Add] :rb_rune_rainbow:."

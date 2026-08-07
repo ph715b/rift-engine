@@ -8,7 +8,7 @@ import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
-import { holdQuickDrawAttach } from "../engine/equipment.js";
+import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
 
 /**
@@ -271,6 +271,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // file's own float math) and must give the same answer each time, so the
     // thing it reads cannot move until the play is priced and paid.
     gearPlayedThisTurn: card.kind === "Gear" ? actor.gearPlayedThisTurn + 1 : actor.gearPlayedThisTurn,
+    // Azir's subset of the same moment. `isEquipmentGear` reads the DEFINITION's
+    // `isEquipment`, so it is the same question `[Equip]` and `[Weaponmaster]`
+    // already ask rather than a second spelling of "is this Equipment".
+    equipmentPlayedThisTurn:
+      card.kind === "Gear" && isEquipmentGear(card)
+        ? actor.equipmentPlayedThisTurn + 1
+        : actor.equipmentPlayedThisTurn,
     // Raging Firebrand's charge is SPENT here, on the Spell that used it, and
     // only on a Spell — the card says "the next SPELL you play this turn". Spent
     // in the executor rather than in `modifiedEnergyCost` for the reason that
