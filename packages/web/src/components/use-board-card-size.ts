@@ -55,7 +55,17 @@ export function useBoardCardSize() {
       // gives that row up to its hidden-card strip, so its unit rows are shorter
       // than another battlefield's. Sizing off the first row put 18 cards taller
       // than the row containing them.
-      const rows = [...board!.querySelectorAll(".battlefield-side, .card-row.fitted, .rune-row")].filter(
+      // `.rune-row` is deliberately NOT here. **A rune is not a card**, and while
+      // it was measured as one it was also the SHORTEST row on the board — so it
+      // set the size of every card in the game. Measured at 1600x950: rune row
+      // 142px against a battlefield's 156px and a base row's 170px, capping every
+      // card at 125px when 137px fits everywhere a card actually goes.
+      //
+      // Rune tiles now size to their own row (`88cqh`, which `.rune-row` already
+      // declares a container for), so they still fit exactly and every CARD is
+      // the same size as every other card — which is the property this hook
+      // exists to provide, and it was quietly buying it with 12px of every card.
+      const rows = [...board!.querySelectorAll(".battlefield-side, .card-row.fitted")].filter(
         (el): el is HTMLElement => el instanceof HTMLElement,
       );
       if (rows.length === 0) return;

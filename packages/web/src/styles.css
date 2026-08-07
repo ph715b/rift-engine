@@ -937,7 +937,15 @@ button:disabled {
   padding: 0.5rem;
   display: flex;
   flex-direction: row;
-  align-items: center;
+  /* STRETCH, never `center`. `.battlefield-side` is `flex: 1 1 0` with
+     `container-type: size`, so it takes its height from its PARENT and never
+     from its contents — and a centred child is sized by its content instead.
+     With `center` here, `.battlefield-lanes` collapsed to its 30px name line,
+     both sides resolved to 0, and because `--board-card-h` is the SHORTEST row
+     on the whole board, every card in the game collapsed with them. Reported as
+     three separate complaints ("hand too small", "battlefield too small",
+     "can't see units"); it was this one line. */
+  align-items: stretch;
   gap: 0.5rem;
   cursor: default;
   transition: border-color 0.15s ease;
@@ -1007,6 +1015,9 @@ button:disabled {
    room for them beside a full-size card. */
 .battlefield-card {
   flex: 0 0 auto;
+  /* Centred on its OWN axis rather than by the parent, so the two sides keep
+     stretching to full height — see `.battlefield`'s `align-items`. */
+  align-self: center;
   width: var(--board-card-h, 5.2rem);
   height: var(--board-card-w, 3.7rem);
   border: 0;
@@ -2162,8 +2173,12 @@ button:disabled {
    * just the scope the indices resolve in.
    */
   isolation: isolate;
-  --rune-tile-h: var(--board-card-h, 88cqh);
-  --rune-tile-w: var(--board-card-w, calc(88cqh * 0.716));
+  /* Sized to the RUNE ROW, not to the shared card size. A rune is not a card, and
+     while it took `--board-card-h` it was also the shortest row feeding that
+     measurement — so the rune zone silently set how big every card on the board
+     could be. See use-board-card-size.ts, which no longer measures this row. */
+  --rune-tile-h: 88cqh;
+  --rune-tile-w: calc(88cqh * 0.716);
 }
 
 .rune-tile {

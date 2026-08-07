@@ -5,7 +5,7 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
-import { drawCards } from "./effect-helpers.js";
+import { drawCards, fileIntoNonBoardZone } from "./effect-helpers.js";
 import { parkDecision } from "./decisions.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
@@ -1244,7 +1244,9 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
   players[ownerIndex] = {
     ...owner,
     activeGear: owner.activeGear.filter((g) => g.instanceId !== gear.instanceId),
-    trash: [...owner.trash, gear],
+    // A GEAR token (the Gold tokens) ceases to exist rather than resting in a
+    // trash — rules 714/715, same as a unit token. See fileIntoNonBoardZone.
+    trash: fileIntoNonBoardZone(owner.trash, gear),
   };
   // Trash first, then trigger — the trigger has to see a board the gear has
   // already left, the same ordering killUnit uses. HELD (383) rather than

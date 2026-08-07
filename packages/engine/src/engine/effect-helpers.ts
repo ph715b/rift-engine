@@ -176,6 +176,33 @@ export function killUnit(
  * rather than re-entering killUnit and being offered the same replacement again
  * forever.
  */
+/**
+ * Files a permanent that has just LEFT THE BOARD into a non-board zone —
+ * dropping it entirely if it is a token.
+ *
+ * **Rule 714: "Tokens are Created on the board or the Chain and CANNOT EXIST
+ * ELSEWHERE." Rule 715: "If a token is put into any Non-Board Zone besides the
+ * chain, it CEASES TO EXIST immediately after moving to its new zone."**
+ *
+ * So a killed token does not sit in a trash, a bounced token does not sit in a
+ * hand, and a recycled token does not go to the bottom of a deck. Every one of
+ * those happened before this existed: `isToken` was carried on the instance and
+ * read by exactly two cards, while every zone transition treated a token as a
+ * card. A Sand Soldier bounced by Charm became a permanent 0-cost card in hand.
+ *
+ * "IMMEDIATELY AFTER moving to its new zone" is why this drops the token from
+ * the ZONE rather than short-circuiting the move: the token really does arrive,
+ * so everything that watches the arrival still fires — a token's [Deathknell]
+ * triggers, `unitsLostThisTurn` counts it, and a death-watch sees a unit die. It
+ * is only the resting place that never holds it.
+ *
+ * One helper rather than an `isToken` check at each site, because there are six
+ * and the next zone transition added would be the seventh to remember.
+ */
+export function fileIntoNonBoardZone<T extends { isToken?: boolean }>(zone: readonly T[], arriving: T): T[] {
+  return arriving.isToken === true ? [...zone] : [...zone, arriving];
+}
+
 export function completeDeath(state: GameState, death: PendingDeath): GameState {
   const { unit, ownerIndex } = death;
   // "When you kill a unit WITH A SPELL" — the one event about HOW a death
@@ -189,7 +216,7 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
   // is a unit dying, and Spoils of War prices itself off units that actually did.
   const inTrash = updatePlayer(state, ownerIndex, (p) => ({
     ...p,
-    trash: [...p.trash, trashed],
+    trash: fileIntoNonBoardZone(p.trash, trashed),
     unitsLostThisTurn: p.unitsLostThisTurn + 1,
   }));
   // HELD (383): the [Deathknell] and every death-watch listener are placed
@@ -978,7 +1005,7 @@ export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, 
   };
   const removed = removeUnitAnywhere(state, unitInstanceId);
   return holdCardsRecycled(
-    updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: [...p.deck, clean] })),
+    updatePlayer(removed, playerIndex, (p) => ({ ...p, deck: fileIntoNonBoardZone(p.deck, clean) })),
     playerIndex,
     1,
   );
@@ -1172,7 +1199,7 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
       return updatePlayer(state, index, (p) => ({
         ...p,
         activeGear: p.activeGear.filter((g) => g.instanceId !== instanceId),
-        hand: [...p.hand, gear],
+        hand: fileIntoNonBoardZone(p.hand, gear),
       }));
     }
   }
@@ -1203,7 +1230,7 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
 
   const returned: UnitInstance = { ...unit, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false };
   const removed = removeUnitAnywhere(state, targetInstanceId);
-  return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: [...p.hand, returned] }));
+  return updatePlayer(removed, ownerIndex, (p) => ({ ...p, hand: fileIntoNonBoardZone(p.hand, returned) }));
 }
 
 /**
@@ -1258,7 +1285,7 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
     ...p,
     hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
     trash: p.trash.filter((c) => c.instanceId !== cardInstanceId),
-    banished: [...p.banished, card],
+    banished: fileIntoNonBoardZone(p.banished, card),
   }));
 }
 
