@@ -344,7 +344,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // needs an attach axis on the activation, not just a resolver line. Names
   // missing CARD TEXT, which is what a partial note is allowed to name.
   ["SFD-050", "the swap works; 'if it's equipped, you may attach one of its Equipment to me' is unwritten"],
-  ["SFD-150", "its art-only 'when I conquer or hold, you may play a unit from your trash (still paying costs)' is unwritten; the [Equip] cost is whole"],
   // **The Equipment whose printed ability exists ONLY on the card art**, and the
   // worst blind spot this file has had. `needsImplementation` reads the card
   // text; for every one of these `text.plain` holds the `[Equip]` line and

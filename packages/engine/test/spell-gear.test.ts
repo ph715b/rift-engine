@@ -59,6 +59,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     freeGearPlaysThisTurn: 0,
+    trashUnitPlaysThisTurn: 0,
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,

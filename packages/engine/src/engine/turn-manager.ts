@@ -350,6 +350,10 @@ export function runEnd(state: GameState): GameState {
     nextUnitsEnterReady: 0,
     // Jayce - Man of Progress's window closes with the turn that opened it.
     freeGearPlaysThisTurn: 0,
+    // Last Rites' trash-play permission, for the same reason: it is a window
+    // held open only because this engine cannot play a card mid-resolution, so
+    // it must not outlive the turn that opened it.
+    trashUnitPlaysThisTurn: 0,
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,

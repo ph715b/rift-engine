@@ -954,6 +954,55 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         cardInstanceId: listener.card.instanceId,
       }),
   },
+  "SFD-150": {
+    // Last Rites — "When I conquer or hold, you may play a unit from your trash
+    // (still paying costs)."
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the compound `[Equip]` line and nothing else. Transcribed from the card
+    // image; see docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER, so `wearerListener` as with the eight beside it. The
+    // OR is what needs `on` to be a list: this is a two-moment ability on one
+    // defId, the shape that widening `on` was added for.
+    //
+    // **The permission, and why it is not a play here.** 419.3.b makes this a
+    // Limited Play Effect performed during resolution with every step of Play
+    // normal — which includes paying. This engine cannot pay mid-resolution:
+    // a play needs a RunePayment and `AnswerDecisionAction` carries only an
+    // `optionId`. So the trigger opens a window that `legal-actions` offers and
+    // `execute-play-card` spends, at the printed price. The divergence is that
+    // the window outlives the trigger, and it is recorded in
+    // docs/rules-conformance.md rather than left to be discovered.
+    //
+    // **"You MAY" needs nothing here.** The permission is an option the player
+    // takes or ignores by acting; there is no question to park, and parking one
+    // with a single option would auto-resolve anyway.
+    //
+    // Granted unconditionally on the moment rather than gated on the trash
+    // holding a unit: the trash can gain one later in the same turn, and a
+    // permission checked at grant time would wrongly have expired.
+    on: ["battlefieldConquered", "battlefieldHeld"],
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      if (wearer === undefined) return false;
+      if (event.kind === "battlefieldConquered") {
+        return event.conquerorIndex === wearer.ownerIndex && wearer.battlefieldId === event.battlefieldId;
+      }
+      return (
+        event.kind === "battlefieldHeld" &&
+        event.holderIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId
+      );
+    },
+    resolve: (state, listener) => {
+      const wearer = wearerListener(state, listener);
+      if (wearer === undefined) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const owner = players[wearer.ownerIndex]!;
+      players[wearer.ownerIndex] = { ...owner, trashUnitPlaysThisTurn: owner.trashUnitPlaysThisTurn + 1 };
+      return { ...state, players };
+    },
+  },
   "SFD-124": {
     // Doran's Ring — "When I conquer, discard 1, then draw 1."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds

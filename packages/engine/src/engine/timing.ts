@@ -165,6 +165,29 @@ export function playRestrictionDefIds(): string[] {
   return [...PLAY_ONLY_AT_CONQUERED];
 }
 
+/**
+ * Is this card one `playerIndex` may play FROM THEIR TRASH right now?
+ *
+ * Last Rites' permission (`trashUnitPlaysThisTurn`), and the one predicate the
+ * validator, the enumerator and the executor all ask — the split
+ * `freeGearPlayApplies` keeps for the same reason: three sites that must agree
+ * on whether a play is legal, and a fourth copy of the rule is how they stop
+ * agreeing. Reading it does NOT spend it; `execute-play-card` does that.
+ *
+ * **UNITS only**, and from the acting player's OWN trash: the card says "a unit
+ * from your trash". A Spell or Gear sitting in the same trash is not offered.
+ *
+ * 419.3.a's default is that a player plays only from hand or Chosen Champion
+ * zone, so this is the exception that needs a permission behind it — which is
+ * why it asks the counter rather than merely asking whether the card is in a
+ * trash.
+ */
+export function mayPlayFromTrash(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+  if (card.kind !== "Unit") return false;
+  const player = state.players[playerIndex]!;
+  return player.trashUnitPlaysThisTurn > 0 && player.trash.some((c) => c.instanceId === card.instanceId);
+}
+
 export function mayPlayUnitToBattlefield(
   state: GameState,
   playerIndex: 0 | 1,

@@ -8,24 +8,37 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { RuneCard } from "../src/model/rune.js";
+import { legalActions } from "../src/engine/legal-actions.js";
+import { executePlayCard } from "../src/actions/execute-play-card.js";
+import type { PlayCardAction } from "../src/actions/player-action.js";
+import { recordConquest, scoreHolds } from "../src/engine/scoring.js";
 import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * Phase 3 — playing from somewhere other than your hand.
  *
- * **Three of these six cards are provably inert today, and the tests say so
- * rather than pretending otherwise.** There are exactly three places a card can
- * be played from in this engine — hand, the Champion Zone, and facedown at a
- * battlefield — and of the two non-hand ones, a from-Hidden play is priced at
- * zero before any modifier runs (811) while every other "play from elsewhere"
- * routes through `playCardIgnoringCost`, which bypasses pricing entirely. So
- * Void Drone's and Drag Under's discount, and Rek'Sai's `[Accelerate]` grant,
- * are reachable only through the Champion Zone.
+ * **The premise of this file changed on 2026-08-07, and the old one is replaced
+ * rather than edited around.** It used to open by recording that three of its
+ * six cards were provably inert: there were exactly three places a card could be
+ * played from — hand, the Champion Zone, and facedown at a battlefield — and of
+ * the two non-hand ones, a from-Hidden play is priced at zero before any modifier
+ * runs (811) while every other "play from elsewhere" routed through
+ * `playCardIgnoringCost`, which bypasses pricing entirely. So Void Drone's and
+ * Drag Under's discount, and Rek'Sai's `[Accelerate]` grant, were reachable only
+ * through the Champion Zone.
  *
- * The rules are therefore tested at the FUNCTION that expresses them, with the
- * source passed explicitly. That is the honest level: it pins the card's text
- * without asserting a board state the engine cannot currently reach, and it will
- * keep passing unchanged the day a full-cost non-hand play exists.
+ * That note ended by saying the function-level tests "will keep passing unchanged
+ * the day a full-cost non-hand play exists". **That day is today**, and they did
+ * — every one of them below is untouched. Last Rites (SFD-150) opened a FOURTH
+ * play source, the trash, at the printed price, so the three cards above now pay
+ * out on a real board rather than only through a function called with
+ * `fromHand: false`.
+ *
+ * The function-level tests are KEPT, because they pin the rule itself and are
+ * still the only place that can ask the negative ("does an ordinary card get the
+ * discount") cheaply. What is ADDED is a board-level test per card, driving the
+ * real enumerator — the distinction trap 6 exists for: a test that hands a rule
+ * its own precondition tests the rule, not the wiring.
  *
  * The other three — Fizz, Jayce, Glasc Mixologist — are fully live and are
  * driven through their real decisions.
@@ -39,6 +52,9 @@ const REKSAI_BREACHER = "SFD-029";
 const FIZZ_TRICKSTER = "SFD-140";
 const JAYCE_PROGRESS = "SFD-084";
 const GLASC_MIXOLOGIST = "SFD-165";
+/** Last Rites — the art-only "when I conquer or hold, play a unit from your
+ *  trash (still paying costs)", and the engine's first full-cost non-hand play. */
+const LAST_RITES = "SFD-150";
 
 /** Long Sword — 2 Energy, no Power pip: a Gear that Jayce's permission can zero. */
 const LONG_SWORD = "SFD-022";
@@ -187,6 +203,158 @@ describe("Jayce - Man of Progress (SFD-084): kill a gear, play one free this tur
   it("is claimed by a module and carries no partial note", () => {
     expect(isCardImplemented(registry.get(JAYCE_PROGRESS))).toBe(true);
     expect(partialImplementationNote(registry.get(JAYCE_PROGRESS))).toBeUndefined();
+  });
+});
+
+/**
+ * Last Rites — the FOURTH play source, and the one that pays at full price.
+ *
+ * Its ability is art-only (`text.plain` holds the compound `[Equip]` line and
+ * nothing else), so nothing in the card data describes what is under test here.
+ * See docs/sfd-equipment-abilities.md.
+ *
+ * The permission is granted by the WEARER's moment and spent by the ordinary
+ * play path, which is what makes the three cards above reachable on a board.
+ */
+describe("Last Rites (SFD-150): when I conquer or hold, play a unit from your trash", () => {
+  /** p1's unit at bf1 wearing Last Rites, plus a trash to play out of.
+   *  Attached by writing the link directly, so nothing here depends on being
+   *  able to PAY the compound `[Equip]` cost — a different subsystem. */
+  function worn(opts: { attached?: boolean; trash?: UnitInstance[] } = {}): GameState {
+    const { attached = true, trash = [] } = opts;
+    const state = makeState({ phase: "Action" });
+    const wearer = makeUnit({ instanceId: "wearer", name: "Wearer" });
+    state.battlefields.find((b) => b.id === "bf1")!.units = { p1: [wearer] };
+    state.players[0]!.activeGear = [{ ...gear(LAST_RITES), attachedToInstanceId: attached ? "wearer" : null }];
+    state.players[0]!.trash = trash;
+    return state;
+  }
+
+  /** Drives the REAL conquest rather than synthesizing a `battlefieldConquered`
+   *  event — trap 6: a test that hands a trigger its own precondition tests the
+   *  trigger and not the capture site. */
+  const conquer = (state: GameState) => resolveHeldTriggers(recordConquest(state, 0, "bf1"));
+  const hold = (state: GameState) => resolveHeldTriggers(scoreHolds(state, 0));
+
+  it("opens a trash-play window when the wearer conquers", () => {
+    const after = conquer(worn());
+    expect(after.players[0]!.trashUnitPlaysThisTurn, "no window was opened").toBe(1);
+  });
+
+  it("opens one when the wearer holds too — the OR is why `on` is a list", () => {
+    // A Hold is UNIT PRESENCE, not a controller flag: `scoring.isHeldBy` asks
+    // for own units here and no enemy ones, which the fixture already satisfies
+    // by standing the wearer at bf1 alone. Setting a controller field here would
+    // read as the precondition while doing nothing — trap 6 in miniature.
+    const after = hold(worn());
+    expect(after.players[0]!.trashUnitPlaysThisTurn, "the hold half never fired").toBe(1);
+  });
+
+  /** The load-bearing negative: unattached gear watches nothing. */
+  it("does nothing while unattached", () => {
+    const after = conquer(worn({ attached: false }));
+    expect(after.players[0]!.trashUnitPlaysThisTurn, "an unattached gear fired").toBe(0);
+  });
+
+  it("does not fire on the OPPONENT's conquest of the same battlefield", () => {
+    const after = resolveHeldTriggers(recordConquest(worn(), 1, "bf1"));
+    expect(after.players[0]!.trashUnitPlaysThisTurn, "an enemy conquest opened a window").toBe(0);
+  });
+
+  it("offers a trash UNIT to the enumerator only while the window is open", () => {
+    const trashed = { ...unit(VOID_DRONE), instanceId: "trashed" };
+    const state = worn({ trash: [trashed] });
+    state.players[0]!.channeled = runes(6);
+
+    const before = legalActions(state).filter((a) => a.type === "PlayCard" && a.card.instanceId === "trashed");
+    expect(before, "a trash unit was playable with no window open").toHaveLength(0);
+
+    const after = legalActions(conquer({ ...state }));
+    expect(
+      after.filter((a) => a.type === "PlayCard" && a.card.instanceId === "trashed").length,
+      "the window opened but the card was never offered",
+    ).toBeGreaterThan(0);
+  });
+
+  /** "a UNIT from your trash" — a Spell sharing the trash is not offered. */
+  it("never offers a trash SPELL", () => {
+    const state = worn({ trash: [] });
+    state.players[0]!.trash = [{ ...spell(DRAG_UNDER), instanceId: "trashedspell" }];
+    state.players[0]!.channeled = runes(8);
+
+    const after = legalActions(conquer(state));
+    expect(
+      after.filter((a) => a.type === "PlayCard" && a.card.instanceId === "trashedspell"),
+      "a spell was offered from the trash",
+    ).toHaveLength(0);
+  });
+
+  it("spends the window and removes the card from the trash when played", () => {
+    const trashed = { ...unit(VOID_DRONE), instanceId: "trashed" };
+    const state = conquer(worn({ trash: [trashed] }));
+    state.players[0]!.channeled = runes(6);
+
+    const play = legalActions(state).find((a) => a.type === "PlayCard" && a.card.instanceId === "trashed");
+    expect(play, "nothing to play").toBeDefined();
+    const after = executePlayCard(state, play as PlayCardAction);
+
+    expect(after.players[0]!.trash.map((c) => c.instanceId), "it stayed in the trash").not.toContain("trashed");
+    expect(after.players[0]!.trashUnitPlaysThisTurn, "the window was not spent").toBe(0);
+    const inPlay = [...after.players[0]!.baseUnits, ...after.battlefields.flatMap((b) => b.units.p1 ?? [])];
+    expect(inPlay.map((u) => u.instanceId), "it never entered play").toContain("trashed");
+  });
+
+  /**
+   * **The leverage, and it is asserted on the ENUMERATED payment.**
+   *
+   * Void Drone's "[2] less to play from anywhere other than your hand" had no
+   * reachable zone but the Champion Zone until this card existed. Asking
+   * `modifiedEnergyCost(..., false)` here would prove nothing new — that is the
+   * function-level test at the top of this file, and passing `false` by hand is
+   * exactly the shape trap 6 warns about. So this drives the real enumerator and
+   * reads the price it actually offers, which is the only thing that can tell
+   * whether the trash source reaches pricing as a NON-HAND play.
+   */
+  /** Void Drone is a FURY unit, so its `[Accelerate]` Power surcharge is payable
+   *  only in Fury — the fixture's runes must match or the accelerated variant is
+   *  silently absent rather than wrong. Asserted, not assumed. */
+  const trashOffers = (state: GameState) =>
+    legalActions(state).filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === "trashed");
+
+  it("offers Void Drone out of the trash at its discounted price", () => {
+    const trashed = { ...unit(VOID_DRONE), instanceId: "trashed" };
+    const state = conquer(worn({ trash: [trashed] }));
+    state.players[0]!.channeled = runes(8, "Fury");
+    const printed = unitDef(VOID_DRONE).energyCost;
+    expect(printed, "the fixture no longer has room for a [2] discount").toBeGreaterThanOrEqual(2);
+
+    const offers = trashOffers(state);
+    expect(offers.length, "the trash play was never offered").toBeGreaterThan(0);
+
+    // The CHEAPEST offer is the plain (un-accelerated) one, and it is the price
+    // under test — an accelerated variant legitimately costs one Energy more.
+    // Without the discount reaching this zone the floor would be the printed 3.
+    const cheapest = Math.min(...offers.map((a) => a.payment.energyRunes.length));
+    expect(cheapest, "a trash play was priced as a hand play").toBe(printed - 2);
+  });
+
+  /** The other half of the leverage: Rek'Sai's grant now has a real zone, so a
+   *  trash play is offered WITH the [Accelerate] surcharge as a real option. */
+  it("lets Rek'Sai grant [Accelerate] to a unit played from the trash", () => {
+    const state = conquer(worn({ trash: [{ ...unit(VOID_DRONE), instanceId: "trashed" }] }));
+    state.players[0]!.baseUnits = [{ ...realUnitInstance(REKSAI_BREACHER), instanceId: "reksai" }];
+    expect(unitDef(VOID_DRONE).domains, "the fixture's runes no longer match the card").toContain("Fury");
+    state.players[0]!.channeled = runes(12, "Fury");
+
+    expect(
+      trashOffers(state).some((a) => a.acceleratePaid === true),
+      "no [Accelerate] option was offered for a trash play",
+    ).toBe(true);
+  });
+
+  it("is claimed by a module and its art-only note is gone", () => {
+    expect(isCardImplemented(registry.get(LAST_RITES)), "SFD-150 is not reported implemented").toBe(true);
+    expect(partialImplementationNote(registry.get(LAST_RITES)), "the note outlived its clause").toBeUndefined();
   });
 });
 

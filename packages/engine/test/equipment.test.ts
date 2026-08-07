@@ -346,10 +346,16 @@ describe("the generated [Equip] ability", () => {
 
     // Blade of the Ruined King is genuinely vanilla besides this (see
     // docs/sfd-equipment-abilities.md's "flavour text only" list), so it is now
-    // whole and carries no note. Last Rites still has its art-only
-    // conquer/hold half, so it keeps one — naming that and only that.
+    // whole and carries no note.
     expect(partialImplementationNote(registry.get("SFD-178"))).toBeUndefined();
-    expect(partialImplementationNote(registry.get(LAST_RITES))).toContain("art-only");
+    // **REPLACED 2026-08-07, premise fixed rather than assertion weakened.** This
+    // line asserted Last Rites still carried an "art-only" note, which was true
+    // while its conquer/hold half was unwritten. That half is now written —
+    // `trashUnitPlaysThisTurn`, tested in sfd-play-source.test.ts — so the note
+    // was DELETED per PARTIALLY_IMPLEMENTED's own convention, and the assertion
+    // is inverted to pin the new truth rather than deleted with it. What this
+    // test is really for is unchanged: the compound `[Equip]` cost is wired.
+    expect(partialImplementationNote(registry.get(LAST_RITES)), "a note outlived its clause").toBeUndefined();
   });
 });
 

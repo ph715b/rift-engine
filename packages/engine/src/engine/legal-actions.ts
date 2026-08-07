@@ -56,6 +56,7 @@ import {
   actingPlayerIndex,
   hasAccelerate,
   mayPlayCardNow,
+  mayPlayFromTrash,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
@@ -548,6 +549,18 @@ export function legalActions(state: GameState): PlayerAction[] {
   const playableSources: { card: CardInstance; fromHiddenBattlefieldId?: string; fromHand: boolean }[] = [
     ...actor.hand.map((card) => ({ card, fromHand: true })),
     ...(actor.championZone ? [{ card: actor.championZone as CardInstance, fromHand: false }] : []),
+    // Last Rites' trash units. The FIRST full-cost play from a non-hand zone in
+    // this engine, and the reason `fromHand: false` above stopped being reachable
+    // only through the Champion Zone: Void Drone's and Drag Under's "[2] less to
+    // play from anywhere other than your hand" and Rek'Sai - Breacher's
+    // [Accelerate] grant are all written against this flag and now have a second
+    // zone to pay out from.
+    //
+    // Gated on the shared predicate rather than on the counter alone, so a trash
+    // Spell is never offered — the card says "a unit".
+    ...actor.trash
+      .filter((card) => mayPlayFromTrash(state, playerIndex, card))
+      .map((card) => ({ card, fromHand: false })),
     ...state.battlefields.flatMap((bf) =>
       bf.hiddenCards
         // The battlefield is passed so Noxus Saboteur's "can't be revealed HERE"

@@ -15,6 +15,7 @@ import { holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
 import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
+import { mayPlayFromTrash } from "../engine/timing.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -284,10 +285,21 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // `ignoresBaseCost` wins: a Gear played from Hidden owes nothing anyway, so
   // the window must not be burnt paying a cost that was already zero.
   const usedFreeGearPlay = !ignoresBaseCost && freeGearPlayApplies(state, action.playerIndex, card.kind, card.energyCost);
+  // Last Rites' permission, asked through the same predicate the validator and
+  // the enumerator gate on so "was this legal" and "was it spent" cannot come
+  // apart — the split `usedFreeGearPlay` above keeps, for the same reason.
+  //
+  // A trash play is the one case where the card leaves a zone this file was not
+  // otherwise touching. The Spell branch further down owns `trash` for its own
+  // reason (a Spell trashes itself on play) and cannot collide: `mayPlayFromTrash`
+  // offers Units only.
+  const playedFromTrash = mayPlayFromTrash(state, action.playerIndex, card);
   const sharedUpdates = {
     hand: handAfterRemoval,
     channeled: remainingChanneled,
     freeGearPlaysThisTurn: actor.freeGearPlaysThisTurn - (usedFreeGearPlay ? 1 : 0),
+    trash: playedFromTrash ? actor.trash.filter((c) => c.instanceId !== card.instanceId) : actor.trash,
+    trashUnitPlaysThisTurn: actor.trashUnitPlaysThisTurn - (playedFromTrash ? 1 : 0),
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,

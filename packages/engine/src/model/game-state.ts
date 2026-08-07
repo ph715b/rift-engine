@@ -505,6 +505,36 @@ export interface PlayerState {
    */
   freeGearPlaysThisTurn: number;
   /**
+   * How many units this player may play FROM THEIR TRASH, still paying every
+   * cost — Last Rites' art-only "when I conquer or hold, you may play a unit
+   * from your trash (still paying costs)".
+   *
+   * A count for the same reason `freeGearPlaysThisTurn` above is one: two Last
+   * Rites conquering in a turn each grant a play, and a boolean would lose the
+   * second.
+   *
+   * **The engine's first FULL-COST play from a non-hand zone, and that is the
+   * point of it.** Three cards were already written against exactly this
+   * condition and could only ever pay out through the Champion Zone:
+   * `PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS` (Void Drone, Drag Under) discounts
+   * "[2] less to play from anywhere other than your hand", and Rek'Sai -
+   * Breacher grants `[Accelerate]` on the same condition. This zone reaches the
+   * normal pricing path with `playedFromHand: false`, so all three now pay.
+   *
+   * **DIVERGENCE, recorded in docs/rules-conformance.md.** The rules make this a
+   * Limited Play Effect that happens INSIDE the trigger's resolution (419.3.b —
+   * "Game effects may result in cards being played as part of their
+   * resolution", with all steps of Play normal). This engine cannot do that: a
+   * play needs a RunePayment, `AnswerDecisionAction` carries only an `optionId`,
+   * and there is no other way to collect one mid-resolution. So the trigger
+   * grants a permission the normal play path spends, which holds the window open
+   * until end of turn rather than closing it when the trigger finishes. Jayce -
+   * Man of Progress's permission has the identical shape and the identical
+   * reason; the difference is that his card PRINTS "this turn" and this one does
+   * not. Cleared at runEnd with the rest of the turn.
+   */
+  trashUnitPlaysThisTurn: number;
+  /**
    * Points scored FROM HOLDING this turn — Needlessly Large Yordle's "I cost
    * [2][Calm] less for each point you scored from holding this turn".
    *

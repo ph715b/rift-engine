@@ -43,6 +43,7 @@ import {
   ACCELERATE_POWER,
   acceleratePowerDomain,
   hasAccelerate,
+  mayPlayFromTrash,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
   timingRejection,
@@ -370,9 +371,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // typed UnitInstance | null, so a Spell/Gear instanceId can never match it.
   const inHand = actor.hand.some((c) => c.instanceId === card.instanceId);
   const isChampion = actor.championZone?.instanceId === card.instanceId;
+  // Last Rites' permission is the one exception to 419.3.a's "hand or Chosen
+  // Champion zone only", and it is asked through the shared predicate rather
+  // than re-derived here so this and the enumerator cannot disagree about which
+  // plays are legal.
+  const fromTrash = mayPlayFromTrash(state, action.playerIndex, card);
   // A from-hidden card is in neither zone — it's facedown at a battlefield, and
   // hiddenPlayRejection above has already confirmed it's really there.
-  if (!fromHidden && !inHand && !isChampion) {
+  if (!fromHidden && !inHand && !isChampion && !fromTrash) {
     return fail(`${card.name} is not in ${actor.name}'s hand or Champion Zone`);
   }
 

@@ -105,6 +105,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     freeGearPlaysThisTurn: 0,
+    trashUnitPlaysThisTurn: 0,
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
