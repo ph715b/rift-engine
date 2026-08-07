@@ -4,6 +4,7 @@ import { isCardImplemented, partialImplementationNote } from "../src/engine/cove
 import { recordConquest, scoreHolds } from "../src/engine/scoring.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
 import { wearerListener, wearerOf } from "../src/engine/equipment.js";
+import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -51,7 +52,10 @@ const EYE_OF_THE_HERALD = "SFD-153"; // when I move, play a 1 Might Recruit toke
 
 const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONESHIVER, DORANS_RING, CULL, EYE_OF_THE_HERALD];
 /** The art-only Equipment still unwritten — each needs its own primitive. */
-const STILL_ART_ONLY = ["SFD-030", "SFD-042", "SFD-051", "SFD-059", "SFD-073", "SFD-090", "SFD-172"];
+const STILL_ART_ONLY = ["SFD-030", "SFD-042", "SFD-051", "SFD-059", "SFD-073", "SFD-090"];
+/** Sacred Shears — art-only like the six above, and written now, but NOT by the
+ *  wearer's-moments mechanism. See its own describe block at the bottom. */
+const SACRED_SHEARS = "SFD-172";
 
 /** p1's unit at `bfId`, wearing `defId`. Attached by writing the link directly
  *  rather than through `attachEquipment`, so no test here depends on being able
@@ -231,7 +235,7 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     }
   });
 
-  it("reports the SEVEN still-unwritten ones as NOT implemented", () => {
+  it("reports the SIX still-unwritten ones as NOT implemented", () => {
     // The instrument fix, and the half that would silently rot: each of these
     // reported `true` before 2026-08-06 purely because its `[Equip]` cost is
     // registered, while its whole printed ability does nothing.
@@ -239,5 +243,100 @@ describe("coverage now tells the truth about art-only Equipment", () => {
       expect(isCardImplemented(registry.get(id)), `${id} still reports implemented`).toBe(false);
       expect(partialImplementationNote(registry.get(id)), `${id} has no note saying what is missing`).toMatch(/art-only/);
     }
+  });
+
+  it("and Sacred Shears has left that list", () => {
+    expect(isCardImplemented(registry.get(SACRED_SHEARS))).toBe(true);
+    expect(partialImplementationNote(registry.get(SACRED_SHEARS)), "a note outlived its clause").toBeUndefined();
+  });
+});
+
+/**
+ * Sacred Shears (SFD-172) — `[Deathknell]` — Draw 1. Art-only, transcribed in
+ * docs/sfd-equipment-abilities.md.
+ *
+ * **Not a `[Deathknell]` in this engine, and that is the card rather than a
+ * shortcut.** 808's Deathknell is "when I die", keyed by the DYING card's defId
+ * — and the gear does not die. Its wearer does, and the gear SURVIVES, which
+ * `killUnit`'s detach makes explicit and which two other SFD cards presuppose by
+ * name. So it is a death-watch, and its condition is "that death was mine".
+ *
+ * The blocker was never the trigger: it was that `killUnit` DETACHES FIRST,
+ * before any ward or replacement, so by the time the death fires nothing can say
+ * what the unit was wearing. `PendingDeath.wornEquipment` captures it at the
+ * moment of death, the same 809.1.b.3 reasoning that captures the unit itself.
+ */
+describe("Sacred Shears draws when its WEARER dies", () => {
+  /** Resolves whatever the death put on the chain. */
+  const settle = (state: GameState) => resolveHeldTriggers(state);
+
+  function wearing(attached = true): GameState {
+    const state = worn(SACRED_SHEARS, { attached });
+    state.players[0]!.deck = [realGearInstance(RECURVE_BOW), realGearInstance(RECURVE_BOW)];
+    return state;
+  }
+
+  const hand = (state: GameState) => state.players[0]!.hand.length;
+
+  it("draws 1 when the unit it is attached to dies", () => {
+    const state = wearing();
+    const before = hand(state);
+    const after = settle(destroyUnit(state, "wearer"));
+
+    expect(hand(after), "the Shears did not draw").toBe(before + 1);
+  });
+
+  /** The gear SURVIVES its wearer — the detach is the printed behaviour. */
+  it("survives the death, detached", () => {
+    const after = settle(destroyUnit(wearing(), "wearer"));
+
+    expect(after.players[0]!.activeGear, "the Shears died with its wearer").toHaveLength(1);
+    expect(after.players[0]!.activeGear[0]!.attachedToInstanceId).toBeNull();
+  });
+
+  /** An UNATTACHED Shears is worn by nobody, so no death is its own. */
+  it("does NOT draw while unattached", () => {
+    const state = wearing(false);
+    const loose = makeUnit({ instanceId: "loose", name: "Loose" });
+    state.battlefields.find((b) => b.id === "bf1")!.units = { p1: [loose] };
+    const before = hand(state);
+
+    expect(hand(settle(destroyUnit(state, "loose"))), "an unattached Shears drew").toBe(before);
+  });
+
+  /**
+   * **The distinction the whole card rests on**: it fires for ITS wearer, not
+   * for any death. A second unit dying beside the wearer is not its moment.
+   */
+  it("does NOT draw when a DIFFERENT unit dies", () => {
+    const state = wearing();
+    const bystander = makeUnit({ instanceId: "bystander", name: "Bystander" });
+    const bf = state.battlefields.find((b) => b.id === "bf1")!;
+    bf.units = { ...bf.units, p1: [...(bf.units.p1 ?? []), bystander] };
+    const before = hand(state);
+
+    expect(hand(settle(destroyUnit(state, "bystander"))), "it drew for somebody else's death").toBe(before);
+  });
+
+  /**
+   * TWO Shears on TWO units draw once each, for their own wearer — which is why
+   * `wornEquipment` is compared by INSTANCE. A defId comparison would make both
+   * fire on either death.
+   */
+  it("two Shears on two wearers each answer only for their own", () => {
+    const state = wearing();
+    const second = makeUnit({ instanceId: "second", name: "Second" });
+    const bf = state.battlefields.find((b) => b.id === "bf1")!;
+    bf.units = { ...bf.units, p1: [...(bf.units.p1 ?? []), second] };
+    const otherShears = realGearInstance(SACRED_SHEARS);
+    state.players[0]!.activeGear = [
+      ...state.players[0]!.activeGear,
+      { ...otherShears, attachedToInstanceId: "second" },
+    ];
+    state.players[0]!.deck = Array.from({ length: 4 }, () => realGearInstance(RECURVE_BOW));
+    const before = hand(state);
+
+    // One death, one draw — not two.
+    expect(hand(settle(destroyUnit(state, "wearer"))), "both Shears fired on one death").toBe(before + 1);
   });
 });

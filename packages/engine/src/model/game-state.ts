@@ -732,6 +732,22 @@ export interface PendingDeath {
   /** True only for a death in the COMBAT DAMAGE STEP. See DeathContext for
    *  why `battlefieldId` is not this question. */
   diedInCombat?: true;
+  /**
+   * The Equipment this unit was WEARING when it died — Sacred Shears's
+   * `[Deathknell]`, which belongs to the gear and fires on the wearer's death.
+   *
+   * **Carried on the death because it cannot be looked up afterwards.**
+   * `killUnit` detaches FIRST, deliberately and before any ward or replacement,
+   * so that no path out of it can leave a gear pointing at a unit that is no
+   * longer there. By the time `unitDied` fires, every attachment is already
+   * gone, and a listener asking "was I worn by the unit that died?" would always
+   * get no.
+   *
+   * Instances, not defIds, so a listener can identify ITSELF rather than a card
+   * with the same name — two Sacred Shears on two units are two different
+   * answers to "did my wearer die".
+   */
+  wornEquipment?: readonly GearInstance[];
 }
 
 export interface GameState {

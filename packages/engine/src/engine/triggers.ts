@@ -195,6 +195,18 @@ export interface DeathContext {
    * Set only by `combat.processDefeated`, which is the one site that knows.
    */
   diedInCombat?: true;
+  /**
+   * The Equipment the unit was WEARING as it died — Sacred Shears's
+   * `[Deathknell]`, which is printed on the gear and fires on its wearer's
+   * death.
+   *
+   * On the death because it cannot be asked afterwards: `killUnit` detaches
+   * FIRST, before any ward or replacement, so by the time this event fires every
+   * attachment is gone and a gear asking "was I worn by the unit that died?"
+   * would always get no. The same 809.1.b.3 reasoning as `unit` itself — the
+   * fact is captured at the moment of the death, not re-derived at resolution.
+   */
+  wornEquipment?: readonly GearInstance[];
 }
 
 /**
@@ -292,6 +304,35 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
       players[listener.ownerIndex] = { ...players[listener.ownerIndex], firstFriendlyDeathUsedThisTurn: true };
       return drawCards({ ...state, players }, listener.ownerIndex, 1);
     },
+  },
+
+  /**
+   * Sacred Shears (SFD-172) — `[Deathknell]` — Draw 1.
+   *
+   * **Printed on the ART, not in the card text** (`text.plain` holds only its
+   * `[Equip]` line), so it is transcribed in docs/sfd-equipment-abilities.md
+   * like the other thirty.
+   *
+   * A DEATH-WATCH rather than a `[Deathknell]`, and the distinction is the
+   * card: 808's Deathknell is "when I die", keyed by the DYING card's defId —
+   * and the gear does not die. Its WEARER does, and the gear survives (see
+   * `killUnit`'s detach, which two other SFD cards presuppose by name). So the
+   * gear watches for a death the way Wraith of Echoes does, and the condition is
+   * "that death was mine to watch".
+   *
+   * `wornEquipment` carries the answer because nothing else can: the detach
+   * happens before the event fires. Compared by INSTANCE, so two Sacred Shears
+   * on two units are two separate answers rather than one shared defId.
+   *
+   * The draw is the LISTENER's controller — the gear's — which is the same
+   * reading every death-watch here takes ("friendly is relative to the
+   * listener"). It matters only when the two diverge, which `takeControlOfUnit`
+   * makes reachable and `detachAllFrom`'s own comment already accounts for.
+   */
+  "SFD-172": {
+    applies: (_state, listener, death) =>
+      (death.wornEquipment ?? []).some((g) => g.instanceId === listener.card.instanceId),
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
   },
 
   /**

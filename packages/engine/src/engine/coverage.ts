@@ -330,7 +330,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
   ["SFD-073", "art-only: 'I am a Mech' grants a TAG rather than a keyword, and `tags` is printed-only today"],
   ["SFD-090", "art-only: 'play all units banished with this' needs banish-with-source tracking"],
-  ["SFD-172", "art-only: a [Deathknell] on the WEARER sourced from the gear"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

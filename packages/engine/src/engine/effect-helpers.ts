@@ -119,6 +119,12 @@ export function killUnit(
   // somewhere else, so no path out of this function can leave a gear pointing
   // at a unit that is no longer where it was. A dangling attachment reads in
   // play as a Might bonus from an Equipment attached to nothing.
+  //
+  // Read BEFORE the detach and carried on the death, because after this line
+  // nothing can answer "what was it wearing" — see PendingDeath.wornEquipment.
+  // Both sides' gear, matching `detachAllFrom`'s own walk: nothing says an
+  // Equipment and its wearer share a controller.
+  const wornEquipment = state.players.flatMap((p) => p.activeGear.filter((g) => g.attachedToInstanceId === unit.instanceId));
   state = detachAllFrom(state, unit.instanceId);
   if (isDeathWarded(state, unit.instanceId)) {
     return reviveWithDeathWard(state, unit, ownerIndex);
@@ -148,6 +154,7 @@ export function killUnit(
     ...(battlefieldId !== undefined ? { battlefieldId } : {}),
     ...(killerIndex !== undefined ? { killerIndex } : {}),
     ...(diedInCombat === true ? { diedInCombat } : {}),
+    ...(wornEquipment.length > 0 ? { wornEquipment } : {}),
   };
 
   // A replacement that has to be OFFERED, not one armed in advance. Asked before
