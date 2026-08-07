@@ -3,6 +3,7 @@ import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoic
 import {
   findUnitAnywhere,
   eligibleTargets,
+  unchooseableAmong,
   findUnitInScope,
   findUnitOnBattlefield,
   hasAnyLegalEffectChoice,
@@ -19,7 +20,7 @@ import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy } from "../engine/cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount } from "../engine/cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -45,7 +46,7 @@ import {
 } from "../engine/timing.js";
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
-import { counterableSpells } from "../engine/counter-spell.js";
+import { counterFilter, counterableSpells } from "../engine/counter-spell.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
@@ -227,7 +228,7 @@ function targetingRejection(
     // Asked through the same predicate the enumerator fans out from, so a cost
     // filter can never offer a target it then refuses. The cost is the target's
     // PRINTED one — see counterableSpells.
-    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
+    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower, counterFilter(targeting, playerIndex));
     if (!counterable.some(({ entry }) => entry.card.instanceId === choices.targetChainCardInstanceId)) {
       return `${cardName} cannot target that spell`;
     }
@@ -613,6 +614,18 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // The discount is bought BY the discard, so it applies only when one was made.
   const discardDiscount = action.discardCardInstanceId !== undefined ? (discardChoice?.energyDiscount ?? 0) : 0;
 
+  // Irelia - Graceful's target-keyed discount, through the SAME helper the
+  // executor deducts float with — the executor re-derives from the raw cost, so
+  // a discount applied in only one of the two overspends floating resources.
+  const targetDiscount = targetChoiceDiscount(state, action.playerIndex, chosenUnitsOfPlay(action), action.targetDiscountAxis);
+  // An axis named on a play that is not actually discounted is refused rather
+  // than ignored: silently dropping it would let a client quote itself a price
+  // the board does not support, and a payment one pip short would then fail
+  // with a message about runes instead of about the claim.
+  if (action.targetDiscountAxis !== undefined && targetDiscount.energy + targetDiscount.power === 0) {
+    return fail(`${card.name} does not choose a unit that discounts it`);
+  }
+
   const accelerateEnergy = action.acceleratePaid ? ACCELERATE_ENERGY : 0;
   const acceleratePower = action.acceleratePaid ? ACCELERATE_POWER : 0;
 
@@ -667,7 +680,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
-        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
+        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount - targetDiscount.energy) +
           accelerateEnergy +
           repeatEnergy +
           grantedEnergy +
@@ -679,7 +692,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
-        Math.max(0, card.powerCost - repeatableDiscount) +
+        Math.max(0, card.powerCost - repeatableDiscount - targetDiscount.power) +
           acceleratePower +
           repeatPower +
           grantedPower +
@@ -754,6 +767,19 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // rather than doubling `deflected` by hand — this figure is the one the
   // offered-then-refused split lives in, and two spellings of it is exactly how
   // that split has been shipped three times.
+  // Ruin Runner's absolute prohibition, asked of the SAME two lists and
+  // immediately before the surcharge — the two are the same question about a
+  // chosen unit ('may I, and at what price'), and asking them anywhere apart
+  // is how one of them comes to miss a field the other covers.
+  //
+  // Refused rather than priced: no amount of Power makes this play legal.
+  const unchooseable = unchooseableAmong(state, action.playerIndex, [
+    ...chosenUnitsOfPlay(action),
+    ...chosenUnitsOfRepeat(action),
+  ]);
+  if (unchooseable !== undefined) {
+    return fail(`${unchooseable} can't be chosen by enemy spells and abilities`);
+  }
   const deflected = deflectSurchargeForTargets(state, action.playerIndex, [
     ...chosenUnitsOfPlay(action),
     ...chosenUnitsOfRepeat(action),

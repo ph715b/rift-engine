@@ -270,7 +270,17 @@ export type TargetingSpec =
    * played." So Wallop and Call to Glory, whose `ignoresCostWhenPaid` zeroes what
    * they cost to play, are still judged at what they print.
    */
-  | { kind: "chainSpell"; maxPrintedEnergy?: number; maxPrintedPower?: number }
+  | {
+      kind: "chainSpell";
+      maxPrintedEnergy?: number;
+      maxPrintedPower?: number;
+      /** Not So Fast's "an ENEMY spell ... that chooses a friendly unit or
+       *  gear". Two filters about the spell's relation to the COUNTERER rather
+       *  than to its own printed cost, which is why they are separate fields
+       *  and why `counterableSpells` needs a player index to apply them. */
+      enemyOnly?: true;
+      choosesFriendlyPermanent?: true;
+    }
   /**
    * A SPELL ON THE CHAIN **AND** A UNIT, both named in one announcement —
    * Riposte's "choose a friendly unit and a spell".

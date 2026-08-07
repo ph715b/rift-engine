@@ -183,10 +183,74 @@ function isDragon(defId: string | undefined): boolean {
   return def !== undefined && "tags" in def && def.tags.includes(DRAGON_TAG);
 }
 
+/**
+ * Irelia - Graceful — "Your spells that CHOOSE me cost [1] or [rainbow] less."
+ *
+ * The pool's first cost modifier keyed on the TARGET rather than on the card
+ * being played, which is why it cannot live in `modifiedEnergyCost` above: that
+ * function prices a card from its defId, and this price is not a property of the
+ * card at all. Two spells of the same name have different costs depending on
+ * what they point at.
+ *
+ * **"YOUR spells"** — her controller's, so an opponent's removal aimed at her is
+ * not discounted. Measured from her owner exactly as `deflectSurcharge` is, and
+ * for the same reason: the two are the same kind of target-keyed price question
+ * pointing in opposite directions.
+ *
+ * **"[1] OR [rainbow]"** is a genuine choice between two axes, not a single
+ * reduction that happens to be writable two ways. A player short of Energy wants
+ * the Energy pip; one short of runes wants the Power pip. Neither default is
+ * safe, so the axis rides the action as `targetDiscountAxis` and the enumerator
+ * fans out both — the same shape `acceleratePaid` and `optionalPowerPaid` take,
+ * and for the same reason those are on the action rather than inferred.
+ *
+ * Counted ONCE however many of her the spell chooses: it is her ability, not a
+ * per-choice tax, which is the opposite of `[Deflect]`'s explicit per-target
+ * summation. Two Irelias would be two separate sources and are not modelled —
+ * she is a Champion, one to a board in practice.
+ */
+const IRELIA_GRACEFUL = "SFD-141";
+const IRELIA_GRACEFUL_DISCOUNT = 1;
+
+/**
+ * How much a play's chosen targets take off its cost, split by axis.
+ *
+ * ONE function for the validator, the executor and the enumerator, because all
+ * three price the same play and this codebase's most-repeated bug is two of them
+ * disagreeing — the executor re-derives from the raw cost rather than trusting
+ * the validator (see its `ignoresBaseCost` comment for the last time that
+ * mattered), so a discount applied in only one of the two silently overspends
+ * floating resources.
+ *
+ * Takes the id list `chosenUnitsOfPlay` builds, for the reason that helper
+ * exists: listing the fields that can name a unit by hand got `[Deflect]` wrong
+ * across five cards.
+ */
+export function targetChoiceDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  chosenInstanceIds: readonly (string | undefined)[],
+  axis: "energy" | "power" | undefined,
+): { energy: number; power: number } {
+  const none = { energy: 0, power: 0 };
+  if (axis === undefined) return none;
+  const owner = state.players[playerIndex];
+  const chosen = new Set(chosenInstanceIds.filter((id): id is string => id !== undefined));
+  // Her OWN controller's board only — "your spells that choose me" is a sentence
+  // about her side casting, so she is looked up under `playerIndex`.
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  const chosenIrelia = units.some((u) => u.defId === IRELIA_GRACEFUL && chosen.has(u.instanceId));
+  if (!chosenIrelia) return none;
+  return axis === "energy"
+    ? { energy: IRELIA_GRACEFUL_DISCOUNT, power: 0 }
+    : { energy: 0, power: IRELIA_GRACEFUL_DISCOUNT };
+}
+
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
   return [
+    IRELIA_GRACEFUL,
     EAGER_APPRENTICE,
     RHASA_THE_SUNDERER,
     SKY_SPLITTER,

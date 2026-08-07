@@ -15,6 +15,7 @@ import type { UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
+  recordModeUsed,
   channelRunesExhausted,
   dealDamage,
   drawCards,
@@ -180,6 +181,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
         kind: "OGN-062-banish",
         playerIndex: ctx.casterIndex,
       }),
+  },
+  "SFD-045": {
+    // Not So Fast — "[Reaction] Counter an enemy spell or ability that chooses a
+    // friendly unit or gear."
+    //
+    // Wind Wall with TWO filters, and unlike Defy's they are about the spell's
+    // relation to the CASTER of this card rather than about its printed cost —
+    // so they are answered by `counterFilter`, which both the enumerator and the
+    // validator build from this very spec.
+    //
+    // Uncastable when nothing on the chain matches, rather than castable and
+    // inert: for a Spell the targeting IS the effect, so "no legal target" means
+    // "cannot cast" (355.8). That is the same reading Wind Wall's entry states
+    // below, and here it is what makes the card a real answer rather than a
+    // reliable one — a chain full of enemy spells that choose NOTHING leaves it
+    // stranded in hand.
+    //
+    // **"or ABILITY" is a recorded divergence.** An activated ability resolves
+    // INLINE in this engine rather than waiting on the chain, so there is no
+    // ability item to name; see `counterableSpells` and
+    // docs/rules-conformance.md. The spell half is whole.
+    //
+    // Shares the pool's known player-facing gap: with two matching spells
+    // waiting, the UI takes the first candidate rather than asking which. That
+    // is pre-existing and shared with Wind Wall, Defy, Mystic Reversal and
+    // Riposte — this is simply the card the plan predicted would want it second.
+    targeting: { kind: "chainSpell", enemyOnly: true, choosesFriendlyPermanent: true },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
   },
   "OGN-064": {
     // Wind Wall — "[Reaction] Counter a spell."
@@ -847,7 +877,76 @@ function enemiesStunnedFor(ownerIndex: 0 | 1, event: GameEvent): number {
   return event.stunned.filter((s) => s.ownerIndex !== ownerIndex).length;
 }
 
+/**
+ * Aphelios - Exalted's three modes, and which of them he has left this turn.
+ *
+ * One function for the fire-time "is there anything to choose" test and for the
+ * option list, so the two cannot disagree about what "hasn't been chosen this
+ * turn" means — the same one-walk rule Ribbon Dancer's candidates follow.
+ *
+ * Read off the INSTANCE's `abilityModesUsedThisTurn`, the field the activated
+ * modal cards already use; see the trigger below for why it is shared rather
+ * than duplicated.
+ */
+const APHELIOS_MODES = [
+  { id: "ready", label: "Ready 2 runes" },
+  { id: "channel", label: "Channel 1 rune exhausted" },
+  { id: "buff", label: "Buff a friendly unit" },
+] as const;
+
+function apheliosModesLeft(
+  state: GameState,
+  ownerIndex: 0 | 1,
+  instanceId: string,
+): readonly { id: string; label: string }[] {
+  const owner = state.players[ownerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  const aphelios = units.find((u) => u.instanceId === instanceId);
+  // Gone from the board — no modes, which drops the question whole rather than
+  // offering one against a unit that is not there.
+  if (aphelios === undefined) return [];
+  const used = new Set(aphelios.abilityModesUsedThisTurn ?? []);
+  return APHELIOS_MODES.filter((m) => !used.has(m.id));
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-049": {
+    // Aphelios - Exalted — "When you attach an Equipment to me, choose one that
+    // hasn't been chosen this turn: Ready 2 runes / Channel 1 rune exhausted /
+    // Buff a friendly unit."
+    //
+    // Rides `equipmentAttached`, and "TO ME" is read exactly as Jax -
+    // Unrelenting's clause reads it: the event names the WEARER, so this compares
+    // the two instances and an Equipment landing on the unit beside him is not
+    // his moment. A MOVE counts, for the reason that event's own comment gives.
+    //
+    // **The pool's first once-per-turn modal reached from a TRIGGER rather than
+    // an activated ability.** It reuses `abilityModesUsedThisTurn` on the unit
+    // and `recordModeUsed` rather than inventing a parallel record: the field
+    // already means "modes this SOURCE has spent this turn", `turn-manager`'s
+    // runEnd already clears it for every unit on both sides, and a second field
+    // would be a second thing to forget to reset. What differs is only how the
+    // question is reached.
+    //
+    // Not offered once all three are spent — "choose one that hasn't been chosen
+    // this turn" with nothing left is not a choice, and an offer nobody can take
+    // is not made. That is what makes a second and third Equipment in one turn
+    // progressively worth less, which is the card.
+    on: "equipmentAttached",
+    applies: (state, listener, event) =>
+      event.kind === "equipmentAttached" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      apheliosModesLeft(state, listener.ownerIndex, listener.card.instanceId).length > 0,
+    resolve: (state, listener) =>
+      parkDecision(state, {
+        kind: "SFD-049-mode",
+        playerIndex: listener.ownerIndex,
+        // WHICH Aphelios — carried rather than re-found, because the per-turn
+        // record lives on the instance and paying it against the wrong copy
+        // would hand a second Aphelios a fresh set of modes.
+        cardInstanceId: listener.card.instanceId,
+      }),
+  },
   "OGN-066": {
     // Ahri - Alluring — "When I hold, you score 1 point."
     //
@@ -1349,6 +1448,11 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/** Aphelios - Exalted's "ready 2 runes" — the count is printed. */
+const APHELIOS_READY_RUNES = 2;
+/** His "channel 1 rune exhausted". */
+const APHELIOS_CHANNEL_RUNES = 1;
+
 /** The units among the top five that Reinforce could play — those whose printed
  *  Energy cost the card's 5-Energy reduction covers entirely. See the card's own
  *  note for why this is a threshold rather than a discount. */
@@ -1359,6 +1463,53 @@ function reinforceCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-049-mode": {
+    // Aphelios - Exalted's "choose one that hasn't been chosen this turn".
+    //
+    // No decline: the card prints "choose one", not "you may". `advanceDecisions`
+    // auto-resolves a one-option question, so with two modes already spent the
+    // third simply happens — which is right, and is why the trigger checks that
+    // at least one is LEFT rather than leaving a zero-option question to be
+    // dropped silently.
+    prompt: () => "Aphelios - Exalted: choose a mode not yet chosen this turn",
+    options: (state, d) =>
+      d.cardInstanceId === undefined
+        ? []
+        : apheliosModesLeft(state, d.playerIndex, d.cardInstanceId).map((m) => ({ id: m.id, label: m.label })),
+    resolve: (state, d, optionId) => {
+      if (d.cardInstanceId === undefined) return state;
+      // Re-derived at ANSWER time: the question waits on the chain, and in that
+      // window another Equipment can land and spend the very mode being named.
+      if (!apheliosModesLeft(state, d.playerIndex, d.cardInstanceId).some((m) => m.id === optionId)) return state;
+      // Recorded BEFORE the effect, so a mode is spent even when its effect does
+      // nothing — an empty rune deck channels nothing (315.4.b) and the choice
+      // was still made. The same reading `execute-activate-ability` takes, whose
+      // own comment names "a mode whose effect ends up doing nothing".
+      const spent = recordModeUsed(state, d.playerIndex, d.cardInstanceId, optionId);
+      if (optionId === "ready") return readyRunes(spent, d.playerIndex, APHELIOS_READY_RUNES);
+      if (optionId === "channel") return channelRunesExhausted(spent, d.playerIndex, APHELIOS_CHANNEL_RUNES);
+      // "Buff a FRIENDLY unit" — WHICH one is a second question, asked the same
+      // way Spirit's Refuge's is. Dropped whole with no friendly unit on the
+      // board, rather than offered as a lone decline.
+      return ownUnitsEverywhere(spent, d.playerIndex).length === 0
+        ? spent
+        : parkDecision(spent, { kind: "SFD-049-buff", playerIndex: d.playerIndex });
+    },
+  },
+  "SFD-049-buff": {
+    // The target half of Aphelios's third mode.
+    prompt: () => "Aphelios - Exalted: buff which friendly unit?",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({
+        id: u.instanceId,
+        label: `Buff ${u.name}`,
+        instanceId: u.instanceId,
+      })),
+    // Already-buffed units stay on offer: 708 makes a second buff a no-op rather
+    // than an illegal choice, and filtering them would quietly rewrite "a
+    // friendly unit" as "an UNBUFFED friendly unit".
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
   /**
    * Mystic Reversal's "you may make new choices for it" — see her effect above
    * for what is and is not re-offered.

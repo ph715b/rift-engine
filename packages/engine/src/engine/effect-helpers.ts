@@ -1715,3 +1715,35 @@ export function exhaustOwnUnitAnywhere(state: GameState, playerIndex: 0 | 1, uni
   };
   return { ...state, battlefields };
 }
+
+/**
+ * Records that `modeId` has been used by the source at `instanceId`, so "one you
+ * haven't chosen this turn" holds.
+ *
+ * **Here rather than in `activated-abilities.ts`, and that is load-bearing.**
+ * Two callers need it and they cannot both reach that module: Aphelios -
+ * Exalted asks it from `effects/calm.ts`, and a domain effects file importing
+ * activated-abilities closes an import cycle. The symptom was not a stack trace
+ * — it was `[GOLD_TOKEN_DEF_ID]` reading as `undefined` while that table's
+ * object literal was built, so the Gold token's printed ability registered
+ * under the key "undefined" and the token silently had no ability at all.
+ * A leaf both callers already import is the same answer `MIGHTY_THRESHOLD` and
+ * `isMechDef` took to the same problem.
+ *
+ * The record lives on the UNIT instance and `turn-manager`'s runEnd clears it
+ * for every unit on both sides, so a trigger-reached mode needs no reset of its
+ * own.
+ */
+export function recordModeUsed(state: GameState, playerIndex: 0 | 1, instanceId: string, modeId: string): GameState {
+  const remember = <T extends { instanceId: string; abilityModesUsedThisTurn?: string[] }>(c: T): T =>
+    c.instanceId === instanceId ? { ...c, abilityModesUsedThisTurn: [...(c.abilityModesUsedThisTurn ?? []), modeId] } : c;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const actor = players[playerIndex];
+  players[playerIndex] = { ...actor, baseUnits: actor.baseUnits.map(remember) };
+  const battlefields = state.battlefields.map((bf) => {
+    const mine = bf.units[actor.id];
+    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(remember) } } : bf;
+  });
+  return { ...state, players, battlefields };
+}

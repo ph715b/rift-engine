@@ -1,5 +1,6 @@
 import { isSpellChainEntry, type ChainEntry, type GameState, type SpellChainEntry } from "../model/game-state.js";
 import type { SpellInstance } from "../model/card.js";
+import { findUnitAnywhere } from "./target-lookup.js";
 
 /**
  * Countering a spell, and taking control of one — the two things a chain item can
@@ -37,6 +38,60 @@ export function matchesCostFilter(card: SpellInstance, maxPrintedEnergy?: number
   return true;
 }
 
+/**
+ * Not So Fast — "counter an ENEMY spell or ability that CHOOSES a friendly unit
+ * or gear."
+ *
+ * Two filters neither Wind Wall nor Defy needed, and both are about the spell's
+ * relationship to the counterer rather than about its printed cost — which is
+ * why they take a player index and the cost filter does not.
+ *
+ * **"a friendly unit or GEAR"**, so this reads the same four target fields
+ * `chosenUnitsOfPlay` collects and then resolves each against BOTH boards. The
+ * field list is shared with that helper for the reason it exists: enumerating
+ * the fields that can name a permanent by hand is what left `[Deflect]`
+ * unpriced on five cards.
+ *
+ * **"or ABILITY" is a recorded divergence, not an omission.** An activated
+ * ability's effect runs INLINE in this engine (see `execute-activate-ability`)
+ * rather than waiting on the chain, so there is no ability item for a counter to
+ * name. The spell half is complete; see docs/rules-conformance.md.
+ */
+function choosesAFriendlyPermanent(state: GameState, entry: SpellChainEntry, friendlyIndex: 0 | 1): boolean {
+  const named = [
+    entry.targetUnitInstanceId,
+    entry.secondTargetUnitInstanceId,
+    ...(entry.targetUnitInstanceIds ?? []),
+    entry.targetPermanentInstanceId,
+  ].filter((id): id is string => id !== undefined);
+  const owner = state.players[friendlyIndex];
+  return named.some((id) => {
+    if (owner.activeGear.some((g) => g.instanceId === id)) return true;
+    const unit = findUnitAnywhere(state, id);
+    return unit !== undefined && unit.ownerIndex === friendlyIndex;
+  });
+}
+
+/**
+ * Builds `counterableSpells`' owner-relative filter from a targeting spec.
+ *
+ * Exists so the enumerator and the validator cannot spell it differently — all
+ * four call sites read the same two fields off the same spec through this one
+ * function. A counter that names neither field gets `undefined` and therefore
+ * exactly the walk it had before these fields existed.
+ */
+export function counterFilter(
+  targeting: { enemyOnly?: true; choosesFriendlyPermanent?: true },
+  counterorIndex: 0 | 1,
+): { counterorIndex: 0 | 1; enemyOnly?: true; choosesFriendlyPermanent?: true } | undefined {
+  if (!targeting.enemyOnly && !targeting.choosesFriendlyPermanent) return undefined;
+  return {
+    counterorIndex,
+    ...(targeting.enemyOnly ? { enemyOnly: targeting.enemyOnly } : {}),
+    ...(targeting.choosesFriendlyPermanent ? { choosesFriendlyPermanent: targeting.choosesFriendlyPermanent } : {}),
+  };
+}
+
 /** The waiting spells a counter with this filter could legally name. Asked by
  *  both `legal-actions` and `validate-play-card`, so the enumerator and the
  *  validator cannot disagree about what is counterable. */
@@ -44,8 +99,20 @@ export function counterableSpells(
   state: GameState,
   maxPrintedEnergy?: number,
   maxPrintedPower?: number,
+  /** Not So Fast's two extra filters. Optional so Wind Wall, Defy, Mystic
+   *  Reversal and Riposte get exactly the walk they always had — a counter that
+   *  names no owner asks no owner question. */
+  filter?: { counterorIndex: 0 | 1; enemyOnly?: true; choosesFriendlyPermanent?: true },
 ): { entry: SpellChainEntry; index: number }[] {
-  return spellsOnChain(state).filter(({ entry }) => matchesCostFilter(entry.card, maxPrintedEnergy, maxPrintedPower));
+  return spellsOnChain(state).filter(({ entry }) => {
+    if (!matchesCostFilter(entry.card, maxPrintedEnergy, maxPrintedPower)) return false;
+    if (filter === undefined) return true;
+    // "an ENEMY spell" — cast by the other seat. A counter that could name your
+    // own spell is a different card.
+    if (filter.enemyOnly && entry.playerIndex === filter.counterorIndex) return false;
+    if (filter.choosesFriendlyPermanent && !choosesAFriendlyPermanent(state, entry, filter.counterorIndex)) return false;
+    return true;
+  });
 }
 
 /**

@@ -19,6 +19,7 @@ import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
 import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
+import { chooseRestrictionDefIds } from "./target-lookup.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -242,6 +243,12 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // this unit go home" — and it needs its own claim, since the battlefield
   // source above lists only battlefields.
   { label: "move restrictions", defIds: moveRestrictionDefIds },
+  // Ruin Runner is a UNIT whose text is a pure NEGATIVE — "I can't be chosen
+  // by enemy spells and abilities" — so it lives in target-lookup.ts beside the
+  // walk that answers "may this be chosen", for the same reason Minotaur
+  // Reckoner lives beside the move gate. It needs its own claim, since none of
+  // the sources above lists it.
+  { label: "choose restrictions", defIds: chooseRestrictionDefIds },
 ];
 
 /**

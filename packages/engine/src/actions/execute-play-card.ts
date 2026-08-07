@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
-import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
+import { modifiedEnergyCost, targetChoiceDiscount } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -14,6 +14,7 @@ import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
+import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -221,10 +222,20 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // silently burned all three for a card that was supposed to be free. Ignored
   // is ignored — no runes, no float, no cost modifiers.
   const ignoresBaseCost = action.fromHiddenBattlefieldId !== undefined;
+  // Irelia - Graceful, through the SAME helper the validator priced with. This
+  // half re-derives from the RAW cost by design, so a target-keyed discount
+  // applied only in the validator would burn floating resources the play no
+  // longer owes — the exact shape of the from-hidden bug recorded just above.
+  const targetDiscount = ignoresBaseCost
+    ? { energy: 0, power: 0 }
+    : targetChoiceDiscount(state, action.playerIndex, chosenUnitsOfPlay(action), action.targetDiscountAxis);
   const modifiedEnergy = ignoresBaseCost
     ? 0
-    : modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId);
-  const powerToPay = ignoresBaseCost ? 0 : card.powerCost;
+    : Math.max(
+        0,
+        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - targetDiscount.energy,
+      );
+  const powerToPay = ignoresBaseCost ? 0 : Math.max(0, card.powerCost - targetDiscount.power);
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —

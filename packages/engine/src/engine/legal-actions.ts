@@ -12,7 +12,7 @@ import type {
   RunePayment,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost, restrictedPowerFor } from "./rune-payment.js";
-import { counterableSpells } from "./counter-spell.js";
+import { counterFilter, counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
   eligibleTargets,
@@ -24,7 +24,7 @@ import {
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "./target-lookup.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy } from "./cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount } from "./cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -696,7 +696,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // itself is not among them: enumeration happens before it is pushed, so
       // "a spell cannot target itself" holds by construction rather than by a
       // check — see the spec's own note.
-      for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower)) {
+      for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower, counterFilter(targeting, playerIndex))) {
         effectVariants.push({ targetChainCardInstanceId: entry.card.instanceId });
       }
     } else if (targeting.kind === "chainSpellAndUnit") {
@@ -1090,6 +1090,43 @@ export function legalActions(state: GameState): PlayerAction[] {
         // afford plainly but not with the extra simply has no paid variant.
         if (paid) {
           actions.push({ type: "PlayCard", playerIndex, card, payment: paid, ...variant, ...hiddenFields, optionalPowerPaid: true });
+        }
+      }
+      // Irelia - Graceful — "your spells that choose me cost [1] OR [rainbow]
+      // less." TWO candidates, one per axis, because the "or" is a real choice
+      // and neither resource substitutes for the other.
+      //
+      // A sibling of the optional-Power branch above rather than a re-pricing of
+      // the plain variant: the axis rides the action, so each priced payment has
+      // to be pushed with the flag it was priced under or the validator will
+      // re-derive a different cost. That is this file's offered-then-refused bug,
+      // and the comment above records three of them.
+      //
+      // Subtracted from the ALREADY-FLOAT-REDUCED `effectiveCost`, which is the
+      // mistake this file records making twice — and is correct here for a
+      // reason worth stating rather than inheriting. The validator applies float
+      // to the DISCOUNTED cost; this applies the discount to the FLOATED cost.
+      // Both clamp at 0, and `max(0, max(0, p - f) - d)` equals
+      // `max(0, p - d - f)` for non-negative f and d, so the two agree on what
+      // is owed. What they would NOT agree on is float SPENT — which is why the
+      // executor subtracts before it touches float rather than after.
+      //
+      // The plain variant is still emitted, so declining the discount stays
+      // legal — it can only ever be worse, but a rule that says "may" is not
+      // enforced by removing the alternative.
+      for (const axis of ["energy", "power"] as const) {
+        const discount = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
+        if (discount.energy + discount.power === 0) break; // this variant chooses no such unit
+        const paid = computeAutoPayment(
+          actor.channeled,
+          Math.max(0, effectiveCost.energyCost - discount.energy),
+          Math.max(0, effectiveCost.powerCost - discount.power),
+          card.powerDomain,
+          card.powerDomainAlt,
+          deflected,
+        );
+        if (paid) {
+          actions.push({ type: "PlayCard", playerIndex, card, payment: paid, ...variant, ...hiddenFields, targetDiscountAxis: axis });
         }
       }
       // `[Repeat]` (820.1) — a second candidate priced with the additional cost

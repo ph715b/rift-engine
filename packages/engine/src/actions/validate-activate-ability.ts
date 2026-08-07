@@ -10,7 +10,13 @@ import {
 import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { chosenUnitsOfActivation, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets, unitSatisfiesAttackingOnly } from "../engine/target-lookup.js";
+import {
+  eligibleTargets,
+  findUnitOnBattlefield,
+  unchooseableAmong,
+  unitOrGearTargets,
+  unitSatisfiesAttackingOnly,
+} from "../engine/target-lookup.js";
 import { attachableEquipment } from "../engine/equipment.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
@@ -104,6 +110,13 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // Asked through the same `chosenUnitsOfActivation` the enumerator uses, so
   // the two cannot come to different answers about which fields name a unit —
   // the offered-then-refused failure this file already carries a comment about.
+  // Ruin Runner — asked of the SAME list, immediately before the surcharge.
+  // 'I can't be chosen by enemy spells and ABILITIES', so this path is half
+  // the card and not an afterthought of the Spell one.
+  const unchooseable = unchooseableAmong(state, action.playerIndex, chosenUnitsOfActivation(action));
+  if (unchooseable !== undefined) {
+    return fail(`${unchooseable} can't be chosen by enemy spells and abilities`);
+  }
   const deflected = deflectSurchargeForTargets(state, action.playerIndex, chosenUnitsOfActivation(action));
   if (deflected > 0) {
     const rainbow = action.payment?.rainbowRunes ?? [];

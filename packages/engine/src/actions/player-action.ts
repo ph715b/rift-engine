@@ -108,6 +108,19 @@ export interface PlayCardAction {
    *  whether the caster took the option. Its OWN field rather than
    *  `acceleratePaid`, which additionally means "enters ready". */
   optionalPowerPaid?: true;
+  /**
+   * Which axis a TARGET-KEYED discount was taken on — Irelia - Graceful's "your
+   * spells that choose me cost [1] **or** [rainbow] less".
+   *
+   * On the action rather than inferred, because the "or" is a real choice and
+   * neither default is safe: a caster short of Energy wants the Energy pip, one
+   * short of runes wants the Power pip, and picking for them would silently
+   * refuse plays that are legal. The enumerator fans out both.
+   *
+   * Its OWN field rather than a second meaning for `optionalPowerPaid`, which
+   * prices a cost the caster ADDS; this one removes one.
+   */
+  targetDiscountAxis?: "energy" | "power";
   /** Bullet Time's "pay ANY AMOUNT of rainbow Power to deal that much damage" —
    *  the X the caster chose. Carried explicitly rather than derived from
    *  `payment.rainbowRunes.length`, because that bucket also holds a [Deflect]

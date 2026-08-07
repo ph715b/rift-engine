@@ -60,7 +60,14 @@ export function eligibleTargets(
 
   const inBase =
     scope === "anywhere" || scope === "base"
-      ? ([0, 1] as const).flatMap((ownerIndex) => (ownerMatches(ownerIndex) ? state.players[ownerIndex].baseUnits : []))
+      ? ([0, 1] as const).flatMap((ownerIndex) =>
+          ownerMatches(ownerIndex)
+            ? // Ruin Runner. Filtered in the WALK rather than by each caller, so
+              // every one of the six fan-out sites and both validator sites get
+              // the negative from one place — see `unitChooseableBy`.
+              state.players[ownerIndex].baseUnits.filter((u) => unitChooseableBy(u, ownerIndex, playerIndex))
+            : [],
+        )
       : [];
   // "base" is base and NOTHING else — the one scope that excludes battlefields
   // rather than adding to them.
@@ -74,7 +81,7 @@ function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: 
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
       if (owner === "friendly" && ownerIndex !== playerIndex) return [];
       if (owner === "enemy" && ownerIndex === playerIndex) return [];
-      return units;
+      return units.filter((u) => unitChooseableBy(u, ownerIndex, playerIndex));
     }),
   );
 }
@@ -511,13 +518,27 @@ export function unitOrGearTargets(
   state: GameState,
   /** Pack of Wonders' three narrowings — all default to off, so Fading Memories
    *  gets exactly the walk it always had. */
-  opts: { playerIndex?: 0 | 1; owner?: "friendly"; excludeInstanceId?: string; includesFacedown?: true } = {},
+  opts: {
+    playerIndex?: 0 | 1;
+    owner?: "friendly";
+    excludeInstanceId?: string;
+    includesFacedown?: true;
+    /** WHO is choosing — Ruin Runner's "enemy spells and abilities". Separate
+     *  from `playerIndex` above, which exists only to resolve `owner:
+     *  "friendly"`: a caller can want an unfiltered walk (Fading Memories asks
+     *  for every permanent) and must not silently acquire a chooser. Omitted
+     *  means "not a choice", and no restriction applies. */
+    chooserIndex?: 0 | 1;
+  } = {},
 ): { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] {
   const out: { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] = [];
   for (const bf of state.battlefields) {
     for (const [ownerId, units] of Object.entries(bf.units)) {
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
-      for (const u of units) out.push({ instanceId: u.instanceId, name: u.name, ownerIndex, isGear: false });
+      for (const u of units) {
+        if (opts.chooserIndex !== undefined && !unitChooseableBy(u, ownerIndex, opts.chooserIndex)) continue;
+        out.push({ instanceId: u.instanceId, name: u.name, ownerIndex, isGear: false });
+      }
     }
   }
   for (const index of [0, 1] as const) {
@@ -541,6 +562,81 @@ export function unitOrGearTargets(
       t.instanceId !== opts.excludeInstanceId &&
       !(opts.owner === "friendly" && opts.playerIndex !== undefined && t.ownerIndex !== opts.playerIndex),
   );
+}
+
+/**
+ * Ruin Runner — "I can't be chosen by enemy spells and abilities."
+ *
+ * **An ABSOLUTE prohibition, and deliberately NOT built on `[Deflect]`.** The
+ * two read alike and are different rules: `[Deflect]` is a TAX an opponent may
+ * pay, so it is priced per target and answered in Power; this cannot be paid for
+ * at any price. Folding it into `deflectSurcharge` as "an infinite surcharge"
+ * would have made an unchooseable unit merely expensive, and would have inherited
+ * that keyword's open question about floating Power reducing the price.
+ *
+ * "ENEMY spells and abilities" — so its own controller chooses it freely. That
+ * is the same measured-from-the-owner reading `deflectSurcharge` takes, and it
+ * matters: buffing your own Ruin Runner is an ordinary play.
+ *
+ * A named per-card set rather than a parsed restriction, matching every other
+ * small precise table in this engine.
+ */
+const UNCHOOSEABLE_BY_ENEMIES = new Set(["SFD-105"]);
+
+/** For coverage.ts — this restriction IS Ruin Runner's whole printed text, so
+ *  nothing else claims the card. */
+export function chooseRestrictionDefIds(): string[] {
+  return [...UNCHOOSEABLE_BY_ENEMIES];
+}
+
+/**
+ * May `chooserIndex` choose this unit at all?
+ *
+ * The ONE question both the enumerator and the validator ask. Two spellings of
+ * this rule is exactly how a target comes to be offered and then refused, which
+ * is this repo's most-repeated bug and the failure this card is most likely to
+ * reproduce — it is a pure negative, so a missed site does not look wrong, it
+ * just quietly allows the play.
+ *
+ * Cheap on the hot path: the Set is consulted only when the chooser is not the
+ * unit's own controller, which is the minority of reads in a fan-out.
+ */
+export function unitChooseableBy(unit: UnitInstance, unitOwnerIndex: 0 | 1, chooserIndex: 0 | 1): boolean {
+  if (chooserIndex === unitOwnerIndex) return true; // "ENEMY spells and abilities"
+  return !UNCHOOSEABLE_BY_ENEMIES.has(unit.defId);
+}
+
+/**
+ * The name of the first unit in `chosenInstanceIds` that `chooserIndex` may not
+ * choose, or undefined.
+ *
+ * Takes the SAME id list `deflectSurchargeForTargets` is handed —
+ * `chosenUnitsOfPlay` / `chosenUnitsOfActivation` — and that is the whole design
+ * rather than a convenience. Those helpers exist because listing the fields that
+ * can name a unit BY HAND got it wrong: a spell choosing through a list, or
+ * through a unit-or-gear slot, paid no `[Deflect]` at all until they were
+ * written. A chooseability check assembled field-by-field here would reproduce
+ * that bug exactly, and silently, since the failure is a play going through
+ * rather than one being refused.
+ *
+ * Ids naming nothing on the board are skipped rather than refused, matching
+ * `deflectSurchargeForTargets`: a target can die between enumeration and
+ * validation, and this must not be the thing that explodes.
+ */
+export function unchooseableAmong(
+  state: GameState,
+  chooserIndex: 0 | 1,
+  chosenInstanceIds: readonly (string | undefined)[],
+): string | undefined {
+  for (const instanceId of chosenInstanceIds) {
+    if (instanceId === undefined) continue;
+    const found = findUnitAnywhere(state, instanceId);
+    // A gear named by a unit-or-gear slot finds no unit and is skipped — gear
+    // carries no such restriction in this pool.
+    if (found === undefined) continue;
+    if (!unitChooseableBy(found.unit, found.ownerIndex, chooserIndex)) return found.unit.name;
+  }
+  return undefined;
 }
 
 export function findUnitOnBattlefield(state: GameState, instanceId: string): BattlefieldUnitLocation | undefined {

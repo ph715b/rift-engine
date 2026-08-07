@@ -1377,6 +1377,43 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   },
 };
 
+/**
+ * The Gold token's entry is the one key in this table that is COMPUTED from an
+ * imported binding, and that made it uniquely able to register itself under the
+ * wrong name in silence.
+ *
+ * It happened: an import added to `effects/calm.ts` closed a cycle through this
+ * module, `GOLD_TOKEN_DEF_ID` read as `undefined` while this object literal was
+ * being built, and the ability registered under the string `"undefined"`. The
+ * token kept minting, kept entering play, and simply had no ability — which is
+ * exactly the failure mode `GOLD_TOKEN_DEF_ID`'s own comment in token.ts warns
+ * about ("a table keyed to an id nothing creates is silent, and reads exactly
+ * like an implemented ability").
+ *
+ * A throw at module load rather than a test, because the failure is an
+ * INITIALISATION-ORDER one: whether it bites depends on which module the
+ * importer reached first, so a suite that happens to import in a safe order
+ * proves nothing about the app that does not. This fires on the import that
+ * breaks it, which is the day it should be noticed — the same reasoning
+ * `legendEventTriggers`' throw on a second hook records.
+ */
+// Checks for the SYMPTOM — a key that is the string "undefined" — rather than
+// for the Gold token's id. Asking `GOLD_TOKEN_DEF_ID in ACTIVATED_ABILITIES`
+// looks like the natural test and is worthless: under the cycle that binding is
+// itself `undefined` in this same evaluation pass, so it asks about the very key
+// the bug just created and passes. That version was written first and proved
+// inert by re-introducing the cycle.
+//
+// Keyed on the symptom, it also generalises: any future computed key built from
+// a binding that is not ready yet lands here, not just this one.
+if ("undefined" in ACTIVATED_ABILITIES) {
+  throw new Error(
+    "activated-abilities: an ability registered under the key \"undefined\". A computed key was built from an " +
+      "import binding that had not initialised — an import cycle reached this module before token.js finished. " +
+      "See this guard's comment.",
+  );
+}
+
 export function activatedAbilityFor(defId: string): ActivatedAbilityDefinition | undefined {
   return ACTIVATED_ABILITIES[defId];
 }
@@ -1869,17 +1906,11 @@ export function tracksModeUse(abilityDefId: string): boolean {
   return ACTIVATED_ABILITIES[abilityDefId]?.modesOncePerTurn === true;
 }
 
-/** Records that `modeId` has been used, so "you've not chosen this turn" holds. */
-export function recordModeUsed(state: GameState, playerIndex: 0 | 1, instanceId: string, modeId: string): GameState {
-  const remember = <T extends { instanceId: string; abilityModesUsedThisTurn?: string[] }>(c: T): T =>
-    c.instanceId === instanceId ? { ...c, abilityModesUsedThisTurn: [...(c.abilityModesUsedThisTurn ?? []), modeId] } : c;
-
-  const players = [...state.players] as [PlayerState, PlayerState];
-  const actor = players[playerIndex];
-  players[playerIndex] = { ...actor, baseUnits: actor.baseUnits.map(remember) };
-  const battlefields = state.battlefields.map((bf) => {
-    const mine = bf.units[actor.id];
-    return mine ? { ...bf, units: { ...bf.units, [actor.id]: mine.map(remember) } } : bf;
-  });
-  return { ...state, players, battlefields };
-}
+/** Records that `modeId` has been used, so "you've not chosen this turn" holds.
+ *
+ *  Re-exported from `effect-helpers.ts`, which is where it moved when Aphelios -
+ *  Exalted needed it from a TRIGGER: `effects/calm.ts` importing THIS module
+ *  closed a cycle that left `[GOLD_TOKEN_DEF_ID]` evaluating to `undefined` and
+ *  registered the Gold token's ability under the key "undefined". Kept exported
+ *  here so `execute-activate-ability`'s import is unchanged. */
+export { recordModeUsed } from "./effect-helpers.js";
