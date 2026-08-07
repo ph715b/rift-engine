@@ -19,21 +19,21 @@ every time it was believed.
 
 Everything else in `docs/` predates today and its numbers are superseded.
 
-## Measured state at `250add8`
+## Measured state at `ac1deac`
 
 | | implemented |
 |---|---|
 | OGN | **248/248** (complete, hard-gated) |
 | OGS | **22/22** (complete, hard-gated) |
-| SFD cards | **120/198** |
+| SFD cards | **131/198** |
 | SFD battlefields | **15/15 — COMPLETE, and now hard-gated** |
 | SFD legends | **12/12 — COMPLETE** |
 
-Engine **2635 tests across 165 files**, web 100. Typecheck 0 errors across both
+Engine **2674 tests across 167 files**, web 100. Typecheck 0 errors across both
 workspaces, both builds green, all five probes green with walkout pinned at
-**191/107/32** and `DECKS=sfd` at 0 invalid, `inDecks` 128 / `exercised` 115.
+**191/107/32** and `DECKS=sfd` at 0 invalid.
 
-**18 SFD cards carry a partial note.** `partialImplementationNote(def)` says what
+**13 SFD cards carry a partial note.** `partialImplementationNote(def)` says what
 each is missing; that list is the honest backlog and is more useful than the
 120/198 headline.
 
@@ -45,17 +45,52 @@ still open — so gating them on the card list meant either leaving 15 finished
 battlefields unprotected or declaring the set complete while it is not. All 39
 battlefields in the pool are under a hard gate for the first time.
 
-## What is left
+## What is left — 67 cards, and how to attack them
 
-The ordered list below is DONE through item 6. What remains is the long tail:
+The ordered list below is DONE through item 6. Since then the work has been
+CLUSTERED BY MECHANISM rather than by card, which is what makes it cheap: one
+piece of shared work clears three or four cards, and the per-card part is a
+registry entry.
 
-- **78 SFD cards**, none of them blocked on a missing mechanism as far as the
-  last sweep found — they are individually cheap and collectively large.
-- **The 18 partials**, which are the honest backlog; `Svellsongur (SFD-059)`
+Clusters already cleared, for the shape:
+- optional additional costs (`OPTIONAL_POWER_COSTS` now carries an Energy half) —
+  Blast Corps Cadet, Frostcoat Cub, Sea Monkey;
+- gear-touching spells and abilities — Detonate, Heart of Dark Ice;
+- one-door restrictions — Minotaur Reckoner, through `mayMoveToBaseFrom`.
+
+Clusters still open, biggest first — each is a survey away from being a wave:
+- **cost REDUCTION** (~8): Void Drone and Drag Under ("less from anywhere other
+  than your hand"), Battering Ram (per card played), Needlessly Large Yordle,
+  Jaull-Fish (per `[Mighty]` unit), Production Surge (if you control a Mech),
+  Irelia - Graceful, Ezreal - Prodigy, Vex - Cheerless. `cost-modifiers.ts` is the
+  door; most are table entries once the predicate exists.
+- **`[Weaponmaster]` units** (4): Ornn - Forge God, Yone, Jax - Unrelenting,
+  Akshan. The keyword works; each adds one clause.
+- **gear activated abilities** (5): Assembly Rig, Poro Snax, Vanguard Armory, and
+  the two "pay any amount" X-cost gear (Hextech Anomaly, Ancient Henge).
+- **statics on the unit itself** (4): Ruin Runner ("can't be chosen by enemy
+  spells and abilities"), Trusty Ramhound, Perched Grimwyrm (a play restriction),
+  Rell - Magnetic.
+- **the 13 partials**, which are the honest backlog; `Svellsongur (SFD-059)`
   (text copying) is still the one nothing models.
-- **The recorded divergences**, unchanged in kind: the per-instance `[Repeat]`
-  list (added by Temporal Portal), the aura-driven "became Mighty", Ornn's gear
-  ability half, a base as a move destination, and the Deathknell's read moment.
+
+**The recorded divergences** are unchanged in kind: the per-instance `[Repeat]`
+list, the aura-driven "became Mighty", Ornn's gear ability half, a base as a move
+destination, and the Deathknell's read moment.
+
+## Two things this stretch proved about the process
+
+- **A partial note that names a MISSING MECHANISM goes stale silently, and every
+  one checked was wrong** — the rainbow `[Equip]` cost (freed by Temporal
+  Portal's own widening the day before), Rumble - Hotheaded's keyword aura
+  (already written AND swept), Forge of the Fluft's "no table models it"
+  (`abilitiesAvailableTo` already was the table). Before scoping card work,
+  re-read every note whose text names a mechanism and grep for it. Notes naming
+  missing CARD TEXT (art-only clauses) do not rot the same way.
+- **`DECKS=sfd` is still finding what the suite cannot**, twice more this
+  stretch: a counter that left the chain closed and empty, and an optional-cost
+  branch that never priced `[Deflect]`. Both were PRE-EXISTING and unreachable
+  until a new card reached them. Run it after every wave, not at the end.
 
 ## The verification loop — run in this order, every time
 
