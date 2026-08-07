@@ -680,7 +680,52 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // at its destination." The only card here whose destination also constrains a
   // SECOND target — see `secondAtDestination` on the targeting spec.
   "OGN-258",
+  // Temptation — "Move an enemy unit to a location where there's a unit with the
+  // same controller." The first card whose DESTINATION is restricted rather than
+  // free — see `moveDestinationAllowed`.
+  "SFD-129",
 ]);
+
+/**
+ * Cards whose move destination must already hold a unit with the SAME CONTROLLER
+ * as the unit being moved — Temptation's "to a location where there's a unit
+ * with the same controller".
+ *
+ * Every other move-target spell in the pool is deliberately unrestricted (see
+ * `validate-play-card`'s note on Charm: the unit being moved is not yours, so
+ * "a battlefield you control" would be the wrong test entirely). This is the
+ * first that names a condition, and it is a condition on the DESTINATION rather
+ * than on the target — which is why it needs its own predicate instead of a
+ * targeting-spec field.
+ */
+const MOVE_DESTINATION_NEEDS_SAME_CONTROLLER = new Set(["SFD-129"]);
+
+/**
+ * May this card move that unit to that battlefield?
+ *
+ * True for every card with no destination restriction, so the enumerator and the
+ * validator can both call it unconditionally. The ONE function both ask, for the
+ * reason this file keeps repeating: a destination offered by one and refused by
+ * the other is the offered-then-refused split.
+ *
+ * "A unit with the same controller" excludes the MOVED unit itself — it is not
+ * there yet, and a card that counted it would let any enemy unit move anywhere
+ * its own body could reach, which is no restriction at all.
+ */
+export function moveDestinationAllowed(
+  state: GameState,
+  defId: string,
+  movedUnitInstanceId: string | undefined,
+  destinationBattlefieldId: string,
+): boolean {
+  if (!MOVE_DESTINATION_NEEDS_SAME_CONTROLLER.has(defId)) return true;
+  if (movedUnitInstanceId === undefined) return false;
+  const moved = findUnitAnywhere(state, movedUnitInstanceId);
+  const destination = state.battlefields.find((bf) => bf.id === destinationBattlefieldId);
+  if (!moved || !destination) return false;
+  const controllerId = state.players[moved.ownerIndex].id;
+  return (destination.units[controllerId] ?? []).some((u) => u.instanceId !== movedUnitInstanceId);
+}
 
 export function cardMovesTarget(defId: string): boolean {
   return MOVE_TARGET_SPELL_DEF_IDS.has(defId);

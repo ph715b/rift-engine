@@ -22,6 +22,7 @@ import { modifiedEnergyCost, modifiedRepeatEnergy } from "../engine/cost-modifie
 import {
   cardMovesTarget,
   cardPlacesTokens,
+  moveDestinationAllowed,
   discardChoiceOf,
   hasXRainbowCost,
   optionalPowerCostOf,
@@ -538,6 +539,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // token-placing spell's (which defaults to base).
   if (cardMovesTarget(card.defId) && action.destinationBattlefieldId === undefined) {
     return fail(`${card.name} must name a battlefield to move the unit to`);
+  }
+  // Temptation's restricted destination. Re-derived here from the same predicate
+  // the enumerator filtered with, never trusted from the action.
+  if (
+    cardMovesTarget(card.defId) &&
+    action.destinationBattlefieldId !== undefined &&
+    !moveDestinationAllowed(state, card.defId, action.targetUnitInstanceId, action.destinationBattlefieldId)
+  ) {
+    return fail(`${card.name} can only move a unit to a location where its controller already has one`);
   }
 
   const discardChoice = discardChoiceOf(card.defId);

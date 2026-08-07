@@ -27,6 +27,7 @@ import { modifiedEnergyCost, modifiedRepeatEnergy } from "./cost-modifiers.js";
 import {
   cardMovesTarget,
   cardPlacesTokens,
+  moveDestinationAllowed,
   discardChoiceOf,
   hasXRainbowCost,
   optionalPowerCostOf,
@@ -831,7 +832,13 @@ export function legalActions(state: GameState): PlayerAction[] {
           return state.battlefields
             .filter((_bf, index) => index !== currentBattlefieldIndex)
             .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }))
-            .filter((withDest) => secondTargetIsAtDestination(state, targeting, withDest));
+            .filter((withDest) => secondTargetIsAtDestination(state, targeting, withDest))
+            // Temptation's "to a location where there's a unit with the same
+            // controller" — the same predicate the validator re-derives, so a
+            // destination can never be offered and then refused.
+            .filter((withDest) =>
+              moveDestinationAllowed(state, card.defId, withDest.targetUnitInstanceId, withDest.destinationBattlefieldId!),
+            );
         })
       : variants;
 

@@ -142,6 +142,42 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unit" },
     resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state),
   },
+  "SFD-129": {
+    // Temptation — "[Repeat] [2] Move an enemy unit to a location where there's
+    // a unit with the same controller."
+    //
+    // Charm's move with the pool's first RESTRICTED destination. "The same
+    // controller" is the MOVED unit's controller, not the caster's — the card
+    // lures an enemy unit toward its own friends rather than toward yours, which
+    // is what makes it a tempo card instead of a gift. See
+    // `moveDestinationAllowed`, which the enumerator and the validator both ask.
+    //
+    // The moved unit does not count as the unit that is already there: it is not
+    // at the destination yet, and counting it would make every destination legal
+    // and the restriction meaningless.
+    //
+    // `scope: "anywhere"` — "an enemy unit" is 355.9.b's bare noun, so one
+    // sitting in the enemy base is a legal target, and dragging it out is a real
+    // line.
+    //
+    // **DIVERGENCE, pre-existing and shared**: the rules make a BASE a legal
+    // destination for a spell's move (828 "Locations include the Battlefields and
+    // the Bases", and 1442 works the example with Ride The Wind moving a unit "to
+    // base"). This engine's `destinationBattlefieldId` carries only a
+    // battlefield, so Charm, Showstopper, Ride The Wind, Stormbringer and
+    // Dragon's Rage are all already battlefield-only, and this card joins them.
+    // Recorded in docs/rules-conformance.md rather than half-fixed here, because
+    // closing it changes five existing cards' enumeration.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const { targetUnitInstanceId: unitId, destinationBattlefieldId: destination } = event;
+      if (!unitId || !destination) return state;
+      // Through `forceMoveToBattlefield` like every other move: arriving applies
+      // Contested and can stage a Showdown the caster is not part of, which for
+      // this card is frequently the entire point.
+      return forceMoveToBattlefield(state, unitId, destination);
+    },
+  },
   "SFD-136": {
     // Hard Bargain — "[Reaction] [Repeat] [2] Counter a spell unless its
     // controller pays [2]."

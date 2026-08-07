@@ -967,6 +967,111 @@ describe("Bellows Breath groups by LOCATION, which includes bases", () => {
   });
 });
 
+/**
+ * Temptation (SFD-129) — "[Repeat] [2] Move an enemy unit to a location where
+ * there's a unit with the same controller."
+ *
+ * The pool's first RESTRICTED move destination. "The same controller" is the
+ * MOVED unit's controller, not the caster's, so the card lures an enemy toward
+ * its own friends — and the negatives are what prove the predicate reads the
+ * right side of the board.
+ */
+describe("Temptation restricts where the moved unit may go", () => {
+  /**
+   * p1 (the enemy) has a lone unit at bf1 and a second unit at bf2, so bf2 is a
+   * legal destination for the lone one and bf1 is not (it is already there).
+   * p0 also has a unit at bf3-equivalent — here, at bf1 — to prove the predicate
+   * does not accept "a unit with the CASTER's controller".
+   */
+  function board() {
+    const { state, spellId } = caster("SFD-129", "Chaos", 10);
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      units: {
+        [state.players[1]!.id]: [makeUnit({ name: "Lonely", instanceId: "lonely", might: 3 })],
+        [state.players[0]!.id]: [makeUnit({ name: "Mine", instanceId: "mine", might: 3 })],
+      },
+    };
+    state.battlefields[1] = {
+      ...state.battlefields[1]!,
+      units: { [state.players[1]!.id]: [makeUnit({ name: "Friend", instanceId: "friend", might: 3 })] },
+    };
+    return { state, spellId };
+  }
+
+  const destinationsFor = (state: GameState, spellId: string, unitId: string) =>
+    playsOf(state, spellId)
+      .filter((a) => a.targetUnitInstanceId === unitId)
+      .map((a) => a.destinationBattlefieldId);
+
+  it("offers the battlefield where the moved unit's controller already has one", () => {
+    const { state, spellId } = board();
+    expect(destinationsFor(state, spellId, "lonely")).toContain("bf2");
+  });
+
+  /**
+   * The negative that proves the predicate reads the MOVED unit's controller
+   * rather than the caster's: p0 has a unit at bf1, and that must not make bf1 a
+   * legal destination for p1's unit. (bf1 is also where `lonely` already stands,
+   * so this doubles as the no-op-move check.)
+   */
+  it("does not accept a battlefield where only the CASTER has a unit", () => {
+    const { state, spellId } = board();
+    // Move `friend` (at bf2) — bf1 holds one of p0's units and one of p1's...
+    // so it IS legal for friend. Use a third, empty battlefield instead.
+    expect(destinationsFor(state, spellId, "friend")).toContain("bf1"); // p1's `lonely` is there
+    // And the caster's own unit alone is not enough: strip p1 from bf1.
+    const onlyCaster = {
+      ...state,
+      battlefields: state.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { [state.players[0]!.id]: bf.units[state.players[0]!.id]! } } : bf,
+      ),
+    };
+    expect(
+      destinationsFor(onlyCaster, spellId, "friend"),
+      "a battlefield holding only the CASTER's unit was offered",
+    ).not.toContain("bf1");
+  });
+
+  it("offers no destination at all when the enemy has nowhere with a friend", () => {
+    const { state, spellId } = caster("SFD-129", "Chaos", 10);
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      units: { [state.players[1]!.id]: [makeUnit({ name: "Alone", instanceId: "alone", might: 3 })] },
+    };
+    expect(playsOf(state, spellId), "castable with nowhere legal to move to").toHaveLength(0);
+  });
+
+  it("moves the unit it names", () => {
+    const { state, spellId } = board();
+    const play = playsOf(state, spellId).find(
+      (a) => !a.repeatPaid && a.targetUnitInstanceId === "lonely" && a.destinationBattlefieldId === "bf2",
+    )!;
+    const after = resolveChain(accept(state, play));
+
+    const p1 = after.players[1]!.id;
+    expect(after.battlefields[0]!.units[p1] ?? []).toHaveLength(0);
+    expect((after.battlefields[1]!.units[p1] ?? []).map((u) => u.instanceId).sort()).toEqual(["friend", "lonely"]);
+  });
+
+  /** The validator re-derives the restriction rather than trusting the action. */
+  it("refuses a hand-built action naming an illegal destination", () => {
+    const { state, spellId } = board();
+    const base = playsOf(state, spellId).find((a) => a.targetUnitInstanceId === "lonely")!;
+    const empty: PlayCardAction = { ...base, destinationBattlefieldId: "bf2" };
+    expect(validatePlayCard(state, empty)).toMatchObject({ ok: true });
+
+    // Strip p1's unit from bf2 and the same destination becomes illegal.
+    const stripped: GameState = {
+      ...state,
+      battlefields: state.battlefields.map((bf, i) => (i === 1 ? { ...bf, units: {} } : bf)),
+    };
+    const result = validatePlayCard(stripped, empty);
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("already has one");
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**
