@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { selfNearVictory } from "./constants.js";
 
 /**
  * Static restrictions a permanent imposes on the OPPONENT — and one grant it
@@ -79,6 +80,8 @@ const TIANNA_CROWNGUARD = "SFD-060";
  * tokens" carries no restriction. She reaches both kinds.
  */
 const RENATA_INDUSTRIALIST = "SFD-171";
+/** The OTHER Renata — Chem-Baroness, whose clause is about the score. */
+const RENATA_CHEM_BARONESS = "SFD-201";
 
 export function boardRestrictionDefIds(): string[] {
   return [TIANNA_CROWNGUARD, RENATA_INDUSTRIALIST, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
@@ -184,4 +187,30 @@ export function grantsOpenBattlefieldPlacement(state: GameState, playerIndex: 0 
  */
 export function tokensEnterReady(state: GameState, ownerIndex: 0 | 1): boolean {
   return inPlayFor(state, ownerIndex, RENATA_INDUSTRIALIST);
+}
+
+/**
+ * Renata Glasc - CHEM-BARONESS (SFD-201), the other Renata — "While your score is
+ * within 3 points of the Victory Score, your Gold [Add] an additional [1]."
+ *
+ * A continuous modifier on a TOKEN's printed ability, read where that ability
+ * resolves rather than written into the token: the score moves during a game, so
+ * a Gold minted while behind still pays the bonus once its controller pulls
+ * ahead.
+ *
+ * **It does NOT use `inPlayFor`, and the two Renatas are exactly why.**
+ * Industrialist (SFD-171) is a **Unit** — a Champion — so the board walk finds
+ * her and `tokensEnterReady` above is right to use it. Chem-Baroness is a
+ * **LEGEND**, which sits in its own zone and is on no battlefield and in no base,
+ * so `inPlayFor` can never see her: written that way this clause was silently
+ * dead, and the test that spends a Gold with her out is what said so. It is the
+ * same gap `legendEventTriggers` records for the listener walk — "that walk
+ * covered base units, battlefield units, active Gear and two trash cards — never
+ * `players[i].legend`".
+ *
+ * A Legend needs no in-play test at all: it is always in its zone and cannot die,
+ * so identity IS presence.
+ */
+export function goldAddsExtraEnergy(state: GameState, ownerIndex: 0 | 1): boolean {
+  return state.players[ownerIndex].legend.defId === RENATA_CHEM_BARONESS && selfNearVictory(state, ownerIndex);
 }

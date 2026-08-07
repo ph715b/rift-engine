@@ -2,6 +2,9 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID } from "./token.js";
+import { goldAddsExtraEnergy } from "./board-restrictions.js";
+/** Renata Glasc - Chem-Baroness's "an additional [1]" on each Gold. */
+const RENATA_GOLD_BONUS_ENERGY = 1;
 import { contextFor, type EffectContext } from "./effect-context.js";
 import {
   addBuff,
@@ -424,7 +427,17 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     resolve: (state, ctx) => {
       const players = [...state.players] as [PlayerState, PlayerState];
       const actor = players[ctx.casterIndex];
-      players[ctx.casterIndex] = { ...actor, floatingRainbowPower: actor.floatingRainbowPower + 1 };
+      // Renata Glasc - Chem-Baroness's "your Gold [Add] an additional [1]" — an
+      // ENERGY pip on top of the printed rainbow Power, not more Power. Read
+      // HERE, as the ability resolves, rather than baked into the token when it
+      // is minted: her clause is a running condition on the SCORE, so a Gold made
+      // while behind still pays once its controller pulls ahead.
+      const extraEnergy = goldAddsExtraEnergy(state, ctx.casterIndex) ? RENATA_GOLD_BONUS_ENERGY : 0;
+      players[ctx.casterIndex] = {
+        ...actor,
+        floatingRainbowPower: actor.floatingRainbowPower + 1,
+        floatingEnergy: actor.floatingEnergy + extraEnergy,
+      };
       return { ...state, players };
     },
   },

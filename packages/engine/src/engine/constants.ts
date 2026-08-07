@@ -41,6 +41,24 @@ export function victoryScore(state: GameState): number {
  */
 export const COMEBACK_SCORE_GAP = 3;
 
+/**
+ * "While YOUR score is within 3 points of the Victory Score" — Renata Glasc -
+ * Chem-Baroness.
+ *
+ * **The mirror of `opponentNearVictory` below, and the two must not be
+ * confused.** That one reads the OPPONENT and rewards being BEHIND (Leona -
+ * Zealot, Find Your Center); this reads the ASKING player and rewards being
+ * AHEAD. Measuring the wrong side inverts the card, which is precisely why they
+ * are two named functions over one shared gap rather than one function with a
+ * flag someone could pass wrongly.
+ *
+ * Inclusive, and against THIS game's Victory Score rather than the printed 8 —
+ * both for the reasons its sibling records.
+ */
+export function selfNearVictory(state: GameState, playerIndex: 0 | 1): boolean {
+  return victoryScore(state) - state.players[playerIndex]!.points <= COMEBACK_SCORE_GAP;
+}
+
 export function opponentNearVictory(state: GameState, playerIndex: 0 | 1): boolean {
   const opponentIndex = playerIndex === 0 ? 1 : 0;
   // Measured against THIS game's Victory Score, not the printed 8: with

@@ -17,6 +17,7 @@ import {
 import { computeAutoPayment } from "./rune-payment.js";
 import { modifiedEnergyCost } from "./cost-modifiers.js";
 import { playCardIgnoringCost } from "./play-free.js";
+import { placeGoldTokens } from "./token.js";
 import { pendingDeathFor, releasePendingDeath } from "./death-ward.js";
 import { RAINBOW } from "./hidden.js";
 // Rule 711's "Might 5 or greater", already defined once for Fiora - Victorious.
@@ -139,6 +140,19 @@ export interface LegendAbilityDefinition {
    * response window this trigger opens can move the board before it resolves.
    */
   onUnitChosen?: (state: GameState, ownerIndex: 0 | 1, unitInstanceId: string) => GameState;
+  /**
+   * "When you or an ally hold..." — Renata Glasc - Chem-Baroness.
+   *
+   * Rides `battlefieldHeld`, which already exists and already fires once PER
+   * BATTLEFIELD held rather than once per Beginning Phase — see its own comment
+   * for why that distinction is load-bearing.
+   *
+   * "OR AN ALLY" has no subject in a 1v1 game: there are two seats and the other
+   * one is an opponent. Implemented as "you", which is the whole of the clause at
+   * this player count, rather than inventing an ally relation the mode does not
+   * have.
+   */
+  onBattlefieldHeld?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -175,6 +189,29 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-201": {
+    // Renata Glasc - Chem-Baroness — "When you or an ally hold, you may exhaust
+    // me to play a Gold gear token exhausted. While your score is within 3 points
+    // of the Victory Score, your Gold [Add] an additional [1]."
+    //
+    // TWO clauses of DIFFERENT KINDS, which is what makes her worth having after
+    // Irelia: one is a triggered ability and the other is a continuous modifier.
+    // Only the first is in this table — the second is not a trigger at all and
+    // lives where the Gold's ability RESOLVES (`goldAddsExtraEnergy`), the same
+    // split `mightBonus` already makes for Master Yi.
+    //
+    // The second clause is a running condition on the SCORE, so it is read at use
+    // time rather than baked into a token when it is minted: a Gold made while
+    // behind still pays the bonus once its controller pulls ahead. And it adds
+    // ENERGY on top of the Gold's printed rainbow POWER — two different pools,
+    // and `floatingRainbowPower` is not `floatingEnergy`.
+    //
+    // "Your score within 3 of the Victory Score" is `selfNearVictory`, deliberately
+    // NOT the existing `opponentNearVictory`: that one rewards being BEHIND (Leona
+    // - Zealot, Find Your Center) and reading it here would invert the card.
+    onBattlefieldHeld: (state, ownerIndex) =>
+      parkDecision(state, { kind: "SFD-201-gold", playerIndex: ownerIndex }),
+  },
   "SFD-187": {
     // Rek'sai - Void Burrower — "When you conquer, you may exhaust me to reveal
     // the top 2 cards of your Main Deck. You may banish one, then play it.
@@ -453,6 +490,30 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   // a "you may", and `advanceDecisions` auto-resolves anything with a single
   // option. Exhausting Volibear costs a later turn's use, so declining is a real
   // play rather than a formality.
+  "SFD-201-gold": {
+    prompt: () => "Renata Glasc - Chem-Baroness: exhaust her to play a Gold gear token exhausted?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!state.players[d.playerIndex].legend.exhausted) {
+        options.push({ id: "gold", label: "Exhaust Renata for a Gold" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "gold") return state;
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state; // cost no longer payable
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      // "EXHAUSTED" is printed, and `placeGoldTokens` already mints them that way
+      // — 149.1 enters gear READY, so the sixteen cards printing "exhausted" are
+      // the ones overriding a default (184.1). Renata - INDUSTRIALIST's "your
+      // tokens enter ready" is a replacement effect that would override it right
+      // back; she is a different card and not in play here by definition.
+      return placeGoldTokens({ ...state, players }, d.playerIndex, 1);
+    },
+  },
+
   "SFD-187-look": {
     prompt: () => "Rek'sai - Void Burrower: exhaust her to reveal the top 2 of your deck?",
     options: (state, d) => {
@@ -758,6 +819,7 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       onUnitPlayed,
       onCombatWon,
       onUnitChosen,
+      onBattlefieldHeld,
     } = ability;
 
     if (onEndOfTurn) {
@@ -780,6 +842,21 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
         resolve: (state, listener, event) =>
           event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onBattlefieldHeld) {
+      add(defId, {
+        on: "battlefieldHeld",
+        // The holder must be the Legend's owner, and the exhaust cost must be
+        // payable — an offer nobody can take is not made, the rule this file
+        // applies to Volibear, Irelia and Rek'sai alike.
+        applies: (state, listener, event) =>
+          event.kind === "battlefieldHeld" &&
+          event.holderIndex === listener.ownerIndex &&
+          !state.players[listener.ownerIndex].legend.exhausted,
+        resolve: (state, listener, event) =>
+          event.kind === "battlefieldHeld" ? onBattlefieldHeld(state, listener.ownerIndex, event.battlefieldId) : state,
       });
     }
 
