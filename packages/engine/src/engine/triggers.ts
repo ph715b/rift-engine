@@ -716,6 +716,26 @@ export type GameEvent =
    */
   | { kind: "buffSpent"; spenderIndex: 0 | 1; unitInstanceId: string }
   /**
+   * An Equipment was ATTACHED to a unit — Jax - Unrelenting's and Aphelios -
+   * Exalted's "when you attach an Equipment to me".
+   *
+   * Fired from `equipment.attachEquipment`, which is the single writer of
+   * `attachedToInstanceId` and says so in its module comment ("nothing else
+   * assigns it, so a future attach source cannot skip whatever these grow to
+   * do"). Five paths reach it — an `[Equip]` cost, `[Quick-Draw]`,
+   * `[Weaponmaster]`, Jax - Grandmaster's ability and Forge of the Fluft's — and
+   * this is what makes the sixth free.
+   *
+   * **A MOVE is an attach.** Jax - Grandmaster's second mode picks an Equipment
+   * up off one unit and puts it on another, and the unit it lands on has had an
+   * Equipment attached to it. The cards say "attach ... to me" and draw no
+   * distinction, so neither does this.
+   *
+   * `unitInstanceId` is the WEARER, which is what both listeners key off — the
+   * gear is the thing moving, and the unit is the thing being written about.
+   */
+  | { kind: "equipmentAttached"; ownerIndex: 0 | 1; gearInstanceId: string; unitInstanceId: string }
+  /**
    * A Combat Showdown has just opened at `battlefieldId` — 465's Combat Step 1,
    * the moment units there gain the Attacker and Defender designations. Fired for
    * a freshly staged Combat and for a Non-Combat one promoted by 317.2, since
@@ -901,6 +921,7 @@ export type HeldEventKind =
   | "cardsRecycled"
   | "runesRecycled"
   | "buffSpent"
+  | "equipmentAttached"
   | "combatBegan"
   | "combatWon"
   | "unitsStunned"

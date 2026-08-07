@@ -6,7 +6,7 @@ import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 import type { Keyword } from "../model/keyword.js";
-import type { Listener } from "./triggers.js";
+import { holdEventTrigger, type Listener } from "./triggers.js";
 
 /**
  * Equipment attachment — SFD's headline subsystem, and the one the survey called
@@ -82,7 +82,19 @@ export function attachEquipment(
       g.instanceId === gearInstanceId ? { ...g, attachedToInstanceId: unitInstanceId } : g,
     ),
   };
-  return { ...state, players };
+  // Jax - Unrelenting and Aphelios - Exalted. HELD here rather than at the five
+  // call sites, for the reason this module's own comment gives about being the
+  // single writer of `attachedToInstanceId`: a sixth attach source gets the
+  // trigger for free, and cannot skip it.
+  //
+  // After the write, so a listener reads a board where the gear is already worn
+  // — the ordering every other hold in this engine takes.
+  return holdEventTrigger({ ...state, players }, {
+    kind: "equipmentAttached",
+    ownerIndex,
+    gearInstanceId,
+    unitInstanceId,
+  });
 }
 
 /**

@@ -550,7 +550,35 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
+/** Jax - Unrelenting's optional draw. */
+const JAX_UNRELENTING_DRAW_COST = 1;
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-119": {
+    // Jax - Unrelenting's second clause — "When you attach an Equipment to me,
+    // you may pay [1] to draw 1." (His first is `[Weaponmaster]`, which the
+    // keyword already implements for all eleven cards that print it.)
+    //
+    // "TO ME" is the whole condition: the event names the WEARER, and the
+    // listener is Jax himself, so this compares the two instances. An Equipment
+    // attached to the unit standing beside him is not his moment.
+    //
+    // A MOVE counts, because the event does not distinguish one — see its own
+    // comment. Jax - Grandmaster At Arms shuffling an Equipment onto this Jax is
+    // attaching an Equipment to him.
+    //
+    // "You MAY pay" is a parked decision rather than an automatic draw: the
+    // Energy is a real cost and declining is a real answer, so it goes through
+    // the same offer-shaped question every other "you may pay" here uses.
+    on: "equipmentAttached",
+    applies: (state, listener, event) =>
+      event.kind === "equipmentAttached" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      // Offered only when the [1] is really payable — an offer nobody can take
+      // is not made, the rule this file applies throughout.
+      payEnergyFromPool(state, listener.ownerIndex, JAX_UNRELENTING_DRAW_COST) !== undefined,
+    resolve: (state, listener) => parkDecision(state, { kind: "SFD-119-draw", playerIndex: listener.ownerIndex }),
+  },
   "SFD-101": {
     // Fae Dragon's second sentence — "When you spend a buff, play a Gold gear
     // token exhausted."
@@ -1066,6 +1094,27 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-119-draw": {
+    // Jax - Unrelenting's "you may pay [1] to draw 1."
+    prompt: () => "Jax - Unrelenting: pay [1] to draw 1?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Re-asked at ANSWER time as well as at fire time: the Energy may have
+      // gone while the question waited on the chain, and an option offered then
+      // is one the resolver has to honour.
+      if (payEnergyFromPool(state, d.playerIndex, JAX_UNRELENTING_DRAW_COST)) {
+        options.push({ id: "pay", label: "Pay [1] and draw 1" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, JAX_UNRELENTING_DRAW_COST);
+      // A payment that cannot be made does not draw — re-derived rather than
+      // trusted, the convention every paid decision in this file follows.
+      return paid ? drawCards(paid, d.playerIndex, 1) : state;
+    },
+  },
   // Qiyana - Victorious's "draw 1 OR channel 1 rune exhausted", raised by her
   // on-conquer trigger above.
   //

@@ -62,6 +62,9 @@ const LEE_SIN_CENTERED = "OGN-151";
  *  NOT gated on [Legion]: the keyword sits before his FIRST sentence (the
  *  ready-me), and this is his second. */
 const DARIUS_EXECUTIONER = "OGN-243";
+/** Ornn - Forge God: "I have +1 Might for each friendly gear." Self-scaling off
+ *  a zone like Dr. Mundo's, and counting GEAR rather than Equipment. */
+const ORNN_FORGE_GOD = "SFD-085";
 /** Trusty Ramhound: "While you have another unit here, I have +1 Might."
  *  Positional and self-referential — the condition is about its OWN square. */
 const TRUSTY_RAMHOUND = "SFD-159";
@@ -148,6 +151,7 @@ export function effectiveMightDefIds(): string[] {
     SETT_KINGPIN,
     DRAVEN_SHOWBOAT,
     TRUSTY_RAMHOUND,
+    ORNN_FORGE_GOD,
   ];
 }
 
@@ -218,6 +222,19 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const ownerId = state.players[ownerIndex].id;
     const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
     bonus += here.filter((u) => u.buffed).length;
+  }
+
+  // Ornn - Forge God — "I have +1 Might for each friendly gear."
+  //
+  // Self-scaling off a ZONE, like Dr. Mundo - Expert's trash count, and read the
+  // same way: from the OWNER's side ("friendly" is his controller's), with no
+  // location test at all, because his text names no battlefield.
+  //
+  // EVERY gear, not only Equipment and not only what he is wearing: "friendly
+  // gear" is the widest phrase the set uses, and a Gold token sitting in the
+  // gear row is one. `activeGear` is exactly that list.
+  if (unit.defId === ORNN_FORGE_GOD) {
+    bonus += state.players[ownerIndex].activeGear.length;
   }
 
   // Trusty Ramhound — "While you have ANOTHER unit here, I have +1 Might."

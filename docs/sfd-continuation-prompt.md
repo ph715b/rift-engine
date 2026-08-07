@@ -25,11 +25,11 @@ Everything else in `docs/` predates today and its numbers are superseded.
 |---|---|
 | OGN | **248/248** (complete, hard-gated) |
 | OGS | **22/22** (complete, hard-gated) |
-| SFD cards | **135/198** |
+| SFD cards | **137/198** |
 | SFD battlefields | **15/15 — COMPLETE, and now hard-gated** |
 | SFD legends | **12/12 — COMPLETE** |
 
-Engine **2694 tests across 168 files**, web 100. Typecheck 0 errors across both
+Engine **2706 tests across 169 files**, web 100. Typecheck 0 errors across both
 workspaces, both builds green, all five probes green with walkout pinned at
 **191/107/32** and `DECKS=sfd` at 0 invalid.
 
@@ -68,8 +68,17 @@ Clusters still open, biggest first — each is a survey away from being a wave:
   points-scored-from-holding-this-turn), **Irelia - Graceful** and **Ezreal -
   Prodigy** (both modify OTHER cards' costs, not their own), **Vex - Cheerless**
   (asymmetric, and conditional on being in combat).
-- **`[Weaponmaster]` units** (4): Ornn - Forge God, Yone, Jax - Unrelenting,
-  Akshan. The keyword works; each adds one clause.
+- **`[Weaponmaster]` units** (2 left): Yone - Blademaster ("when I conquer a
+  battlefield that was UNCONTROLLED" — needs the battlefield's prior controller,
+  which the conquer event may not carry) and Akshan - Mischievous (takes control
+  of an enemy GEAR until he leaves the board — no gear-control mechanism exists).
+  Ornn - Forge God and Jax - Unrelenting landed.
+  **`equipmentAttached` now exists**, held from `attachEquipment` (the single
+  writer of `attachedToInstanceId`), so "when you attach an Equipment to me" is
+  free for the next card. **Aphelios - Exalted (SFD-049) is the one left on it**,
+  and needs one more thing: a three-way modal choice where each mode is usable
+  once per turn — `modesOncePerTurn` exists for ACTIVATED abilities and this is a
+  trigger, so it wants the same per-source record on a different path.
 - **gear activated abilities** (5): Assembly Rig, Poro Snax, Vanguard Armory, and
   the two "pay any amount" X-cost gear (Hextech Anomaly, Ancient Henge).
 - **statics on the unit itself** (3 left): Ruin Runner ("can't be chosen by enemy
