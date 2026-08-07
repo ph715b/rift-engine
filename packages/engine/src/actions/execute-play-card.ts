@@ -264,6 +264,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
+    // Ornn's Forge's "the FIRST friendly non-token gear played each turn", and
+    // Azir's "if you've played an Equipment this turn". Bumped HERE, in the
+    // executor, for exactly the reason the Firebrand note below gives: a cost
+    // modifier is asked several times per play (enumeration, validation, this
+    // file's own float math) and must give the same answer each time, so the
+    // thing it reads cannot move until the play is priced and paid.
+    gearPlayedThisTurn: card.kind === "Gear" ? actor.gearPlayedThisTurn + 1 : actor.gearPlayedThisTurn,
     // Raging Firebrand's charge is SPENT here, on the Spell that used it, and
     // only on a Spell — the card says "the next SPELL you play this turn". Spent
     // in the executor rather than in `modifiedEnergyCost` for the reason that

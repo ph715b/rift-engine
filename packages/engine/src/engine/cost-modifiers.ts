@@ -3,7 +3,7 @@ import { defaultCardRegistry } from "../cards/card-registry.js";
 import { opponentNearVictory } from "./constants.js";
 import { legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
-import { repeatEnergyDiscountFor } from "./battlefield-continuous.js";
+import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
 
 /** Every unit a player controls, each with the MightContext its location
@@ -233,6 +233,17 @@ export function modifiedEnergyCost(
     // Eager Apprentice's own floor of 1, stated on the card.
     if (hasEagerApprenticeAtBattlefield) cost = Math.max(1, cost - 1);
   }
+
+  // Ornn's Forge — "the FIRST friendly non-token gear played each turn costs [1]
+  // less". GEAR only, and only while `gearPlayedThisTurn` is still zero;
+  // `firstGearDiscountFor` asks both. Floored at 0 rather than at 1: the card
+  // states no minimum, unlike Eager Apprentice's above, and reading one in would
+  // quietly refuse the discount to every 1-Energy gear in the set.
+  //
+  // Read here and never spent here — the counter it depends on is bumped in
+  // `execute-play-card`'s shared updates, AFTER this has priced the play, for the
+  // reason this function's own Firebrand note gives.
+  if (cardKind === "Gear") cost = Math.max(0, cost - firstGearDiscountFor(state, playerIndex));
 
   return cost;
 }

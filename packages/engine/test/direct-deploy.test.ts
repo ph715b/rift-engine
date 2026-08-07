@@ -75,6 +75,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    gearPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,

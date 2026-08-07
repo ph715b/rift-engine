@@ -82,6 +82,19 @@ interface ContinuousBattlefield {
    * other unqualified battlefield ability here.
    */
   noUnitsPlayedHere?: true;
+  /**
+   * "While you control this battlefield, the FIRST friendly non-token gear played
+   * each turn costs N Energy less" (Ornn's Forge).
+   *
+   * Controller-scoped and game-wide, like `repeatEnergyDiscountForController`
+   * above — the gear is played to a base, not to this battlefield, so this cannot
+   * be answered from a location.
+   *
+   * "The FIRST ... each turn" is why `PlayerState.gearPlayedThisTurn` exists: the
+   * discount is not a property of the gear or of the board but of how many have
+   * already gone this turn.
+   */
+  firstGearDiscountForController?: number;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
@@ -92,6 +105,9 @@ const FORGOTTEN_MONUMENT = "SFD-209";
 const MARAI_SPIRE = "SFD-211";
 /** Rockfall Path (SFD-216) — "Units can't be played here." */
 const ROCKFALL_PATH = "SFD-216";
+/** Ornn's Forge (SFD-213) — "While you control this battlefield, the first
+ *  friendly non-token gear played each turn costs [1 Energy] less." */
+const ORNNS_FORGE = "SFD-213";
 
 const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [TRIFARIAN_WAR_CAMP]: { mightBonusHere: 1 },
@@ -111,6 +127,10 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   // "Units can't be played here." No controller clause, so it binds BOTH players
   // — including whoever controls the battlefield.
   [ROCKFALL_PATH]: { noUnitsPlayedHere: true },
+  // "The FIRST friendly non-token gear played each turn costs [1] less."
+  // Controller-scoped like Marai Spire, and like it this is game-wide rather
+  // than positional: the gear is played to a base or anywhere else, not here.
+  [ORNNS_FORGE]: { firstGearDiscountForController: 1 },
 };
 
 
@@ -175,6 +195,26 @@ export function continuousBattlefieldDefIds(): string[] {
  * what lets Called Shot — whose Repeat is 0 Energy — be discounted by nothing
  * rather than into a negative that a later addition would silently unwind.
  */
+/**
+ * Ornn's Forge's discount on the FIRST gear this player plays this turn, in
+ * Energy — zero once one has already been played, and zero for anything that is
+ * not a Gear.
+ *
+ * Controller-scoped, so it walks the battlefields this player CONTROLS rather
+ * than asking `at()` about a location: the gear being discounted is played to a
+ * base, not to the Forge.
+ */
+export function firstGearDiscountFor(state: GameState, playerIndex: 0 | 1): number {
+  const player = state.players[playerIndex];
+  if (player === undefined || player.gearPlayedThisTurn > 0) return 0;
+  let total = 0;
+  for (const bf of state.battlefields) {
+    if (bf.controllerId !== player.id || bf.defId === undefined) continue;
+    total += BATTLEFIELD_CONTINUOUS[bf.defId]?.firstGearDiscountForController ?? 0;
+  }
+  return total;
+}
+
 export function repeatEnergyDiscountFor(state: GameState, playerIndex: 0 | 1): number {
   const playerId = state.players[playerIndex]?.id;
   if (playerId === undefined) return 0;

@@ -383,6 +383,21 @@ export interface PlayerState {
    */
   restrictedSpellPower: number;
   /**
+   * How many GEAR this player has played this turn — Ornn's Forge's "the FIRST
+   * friendly non-token gear played each turn costs [1] less", and Azir's "use
+   * only if you've played an Equipment this turn".
+   *
+   * A count rather than a boolean because "the first" needs to know whether any
+   * have gone yet, and a later card wanting "the second" would need the number
+   * anyway.
+   *
+   * **Non-token by construction.** Gear TOKENS (the Golds) arrive through
+   * `placeGearToken`, never through a `PlayCard`, so nothing that reaches the one
+   * site this is bumped at is a token. Stated rather than filtered, because a
+   * filter on `isToken` here would read as though tokens could arrive this way.
+   */
+  gearPlayedThisTurn: number;
+  /**
    * Malzahar - Fanatic's "Kill a friendly unit or gear, Exhaust: → rainbow
    * rainbow" — Power that pays a pip of ANY domain, with no Spells-only
    * restriction.

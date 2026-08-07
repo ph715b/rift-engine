@@ -335,6 +335,7 @@ export function runEnd(state: GameState): GameState {
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
     restrictedSpellPower: 0,
+    gearPlayedThisTurn: 0,
     // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
     // itself from — both are "this turn" state, so both end with the turn.
     nextUnitsEnterReady: 0,
