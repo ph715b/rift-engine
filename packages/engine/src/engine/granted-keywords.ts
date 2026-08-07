@@ -135,8 +135,17 @@ interface KeywordAura {
    *  the board, so neither the unit walk nor the gear list can find one. It is
    *  always in play and never at a battlefield, which makes it the only source
    *  for which `scope: "here"` is meaningless — the same constraint gear has,
-   *  and for the same reason. */
-  source: "unit" | "gear" | "legend";
+   *  and for the same reason.
+   *
+   *  `"gearWearer"` is SFD's second addition, and the one this table genuinely
+   *  could not express before. Shurelya's Requiem reads "your units HERE have
+   *  [Ganking]", where HERE is wherever its WEARER is standing. A `"gear"` source
+   *  is never at a battlefield, so it can only ever be `scope: "anywhere"`; this
+   *  source is a gear that BORROWS its wearer's location, which is what makes a
+   *  positional gear aura possible at all. An UNATTACHED Requiem reaches nobody,
+   *  because it has no wearer to borrow a location from — which is exactly what
+   *  "here" means for a card that has to be worn. */
+  source: "unit" | "gear" | "legend" | "gearWearer";
   /** `"here"` is the source's own battlefield and nothing else — so a source
    *  sitting in BASE reaches nobody, the same positional reading Lee Sin -
    *  Centered's and Leona - Zealot's Might auras take. */
@@ -184,6 +193,9 @@ const RUMBLE_HOTHEADED = "SFD-026";
 /** Azir - Emperor of the Sands — "Your Sand Soldiers have [Weaponmaster]." */
 const AZIR_EMPEROR = "SFD-197";
 const PETRICITE_MONUMENT = "SFD-104";
+/** Shurelya's Requiem — "your units HERE have [Ganking]", where HERE is its
+ *  WEARER's battlefield. The pool's first positional GEAR aura. */
+const SHURELYAS_REQUIEM = "SFD-192";
 /** Rumble - Mechanized Menace — "Your Mechs have [Shield]." The pool's first
  *  LEGEND-sourced keyword aura, and the third Rumble to grant Mechs something. */
 const RUMBLE_MECHANIZED_MENACE = "SFD-181";
@@ -249,6 +261,23 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     excludesSelf: false,
     appliesToDef: isMech,
     keywords: ["Assault"],
+  },
+  [SHURELYAS_REQUIEM]: {
+    // Shurelya's Requiem — "Your units HERE have [Ganking]."
+    //
+    // **ART-ONLY ABILITY**, transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md. Its "when you play this, ready your
+    // units" half was already written; this is the aura.
+    //
+    // The first `"gearWearer"` source, and the reason that kind exists: a plain
+    // gear source has no location, so `scope: "here"` could not be expressed for
+    // one until a gear could borrow its wearer's square.
+    source: "gearWearer",
+    scope: "here",
+    // A gear is not a unit and can never be its own recipient — meaningless
+    // here, exactly as it is for the two legend sources above.
+    excludesSelf: false,
+    keywords: ["Ganking"],
   },
   [PETRICITE_MONUMENT]: {
     // A GEAR source, so `scope` can only be "anywhere" — and "friendly units"
@@ -337,6 +366,23 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
     // search below rather than by comparing defIds here.
     const except = aura.excludesSelf ? unit.instanceId : undefined;
 
+    if (aura.source === "gearWearer") {
+      // The gear must be in play AND WORN: an unattached Requiem has no square
+      // to be "here" at, so it reaches nobody. Its wearer's battlefield is the
+      // aura's location, and a wearer in BASE reaches nobody either — "here" is
+      // a battlefield throughout this file.
+      const worn = owner.activeGear.find((g) => g.defId === sourceDefId && g.attachedToInstanceId != null);
+      const wearer = worn?.attachedToInstanceId != null ? findUnitAnywhere(state, worn.attachedToInstanceId) : undefined;
+      if (wearer === undefined || wearer.zone === "base") continue;
+      if (!located) {
+        location = locationOf(state, unit);
+        located = true;
+      }
+      if (location === undefined || location === "base") continue;
+      if (location !== state.battlefields[wearer.zone.battlefieldIndex]?.id) continue;
+      granted.push(...aura.keywords);
+      continue;
+    }
     if (aura.source === "legend") {
       // A Legend is ALWAYS in play — there is no "did it leave" question, which
       // is exactly what makes this the shortest branch rather than a special
@@ -586,6 +632,15 @@ export function keywordOnEntry(state: GameState, playerIndex: 0 | 1, def: { id: 
     // controller played, Mech or not — `[Vision]` is entry-triggered, so this is
     // the one place that question gets asked.
     if (aura.appliesToDef !== undefined && !aura.appliesToDef(def)) continue;
+    if (aura.source === "gearWearer") {
+      // Deliberately NEVER true at entry. This question is asked before the
+      // unit exists on the board, so it has no location — and a `"here"` aura
+      // is exactly a question about location. `[Ganking]` is not
+      // entry-triggered, so nothing is lost; a future entry-triggered keyword
+      // from a wearer-positional source would need the destination this
+      // function's own scope note already records it does not carry.
+      continue;
+    }
     if (aura.source === "legend") {
       if (state.players[playerIndex].legend.defId === sourceDefId) return true;
     } else if (aura.source === "gear") {

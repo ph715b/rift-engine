@@ -29,7 +29,7 @@ const KAYN_UNLEASHED = "OGN-189";
 const KAYN_MOVES_REQUIRED = 2;
 
 export function damageModifierDefIds(): string[] {
-  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED];
+  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN];
 }
 
 /**
@@ -58,6 +58,10 @@ export function takesNoDamage(unit: UnitInstance): boolean {
  * Void Gate's "spells and abilities deal 1 Bonus Damage to units HERE" is the
  * first modifier in this module that is about the target rather than the caster.
  */
+/** Rabadon's Deathcrown — art-only, see `modifiedDamageAmount`. */
+const RABADONS_DEATHCROWN = "SFD-191";
+const DEATHCROWN_BONUS_DAMAGE = 3;
+
 export function modifiedDamageAmount(
   state: GameState,
   casterIndex: 0 | 1,
@@ -73,10 +77,32 @@ export function modifiedDamageAmount(
   // The battlefield's own bonus STACKS with both, for the reason those two
   // already stack with each other: two effects each saying "1 Bonus Damage" are
   // two separate +1s.
+  // Rabadon's Deathcrown — "Your spells and abilities deal 3 Bonus Damage while
+  // this is ATTACHED."
+  //
+  // **ART-ONLY ABILITY**, transcribed from the card image; see
+  // docs/sfd-equipment-abilities.md. `text.plain` holds its `[Equip]` line and
+  // nothing else, which is why it reported IMPLEMENTED while doing none of it.
+  //
+  // Gated on ATTACHMENT, not on the gear merely being in play: an unattached
+  // Deathcrown sitting in `activeGear` grants nothing, which is what "while this
+  // is attached" says and is the whole reason it is not simply an aura keyed to
+  // the card being present.
+  //
+  // Stacks with the three sources above, for the reason they already stack with
+  // each other: several effects each saying "N Bonus Damage" are several
+  // separate additions.
+  //
+  // "YOUR spells and abilities" — the caster's, so it reads the CASTER's gear
+  // rather than the target's owner's.
+  const deathcrowns = caster.activeGear.filter(
+    (g) => g.defId === RABADONS_DEATHCROWN && g.attachedToInstanceId != null,
+  ).length;
   return (
     baseAmount +
     (hasAnnieFiery ? 1 : 0) +
     caster.nextSpellBonusDamage +
+    deathcrowns * DEATHCROWN_BONUS_DAMAGE +
     battlefieldBonusDamageAt(state, targetBattlefieldId)
   );
 }

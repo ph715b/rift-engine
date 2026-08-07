@@ -15,6 +15,7 @@ import type { UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
+  dealDamageToEnemyUnitsAtBattlefield,
   recordModeUsed,
   channelRunesExhausted,
   dealDamage,
@@ -37,6 +38,7 @@ import {
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
+import { wearerListener } from "../equipment.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
@@ -913,6 +915,9 @@ function enemiesStunnedFor(ownerIndex: 0 | 1, event: GameEvent): number {
  * modal cards already use; see the trigger below for why it is shared rather
  * than duplicated.
  */
+/** Forgefire Cape's art-only burn — "deal 2 to all enemy units here". */
+const FORGEFIRE_DAMAGE = 2;
+
 const APHELIOS_MODES = [
   { id: "ready", label: "Ready 2 runes" },
   { id: "channel", label: "Channel 1 rune exhausted" },
@@ -935,6 +940,39 @@ function apheliosModesLeft(
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-190": {
+    // Forgefire Cape — "When I attack or defend, deal 2 to ALL enemy units here."
+    //
+    // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
+    // the `[Equip]` line and nothing else, which is why this card reported
+    // IMPLEMENTED while doing none of it. Transcribed from the card image; see
+    // docs/sfd-equipment-abilities.md.
+    //
+    // "I" is the WEARER, so it rides `wearerListener` like the eight art-only
+    // Equipment already do — the gear's listener is rewritten as the unit
+    // wearing it and every existing predicate applies unchanged.
+    //
+    // "ATTACK OR DEFEND" is both designations, which is why the check is bare
+    // membership in `event.designated` rather than a side comparison: 465 Step 1
+    // hands the designation to every unit at the contested battlefield, attacker
+    // and defender alike, and the card asks for either.
+    //
+    // "ALL enemy units HERE" is measured from the WEARER's controller and at the
+    // battlefield the combat is at — not the wearer's own recorded location,
+    // which a gear listener does not have.
+    on: "combatBegan",
+    applies: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return false;
+      const wearer = wearerListener(state, listener);
+      return wearer !== undefined && event.designated.includes(wearer.card.instanceId);
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      const wearer = wearerListener(state, listener);
+      if (wearer === undefined) return state;
+      return dealDamageToEnemyUnitsAtBattlefield(state, wearer.ownerIndex, event.battlefieldId, FORGEFIRE_DAMAGE);
+    },
+  },
   "SFD-049": {
     // Aphelios - Exalted — "When you attach an Equipment to me, choose one that
     // hasn't been chosen this turn: Ready 2 runes / Channel 1 rune exhausted /

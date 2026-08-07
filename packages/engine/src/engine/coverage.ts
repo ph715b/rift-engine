@@ -334,9 +334,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // nothing else, which is the shape the definition of done requires: a partial
   // may name missing CARD TEXT, never missing engine.
   ["SFD-150", "its art-only 'when I conquer or hold, you may play a unit from your trash (still paying costs)' is unwritten; the [Equip] cost is whole"],
-  ["SFD-190", "art-only: 'when I attack or defend, deal 2 to ALL enemy units here' is unwritten. Its [Equip] half works"],
-  ["SFD-191", "art-only: 'your spells and abilities deal 3 Bonus Damage' is unwritten. Its [Equip] half works"],
-  ["SFD-192", "art-only: the ready-half is written, the positional [Ganking] aura is not. Its [Equip] half works"],
   // **The Equipment whose printed ability exists ONLY on the card art**, and the
   // worst blind spot this file has had. `needsImplementation` reads the card
   // text; for every one of these `text.plain` holds the `[Equip]` line and
