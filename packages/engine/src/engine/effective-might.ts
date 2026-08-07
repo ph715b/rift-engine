@@ -62,6 +62,9 @@ const LEE_SIN_CENTERED = "OGN-151";
  *  NOT gated on [Legion]: the keyword sits before his FIRST sentence (the
  *  ready-me), and this is his second. */
 const DARIUS_EXECUTIONER = "OGN-243";
+/** Trusty Ramhound: "While you have another unit here, I have +1 Might."
+ *  Positional and self-referential — the condition is about its OWN square. */
+const TRUSTY_RAMHOUND = "SFD-159";
 /** Dr. Mundo - Expert: "My Might is increased by the number of cards in your
  *  trash." Self-scaling off a zone, like Master Yi - Meditative's rune count —
  *  and like his, recomputed on read rather than written into state, so it falls
@@ -144,6 +147,7 @@ export function effectiveMightDefIds(): string[] {
     DR_MUNDO_EXPERT,
     SETT_KINGPIN,
     DRAVEN_SHOWBOAT,
+    TRUSTY_RAMHOUND,
   ];
 }
 
@@ -214,6 +218,31 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const ownerId = state.players[ownerIndex].id;
     const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
     bonus += here.filter((u) => u.buffed).length;
+  }
+
+  // Trusty Ramhound — "While you have ANOTHER unit here, I have +1 Might."
+  //
+  // Self-scaling off a board condition like Sett - Kingpin's, and read the same
+  // way: off the battlefield it is actually standing on, so a Ramhound in BASE
+  // gets nothing however many units are at home with it. "Here" means a
+  // battlefield throughout this file, and a base is not one.
+  //
+  // "ANOTHER" is by INSTANCE, not by card: two Ramhounds standing together each
+  // see the other and both get +1, which is what the word means. Excluding by
+  // defId — the shortcut the two auras above take, because those cards say
+  // "other FRIENDLY UNITS" and exclude themselves as a class — would make a pair
+  // of Ramhounds the one board where the card does nothing.
+  //
+  // **The `!== "base"` test is belt-and-braces, and is kept deliberately.**
+  // Proved inert by mutation: removing it changes nothing, because no battlefield
+  // is ever named `"base"` and the lookup below therefore finds nothing to count.
+  // It stays for the same reason Sett - Kingpin's identical test one branch up
+  // does — it states the card's reading ("here" is a battlefield) at the place
+  // that reading is applied, rather than leaving it resting on the id namespace.
+  if (unit.defId === TRUSTY_RAMHOUND && ownLocation !== "base") {
+    const ownerId = state.players[ownerIndex].id;
+    const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
+    if (here.some((u) => u.instanceId !== unit.instanceId)) bonus += 1;
   }
 
   // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),

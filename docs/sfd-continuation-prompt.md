@@ -19,17 +19,17 @@ every time it was believed.
 
 Everything else in `docs/` predates today and its numbers are superseded.
 
-## Measured state at `ac1deac`
+## Measured state at `62d6845`+
 
 | | implemented |
 |---|---|
 | OGN | **248/248** (complete, hard-gated) |
 | OGS | **22/22** (complete, hard-gated) |
-| SFD cards | **131/198** |
+| SFD cards | **135/198** |
 | SFD battlefields | **15/15 — COMPLETE, and now hard-gated** |
 | SFD legends | **12/12 — COMPLETE** |
 
-Engine **2674 tests across 167 files**, web 100. Typecheck 0 errors across both
+Engine **2694 tests across 168 files**, web 100. Typecheck 0 errors across both
 workspaces, both builds green, all five probes green with walkout pinned at
 **191/107/32** and `DECKS=sfd` at 0 invalid.
 
@@ -59,18 +59,24 @@ Clusters already cleared, for the shape:
 - one-door restrictions — Minotaur Reckoner, through `mayMoveToBaseFrom`.
 
 Clusters still open, biggest first — each is a survey away from being a wave:
-- **cost REDUCTION** (~8): Void Drone and Drag Under ("less from anywhere other
-  than your hand"), Battering Ram (per card played), Needlessly Large Yordle,
-  Jaull-Fish (per `[Mighty]` unit), Production Surge (if you control a Mech),
-  Irelia - Graceful, Ezreal - Prodigy, Vex - Cheerless. `cost-modifiers.ts` is the
-  door; most are table entries once the predicate exists.
+- **cost REDUCTION** — half done. Battering Ram, Jaull-Fish and Production Surge
+  landed through `modifiedEnergyCost`, which is the door and takes a defId, so a
+  self-scaling cost is now a branch and a constant. **Left: Void Drone and Drag
+  Under** ("less from anywhere other than your hand" — needs the play SOURCE,
+  which that function is not given, and the reachable cases want a survey before
+  a guess), **Needlessly Large Yordle** (reduces Energy AND Power, and needs
+  points-scored-from-holding-this-turn), **Irelia - Graceful** and **Ezreal -
+  Prodigy** (both modify OTHER cards' costs, not their own), **Vex - Cheerless**
+  (asymmetric, and conditional on being in combat).
 - **`[Weaponmaster]` units** (4): Ornn - Forge God, Yone, Jax - Unrelenting,
   Akshan. The keyword works; each adds one clause.
 - **gear activated abilities** (5): Assembly Rig, Poro Snax, Vanguard Armory, and
   the two "pay any amount" X-cost gear (Hextech Anomaly, Ancient Henge).
-- **statics on the unit itself** (4): Ruin Runner ("can't be chosen by enemy
-  spells and abilities"), Trusty Ramhound, Perched Grimwyrm (a play restriction),
-  Rell - Magnetic.
+- **statics on the unit itself** (3 left): Ruin Runner ("can't be chosen by enemy
+  spells and abilities" — no chooseability filter exists; it needs one door both
+  the enumerator and the validator ask), Perched Grimwyrm (a play restriction —
+  `mayPlayUnitAt` is battlefield-keyed and this is card-keyed), Rell - Magnetic.
+  Trusty Ramhound landed in `effective-might.ts`'s aura sum.
 - **the 13 partials**, which are the honest backlog; `Svellsongur (SFD-059)`
   (text copying) is still the one nothing models.
 

@@ -3,6 +3,7 @@ import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { giveMightThisTurn } from "../src/engine/effect-helpers.js";
+import { effectiveMight } from "../src/engine/effective-might.js";
 import { MECH_TOKEN, createToken } from "../src/engine/token.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -32,6 +33,7 @@ const registry = defaultCardRegistry();
 const BATTERING_RAM = "SFD-012";
 const JAULL_FISH = "SFD-103";
 const PRODUCTION_SURGE = "SFD-076";
+const TRUSTY_RAMHOUND = "SFD-159";
 
 const runes = (domain: RuneCard["domain"], n: number): RuneCard[] =>
   Array.from({ length: n }, (_, i) => ({ id: `${domain}${i}`, domain, state: "Ready" as const }));
@@ -188,8 +190,86 @@ describe("Production Surge (SFD-076): [2] less with a Mech, then a Mech and a dr
 
 describe("all three report implemented", () => {
   it("and their text is claimed by a module", () => {
-    for (const id of [BATTERING_RAM, JAULL_FISH, PRODUCTION_SURGE]) {
+    for (const id of [BATTERING_RAM, JAULL_FISH, PRODUCTION_SURGE, TRUSTY_RAMHOUND]) {
       expect(isCardImplemented(registry.get(id)), `${id}`).toBe(true);
     }
+  });
+});
+
+/**
+ * Trusty Ramhound — "While you have another unit here, I have +1 Might."
+ *
+ * Positional and self-referential, which makes it two claims rather than one:
+ * "here" is a BATTLEFIELD (a base is not one), and "another" is by INSTANCE.
+ * The instance reading is what makes two Ramhounds standing together each see
+ * the other — the defId shortcut the neighbouring auras take would make a pair
+ * the one board where the card does nothing.
+ */
+describe("Trusty Ramhound (SFD-159): +1 while another unit stands with it", () => {
+  const ramhound = () => ({ ...realUnitInstance(TRUSTY_RAMHOUND), instanceId: "ram" });
+
+  /** The Ramhound at bf1 with `companions` friendly units beside it. */
+  function atBattlefield(companions: number): GameState {
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = {
+      [state.players[0]!.id]: [
+        ramhound(),
+        ...Array.from({ length: companions }, (_, i) => makeUnit({ instanceId: `mate${i}`, might: 1 })),
+      ],
+    };
+    return state;
+  }
+
+  const mightOf = (state: GameState, instanceId = "ram") => {
+    const unit = state.battlefields.flatMap((b) => Object.values(b.units).flat()).find((u) => u.instanceId === instanceId)
+      ?? state.players[0]!.baseUnits.find((u) => u.instanceId === instanceId)!;
+    const at = state.battlefields.find((b) => (b.units[state.players[0]!.id] ?? []).some((u) => u.instanceId === instanceId));
+    return effectiveMight(state, unit, 0, at ? { isCombat: false, battlefieldId: at.id } : { isCombat: false });
+  };
+
+  const printedMight = (registry.get(TRUSTY_RAMHOUND) as { might: number }).might;
+
+  it("gets nothing standing alone", () => {
+    expect(mightOf(atBattlefield(0))).toBe(printedMight);
+  });
+
+  it("gets +1 with a companion, and only +1 with three", () => {
+    expect(mightOf(atBattlefield(1))).toBe(printedMight + 1);
+    // "ANOTHER unit", not "each other unit" — the bonus does not scale.
+    expect(mightOf(atBattlefield(3)), "the bonus scaled with the crowd").toBe(printedMight + 1);
+  });
+
+  /**
+   * "HERE" is a battlefield — a base full of friends is not one.
+   *
+   * This holds for TWO reasons, and the test cannot tell them apart: the guard
+   * in `continuousAuraBonus`, and the fact that no battlefield is named `"base"`
+   * so the lookup finds nothing anyway. Measured — removing the guard leaves
+   * this green — and recorded there rather than left as an implied claim.
+   */
+  it("gets nothing in BASE, however many units are at home", () => {
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [ramhound(), makeUnit({ instanceId: "mate", might: 1 })];
+    expect(mightOf(state), "a base counted as 'here'").toBe(printedMight);
+  });
+
+  /** The ENEMY's units at the same battlefield are not "yours". */
+  it("does not count an enemy standing there", () => {
+    const state = atBattlefield(0);
+    state.battlefields[0]!.units = {
+      ...state.battlefields[0]!.units,
+      [state.players[1]!.id]: [makeUnit({ instanceId: "foe", might: 1 })],
+    };
+    expect(mightOf(state), "an enemy unit fed it").toBe(printedMight);
+  });
+
+  /** **Two Ramhounds each see the OTHER** — the instance reading, and the one
+   *  case a defId comparison gets exactly backwards. */
+  it("two Ramhounds together each get +1", () => {
+    const state = atBattlefield(0);
+    state.battlefields[0]!.units[state.players[0]!.id]!.push({ ...ramhound(), instanceId: "ram2" });
+
+    expect(mightOf(state, "ram")).toBe(printedMight + 1);
+    expect(mightOf(state, "ram2")).toBe(printedMight + 1);
   });
 });
