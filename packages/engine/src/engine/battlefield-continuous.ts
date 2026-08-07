@@ -269,7 +269,36 @@ export function battlefieldKeywordsAt(state: GameState, battlefieldId: string | 
  * battlefield the rules have just sent them home from.
  */
 export function mayMoveToBaseFrom(state: GameState, battlefieldId: string | undefined): boolean {
-  return at(state, battlefieldId)?.blocksMoveToBase !== true;
+  if (at(state, battlefieldId)?.blocksMoveToBase === true) return false;
+  // Minotaur Reckoner (SFD-014) — "Units can't move to base."
+  //
+  // A UNIT source in a file of battlefield abilities, and it belongs here rather
+  // than in a table of its own because this function is the one door: the
+  // RecallUnit validator, `effect-helpers.recallUnitToBase` and the move
+  // enumerator all come through it, so one check reaches every way a unit can go
+  // home. A second predicate beside it would be the fourth place to keep in step.
+  //
+  // **GLOBAL and symmetric.** The card names no owner and no location — not
+  // "your units", not "units here" — so a Minotaur in either player's base stops
+  // both players' units everywhere. That is the widest reading and it is what is
+  // printed; Vilemaw's Lair, one line up, is the positional one.
+  //
+  // Combat's own step-3d recall is deliberately NOT blocked, exactly as it is
+  // not blocked by the Lair: it goes through `relocateToBaseUnchanged`, and it is
+  // a step of the Combat Cleanup rather than a move a player makes.
+  const minotaurs = state.players.flatMap((p) => [
+    ...p.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[p.id] ?? []),
+  ]);
+  return !minotaurs.some((u) => u.defId === MINOTAUR_RECKONER);
+}
+
+/** Minotaur Reckoner — "Units can't move to base." See `mayMoveToBaseFrom`. */
+const MINOTAUR_RECKONER = "SFD-014";
+
+/** For coverage.ts — the cards this module implements that are not battlefields. */
+export function moveRestrictionDefIds(): string[] {
+  return [MINOTAUR_RECKONER];
 }
 
 /**

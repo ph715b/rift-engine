@@ -277,6 +277,9 @@ const LUX_CROWNGUARD = "OGS-014";
 /** Orb of Regret: "Exhaust: Give a unit -1 Might this turn, to a minimum of 1
  *  Might." The first Gear in this engine that does anything at all. */
 const ORB_OF_REGRET = "OGN-090";
+/** Heart of Dark Ice's pump — its own constant beside the Orb's, so the two
+ *  mirror-image numbers are read from one place each. */
+const HEART_OF_DARK_ICE_MIGHT = 3;
 const VIKTOR_HERALD = "OGN-265";
 const LEE_SIN_BLIND_MONK = "OGN-257";
 const UDYR_WILDMAN = "OGN-157";
@@ -1319,6 +1322,21 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         ...(victimBattlefieldId !== undefined ? { battlefieldId: victimBattlefieldId } : {}),
       });
     },
+  },
+  "SFD-052": {
+    // Heart of Dark Ice — "[Exhaust]: Give a unit +3 Might this turn."
+    //
+    // Orb of Regret's mirror, one entry down, and deliberately written the same
+    // way: "a unit" names no owner and no battlefield, so either player's base
+    // is a legal target — the reading base-targeting.test.ts already pins.
+    //
+    // **No floor**, unlike the Orb's. That is the card rather than an omission:
+    // a floor exists to stop a REDUCTION digging below 1, and nothing needs
+    // capping on the way up.
+    kind: "Gear",
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, HEART_OF_DARK_ICE_MIGHT) : state,
   },
   [ORB_OF_REGRET]: {
     kind: "Gear",

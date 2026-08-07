@@ -18,7 +18,7 @@ import { boardRestrictionDefIds } from "./board-restrictions.js";
 import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
-import { continuousBattlefieldDefIds } from "./battlefield-continuous.js";
+import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -237,6 +237,11 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "battlefield abilities", defIds: battlefieldAbilityDefIds },
   { label: "beginning-phase battlefields", defIds: beginningPhaseBattlefieldDefIds },
   { label: "continuous battlefields", defIds: continuousBattlefieldDefIds },
+  // Minotaur Reckoner is a UNIT whose text is a global move restriction, so it
+  // lives in battlefield-continuous.ts beside the one door that answers "may
+  // this unit go home" — and it needs its own claim, since the battlefield
+  // source above lists only battlefields.
+  { label: "move restrictions", defIds: moveRestrictionDefIds },
 ];
 
 /**

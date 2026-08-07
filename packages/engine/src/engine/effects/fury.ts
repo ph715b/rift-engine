@@ -77,7 +77,36 @@ import { wearerListener } from "../equipment.js";
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
  */
+/** Detonate's compensation draw — "its controller draws 2". */
+const DETONATE_DRAW = 2;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-005": {
+    // Detonate — "Kill a gear. Its controller draws 2."
+    //
+    // **The draw is the VICTIM's**, which is the whole shape of the card: it is
+    // removal you pay a price for, not removal plus a draw. Read off the gear's
+    // owner rather than from `ctx.casterIndex`, and the two differ on every
+    // sensible play of it.
+    //
+    // Killed through `killGear` so the dying gear's own trigger still fires
+    // (Treasure Trove, Scrapheap) — the same funnel Rocket Barrage's gear mode
+    // and Disarming Rake use.
+    //
+    // A gear that has already left the chain's sight is 359.3's "a check on
+    // something no longer available": no kill, and NO DRAW either, since the
+    // draw is conditioned on the same gear.
+    targeting: { kind: "gear" },
+    resolve: (state, _ctx, event) => {
+      const id = event.targetPermanentInstanceId;
+      if (!id) return state;
+      for (const ownerIndex of [0, 1] as const) {
+        const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === id);
+        if (gear) return drawCards(killGear(state, gear, ownerIndex), ownerIndex, DETONATE_DRAW);
+      }
+      return state;
+    },
+  },
   "SFD-003": {
     // Blood Rush — "[Action] [Repeat] [1] Give a unit [Assault 2] this turn."
     //
