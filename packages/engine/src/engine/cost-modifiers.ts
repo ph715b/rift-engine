@@ -3,6 +3,7 @@ import { defaultCardRegistry } from "../cards/card-registry.js";
 import { opponentNearVictory } from "./constants.js";
 import { legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
+import { MIGHTY_THRESHOLD } from "./constants.js";
 import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
 
@@ -142,6 +143,35 @@ function heraldCount(state: GameState, playerIndex: 0 | 1): number {
   return player.baseUnits.filter((u) => u.defId === HERALD_OF_SCALES).length + atBattlefields;
 }
 
+/** Battering Ram — "I cost [1] less for each card you've played this turn, to a
+ *  minimum of [1]." Both numbers are printed, so both are named. */
+const BATTERING_RAM = "SFD-012";
+const BATTERING_RAM_MINIMUM = 1;
+
+/** Jaull-Fish — "I cost [2] less for each of your [Mighty] units." */
+const JAULL_FISH = "SFD-103";
+const JAULL_FISH_DISCOUNT = 2;
+
+/** Production Surge — "This costs [2] less if you control a Mech." */
+const PRODUCTION_SURGE = "SFD-076";
+const PRODUCTION_SURGE_DISCOUNT = 2;
+
+/** The printed tribe tag, shared with granted-keywords.ts's four Mech auras. */
+const MECH_TAG = "Mech";
+
+/** Does this player control a Mech? Asked of the DEFINITION's printed tag, which
+ *  is what `granted-keywords.isMech` asks and what the Mech token carries. */
+function controlsAMech(state: GameState, playerIndex: 0 | 1): boolean {
+  return ownUnitsWithLocation(state, playerIndex).some(({ unit }) => {
+    const def = defaultCardRegistry().tryGet(unit.defId);
+    // A TOKEN has no definition at all, so its own instance tags are the only
+    // record — which is why the Mech token carries the tag rather than relying
+    // on a registry entry it does not have.
+    if (def === undefined) return unit.tags.includes(MECH_TAG);
+    return "tags" in def && def.tags.includes(MECH_TAG);
+  });
+}
+
 function isDragon(defId: string | undefined): boolean {
   if (defId === undefined) return false;
   const def = defaultCardRegistry().tryGet(defId);
@@ -156,7 +186,21 @@ function isDragon(defId: string | undefined): boolean {
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
-  return [EAGER_APPRENTICE, RHASA_THE_SUNDERER, SKY_SPLITTER, FIND_YOUR_CENTER, SPOILS_OF_WAR, HERALD_OF_SCALES, ...legionDiscountDefIds()];
+  return [
+    EAGER_APPRENTICE,
+    RHASA_THE_SUNDERER,
+    SKY_SPLITTER,
+    FIND_YOUR_CENTER,
+    SPOILS_OF_WAR,
+    HERALD_OF_SCALES,
+    BATTERING_RAM,
+    JAULL_FISH,
+    // NOT Production Surge: its discount is only half the card, and its effect
+    // half (the Mech token and the draw) is registered in effects/mind.ts. A
+    // claim here as well would be harmless but would say the wrong thing about
+    // where its text lives.
+    ...legionDiscountDefIds(),
+  ];
 }
 
 /**
@@ -198,6 +242,37 @@ export function modifiedEnergyCost(
     const own = ownUnitsWithLocation(state, playerIndex);
     const highest = own.reduce((best, { unit, ctx }) => Math.max(best, effectiveMight(state, unit, playerIndex, ctx)), 0);
     cost = Math.max(0, cost - highest);
+  }
+
+  if (defId === BATTERING_RAM) {
+    // "I cost [1] less for each card you've played this turn, to a minimum of
+    // [1]." The minimum is PRINTED on the card, which is why it is clamped here
+    // rather than at the shared floor of 0 below — Eager Apprentice states its
+    // own the same way, and this function's doc comment records the distinction.
+    //
+    // `cardsPlayedThisTurn` counts the Ram itself only AFTER it is played, so a
+    // Ram played first is priced at its full cost. That is the counter's meaning
+    // rather than a decision here: `execute-play-card` bumps it as the card is
+    // played, and pricing happens before.
+    cost = Math.max(BATTERING_RAM_MINIMUM, cost - player.cardsPlayedThisTurn);
+  }
+
+  if (defId === JAULL_FISH) {
+    // "I cost [2] less for each of your [Mighty] units." Read through
+    // `effectiveMight` against 711's threshold, so a unit made Mighty by an aura
+    // or a this-turn pump counts — the same non-combat reading Sky Splitter's
+    // highest-Might question takes one branch up.
+    const mighty = ownUnitsWithLocation(state, playerIndex).filter(
+      ({ unit, ctx }) => effectiveMight(state, unit, playerIndex, ctx) >= MIGHTY_THRESHOLD,
+    ).length;
+    cost = Math.max(0, cost - JAULL_FISH_DISCOUNT * mighty);
+  }
+
+  if (defId === PRODUCTION_SURGE && controlsAMech(state, playerIndex)) {
+    // "This costs [2] less if you control a Mech." A flat conditional, unlike
+    // the two scaling ones above — and the Mech it makes does not pay for
+    // itself, since the discount is priced before the token exists.
+    cost = Math.max(0, cost - PRODUCTION_SURGE_DISCOUNT);
   }
 
   if (defId === RHASA_THE_SUNDERER) {

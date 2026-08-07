@@ -44,6 +44,19 @@ export const RECRUIT_TOKEN: TokenSpec = { name: "Recruit", might: 1, tag: "Recru
 export const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
 
 /**
+ * The 3-Might Mech — Production Surge's and Rumble - Scrapper's, and shared from
+ * here for the reason the Sand Soldier records above: a stat line copied into two
+ * files drifts, and this one has two owners from the day it lands.
+ *
+ * **The `Mech` tag is load-bearing rather than flavour.** Four keyword auras in
+ * `granted-keywords.ts` read it (`isMech`), so a Mech token minted without the
+ * tag would be the only Mech on the board that Rumble - Mechanized Menace's
+ * `[Shield]` and Breakneck Mech's grants did not reach — silently, since a
+ * missing keyword looks exactly like a keyword that was never granted.
+ */
+export const MECH_TOKEN: TokenSpec = { name: "Mech", might: 3, tag: "Mech" };
+
+/**
  * Builds a runtime-only token unit — a raw UnitInstance object literal,
  * deliberately NOT going through createCardInstance/CardRegistry, since no
  * CardDefinition exists for it (Token-supertype entries are filtered out of the

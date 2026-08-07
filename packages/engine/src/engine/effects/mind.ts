@@ -12,7 +12,7 @@ import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
-import { placeGoldTokens, placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
+import { MECH_TOKEN, placeGoldTokens, placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
 import {
   banishCard,
   channelRunesExhausted,
@@ -85,6 +85,20 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-076": {
+    // Production Surge — "This costs [2] less if you control a Mech. Play a 3
+    // Might Mech unit token to your base. Draw 1."
+    //
+    // The discount half lives in `cost-modifiers.ts`, where every cross-cutting
+    // price question lives; this is the effect half. Two modules for one card,
+    // which is why only the module that owns a card's TEXT claims it in
+    // coverage — see `costModifierDefIds`'s note on exactly this card.
+    //
+    // "TO YOUR BASE" is printed and is the whole placement rule, so no
+    // destination is chosen — the same reading Azir's Sand Soldier takes.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(placeToken(state, ctx.casterIndex, "base", MECH_TOKEN), ctx.casterIndex, 1),
+  },
   "SFD-077": {
     // Rocket Barrage — "[Repeat] [4][Mind] (You may pay the additional cost to
     // repeat this spell's effect, AND MAY MAKE DIFFERENT CHOICES.) Choose one —
