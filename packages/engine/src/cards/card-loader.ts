@@ -464,6 +464,18 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // here" — i.e. equal to zero. The runtime value lives in
   // `granted-keywords.DYNAMIC_KEYWORD_VALUES`.
   "SFD-131": ["Assault"],
+  // Sivir - Mercenary — "If you've spent at least [rainbow][rainbow] this turn,
+  // I have +2 Might and [Ganking]."
+  //
+  // The FIFTH instance of the bracket false-positive shape, and the second of
+  // the self-granting kind after Ancient Warmonger above. Left in, she had
+  // [Ganking] unconditionally — free battlefield-to-battlefield movement all
+  // game for a condition she had not met.
+  //
+  // Per-KEYWORD rather than `CONDITIONAL_KEYWORD_DEF_IDS`, which returns `{}`
+  // and would take her real printed [Accelerate] with it. Her runtime grant is
+  // a `CONDITIONAL_GRANTS` entry sharing one predicate with her Might half.
+  "SFD-143": ["Ganking"],
 };
 
 /** A card's printed keywords: what the brackets say, minus the ones it only

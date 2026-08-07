@@ -100,6 +100,7 @@ export function grantedKeywordDefIds(): string[] {
   // memory after the last time: if a card works and the count does not move, the
   // module has not claimed it.
   return [
+    SIVIR_MERCENARY,
     RAGING_SOUL,
     BILGEWATER_BULLY,
     FIORA_VICTORIOUS,
@@ -365,7 +366,25 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
 /** A grant condition, evaluated fresh on every read. */
 type Grant = { when: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => boolean; keywords: Keyword[] };
 
+/** Sivir - Mercenary: "If you've spent at least [rainbow][rainbow] this turn, I
+ *  have +2 Might and [Ganking]." A per-turn condition on the PLAYER, like
+ *  Raging Soul's discard — and read from `powerSpentThisTurn`, which
+ *  `payPowerFromChanneled` bumps at the one funnel every Power payment takes. */
+const SIVIR_MERCENARY = "SFD-143";
+const SIVIR_POWER_THRESHOLD = 2;
+
+/** Has this player spent enough Power this turn for Sivir? One predicate, asked
+ *  by her keyword grant here and by her Might bonus in effective-might.ts, so
+ *  the two halves of one sentence cannot come apart. */
+export function sivirConditionMet(state: GameState, ownerIndex: 0 | 1): boolean {
+  return state.players[ownerIndex].powerSpentThisTurn >= SIVIR_POWER_THRESHOLD;
+}
+
 const CONDITIONAL_GRANTS: Record<string, Grant> = {
+  [SIVIR_MERCENARY]: {
+    when: (state, _unit, ownerIndex) => sivirConditionMet(state, ownerIndex),
+    keywords: ["Ganking"],
+  },
   [RAGING_SOUL]: {
     when: (state, _unit, ownerIndex) => state.players[ownerIndex].discardedThisTurn,
     keywords: ["Assault", "Ganking"],

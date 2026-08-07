@@ -794,17 +794,21 @@ describe("Rally the Troops (SFD-166): Draw 1 — and only that", () => {
     expect(after.players[0]!.trash.some((c) => c.defId === RALLY_THE_TROOPS)).toBe(true);
   });
 
-  it("does NOT buff a unit played afterwards — the delayed clause is unwritten", () => {
-    // A negative control with a name on it. This is the HALF that is missing, and
-    // pinning it here means the day someone writes the delayed trigger this test
-    // fails and has to be replaced deliberately, rather than the gap being
-    // rediscovered from a game.
-    //
-    // A REAL unit played through `submit`, not a synthetic one handed to the
-    // trigger dispatcher: the clause would fire from the play path, so a fixture
-    // that skips it could not tell "unimplemented" from "implemented but never
-    // reached". Unsung Hero is 2 Energy, no Power, and his only text is a
-    // [Deathknell] that cannot go off here.
+  /**
+   * **This test was a negative control and has been replaced deliberately**,
+   * which is exactly what its old comment asked for: it pinned "the delayed
+   * clause is unwritten" so that the day someone wrote it, this failed rather
+   * than the gap being rediscovered from a game. That day came — the clause is
+   * armed by the spell into `buffUnitsPlayedThisTurn` and read in
+   * `dispatchOnPlayUnit`, the one funnel every entering unit goes through.
+   *
+   * Still a REAL unit played through `submit` rather than a synthetic one handed
+   * to the dispatcher: the clause fires from the play path, so a fixture that
+   * skipped it could not tell "implemented" from "implemented but never
+   * reached". Unsung Hero is 2 Energy, no Power, and his only text is a
+   * [Deathknell] that cannot go off here.
+   */
+  it("buffs a unit played afterwards", () => {
     const { state, spellId } = rallyState(3);
     const hero = realUnitInstance(UNSUNG_HERO);
     state.players[0]!.hand.push(hero);
@@ -813,7 +817,25 @@ describe("Rally the Troops (SFD-166): Draw 1 — and only that", () => {
 
     const play = legalActions(after).find((a) => a.type === "PlayCard" && a.card.instanceId === hero.instanceId);
     const played = resolveHeldTriggers(accept(after, play, "Unsung Hero"));
-    expect(played.players[0]!.baseUnits.find((u) => u.instanceId === hero.instanceId)!.buffed).toBe(false);
+    expect(
+      played.players[0]!.baseUnits.find((u) => u.instanceId === hero.instanceId)!.buffed,
+      "the delayed buff did not reach a unit played after the Rally",
+    ).toBe(true);
+  });
+
+  /** The arming is per-TURN — a unit played before the Rally is not buffed by
+   *  it, which is what "when a friendly unit is played this turn" means read
+   *  forwards. */
+  it("does not reach back to a unit already in play", () => {
+    const { state, spellId } = rallyState(3);
+    const bystander = realUnitInstance(UNSUNG_HERO);
+    state.players[0]!.baseUnits = [bystander];
+    const after = castRally(state, spellId);
+
+    expect(
+      after.players[0]!.baseUnits.find((u) => u.instanceId === bystander.instanceId)!.buffed,
+      "the Rally buffed a unit that was already on the board",
+    ).toBe(false);
   });
 });
 

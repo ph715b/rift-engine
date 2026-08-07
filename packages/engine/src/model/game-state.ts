@@ -505,6 +505,37 @@ export interface PlayerState {
    */
   freeGearPlaysThisTurn: number;
   /**
+   * Points scored FROM HOLDING this turn — Needlessly Large Yordle's "I cost
+   * [2][Calm] less for each point you scored from holding this turn".
+   *
+   * Deliberately NOT every point: the card names the METHOD, and a point from
+   * conquering is a different sentence. `scoreHolds` is the one site that
+   * produces one, which is why the counter lives beside the award rather than
+   * being derived from `points` (that moves for conquests too).
+   */
+  pointsFromHoldingThisTurn: number;
+  /**
+   * Power SPENT this turn — Sivir - Mercenary's "if you've spent at least
+   * [rainbow][rainbow] this turn".
+   *
+   * PIPS of Power, counted however they were paid: her text says "[rainbow]
+   * [rainbow]", which is two Power of any domains rather than two rainbow ones.
+   * Bumped in `payPowerFromChanneled`, the single funnel every Power payment in
+   * this engine goes through — a per-site tally would miss the ones nobody
+   * remembered.
+   */
+  powerSpentThisTurn: number;
+  /**
+   * Rally the Troops' "when a friendly unit is played THIS TURN, buff it" — a
+   * DELAYED trigger, so the flag is set when the spell resolves and read at the
+   * PLAY site for the rest of the turn.
+   *
+   * A COUNT rather than a boolean: two Rallies in a turn buff a unit twice, and
+   * 708 makes the second buff a no-op only because the unit is already buffed —
+   * which is a fact about the unit, not about how many Rallies were cast.
+   */
+  buffUnitsPlayedThisTurn: number;
+  /**
    * Has a unit THIS player controls died this turn? Spoils of War costs 2 less
    * "if an enemy unit has died this turn", which each player has to answer about
    * the other, so it is stored per victim rather than as a global flag.

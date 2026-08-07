@@ -350,6 +350,9 @@ export function runEnd(state: GameState): GameState {
     nextUnitsEnterReady: 0,
     // Jayce - Man of Progress's window closes with the turn that opened it.
     freeGearPlaysThisTurn: 0,
+    pointsFromHoldingThisTurn: 0,
+    powerSpentThisTurn: 0,
+    buffUnitsPlayedThisTurn: 0,
     unitsLostThisTurn: 0,
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.

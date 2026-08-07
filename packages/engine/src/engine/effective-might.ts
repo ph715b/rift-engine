@@ -5,6 +5,7 @@ import { effectiveKeywords } from "./granted-keywords.js";
 import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
 import { equipmentMightBonusFor } from "./equipment.js";
 import { isMechDef } from "./constants.js";
+import { sivirConditionMet } from "./granted-keywords.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -86,6 +87,9 @@ const TRUSTY_RAMHOUND = "SFD-159";
  * Expert's and Ornn - Forge God's zone-scaling auras take.
  */
 const RUMBLE_SCRAPPER = "SFD-089";
+/** Sivir - Mercenary's Might half — see her entry in `continuousAuraBonus`. */
+const SIVIR_MERCENARY = "SFD-143";
+const SIVIR_MIGHT_BONUS = 2;
 /** Dr. Mundo - Expert: "My Might is increased by the number of cards in your
  *  trash." Self-scaling off a zone, like Master Yi - Meditative's rune count —
  *  and like his, recomputed on read rather than written into state, so it falls
@@ -283,6 +287,19 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const ownerId = state.players[ownerIndex].id;
     const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
     if (here.some((u) => u.instanceId !== unit.instanceId)) bonus += 1;
+  }
+
+  // Sivir - Mercenary — "If you've spent at least [rainbow][rainbow] this turn,
+  // I have +2 Might and [Ganking]."
+  //
+  // ONE sentence, two halves, and they are asked through the SAME predicate
+  // (`sivirConditionMet`) so they cannot come apart — the keyword half is a
+  // `CONDITIONAL_GRANTS` entry in granted-keywords.ts. Her coverage claim lives
+  // there; this is the Might half only.
+  //
+  // No recursion risk: the condition reads a spent-Power tally, not Might.
+  if (unit.defId === SIVIR_MERCENARY && sivirConditionMet(state, ownerIndex)) {
+    bonus += SIVIR_MIGHT_BONUS;
   }
 
   // Rumble - Scrapper — "Your Mechs have +1 Might (including me)."

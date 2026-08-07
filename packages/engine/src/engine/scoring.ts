@@ -61,8 +61,24 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   const recorded = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     scoredBattlefieldsThisTurn: [...p.scoredBattlefieldsThisTurn, ...held],
+    // Needlessly Large Yordle reads points scored FROM HOLDING, so the tally
+    // lives at the one site that produces one rather than being derived from
+    // `points` — that moves for conquests too, and the card names the method.
+    //
+    // Counted where the scoring is RECORDED rather than where the points are
+    // awarded, deliberately: Tianna Crownguard blocks the award while the
+    // scoring still happens, and a hold she blocked did not score a point.
+    // Bumped below instead, beside `gainPoints`.
   }));
-  const scored = gainPoints(recorded, playerIndex, held.length);
+  const awarded = gainPoints(recorded, playerIndex, held.length);
+  // The tally follows the POINTS, not the holds: `gainPoints` is what Tianna
+  // Crownguard blocks, so a blocked hold records its lockout above and adds
+  // nothing here. Read off the difference rather than assuming `held.length`.
+  const gained = awarded.players[playerIndex].points - recorded.players[playerIndex].points;
+  const scored =
+    gained > 0
+      ? updatePlayer(awarded, playerIndex, (p) => ({ ...p, pointsFromHoldingThisTurn: p.pointsFromHoldingThisTurn + gained }))
+      : awarded;
 
   // Permanents watch the hold itself (Ahri - Alluring, Blitzcrank - Impassive).
   // This function's own doc comment used to end "minus ... hold-trigger dispatch

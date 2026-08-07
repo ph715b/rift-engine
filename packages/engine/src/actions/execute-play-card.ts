@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
-import { freeGearPlayApplies, modifiedEnergyCost, targetChoiceDiscount } from "../engine/cost-modifiers.js";
+import { freeGearPlayApplies, modifiedEnergyCost, targetChoiceDiscount, scaledPowerDiscount } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -240,7 +240,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, playedFromHand) -
           targetDiscount.energy,
       );
-  const powerToPay = ignoresBaseCost ? 0 : Math.max(0, card.powerCost - targetDiscount.power);
+  const powerToPay = ignoresBaseCost
+    ? 0
+    : Math.max(0, card.powerCost - targetDiscount.power - scaledPowerDiscount(state, action.playerIndex, card.defId));
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —

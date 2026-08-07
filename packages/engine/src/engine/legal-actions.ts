@@ -24,7 +24,7 @@ import {
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "./target-lookup.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount } from "./cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount, scaledPowerDiscount } from "./cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -590,7 +590,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         actor.floatingEnergy,
         actor.floatingPower,
         modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand),
-        card.powerCost,
+        Math.max(0, card.powerCost - scaledPowerDiscount(state, playerIndex, card.defId)),
         card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,

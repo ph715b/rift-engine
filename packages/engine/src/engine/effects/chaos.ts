@@ -538,6 +538,23 @@ function fizzCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-149": {
+    // Ezreal - Prodigy, FIRST clause — "When you play me, discard 1, then draw 2."
+    //
+    // His second ("Optional additional costs you pay cost [1] or [rainbow]
+    // less") is a cost modifier and lives in cost-modifiers.ts, which also
+    // carries his coverage claim. **Both halves landed in the same change on
+    // purpose**: the claim went in first while this was still unwritten, and for
+    // a few minutes he reported IMPLEMENTED while doing half his text — which is
+    // precisely the over-report `PARTIALLY_IMPLEMENTED` exists to catch and the
+    // reason coverage is asked per defId rather than per clause.
+    //
+    // "Discard 1, THEN draw 2" is ordered, and `discardThenDraw` keeps the order
+    // by parking the draw behind the discard — a discard that hits the last card
+    // in hand must not be refilled first.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => discardThenDraw(state, ctx.casterIndex, 1, 2),
+  },
   "SFD-140": {
     // Fizz - Trickster — "When you play me, you may play a spell from your trash
     // with Energy cost no more than [3], ignoring its Energy cost. Recycle that

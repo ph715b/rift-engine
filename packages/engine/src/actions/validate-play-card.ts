@@ -20,7 +20,7 @@ import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount } from "../engine/cost-modifiers.js";
+import { modifiedEnergyCost, modifiedRepeatEnergy, optionalCostDiscount, targetChoiceDiscount, scaledPowerDiscount } from "../engine/cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -633,6 +633,13 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // executor deducts float with — the executor re-derives from the raw cost, so
   // a discount applied in only one of the two overspends floating resources.
   const targetDiscount = targetChoiceDiscount(state, action.playerIndex, chosenUnitsOfPlay(action), action.targetDiscountAxis);
+  // Ezreal - Prodigy. Applies only when an optional additional cost is actually
+  // being paid — "costs you PAY", so declining pays nothing and discounts
+  // nothing.
+  const payingOptional = action.optionalPowerPaid === true || action.acceleratePaid === true;
+  const optionalDiscount = payingOptional
+    ? optionalCostDiscount(state, action.playerIndex, action.targetDiscountAxis)
+    : { energy: 0, power: 0 };
   // An axis named on a play that is not actually discounted is refused rather
   // than ignored: silently dropping it would let a client quote itself a price
   // the board does not support, and a payment one pip short would then fail
@@ -703,15 +710,20 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
           // Blast Corps Cadet pays one of each, so the Power line below is not
           // the whole price. Re-derived from the same table the enumerator
           // priced against, which is what keeps the two from disagreeing.
-          (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0),
+          // Ezreal - Prodigy discounts the ADDITIONAL cost, so the reduction is
+          // applied to this term and floored here rather than against the card's
+          // own price.
+          Math.max(0, (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0) + accelerateEnergy - optionalDiscount.energy) -
+            accelerateEnergy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
-        Math.max(0, card.powerCost - repeatableDiscount - targetDiscount.power) +
+        Math.max(0, card.powerCost - repeatableDiscount - targetDiscount.power - scaledPowerDiscount(state, action.playerIndex, card.defId)) +
           acceleratePower +
           repeatPower +
           grantedPower +
-          (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
+          Math.max(0, (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0) + acceleratePower - optionalDiscount.power) -
+            acceleratePower,
         // The optional cost's own domain wins when it was paid, for the reason
         // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so
         // `card.powerDomain` is null and would accept any rune.

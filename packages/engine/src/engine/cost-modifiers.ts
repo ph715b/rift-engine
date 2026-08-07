@@ -226,6 +226,43 @@ const IRELIA_GRACEFUL_DISCOUNT = 1;
  * exists: listing the fields that can name a unit by hand got `[Deflect]` wrong
  * across five cards.
  */
+/**
+ * Ezreal - Prodigy — "Optional additional costs you pay cost [1] or [rainbow]
+ * less."
+ *
+ * The same "or" as Irelia - Graceful's, so it shares her axis field rather than
+ * adding a second one — and that sharing is a recorded SIMPLIFICATION rather
+ * than an identity: with both effects live at once, one axis is chosen for both
+ * discounts instead of one each. The alternative is a second fan-out axis on
+ * every play in the game to separate two cards that rarely meet, and the
+ * coupling can only ever cost the caster a pip they would have preferred
+ * elsewhere — never let an illegal play through.
+ *
+ * **It discounts the ADDITIONAL cost, not the card's own**, which is why it is
+ * applied to the optional-cost TERM at each cost site rather than to the printed
+ * cost: an Accelerate paid under Ezreal is 1 pip cheaper, and the unit's own
+ * price is untouched.
+ *
+ * Floored per axis at each site, so it can never turn an addition into a refund.
+ */
+const EZREAL_PRODIGY = "SFD-149";
+const EZREAL_DISCOUNT = 1;
+
+/** Is Ezreal - Prodigy in play for this player? His clause is unpositioned — it
+ *  names no battlefield — so base counts. */
+export function optionalCostDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  axis: "energy" | "power" | undefined,
+): { energy: number; power: number } {
+  const none = { energy: 0, power: 0 };
+  if (axis === undefined) return none;
+  const owner = state.players[playerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  if (!units.some((u) => u.defId === EZREAL_PRODIGY)) return none;
+  return axis === "energy" ? { energy: EZREAL_DISCOUNT, power: 0 } : { energy: 0, power: EZREAL_DISCOUNT };
+}
+
 export function targetChoiceDiscount(
   state: GameState,
   playerIndex: 0 | 1,
@@ -292,6 +329,35 @@ const JAYCE_MAX_FREE_GEAR_ENERGY = 7;
  * only state-derivable answer is "is a card with this defId in the Champion
  * Zone", which is wrong for a deck running further copies in the main deck.
  */
+/**
+ * Needlessly Large Yordle — "I cost [2][Calm] less for each point you scored
+ * FROM HOLDING this turn."
+ *
+ * **It reduces BOTH axes, which is why it cannot live in `modifiedEnergyCost`
+ * alone.** Two Energy AND one Calm Power come off per point, and that function
+ * returns an Energy figure. So the Energy half is applied there and the Power
+ * half is a separate term at each cost site — the same split Irelia - Graceful's
+ * `targetChoiceDiscount` already takes, and it returns the same shape for the
+ * same reason.
+ *
+ * "From HOLDING" is the method, not the total: a point from conquering is a
+ * different sentence and `pointsFromHoldingThisTurn` counts only the one.
+ *
+ * Printed at 10 Energy and 3 Power, so it is a dead card on turn one and free
+ * behind five held points — which is the card.
+ */
+const NEEDLESSLY_LARGE_YORDLE = "SFD-055";
+const YORDLE_ENERGY_PER_POINT = 2;
+const YORDLE_POWER_PER_POINT = 1;
+
+/** The POWER half of Needlessly Large Yordle's discount. The Energy half is in
+ *  `modifiedEnergyCost`; this is what the three cost sites subtract from the
+ *  printed Power, and it is one function so they cannot disagree. */
+export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId: string | undefined): number {
+  if (defId !== NEEDLESSLY_LARGE_YORDLE) return 0;
+  return state.players[playerIndex].pointsFromHoldingThisTurn * YORDLE_POWER_PER_POINT;
+}
+
 const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
 const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
 
@@ -316,6 +382,8 @@ export function freeGearPlayApplies(
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
   return [
+    EZREAL_PRODIGY,
+    NEEDLESSLY_LARGE_YORDLE,
     ...PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS,
     IRELIA_GRACEFUL,
     EAGER_APPRENTICE,
@@ -391,6 +459,11 @@ export function modifiedEnergyCost(
     const own = ownUnitsWithLocation(state, playerIndex);
     const highest = own.reduce((best, { unit, ctx }) => Math.max(best, effectiveMight(state, unit, playerIndex, ctx)), 0);
     cost = Math.max(0, cost - highest);
+  }
+
+  // Needlessly Large Yordle's ENERGY half. Its Power half is `scaledPowerDiscount`.
+  if (defId === NEEDLESSLY_LARGE_YORDLE) {
+    cost = Math.max(0, cost - player.pointsFromHoldingThisTurn * YORDLE_ENERGY_PER_POINT);
   }
 
   if (defId === BATTERING_RAM) {

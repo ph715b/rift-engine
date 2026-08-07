@@ -487,29 +487,38 @@ export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-166": {
     // Rally the Troops, SECOND clause only — "[Action] ... Draw 1."
     //
-    // **The first clause is NOT implemented**: "When a friendly unit is played
+    // **The first clause is a DELAYED TRIGGER**: "When a friendly unit is played
     // this turn, buff it" is a DELAYED trigger armed by a spell, and this engine
     // has no general mechanism for one. Both existing delayed effects carry a
     // FIELD on the state that the firing site reads — Imperial Decree (OGN-221,
     // above) sets `killDamagedUnitsThisTurn` and `dealDamage` reads it; Targon's
     // Peak sets `readyRunesAtEndOfTurn` and `runEnd` reads it. Here the firing
     // site is a unit entering play, which only the shared play path sees, so the
-    // clause needs a `PlayerState` flag plus a read in deploy/execute-play-card.
+    // clause needed a `PlayerState` flag plus a read in the play path — which is
+    // exactly what it now has: `buffUnitsPlayedThisTurn`, armed here and read by
+    // `deploy.ts` where a unit lands. A COUNT rather than a boolean, because two
+    // Rallies in a turn are two instructions to buff.
     //
     // The event route is closed too, and not by preference: `cardPlayed` is a
     // held event, but a Spell that has resolved is in a TRASH, and
     // `listeningTrashCards` is a named two-card set in triggers.ts — a shared
     // file. No per-domain registration can reach the moment.
     //
-    // The draw is registered on its own because the card prints it as its own
-    // instruction on its own line, unconditional on the clause above it
-    // (135.2.b) — a Rally cast on a turn where no unit is ever played still
-    // draws. Recorded for coverage.PARTIALLY_IMPLEMENTED.
+    // The draw is its own instruction on its own line, unconditional on the
+    // clause above it (135.2.b) — a Rally cast on a turn where no unit is ever
+    // played still draws.
     //
     // [Action] is the default play timing (own turn or a showdown) and is
     // enforced by engine/timing.ts, not here.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = {
+        ...players[ctx.casterIndex],
+        buffUnitsPlayedThisTurn: players[ctx.casterIndex].buffUnitsPlayedThisTurn + 1,
+      };
+      return drawCards({ ...state, players }, ctx.casterIndex, 1);
+    },
   },
 };
 

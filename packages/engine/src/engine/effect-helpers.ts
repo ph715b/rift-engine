@@ -587,6 +587,21 @@ export function payPowerFromChanneled(
     channeled: p.channeled.filter((r) => !spentIds.has(r.id)),
     runeDeck: [...p.runeDeck, ...spend.map((r) => ({ ...r, state: "Ready" as const }))],
     floatingEnergy: p.floatingEnergy + readyCredit,
+    // Sivir - Mercenary's "if you've spent at least [rainbow][rainbow] this
+    // turn". Counted HERE because this is the single funnel every Power payment
+    // in the engine goes through — a card cost, an ability cost, an [Equip], a
+    // [Deflect] surcharge — so a per-site tally would miss whichever one nobody
+    // remembered.
+    //
+    // PIPS, not rainbow pips: her text means two Power of any domains, which is
+    // what `spend.length` counts.
+    //
+    // **Speculative calls do NOT inflate it**, and that is load-bearing rather
+    // than lucky: this helper is called all over the codebase purely to ASK
+    // whether a cost is payable, with the resulting state thrown away. The tally
+    // rides that discarded state exactly as the held `cardsRecycled` trigger
+    // below already does.
+    powerSpentThisTurn: p.powerSpentThisTurn + spend.length,
   })), playerIndex, spend.length);
 }
 

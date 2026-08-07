@@ -7,6 +7,7 @@ import {
   channelRunesExhausted,
   dealDamage,
   discardCards,
+  addBuff,
   discardThenDraw,
   drawCards,
   dealDamageToAllUnitsAtAllBattlefields,
@@ -430,6 +431,29 @@ export function dispatchOnPlayUnit(
     ? applyVision(state, casterIndex, extra?.visionRecycle)
     : state;
 
+  // Rally the Troops' delayed "when a friendly unit is played this turn, buff
+  // it" fires HERE, for the same reason `[Vision]` and `[Weaponmaster]` do:
+  // this is the ONE function every unit entering play goes through — all four
+  // call sites, paid and free, base and battlefield. A per-site read would be
+  // four copies, and this codebase has already shipped the bug where one of
+  // several hops forgot a field.
+  //
+  // Armed by the SPELL and read at the PLAY, which is what makes it delayed —
+  // the shape `killDamagedUnitsThisTurn` and `readyRunesAtEndOfTurn` already
+  // use, and the one the card's own entry predicted it would need.
+  //
+  // Buffed ONCE PER RALLY: a count, not a flag. 708 then makes the second buff
+  // a no-op because the unit is already buffed, which is a fact about the unit
+  // rather than about how many Rallies were cast — so the loop is honest and
+  // the rule does the capping.
+  //
+  // "A FRIENDLY unit" is the caster's own, which `casterIndex` already is.
+  const rallies = withVision.players[casterIndex].buffUnitsPlayedThisTurn;
+  const withRally = Array.from({ length: rallies }).reduce<GameState>(
+    (next) => addBuff(next, unit.instanceId),
+    withVision,
+  );
+
   // `[Weaponmaster]` (SFD) fires HERE, for the same reason `[Vision]` does: it
   // is a KEYWORD, so it belongs to the funnel rather than to eleven per-card
   // entries, and firing from the funnel reaches every unit that enters with it
@@ -442,7 +466,7 @@ export function dispatchOnPlayUnit(
   // because vitest strips types and the tests called the helper directly. The
   // comment two branches above records the same class of bug on the same
   // function — a field dropped at "both call sites".
-  const withWeaponmaster = holdWeaponmasterOffer(withVision, casterIndex, unit);
+  const withWeaponmaster = holdWeaponmasterOffer(withRally, casterIndex, unit);
 
   // allUnitTriggers(), NOT the inline UNIT_TRIGGERS table: this read used to go
   // straight to the inline one, so a Unit registered in a per-domain effects
