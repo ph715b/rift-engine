@@ -6,6 +6,7 @@ import type {
   EventTriggerDefinition,
   SelfTriggerDefinition,
 } from "../triggers.js";
+import { killGear } from "../triggers.js";
 import { isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
@@ -72,6 +73,7 @@ const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", enter
 
 const FRIGID_TOUCH_MIGHT = 2;
 const BELLOWS_BREATH_DAMAGE = 1;
+const ROCKET_BARRAGE_DAMAGE = 4;
 
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
@@ -83,6 +85,62 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-077": {
+    // Rocket Barrage — "[Repeat] [4][Mind] (You may pay the additional cost to
+    // repeat this spell's effect, AND MAY MAKE DIFFERENT CHOICES.) Choose one —
+    // Deal 4 to a unit in a base. [or] Kill a gear."
+    //
+    // **The pool's first MODAL card**, and the one 820.1.d works its own example
+    // on: *"If Rocket Barrage's controller pays its Repeat cost as they play it,
+    // they may choose the same mode or a different one, and if they choose the
+    // same mode, may choose the same target or a different one. If they choose
+    // 'Kill a gear' twice and choose two different gear, they must specify which
+    // gear is the first target and which is the second."*
+    //
+    // Three things follow from that sentence, and all three are why this card
+    // could not be written until now:
+    //  - the mode is a CHOICE, so it rides the action (`modeId`) like a target;
+    //  - the mode is part of the REPEAT's choice set, not a property of the play
+    //    — `RepeatChoices.modeId`, and resolution picks the mode per execution;
+    //  - "which gear is the FIRST target" is targeting language, so the gear is a
+    //    TARGET chosen at announce rather than a question asked at resolution.
+    //    That is what `kind: "gear"` is for; a parked decision could not give the
+    //    ordering at announce.
+    //
+    // Mode 1 is scoped `"base"`, the narrowest scope: "a unit IN A BASE" excludes
+    // every unit at a battlefield, which is the opposite of the usual restriction
+    // and makes this a reach-into-their-backline card rather than a combat trick.
+    // No owner clause, so either base is fair game.
+    //
+    // Mode 2 kills through `killGear` so the dying gear's own trigger fires
+    // (Treasure Trove, Scrapheap) — the same funnel Disarming Rake uses.
+    modes: [
+      {
+        id: "damage",
+        label: "Deal 4 to a unit in a base",
+        targeting: { kind: "unit", scope: "base" },
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId
+            ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, ROCKET_BARRAGE_DAMAGE)
+            : state,
+      },
+      {
+        id: "killGear",
+        label: "Kill a gear",
+        targeting: { kind: "gear" },
+        resolve: (state, _ctx, event) => {
+          const id = event.targetPermanentInstanceId;
+          if (!id) return state;
+          for (const ownerIndex of [0, 1] as const) {
+            const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === id);
+            if (gear) return killGear(state, gear, ownerIndex);
+          }
+          // Already gone — 359.3's "a check on something no longer available".
+          return state;
+        },
+      },
+    ],
+  },
   "SFD-080": {
     // Bellows Breath — "[Action] [Repeat] [1][Mind] Deal 1 to up to three units
     // at the same location."

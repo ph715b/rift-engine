@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
@@ -41,9 +41,9 @@ const BATCH = [
   DARIUS_EXECUTIONER, TASTY_FAEFOLK, THOUSAND_TAILED, PROGRESS_DAY, SALVAGE, CATALYST, FIND_YOUR_CENTER,
 ];
 
-type SpellEvent = Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2];
+type SpellEvent = Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2];
 const resolveSpell = (defId: string, casterIndex: 0 | 1, state: GameState, event: SpellEvent = {}): GameState => {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 };

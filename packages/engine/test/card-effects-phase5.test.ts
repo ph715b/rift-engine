@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -12,7 +12,7 @@ function fakeDeck(count: number) {
 
 describe("Meditation (OGN-048): optional exhaust-a-friendly-unit additional cost", () => {
   it("draws only 1 when the caster declines the additional cost", () => {
-    const meditation = effectForCard(spellInstance("OGN-048"))!;
+    const meditation = cardModeOf(spellInstance("OGN-048"), undefined)!;
     const state = makeState();
     state.players[0]!.deck = fakeDeck(3);
 
@@ -22,7 +22,7 @@ describe("Meditation (OGN-048): optional exhaust-a-friendly-unit additional cost
   });
 
   it("exhausts the chosen friendly unit and draws 2 when the cost is paid", () => {
-    const meditation = effectForCard(spellInstance("OGN-048"))!;
+    const meditation = cardModeOf(spellInstance("OGN-048"), undefined)!;
     const friendly = makeUnit({ exhausted: false });
     const state = makeState();
     state.players[0]!.baseUnits = [friendly];
@@ -35,7 +35,7 @@ describe("Meditation (OGN-048): optional exhaust-a-friendly-unit additional cost
   });
 
   it("also works when the chosen unit is at a battlefield, not just base", () => {
-    const meditation = effectForCard(spellInstance("OGN-048"))!;
+    const meditation = cardModeOf(spellInstance("OGN-048"), undefined)!;
     const friendly = makeUnit({ exhausted: false });
     const state = makeState();
     state.battlefields[0]!.units = { p1: [friendly] };
@@ -95,7 +95,7 @@ describe("Meditation (OGN-048): optional exhaust-a-friendly-unit additional cost
 
 describe("Highlander (OGS-020): applies a death ward to a chosen friendly unit", () => {
   it("adds the target to deathWardedUnitInstanceIds", () => {
-    const highlander = effectForCard(spellInstance("OGS-020"))!;
+    const highlander = cardModeOf(spellInstance("OGS-020"), undefined)!;
     const friendly = makeUnit();
     const state = makeState();
     state.battlefields[0]!.units = { p1: [friendly] };

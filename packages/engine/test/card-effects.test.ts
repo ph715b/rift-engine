@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type SpellInstance } from "../src/model/card.js";
-import { effectForCard, targetingForCard } from "../src/engine/card-effects.js";
+import { effectForCard, targetingForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { dealDamage, destroyUnit, giveMightThisTurnToAllFriendlies } from "../src/engine/effect-helpers.js";
 import { runEnd } from "../src/engine/turn-manager.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
@@ -33,7 +33,7 @@ describe("card-effects registry", () => {
   const unregistered = () => ({ ...spellInstance("OGS-003"), defId: "OGN-000" });
 
   it("returns undefined for an unregistered card", () => {
-    expect(effectForCard(unregistered())).toBeUndefined();
+    expect(cardModeOf(unregistered(), undefined)).toBeUndefined();
   });
 
   it("targetingForCard defaults to 'none' for an unregistered card", () => {
@@ -43,7 +43,7 @@ describe("card-effects registry", () => {
   it("resolves a card registered in a per-domain effects file", () => {
     // Cannon Barrage lives only in effects/body.ts, so this covers the
     // composition path as well as the card.
-    expect(effectForCard(spellInstance("OGN-127"))).toBeDefined();
+    expect(cardModeOf(spellInstance("OGN-127"), undefined)).toBeDefined();
   });
 });
 

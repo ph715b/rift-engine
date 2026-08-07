@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { dispatchEvent, holdEventTrigger } from "../src/engine/triggers.js";
@@ -52,9 +52,9 @@ const TIDETURNER = "OGN-199";
 
 const BATCH = [BLOCK, ZHONYAS, BLASTCONE_FAE, EMBER_MONK, TEEMO_SCOUT, TIDETURNER];
 
-type SpellEvent = Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2];
+type SpellEvent = Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2];
 const resolveSpell = (defId: string, casterIndex: 0 | 1, state: GameState, event: SpellEvent = {}): GameState => {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 };

@@ -39,7 +39,7 @@ import { playCardIgnoringCost } from "../play-free.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
-import { effectForCard } from "../card-effects.js";
+import { cardModeOf } from "../card-effects.js";
 import { spellsOnChain } from "../counter-spell.js";
 import { eligibleTargets } from "../target-lookup.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
@@ -1725,7 +1725,7 @@ function spellOnChain(state: GameState, cardInstanceId: string) {
 function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId: string) {
   const stolen = spellOnChain(state, cardInstanceId);
   if (!stolen) return [];
-  const spec = effectForCard(stolen.entry.card)?.targeting;
+  const spec = cardModeOf(stolen.entry.card, stolen.entry.modeId)?.targeting;
   if (!spec || spec.kind !== "unit") return [];
   // Asked from the NEW controller's seat: "friendly" and "enemy" are relative to
   // whoever controls the spell now, which is the whole point of stealing it.

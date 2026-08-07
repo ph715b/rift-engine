@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { addBuff, discardCards, payPowerFromChanneled } from "../src/engine/effect-helpers.js";
@@ -260,7 +260,7 @@ describe("Cull the Weak (OGN-209): each player kills one of their units", () => 
   }
 
   const resolveCull = (state: GameState) =>
-    effectForCard(spellInstance(CULL_THE_WEAK))!.resolve(state, contextFor(0), {});
+    cardModeOf(spellInstance(CULL_THE_WEAK), undefined)!.resolve(state, contextFor(0), {});
 
   it("asks each player about their OWN units, in APNAP order", () => {
     const state = cullState(["A1", "A2"], ["B1", "B2"]);

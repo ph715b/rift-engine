@@ -136,6 +136,18 @@ export interface PlayCardAction {
    * accepts any legal second set.
    */
   repeatChoices?: RepeatChoices;
+  /**
+   * Which option of a MODAL card this play chooses — Rocket Barrage's "Choose
+   * one — Deal 4 to a unit in a base. [or] Kill a gear."
+   *
+   * Named `modeId` to match `ActivateAbilityAction`'s field of the same name and
+   * meaning; the two are the same question asked of a card and of an ability,
+   * and `cardModesOf`/`modesOf` normalise both the same way.
+   *
+   * Absent for every ordinary card — a single unnamed mode needs no naming, and
+   * enumeration omits it — so no existing action changes shape.
+   */
+  modeId?: string;
 }
 
 /**

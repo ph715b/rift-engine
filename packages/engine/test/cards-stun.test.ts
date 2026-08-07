@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -62,10 +62,10 @@ const STUN_CARDS = [
   ZENITH_BLADE,
 ];
 
-type SpellEvent = Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2];
+type SpellEvent = Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2];
 
 function resolveSpell(defId: string, casterIndex: 0 | 1, state: GameState, event: SpellEvent = {}): GameState {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 }

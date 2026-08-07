@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EFFECT_SOURCES, mergeRegistries } from "../src/engine/effects/index.js";
-import { cardEffectDefIds, effectForCard } from "../src/engine/card-effects.js";
+import { cardEffectDefIds, effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { dispatchOnPlayUnit, unitTriggerDefIds } from "../src/engine/unit-triggers.js";
 import { coverageBySet, implementableText, isCardImplemented, needsImplementation } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -65,7 +65,7 @@ describe("cards registered in a domain file are actually reachable", () => {
     // exactly like it did before — which is how it stayed unimplemented while
     // card-effects.ts carried a comment explaining why.
     const cannonBarrage = createCardInstance(registry.get("OGN-127"));
-    expect(effectForCard(cannonBarrage)).toBeDefined();
+    expect(cardModeOf(cannonBarrage, undefined)).toBeDefined();
     expect(cardEffectDefIds()).toContain("OGN-127");
   });
 

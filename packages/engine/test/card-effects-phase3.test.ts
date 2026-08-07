@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
@@ -10,7 +10,7 @@ import { makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTrig
 
 describe("Morbid Return: return a unit from your trash to your hand", () => {
   it("moves the trashed unit to hand, reset", () => {
-    const morbidReturn = effectForCard(spellInstance("OGN-170"))!;
+    const morbidReturn = cardModeOf(spellInstance("OGN-170"), undefined)!;
     const trashedUnit = makeUnit({ damage: 2, mightThisTurn: 1, exhausted: true });
     const state = makeState();
     state.players[0]!.trash = [trashedUnit];

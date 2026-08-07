@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import type { UnitInstance } from "../src/model/card.js";
@@ -19,9 +19,9 @@ function resolve(
   defId: string,
   casterIndex: 0 | 1,
   state: GameState,
-  event: Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2] = {},
+  event: Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2] = {},
 ): GameState {
-  const effect = effectForCard(spellInstance(defId))!;
+  const effect = cardModeOf(spellInstance(defId), undefined)!;
   return effect.resolve(state, contextFor(casterIndex), event);
 }
 
@@ -94,7 +94,7 @@ describe("Smoke Screen (OGN-093): -4 Might this turn to a unit, minimum 1", () =
     state.players[1]!.baseUnits = [enemyAtHome];
     state.players[0]!.baseUnits = [ownAtHome];
 
-    expect(effectForCard(spellInstance("OGN-093"))!.targeting).toEqual({ kind: "unit", scope: "anywhere" });
+    expect(cardModeOf(spellInstance("OGN-093"), undefined)!.targeting).toEqual({ kind: "unit", scope: "anywhere" });
 
     state = resolve("OGN-093", 0, state, { targetUnitInstanceId: enemyAtHome.instanceId });
     expect(mightOf(state, enemyAtHome, 1)).toBe(2);
@@ -124,7 +124,7 @@ describe("Grand Strategem (OGN-233): friendly units get +5 Might this turn", () 
     state.battlefields[0]!.units = { p1: [here] };
     state.battlefields[1]!.units = { p1: [overThere] };
 
-    expect(effectForCard(spellInstance("OGN-233"))!.targeting).toEqual({ kind: "none" });
+    expect(cardModeOf(spellInstance("OGN-233"), undefined)!.targeting).toEqual({ kind: "none" });
 
     state = resolve("OGN-233", 0, state);
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard, targetingForCard } from "../src/engine/card-effects.js";
+import { effectForCard, targetingForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit, targetingForUnitTrigger } from "../src/engine/unit-triggers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -47,7 +47,7 @@ describe("Discipline: give a unit +2 Might this turn, draw 1", () => {
     state.battlefields[0]!.units = { p1: [ally] };
     state.players[0]!.deck = [topOfDeck];
 
-    const result = effectForCard(discipline)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
+    const result = cardModeOf(discipline, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
 
     const pumped = result.battlefields[0]!.units.p1![0]!;
     expect(pumped.mightThisTurn).toBe(2);
@@ -77,7 +77,7 @@ describe("Discipline: give a unit +2 Might this turn, draw 1", () => {
     expect(offered.map((a) => a.targetUnitInstanceId)).toContain(enemyAtHome.instanceId);
     expect(validatePlayCard(state, playAction(state, discipline, { targetUnitInstanceId: enemyAtHome.instanceId })).ok).toBe(true);
 
-    const resolved = effectForCard(discipline)!.resolve(state, contextFor(0), { targetUnitInstanceId: enemyAtHome.instanceId });
+    const resolved = cardModeOf(discipline, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: enemyAtHome.instanceId });
     expect(resolved.players[1]!.baseUnits[0]!.mightThisTurn).toBe(2);
   });
 
@@ -88,7 +88,7 @@ describe("Discipline: give a unit +2 Might this turn, draw 1", () => {
     state.players[0]!.baseUnits = [ally];
     state.players[0]!.deck = [];
 
-    const result = effectForCard(discipline)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
+    const result = cardModeOf(discipline, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
 
     expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
     expect(result.players[0]!.hand).toHaveLength(0);
@@ -100,7 +100,7 @@ describe("Discipline: give a unit +2 Might this turn, draw 1", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [ally];
 
-    const result = effectForCard(discipline)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
+    const result = cardModeOf(discipline, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
 
     expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(3);
   });

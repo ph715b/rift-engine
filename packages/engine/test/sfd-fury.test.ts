@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { unitEntersReady } from "../src/engine/deploy.js";
@@ -59,13 +59,13 @@ const MEGA_MECH = "OGN-088";
 
 const fury = (id: string): RuneCard => ({ id, domain: "Fury", state: "Ready" });
 
-type SpellEvent = Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2];
+type SpellEvent = Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2];
 
 /** Resolves a Spell through the composed effect registry — the same route
  *  `resolveCardEffect` takes, so an unregistered or misfiled defId fails on the
  *  first line rather than silently returning the state unchanged. */
 function resolveSpell(defId: string, casterIndex: 0 | 1, state: GameState, event: SpellEvent = {}): GameState {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 }
@@ -123,7 +123,7 @@ describe("Against the Odds (SFD-001): +2 Might per enemy unit THERE", () => {
   });
 
   it("targets a FRIENDLY unit at a battlefield only", () => {
-    const targeting = effectForCard(spellInstance(AGAINST_THE_ODDS))!.targeting;
+    const targeting = cardModeOf(spellInstance(AGAINST_THE_ODDS), undefined)!.targeting;
     expect(targeting).toMatchObject({ kind: "unit", owner: "friendly" });
     // No `scope`, i.e. the battlefield default — "at a battlefield" is printed.
     expect(targeting.kind === "unit" ? targeting.scope : "set").toBeUndefined();
@@ -176,7 +176,7 @@ describe("Gem Jammer (SFD-007): when you play me, give a unit [Ganking] this tur
   });
 
   it("can name an ENEMY unit — 'a unit', no owner and no battlefield printed", () => {
-    const targeting = effectForCard(spellInstance(AGAINST_THE_ODDS))!.targeting; // sanity: spells differ
+    const targeting = cardModeOf(spellInstance(AGAINST_THE_ODDS), undefined)!.targeting; // sanity: spells differ
     expect(targeting.kind).toBe("unit");
 
     const jammer = realUnitInstance(GEM_JAMMER);

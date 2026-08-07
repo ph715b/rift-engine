@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { addBuff } from "../src/engine/effect-helpers.js";
@@ -19,7 +19,7 @@ const registry = defaultCardRegistry();
 const noCombat = { isCombat: false } as const;
 
 function resolve(defId: string, casterIndex: 0 | 1, state: GameState, event: Record<string, unknown> = {}): GameState {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event as never);
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
@@ -34,7 +34,7 @@ describe("Disintegrate: 'if this kills it, draw 1' asks the board, not arithmeti
     state.players[0]!.deck = [makeUnit()];
     state.battlefields[0]!.units = { p2: [target] };
 
-    const result = effectForCard(disintegrate)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(disintegrate, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.battlefields[0]!.units["p2"] ?? []).toHaveLength(0); // it died
     expect(result.players[0]!.hand).toHaveLength(1); // ...so it drew
@@ -51,7 +51,7 @@ describe("Disintegrate: 'if this kills it, draw 1' asks the board, not arithmeti
     state.battlefields[0]!.units = { p2: [target] };
     withCommanderAt(state, 0, "p2");
 
-    const result = effectForCard(disintegrate)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(disintegrate, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.battlefields[0]!.units["p2"]!.some((u) => u.instanceId === target.instanceId)).toBe(true);
     expect(result.players[0]!.hand).toHaveLength(0);
@@ -66,7 +66,7 @@ describe("Disintegrate: 'if this kills it, draw 1' asks the board, not arithmeti
     state.battlefields[0]!.units = { p2: [target] };
     state.deathWardedUnitInstanceIds = [target.instanceId];
 
-    const result = effectForCard(disintegrate)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(disintegrate, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.players[1]!.baseUnits.map((u) => u.instanceId)).toContain(target.instanceId);
     expect(result.players[1]!.trash).toHaveLength(0);
@@ -80,7 +80,7 @@ describe("Disintegrate: 'if this kills it, draw 1' asks the board, not arithmeti
     state.players[0]!.deck = [makeUnit()];
     state.battlefields[0]!.units = { p2: [target] };
 
-    const result = effectForCard(disintegrate)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(disintegrate, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
     expect(result.players[0]!.hand).toHaveLength(1);
   });
 });
@@ -139,7 +139,7 @@ describe("Stupefy's 'to a minimum of 1 Might' also judges real Might", () => {
     state.battlefields[0]!.units = { p2: [target] };
     withCommanderAt(state, 0, "p2");
 
-    const result = effectForCard(stupefy)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(stupefy, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.mightThisTurn).toBe(-1);
   });
@@ -151,7 +151,7 @@ describe("Stupefy's 'to a minimum of 1 Might' also judges real Might", () => {
     state.players[0]!.deck = [makeUnit()];
     state.battlefields[0]!.units = { p2: [target] };
 
-    const result = effectForCard(stupefy)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(stupefy, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.battlefields[0]!.units["p2"]!.find((u) => u.instanceId === target.instanceId)!.mightThisTurn).toBe(0);
     expect(result.players[0]!.hand).toHaveLength(1); // draw happens either way

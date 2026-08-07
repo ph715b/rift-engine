@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit, targetingForUnitTrigger } from "../src/engine/unit-triggers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -24,9 +24,9 @@ function resolveSpell(
   defId: string,
   casterIndex: 0 | 1,
   state: ReturnType<typeof makeState>,
-  event: Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2] = {},
+  event: Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2] = {},
 ) {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 }
@@ -100,7 +100,7 @@ describe("Challenge (OGN-128): a friendly and an enemy unit deal their Mights to
     expect(state.players[1]!.baseUnits).toHaveLength(0); // base is not a safe parking spot
     expect(state.players[0]!.baseUnits[0]!.damage).toBe(1);
     // and the targeting spec says so, which is what legal-actions enumerates from
-    const targeting = effectForCard(spellInstance("OGN-128"))!.targeting;
+    const targeting = cardModeOf(spellInstance("OGN-128"), undefined)!.targeting;
     expect(targeting).toEqual({ kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" });
   });
 

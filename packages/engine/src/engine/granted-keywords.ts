@@ -576,11 +576,12 @@ export function chosenUnitsOfPlay(choice: {
  * choices, because that is what absent MEANS (see RepeatChoices) — so the
  * default repeat doubles the tax rather than escaping it.
  *
- * Mirrors `card-effect-resolution.ts`'s `repeatChoicesOf` exactly, including
- * that `targetPermanentInstanceId` CARRIES OVER: `repeatChoices` replaces only
- * the six choice fields it declares, so the permanent slot is still chosen a
- * second time and still owes its tax. Two spellings of that rule is how the
- * price and the effect would come to disagree about what was chosen.
+ * Mirrors `card-effect-resolution.ts`'s `repeatChoicesOf` exactly — including
+ * that `targetPermanentInstanceId` is one of the fields `repeatChoices`
+ * REPLACES, so a repeat that switches to a gear-targeting mode is taxed on the
+ * gear it actually names rather than on whatever the first execution held. Two
+ * spellings of that rule is how the price and the effect would come to disagree
+ * about what was chosen.
  */
 export function chosenUnitsOfRepeat(action: {
   repeatPaid?: true;
@@ -588,6 +589,7 @@ export function chosenUnitsOfRepeat(action: {
     targetUnitInstanceId?: string;
     secondTargetUnitInstanceId?: string;
     targetUnitInstanceIds?: readonly string[];
+    targetPermanentInstanceId?: string;
   };
   targetUnitInstanceId?: string;
   secondTargetUnitInstanceId?: string;
@@ -601,7 +603,7 @@ export function chosenUnitsOfRepeat(action: {
     second.targetUnitInstanceId,
     second.secondTargetUnitInstanceId,
     ...(second.targetUnitInstanceIds ?? []),
-    action.targetPermanentInstanceId,
+    second.targetPermanentInstanceId,
   ];
 }
 

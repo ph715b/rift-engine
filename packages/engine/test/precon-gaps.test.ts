@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveShowdown } from "../src/engine/combat.js";
 import { submit } from "../src/engine/game-engine.js";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { grantKeywordThisTurn } from "../src/engine/effect-helpers.js";
@@ -167,7 +167,7 @@ describe("Cannon Barrage, unblocked by reaction-speed timing", () => {
     const theirs = makeUnit({ name: "Theirs", might: 4 });
     const state = makeState();
     state.battlefields[0]!.units = { p2: [theirs] };
-    const effect = effectForCard(barrage)!;
+    const effect = cardModeOf(barrage, undefined)!;
     const after = effect.resolve(state, { casterIndex: 0 } as never, {});
     expect(after.battlefields[0]!.units["p2"]![0]!.damage).toBe(0);
   });

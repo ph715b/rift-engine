@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { targetingForUnitTrigger, dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -115,7 +115,7 @@ describe("Final Spark can snipe a unit at home", () => {
     const action = playAction(state, finalSpark, { targetUnitInstanceId: victim.instanceId });
     expect(validatePlayCard(state, action).ok).toBe(true);
 
-    const resolved = effectForCard(finalSpark)!.resolve(state, contextFor(0), { targetUnitInstanceId: victim.instanceId });
+    const resolved = cardModeOf(finalSpark, undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: victim.instanceId });
     expect(resolved.players[1]!.baseUnits).toHaveLength(0);
   });
 });
@@ -126,7 +126,7 @@ describe("En Garde treats base as a location for 'the only unit you control ther
     const state = makeState();
     state.players[0]!.baseUnits = [lone];
 
-    const result = effectForCard(spellInstance("OGN-046"))!.resolve(state, contextFor(0), { targetUnitInstanceId: lone.instanceId });
+    const result = cardModeOf(spellInstance("OGN-046"), undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: lone.instanceId });
 
     expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(2);
   });
@@ -136,7 +136,7 @@ describe("En Garde treats base as a location for 'the only unit you control ther
     const state = makeState();
     state.players[0]!.baseUnits = [target, makeUnit()];
 
-    const result = effectForCard(spellInstance("OGN-046"))!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(spellInstance("OGN-046"), undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
 
     expect(result.players[0]!.baseUnits[0]!.mightThisTurn).toBe(1);
   });
@@ -162,7 +162,7 @@ describe("the other widened cards", () => {
     state.players[0]!.deck = [makeUnit()];
     state.players[1]!.baseUnits = [target];
 
-    const result = effectForCard(spellInstance("OGN-095"))!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
+    const result = cardModeOf(spellInstance("OGN-095"), undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: target.instanceId });
     expect(result.players[1]!.baseUnits[0]!.mightThisTurn).toBe(-1);
   });
 
@@ -172,7 +172,7 @@ describe("the other widened cards", () => {
     const state = makeState();
     state.players[1]!.baseUnits = [a, b];
 
-    const result = effectForCard(spellInstance("OGN-105"))!.resolve(state, contextFor(0), {
+    const result = cardModeOf(spellInstance("OGN-105"), undefined)!.resolve(state, contextFor(0), {
       targetUnitInstanceId: a.instanceId,
       secondTargetUnitInstanceId: b.instanceId,
     });
@@ -185,7 +185,7 @@ describe("the other widened cards", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [a, b];
 
-    const result = effectForCard(spellInstance("OGN-206"))!.resolve(state, contextFor(0), {
+    const result = cardModeOf(spellInstance("OGN-206"), undefined)!.resolve(state, contextFor(0), {
       targetUnitInstanceId: a.instanceId,
       secondTargetUnitInstanceId: b.instanceId,
     });
@@ -197,7 +197,7 @@ describe("the other widened cards", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [ally];
 
-    const result = effectForCard(spellInstance("OGS-020"))!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
+    const result = cardModeOf(spellInstance("OGS-020"), undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId: ally.instanceId });
     expect(result.deathWardedUnitInstanceIds).toContain(ally.instanceId);
   });
 
@@ -208,7 +208,7 @@ describe("the other widened cards", () => {
     state.players[0]!.baseUnits = [friendly];
     state.players[1]!.baseUnits = [enemy];
 
-    const result = effectForCard(spellInstance("OGS-008"))!.resolve(state, contextFor(0), {
+    const result = cardModeOf(spellInstance("OGS-008"), undefined)!.resolve(state, contextFor(0), {
       targetUnitInstanceId: friendly.instanceId,
       secondTargetUnitInstanceId: enemy.instanceId,
     });

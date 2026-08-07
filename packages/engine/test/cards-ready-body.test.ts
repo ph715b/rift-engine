@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
@@ -270,7 +270,7 @@ describe("Overt Operation (OGN-153): spend buffs to ready, then buff everything"
     ]).state;
     state0.players[1]!.baseUnits = [makeUnit({ instanceId: "theirs", buffed: true })];
 
-    const resolved = effectForCard(spellInstance(OVERT_OPERATION))!.resolve(state0, contextFor(0), {});
+    const resolved = cardModeOf(spellInstance(OVERT_OPERATION), undefined)!.resolve(state0, contextFor(0), {});
 
     const spends = resolved.pendingDecisions.filter((d) => d.kind === "OGN-153-spend");
     expect(spends.map((d) => d.targetInstanceId)).toEqual(["a", "b"]);

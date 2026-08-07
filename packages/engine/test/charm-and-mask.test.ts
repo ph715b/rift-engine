@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
@@ -24,7 +24,7 @@ const CHARM = "OGN-043";
 const MASK_OF_FORESIGHT = "OGN-060";
 
 const resolveCharm = (state: GameState, targetUnitInstanceId: string, destinationBattlefieldId: string) =>
-  effectForCard(spellInstance(CHARM))!.resolve(state, contextFor(0), { targetUnitInstanceId, destinationBattlefieldId });
+  cardModeOf(spellInstance(CHARM), undefined)!.resolve(state, contextFor(0), { targetUnitInstanceId, destinationBattlefieldId });
 
 describe("Charm (OGN-043): move an enemy unit", () => {
   /** An enemy unit at bf1, mine nowhere. */

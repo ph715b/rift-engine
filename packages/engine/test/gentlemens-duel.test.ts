@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard, targetingForCard } from "../src/engine/card-effects.js";
+import { cardModeOf, targetingForCard } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { legalActions } from "../src/engine/legal-actions.js";
@@ -17,7 +17,7 @@ describe("Gentlemen's Duel (OGS-008): +3 Might then mutual damage equal to Might
   });
 
   it("buffs the friendly +3, then deals each unit's (post-buff) Might to the other", () => {
-    const duel = effectForCard(spellInstance("OGS-008"))!;
+    const duel = cardModeOf(spellInstance("OGS-008"), undefined)!;
     const friendly = makeUnit({ might: 2 }); // becomes 5 after the buff
     const enemy = makeUnit({ might: 4 });
     const state = makeState();
@@ -37,7 +37,7 @@ describe("Gentlemen's Duel (OGS-008): +3 Might then mutual damage equal to Might
   });
 
   it("both units can die simultaneously if each other's Might is lethal", () => {
-    const duel = effectForCard(spellInstance("OGS-008"))!;
+    const duel = cardModeOf(spellInstance("OGS-008"), undefined)!;
     const friendly = makeUnit({ might: 1 }); // becomes 4 after the buff
     const enemy = makeUnit({ might: 4 });
     const state = makeState();

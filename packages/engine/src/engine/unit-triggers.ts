@@ -347,8 +347,11 @@ export function unitTriggerDefIds(): string[] {
  *  the ONE place that branches on card.kind to pick the right one, reused
  *  by validate-play-card.ts, legal-actions.ts, and the web UI, instead of
  *  each re-deriving the same branch independently. */
-export function targetingForAnyCard(card: CardInstance): TargetingSpec {
-  return card.kind === "Unit" ? targetingForUnitTrigger(card.defId) : targetingForCard(card);
+export function targetingForAnyCard(card: CardInstance, modeId?: string): TargetingSpec {
+  // A Unit's targeting is its on-play TRIGGER's and has no modes; only a
+  // Spell/Gear effect can be modal, which is why the mode goes only to the
+  // second branch.
+  return card.kind === "Unit" ? targetingForUnitTrigger(card.defId) : targetingForCard(card, modeId);
 }
 
 /** True when `card` needs a chosen unit, battlefield, or trash card before

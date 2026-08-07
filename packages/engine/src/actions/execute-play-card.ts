@@ -495,6 +495,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // resolution would be a different choice.
           ...(action.repeatPaid !== undefined ? { repeatPaid: action.repeatPaid } : {}),
           ...(action.repeatChoices !== undefined ? { repeatChoices: action.repeatChoices } : {}),
+          // Which option a modal card chose. Same dropped-field hazard as every
+          // field above: enumerated, validated, and then silently lost here
+          // would leave Rocket Barrage resolving whichever mode came first.
+          ...(action.modeId !== undefined ? { modeId: action.modeId } : {}),
         },
       ],
     };

@@ -1,5 +1,5 @@
 import type { SpellChainEntry, GameState } from "../model/game-state.js";
-import { effectForCard, type ResolveEvent } from "./card-effects.js";
+import { cardModeOf, type ResolveEvent } from "./card-effects.js";
 import { contextFor } from "./effect-context.js";
 
 /**
@@ -31,7 +31,7 @@ function choicesOf(entry: SpellChainEntry): ResolveEvent {
 /**
  * The choices for `[Repeat]`'s SECOND execution (820.1.d).
  *
- * `repeatChoices`, when present, WHOLLY REPLACES the six fields it declares —
+ * `repeatChoices`, when present, WHOLLY REPLACES the seven fields it declares —
  * it does not merge field-by-field with the first execution's. That is what lets
  * a repeat DECLINE an optional slot the first execution filled: Piercing Light's
  * "then deal 2 to up to one other unit" is a real choice each time, and under a
@@ -57,6 +57,7 @@ function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
     targetBattlefieldId: _d,
     targetChainCardInstanceId: _e,
     destinationBattlefieldId: _f,
+    targetPermanentInstanceId: _g,
     ...carriedOver
   } = first;
   return {
@@ -67,6 +68,7 @@ function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
     ...(second.targetBattlefieldId !== undefined ? { targetBattlefieldId: second.targetBattlefieldId } : {}),
     ...(second.targetChainCardInstanceId !== undefined ? { targetChainCardInstanceId: second.targetChainCardInstanceId } : {}),
     ...(second.destinationBattlefieldId !== undefined ? { destinationBattlefieldId: second.destinationBattlefieldId } : {}),
+    ...(second.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: second.targetPermanentInstanceId } : {}),
   };
 }
 
@@ -77,7 +79,8 @@ function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
  * card name).
  */
 export function resolveCardEffect(state: GameState, entry: SpellChainEntry): GameState {
-  const effect = effectForCard(entry.card);
+  // The MODE this play chose, or the sole mode of an ordinary card.
+  const effect = cardModeOf(entry.card, entry.modeId);
   // Ravenborn Tome's charge ends HERE — "the next spell you play this turn"
   // stops being the next spell once that spell has finished resolving, and its
   // damage happens during the resolution, so the charge has to survive the
@@ -122,7 +125,16 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
   // null and calculations based on it are ignored, which is what every helper
   // here already does with a missing target.
   if (entry.repeatPaid) {
-    resolved = effect.resolve(resolved, ctx, repeatChoicesOf(entry));
+    // **The repeat may switch MODES**, so the second execution resolves through
+    // its own mode rather than reusing the first one's. 820.1.d works this
+    // example on Rocket Barrage by name: "they may choose the same mode or a
+    // different one, and if they choose the same mode, may choose the same
+    // target or a different one." A repeat that names no mode reuses the first,
+    // which is what "the same choices again" means.
+    const repeatMode = entry.repeatChoices?.modeId !== undefined
+      ? cardModeOf(entry.card, entry.repeatChoices.modeId)
+      : effect;
+    if (repeatMode) resolved = repeatMode.resolve(resolved, ctx, repeatChoicesOf(entry));
   }
   return { ...clearCharge(resolved), spellResolvingForIndex: null };
 }

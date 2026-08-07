@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { effectForCard, cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { dispatchOnPlayUnit } from "../src/engine/unit-triggers.js";
 import { eligibleTargets } from "../src/engine/target-lookup.js";
@@ -14,9 +14,9 @@ function resolveSpell(
   defId: string,
   casterIndex: 0 | 1,
   state: ReturnType<typeof makeState>,
-  event: Parameters<NonNullable<ReturnType<typeof effectForCard>>["resolve"]>[2] = {},
+  event: Parameters<NonNullable<ReturnType<typeof cardModeOf>>["resolve"]>[2] = {},
 ) {
-  const effect = effectForCard(spellInstance(defId));
+  const effect = cardModeOf(spellInstance(defId), undefined);
   expect(effect, `${defId} has no registered effect`).toBeDefined();
   return effect!.resolve(state, contextFor(casterIndex), event);
 }
@@ -81,7 +81,7 @@ describe("Void Seeker (OGN-024): deal 4 to a unit at a battlefield, draw 1", () 
     state.players[1]!.baseUnits = [inEnemyBase];
     state.players[0]!.baseUnits = [inOwnBase];
 
-    const targeting = effectForCard(spellInstance("OGN-024"))!.targeting;
+    const targeting = cardModeOf(spellInstance("OGN-024"), undefined)!.targeting;
     expect(targeting.kind).toBe("unit");
     const scope = targeting.kind === "unit" ? targeting.scope : undefined;
     const owner = targeting.kind === "unit" ? targeting.owner : undefined;

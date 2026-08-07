@@ -19,15 +19,18 @@ import {
   findUnitOnBattlefield,
   shareABattlefield,
   unitListCandidates,
+  gearTargets,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "./target-lookup.js";
 import { modifiedEnergyCost, modifiedRepeatEnergy } from "./cost-modifiers.js";
 import {
+  cardModesOf,
   cardMovesTarget,
   cardPlacesTokens,
   moveDestinationAllowed,
+  type TargetingSpec,
   discardChoiceOf,
   hasXRainbowCost,
   optionalPowerCostOf,
@@ -610,10 +613,25 @@ export function legalActions(state: GameState): PlayerAction[] {
           )
         : null;
 
+    // A MODAL card has no single targeting — each mode carries its own, and
+    // Rocket Barrage's two name a UNIT and a GEAR respectively. So the fan-out
+    // runs once per mode and tags each variant with the mode it came from.
+    //
+    // A plain card has exactly ONE (unnamed) mode, so `modeId` never appears on
+    // its actions and its enumeration is byte-for-byte what it always was —
+    // which is the whole reason `cardModesOf` normalises rather than branching.
+    const cardModes = card.kind === "Unit" ? [] : cardModesOf(card);
+    const isModal = cardModes.length > 1;
+    // The spec used by everything AFTER the fan-out (the destination filter, the
+    // Vision copy). Naming no mode is deliberate: `cardModeOf` returns the sole
+    // mode of a plain card and NOTHING for a modal one, so a modal card reads
+    // `"none"` here. Safe today because no modal card moves its target or carries
+    // [Vision]; a future one would have to read the per-variant `modeId`.
     const targeting = targetingForAnyCard(card);
 
     // Base "effect choice" fan-out: one partial-action-fields variant per
     // legal target (or a single empty variant for "none"/unregistered).
+    const variantsForTargeting = (targeting: TargetingSpec): Partial<PlayCardAction>[] => {
     const effectVariants: Partial<PlayCardAction>[] = [];
     if (targeting.kind === "unit") {
       // eligibleTargets applies the owner constraint AND the spec's scope —
@@ -638,6 +656,8 @@ export function legalActions(state: GameState): PlayerAction[] {
         if (!atHiddenBattlefield(state, t.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetPermanentInstanceId: t.instanceId });
       }
+    } else if (targeting.kind === "gear") {
+      for (const g of gearTargets(state)) effectVariants.push({ targetPermanentInstanceId: g.instanceId });
     } else if (targeting.kind === "ownTrashCard") {
       for (const trashCard of actor.trash) {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
@@ -730,6 +750,14 @@ export function legalActions(state: GameState): PlayerAction[] {
     } else {
       effectVariants.push({});
     }
+      return effectVariants;
+    };
+
+    const effectVariants: Partial<PlayCardAction>[] = isModal
+      ? cardModes.flatMap((mode) =>
+          variantsForTargeting(targetingForAnyCard(card, mode.id)).map((v) => ({ ...v, modeId: mode.id })),
+        )
+      : variantsForTargeting(targeting);
 
     // A UNIT's targeting comes from its on-play TRIGGER, and a trigger with
     // no legal choice simply does nothing — it never makes the unit itself

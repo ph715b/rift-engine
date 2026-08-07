@@ -81,6 +81,18 @@ export type TargetingSpec =
       attackingOnly?: true;
     }
   | { kind: "battlefield" }
+  /**
+   * A GEAR and nothing else — Rocket Barrage's "Kill a gear".
+   *
+   * Distinct from `unitOrGear`, which offers units too: that spec is Fading
+   * Memories' "a unit at a battlefield OR a gear", one choice across two kinds.
+   * This one names a single kind, so reusing `unitOrGear` would offer targets
+   * the card cannot legally take.
+   *
+   * Rides `targetPermanentInstanceId` like `unitOrGear` does, because a gear is
+   * still not a unit and must never reach a reader expecting one.
+   */
+  | { kind: "gear" }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
   /**
    * Two ordered target slots with a MINIMUM number that must be filled —
@@ -379,9 +391,74 @@ export interface ResolveEvent {
   xAmount?: number;
 }
 
-export interface EffectDefinition {
+/**
+ * One option of a MODAL card — Rocket Barrage's "Choose one — Deal 4 to a unit
+ * in a base. [or] Kill a gear."
+ *
+ * Deliberately the same shape as `AbilityMode` in activated-abilities.ts, and
+ * for the same stated reason: a plain card becomes ONE unnamed mode, so
+ * enumeration, validation and resolution never branch on "is this modal". Those
+ * are three places that would each have needed the same new branch, and three
+ * places is how a mechanic ends up working in two of them.
+ *
+ * Each mode carries its OWN targeting, which is the whole difficulty: Rocket
+ * Barrage's first mode names a unit in a base and its second names a gear, so
+ * there is no single spec that describes the card.
+ */
+export interface CardMode {
+  id: string;
+  /** What the board's button says. */
+  label: string;
   targeting: TargetingSpec;
   resolve: (state: GameState, ctx: EffectContext, event: ResolveEvent) => GameState;
+}
+
+/**
+ * A registered Spell/Gear effect.
+ *
+ * Declare EITHER `targeting` + `resolve` (the ordinary card) OR `modes` (a modal
+ * one). `cardModesOf` normalises the two into a single list, so nothing
+ * downstream has to know which was written.
+ */
+export interface EffectDefinition {
+  targeting?: TargetingSpec;
+  resolve?: (state: GameState, ctx: EffectContext, event: ResolveEvent) => GameState;
+  /** The options, for a modal card. Mutually exclusive with the pair above. */
+  modes?: readonly CardMode[];
+}
+
+/** The synthetic id a non-modal card's single mode carries. Never appears on an
+ *  action, since enumeration omits `modeId` when there is only one mode. */
+export const SOLE_CARD_MODE = "";
+
+/**
+ * Every registered card effect, as a list of modes — one entry for a plain card,
+ * N for a modal one, and none at all for an unregistered defId.
+ *
+ * The normalisation `modesOf` already performs for abilities, applied to cards.
+ */
+export function cardModesOf(card: CardInstance): readonly CardMode[] {
+  const definition = effectForCard(card);
+  if (!definition) return [];
+  if (definition.modes) return definition.modes;
+  if (!definition.resolve) return [];
+  return [
+    {
+      id: SOLE_CARD_MODE,
+      label: "",
+      targeting: definition.targeting ?? { kind: "none" },
+      resolve: definition.resolve,
+    },
+  ];
+}
+
+/** The mode an action named, or the sole mode when the card has one. Returns
+ *  undefined when the id names no mode of this card — which the validator
+ *  reports rather than silently resolving something the player did not pick. */
+export function cardModeOf(card: CardInstance, modeId: string | undefined): CardMode | undefined {
+  const modes = cardModesOf(card);
+  if (modeId === undefined) return modes.length === 1 ? modes[0] : undefined;
+  return modes.find((m) => m.id === modeId);
 }
 
 /** The units a `unitSlots` effect was actually pointed at, in slot order,
@@ -1063,6 +1140,9 @@ export function cardEffectDefIds(): string[] {
   return Object.keys(allCardEffects());
 }
 
-export function targetingForCard(card: CardInstance): TargetingSpec {
-  return effectForCard(card)?.targeting ?? { kind: "none" };
+export function targetingForCard(card: CardInstance, modeId?: string): TargetingSpec {
+  // A modal card has no single targeting — each mode carries its own — so an
+  // unresolved mode answers "none" rather than guessing at one of them. The
+  // enumerator asks per mode; the validator asks with the mode the action named.
+  return cardModeOf(card, modeId)?.targeting ?? { kind: "none" };
 }

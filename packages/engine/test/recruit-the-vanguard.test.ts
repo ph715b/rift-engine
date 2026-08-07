@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
@@ -26,7 +26,7 @@ function funded(state: ReturnType<typeof makeState>, card: { energyCost: number;
 
 describe("Recruit the Vanguard: play four 1-Might Recruit tokens", () => {
   it("creates four tokens in base when no destination is chosen", () => {
-    const effect = effectForCard(spellInstance(CARD_ID))!;
+    const effect = cardModeOf(spellInstance(CARD_ID), undefined)!;
     const state = makeState();
 
     const result = effect.resolve(state, contextFor(0), {});
@@ -37,7 +37,7 @@ describe("Recruit the Vanguard: play four 1-Might Recruit tokens", () => {
   });
 
   it("puts all four at the chosen battlefield", () => {
-    const effect = effectForCard(spellInstance(CARD_ID))!;
+    const effect = cardModeOf(spellInstance(CARD_ID), undefined)!;
     const state = makeState();
 
     const result = effect.resolve(state, contextFor(0), { destinationBattlefieldId: "bf2" });

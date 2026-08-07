@@ -9,6 +9,7 @@ import {
   scopeDescription,
   shareABattlefield,
   unitListChoiceError,
+  gearTargets,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
@@ -20,6 +21,7 @@ import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { modifiedEnergyCost, modifiedRepeatEnergy } from "../engine/cost-modifiers.js";
 import {
+  cardModesOf,
   cardMovesTarget,
   cardPlacesTokens,
   moveDestinationAllowed,
@@ -197,6 +199,13 @@ function targetingRejection(
     if (!unitOrGearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
       return `${choices.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`;
     }
+  } else if (targeting.kind === "gear") {
+    if (!choices.targetPermanentInstanceId) {
+      return `${cardName} requires a target gear`;
+    }
+    if (!gearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
+      return `${choices.targetPermanentInstanceId} is not a gear in play`;
+    }
   } else if (targeting.kind === "ownTrashCard") {
     if (!choices.trashCardInstanceId) {
       return `${cardName} requires a card from your trash`;
@@ -358,7 +367,19 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     return fail("PlayCard is not implemented for Legend cards");
   }
 
-  const targeting = targetingForAnyCard(card);
+  // A MODAL card's targeting belongs to the chosen mode — Rocket Barrage's two
+  // modes name a unit and a gear respectively, so there is no single spec that
+  // describes the card. Resolve the mode BEFORE anything reads a targeting spec.
+  const modes = card.kind === "Unit" ? [] : cardModesOf(card);
+  if (modes.length > 1) {
+    if (action.modeId === undefined) return fail(`${card.name} requires a mode to be chosen`);
+    if (!modes.some((m) => m.id === action.modeId)) return fail(`${card.name} has no mode "${action.modeId}"`);
+  } else if (action.modeId !== undefined) {
+    // Naming a mode on a card that has none would be silently ignored at
+    // resolution — the dropped-field shape this pipeline keeps producing.
+    return fail(`${card.name} is not modal`);
+  }
+  const targeting = targetingForAnyCard(card, action.modeId);
 
   // A Unit's targeting belongs to its on-play TRIGGER, which does as much as
   // it can and no more: with nothing legal to point at, the unit is still
@@ -402,7 +423,19 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // function as the first. `undefined` is legal and means "the same choices
   // again" — see RepeatChoices.
   if (action.repeatPaid && action.repeatChoices !== undefined) {
-    const repeatError = targetingRejection(state, action.playerIndex, card.name, targeting, action.repeatChoices);
+    // **The repeat may switch MODES**, and if it does its targets are checked
+    // against THAT mode's spec — 820.1.d works the example on Rocket Barrage:
+    // "they may choose the same mode or a different one". Validating a
+    // mode-switched repeat against the first mode's targeting would refuse a
+    // legal play (a gear named where the first mode wanted a unit) and accept an
+    // illegal one.
+    const repeatModeId = action.repeatChoices.modeId;
+    if (repeatModeId !== undefined) {
+      if (modes.length <= 1) return fail(`${card.name} is not modal, so its [Repeat] cannot choose a mode`);
+      if (!modes.some((m) => m.id === repeatModeId)) return fail(`${card.name} has no mode "${repeatModeId}"`);
+    }
+    const repeatTargeting = targetingForAnyCard(card, repeatModeId ?? action.modeId);
+    const repeatError = targetingRejection(state, action.playerIndex, card.name, repeatTargeting, action.repeatChoices);
     if (repeatError !== null) return fail(`${card.name}'s [Repeat] execution: ${repeatError}`);
   }
 

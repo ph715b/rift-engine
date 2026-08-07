@@ -1072,6 +1072,128 @@ describe("Temptation restricts where the moved unit may go", () => {
   });
 });
 
+/**
+ * Rocket Barrage (SFD-077) — "[Repeat] [4][Mind] Choose one — Deal 4 to a unit
+ * in a base. [or] Kill a gear."
+ *
+ * The pool's first MODAL card, and the one 820.1.d works its own example on:
+ *
+ *   "If Rocket Barrage's controller pays its Repeat cost as they play it, they
+ *   may choose the same mode OR A DIFFERENT ONE, and if they choose the same
+ *   mode, may choose the same target or a different one. If they choose 'Kill a
+ *   gear' twice and choose two different gear, they must specify which gear is
+ *   the first target and which is the second."
+ *
+ * So the mode is a choice that rides the action, AND part of the repeat's own
+ * choice set. Both halves are asserted below.
+ */
+describe("Rocket Barrage is modal, and its repeat may switch modes", () => {
+  function board() {
+    const { state, spellId } = caster("SFD-077", "Mind", 14);
+    state.players[1]!.baseUnits = [makeUnit({ name: "Homebody", instanceId: "homebody", might: 9 })];
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      units: { [state.players[1]!.id]: [makeUnit({ name: "Frontliner", instanceId: "frontliner", might: 9 })] },
+    };
+    state.players[1]!.activeGear = [
+      { ...spellInstance("SFD-078"), kind: "Gear" } as never, // Temporal Portal, as a body to kill
+    ];
+    return { state, spellId };
+  }
+
+  it("offers BOTH modes, each with its own targets", () => {
+    const { state, spellId } = board();
+    const plays = playsOf(state, spellId);
+
+    const damage = plays.filter((a) => a.modeId === "damage");
+    const kill = plays.filter((a) => a.modeId === "killGear");
+    expect(damage.length, "the damage mode was not offered").toBeGreaterThan(0);
+    expect(kill.length, "the kill-a-gear mode was not offered").toBeGreaterThan(0);
+    // Every emitted play names a mode — a modal card has no unnamed variant.
+    expect(plays.every((a) => a.modeId !== undefined)).toBe(true);
+  });
+
+  /**
+   * "A unit IN A BASE" is the narrowest scope in the engine. The negative is the
+   * assertion with information in it: a unit at a battlefield must not be
+   * offered, which is the opposite of the usual restriction.
+   */
+  it("the damage mode reaches a base and NOT a battlefield", () => {
+    const { state, spellId } = board();
+    const targets = playsOf(state, spellId)
+      .filter((a) => a.modeId === "damage")
+      .map((a) => a.targetUnitInstanceId);
+
+    expect(targets).toContain("homebody");
+    expect(targets, "a unit at a battlefield was offered to a base-only mode").not.toContain("frontliner");
+  });
+
+  /** And the gear mode offers gear only — not the units `unitOrGear` would add. */
+  it("the kill mode offers gear and nothing else", () => {
+    const { state, spellId } = board();
+    const kill = playsOf(state, spellId).filter((a) => a.modeId === "killGear");
+
+    expect(kill.every((a) => a.targetPermanentInstanceId !== undefined)).toBe(true);
+    expect(kill.map((a) => a.targetPermanentInstanceId)).not.toContain("homebody");
+  });
+
+  it("resolves the mode it was told to", () => {
+    const { state, spellId } = board();
+    const play = playsOf(state, spellId).find((a) => a.modeId === "damage" && !a.repeatPaid)!;
+    const after = resolveChain(accept(state, play));
+
+    expect(after.players[1]!.baseUnits.find((u) => u.instanceId === "homebody")!.damage).toBe(4);
+    expect(after.players[1]!.activeGear, "the gear died on a play that chose damage").toHaveLength(1);
+  });
+
+  /** **The rulebook's own example.** Damage first, then switch to killing a gear. */
+  it("a repeat may choose a DIFFERENT mode", () => {
+    const { state, spellId } = board();
+    const gearId = state.players[1]!.activeGear[0]!.instanceId;
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.modeId === "damage")!;
+    const play: PlayCardAction = { ...base, repeatChoices: { modeId: "killGear", targetPermanentInstanceId: gearId } as never };
+    expect(validatePlayCard(state, play)).toMatchObject({ ok: true });
+
+    const after = resolveChain(accept(state, play));
+    expect(after.players[1]!.baseUnits.find((u) => u.instanceId === "homebody")!.damage, "mode 1 ran").toBe(4);
+    expect(after.players[1]!.activeGear, "mode 2 ran on the repeat").toHaveLength(0);
+  });
+
+  /** Naming a mode on a card that has none is refused, not ignored. */
+  it("refuses a mode on a non-modal card", () => {
+    const { state, spellId } = caster(FERAL_STRENGTH, "Calm", 8, 1);
+    const base = playsOf(state, spellId)[0]!;
+    const result = validatePlayCard(state, { ...base, modeId: "damage" });
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("not modal");
+  });
+
+  it("refuses an unknown mode id", () => {
+    const { state, spellId } = board();
+    const base = playsOf(state, spellId)[0]!;
+    const result = validatePlayCard(state, { ...base, modeId: "nonsense" });
+
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("no mode");
+  });
+
+  /** A repeat that switches modes has its targets checked against THAT mode. */
+  it("checks a mode-switched repeat's targets against the mode it switched to", () => {
+    const { state, spellId } = board();
+    const base = playsOf(state, spellId).find((a) => a.repeatPaid && a.modeId === "damage")!;
+    // "killGear" mode with a UNIT named — illegal for that mode.
+    const play: PlayCardAction = {
+      ...base,
+      repeatChoices: { modeId: "killGear", targetPermanentInstanceId: "homebody" } as never,
+    };
+
+    const result = validatePlayCard(state, play);
+    expect(result.ok).toBe(false);
+    expect(JSON.stringify(result)).toContain("not a gear");
+  });
+});
+
 describe("the second execution makes its OWN choices (820.1.d)", () => {
   /**
    * **The test that rejects the flag-only design.**

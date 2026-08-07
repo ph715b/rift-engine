@@ -1,7 +1,7 @@
 import type { CardInstance, GearInstance, SpellInstance, UnitInstance } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { contextFor } from "./effect-context.js";
-import { effectForCard } from "./card-effects.js";
+import { cardModeOf } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { playUnitFree } from "./free-play.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
@@ -75,7 +75,10 @@ function playGear(state: GameState, playerIndex: 0 | 1, card: GearInstance): Gam
  */
 function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellInstance): GameState {
   const played = firePlayed(state, playerIndex, card);
-  const effect = effectForCard(card);
+  // No mode either: `cardModeOf(card, undefined)` gives the sole mode of an
+  // ordinary card and NOTHING for a modal one, which is the same "as much as
+  // it can and no more" answer an absent target already gets.
+  const effect = cardModeOf(card, undefined);
   // No targets: the choices a spell needs are made when it is ANNOUNCED, and
   // nothing announced this one. A targeted spell played this way therefore does
   // as much as it can and no more, which is 422's convention and the same answer

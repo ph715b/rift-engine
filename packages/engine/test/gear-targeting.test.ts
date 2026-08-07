@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { effectForCard } from "../src/engine/card-effects.js";
+import { cardModeOf } from "../src/engine/card-effects.js";
 import { contextFor } from "../src/engine/effect-context.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
 import { unitOrGearTargets } from "../src/engine/target-lookup.js";
@@ -28,7 +28,7 @@ const CONSULT_THE_PAST = "OGN-083"; // a [Hidden] card, for the Pouch's conditio
 const gear = (defId: string) => createCardInstance(registry.get(defId)) as GearInstance;
 
 const resolveFading = (state: GameState, targetPermanentInstanceId: string) =>
-  effectForCard(spellInstance(FADING_MEMORIES))!.resolve(state, contextFor(0), { targetPermanentInstanceId });
+  cardModeOf(spellInstance(FADING_MEMORIES), undefined)!.resolve(state, contextFor(0), { targetPermanentInstanceId });
 
 describe("Fading Memories: one choice across units AND gear", () => {
   function board(): { state: GameState; unitAtBf: ReturnType<typeof makeUnit>; inBase: ReturnType<typeof makeUnit>; myGear: GearInstance; theirGear: GearInstance } {

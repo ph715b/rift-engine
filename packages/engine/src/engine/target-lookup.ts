@@ -458,6 +458,8 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // exist" is not the same question as "a legal choice exists".
       return unitListCandidates(state, playerIndex, targeting).length > 0;
     }
+    case "gear":
+      return gearTargets(state).length > 0;
     case "ownTrashCard": {
       const trash = state.players[playerIndex].trash;
       return trash.some((c) => targeting.cardKind === undefined || c.kind === targeting.cardKind);
@@ -498,6 +500,13 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
  * `activeGear` rather than on the board and there is otherwise no way back to
  * whose it is.
  */
+/** Every GEAR in play, on both sides — the candidate list for a `gear`-kind
+ *  spec. Derived from `unitOrGearTargets` rather than walking `activeGear`
+ *  again, so "what counts as a gear in play" is answered in exactly one place. */
+export function gearTargets(state: GameState): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
+  return unitOrGearTargets(state).filter((t) => t.isGear);
+}
+
 export function unitOrGearTargets(
   state: GameState,
   /** Pack of Wonders' three narrowings — all default to off, so Fading Memories

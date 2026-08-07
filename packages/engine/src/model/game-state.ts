@@ -52,6 +52,20 @@ export interface RepeatChoices {
   /** Temptation's "move an enemy unit to a location where..." — the second move
    *  may pick a different destination as well as a different unit. */
   destinationBattlefieldId?: string;
+  /** The unit-or-gear a `unitOrGear` or `gear` spec names. Needed the moment a
+   *  MODAL repeat could switch into a mode that targets one — Rocket Barrage
+   *  going from "deal 4 to a unit in a base" to "kill a gear" has no unit to
+   *  carry over and a gear to name instead. */
+  targetPermanentInstanceId?: string;
+  /**
+   * Which MODE the additional execution chooses — Rocket Barrage's "Choose one".
+   *
+   * 820.1.d's worked example for that very card is explicit: *"they may choose
+   * the same mode or a different one, and if they choose the same mode, may
+   * choose the same target or a different one."* So the mode is part of the
+   * second choice set, not a property of the play.
+   */
+  modeId?: string;
 }
 
 export interface SpellChainEntry {
@@ -107,6 +121,9 @@ export interface SpellChainEntry {
    *  `repeatPaid` set means "the same choices again", which is a legal thing to
    *  choose and is what the enumerator samples. */
   repeatChoices?: RepeatChoices;
+  /** Which option a MODAL card chose (Rocket Barrage's "Choose one"). Absent for
+   *  every ordinary card, whose single mode needs no naming. */
+  modeId?: string;
 }
 
 /**
