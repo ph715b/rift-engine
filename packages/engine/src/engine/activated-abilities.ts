@@ -1,7 +1,7 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
-import { GOLD_TOKEN_DEF_ID, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
+import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
 /** Ezreal - Prodigal Explorer's "TWICE this turn" — the whole of his condition,
@@ -21,10 +21,12 @@ import {
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   legionActive,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
   recallUnitToBase,
   recycleFromTrash,
+  recycleUnitsFromTrash,
   returnPermanentToHand,
   spendBuff,
   stunUnits,
@@ -72,6 +74,12 @@ export interface ActivatedAbilityEvent {
    *  Wonders). Separate from `targetUnitInstanceId` because a gear is not a unit
    *  and a facedown card is neither. */
   targetPermanentInstanceId?: string;
+  /** The X the activator chose, for an ability with an X cost — Hextech
+   *  Anomaly's and Ancient Henge's "pay any amount". Carried explicitly rather
+   *  than derived from the payment, for the reason Bullet Time's `xAmount`
+   *  gives: the rainbow bucket also holds a `[Deflect]` surcharge, and the two
+   *  must never be confused. */
+  xAmount?: number;
 }
 
 /**
@@ -85,6 +93,35 @@ export interface ActivationCost {
   exhaust?: true;
   /** Recycle this many cards from the controller's own trash (rule 416). */
   recycleFromTrash?: number;
+  /**
+   * Recycle this many UNITS from the controller's own trash — Assembly Rig's
+   * "Recycle a unit from your trash".
+   *
+   * Its own field rather than a filter on `recycleFromTrash` above, because the
+   * two differ in what they can be PAID WITH and therefore in when the ability
+   * is offered at all: a trash of three Spells pays Vi's Recycle and cannot pay
+   * this one. Folding them together would need every reader of the plain field
+   * to remember a filter it has never had.
+   *
+   * WHICH units go is not offered as a choice, matching `recycleFromTrash`'s own
+   * front-of-trash convention and for the same bounded-enumeration reason.
+   */
+  recycleUnitFromTrash?: number;
+  /**
+   * "Pay any amount of :rb_rune_rainbow:" (Hextech Anomaly) or "any amount of
+   * Energy" (Ancient Henge) — an X the ACTIVATOR chooses.
+   *
+   * A flag rather than an amount, because X is by definition the player's
+   * choice: `legal-actions` fans out one variant per affordable X and the
+   * validator re-derives the price from the X the action names. The same shape
+   * `hasXRainbowCost` already gives Bullet Time, a SPELL.
+   *
+   * Two fields rather than one, because they are paid from different pools and
+   * each of these two cards converts one into the other: folding them together
+   * would let Ancient Henge be paid in the rainbow Power it exists to PRODUCE.
+   */
+  xRainbowPower?: true;
+  xEnergy?: true;
   /**
    * Energy, paid from channeled runes and floating Energy exactly as a card's
    * Energy cost is — both preset Legend abilities read ":rb_energy_1:,
@@ -978,6 +1015,81 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
   },
+  "SFD-083": {
+    // Hextech Anomaly — "[Exhaust]: [Reaction] — Pay any amount of [rainbow] to
+    // [Add] that much Energy."
+    //
+    // The pool's first X cost on an ABILITY; `hasXRainbowCost` already gives
+    // Bullet Time, a Spell, the same shape. X rides the action and the
+    // enumerator fans out one variant per affordable amount.
+    //
+    // The Energy is UNRESTRICTED — it lands in `floatingEnergy`, which pays for
+    // anything, unlike Lux's spells-only pool. The card names no restriction.
+    //
+    // Banks a resource and changes nothing the board evaluator can price, so the
+    // AI will not take it — the same flag, and the same known consequence, as
+    // the Seals, Malzahar and the Gold token. Recorded rather than worked
+    // around: this project has a standing rule against speculative heuristics
+    // with no evaluative basis.
+    kind: "Gear",
+    cost: { exhaust: true, xRainbowPower: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx, event) => {
+      const x = event.xAmount ?? 0;
+      if (x <= 0) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingEnergy: actor.floatingEnergy + x };
+      return { ...state, players };
+    },
+  },
+  "SFD-117": {
+    // Ancient Henge — "[Exhaust]: [Reaction] — Pay any amount of Energy to
+    // [Add] that much [rainbow]."
+    //
+    // Hextech Anomaly inverted, and the inversion is exactly why the two X costs
+    // are separate fields: paid in Energy, produces RAINBOW Power. One field
+    // would let this be paid with the very resource it makes.
+    //
+    // The Power is RAINBOW, so it lands in `floatingRainbowPower` rather than a
+    // domain pool — the same bucket Malzahar's ritual uses, and for the same
+    // reason.
+    //
+    // `banksResource` for the same reason as its sibling above.
+    kind: "Gear",
+    cost: { exhaust: true, xEnergy: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx, event) => {
+      const x = event.xAmount ?? 0;
+      if (x <= 0) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingRainbowPower: actor.floatingRainbowPower + x };
+      return { ...state, players };
+    },
+  },
+  "SFD-019": {
+    // Assembly Rig — "[1][Fury], Recycle a unit from your trash, [Exhaust]:
+    // Play a 3 [Might] Mech unit token to your base."
+    //
+    // **The pool's first FILTERED recycle cost.** `recycleFromTrash` takes a
+    // count and would happily be paid with three Spells; this one may only be
+    // paid with units, which changes when the ability is OFFERED and not just
+    // what it costs — see `recycleUnitFromTrash`.
+    //
+    // Four cost halves, all printed: an Energy, a Fury rune, the unit recycle,
+    // and the exhaust. The exhaust is what makes it once a turn.
+    //
+    // `MECH_TOKEN` is shared from token.ts, so the Rig, Production Surge and
+    // Rumble - Scrapper cannot disagree about what a Mech token is — and it
+    // carries the Mech tag, so Rumble's aura pumps whatever this makes.
+    kind: "Gear",
+    cost: { energy: 1, power: { domain: "Fury", count: 1 }, recycleUnitFromTrash: 1, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", MECH_TOKEN),
+  },
   "SFD-046": {
     // Poro Snax's SECOND half — "[1][Calm], Exhaust, Kill this: Draw 1."
     //
@@ -1499,9 +1611,22 @@ export function canPayActivationCost(
   const cost = activationCostOf(abilityDefId, modeId);
   if (cost.exhaust && card.exhausted) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;
+  // The UNIT-filtered recycle counts only units, which is the whole reason it
+  // is a separate cost: a trash full of Spells cannot pay it.
+  if (
+    cost.recycleUnitFromTrash !== undefined &&
+    state.players[playerIndex].trash.filter((c) => c.kind === "Unit").length < cost.recycleUnitFromTrash
+  ) {
+    return false;
+  }
   // Power is paid from state, so affordability is asked through the very helper
   // that will pay it — the two cannot disagree about what is payable.
   if (cost.power && payPowerFromChanneled(state, playerIndex, cost.power.domain, cost.power.count) === undefined) return false;
+  // An X cost needs at least ONE payable unit, or the ability can do nothing at
+  // any amount. Asked through the very helpers that will pay it, the same rule
+  // the Power line above follows.
+  if (cost.xRainbowPower && payPowerFromChanneled(state, playerIndex, null, 1) === undefined) return false;
+  if (cost.xEnergy && payEnergyFromPool(state, playerIndex, 1) === undefined) return false;
   // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
@@ -1564,7 +1689,7 @@ export function payActivationCost(
   payment?: RunePayment,
   /** What the action named for a cost that carries a CHOICE — Malzahar's kill,
    *  Unlicensed Armory's discard. Absent for every cost paid from state. */
-  chosen?: { costPermanentInstanceId?: string; costDiscardCardInstanceId?: string },
+  chosen?: { costPermanentInstanceId?: string; costDiscardCardInstanceId?: string; xAmount?: number },
   /** The mode being paid for — see `activationCostOf`. */
   modeId?: string,
 ): GameState | undefined {
@@ -1574,6 +1699,32 @@ export function payActivationCost(
     const recycled = recycleFromTrash(next, playerIndex, cost.recycleFromTrash);
     if (recycled === undefined) return undefined;
     next = recycled;
+  }
+  if (cost.recycleUnitFromTrash !== undefined) {
+    const recycled = recycleUnitsFromTrash(next, playerIndex, cost.recycleUnitFromTrash);
+    if (recycled === undefined) return undefined;
+    next = recycled;
+  }
+  // The X costs. Paid from state rather than from a named rune list: Hextech
+  // Anomaly's rainbow accepts ANY domain, so which runes go is not a meaningful
+  // choice, and `payPowerFromChanneled(null, x)` already means exactly that.
+  //
+  // An X larger than the pools can cover returns `undefined` and the whole
+  // activation fails — the same all-or-nothing contract 416.3 gives a Recycle,
+  // and the reason neither of these can be paid "as much as it can".
+  if (cost.xRainbowPower) {
+    const x = chosen?.xAmount ?? 0;
+    if (x <= 0) return undefined;
+    const spent = payPowerFromChanneled(next, playerIndex, null, x);
+    if (spent === undefined) return undefined;
+    next = spent;
+  }
+  if (cost.xEnergy) {
+    const x = chosen?.xAmount ?? 0;
+    if (x <= 0) return undefined;
+    const spent = payEnergyFromPool(next, playerIndex, x);
+    if (spent === undefined) return undefined;
+    next = spent;
   }
   if (cost.spendBuff) {
     const spent = spendBuff(next, playerIndex, instanceId);

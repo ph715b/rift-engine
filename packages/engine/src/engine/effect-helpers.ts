@@ -985,6 +985,39 @@ export function recycleFromTrash(state: GameState, playerIndex: 0 | 1, count: nu
 }
 
 /**
+ * Recycle `count` UNITS from a player's own trash — Assembly Rig's "Recycle a
+ * unit from your trash".
+ *
+ * A sibling of `recycleFromTrash` above rather than a parameter on it, because
+ * the two differ in what can PAY them and therefore in whether the ability is
+ * offered at all. Everything else is identical and deliberately so: `undefined`
+ * when the cost cannot be completed in full (416.3, "when Recycling is listed as
+ * a Cost, the action must be able to be completed for the cost to be paid"), the
+ * OLDEST matching cards go, they land on the bottom of the deck (416), and
+ * Karma - Channeler sees it.
+ */
+export function recycleUnitsFromTrash(state: GameState, playerIndex: 0 | 1, count: number): GameState | undefined {
+  if (count <= 0) return state;
+  const actor = state.players[playerIndex];
+  const units = actor.trash.filter((c) => c.kind === "Unit");
+  if (units.length < count) return undefined;
+
+  const recycled = units.slice(0, count);
+  const going = new Set(recycled.map((c) => c.instanceId));
+  return holdCardsRecycled(
+    updatePlayer(state, playerIndex, (p) => ({
+      ...p,
+      // Filtered by identity rather than by slicing, because the units being
+      // taken are not necessarily at the front of a mixed trash.
+      trash: p.trash.filter((c) => !going.has(c.instanceId)),
+      deck: [...p.deck, ...recycled],
+    })),
+    playerIndex,
+    recycled.length,
+  );
+}
+
+/**
  * Holds Karma - Channeler's "when you recycle one or more cards to your Main
  * Deck" — one event per instruction, and none at all when nothing moved.
  *

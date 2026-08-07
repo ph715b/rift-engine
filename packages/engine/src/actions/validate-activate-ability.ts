@@ -7,7 +7,7 @@ import {
   resolveActivation,
   resolveMode,
 } from "../engine/activated-abilities.js";
-import { payPowerFromChanneled } from "../engine/effect-helpers.js";
+import { payEnergyFromPool, payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { chosenUnitsOfActivation, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import {
@@ -66,6 +66,18 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // so she is repeatable while her trash lasts. canPayActivationCost answers both
   // shapes, and the enumerator asks the same question so an ability is never
   // offered and then refused.
+  // The X an X-cost ability names has to be one the pools can actually cover,
+  // and re-derived here rather than trusted: a hand-built action could claim a
+  // large X and pay nothing. Asked through the same helpers that will spend it.
+  const xCost = activationCostOf(abilityDefId, mode.id);
+  if (xCost.xRainbowPower || xCost.xEnergy) {
+    const x = action.xAmount ?? 0;
+    if (x <= 0) return fail(`${card.name}'s ability must be activated for an X of at least 1`);
+    const payable = xCost.xRainbowPower
+      ? payPowerFromChanneled(state, action.playerIndex, null, x) !== undefined
+      : payEnergyFromPool(state, action.playerIndex, x) !== undefined;
+    if (!payable) return fail(`${card.name}'s ability cannot pay an X of ${x}`);
+  }
   if (!canPayActivationCost(state, action.playerIndex, card, abilityDefId, mode.id)) {
     return fail(`${card.name}'s activation cost cannot be paid right now`);
   }

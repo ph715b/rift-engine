@@ -46,6 +46,7 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
     {
       ...(action.costPermanentInstanceId !== undefined ? { costPermanentInstanceId: action.costPermanentInstanceId } : {}),
       ...(action.costDiscardCardInstanceId !== undefined ? { costDiscardCardInstanceId: action.costDiscardCardInstanceId } : {}),
+      ...(action.xAmount !== undefined ? { xAmount: action.xAmount } : {}),
     },
     mode.id,
   );
@@ -98,6 +99,10 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
       ...(action.destinationBattlefieldId !== undefined
         ? { destinationBattlefieldId: action.destinationBattlefieldId }
         : {}),
+      // The X of an X-cost ability. Forwarded for the same reason as every
+      // field above it: enumerated, validated, and then dropped on this hop
+      // would leave Hextech Anomaly exhausting itself to add nothing.
+      ...(action.xAmount !== undefined ? { xAmount: action.xAmount } : {}),
     },
     action.permanentInstanceId,
   );

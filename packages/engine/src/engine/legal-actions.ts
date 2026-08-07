@@ -325,6 +325,26 @@ function activationCostChoices(
     const hand = state.players[playerIndex].hand.filter((c) => !seen.has(c.defId) && seen.add(c.defId));
     choices = choices.flatMap((c) => hand.map((card) => ({ ...c, costDiscardCardInstanceId: card.instanceId })));
   }
+  // An X cost — Hextech Anomaly's rainbow, Ancient Henge's Energy. Fanned out
+  // one variant per affordable amount, the same shape Bullet Time's X takes on
+  // the play path, and CROSSED with the axes above so an ability with both
+  // still enumerates every combination.
+  //
+  // X = 0 is deliberately NOT offered: the ability would exhaust its source to
+  // do nothing, which is never a move worth putting in front of a player, and
+  // both cards' resolvers no-op on it anyway.
+  //
+  // The two pools are counted separately because the two costs are: Hextech
+  // Anomaly is paid with runes of ANY domain (rainbow), Ancient Henge with
+  // Energy from the floating pool plus what ready runes can supply.
+  if (cost.xRainbowPower) {
+    const affordable = state.players[playerIndex].channeled.length;
+    choices = choices.flatMap((c) => Array.from({ length: affordable }, (_, i) => ({ ...c, xAmount: i + 1 })));
+  }
+  if (cost.xEnergy) {
+    const affordable = state.players[playerIndex].floatingEnergy;
+    choices = choices.flatMap((c) => Array.from({ length: affordable }, (_, i) => ({ ...c, xAmount: i + 1 })));
+  }
   return choices;
 }
 

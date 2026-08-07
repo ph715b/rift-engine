@@ -136,8 +136,43 @@ export function generateDeckForLegend(
   };
   const total = (): number => [...counts.values()].reduce((sum, n) => sum + n, 0);
 
-  // 1. The priority subjects. Every one must fit, or this throws NAMING it.
+  // 1. The champion's own copy, seated BEFORE the priority subjects.
+  //
+  // **It used to come second, and that was a real ordering bug rather than a
+  // preference.** `validateDeckList` REQUIRES the champion, so its seat is not
+  // optional — while the optional priority subjects were seated first, a set
+  // with enough implemented cards could fill all 40 slots and crowd the
+  // mandatory card out. That is exactly what happened as SFD's coverage grew:
+  // `generateCoveringDecks` deals every implemented card of the set to the
+  // Legend holding fewest, and at 161 implemented cards Draven - Glorious
+  // Executioner's share finally reached 40 before his champion was placed.
+  //
+  // Found by `DECKS=sfd node probes/exercised.ts`, which is the sixth bug that
+  // probe has found and the suite has not — and it surfaces as a THROW rather
+  // than a wrong number, because a deck without its champion is illegal.
+  //
+  // A champion already named in `priority` is not double-seated: `add` is a
+  // no-op once the copy cap is reached, and the `counts` check below skips it.
+  if (add(champion, 1) === 0) {
+    throw new Error(`generateDeckForLegend: no room for champion ${champion.name} in ${legend.name}'s deck`);
+  }
+
+  // 2. The priority subjects, seated in TWO PASSES: one copy of each first,
+  //    then topped up to `copies` with whatever room is left.
+  //
+  // **One pass at `copies` each does not scale, and SFD is where it broke.**
+  // `generateCoveringDecks` deals every implemented card of the set to the
+  // Legend holding fewest; at 3 copies apiece, fourteen subjects want 42 of a
+  // 39-card remainder, so the fourteenth was rejected and the whole deck threw —
+  // even though all fourteen fit comfortably at one copy each. Since the stated
+  // purpose of this generator is that every implemented card gets A SEAT, the
+  // breadth pass has to come before the depth pass.
+  //
+  // The failure is therefore now honest: it throws only when there are more
+  // DISTINCT subjects than slots, which is a real statement about the set rather
+  // than an artefact of the copy count.
   const rejected: string[] = [];
+  const eligible: CardDefinition[] = [];
   for (const defId of options.priority ?? []) {
     const def = registry.tryGet(defId);
     if (!def) {
@@ -148,9 +183,21 @@ export function generateDeckForLegend(
       rejected.push(`${def.id} ${def.name} (shares no domain with ${legend.name})`);
       continue;
     }
-    const got = add(def, copies);
+    eligible.push(def);
+  }
+  for (const def of eligible) {
+    const got = add(def, 1);
     if (got === 0) rejected.push(`${def.id} ${def.name} (no room left)`);
     else seated.set(def.id, got);
+  }
+  // Depth pass. A subject that missed its seat above is already recorded as
+  // rejected and is not topped up.
+  if (copies > 1) {
+    for (const def of eligible) {
+      if (!seated.has(def.id)) continue;
+      const extra = add(def, copies - 1);
+      if (extra > 0) seated.set(def.id, seated.get(def.id)! + extra);
+    }
   }
   if (rejected.length > 0) {
     throw new Error(
@@ -159,12 +206,6 @@ export function generateDeckForLegend(
     );
   }
 
-  // 2. The champion's own copy. Required by `validateDeckList`, and it is a
-  //    subject in its own right — a champion nobody plays is exercised by
-  //    nothing, exactly like a Legend nobody leads.
-  if ((counts.get(champion.id) ?? 0) === 0 && add(champion, 1) === 0) {
-    throw new Error(`generateDeckForLegend: no room for champion ${champion.name} in ${legend.name}'s deck`);
-  }
 
   // 3. Fill to 40, most interesting first.
   //

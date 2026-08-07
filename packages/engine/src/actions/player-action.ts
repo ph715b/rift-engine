@@ -304,6 +304,16 @@ export interface ActivateAbilityAction {
    * unnamed mode, so an ordinary activation's action is unchanged.
    */
   modeId?: string;
+  /**
+   * The X an X-cost ABILITY was activated for — Hextech Anomaly's and Ancient
+   * Henge's "pay any amount".
+   *
+   * The same field, meaning the same thing, that `PlayCardAction` already
+   * carries for Bullet Time; carried explicitly rather than counted off the
+   * payment for the reason that one records, since the rainbow bucket also
+   * holds a `[Deflect]` surcharge.
+   */
+  xAmount?: number;
   /** The unit OR gear an ability's `unitOrGear`-kind spec named (Pack of
    *  Wonders). Separate from `targetUnitInstanceId` for the same reason a Spell's
    *  is: a gear is not a unit and must never reach a reader expecting one. */
