@@ -3,6 +3,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
+import { MIGHTY_THRESHOLD } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
 import { equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 
@@ -372,7 +373,7 @@ const CONDITIONAL_GRANTS: Record<string, Grant> = {
  * also what 711 describes.
  */
 export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): boolean {
-  return effectiveMight(state, unit, ownerIndex, { isCombat: false }) >= 5;
+  return effectiveMight(state, unit, ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
 }
 
 /**

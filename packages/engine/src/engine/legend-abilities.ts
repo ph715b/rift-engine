@@ -153,6 +153,15 @@ export interface LegendAbilityDefinition {
    * have.
    */
   onBattlefieldHeld?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
+  /**
+   * "When one of your units becomes [Mighty]..." — Fiora - Grand Duelist.
+   *
+   * Rides `unitBecameMighty`, a TRANSITION event rather than an ordinary one:
+   * Might has no stored total, so `effect-helpers.withMightTransitions` brackets
+   * the raise helpers and compares before with after. See that function for the
+   * recorded partial (an aura arriving is not seen).
+   */
+  onUnitBecameMighty?: (state: GameState, ownerIndex: 0 | 1, unitInstanceId: string) => GameState;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -189,6 +198,21 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-205": {
+    // Fiora - Grand Duelist — "When one of your units becomes [Mighty], you may
+    // exhaust me to channel 1 rune exhausted."
+    //
+    // The event is the whole difficulty and it is not hers: "becomes" is a
+    // TRANSITION across 5 Might (711), on a value this engine recomputes on every
+    // read. See `withMightTransitions`, which brackets the raise helpers, and the
+    // recorded partial that comes with it.
+    //
+    // Singular — "one of your units" — so a mass pump that pushes three units
+    // over the line offers this three times, once per unit. That is what the
+    // event being per-unit buys, and it is answerable one at a time.
+    onUnitBecameMighty: (state, ownerIndex) =>
+      parkDecision(state, { kind: "SFD-205-channel", playerIndex: ownerIndex }),
+  },
   "SFD-201": {
     // Renata Glasc - Chem-Baroness — "When you or an ally hold, you may exhaust
     // me to play a Gold gear token exhausted. While your score is within 3 points
@@ -490,6 +514,29 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   // a "you may", and `advanceDecisions` auto-resolves anything with a single
   // option. Exhausting Volibear costs a later turn's use, so declining is a real
   // play rather than a formality.
+  "SFD-205-channel": {
+    prompt: () => "Fiora - Grand Duelist: exhaust her to channel 1 rune exhausted?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!state.players[d.playerIndex].legend.exhausted) {
+        options.push({ id: "channel", label: "Exhaust Fiora and channel 1" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "channel") return state;
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state; // cost no longer payable
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      // EXHAUSTED, not Ready — the rune can pay a Power cost this turn (a Power
+      // payment recycles regardless of state) but no Energy until the next
+      // Awaken. Same helper Volibear - Relentless Storm uses, and the same
+      // printed wording.
+      return channelRunesExhausted({ ...state, players }, d.playerIndex, 1);
+    },
+  },
+
   "SFD-201-gold": {
     prompt: () => "Renata Glasc - Chem-Baroness: exhaust her to play a Gold gear token exhausted?",
     options: (state, d) => {
@@ -820,6 +867,7 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       onCombatWon,
       onUnitChosen,
       onBattlefieldHeld,
+      onUnitBecameMighty,
     } = ability;
 
     if (onEndOfTurn) {
@@ -842,6 +890,20 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
         resolve: (state, listener, event) =>
           event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onUnitBecameMighty) {
+      add(defId, {
+        on: "unitBecameMighty",
+        // "One of YOUR units", and the exhaust must be payable — an offer nobody
+        // can take is not made, the rule this file applies throughout.
+        applies: (state, listener, event) =>
+          event.kind === "unitBecameMighty" &&
+          event.ownerIndex === listener.ownerIndex &&
+          !state.players[listener.ownerIndex].legend.exhausted,
+        resolve: (state, listener, event) =>
+          event.kind === "unitBecameMighty" ? onUnitBecameMighty(state, listener.ownerIndex, event.unitInstanceId) : state,
       });
     }
 

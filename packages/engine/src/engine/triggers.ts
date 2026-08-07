@@ -524,6 +524,23 @@ export type GameEvent =
    */
   | { kind: "unitChosen"; chooserIndex: 0 | 1; unitInstanceId: string }
   /**
+   * A unit that was NOT `[Mighty]` now is — Fiora - Grand Duelist's "when one of
+   * your units becomes [Mighty]".
+   *
+   * **A TRANSITION on a value that is recomputed on read**, which is what makes
+   * it unlike every other event here. `effectiveMight` is derived from printed
+   * Might plus buffs plus this-turn modifiers plus continuous auras plus
+   * Equipment, so there is no stored field whose write could be the moment. The
+   * only way to see a crossing is to compare before and after around something
+   * that changes an input — which is what `withMightTransitions` does.
+   *
+   * **Fired from the RAISE helpers only, and that is a recorded partial**: a unit
+   * that becomes Mighty because an AURA arrived (a Garen - Commander walking in)
+   * is not seen, because nothing about that unit changed. See
+   * docs/rules-conformance.md.
+   */
+  | { kind: "unitBecameMighty"; ownerIndex: 0 | 1; unitInstanceId: string }
+  /**
    * A unit that was EXHAUSTED became Ready — Pirate's Haven's "when you ready a
    * friendly unit, give it +1 Might this turn".
    *
@@ -798,6 +815,7 @@ export type GameEvent =
  */
 export type HeldEventKind =
   | "unitChosen"
+  | "unitBecameMighty"
   | "unitBuffed"
   | "battlefieldConquered"
   | "cardPlayed"

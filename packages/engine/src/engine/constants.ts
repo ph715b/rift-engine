@@ -10,6 +10,17 @@ import { winThreshold } from "./battlefield-continuous.js";
 export const WIN_THRESHOLD_1V1 = 8;
 
 /**
+ * `[Mighty]` is "while it has 5+ Might" (rule 711).
+ *
+ * Here rather than beside `isMighty` in granted-keywords.ts because TWO modules
+ * need it and they cannot import each other: `effect-helpers` fires the
+ * "became Mighty" transition, and importing granted-keywords there would close
+ * the cycle effect-helpers -> granted-keywords -> equipment -> effect-helpers.
+ * A leaf module both can reach keeps the number written down once.
+ */
+export const MIGHTY_THRESHOLD = 5;
+
+/**
  * The Victory Score for THIS game — the constant above plus whatever the
  * battlefields in play add to it.
  *

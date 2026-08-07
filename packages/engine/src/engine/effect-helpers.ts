@@ -3,6 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
+import { MIGHTY_THRESHOLD } from "./constants.js";
 import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
@@ -371,7 +372,14 @@ export function giveMightThisTurnToAllFriendlies(state: GameState, casterIndex: 
     return { ...bf, units: { ...bf.units, [caster.id]: units.map(grant) } };
   });
 
-  return { ...state, players, battlefields };
+  // Fiora - Grand Duelist's "when ONE OF YOUR UNITS becomes [Mighty]" — singular,
+  // so a mass pump that pushes three units over the line is three separate
+  // triggers, one per unit, not one for the instruction. Each is its own Pending
+  // Item an opponent may answer.
+  return withMightTransitions(state, { ...state, players, battlefields }, [
+    ...caster.baseUnits.map((u) => u.instanceId),
+    ...state.battlefields.flatMap((bf) => (bf.units[caster.id] ?? []).map((u) => u.instanceId)),
+  ]);
 }
 
 /**
@@ -387,17 +395,57 @@ export function giveMightThisTurnToAllFriendlies(state: GameState, casterIndex: 
  * and continuous auras are deliberately NOT counted: they can appear and vanish
  * after this resolves, and the floor is fixed at resolution time.
  */
+/**
+ * Fires `unitBecameMighty` for every named unit that was NOT `[Mighty]` in
+ * `before` and IS in `after` (rule 711: 5+ Might).
+ *
+ * A before/after COMPARISON rather than a hook on a write, because Might has no
+ * stored total — `effectiveMight` derives it from printed Might, buffs,
+ * this-turn modifiers, continuous auras and Equipment every time it is asked. So
+ * "became Mighty" has no single moment; the nearest thing is the boundary of an
+ * operation that changed one of those inputs.
+ *
+ * Wrapped around the RAISE helpers rather than called by each card, so a new
+ * pump gets the event by construction instead of by remembering.
+ *
+ * **Recorded partial (docs/rules-conformance.md): an aura arriving is not seen.**
+ * A unit that crosses 5 because a Garen - Commander walked in never changed, and
+ * nothing about the unit is written — so no comparison here brackets it. Closing
+ * that needs the layer-snapshotting this engine does not have.
+ */
+export function withMightTransitions(
+  before: GameState,
+  after: GameState,
+  unitInstanceIds: readonly string[],
+): GameState {
+  let next = after;
+  for (const id of unitInstanceIds) {
+    const was = findUnitAnywhere(before, id);
+    const now = findUnitAnywhere(next, id);
+    if (!was || !now) continue;
+    const wasMighty = effectiveMight(before, was.unit, was.ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
+    const isNow = effectiveMight(next, now.unit, now.ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
+    if (wasMighty || !isNow) continue;
+    next = holdEventTrigger(next, { kind: "unitBecameMighty", ownerIndex: now.ownerIndex, unitInstanceId: id });
+  }
+  return next;
+}
+
 export function giveMightThisTurn(
   state: GameState,
   targetInstanceId: string,
   amount: number,
   floor?: number,
 ): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => {
+  const raised = updateUnitAnywhere(state, targetInstanceId, (u) => {
     if (floor === undefined) return { ...u, mightThisTurn: u.mightThisTurn + amount };
     const lowest = floor - u.might;
     return { ...u, mightThisTurn: Math.max(lowest, u.mightThisTurn + amount) };
   });
+  // Fiora - Grand Duelist. A DEBUFF passes through here too (a negative
+  // `amount`), and `withMightTransitions` only fires on a crossing UPWARD, so
+  // nothing has to branch on the sign.
+  return withMightTransitions(state, raised, [targetInstanceId]);
 }
 
 /**
@@ -556,12 +604,20 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
   // buffs" is the only such card, so the exception is a named set rather than a
   // flag every caller has to pass.
   if (location?.unit.buffed && STACKING_BUFF_DEF_IDS.has(location.unit.defId)) {
-    const stacked = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) + 1 }));
+    const stacked = withMightTransitions(
+      state,
+      updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) + 1 })),
+      [targetInstanceId],
+    );
     return holdEventTrigger(stacked, { kind: "unitBuffed", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
   }
   if (!location || location.unit.buffed) return updateUnitAnywhere(state, targetInstanceId, (u) => u);
 
-  const buffed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
+  const placed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
+  // A Buff is worth +1 Might (710), so placing one can cross 5 — Fiora's
+  // trigger has to see it, and the buff's own `unitBuffed` event below is a
+  // different question.
+  const buffed = withMightTransitions(state, placed, [targetInstanceId]);
   // HELD as a Chain Pending Item rather than resolved here — the first of the 14
   // dispatch sites to be converted (809.1.b.3: a trigger goes on the Chain so the
   // opponent may respond before it resolves). The buff itself is applied
