@@ -521,6 +521,21 @@ export type GameEvent =
       casterIndex: 0 | 1;
       playedKind: CardInstance["kind"];
       playedInstanceId: string;
+      /**
+       * The PRINTED Power cost of the card played — Yordle Explorer's "when you
+       * play a card with Power cost [rainbow][rainbow] or more".
+       *
+       * Carried on the event rather than looked up by the listener, because by
+       * the time this resolves the card may be anywhere: a Spell is in the trash,
+       * a Unit is on the board, and a countered card is in neither. The producer
+       * holds the `CardInstance` and is the only place the answer is reliably
+       * available.
+       *
+       * PRINTED, not paid. "A card WITH Power cost N" is a property of the card,
+       * so a discount that reduced what was actually spent does not change it —
+       * the same printed-vs-paid reading `modifiedEnergyCost` keeps separate.
+       */
+      playedPowerCost: number;
       fromHidden?: boolean;
     }
   /** `playerIndex`'s Beginning Phase is starting. Fired BEFORE holds score, for
@@ -562,8 +577,19 @@ export type GameEvent =
    * controller — "when YOU choose me" is satisfied only by its own side, and an
    * opponent paying `[Deflect]` to choose it is a different sentence. Cards ask
    * for themselves.
+   *
+   * `bySpell` says WHICH of the two paths raised it, and exists because the pool
+   * prints both readings. Jae Medarda reads "when you choose me with a SPELL",
+   * so an ability choosing him is not his moment; Spirit Wheel and Irelia -
+   * Fervent read a bare "when you choose", so both paths are. Without the field
+   * the narrower card can only be written as the wider one, which is the
+   * direction this codebase does not ship.
+   *
+   * Required rather than optional, for the reason `cardPlayed`'s own
+   * `playedKind` comment gives: an optional discriminator lets a producer omit
+   * it and leaves the card that reads it silently doing nothing.
    */
-  | { kind: "unitChosen"; chooserIndex: 0 | 1; unitInstanceId: string }
+  | { kind: "unitChosen"; chooserIndex: 0 | 1; unitInstanceId: string; bySpell: boolean }
   /**
    * A unit that was NOT `[Mighty]` now is — Fiora - Grand Duelist's "when one of
    * your units becomes [Mighty]".
@@ -1380,10 +1406,19 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
  * Deliberately does NOT check that the unit still exists. 355 fixes the choice
  * at announcement, and the only caller that could be wrong about it is one that
  * passes an id it never validated — which `validate-play-card` already refuses.
+ *
+ * `bySpell` is the caller's own path and is not inferred here — the two
+ * `execute-*` handlers each know statically which they are, and asking the state
+ * would be guessing at something already known.
  */
-export function holdUnitsChosen(state: GameState, chooserIndex: 0 | 1, chosenInstanceIds: readonly string[]): GameState {
+export function holdUnitsChosen(
+  state: GameState,
+  chooserIndex: 0 | 1,
+  chosenInstanceIds: readonly string[],
+  bySpell: boolean,
+): GameState {
   return chosenInstanceIds.reduce(
-    (next, unitInstanceId) => holdEventTrigger(next, { kind: "unitChosen", chooserIndex, unitInstanceId }),
+    (next, unitInstanceId) => holdEventTrigger(next, { kind: "unitChosen", chooserIndex, unitInstanceId, bySpell }),
     state,
   );
 }

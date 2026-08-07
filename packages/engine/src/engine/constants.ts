@@ -21,6 +21,24 @@ export const WIN_THRESHOLD_1V1 = 8;
 export const MIGHTY_THRESHOLD = 5;
 
 /**
+ * "Your **Mechs**" — a printed tag, so it is answerable from a card DEFINITION
+ * and not only from a live instance. That is what lets it be asked at ENTRY
+ * (`keywordOnEntry`, before the unit exists as an instance) as well as on the
+ * board.
+ *
+ * Here for the same reason `MIGHTY_THRESHOLD` above is: two modules that cannot
+ * import each other both need it. `granted-keywords` asks it for the three
+ * tribal keyword auras, and `effective-might` asks it for Rumble - Scrapper's
+ * tribal MIGHT aura — and granted-keywords already imports effective-might, so
+ * the predicate cannot live in either without the other reaching across.
+ *
+ * Takes the structural shape both callers can supply: a definition's key is
+ * `id` and an instance's is `defId`, so neither is named here and only `tags`
+ * is read.
+ */
+export const isMechDef = (def: { tags?: readonly string[] }): boolean => def.tags?.includes("Mech") === true;
+
+/**
  * The Victory Score for THIS game — the constant above plus whatever the
  * battlefields in play add to it.
  *

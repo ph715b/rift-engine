@@ -1306,6 +1306,20 @@ function ribbonDancerCandidates(state: GameState, ownerIndex: 0 | 1, selfInstanc
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "SFD-046": {
+    // Poro Snax's FIRST half — "When you play this, draw 1."
+    //
+    // A SELF-trigger for the reason Spirit's Refuge's below is: a Gear entering
+    // play is not a moment the listener walk reaches on its own behalf.
+    //
+    // `"played"` only. Scrapheap takes all three moments because its text names
+    // all three; this one names the play, and its OTHER draw is an activated
+    // ability with its own printed cost (see activated-abilities.ts). Listing
+    // `"killed"` here would pay that ability's draw twice — once from the
+    // `killSelf` cost and once from this — for a card that prints one.
+    on: ["played"],
+    resolve: (state, event) => drawCards(state, event.ownerIndex, 1),
+  },
   "OGN-063": {
     // Spirit's Refuge — "When you play this, buff a friendly unit."
     //

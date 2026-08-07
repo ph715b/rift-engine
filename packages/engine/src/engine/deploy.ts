@@ -265,6 +265,7 @@ export function playUnitToBattlefield(
     casterIndex: playerIndex,
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
+    playedPowerCost: deployed.powerCost,
   });
   // Last, so LIFO resolves it first — see execute-play-card for why the position
   // is chosen rather than incidental.
@@ -289,6 +290,7 @@ export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitI
     casterIndex: playerIndex,
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
+    playedPowerCost: deployed.powerCost,
   });
   // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
   return holdSelfTrigger(withEvent, "played", deployed, playerIndex);

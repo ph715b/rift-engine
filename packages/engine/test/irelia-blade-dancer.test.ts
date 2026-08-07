@@ -79,11 +79,13 @@ describe("the adapter carries BOTH of a Legend's hooks", () => {
       kind: "unitChosen",
       chooserIndex: 0,
       unitInstanceId: "ally",
+      bySpell: true,
     });
     const onEnemyChoose = entry.applies!(state, listener as never, {
       kind: "unitChosen",
       chooserIndex: 1,
       unitInstanceId: "ally",
+      bySpell: true,
     });
 
     expect(onChoose, "her own clause did not fire for her own choice").toBe(true);
@@ -93,7 +95,7 @@ describe("the adapter carries BOTH of a Legend's hooks", () => {
 
 describe("Irelia's choose clause", () => {
   it("offers to exhaust her and pay [rainbow] to ready the chosen unit", () => {
-    const after = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally" });
+    const after = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally", bySpell: true });
 
     const decision = pendingDecision(after);
     expect(decision?.kind, "no offer was made").toBe("SFD-195-ready-chosen");
@@ -101,7 +103,7 @@ describe("Irelia's choose clause", () => {
   });
 
   it("readies the unit, exhausts her, and spends the Power", () => {
-    const offered = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally" });
+    const offered = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally", bySpell: true });
     const decision = pendingDecision(offered)!;
     const after = answerDecision(offered, decision.id, "ready")!;
 
@@ -114,7 +116,7 @@ describe("Irelia's choose clause", () => {
   /** Declining costs nothing — the negative that proves the cost is tied to the
    *  answer rather than charged when the question is asked. */
   it("declining leaves her ready and the unit exhausted", () => {
-    const offered = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally" });
+    const offered = fire(board(), { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally", bySpell: true });
     const after = answerDecision(offered, pendingDecision(offered)!.id, "decline")!;
 
     expect(after.players[0]!.legend.exhausted).toBe(false);
@@ -127,7 +129,7 @@ describe("Irelia's choose clause", () => {
   it("is not offered at all while she is already exhausted", () => {
     const state = board();
     state.players[0]!.legend = { ...state.players[0]!.legend, exhausted: true };
-    const after = fire(state, { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally" });
+    const after = fire(state, { kind: "unitChosen", chooserIndex: 0, unitInstanceId: "ally", bySpell: true });
 
     expect(pendingDecision(after), "an unpayable offer was made").toBeUndefined();
   });

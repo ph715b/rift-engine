@@ -3,7 +3,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
-import { MIGHTY_THRESHOLD } from "./constants.js";
+import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
 import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 
@@ -103,6 +103,7 @@ export function grantedKeywordDefIds(): string[] {
     RAGING_SOUL,
     BILGEWATER_BULLY,
     FIORA_VICTORIOUS,
+    ...Object.keys(DYNAMIC_KEYWORD_VALUES),
     ...Object.keys(KEYWORD_AURAS),
     ...equipmentKeywordDefIds(),
     ...equipmentDefIds(),
@@ -163,8 +164,13 @@ interface KeywordAura {
 }
 
 /** "Your Mechs" — a printed tag, so it is answerable from the definition and
- *  can therefore be asked at ENTRY as well as on the board. */
-const isMech = (def: { tags?: readonly string[] }): boolean => def.tags?.includes("Mech") === true;
+ *  can therefore be asked at ENTRY as well as on the board.
+ *
+ *  Moved to `constants.ts` when Rumble - Scrapper's tribal MIGHT aura needed the
+ *  same question from `effective-might`, which this module imports and so cannot
+ *  import back. Re-exported under the local name the table below already uses,
+ *  so one definition of "is a Mech" serves both. */
+const isMech = isMechDef;
 
 /** "Your Sand Soldiers" — Azir. A printed tag like Mech's, so it is answerable
  *  from the definition and therefore askable at ENTRY as well as on the board.
@@ -379,6 +385,54 @@ const CONDITIONAL_GRANTS: Record<string, Grant> = {
 };
 
 /**
+ * A keyword whose VALUE is computed from the board — Ancient Warmonger's
+ * "I have [Assault] equal to the number of enemy units here".
+ *
+ * Distinct from `CONDITIONAL_GRANTS` above, which answers a yes/no and grants at
+ * value 1. The valued keywords ([Assault], [Shield], [Deflect]) already carry an
+ * N that `effectiveKeywords` returns and `effectiveMight` reads, so nothing
+ * downstream needed changing — only the ability to say what N is at read time.
+ *
+ * Keyed by the unit's OWN defId, like `CONDITIONAL_GRANTS` and unlike
+ * `KEYWORD_AURAS`: every entry is a card talking about itself.
+ *
+ * Re-asked on every read, so it tracks the board as units arrive and die
+ * mid-combat — which is the point of the card and the reason it is not a stored
+ * value. A 0 is folded in as a 0 rather than skipped, and `Math.max` in
+ * `effectiveKeywords` then leaves a printed value alone.
+ *
+ * **No recursion risk, and that is a real constraint rather than an
+ * observation.** This is consulted from `effectiveKeywords`, which
+ * `effectiveMight` calls for its combat terms — so a value that read Might
+ * would close a loop. Counting bodies does not.
+ */
+type DynamicKeywordValue = {
+  keyword: Keyword;
+  value: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => number;
+};
+
+/** Ancient Warmonger: "I have [Assault] equal to the number of enemy units
+ *  here." */
+const ANCIENT_WARMONGER = "SFD-131";
+
+const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
+  [ANCIENT_WARMONGER]: {
+    keyword: "Assault",
+    // "HERE" is a battlefield, so a Warmonger in base has [Assault 0] — the same
+    // positional reading every other "here" in this file and in
+    // effective-might.ts takes. Counted off the OPPONENT's list at that
+    // battlefield, which is what "enemy" means and is measured from HIS
+    // controller's side rather than from whoever is asking.
+    value: (state, unit, ownerIndex) => {
+      const location = locationOf(state, unit);
+      if (location === undefined || location === "base") return 0;
+      const enemyId = state.players[ownerIndex === 0 ? 1 : 0].id;
+      return state.battlefields.find((bf) => bf.id === location)?.units[enemyId]?.length ?? 0;
+    },
+  },
+};
+
+/**
  * Rule 711: "A Unit 'is Mighty' as long as its Might is 5 or greater", evaluated
  * on its CURRENT Might.
  *
@@ -415,8 +469,14 @@ export function effectiveKeywords(
   // detaching Doran's Shield takes `[Tank]` with it in the same instant — the
   // same reasoning the Might badge is read at the gate in effective-might.
   const fromEquipment = equipmentKeywordsFor(state, unit.instanceId);
+  // Ancient Warmonger's computed [Assault]. Looked up before the fast path
+  // below, because a card with one MUST NOT take that path — returning
+  // `unit.keywords` unchanged is what "nothing is granting anything" means, and
+  // a dynamic value is something being granted.
+  const dynamic = DYNAMIC_KEYWORD_VALUES[unit.defId];
   if (
     !hasThisTurn &&
+    dynamic === undefined &&
     fromAuras.length === 0 &&
     fromBattlefield.length === 0 &&
     Object.keys(fromEquipment).length === 0 &&
@@ -458,6 +518,12 @@ export function effectiveKeywords(
   // exactly like a printed one, and nothing downstream should be able to tell
   // where it came from.
   for (const kw of fromBattlefield) out[kw] = Math.max(out[kw] ?? 0, 1);
+  // A computed value, merged on the same `Math.max` terms as everything above:
+  // a card that also PRINTED [Assault 1] keeps the higher of the two, and a
+  // count of 0 never lowers anything.
+  if (dynamic) {
+    out[dynamic.keyword] = Math.max(out[dynamic.keyword] ?? 0, dynamic.value(state, unit, ownerIndex));
+  }
   return out;
 }
 

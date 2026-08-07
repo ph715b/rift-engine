@@ -23,6 +23,7 @@ import {
   ownUnitsEverywhere,
   payPowerFromChanneled,
   payEnergyFromPool,
+  exhaustGear,
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
@@ -804,7 +805,74 @@ function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefiel
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
+/** Spirit Wheel's optional draw. */
+const SPIRIT_WHEEL_DRAW_COST = 1;
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-142": {
+    // Jae Medarda — "When you choose me with a spell, draw 1."
+    //
+    // **"With a SPELL" is the whole reason `unitChosen` carries `bySpell`.** He
+    // is the first card in the pool to narrow the moment to one of the two
+    // choosing paths: Irelia - Fervent and Spirit Wheel both read a bare "when
+    // you choose", and before him the event had no way to tell an ability's
+    // choice from a spell's. Reading the wider sentence would have him draw off
+    // Jax - Grandmaster At Arms pointing at him, which he does not say.
+    //
+    // "When YOU choose" is his own side, the same reading Irelia - Fervent's
+    // entry takes — an opponent paying to choose him is a different sentence,
+    // and one this card does not print.
+    //
+    // Not capped: one event per choice (see `holdUnitsChosen`), so a spell that
+    // names him twice draws twice. The card says nothing about once per turn.
+    on: "unitChosen",
+    applies: (_state, listener, event) =>
+      event.kind === "unitChosen" &&
+      event.bySpell &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.chooserIndex === listener.ownerIndex,
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
+  "SFD-144": {
+    // Spirit Wheel — "When you choose a friendly unit, you may pay [1] and
+    // exhaust this to draw 1."
+    //
+    // A GEAR watching a moment that happens to a UNIT, which the listener walk
+    // already reaches: `allListeningPermanents` includes `activeGear`.
+    //
+    // Three conditions and all three are printed. **"YOU choose"** is its
+    // controller doing the choosing. **"a FRIENDLY unit"** is friendly to that
+    // same controller — so choosing an enemy unit with a removal spell is not
+    // its moment, which is what makes it a build-around rather than a Cantrip on
+    // every spell. **"exhaust this"** means a Wheel already exhausted cannot pay,
+    // so it is once a turn by construction rather than by a counter.
+    //
+    // Both halves of the cost are checked at fire time, because an offer nobody
+    // can take is not made — the rule this file applies throughout — and both
+    // are re-derived at answer time in the decision below.
+    //
+    // Unlike Jae Medarda above it reads a bare "when you choose", so it takes
+    // BOTH paths and does not consult `bySpell`.
+    on: "unitChosen",
+    applies: (state, listener, event) => {
+      if (event.kind !== "unitChosen") return false;
+      if (event.chooserIndex !== listener.ownerIndex) return false;
+      const gear = state.players[listener.ownerIndex].activeGear.find((g) => g.instanceId === listener.card.instanceId);
+      if (gear === undefined || gear.exhausted) return false;
+      const chosen = findUnitAnywhere(state, event.unitInstanceId);
+      if (chosen === undefined || chosen.ownerIndex !== listener.ownerIndex) return false;
+      return payEnergyFromPool(state, listener.ownerIndex, SPIRIT_WHEEL_DRAW_COST) !== undefined;
+    },
+    resolve: (state, listener) =>
+      parkDecision(state, {
+        kind: "SFD-144-draw",
+        playerIndex: listener.ownerIndex,
+        // The Wheel that fired is the one that must exhaust. Carried on the
+        // decision rather than re-found at answer time, because a second Wheel
+        // could be in play and paying with the wrong one is a different game.
+        cardInstanceId: listener.card.instanceId,
+      }),
+  },
   "SFD-124": {
     // Doran's Ring — "When I conquer, discard 1, then draw 1."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
@@ -1429,6 +1497,32 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
 const NOCTURNE_POWER = 1;
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-144-draw": {
+    // Spirit Wheel's "you may pay [1] and exhaust this to draw 1."
+    prompt: () => "Spirit Wheel: pay [1] and exhaust it to draw 1?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Both halves re-asked at ANSWER time, the convention every paid decision
+      // here follows: the question waits on the chain, and in that time the
+      // Energy can be spent elsewhere and the Wheel can be exhausted by
+      // something else or leave play entirely.
+      const gear = d.cardInstanceId
+        ? state.players[d.playerIndex].activeGear.find((g) => g.instanceId === d.cardInstanceId)
+        : undefined;
+      if (gear && !gear.exhausted && payEnergyFromPool(state, d.playerIndex, SPIRIT_WHEEL_DRAW_COST)) {
+        options.push({ id: "pay", label: "Pay [1], exhaust Spirit Wheel, draw 1" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || d.cardInstanceId === undefined) return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, SPIRIT_WHEEL_DRAW_COST);
+      // A payment that cannot be made draws nothing AND exhausts nothing — the
+      // cost is one act, so neither half happens without the other.
+      if (!paid) return state;
+      return drawCards(exhaustGear(paid, d.playerIndex, d.cardInstanceId), d.playerIndex, 1);
+    },
+  },
   /** Stealthy Pursuer's "I may be moved with it" — see his trigger above for the
    *  timing divergence this question inherits. */
   "OGN-177-follow": {

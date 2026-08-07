@@ -353,7 +353,7 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
     };
     const arrived = dispatchOnPlayUnit(withUnit, unit, 0, "base", {});
     return resolveHeldTriggers(
-      holdEventTrigger(arrived, { kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: unit.instanceId }),
+      holdEventTrigger(arrived, { kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: unit.instanceId, playedPowerCost: 0 }),
     );
   }
 

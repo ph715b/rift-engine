@@ -68,7 +68,7 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   // from where each effect happens rather than from a choice made here.
   const chosen =
     action.targetUnitInstanceId !== undefined
-      ? holdUnitsChosen(recorded, action.playerIndex, [action.targetUnitInstanceId])
+      ? holdUnitsChosen(recorded, action.playerIndex, [action.targetUnitInstanceId], false)
       : recorded;
 
   // Ezreal - Prodigal Explorer's tally — "with spells or UNIT abilities", so the

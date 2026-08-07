@@ -382,6 +382,28 @@ const CONDITIONAL_KEYWORD_DEF_IDS = new Set([
 const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   "OGN-015": ["Assault"], // Captain Farron — "Other friendly units here have [Assault]"
   "OGN-063": ["Deflect"], // Spirit's Refuge — "Friendly buffed units have [Deflect]"
+  // Ancient Warmonger — "I have [Assault] equal to the number of enemy units
+  // here."
+  //
+  // **The keyword is his OWN, not a neighbour's**, which is a fourth shape for
+  // this table rather than a third instance of the first: the two entries above
+  // strip a keyword a card gives to somebody else, and this strips one the card
+  // gives to ITSELF at a value only the board can supply. What both cases have
+  // in common is the only thing this table acts on — a bracket the parser saw
+  // that is not a FLAT PRINTED keyword, and that something at runtime is
+  // responsible for instead.
+  //
+  // It cannot go in `CONDITIONAL_KEYWORD_DEF_IDS` above, which returns `{}` and
+  // would take his real printed `[Accelerate]` with it. Per-keyword is the whole
+  // reason this table exists separately — Taric's entry records the same
+  // constraint from the other direction.
+  //
+  // Left in, he had a flat `[Assault 1]` floor: `effectiveKeywords` merges the
+  // computed value with `Math.max`, so a Warmonger facing an EMPTY battlefield
+  // swung at +1 for an ability that reads "equal to the number of enemy units
+  // here" — i.e. equal to zero. The runtime value lives in
+  // `granted-keywords.DYNAMIC_KEYWORD_VALUES`.
+  "SFD-131": ["Assault"],
 };
 
 /** A card's printed keywords: what the brackets say, minus the ones it only

@@ -140,7 +140,7 @@ describe("Volibear - Relentless Storm (OGN-249): when you play a [Mighty] unit",
   }
 
   const cardPlayed = (state: GameState, played: UnitInstance) =>
-    holdEventTrigger(state, { kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: played.instanceId });
+    holdEventTrigger(state, { kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: played.instanceId, playedPowerCost: 0 });
 
   it("waits on the chain, then asks", () => {
     const { state, played } = voliState(5);

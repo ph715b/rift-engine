@@ -4,6 +4,7 @@ import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
 import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
 import { equipmentMightBonusFor } from "./equipment.js";
+import { isMechDef } from "./constants.js";
 
 export interface MightContext {
   isCombat: boolean;
@@ -68,6 +69,23 @@ const ORNN_FORGE_GOD = "SFD-085";
 /** Trusty Ramhound: "While you have another unit here, I have +1 Might."
  *  Positional and self-referential — the condition is about its OWN square. */
 const TRUSTY_RAMHOUND = "SFD-159";
+/**
+ * Rumble - Scrapper: "Your Mechs have +1 Might (**including me**)."
+ *
+ * The first TRIBAL Might aura, and the first that includes its own source. Both
+ * of those are the card's words rather than a convenience: every other unit aura
+ * in this file prints "OTHER friendly units" and excludes itself as a class,
+ * and this one prints the opposite in parentheses.
+ *
+ * He is himself tagged `Mech`, so "including me" needs no special case at all —
+ * it is simply the absence of the exclusion the others have. Sett - Kingpin is
+ * the precedent for reading a missing "other" as inclusive.
+ *
+ * Unpositioned: his text names no battlefield, so a Scrapper in base still
+ * pumps a Mech at the far end of the board — the same reading Dr. Mundo -
+ * Expert's and Ornn - Forge God's zone-scaling auras take.
+ */
+const RUMBLE_SCRAPPER = "SFD-089";
 /** Dr. Mundo - Expert: "My Might is increased by the number of cards in your
  *  trash." Self-scaling off a zone, like Master Yi - Meditative's rune count —
  *  and like his, recomputed on read rather than written into state, so it falls
@@ -152,6 +170,11 @@ export function effectiveMightDefIds(): string[] {
     DRAVEN_SHOWBOAT,
     TRUSTY_RAMHOUND,
     ORNN_FORGE_GOD,
+    // Claims only his MIGHT aura. His second sentence ("when I hold, play a
+    // Mech token") is an event trigger and lives in effects/mind.ts — coverage
+    // is per defId, so either half alone would report him finished. Both landed
+    // in the same change, which is what keeps him off PARTIALLY_IMPLEMENTED.
+    RUMBLE_SCRAPPER,
   ];
 }
 
@@ -260,6 +283,25 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const ownerId = state.players[ownerIndex].id;
     const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
     if (here.some((u) => u.instanceId !== unit.instanceId)) bonus += 1;
+  }
+
+  // Rumble - Scrapper — "Your Mechs have +1 Might (including me)."
+  //
+  // The receiving unit's tag is the whole filter, and it is read off the
+  // INSTANCE: `UnitInstance` carries `tags`, and the Mech TOKEN carries it too,
+  // so a token he makes is pumped by him exactly as a printed Mech is.
+  //
+  // No self-exclusion, and no location test — see his constant above for why
+  // each of those is the card's text rather than an omission. `ownUnitLocation`
+  // is therefore not consulted at all: only "is a Scrapper in play on this
+  // side", which is what `!== undefined` asks.
+  //
+  // Two Scrappers stack, the same way two Garen - Commanders do — but only one
+  // is seen, because `ownUnitLocation` reports the FIRST copy and this asks a
+  // yes/no question of it. That under-report is the one already documented on
+  // that helper, and it is unreachable in practice for a Champion.
+  if (isMechDef(unit) && ownUnitLocation(state, ownerIndex, RUMBLE_SCRAPPER) !== undefined) {
+    bonus += 1;
   }
 
   // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),

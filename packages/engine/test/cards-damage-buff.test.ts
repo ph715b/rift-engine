@@ -317,12 +317,12 @@ describe("Might modification", () => {
     base.battlefields[0]!.units = { p1: [darius] };
 
     const second: GameState = { ...base, players: [{ ...base.players[0]!, cardsPlayedThisTurn: 2 }, base.players[1]!] };
-    const afterSecond = fireHeld(second, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const afterSecond = fireHeld(second, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0 });
     expect(atBf(afterSecond, "p1")[0]!.mightThisTurn).toBe(2);
     expect(atBf(afterSecond, "p1")[0]!.exhausted).toBe(false);
 
     const third: GameState = { ...base, players: [{ ...base.players[0]!, cardsPlayedThisTurn: 3 }, base.players[1]!] };
-    expect(atBf(fireHeld(third, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic" }), "p1")[0]!.mightThisTurn).toBe(0);
+    expect(atBf(fireHeld(third, { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0 }), "p1")[0]!.mightThisTurn).toBe(0);
   });
 
   it("Darius - Trifarian ignores the OPPONENT's second card", () => {
@@ -331,7 +331,7 @@ describe("Might modification", () => {
     state.battlefields[0]!.units = { p1: [darius] };
     state.players[0]!.cardsPlayedThisTurn = 2;
 
-    const after = fireHeld(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic" });
+    const after = fireHeld(state, { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0 });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 });

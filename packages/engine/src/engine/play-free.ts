@@ -1,4 +1,5 @@
 import type { CardInstance, GearInstance, SpellInstance, UnitInstance } from "../model/card.js";
+import { powerCostOf } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { contextFor } from "./effect-context.js";
 import { cardModeOf } from "./card-effects.js";
@@ -105,6 +106,7 @@ function firePlayed(state: GameState, playerIndex: 0 | 1, card: CardInstance): G
     casterIndex: playerIndex,
     playedKind: card.kind,
     playedInstanceId: card.instanceId,
+    playedPowerCost: powerCostOf(card),
   });
   // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
   return holdSelfTrigger(withEvent, "played", card, playerIndex);

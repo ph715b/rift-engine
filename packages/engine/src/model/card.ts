@@ -178,6 +178,23 @@ export interface GearInstance extends CardInstanceBase {
 
 export type CardInstance = LegendInstance | UnitInstance | SpellInstance | GearInstance;
 
+/**
+ * The PRINTED Power cost of any card instance — 0 for a Legend, which is the
+ * one member of the union that has no such field.
+ *
+ * A Legend is never played and so never reaches the `cardPlayed` event this was
+ * written for; 0 is nonetheless the honest answer rather than a throw, because
+ * "does this card cost [rainbow][rainbow] or more" has a correct answer for a
+ * Legend and it is "no".
+ *
+ * An accessor rather than a `powerCost` on `CardInstanceBase`: putting it on the
+ * base would give `LegendInstance` a cost field that means nothing, and the
+ * three cost-paying paths would then all have to remember not to read it.
+ */
+export function powerCostOf(card: CardInstance): number {
+  return card.kind === "Legend" ? 0 : card.powerCost;
+}
+
 let instanceCounter = 0;
 /** Deterministic id generator (no crypto/UUID dependency) — fine for now since
  *  nothing depends on instance ids being unguessable, only unique per game. */

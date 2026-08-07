@@ -550,10 +550,44 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
+/** Yordle Explorer's threshold — the two rainbow pips he reads, as a count.
+ *  "Or more", so the comparison is `>=`. */
+const YORDLE_EXPLORER_POWER_THRESHOLD = 2;
+
 /** Jax - Unrelenting's optional draw. */
 const JAX_UNRELENTING_DRAW_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-100": {
+    // Yordle Explorer — "When you play a card with Power cost [rainbow][rainbow]
+    // or more, draw 1."
+    //
+    // "YOU play" is his controller only, so an opponent's expensive card does
+    // nothing — the same reading Darius - Trifarian's and Viktor - Innovator's
+    // `cardPlayed` entries take, and the field that answers it is `casterIndex`.
+    //
+    // **The pips are RAINBOW, so the domain is not asked.** `[rainbow][rainbow]`
+    // is "two Power of any domains", which is exactly what a printed `powerCost`
+    // of 2 means — `powerDomain` says which domain must pay, and the card asks
+    // only how many. A 2-Power Fury card and a 2-Power Mind card both feed him.
+    //
+    // "OR MORE", so it is `>=` and a 3-Power card counts once, not twice: the
+    // event fires per CARD played.
+    //
+    // ANY card, not only units — the sentence says "a card", and Spells and Gear
+    // both carry Power costs in this pool. `playedKind` is deliberately not
+    // consulted.
+    //
+    // Reads the PRINTED cost off the event rather than what was actually paid;
+    // see `playedPowerCost`'s own doc for why a discount does not change what a
+    // card "has".
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedPowerCost >= YORDLE_EXPLORER_POWER_THRESHOLD,
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
   "SFD-119": {
     // Jax - Unrelenting's second clause — "When you attach an Equipment to me,
     // you may pay [1] to draw 1." (His first is `[Weaponmaster]`, which the

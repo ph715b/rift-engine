@@ -74,7 +74,7 @@ describe("the unitChosen event", () => {
     // reading her id off a second board would name a unit this one has never
     // heard of — and the trigger would correctly do nothing.
     const state = board();
-    const settled = resolveHeldTriggers(holdUnitsChosen(state, 0, [irelia(state).instanceId]));
+    const settled = resolveHeldTriggers(holdUnitsChosen(state, 0, [irelia(state).instanceId], true));
     expect(ireliaBonus(settled), "the choose half did not fire").toBe(1);
   });
 
@@ -82,14 +82,14 @@ describe("the unitChosen event", () => {
     // The sentence `[Deflect]` sits alongside rather than in tension with: an
     // opponent may still pay the rainbow to choose her, and she does not grow.
     const state = board();
-    const settled = resolveHeldTriggers(holdUnitsChosen(state, 1, [irelia(state).instanceId]));
+    const settled = resolveHeldTriggers(holdUnitsChosen(state, 1, [irelia(state).instanceId], true));
     expect(ireliaBonus(settled), "she grew off an ENEMY choosing her").toBe(0);
   });
 
   it("ignores a choice that named a different unit", () => {
     const state = board();
     state.players[0]!.baseUnits = [makeUnit({ instanceId: "someone-else" })];
-    expect(ireliaBonus(resolveHeldTriggers(holdUnitsChosen(state, 0, ["someone-else"]))), "she grew off another unit's").toBe(0);
+    expect(ireliaBonus(resolveHeldTriggers(holdUnitsChosen(state, 0, ["someone-else"], true))), "she grew off another unit's").toBe(0);
   });
 
   it("is ONE event per choice, so choosing her twice pays twice", () => {
@@ -97,7 +97,7 @@ describe("the unitChosen event", () => {
     // those two separate choices. The card caps nothing, so neither does this.
     const state = board();
     const id = irelia(state).instanceId;
-    expect(ireliaBonus(resolveHeldTriggers(holdUnitsChosen(state, 0, [id, id])))).toBe(2);
+    expect(ireliaBonus(resolveHeldTriggers(holdUnitsChosen(state, 0, [id, id], true)))).toBe(2);
   });
 });
 

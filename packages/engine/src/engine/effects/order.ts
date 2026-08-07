@@ -936,7 +936,44 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
   },
 };
 
+/** Fiora - Worthy's optional ready — one rune of her own domain. */
+const FIORA_WORTHY_READY_COST = 1;
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-180": {
+    // Fiora - Worthy — "When a unit you control becomes [Mighty], you may pay
+    // [Order] to ready it."
+    //
+    // Rides `unitBecameMighty`, the TRANSITION event built for Fiora - Grand
+    // Duelist, and inherits its recorded partial: a unit that becomes Mighty
+    // because an AURA arrived is not seen, because nothing about that unit
+    // changed. See the event's own doc and docs/rules-conformance.md.
+    //
+    // "A unit YOU control" is any of her controller's units INCLUDING herself —
+    // she prints no "other", and at 3 Might a single buff plus an Equipment puts
+    // her over the line. `ownerIndex` on the event is the unit's controller, so
+    // the comparison is direct.
+    //
+    // The payment is a RUNE of her domain, not Energy — `payPowerFromChanneled`
+    // rather than `payEnergyFromPool` — so it recycles the rune (416) instead of
+    // exhausting it. Checked here so an offer nobody can pay is never made.
+    on: "unitBecameMighty",
+    applies: (state, listener, event) =>
+      event.kind === "unitBecameMighty" &&
+      event.ownerIndex === listener.ownerIndex &&
+      payPowerFromChanneled(state, listener.ownerIndex, "Order", FIORA_WORTHY_READY_COST) !== undefined,
+    resolve: (state, listener, event) =>
+      event.kind === "unitBecameMighty"
+        ? parkDecision(state, {
+            // WHICH unit crossed is settled now and carried, not re-derived: the
+            // question waits on the chain, and by the time it is answered
+            // several units may be Mighty and only this one triggered.
+            kind: "SFD-180-ready",
+            playerIndex: listener.ownerIndex,
+            targetInstanceId: event.unitInstanceId,
+          })
+        : state,
+  },
   "SFD-153": {
     // Eye of the Herald — "When I move, play a 1 [Might] Recruit unit token here."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
@@ -1128,6 +1165,36 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-180-ready": {
+    // Fiora - Worthy's "you may pay [Order] to ready it."
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId)?.unit : undefined;
+      return `Fiora - Worthy: pay [Order] to ready ${unit?.name ?? "the unit"}?`;
+    },
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Re-asked at ANSWER time: the rune may have gone while the question
+      // waited on the chain, and the unit may have died or been readied by
+      // something else. A dead unit is not offered a ready.
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId)?.unit : undefined;
+      if (
+        unit &&
+        unit.exhausted &&
+        payPowerFromChanneled(state, d.playerIndex, "Order", FIORA_WORTHY_READY_COST) !== undefined
+      ) {
+        options.push({ id: "pay", label: `Pay [Order] to ready ${unit.name}` });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay" || d.targetInstanceId === undefined) return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Order", FIORA_WORTHY_READY_COST);
+      // Re-derived rather than trusted, the convention every paid decision
+      // follows. `readyUnit` refuses an already-ready unit on its own, so an
+      // unnecessary ready costs nothing and fires no event.
+      return paid ? readyUnit(paid, d.targetInstanceId) : state;
+    },
+  },
   // Vanguard Helm's "buff another friendly unit", raised by its death-watch.
   //
   // WHICH unit is a real choice with no action to hang it on — the trigger fires

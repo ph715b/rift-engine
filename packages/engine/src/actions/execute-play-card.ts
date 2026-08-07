@@ -13,6 +13,7 @@ import { validatePlayCard } from "./validate-play-card.js";
 import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
+import { powerCostOf } from "../model/card.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -122,6 +123,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     casterIndex: action.playerIndex,
     playedKind: action.card.kind,
     playedInstanceId: action.card.instanceId,
+    playedPowerCost: powerCostOf(action.card),
     // Ember Monk watches specifically for a play FROM facedown. Carried on the
     // existing event rather than a new one, so every other listener still sees
     // a hidden play as the play it is.
@@ -542,7 +544,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // rather than a battlefield it was standing at. Raised from the same list and
     // at the same moment (355's announcement) — the two differ only in what they
     // reach, which is why they are two calls rather than one event with a filter.
-    nextState = holdUnitsChosen(nextState, action.playerIndex, chosen);
+    nextState = holdUnitsChosen(nextState, action.playerIndex, chosen, true);
     // Ezreal - Prodigal Explorer counts CHOICES, and his clause reaches gear as
     // well as units — so this is the unit choices above PLUS the permanent-target
     // fields, which is where a chosen gear rides.

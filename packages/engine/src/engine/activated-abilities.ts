@@ -969,6 +969,30 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
   },
+  "SFD-046": {
+    // Poro Snax's SECOND half — "[1][Calm], Exhaust, Kill this: Draw 1."
+    //
+    // Its first ("when you play this, draw 1") is a Gear self-trigger and lives
+    // in effects/calm.ts. Both halves landed together; either alone would have
+    // reported the card finished, since coverage is per defId.
+    //
+    // **THREE costs, and all three are printed.** `:rb_energy_1:` is an Energy
+    // and `:rb_rune_calm:` is a Calm Power — one pip each, the same pair
+    // `[Accelerate]` prices as `ACCELERATE_ENERGY` + `ACCELERATE_POWER`, not a
+    // single Energy that a Calm rune happens to pay. `exhaust` on top of
+    // `killSelf` looks redundant on a card being destroyed and is kept for the
+    // reason the Gold token's identical pair is: it is what the card prints, and
+    // it is what stops a Snax that entered ready being used twice in one chain
+    // if anything ever readies one.
+    //
+    // So the card is two draws for a total of [1][1][Calm] spread over two
+    // moments — which is the whole card, and why the second draw is worth a
+    // rune.
+    kind: "Gear",
+    cost: { energy: 1, power: { domain: "Calm", count: 1 }, killSelf: true, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
   "OGN-186": {
     // Treasure Trove — "When this leaves the board, draw 1 and channel 1 rune
     // exhausted. [Chaos], Exhaust: Kill this."

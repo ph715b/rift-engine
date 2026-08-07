@@ -180,11 +180,33 @@ export function equipmentAttachedTo(state: GameState, unitInstanceId: string): G
   return state.players.flatMap((p) => p.activeGear.filter((g) => g.attachedToInstanceId === unitInstanceId));
 }
 
+/**
+ * Gearhead — "Each Equipment attached to me gives **double its base** Might
+ * bonus."
+ *
+ * A property of the WEARER, not of the gear, which is why it is applied here
+ * rather than in `equipMightBonusOf`: the same Long Sword is +2 on Gearhead and
+ * +1 the instant it is moved to the unit beside him.
+ *
+ * **"Its BASE Might bonus" is the printed badge and nothing else.** The badge is
+ * the art-only `equipMightBonus` table, so doubling it doubles exactly what the
+ * card says and leaves every other term alone — a `mightThisTurn` buff on the
+ * wearer, a Buff counter, an aura are all added by `effectiveMight` AFTER this
+ * returns and are not doubled. "Base" is the word that makes that the reading
+ * rather than a convenience.
+ */
+const GEARHEAD = "SFD-068";
+
 /** The total "+N Might" an attached Equipment grants this unit. Read at the
  *  gate by `effective-might`, so it is continuous rather than a stored buff —
  *  detaching the gear removes the Might in the same instant. */
 export function equipmentMightBonusFor(state: GameState, unitInstanceId: string): number {
-  return equipmentAttachedTo(state, unitInstanceId).reduce((sum, g) => sum + equipMightBonusOf(g), 0);
+  // The wearer's own defId decides the multiplier, so it is looked up once
+  // rather than per attached gear. A unit that is not on the board (nothing
+  // wears anything) falls through to 1 and the reduce below finds no gear.
+  const wearer = findUnitAnywhere(state, unitInstanceId)?.unit;
+  const multiplier = wearer?.defId === GEARHEAD ? 2 : 1;
+  return equipmentAttachedTo(state, unitInstanceId).reduce((sum, g) => sum + equipMightBonusOf(g) * multiplier, 0);
 }
 
 /**
@@ -264,9 +286,10 @@ function grantsQuickDrawToEquipment(state: GameState, ownerIndex: 0 | 1): boolea
 const JAX_UNMATCHED = "SFD-054";
 
 /** For coverage.ts — the cards this module implements by name rather than by
- *  keyword. Jax's grant is his whole second clause. */
+ *  keyword. Jax's grant is his whole second clause, and Gearhead's doubling is
+ *  his whole text besides the `[Accelerate]` the loader already handles. */
 export function equipmentDefIds(): string[] {
-  return [JAX_UNMATCHED];
+  return [JAX_UNMATCHED, GEARHEAD];
 }
 
 /**

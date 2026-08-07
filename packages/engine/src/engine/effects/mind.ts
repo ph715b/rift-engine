@@ -552,7 +552,30 @@ function readyableMechs(state: GameState, playerIndex: 0 | 1, selfInstanceId: st
  *  at the call site so the floor argument beside it reads plainly. */
 const FROSTCOAT_DEBUFF = 2;
 
+/** Pickpocket's "a gear with Energy cost no more than [1]" — the printed
+ *  ceiling, inclusive ("no more than"). */
+const PICKPOCKET_MAX_GEAR_COST = 1;
+
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-074": {
+    // Pickpocket — "When you play me, you may kill a gear with Energy cost no
+    // more than [1]. If you do, play a Gold gear token exhausted."
+    //
+    // A parked decision rather than a target on the play action, because "you
+    // MAY" with a filtered list of candidates is a question, and the same shape
+    // every other optional on-play kill in this pool takes.
+    //
+    // **"A gear", unqualified — so EITHER side's.** The pool says "a friendly
+    // gear" when it means one (Zaun Punk, Legion Quartermaster), and this card
+    // does not; killing the opponent's Doran's Ring is the play that makes him
+    // worth 3 Energy. Both players' `activeGear` are offered below.
+    //
+    // "If you do" ties the Gold strictly to the kill: declining gives nothing,
+    // which is why the token is minted in the same branch rather than
+    // unconditionally.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "SFD-074-kill", playerIndex: ctx.casterIndex }),
+  },
   "SFD-067": {
     // Frostcoat Cub — "You may pay [Mind] as an additional cost to play me. When
     // you play me, if you paid the additional cost, give a unit -2 Might this
@@ -800,6 +823,35 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-089": {
+    // Rumble - Scrapper's SECOND sentence — "When I hold, play a 3 [Might] Mech
+    // unit token to your base."
+    //
+    // His FIRST ("your Mechs have +1 Might, including me") is a continuous Might
+    // aura and lives in effective-might.ts, which also carries his coverage
+    // claim. Two halves, two modules, one change — see that claim's comment for
+    // why landing them apart would have reported him finished at the halfway
+    // point.
+    //
+    // "When **I** hold" is positional, like Ornn - Blacksmith's and Ahri -
+    // Alluring's: the battlefield held has to be the one he is standing at.
+    // Settled at fire time, so the response window this opens cannot be used to
+    // move him off it and still collect.
+    //
+    // The token goes to BASE, not to the battlefield he just held — the card
+    // says "to your base" and that is a real difference, since a token that
+    // arrived at the battlefield would be a body in a fight already decided.
+    //
+    // It is a Mech, so his own aura pumps it to 4 the instant it lands — which
+    // is the interaction the card is built out of and needs nothing here:
+    // `MECH_TOKEN` carries the tag and `effectiveMight` reads it fresh.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener) => placeToken(state, listener.ownerIndex, "base", MECH_TOKEN),
+  },
   "SFD-086": {
     // World Atlas — "When I hold, play two Gold gear tokens exhausted."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
@@ -1283,6 +1335,42 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-074-kill": {
+    // Pickpocket's "you may kill a gear with Energy cost no more than [1]. If you
+    // do, play a Gold gear token exhausted."
+    prompt: () => "Pickpocket: kill a gear costing [1] or less?",
+    options: (state) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // BOTH sides — see the trigger above for why "a gear" is unqualified. The
+      // owner index is encoded in the option id, because `killGear` needs to be
+      // told whose list to remove it from and an instance id alone does not say.
+      for (const ownerIndex of [0, 1] as const) {
+        for (const gear of state.players[ownerIndex].activeGear) {
+          if (gear.energyCost > PICKPOCKET_MAX_GEAR_COST) continue;
+          options.push({
+            id: `${ownerIndex}:${gear.instanceId}`,
+            label: `Kill ${gear.name}`,
+            instanceId: gear.instanceId,
+          });
+        }
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const [ownerRaw, instanceId] = optionId.split(":");
+      const ownerIndex = ownerRaw === "1" ? 1 : 0;
+      const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === instanceId);
+      // Re-derived at answer time, the convention every decision here follows:
+      // the gear may have been killed by something else while this waited, and
+      // "if you do" then means no Gold.
+      if (gear === undefined || gear.energyCost > PICKPOCKET_MAX_GEAR_COST) return state;
+      // The Gold goes to the PLAYER WHO ASKED, not to the gear's owner — "play a
+      // Gold gear token" is Pickpocket's controller playing it. Exhausted, as
+      // printed, which `placeGoldTokens` already does for every Gold in the pool.
+      return placeGoldTokens(killGear(state, gear, ownerIndex), d.playerIndex, 1);
+    },
+  },
   /**
    * Promising Future's first half — one player banishing one of their own top 5.
    *
