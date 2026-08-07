@@ -81,6 +81,24 @@ import { wearerListener } from "../equipment.js";
 const HARD_BARGAIN_RANSOM = 2;
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-135": {
+    // Factory Recall — "[Action] Return a gear to its owner's hand."
+    //
+    // "A GEAR", unqualified, so it reaches EITHER side — which is what makes a
+    // 1-Energy spell worth a card: it answers an enemy Equipment as readily as it
+    // rescues your own from a board wipe.
+    //
+    // A `gear`-kind target rather than `unitOrGear`: the card names a gear and
+    // nothing else, and the narrower spec is what stops a unit being offered and
+    // then refused.
+    //
+    // "To its OWNER's hand" is what `returnPermanentToHand` already does — it
+    // locates the permanent on either side rather than assuming the caster owns
+    // it, which is exactly the case this card creates.
+    targeting: { kind: "gear" },
+    resolve: (state, _ctx, event) =>
+      event.targetPermanentInstanceId ? returnPermanentToHand(state, event.targetPermanentInstanceId) : state,
+  },
   "OGN-203": {
     // Possession — "Choose an enemy unit at a battlefield. Take control of it and
     // recall it."

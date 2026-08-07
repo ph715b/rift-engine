@@ -855,7 +855,27 @@ export type GameEvent =
    *
    * Fired after the conquest is recorded, so a listener sees the score it caused.
    */
-  | { kind: "battlefieldConquered"; conquerorIndex: 0 | 1; battlefieldId: string }
+  | {
+      kind: "battlefieldConquered";
+      conquerorIndex: 0 | 1;
+      battlefieldId: string;
+      /**
+       * Was the battlefield UNCONTROLLED immediately before this conquest —
+       * Yone - Blademaster's "when I conquer a battlefield that was uncontrolled".
+       *
+       * Carried on the event because it is unanswerable afterwards: control has
+       * already moved to the conqueror by the time any listener runs, so a
+       * listener asking the board would find the battlefield controlled and
+       * could never tell "taken from nobody" from "taken from the opponent".
+       * The one site that knows is `updateControl`, which compares the two.
+       *
+       * Optional rather than required, unlike `cardPlayed`'s `playedKind`: the
+       * default (absent) reads as "not known to have been uncontrolled", which
+       * is the CONSERVATIVE answer for a card that only ever pays out on the
+       * positive — a producer that forgets it makes Yone silent, not wrong.
+       */
+      wasUncontrolled?: true;
+    }
   /**
    * `discarderIndex` discarded one or more cards — Jinx - Rebel's "when you
    * discard ONE OR MORE cards", which pays out once per discard INSTRUCTION
@@ -904,7 +924,23 @@ export type GameEvent =
    * Attack Triggers are the precedent for doing both at once only when the rules
    * tie them together.
    */
-  | { kind: "spellCast"; casterIndex: 0 | 1; totalCost: number };
+  | { kind: "spellCast"; casterIndex: 0 | 1; totalCost: number }
+  /**
+   * An ACTIVATED ABILITY was used — Prize of Progress's "when you use an
+   * activated ability of a GEAR".
+   *
+   * `sourceKind` is the kind of the permanent whose ability it was, and it is
+   * the whole condition for the one card that reads this: a unit's ability and
+   * a legend's are not a gear's. Read off the RESOLVED source rather than from
+   * the action, which names an instance and not what it is — the same reading
+   * `execute-activate-ability` already takes for Ezreal - Prodigal Explorer's
+   * "with spells or UNIT abilities" tally, two lines away in that file.
+   *
+   * Fired for the ACTIVATION rather than for the effect: an ability whose effect
+   * ends up doing nothing was still used, the same reading the mode-use record
+   * beside it takes.
+   */
+  | { kind: "abilityActivated"; activatorIndex: 0 | 1; sourceKind: CardInstance["kind"]; sourceInstanceId: string };
 
 /**
  * The event kinds that have been CONVERTED to Chain Pending Items (383 /
@@ -953,7 +989,8 @@ export type HeldEventKind =
   | "unitsStunned"
   | "cardsDiscarded"
   | "unitDied"
-  | "spellCast";
+  | "spellCast"
+  | "abilityActivated";
 
 /** An event that is still resolved inline — everything not yet converted. */
 export type InlineEvent = Exclude<GameEvent, { kind: HeldEventKind }>;

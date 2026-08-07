@@ -121,7 +121,15 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
  * Mirrors ScoringSystem.recordConquest (engine/ScoringSystem.java:136-195),
  * minus every named-card conquest-trigger dispatch and blocking check.
  */
-export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefieldId: string): GameState {
+export function recordConquest(
+  state: GameState,
+  playerIndex: 0 | 1,
+  battlefieldId: string,
+  /** Whether the battlefield was UNCONTROLLED before this conquest — see the
+   *  event's own field. Only `updateControl` can answer it, so it is passed in
+   *  rather than re-derived here, where control has already moved. */
+  wasUncontrolled = false,
+): GameState {
   // Forgotten Monument again. Taking the battlefield still HAPPENED — the
   // conquer triggers below still fire — but no scoring is recorded and no point
   // is paid, so the battlefield can still be scored on a later turn.
@@ -166,7 +174,12 @@ export function recordConquest(state: GameState, playerIndex: 0 | 1, battlefield
   //    the walk reaches the Legend zone, so a conquer puts the Legend and the
   //    permanents on the chain together. The Legend still resolves first, by
   //    being placed last — see listeningPermanents.
-  next = holdEventTrigger(next, { kind: "battlefieldConquered", conquerorIndex: playerIndex, battlefieldId });
+  next = holdEventTrigger(next, {
+    kind: "battlefieldConquered",
+    conquerorIndex: playerIndex,
+    battlefieldId,
+    ...(wasUncontrolled ? { wasUncontrolled: true as const } : {}),
+  });
   // The BATTLEFIELD's own "when you conquer here" (Zaun Warrens, Targon's Peak,
   // three more), placed after the permanents so it resolves before them under
   // LIFO — see holdBattlefieldTrigger. Before the withheld-point branch below for

@@ -21,6 +21,7 @@ import {
   exhaustAllFriendlyUnits,
   exhaustGear,
   giveMightThisTurn,
+  giveMightThisTurnToOwnUnit,
   giveMightThisTurnToAllEnemies,
   holdCardsRecycled,
   ownUnitsEverywhere,
@@ -848,6 +849,32 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-075": {
+    // Prize of Progress — "When you use an activated ability of a GEAR, give me
+    // +1 [Might] this turn."
+    //
+    // The first card to watch an ACTIVATION, which is why `abilityActivated`
+    // exists. The moment is the USE, not the effect: an ability whose effect
+    // ends up doing nothing was still used, and the event is raised before the
+    // resolver for exactly that reason.
+    //
+    // "of a GEAR" is the whole condition, and it is answered by `sourceKind` off
+    // the RESOLVED source — a unit's ability and a legend's are not a gear's. A
+    // check against the action would have had only an instance id and no idea
+    // what it named.
+    //
+    // "When YOU use" is his controller — an opponent exhausting their own gear
+    // does not feed him.
+    //
+    // Not capped: every gear activation pays, which in a deck of Gold tokens and
+    // Seals is the card. Nothing here says once per turn.
+    on: "abilityActivated",
+    applies: (_state, listener, event) =>
+      event.kind === "abilityActivated" &&
+      event.sourceKind === "Gear" &&
+      event.activatorIndex === listener.ownerIndex,
+    resolve: (state, listener) => giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, 1),
+  },
   "SFD-089": {
     // Rumble - Scrapper's SECOND sentence — "When I hold, play a 3 [Might] Mech
     // unit token to your base."

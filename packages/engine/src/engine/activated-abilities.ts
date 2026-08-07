@@ -21,6 +21,7 @@ import {
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
   legionActive,
+  gainPoints,
   payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
@@ -1014,6 +1015,52 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     cost: { recycleFromTrash: 3, energy: 1, exhaust: true },
     targeting: { kind: "none" },
     resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "SFD-088": {
+    // Renata Glasc - Mastermind — "[1][Mind]: Draw 1. [4][Mind][Mind][Mind]
+    // [Mind], [Exhaust]: Score 1 point. Use my abilities only while I'm at a
+    // battlefield."
+    //
+    // **The pool's first activated ability that SCORES.** Points are otherwise
+    // paid only by holding and conquering, and routing this through the same
+    // `gainPoints` is what makes it obey everything they obey — Tianna
+    // Crownguard's block, the win check at 474, and Draven - Showboat's Might
+    // reading the score. A bespoke increment would have skipped all three.
+    //
+    // TWO modes with DIFFERENT costs, which is exactly what per-mode `cost` is
+    // for: the draw is cheap and REPEATABLE (no exhaust, so it runs while the
+    // Energy lasts), and the score costs four Energy, four Mind Power AND the
+    // exhaust. Putting the exhaust on the ability instead would have made the
+    // draw once a turn, which the card does not say.
+    //
+    // "Use my abilities only while I'm AT A BATTLEFIELD" is a restriction on
+    // ACTIVATING, so it is `availableWhile` rather than a check in either
+    // resolver — the same placement Ezreal - Prodigal Explorer's "use only if"
+    // takes, and for the reason recorded there: a resolver that refused would
+    // have taken the cost first.
+    kind: "Unit",
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      state.battlefields.some((bf) =>
+        (bf.units[state.players[playerIndex].id] ?? []).some((u) => u.instanceId === sourceInstanceId),
+      ),
+    modes: [
+      {
+        id: "draw",
+        label: "Draw 1",
+        // No exhaust: the card prints none on this half, so it repeats while the
+        // Energy lasts — the same reading Vi - Destructive's Recycle takes.
+        cost: { energy: 1, power: { domain: "Mind", count: 1 } },
+        targeting: { kind: "none" },
+        resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+      },
+      {
+        id: "score",
+        label: "Score 1 point",
+        cost: { energy: 4, power: { domain: "Mind", count: 4 }, exhaust: true },
+        targeting: { kind: "none" },
+        resolve: (state, ctx) => gainPoints(state, ctx.casterIndex, 1),
+      },
+    ],
   },
   "SFD-083": {
     // Hextech Anomaly — "[Exhaust]: [Reaction] — Pay any amount of [rainbow] to

@@ -516,8 +516,12 @@ function updateControl(state: GameState, bfIndex: number, winnerIndex: 0 | 1): G
   const bf = state.battlefields[bfIndex]!;
   const winner = state.players[winnerIndex];
   const isConquest = bf.controllerId !== winner.id;
+  // Yone - Blademaster reads "a battlefield that WAS UNCONTROLLED", and this is
+  // the only place that can answer it: `setController` on the next line moves
+  // control, and every listener runs after that.
+  const wasUncontrolled = bf.controllerId === null;
   const next = setController(state, bfIndex, winner.id);
-  return isConquest ? recordConquest(next, winnerIndex, bf.id) : next;
+  return isConquest ? recordConquest(next, winnerIndex, bf.id, wasUncontrolled) : next;
 }
 
 /**

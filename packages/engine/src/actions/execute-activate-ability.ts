@@ -3,7 +3,7 @@ import type { ActivateAbilityAction } from "./player-action.js";
 import { payActivationCost, recordModeUsed, resolveActivation, resolveMode, tracksModeUse } from "../engine/activated-abilities.js";
 import { contextFor } from "../engine/effect-context.js";
 import { validateActivateAbility } from "./validate-activate-ability.js";
-import { holdUnitsChosen } from "../engine/triggers.js";
+import { holdEventTrigger, holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
 
 /**
@@ -86,8 +86,22 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
         )
       : chosen;
 
+  // Prize of Progress's "when you use an activated ability of a gear".
+  //
+  // HELD (383) like every other event, and raised BEFORE the effect resolves —
+  // the moment is the USE, so an ability whose effect ends up doing nothing has
+  // still been used. `sourceKind` comes off the RESOLVED source rather than the
+  // action, which names an instance and not what it is; the Ezreal tally just
+  // above reads it the same way and for the same reason.
+  const announced = holdEventTrigger(counted, {
+    kind: "abilityActivated",
+    activatorIndex: action.playerIndex,
+    sourceKind: found.card.kind,
+    sourceInstanceId: action.permanentInstanceId,
+  });
+
   return mode.resolve(
-    counted,
+    announced,
     contextFor(action.playerIndex),
     {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),

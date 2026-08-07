@@ -558,6 +558,52 @@ const YORDLE_EXPLORER_POWER_THRESHOLD = 2;
 const JAX_UNRELENTING_DRAW_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-116": {
+    // Yone - Blademaster — "When I conquer a battlefield that WAS UNCONTROLLED,
+    // deal damage equal to my Might to an enemy unit in a base."
+    //
+    // His `[Weaponmaster]` is the loader's; this is his second clause.
+    //
+    // **"WAS uncontrolled" is unanswerable after the fact**, which is why the
+    // event now carries it: control has already moved to the conqueror by the
+    // time any listener runs, so a listener asking the board would find the
+    // battlefield controlled and could never tell "taken from nobody" from
+    // "taken from the opponent". `updateControl` is the one site that compares
+    // the two, and both conquest paths — a won combat and a walk-in — go
+    // through it.
+    //
+    // "When **I** conquer" is positional, like every other "when I" in this
+    // pool: the battlefield conquered has to be the one Yone is standing at.
+    //
+    // "An enemy unit IN A BASE" is the narrowest target phrase the set uses —
+    // not "a unit", not "at a battlefield". A base is the one place a unit is
+    // safe from combat, which is the point of the card, and it is why an enemy
+    // with nothing at home takes nothing.
+    //
+    // Damage equal to his CURRENT Might, read through `effectiveMight` so an
+    // Equipment he just attached with [Weaponmaster] counts. Non-combat context:
+    // this is not a combat damage step, so [Assault] and [Shield] do not apply —
+    // the same reading every other "equal to its Might" effect here takes.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.wasUncontrolled === true &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener) => {
+      const enemyIndex = listener.ownerIndex === 0 ? 1 : 0;
+      const inBase = state.players[enemyIndex].baseUnits;
+      // Nothing at home is nothing to hit — 422's do-as-much-as-you-can, and no
+      // question is asked because the card names no choice this engine can offer
+      // mid-resolution. WHICH enemy is a real choice with several at home; the
+      // first is taken, and that is a recorded simplification rather than a
+      // reading of the card.
+      const target = inBase[0];
+      if (target === undefined) return state;
+      const might = effectiveMight(state, listener.card as UnitInstance, listener.ownerIndex, { isCombat: false });
+      return dealDamage(state, listener.ownerIndex, target.instanceId, might);
+    },
+  },
   "SFD-100": {
     // Yordle Explorer — "When you play a card with Power cost [rainbow][rainbow]
     // or more, draw 1."
