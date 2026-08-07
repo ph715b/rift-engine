@@ -1,4 +1,13 @@
-# SFD — finishing the set
+# SFD — finishing the set (SUPERSEDED)
+
+> **SUPERSEDED on 2026-08-07 by `docs/sfd-final-18-prompt.md`.**
+> All six phases below are DONE (138/198 -> 180/198, commits `5086879`..`ce09875`).
+> Every figure in this file is stale, and two of its premises were measured wrong:
+> Phase 3's play-SOURCE field lights up three fewer cards than claimed (every
+> non-hand play path already bypasses pricing), and Phase 4's compound-`[Equip]`
+> note blamed the regex when the blocker was an em dash. Its "definition of done"
+> also contains a contradiction — see the new prompt. Kept for the reasoning in
+> its per-phase notes, which is still good; do not trust its numbers.
 
 **This is the prompt for the session that finishes Spiritforged.** It supersedes
 every earlier handoff in `docs/`; those numbers are stale by construction.
