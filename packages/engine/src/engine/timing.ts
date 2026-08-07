@@ -199,8 +199,55 @@ export function timingRejection(
 export const ACCELERATE_ENERGY = 1;
 export const ACCELERATE_POWER = 1;
 
-export function hasAccelerate(card: CardInstance): boolean {
-  return card.kind === "Unit" && "Accelerate" in card.keywords;
+/** Rek'Sai - Breacher — "Friendly units played from anywhere other than a
+ *  player's hand have [Accelerate]." */
+const REKSAI_BREACHER = "SFD-029";
+
+/**
+ * Is Rek'Sai - Breacher granting `[Accelerate]` to a unit being played from a
+ * non-hand zone?
+ *
+ * **"a PLAYER's hand", not "your hand"** — the card says either player's, which
+ * makes no difference at this seat count but is what it prints, so nothing here
+ * compares the hand's owner.
+ *
+ * Reachable only through the Champion Zone today, and that is a fact about the
+ * engine rather than about the card: the other non-hand play paths either
+ * ignore the whole cost (from-Hidden, 811) or bypass pricing entirely
+ * (`playCardIgnoringCost`), and `[Accelerate]` is an additional COST — there is
+ * nothing to add it to when the base is being ignored. See
+ * `PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS` in cost-modifiers.ts, which records the
+ * same measurement for the two cards that discount off the same condition.
+ */
+function accelerateGrantedTo(state: GameState, playerIndex: 0 | 1, card: CardInstance, playedFromHand: boolean): boolean {
+  if (playedFromHand || card.kind !== "Unit") return false;
+  const owner = state.players[playerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  return units.some((u) => u.defId === REKSAI_BREACHER);
+}
+
+/**
+ * Does this card have `[Accelerate]` right now — printed, or granted?
+ *
+ * `state`/`playerIndex`/`playedFromHand` are optional so the many callers that
+ * only ever ask about a printed keyword are unchanged. Omitting them asks the
+ * printed question, which is what every caller before Rek'Sai meant.
+ */
+export function hasAccelerate(
+  card: CardInstance,
+  state?: GameState,
+  playerIndex?: 0 | 1,
+  playedFromHand = true,
+): boolean {
+  if (card.kind !== "Unit") return false;
+  if ("Accelerate" in card.keywords) return true;
+  return state !== undefined && playerIndex !== undefined && accelerateGrantedTo(state, playerIndex, card, playedFromHand);
+}
+
+/** For coverage.ts — Rek'Sai's grant is his third clause; his `[Accelerate]` and
+ *  `[Assault]` are the loader's. */
+export function accelerateGrantDefIds(): string[] {
+  return [REKSAI_BREACHER];
 }
 
 /** The Power domain `[Accelerate]` must be paid in, or null for a unit with no

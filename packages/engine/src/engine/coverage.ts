@@ -20,6 +20,7 @@ import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
 import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
 import { chooseRestrictionDefIds } from "./target-lookup.js";
+import { accelerateGrantDefIds } from "./timing.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -249,6 +250,11 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // Reckoner lives beside the move gate. It needs its own claim, since none of
   // the sources above lists it.
   { label: "choose restrictions", defIds: chooseRestrictionDefIds },
+  // Rek'Sai - Breacher grants [Accelerate] by PLAY SOURCE, so his third clause
+  // lives in timing.ts beside the one function that answers "does this card
+  // have [Accelerate] right now". His printed [Accelerate] and [Assault] are
+  // the loader's; only the grant is written by hand.
+  { label: "accelerate grants", defIds: accelerateGrantDefIds },
 ];
 
 /**

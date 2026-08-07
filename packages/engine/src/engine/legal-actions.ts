@@ -518,20 +518,25 @@ export function legalActions(state: GameState): PlayerAction[] {
    * 811 lets it be played for 0 at Reaction speed from the turn after it was
    * hidden, with its targets restricted to that battlefield.
    */
-  const playableSources: { card: CardInstance; fromHiddenBattlefieldId?: string }[] = [
-    ...actor.hand.map((card) => ({ card })),
-    ...(actor.championZone ? [{ card: actor.championZone as CardInstance }] : []),
+  // `fromHand` is carried rather than re-derived by searching the hand for the
+  // instance: this list already KNOWS which zone each card came from, and a
+  // champion that also has copies in hand would make an identity search answer
+  // for the wrong object. Void Drone and Drag Under read it — see
+  // `PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS`.
+  const playableSources: { card: CardInstance; fromHiddenBattlefieldId?: string; fromHand: boolean }[] = [
+    ...actor.hand.map((card) => ({ card, fromHand: true })),
+    ...(actor.championZone ? [{ card: actor.championZone as CardInstance, fromHand: false }] : []),
     ...state.battlefields.flatMap((bf) =>
       bf.hiddenCards
         // The battlefield is passed so Noxus Saboteur's "can't be revealed HERE"
         // is asked at enumeration too — the validator asks the same question of
         // the same function, so a blocked card is never offered and then refused.
         .filter((h) => h.ownerIndex === playerIndex && hiddenCardIsPlayable(state, h, bf.id))
-        .map((h) => ({ card: h.card, fromHiddenBattlefieldId: bf.id })),
+        .map((h) => ({ card: h.card, fromHiddenBattlefieldId: bf.id, fromHand: false })),
     ),
   ];
 
-  for (const { card, fromHiddenBattlefieldId } of playableSources) {
+  for (const { card, fromHiddenBattlefieldId, fromHand } of playableSources) {
     if (card.kind === "Legend") continue;
     const fromHidden = fromHiddenBattlefieldId !== undefined;
     // The per-card timing gate, and the whole reason this loop now runs in every
@@ -563,7 +568,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
-        modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId),
+        modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand),
         card.powerCost,
         card.powerDomain,
         card.powerDomainAlt,
@@ -631,7 +636,7 @@ export function legalActions(state: GameState): PlayerAction[] {
     // payable; a card you can afford plainly but not accelerated simply has no
     // accelerated variant.
     const accelerated =
-      hasAccelerate(card) && !fromHidden
+      hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden
         ? computeAutoPayment(
             actor.channeled,
             effectiveCost.energyCost + ACCELERATE_ENERGY,
@@ -1252,7 +1257,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         }
       }
       const acceleratedForVariant =
-        repeatableSpend > 0 && hasAccelerate(card) && !fromHidden
+        repeatableSpend > 0 && hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden
           ? computeAutoPayment(
               actor.channeled,
               effectiveCost.energyCost + ACCELERATE_ENERGY,

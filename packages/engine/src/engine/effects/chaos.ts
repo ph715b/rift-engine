@@ -19,6 +19,7 @@ import {
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
+  holdCardsRecycled,
   grantTemporary,
   ownUnitsEverywhere,
   payPowerFromChanneled,
@@ -509,7 +510,52 @@ function askInTurnOrder(state: GameState, kind: string, first: 0 | 1): GameState
   return [first, (1 - first) as 0 | 1].reduce((next, playerIndex) => parkDecision(next, { kind, playerIndex }), state);
 }
 
+/** Fizz - Trickster's ceiling — "a spell from your trash with Energy cost no
+ *  more than [3]". Only the ENERGY is capped; his text names no Power limit,
+ *  which is consistent with him making you pay the Power yourself. */
+const FIZZ_MAX_ENERGY = 3;
+
+/**
+ * The spells in `playerIndex`'s trash Fizz - Trickster could play RIGHT NOW.
+ *
+ * ONE walk for the fire-time "is there anything to offer" test and for the
+ * option list, so the two cannot disagree.
+ *
+ * **Payability is part of the filter, and that is the card's own words.** "(You
+ * must still pay its Power cost.)" means a spell whose Power cannot be paid is
+ * not a legal thing to play — so it is not offered, the rule this file applies
+ * to every other paid offer. `payPowerFromChanneled` is asked speculatively and
+ * its result thrown away, which is safe: its only side effect is a held trigger,
+ * and that goes with the discarded state.
+ */
+function fizzCandidates(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].trash.filter(
+    (c) =>
+      c.kind === "Spell" &&
+      c.energyCost <= FIZZ_MAX_ENERGY &&
+      (c.powerCost === 0 || payPowerFromChanneled(state, playerIndex, c.powerDomain, c.powerCost) !== undefined),
+  );
+}
+
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-140": {
+    // Fizz - Trickster — "When you play me, you may play a spell from your trash
+    // with Energy cost no more than [3], ignoring its Energy cost. Recycle that
+    // spell after you play it. (You must still pay its Power cost.)"
+    //
+    // **Ignores the ENERGY only**, which is what separates him from Glasc
+    // Mixologist's flat "ignoring its cost": the Power is paid for real, so the
+    // offer is filtered by what can actually be afforded.
+    //
+    // A spell played this way resolves IMMEDIATELY rather than going on the
+    // chain — `playCardIgnoringCost`'s own note, and the reason the recycle can
+    // follow it in the same resolver.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      fizzCandidates(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-140-play", playerIndex: ctx.casterIndex }),
+  },
   "OGN-197": {
     // Teemo - Scout — "[Hidden] When you play me, give me +3 Might this turn."
     //
@@ -1497,6 +1543,56 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
 const NOCTURNE_POWER = 1;
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-140-play": {
+    // Fizz - Trickster's "you may play a spell from your trash, ignoring its
+    // Energy cost. Recycle that spell after you play it."
+    prompt: () => "Fizz - Trickster: play a spell from your trash for its Power cost only?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...fizzCandidates(state, d.playerIndex).map((c) => ({
+        id: c.instanceId,
+        label: `Play ${c.name}`,
+        instanceId: c.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Re-derived at ANSWER time against the same walk — and that re-derivation
+      // covers the PAYMENT too, since payability is part of the filter: the
+      // runes may have been spent while this waited on the chain.
+      const chosen = fizzCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (chosen === undefined || chosen.kind !== "Spell") return state;
+      // Power FIRST, so an unpayable cost hands over nothing — the rule every
+      // paid effect in this file follows. Re-derived rather than trusted.
+      const paid =
+        chosen.powerCost === 0 ? state : payPowerFromChanneled(state, d.playerIndex, chosen.powerDomain, chosen.powerCost);
+      if (paid === undefined) return state;
+      // Out of the trash before it is played, or the card is in two zones at
+      // once — the same ordering Glasc Mixologist's decision takes.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+      };
+      const played = playCardIgnoringCost({ ...paid, players }, d.playerIndex, chosen);
+      // "RECYCLE that spell after you play it" — bottom of the deck (416), not
+      // the trash it came from, which is what stops him looping one spell every
+      // turn. A resolved Spell has been put back in the trash by
+      // `playSpellImmediately`, so it is taken from there by identity rather than
+      // by the front-of-trash convention `recycleFromTrash` uses for a COUNT.
+      const after = [...played.players] as [PlayerState, PlayerState];
+      const owner = after[d.playerIndex];
+      if (!owner.trash.some((c) => c.instanceId === chosen.instanceId)) return played;
+      after[d.playerIndex] = {
+        ...owner,
+        trash: owner.trash.filter((c) => c.instanceId !== chosen.instanceId),
+        deck: [...owner.deck, chosen],
+      };
+      // Karma - Channeler watches every recycle in this engine, including the
+      // ones written inline like this one.
+      return holdCardsRecycled({ ...played, players: after }, d.playerIndex, 1);
+    },
+  },
   "SFD-144-draw": {
     // Spirit Wheel's "you may pay [1] and exhaust this to draw 1."
     prompt: () => "Spirit Wheel: pay [1] and exhaust it to draw 1?",

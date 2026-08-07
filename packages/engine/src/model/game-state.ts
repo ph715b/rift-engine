@@ -490,6 +490,21 @@ export interface PlayerState {
    */
   nextUnitsEnterReady: number;
   /**
+   * Jayce - Man of Progress's "you may play a gear from hand this turn, ignoring
+   * its Energy cost" — a PERMISSION that outlives the trigger that granted it.
+   *
+   * A charge like `nextUnitsEnterReady` above, and modelled as a count for the
+   * same reason: two Jayces landing in one turn each grant one, and collapsing
+   * them into a boolean would lose the second.
+   *
+   * **A permission, not a resolution-time play.** Every other "play a card
+   * ignoring its cost" in this pool happens as the granting card resolves, so it
+   * needs no state at all; Jayce's is a window that stays open for the rest of
+   * the turn, so it has to be somewhere the PLAY path can read it. Cleared at
+   * runEnd with the rest of the turn.
+   */
+  freeGearPlaysThisTurn: number;
+  /**
    * Has a unit THIS player controls died this turn? Spoils of War costs 2 less
    * "if an enemy unit has died this turn", which each player has to answer about
    * the other, so it is stored per victim rather than as a global flag.

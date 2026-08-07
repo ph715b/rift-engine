@@ -557,6 +557,31 @@ const FROSTCOAT_DEBUFF = 2;
 const PICKPOCKET_MAX_GEAR_COST = 1;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-084": {
+    // Jayce - Man of Progress — "When you play me, you may kill a friendly gear.
+    // If you do, you may play a gear with Energy cost no more than [7] from hand
+    // this turn, ignoring its Energy cost. (You must still pay its Power cost.)"
+    //
+    // **The odd one among the pool's free-play cards.** Every other "play a card
+    // ignoring its cost" happens as the granting card RESOLVES, so it needs no
+    // state; Jayce's is a permission that stays open for the rest of the turn.
+    // It therefore lands on `PlayerState.freeGearPlaysThisTurn` and is read by
+    // `modifiedEnergyCost`, the one place a card's Energy is priced.
+    //
+    // "If you do" ties the permission strictly to the kill, so it is granted in
+    // the decision's paying branch and nowhere else — declining gives nothing.
+    //
+    // "a FRIENDLY gear", unlike Pickpocket's unqualified "a gear" one entry
+    // below: this one costs you a permanent, which is what makes it a cost
+    // rather than removal.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      // No friendly gear is no question — the offer is dropped whole rather than
+      // shown as a lone decline, matching every other optional kill here.
+      state.players[ctx.casterIndex].activeGear.length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-084-kill", playerIndex: ctx.casterIndex }),
+  },
   "SFD-074": {
     // Pickpocket — "When you play me, you may kill a gear with Energy cost no
     // more than [1]. If you do, play a Gold gear token exhausted."
@@ -1335,6 +1360,34 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-084-kill": {
+    // Jayce - Man of Progress's "you may kill a friendly gear. If you do, ..."
+    prompt: () => "Jayce - Man of Progress: kill a friendly gear to play one free this turn?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].activeGear.map((g) => ({
+        id: g.instanceId,
+        label: `Kill ${g.name}`,
+        instanceId: g.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === optionId);
+      // Re-derived at answer time: the gear may have gone while the question
+      // waited on the chain, and "if you do" then grants nothing.
+      if (gear === undefined) return state;
+      const killed = killGear(state, gear, d.playerIndex);
+      // A COUNT, not a flag — two Jayces in a turn grant two windows. Same
+      // reasoning as `nextUnitsEnterReady`, which this field sits beside.
+      const players = [...killed.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        freeGearPlaysThisTurn: players[d.playerIndex].freeGearPlaysThisTurn + 1,
+      };
+      return { ...killed, players };
+    },
+  },
   "SFD-074-kill": {
     // Pickpocket's "you may kill a gear with Energy cost no more than [1]. If you
     // do, play a Gold gear token exhausted."

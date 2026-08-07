@@ -246,10 +246,77 @@ export function targetChoiceDiscount(
     : { energy: 0, power: IRELIA_GRACEFUL_DISCOUNT };
 }
 
+/**
+ * Jayce - Man of Progress — "you may play a gear with Energy cost no more than
+ * [7] from hand this turn, ignoring its Energy cost."
+ *
+ * A PERMISSION rather than a play: every other "ignoring its cost" in this pool
+ * happens as the granting card resolves, and this one is a window that stays
+ * open. It therefore lives on `PlayerState.freeGearPlaysThisTurn` and is read
+ * here, at the one place a card's Energy is priced.
+ *
+ * **The Energy only.** His reminder text says it out loud — "(You must still pay
+ * its Power cost.)" — so a Gear with a Power pip still owes it, which is why this
+ * zeroes the Energy term rather than the whole cost the way `fromHidden` does.
+ *
+ * **Applied to the FIRST gear played, not to a chosen one.** The permission is
+ * consumed by playing a gear at all rather than by naming which. That is a real
+ * simplification of "you MAY play a gear", and it is safe in the only direction
+ * that matters: free is never worse than paid, and the window expires with the
+ * turn, so there is nothing a player could sensibly be saving it for. Recorded
+ * in docs/rules-conformance.md.
+ */
+const JAYCE_MAX_FREE_GEAR_ENERGY = 7;
+
+/**
+ * Void Drone and Drag Under — "I cost [2] less to play from anywhere other than
+ * your hand."
+ *
+ * **Currently unreachable, and that is a fact about the ENGINE rather than about
+ * these two cards.** Measured rather than assumed: there are exactly three
+ * places a card can be played from here — hand, the Champion Zone, and facedown
+ * at a battlefield — and of the two non-hand ones, a from-Hidden play already
+ * prices at `{ energyCost: 0, powerCost: 0 }` (811, and `validate-play-card`
+ * applies it before any modifier runs), while the Champion Zone can hold only
+ * the one set-aside CHAMPION. Void Drone prints no Champion supertype and Drag
+ * Under is a Spell, so neither can ever be there. Every other "play from
+ * elsewhere" in the pool routes through `playCardIgnoringCost`, which bypasses
+ * pricing entirely.
+ *
+ * So the rule is written where costs live, and it will start paying out the day
+ * the engine gains a full-cost play from a non-hand zone. It is NOT recorded as
+ * a partial: nothing about the card's text is missing, and the note would name
+ * missing engine, which this repo's definition of done forbids.
+ *
+ * Passed the source explicitly rather than deriving it from state, because the
+ * only state-derivable answer is "is a card with this defId in the Champion
+ * Zone", which is wrong for a deck running further copies in the main deck.
+ */
+const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
+const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
+
+/** Does `playerIndex` have a Jayce permission that this card can use? Asked
+ *  identically by the validator, the executor and the enumerator — the three
+ *  that must agree on a price. Reading it does NOT spend it; `execute-play-card`
+ *  does that, the same split `nextUnitsEnterReady` keeps for the same reason. */
+export function freeGearPlayApplies(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardKind: "Unit" | "Spell" | "Gear" | "Legend",
+  rawEnergyCost: number,
+): boolean {
+  return (
+    cardKind === "Gear" &&
+    state.players[playerIndex].freeGearPlaysThisTurn > 0 &&
+    rawEnergyCost <= JAYCE_MAX_FREE_GEAR_ENERGY
+  );
+}
+
 /** The cards this module implements — see effective-might.ts's
  *  effectiveMightDefIds for why coverage.ts needs to be told. */
 export function costModifierDefIds(): string[] {
   return [
+    ...PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS,
     IRELIA_GRACEFUL,
     EAGER_APPRENTICE,
     RHASA_THE_SUNDERER,
@@ -281,9 +348,27 @@ export function modifiedEnergyCost(
   cardKind: "Unit" | "Spell" | "Gear" | "Legend",
   rawEnergyCost: number,
   defId?: string,
+  /** WHERE the card is being played from. Only the three PLAY-path callers
+   *  know this; every inner caller prices a from-hand play and takes the
+   *  default. See `PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS`. */
+  playedFromHand = true,
 ): number {
   const player = state.players[playerIndex];
   let cost = rawEnergyCost;
+
+  // Jayce's permission zeroes the Energy outright, so it short-circuits every
+  // percentage-style discount below rather than stacking with them — "ignoring
+  // its Energy cost" is not a reduction, and taking 2 more off 0 is still 0.
+  // The Power half is untouched by design; see `freeGearPlayApplies`.
+  if (freeGearPlayApplies(state, playerIndex, cardKind, rawEnergyCost)) return 0;
+
+  // Void Drone and Drag Under. Taken off the PRINTED cost, before the
+  // conditional discounts below, on the same reasoning their own comment gives
+  // for going first: a sometimes-discount should reduce what the card prints,
+  // not something already reduced.
+  if (!playedFromHand && defId !== undefined && PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS.has(defId)) {
+    cost = Math.max(0, cost - PLAY_FROM_ELSEWHERE_DISCOUNT);
+  }
 
   // Before the other two: a discount that only sometimes applies should be taken
   // off the printed cost, not off an already-reduced one, and Eager Apprentice's

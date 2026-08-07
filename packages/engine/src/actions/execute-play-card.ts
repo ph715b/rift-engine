@@ -5,7 +5,7 @@ import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
-import { modifiedEnergyCost, targetChoiceDiscount } from "../engine/cost-modifiers.js";
+import { freeGearPlayApplies, modifiedEnergyCost, targetChoiceDiscount } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -222,6 +222,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // silently burned all three for a card that was supposed to be free. Ignored
   // is ignored — no runes, no float, no cost modifiers.
   const ignoresBaseCost = action.fromHiddenBattlefieldId !== undefined;
+  const playedFromHand = actor.hand.some((c) => c.instanceId === card.instanceId);
   // Irelia - Graceful, through the SAME helper the validator priced with. This
   // half re-derives from the RAW cost by design, so a target-keyed discount
   // applied only in the validator would burn floating resources the play no
@@ -233,7 +234,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     ? 0
     : Math.max(
         0,
-        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - targetDiscount.energy,
+        // `inHand` is re-derived here rather than trusted from the validator,
+        // the convention this whole block follows — it re-prices from the RAW
+        // cost so the two halves cannot drift.
+        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, playedFromHand) -
+          targetDiscount.energy,
       );
   const powerToPay = ignoresBaseCost ? 0 : Math.max(0, card.powerCost - targetDiscount.power);
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
@@ -268,9 +273,19 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // A from-hidden card was never in hand; it comes off the battlefield instead,
   // which happens on `battlefields` further down.
   const handAfterRemoval = actor.hand.filter((c) => c.instanceId !== card.instanceId);
+  // Jayce - Man of Progress's permission is SPENT here, and only when it was
+  // actually the thing that made this Gear free. Asked through the same
+  // predicate the validator and the enumerator price with, so "was it free" and
+  // "was it used up" cannot come apart — the split `nextUnitsEnterReady` keeps
+  // between reading a charge and consuming one, for the same reason.
+  //
+  // `ignoresBaseCost` wins: a Gear played from Hidden owes nothing anyway, so
+  // the window must not be burnt paying a cost that was already zero.
+  const usedFreeGearPlay = !ignoresBaseCost && freeGearPlayApplies(state, action.playerIndex, card.kind, card.energyCost);
   const sharedUpdates = {
     hand: handAfterRemoval,
     channeled: remainingChanneled,
+    freeGearPlaysThisTurn: actor.freeGearPlaysThisTurn - (usedFreeGearPlay ? 1 : 0),
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,

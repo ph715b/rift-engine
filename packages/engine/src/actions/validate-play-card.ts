@@ -577,7 +577,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Rule 811: a card played from Hidden is played "ignoring its base cost" — not
   // discounted, IGNORED. Floating resources, cost modifiers and the printed cost
   // all drop out, so the payment must be empty rather than merely small.
-  if (action.acceleratePaid && !hasAccelerate(card)) {
+  if (action.acceleratePaid && !hasAccelerate(card, state, action.playerIndex, inHand)) {
     return fail(`${card.name} does not have [Accelerate]`);
   }
   // A discard choice: legal only for a card that asks for one, only naming a
@@ -680,7 +680,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
-        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount - targetDiscount.energy) +
+        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, inHand) - discardDiscount - targetDiscount.energy) +
           accelerateEnergy +
           repeatEnergy +
           grantedEnergy +

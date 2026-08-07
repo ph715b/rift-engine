@@ -804,7 +804,41 @@ function hookPlayableFromTop5(state: GameState, d: { playerIndex: 0 | 1; count?:
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
+/** Glasc Mixologist's ceiling — "no more than [3] and no more than [rainbow]".
+ *  The Power pip is unnumbered, which this pool's convention reads as 1 (Energy
+ *  prints as a NUMBERED glyph, Power as COUNTED PIPS — see Defy in
+ *  docs/rules-calls-resolved.md). */
+const GLASC_MAX_ENERGY = 3;
+const GLASC_MAX_POWER = 1;
+
+/** The units in `playerIndex`'s trash that Glasc Mixologist could play. ONE walk
+ *  for the fire-time "is there anything to offer" test and for the option list,
+ *  so the two cannot disagree about what is within the ceiling. */
+function glascCandidates(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].trash.filter(
+    (c) => c.kind === "Unit" && c.energyCost <= GLASC_MAX_ENERGY && c.powerCost <= GLASC_MAX_POWER,
+  );
+}
+
 export const deathTriggers: Record<string, DeathknellEffect> = {
+  // Glasc Mixologist — "[Deathknell] — You may play a unit with cost no more
+  // than [3] and no more than [rainbow] from your trash, ignoring its cost."
+  //
+  // "IGNORING ITS COST" is the whole cost, both halves — unlike Fizz - Trickster
+  // and Jayce, whose reminder text says "you must still pay its Power cost".
+  // That is why this goes straight through `playCardIgnoringCost` with no
+  // payment step at all.
+  //
+  // The unit lands in BASE: `playCardIgnoringCost` defaults there, and the card
+  // names no destination. A Deathknell that fired at a battlefield still sends
+  // it home, the same reading Machine Evangel's "into your base" makes explicit.
+  //
+  // `ctx.casterIndex` is the dying unit's controller, which is what "your trash"
+  // means for a Deathknell.
+  "SFD-165": (state, ctx) =>
+    glascCandidates(state, ctx.casterIndex).length === 0
+      ? state
+      : parkDecision(state, { kind: "SFD-165-play", playerIndex: ctx.casterIndex }),
   // Soaring Scout — "[Deathknell] Channel 1 rune exhausted." (rule 808)
   //
   // Exhausted, not Ready: the rune can still be recycled to pay a Power cost
@@ -1165,6 +1199,32 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-165-play": {
+    // Glasc Mixologist's "[Deathknell] — you may play a unit from your trash,
+    // ignoring its cost."
+    prompt: () => "Glasc Mixologist: play a unit from your trash, ignoring its cost?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...glascCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: `Play ${c.name}`, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Re-derived at ANSWER time against the same walk the offer came from: the
+      // trash moves while a question waits on the chain — a Recycle can take the
+      // very card being named.
+      const chosen = glascCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (chosen === undefined) return state;
+      // Out of the trash BEFORE it is played, or the card would be in two zones
+      // at once — and `playCardIgnoringCost` fires the play events, which a
+      // listener reads against the finished board.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+      };
+      return playCardIgnoringCost({ ...state, players }, d.playerIndex, chosen);
+    },
+  },
   "SFD-180-ready": {
     // Fiora - Worthy's "you may pay [Order] to ready it."
     prompt: (state, d) => {

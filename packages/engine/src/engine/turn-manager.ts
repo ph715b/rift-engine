@@ -348,6 +348,8 @@ export function runEnd(state: GameState): GameState {
     // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
     // itself from — both are "this turn" state, so both end with the turn.
     nextUnitsEnterReady: 0,
+    // Jayce - Man of Progress's window closes with the turn that opened it.
+    freeGearPlaysThisTurn: 0,
     unitsLostThisTurn: 0,
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.
