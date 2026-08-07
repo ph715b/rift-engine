@@ -1,15 +1,17 @@
 import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { EventTriggerDefinition, GameEvent } from "./triggers.js";
-import type { DecisionDefinition } from "./decisions.js";
+import type { DecisionDefinition, DecisionOption } from "./decisions.js";
 import {
   addBuff,
   channelRunesExhausted,
   completeDeath,
   drawCards,
   giveMightThisTurn,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyRunes,
+  readyUnit,
 } from "./effect-helpers.js";
 import { computeAutoPayment } from "./rune-payment.js";
 import { pendingDeathFor, releasePendingDeath } from "./death-ward.js";
@@ -51,6 +53,9 @@ export type StunEvent = Extract<GameEvent, { kind: "unitsStunned" }>;
  * state — persisting it would leak the bonus into unrelated later fights the
  * same turn (LegendAbilities.java:20-26 makes the same point).
  */
+/** Irelia - Blade Dancer's "you may pay [1] to ready me". */
+const IRELIA_READY_COST = 1;
+
 export interface LegendAbilityDefinition {
   /** "At the end of your turn..." — fires only for the player whose turn is
    *  ending, before the active player rotates. */
@@ -92,6 +97,19 @@ export interface LegendAbilityDefinition {
    * would be wrong in both directions.
    */
   onCombatWon?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
+  /**
+   * "When you choose a friendly unit..." — Irelia - Blade Dancer.
+   *
+   * Rides the `unitChosen` event, which already existed and already fires from
+   * BOTH choosing paths (a spell's announcement and a unit ability's). Nothing
+   * new was needed at the event end; what was missing was a Legend hook to hang
+   * off it, and the ability to hold TWO hooks on one Legend — see
+   * `legendEventTriggers`, which used to throw on the second.
+   *
+   * Handed the CHOSEN unit's id, because "ready IT" is about that unit and the
+   * response window this trigger opens can move the board before it resolves.
+   */
+  onUnitChosen?: (state: GameState, ownerIndex: 0 | 1, unitInstanceId: string) => GameState;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -128,6 +146,26 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-195": {
+    // Irelia - Blade Dancer — "When you choose a friendly unit, you may exhaust
+    // me and pay [rainbow] to ready it. When you conquer, you may pay [1] to
+    // ready me."
+    //
+    // **The first Legend with TWO convertible hooks**, and the card that forced
+    // `legendEventTriggers` to stop throwing on the second. Both clauses are
+    // ordinary triggers on events that already exist — `unitChosen` (which fires
+    // from both choosing paths) and `battlefieldConquered` — so nothing new was
+    // needed at the event end.
+    //
+    // Both are "you MAY" with a COST, so both stop to ask rather than firing.
+    // Their costs differ in a way that matters: the first spends the Legend
+    // HERSELF (exhaust) plus a rainbow pip, so an exhausted Irelia is never
+    // offered it; the second spends only Energy, so an exhausted Irelia IS
+    // offered it — readying her is the whole point of that clause.
+    onUnitChosen: (state, ownerIndex, unitInstanceId) =>
+      parkDecision(state, { kind: "SFD-195-ready-chosen", playerIndex: ownerIndex, cardInstanceId: unitInstanceId }),
+    onConquer: (state, ownerIndex) => parkDecision(state, { kind: "SFD-195-ready-me", playerIndex: ownerIndex }),
+  },
   "SFD-185": {
     // Draven - Glorious Executioner (SFD) — "When you win a combat, draw 1."
     //
@@ -361,6 +399,77 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   // a "you may", and `advanceDecisions` auto-resolves anything with a single
   // option. Exhausting Volibear costs a later turn's use, so declining is a real
   // play rather than a formality.
+  /**
+   * Irelia's first clause — "you may exhaust me and pay [rainbow] to ready it".
+   *
+   * TWO costs, and both are re-derived at answer time rather than trusted from
+   * the offer: a response window sits between them, and either the Legend or the
+   * Power can be gone by the time this resolves. `payPowerFromChanneled` with
+   * `RAINBOW` is the same any-domain pip rule 811 and Sett - The Boss use.
+   *
+   * The chosen unit is looked up again too, for the reason 359.3 gives: a check
+   * on something no longer available is ignored, so a unit that died inside the
+   * window simply is not readied — and the cost is NOT paid for nothing.
+   */
+  "SFD-195-ready-chosen": {
+    prompt: (state, d) => {
+      const unit = d.cardInstanceId ? findUnitAnywhere(state, d.cardInstanceId)?.unit : undefined;
+      return `Irelia - Blade Dancer: exhaust her and pay [rainbow] to ready ${unit?.name ?? "it"}?`;
+    },
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const owner = state.players[d.playerIndex];
+      const stillThere = d.cardInstanceId !== undefined && findUnitAnywhere(state, d.cardInstanceId) !== undefined;
+      // Offered only when every part of the price can be paid AND there is still
+      // something to ready — the "never offer what cannot be taken" rule this
+      // file already applies to Volibear and Sett.
+      if (stillThere && !owner.legend.exhausted && payPowerFromChanneled(state, d.playerIndex, RAINBOW, 1)) {
+        options.push({ id: "ready", label: "Exhaust Irelia and pay [rainbow]" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "ready" || d.cardInstanceId === undefined) return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, RAINBOW, 1);
+      if (!paid) return state;
+      const owner = paid.players[d.playerIndex];
+      if (owner.legend.exhausted) return state;
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      return readyUnit({ ...paid, players }, d.cardInstanceId);
+    },
+  },
+
+  /**
+   * Irelia's second clause — "when you conquer, you may pay [1] to ready me".
+   *
+   * Deliberately offered to an EXHAUSTED Irelia: readying her is what the clause
+   * does, so refusing it while she is exhausted would make it unusable exactly
+   * when it is worth using. It is her first clause that gates on the exhaust,
+   * because there the exhaust is the COST.
+   */
+  "SFD-195-ready-me": {
+    prompt: () => "Irelia - Blade Dancer: pay [1] to ready her?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      // Already ready — the payment would buy nothing, so it is not offered.
+      if (!state.players[d.playerIndex].legend.exhausted) return options;
+      if (payEnergyFromPool(state, d.playerIndex, IRELIA_READY_COST)) {
+        options.push({ id: "ready", label: "Pay [1] and ready Irelia" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "ready") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, IRELIA_READY_COST);
+      if (!paid) return state;
+      const owner = paid.players[d.playerIndex];
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: false } };
+      return { ...paid, players };
+    },
+  },
+
   "OGN-249-channel": {
     prompt: () => "Volibear - Relentless Storm: exhaust him to channel 1 rune exhausted?",
     options: () => [
@@ -475,20 +584,53 @@ export function legendAbilityDefIds(): string[] {
  * Legend "still inline" either. Counting the table's KEYS reports him as one,
  * which is the count-by-dispatch-shape mistake in miniature.
  */
+/**
+ * One converted hook, before the per-Legend clauses are folded into a single
+ * registry entry. Its `on` is a single kind — the fold below is what turns N of
+ * these into one definition with a LIST.
+ */
+interface LegendClause {
+  on: GameEvent["kind"];
+  applies: NonNullable<EventTriggerDefinition["applies"]>;
+  /** Ahri places ONE Pending Item per attacking unit, each carrying the unit it
+   *  is about. Carried through the fold rather than dropped — a clause that lost
+   *  its `captureEach` would silently collapse N triggers into one. */
+  capture?: EventTriggerDefinition["capture"];
+  captureEach?: EventTriggerDefinition["captureEach"];
+  resolve: EventTriggerDefinition["resolve"];
+}
+
 export function legendEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
-  const entries: Record<string, EventTriggerDefinition> = {};
-  const add = (defId: string, entry: EventTriggerDefinition) => {
-    // A Legend with two convertible hooks would need two registry entries under
-    // one defId, which this shape cannot express. None has two today; the throw
-    // is so the day one does is the day it is noticed, rather than the day one
-    // of its two abilities quietly stops firing.
-    if (entries[defId]) throw new Error(`legendEventTriggers: ${defId} has more than one convertible hook`);
-    entries[defId] = entry;
+  // **This used to THROW on a Legend's second convertible hook**, with a comment
+  // saying "none has two today; the throw is so the day one does is the day it is
+  // noticed". That day is now: **Irelia - Blade Dancer** prints "when you choose
+  // a friendly unit" AND "when you conquer", and **Sivir - Battle Mistress**
+  // prints "when you recycle a rune" AND "when one or more enemy units die".
+  //
+  // The fix has precedent and needs no new mechanism: `EventTriggerDefinition.on`
+  // already accepts a LIST, widened for Corrupt Enforcer and Draven - Vanquisher
+  // — the same one-defId-two-clauses problem, solved the same way. Its own
+  // comment records WHY the list beats two definitions: `resolvePendingTrigger`
+  // finds a definition by `listenerDefId` alone, so two entries per card would
+  // need the chain item to say which, and an entry that cannot say resolves the
+  // wrong half. One definition that branches on `event.kind` cannot get it wrong.
+  const clauses: Record<string, LegendClause[]> = {};
+  const add = (defId: string, clause: LegendClause) => {
+    (clauses[defId] ??= []).push(clause);
   };
 
   for (const [defId, ability] of Object.entries(LEGEND_ABILITIES)) {
-    const { onEndOfTurn, onConquer, conquerCondition, onEnemyUnitAttacks, onUnitsStunned, onSpellCast, onUnitPlayed, onCombatWon } =
-      ability;
+    const {
+      onEndOfTurn,
+      onConquer,
+      conquerCondition,
+      onEnemyUnitAttacks,
+      onUnitsStunned,
+      onSpellCast,
+      onUnitPlayed,
+      onCombatWon,
+      onUnitChosen,
+    } = ability;
 
     if (onEndOfTurn) {
       add(defId, {
@@ -510,6 +652,28 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
         resolve: (state, listener, event) =>
           event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onUnitChosen) {
+      add(defId, {
+        on: "unitChosen",
+        // "When YOU choose a FRIENDLY unit" — the chooser must be the Legend's
+        // owner, and the unit must be theirs too. Both are settled at fire time
+        // (383.4): a unit that changes hands inside the response window was still
+        // friendly when it was chosen.
+        //
+        // The exhaust COST is checked here as well, for the reason Volibear's
+        // records: an offer nobody can pay is not made, so an already-exhausted
+        // Irelia places no Pending Item at all.
+        applies: (state, listener, event) => {
+          if (event.kind !== "unitChosen" || event.chooserIndex !== listener.ownerIndex) return false;
+          if (state.players[listener.ownerIndex].legend.exhausted) return false;
+          const chosen = findUnitAnywhere(state, event.unitInstanceId);
+          return chosen !== undefined && chosen.ownerIndex === listener.ownerIndex;
+        },
+        resolve: (state, listener, event) =>
+          event.kind === "unitChosen" ? onUnitChosen(state, listener.ownerIndex, event.unitInstanceId) : state,
       });
     }
 
@@ -608,6 +772,55 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
         },
       });
     }
+  }
+
+  // Fold each Legend's clauses into ONE definition. A Legend with a single hook
+  // gets `on: [oneKind]`, which behaves exactly as the bare kind did — so nothing
+  // about the ten single-hook Legends changes.
+  //
+  // `applies` and `resolve` both re-check the clause's own condition. That is not
+  // belt-and-braces: `EventTriggerDefinition.applies` decides whether a Pending
+  // Item is PLACED (383.4, settled at the moment of the event), while `resolve`
+  // runs a response window later against a board that may have moved — and the
+  // registry's own contract says "resolve must still re-check its own
+  // conditions". Filtering again here is how a two-clause Legend avoids running
+  // the wrong clause's body for an event the other clause matched.
+  const entries: Record<string, EventTriggerDefinition> = {};
+  for (const [defId, list] of Object.entries(clauses)) {
+    const kinds = [...new Set(list.map((c) => c.on))];
+    // `capture`/`captureEach` are per-CLAUSE and must NOT be folded by running
+    // all of them: they decide how many Pending Items are placed and what each
+    // one carries. Ahri's `captureEach` places one per attacking unit, and a fold
+    // that ran a second clause's capture for a `combatBegan` would change that
+    // count. So the clause that owns one answers only for ITS OWN event kind.
+    const capturing = list.find((c) => c.capture !== undefined);
+    const capturingEach = list.find((c) => c.captureEach !== undefined);
+    entries[defId] = {
+      on: kinds,
+      ...(capturing
+        ? { capture: (state, listener, event) => (event.kind === capturing.on ? capturing.capture!(state, listener, event) : undefined) }
+        : {}),
+      ...(capturingEach
+        ? {
+            captureEach: (state, listener, event) =>
+              event.kind === capturingEach.on ? capturingEach.captureEach!(state, listener, event) : [],
+          }
+        : {}),
+      applies: (state, listener, event) =>
+        list.some((c) => c.on === event.kind && c.applies(state, listener, event)),
+      // Folded rather than "first match wins": two clauses on the SAME kind would
+      // both be printed clauses of one card and both are owed. None does today —
+      // Irelia's and Sivir's pairs are on different kinds — so this is the
+      // general form of an unreachable case rather than a guess about one.
+      // `captured` is the FOURTH argument and must be forwarded. Dropping it made
+      // Ahri place her Pending Items correctly and then resolve every one of them
+      // to nothing, because her body reads the captured unit id and bails without
+      // it — five tests, all of which said "no debuff" rather than "no trigger".
+      resolve: (state, listener, event, captured) =>
+        list
+          .filter((c) => c.on === event.kind && c.applies(state, listener, event))
+          .reduce((next, c) => c.resolve(next, listener, event, captured), state),
+    };
   }
   return { name: "engine/legend-abilities.ts", entries };
 }
