@@ -5,7 +5,7 @@ import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
-import { equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
+import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 
 /**
  * Keywords a unit has RIGHT NOW, printed ones plus any it is currently being
@@ -90,7 +90,23 @@ export function grantedKeywordDefIds(): string[] {
   // implemented in equipment.ts, and coverage must be able to see them: their
   // printed JSON text is nothing but an `[Equip]` line, so nothing else claims
   // them.
-  return [RAGING_SOUL, BILGEWATER_BULLY, FIORA_VICTORIOUS, ...Object.keys(KEYWORD_AURAS), ...equipmentKeywordDefIds()];
+  //
+  // `equipmentDefIds()` is the other half of the same problem and was WRITTEN
+  // FOR IT — its own comment says "for coverage.ts" — and then never called by
+  // anything. Jax - Unmatched ("your Equipment everywhere have [Quick-Draw]")
+  // has worked in play since the day it was written and reported UNIMPLEMENTED
+  // the whole time, because coverage asks which MODULE claims a card and no
+  // module did. **This is the Lucian - Purifier trap exactly**, recorded in
+  // memory after the last time: if a card works and the count does not move, the
+  // module has not claimed it.
+  return [
+    RAGING_SOUL,
+    BILGEWATER_BULLY,
+    FIORA_VICTORIOUS,
+    ...Object.keys(KEYWORD_AURAS),
+    ...equipmentKeywordDefIds(),
+    ...equipmentDefIds(),
+  ];
 }
 
 /**

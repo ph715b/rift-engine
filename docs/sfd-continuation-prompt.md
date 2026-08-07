@@ -1,10 +1,12 @@
-# SFD continuation — session prompt
+# SFD — finishing the set
 
-Written 2026-08-06 at `a2916a1` and **updated 2026-08-06 at `250add8`**, when the
-whole ordered work list below was finished. **Every figure below was re-measured
-at `250add8`, not carried forward.** Re-measure before planning; this repo's handoffs have gone
-stale faster than they have gone wrong, and a stale number has changed the plan
-every time it was believed.
+**This is the prompt for the session that finishes Spiritforged.** It supersedes
+every earlier handoff in `docs/`; those numbers are stale by construction.
+
+Written 2026-08-07 at `HEAD`, and **every figure was measured at that commit,
+not carried forward**. Re-measure before planning anyway — this repo's handoffs
+have gone stale faster than they have gone wrong, and a stale number has changed
+the plan every time it was believed.
 
 ## Read first, in this order
 
@@ -19,93 +21,269 @@ every time it was believed.
 
 Everything else in `docs/` predates today and its numbers are superseded.
 
-## Measured state at `62d6845`+
+## Measured state
 
-| | implemented |
+| | |
 |---|---|
 | OGN | **248/248** (complete, hard-gated) |
 | OGS | **22/22** (complete, hard-gated) |
-| SFD cards | **137/198** |
-| SFD battlefields | **15/15 — COMPLETE, and now hard-gated** |
+| SFD cards | **138/198** |
+| SFD battlefields | **15/15 — COMPLETE and hard-gated** |
 | SFD legends | **12/12 — COMPLETE** |
 
-Engine **2706 tests across 169 files**, web 100. Typecheck 0 errors across both
+Engine **2707 tests across 169 files**, web 100. Typecheck 0 errors across both
 workspaces, both builds green, all five probes green with walkout pinned at
-**191/107/32** and `DECKS=sfd` at 0 invalid.
+**191/107/32**, `DECKS=sfd` 0 invalid.
 
-**13 SFD cards carry a partial note.** `partialImplementationNote(def)` says what
-each is missing; that list is the honest backlog and is more useful than the
-120/198 headline.
+**60 cards remain: 47 unimplemented and 13 partial**, and every one of them is
+named in a phase below — checked mechanically against
+`isCardImplemented`/`partialImplementationNote` rather than by eye, because the
+first draft of this plan silently dropped six. They are planned out below
+in six phases. The phases are ordered by VALUE PER UNIT OF WORK, not by card
+number, and each is sized to be one commit.
 
-### The battlefield gate now has its OWN completeness list
+## How to use this plan
 
-`COMPLETE_BATTLEFIELD_SETS` (coverage.ts), separate from `COMPLETE_SETS`. A set's
-battlefields finish on their own schedule — SFD's last one landed with 78 cards
-still open — so gating them on the card list meant either leaving 15 finished
-battlefields unprotected or declaring the set complete while it is not. All 39
-battlefields in the pool are under a hard gate for the first time.
+**Work by MECHANISM, never by card.** That is the single thing that made the last
+stretch cheap: one piece of shared work clears three or four cards, and the
+per-card part collapses to a registry entry. Every phase below names the DOOR —
+the one function or table the work goes through — because finding the door is
+most of the job and it is already found here.
 
-## What is left — 67 cards, and how to attack them
+**Before starting any phase, do the stale-note sweep.** Re-read every
+`PARTIALLY_IMPLEMENTED` note in the phase whose text names a MECHANISM ("needs
+X", "cannot express Y", "no table models Z") and grep for X. **Four for four have
+been wrong so far** — the rainbow `[Equip]` cost, Rumble - Hotheaded's keyword
+aura, Forge of the Fluft's "no table models it", and Jax - Unmatched, who worked
+in play and reported unimplemented because an orphaned `equipmentDefIds()` was
+written for coverage and never called. Notes naming missing CARD TEXT (art-only
+clauses) do not rot this way; notes naming missing ENGINE do.
 
-The ordered list below is DONE through item 6. Since then the work has been
-CLUSTERED BY MECHANISM rather than by card, which is what makes it cheap: one
-piece of shared work clears three or four cards, and the per-card part is a
-registry entry.
+**Run `DECKS=sfd node probes/exercised.ts` after every phase, not at the end.**
+It has now found five bugs the suite structurally could not, and the last two
+were PRE-EXISTING code made reachable by a new card — a counter that left the
+chain closed and empty, and an optional-cost branch that never priced
+`[Deflect]`. When it throws, instrument the state; do not assume the card you
+just wrote is the author.
 
-Clusters already cleared, for the shape:
-- optional additional costs (`OPTIONAL_POWER_COSTS` now carries an Energy half) —
-  Blast Corps Cadet, Frostcoat Cub, Sea Monkey;
-- gear-touching spells and abilities — Detonate, Heart of Dark Ice;
-- one-door restrictions — Minotaur Reckoner, through `mayMoveToBaseFrom`.
+---
 
-Clusters still open, biggest first — each is a survey away from being a wave:
-- **cost REDUCTION** — half done. Battering Ram, Jaull-Fish and Production Surge
-  landed through `modifiedEnergyCost`, which is the door and takes a defId, so a
-  self-scaling cost is now a branch and a constant. **Left: Void Drone and Drag
-  Under** ("less from anywhere other than your hand" — needs the play SOURCE,
-  which that function is not given, and the reachable cases want a survey before
-  a guess), **Needlessly Large Yordle** (reduces Energy AND Power, and needs
-  points-scored-from-holding-this-turn), **Irelia - Graceful** and **Ezreal -
-  Prodigy** (both modify OTHER cards' costs, not their own), **Vex - Cheerless**
-  (asymmetric, and conditional on being in combat).
-- **`[Weaponmaster]` units** (2 left): Yone - Blademaster ("when I conquer a
-  battlefield that was UNCONTROLLED" — needs the battlefield's prior controller,
-  which the conquer event may not carry) and Akshan - Mischievous (takes control
-  of an enemy GEAR until he leaves the board — no gear-control mechanism exists).
-  Ornn - Forge God and Jax - Unrelenting landed.
-  **`equipmentAttached` now exists**, held from `attachEquipment` (the single
-  writer of `attachedToInstanceId`), so "when you attach an Equipment to me" is
-  free for the next card. **Aphelios - Exalted (SFD-049) is the one left on it**,
-  and needs one more thing: a three-way modal choice where each mode is usable
-  once per turn — `modesOncePerTurn` exists for ACTIVATED abilities and this is a
-  trigger, so it wants the same per-source record on a different path.
-- **gear activated abilities** (5): Assembly Rig, Poro Snax, Vanguard Armory, and
-  the two "pay any amount" X-cost gear (Hextech Anomaly, Ancient Henge).
-- **statics on the unit itself** (3 left): Ruin Runner ("can't be chosen by enemy
-  spells and abilities" — no chooseability filter exists; it needs one door both
-  the enumerator and the validator ask), Perched Grimwyrm (a play restriction —
-  `mayPlayUnitAt` is battlefield-keyed and this is card-keyed), Rell - Magnetic.
-  Trusty Ramhound landed in `effective-might.ts`'s aura sum.
-- **the 13 partials**, which are the honest backlog; `Svellsongur (SFD-059)`
-  (text copying) is still the one nothing models.
+## Phase 1 — the free ones (9 cards, ~1 commit)
 
-**The recorded divergences** are unchanged in kind: the per-instance `[Repeat]`
-list, the aura-driven "became Mighty", Ornn's gear ability half, a base as a move
-destination, and the Deathknell's read moment.
+Every card here rides a mechanism that already exists and needs a registry entry
+and tests, nothing more. Do this phase first: it is the largest count for the
+least risk, and it leaves the count in a good place if the session is cut short.
 
-## Two things this stretch proved about the process
+| Card | Rides |
+|---|---|
+| **SFD-142 Jae Medarda** — "when you choose me with a spell, draw 1" | `unitChosen`, already fired from both choosing paths |
+| **SFD-144 Spirit Wheel** — "when you choose a friendly unit, you may pay [1] and exhaust this to draw 1" | `unitChosen` + a paid decision (Jax - Unrelenting's `SFD-119-draw` is the shape) |
+| **SFD-180 Fiora - Worthy** — "when a unit you control becomes [Mighty], you may pay [Order] to ready it" | `unitBecameMighty`, built for Fiora - Grand Duelist |
+| **SFD-100 Yordle Explorer** — "when you play a card with Power cost [rainbow][rainbow] or more, draw 1" | `cardPlayed` + the card's printed `powerCost` |
+| **SFD-046 Poro Snax** — "when you play this, draw 1. [1][Calm], Exhaust, Kill this: Draw 1" | a Gear self-trigger (Scrapheap) + `killSelf` activation cost, both existing |
+| **SFD-074 Pickpocket** — on-play, may kill a gear costing ≤[1], if you do play a Gold | a parked decision + `killGear` + `placeGoldTokens` |
+| **SFD-089 Rumble - Scrapper** — "your Mechs have +1 Might (including me). When I hold, play a Mech token" | a tribal Might aura (`isMech`) + a hold trigger + `MECH_TOKEN` |
+| **SFD-068 Gearhead** — "each Equipment attached to me gives DOUBLE its base Might bonus" | `equipmentMightBonusFor`, per wearer |
+| **SFD-131 Ancient Warmonger** — "[Assault] equal to the number of enemy units here" | the VALUED keyword form (Volibear - Furious prints one) |
 
-- **A partial note that names a MISSING MECHANISM goes stale silently, and every
-  one checked was wrong** — the rainbow `[Equip]` cost (freed by Temporal
-  Portal's own widening the day before), Rumble - Hotheaded's keyword aura
-  (already written AND swept), Forge of the Fluft's "no table models it"
-  (`abilitiesAvailableTo` already was the table). Before scoping card work,
-  re-read every note whose text names a mechanism and grep for it. Notes naming
-  missing CARD TEXT (art-only clauses) do not rot the same way.
-- **`DECKS=sfd` is still finding what the suite cannot**, twice more this
-  stretch: a counter that left the chain closed and empty, and an optional-cost
-  branch that never priced `[Deflect]`. Both were PRE-EXISTING and unreachable
-  until a new card reached them. Run it after every wave, not at the end.
+**Watch:** Rumble - Scrapper's aura says "INCLUDING me", which is the opposite of
+every other aura in `KEYWORD_AURAS` — those print "other friendly units" and
+exclude themselves as a class. Sett - Kingpin is the precedent for the inclusive
+reading. Gearhead doubles the BASE bonus (the art-only `equipMightBonus` table),
+not the total, so a stacked buff is not doubled.
+
+## Phase 2 — the "chosen" cluster (4 cards + 1 mechanism)
+
+**The door:** a chooseability filter, asked in ONE place that both the enumerator
+and the validator go through. There is none today. `deflectSurchargeForTargets`
+shows where the two ask about a target, and `eligibleTargets` / `unitOrGearTargets`
+are the walks the enumerator fans out from.
+
+- **SFD-105 Ruin Runner** — "I can't be chosen by enemy spells and abilities." The
+  filter itself. Absolute, not a tax, so it is a different question from
+  `[Deflect]` and must not be bolted onto it.
+- **SFD-141 Irelia - Graceful** — "your spells that CHOOSE me cost [1] or
+  [rainbow] less." A cost modifier keyed on the target, so it needs the price to
+  be computed per VARIANT — which `legal-actions` already does for `[Deflect]`.
+- **SFD-045 Not So Fast** — "counter an enemy spell or ability that chooses a
+  friendly unit or gear." `counter-spell.ts` exists; the new part is the FILTER on
+  what may be countered.
+- **SFD-049 Aphelios - Exalted** — three modes on a TRIGGER, each usable once per
+  turn. `modesOncePerTurn` exists for ACTIVATED abilities (`abilityModesUsedThisTurn`
+  on the unit); this wants the same per-source record reached from a trigger.
+  Rides `equipmentAttached`, which now exists.
+
+**Watch:** Ruin Runner is the classic enumerator/validator split — one door or it
+will be offered and then refused. Write the negative through BOTH.
+
+## Phase 3 — play SOURCE, and playing from elsewhere (6 cards + 1 mechanism)
+
+**The door:** the engine has no concept of WHERE a card is being played from.
+`fromHidden` is the only approximation and it is a boolean on one path. Six cards
+want it, so it is worth a real field on the play action.
+
+- **SFD-010 Void Drone** and **SFD-164 Drag Under** — "costs [2] less to play from
+  anywhere other than your hand."
+- **SFD-029 Rek'Sai - Breacher** — "friendly units played from anywhere other than
+  a player's hand have [Accelerate]."
+- **SFD-140 Fizz - Trickster** — play a spell from your TRASH ignoring its Energy
+  cost, then recycle it.
+- **SFD-084 Jayce - Man of Progress** — kill a friendly gear, then play a gear from
+  HAND ignoring its Energy cost this turn (a lasting permission, not an immediate
+  play).
+- **SFD-165 Glasc Mixologist** — `[Deathknell]`: play a unit from your trash
+  ignoring its cost.
+
+`play-free.ts`'s `playCardIgnoringCost` already exists and already has the
+"a SPELL played this way resolves IMMEDIATELY" note. Jayce is the odd one:
+his is a permission that lasts the turn, so it wants a `PlayerState` flag, not a
+resolution-time play.
+
+## Phase 4 — additional costs and X costs (6 cards + 2 mechanisms)
+
+Two doors, both extensions of tables that exist.
+
+**Play-side additional costs that are not Power** (`OPTIONAL_POWER_COSTS` handles
+Energy and runes as of `ac1deac`; these are costs paid in PERMANENTS or cards):
+- **SFD-160 Zaun Punk** — "you may kill a friendly gear as an additional cost."
+- **SFD-044 Legion Quartermaster** — "as an additional cost, return a friendly
+  gear to its owner's hand." Mandatory, not optional, which is a different shape.
+- **SFD-079 Bard - Mercurial** — "you may exhaust your LEGEND as an additional
+  cost."
+- **SFD-109 Akshan - Mischievous** — his `[Body][Body]` half is ordinary optional
+  Power and works today; his payoff is Phase 6.
+
+`ActivationCost` already models `killFriendlyPermanent` and `discard` for
+ABILITIES, with `activationCostChoices` fanning them out as an axis. The play path
+needs the same shape. Read that pair before designing anything.
+
+**X costs on abilities** (`hasXRainbowCost` exists for Bullet Time, a SPELL):
+- **SFD-083 Hextech Anomaly** — "pay any amount of [rainbow] to [Add] that much
+  Energy."
+- **SFD-117 Ancient Henge** — "pay any amount of Energy to [Add] that much
+  [rainbow]."
+
+Both are `banksResource`, so the AI will not take them — flag them as such, like
+the Seals and Kai'Sa, rather than inventing a heuristic.
+
+**Compound `[Equip]` costs** — the last two the parser deliberately refuses.
+`EQUIP_COST_PATTERN` will not half-read them on purpose, because a looser pattern
+would hand the card an ability costing only the rune, which is strictly CHEAPER
+than printed and is the one direction this codebase never ships:
+- **SFD-150 Last Rites** — a rune AND Recycle 2 from your trash. (Its art-only
+  "when I conquer or hold, play a unit from your trash" is a separate half, and
+  rides `wearerListener` — see Phase 6.)
+- **SFD-178 Blade of the Ruined King** — a rune AND kill a friendly unit.
+
+Both extras already exist as ACTIVATION costs (`recycleFromTrash`,
+`killFriendlyPermanent`), so this is a parser change plus wiring, not a new cost
+model. One change clears both.
+
+**SFD-019 Assembly Rig** belongs here too — "[1][Fury], Recycle a UNIT from your
+trash, Exhaust: play a 3 Might Mech token to your base". `recycleFromTrash` exists
+but takes a count, not a filter; a unit-only recycle is the extension, and
+`MECH_TOKEN` is already shared.
+
+## Phase 5 — the per-turn counters (4 cards)
+
+Each needs one new `PlayerState` field, cleared in `turn-manager.runEnd` beside
+the dozen already there. Grouped because the field is the whole job and the shape
+is identical.
+
+- **SFD-055 Needlessly Large Yordle** — "costs [2][Calm] less for each point you
+  scored FROM HOLDING this turn." Note it reduces Energy AND Power, and
+  `modifiedEnergyCost` is Energy-only; the Power half is a separate line in
+  `validate-play-card`'s cost computation.
+- **SFD-143 Sivir - Mercenary** — "if you've SPENT at least [rainbow][rainbow]
+  this turn, +2 Might and [Ganking]." A Power-spent tally.
+- **SFD-166 Rally the Troops** (partial) — "when a friendly unit is played this
+  turn, buff it." A delayed trigger, so the flag is read at the PLAY site.
+- **SFD-149 Ezreal - Prodigy** — "optional additional costs you pay cost [1] or
+  [rainbow] less." Not a counter but the same file; it discounts the Phase 4
+  work, so do it after.
+
+## Phase 6 — the genuinely new mechanisms (11 cards)
+
+Everything left needs something the engine has never modelled. Each is its own
+commit and its own decision about whether it is worth it. Ordered cheapest first.
+
+1. **Prevention** — **SFD-194 Counter Strike** ("the next time that unit would be
+   dealt damage this turn, prevent it"). `preventsSpellDamageThisTurn` exists as a
+   per-player flag; this is per-UNIT and once.
+2. **Death replacement from a non-legend source** — **SFD-173 Soraka - Wanderer**
+   and **SFD-051 Guardian Angel** (partial). `death-ward.ts` has both the free and
+   the paid shape; these are a unit-sourced and a gear-sourced one.
+3. **Multi-destination placement** — **SFD-168 Vanguard Armory** (three Recruit
+   tokens, "you may play them to different locations") and **SFD-198 Arise!** (a
+   Sand Soldier per Equipment, then ready up to two). Both want a per-token
+   destination axis.
+4. **Move any number** — **SFD-079 Bard - Mercurial**'s payoff, **SFD-184
+   Relentless Pursuit** (move + attach + a granted delayed ability).
+5. **Prior controller on a conquer** — **SFD-116 Yone - Blademaster** ("when I
+   conquer a battlefield that WAS UNCONTROLLED"). Check whether the conquer event
+   carries it before designing; it may be a two-line addition.
+6. **Gear control** — **SFD-109 Akshan** ("move an enemy gear to your base. You
+   control it until I leave the board"). Control that EXPIRES on a condition;
+   `takeControlOfUnit` is permanent and has no expiry.
+7. **Play restrictions keyed by CARD** — **SFD-015 Perched Grimwyrm** ("play me
+   only to a battlefield you conquered this turn") and **SFD-025 Rengar -
+   Pouncing** ("I can be played to a battlefield you're attacking").
+   `mayPlayUnitAt` is battlefield-keyed; these are card-keyed, and Grimwyrm also
+   needs a per-turn conquered-battlefield list.
+8. **Reveal hooks** — **SFD-018 Void Hatchling** ("if you would reveal cards from a
+   deck, look at the top card first") and **SFD-175 Undertitan** (partial, "as I'm
+   revealed from your deck"). `top-of-deck.ts` is the neighbour.
+9. **Location swap** — **SFD-050 Azir - Ascendant** (swap places with a unit you
+   control, once per turn).
+10. **Take control of a unit mid-combat** — **SFD-202 Hostile Takeover**.
+11. **The three art-only Equipment halves.** Their `[Equip]` costs work; the
+    ability printed on the ART does not. All three are transcribed in
+    `docs/sfd-equipment-abilities.md` — **SFD-190 Forgefire Cape** ("when I attack
+    or defend, deal 2 to ALL enemy units here" — rides `wearerListener`, which
+    exists and already serves eight cards, so this may be the cheapest card in
+    Phase 6), **SFD-191 Rabadon's Deathcrown** ("your spells and abilities deal 3
+    Bonus Damage while this is attached" — a `damage-modifiers.ts` entry gated on
+    attachment), **SFD-192 Shurelya's Requiem** ("your units HERE have [Ganking]"
+    — a positional aura sourced from the gear's WEARER, which `KEYWORD_AURAS`
+    cannot express today: its sources are unit, gear and legend, and none of them
+    is "wherever my wearer is standing").
+12. **The singletons** — **SFD-011 Angle Shot**, **SFD-107 Strike Down**,
+    **SFD-024 Rell - Magnetic**, **SFD-075 Prize of Progress**, **SFD-088 Renata
+    Glasc - Mastermind**, **SFD-135 Factory Recall**, **SFD-146 Vex - Cheerless**.
+    Each wants one small thing: a gear→hand bounce, an `abilityActivated` event, a
+    two-target attach/detach spec, an activated ability that SCORES, an asymmetric
+    cost aura. None is hard; none shares a door with another, which is why they
+    are last rather than first.
+
+## The five recommended NOT to do
+
+These are recorded as PARTIAL with a note, and each needs a subsystem out of
+proportion to one card. **Leave them, and say so in the final report** rather than
+half-implementing:
+
+- **SFD-059 Svellsongur** — copies a unit's text onto an Equipment. Nothing in the
+  engine models text copying.
+- **SFD-030 Skyfall of Areion** — "my hold effects are also conquer effects, and
+  vice versa." A moment-rewriting layer with no precedent.
+- **SFD-090 The Zero Drive** — "play all units banished WITH THIS." Needs
+  banish-with-source tracking.
+- **SFD-073 Experimental Hexplate** — "I am a Mech" grants a TAG; `tags` is
+  printed-only and four auras read it.
+- **SFD-042 Brutalizer** — "if this was attached to me THIS TURN" needs a
+  per-attachment turn stamp on the gear.
+
+## Definition of done
+
+- `SFD: N/198` from `test/set-coverage.test.ts` reports every card either
+  implemented or carrying a partial note that names MISSING CARD TEXT, never
+  missing engine.
+- The five NOT-to-do cards are the only ones left, and
+  `docs/rules-conformance.md` records why.
+- Every phase ended with the full loop green and `DECKS=sfd` at 0 invalid.
+- When SFD's cards are complete, add `"SFD"` to `coverage.COMPLETE_SETS` — the
+  gate demands it, and `SetCoverage.finishedButUndeclared` will fail the suite
+  until it is there. (Its battlefields are already in
+  `COMPLETE_BATTLEFIELD_SETS`, which is a separate list for a separate schedule.)
 
 ## The verification loop — run in this order, every time
 
@@ -151,91 +329,6 @@ errors are yours.
   signature}.ts`), which `mergeRegistries` makes parallel-safe by throwing on a
   duplicate defId. Every other file is single-owner.
 
-## What to do next, in order
-
-### 1. `[Repeat]` — 14 cards + Marai Spire. The largest single block.
-
-**It is NOT blocked on a resumable Cleanup.** That was settled 2026-08-06 and the
-old note was wrong — it described the Java oracle's design, not the rules.
-
-Rule **820.1.d** is the whole keyword: *"You may pay [Cost] as an additional cost
-**as you play this**. If you do, execute the instructions of this chain item one
-additional time **during resolution**."* **820.1.c.1** puts the cost at announce.
-**320/321** make Cleanup and resolution mutually exclusive, so nothing falls
-between the two executions and none needs resuming. The PDF's worked example is
-Desert's Call, which is in this set.
-
-Four pieces, all shaped like machinery that exists:
-
-- a per-card cost table — all Energy and/or Power pips except **Temporal Portal
-  (SFD-078)**, whose Repeat cost is dynamic ("equal to its cost")
-- an optional additional cost on the `PlayCard` action, beside
-  `OPTIONAL_POWER_COSTS` and `cardHasOptionalExhaustCost`
-- a flag on the chain entry
-- a second `effect.resolve` call at resolution
-
-**820.1.c.2/c.3**: a card printing two Repeat instances offers each separately,
-and each is payable only once. Marai Spire (SFD-211) discounts friendly Repeat
-costs and is unblocked by the same work, taking battlefields to 12/15.
-
-### 2. `legendEventTriggers` — one adapter rework, then Legends flow again
-
-`legend-abilities.ts`'s adapter converts each Legend hook into an
-`EventTriggerDefinition`, and **throws if a Legend has two convertible hooks**.
-Its own comment says *"None has two today; the throw is so the day one does is
-the day it is noticed."*
-
-**Irelia - Blade Dancer (SFD-195) is that day** — she prints "when you choose a
-friendly unit" and "when you conquer". The fix has precedent:
-`EventTriggerDefinition.on` already accepts a LIST (widened for Corrupt Enforcer
-and Draven - Vanquisher, the same one-defId-two-clauses problem). Collect a
-Legend's hooks and emit one entry with `on: [...kinds]` branching on
-`event.kind`, instead of throwing on the second.
-
-Do it **driven by Irelia**, not as a standalone refactor. She also needs a new
-`onUnitChosen` hook — the `unitChosen` event itself already exists and fires from
-both choosing paths.
-
-### 3. The rest of the Legends, cheapest first
-
-- **Rek'sai - Void Burrower (SFD-187)** — Void Rush (SFD-188) already implements
-  reveal-2 / banish-one / play-it / recycle-the-rest, including its decision.
-- **Jax (SFD-193)**, **Renata Glasc - Chem-Baroness (SFD-201)**,
-  **Sivir (SFD-203)** — attachment, Gold tokens and the hold moment all exist.
-- Needing one new primitive each: **Lucian - Purifier** (Equipment granting
-  `[Assault]` to its wearer), **Ornn (SFD-189)** (a gear-only restricted Power
-  pool — `restrictedSpellPower` is the precedent), **Azir (SFD-197)** (a "played
-  an Equipment this turn" counter).
-- Blocked on new events: **Ezreal (SFD-199)** needs a per-turn counter of choices
-  that also counts GEAR; **Fiora (SFD-205)** needs a "became Mighty" event.
-
-### 4. The cheap-events batch
-
-`buffSpent` (unblocks Fae Dragon SFD-101's second clause) and
-`abilityActivated`. `unitChosen` is done.
-
-### 5. The seven remaining art-only Equipment
-
-No shared mechanism left — each needs its own primitive. Cheapest is **Sacred
-Shears (SFD-172)**, a `[Deathknell]` on the wearer sourced from the gear;
-most expensive is **Svellsongur (SFD-059)**, text copying, which nothing models.
-
-### 6. Two small battlefields
-
-**Ornn's Forge (SFD-213)** needs a per-turn gear-played counter; **Rockfall Path
-(SFD-216)** needs a per-battlefield play restriction. Both touch the
-enumerator/validator pair, which is this repo's most reliable source of
-offered-then-refused bugs — change one side and re-test the other.
-
-**Forge of the Fluft (SFD-208)** grants an ACTIVATED ABILITY to a friendly
-Legend, which no table models. ~~Leave it.~~ **DONE at `250add8`** — and the
-advice was wrong: no new table was needed. `abilitiesAvailableTo`, written for
-Heimerdinger - Inventor, is already the single answer to "what can this source
-activate" and is shared by the enumerator, the validator and the executor. The
-Forge is a second entry in that list. Recorded here rather than deleted, because
-"no table models it" was a judgement about the code that a look at the code
-overturned — the same shape as the two wrong `[Repeat]` notes this file's own
-log records.
 
 ## Known gap, player-facing
 
@@ -243,27 +336,6 @@ The UI has no way to pick WHICH spell on the chain to counter — it takes the
 first matching candidate. Pre-existing and shared with Wind Wall, Defy, Mystic
 Reversal and Riposte's spell half. Harmless with one spell waiting; arbitrary
 with two or more. Fixing it means making chain items clickable in the viewer.
-
-## What today proved, and what it should change about how you work
-
-Three instrument defects were closed, and all three had the same shape: **the
-measurement said the work was done.**
-
-- The typecheck gate had been red for 12 errors behind a green build.
-- **Fifteen Equipment reported `isCardImplemented = true`** while doing none of
-  what they print, because their whole ability is on the ART and
-  `needsImplementation` reads the text. Eight are now written; seven are in
-  `PARTIALLY_IMPLEMENTED`. **SFD's count FELL from 100 to 93 as a result, and the
-  fall was the fix.** A dropping coverage number can be good news.
-- **Three tribal keyword auras granted to every friendly unit**, because
-  `auraGrantedKeywords` consulted `appliesTo` but never `appliesToDef`. Every
-  test for those three passed — each asserted only that the Mech got the keyword.
-  Found by writing the NEGATIVE for a fourth card of the same shape.
-
-The lesson those share: **write the negative.** In all three cases the positive
-assertion passed against broken code. The negative is where the information is.
-
-And two notes that were confidently wrong were found today, on top of the three
-above: `[Repeat]`'s blocker (described the oracle's design, not the rules) and
-`counter-spell.test.ts` calling Hextech Ray "2E/1P" when it is 1E/1P. **A comment
-is a claim, and claims are checkable.**
+**Not So Fast (Phase 2) will be the second card to want it** — it counters a
+spell chosen by a filter, and with two candidate spells on the chain the UI has
+no way to say which.

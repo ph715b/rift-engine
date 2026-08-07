@@ -20,7 +20,7 @@ import { effectiveMight } from "../src/engine/effective-might.js";
 import { effectiveKeywords, hasKeyword } from "../src/engine/granted-keywords.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { contextFor } from "../src/engine/effect-context.js";
-import { partialImplementationNote } from "../src/engine/coverage.js";
+import { implementingModules, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { pendingDecision } from "../src/engine/decisions.js";
@@ -423,6 +423,22 @@ describe("[Quick-Draw]", () => {
     theirs.players[1]!.baseUnits = [jax];
     theirs.players[0]!.baseUnits = [makeUnit()];
     expect(holdQuickDrawAttach(theirs, 0, realGearInstance(DORANS_BLADE))).toEqual(theirs);
+  });
+
+  /**
+   * **And COVERAGE has to be able to see him**, which is a separate claim from
+   * the grant working — his printed text is a keyword and a grant, so nothing
+   * else in the engine mentions his defId.
+   *
+   * He worked in play and reported UNIMPLEMENTED for as long as he existed:
+   * `equipment.equipmentDefIds()` was written for coverage, says so in its own
+   * comment, and was never called by anything. **The Lucian - Purifier trap
+   * exactly** — if a card works and the count does not move, the module has not
+   * claimed it. Asserted here so an orphaned source cannot recur silently.
+   */
+  it("and coverage CLAIMS him — the grant working is a separate question", () => {
+    expect(isCardImplemented(registry.get(JAX_UNMATCHED)), "Jax works but no module claims him").toBe(true);
+    expect(implementingModules(JAX_UNMATCHED)).toContain("granted keywords");
   });
 });
 
