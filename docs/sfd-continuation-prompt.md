@@ -1,7 +1,8 @@
 # SFD continuation — session prompt
 
-Written 2026-08-06 at `a2916a1`. **Every figure below was measured at that commit,
-not carried forward.** Re-measure before planning; this repo's handoffs have gone
+Written 2026-08-06 at `a2916a1` and **updated 2026-08-06 at `250add8`**, when the
+whole ordered work list below was finished. **Every figure below was re-measured
+at `250add8`, not carried forward.** Re-measure before planning; this repo's handoffs have gone
 stale faster than they have gone wrong, and a stale number has changed the plan
 every time it was believed.
 
@@ -18,23 +19,43 @@ every time it was believed.
 
 Everything else in `docs/` predates today and its numbers are superseded.
 
-## Measured state at `a2916a1`
+## Measured state at `250add8`
 
 | | implemented |
 |---|---|
 | OGN | **248/248** (complete, hard-gated) |
 | OGS | **22/22** (complete, hard-gated) |
-| SFD cards | **95/198** |
-| SFD battlefields | **11/15** — left: SFD-208, SFD-211, SFD-213, SFD-216 |
-| SFD legends | **2/12** |
+| SFD cards | **120/198** |
+| SFD battlefields | **15/15 — COMPLETE, and now hard-gated** |
+| SFD legends | **12/12 — COMPLETE** |
 
-Engine **2418 tests across 149 files**, web 96. Typecheck 0 errors across both
+Engine **2635 tests across 165 files**, web 100. Typecheck 0 errors across both
 workspaces, both builds green, all five probes green with walkout pinned at
-**191/107/32** and `DECKS=sfd` at 0 invalid.
+**191/107/32** and `DECKS=sfd` at 0 invalid, `inDecks` 128 / `exercised` 115.
 
-**33 SFD cards carry a partial note.** `partialImplementationNote(def)` says what
+**18 SFD cards carry a partial note.** `partialImplementationNote(def)` says what
 each is missing; that list is the honest backlog and is more useful than the
-95/198 headline.
+120/198 headline.
+
+### The battlefield gate now has its OWN completeness list
+
+`COMPLETE_BATTLEFIELD_SETS` (coverage.ts), separate from `COMPLETE_SETS`. A set's
+battlefields finish on their own schedule — SFD's last one landed with 78 cards
+still open — so gating them on the card list meant either leaving 15 finished
+battlefields unprotected or declaring the set complete while it is not. All 39
+battlefields in the pool are under a hard gate for the first time.
+
+## What is left
+
+The ordered list below is DONE through item 6. What remains is the long tail:
+
+- **78 SFD cards**, none of them blocked on a missing mechanism as far as the
+  last sweep found — they are individually cheap and collectively large.
+- **The 18 partials**, which are the honest backlog; `Svellsongur (SFD-059)`
+  (text copying) is still the one nothing models.
+- **The recorded divergences**, unchanged in kind: the per-instance `[Repeat]`
+  list (added by Temporal Portal), the aura-driven "became Mighty", Ornn's gear
+  ability half, a base as a move destination, and the Deathknell's read moment.
 
 ## The verification loop — run in this order, every time
 
@@ -157,7 +178,14 @@ enumerator/validator pair, which is this repo's most reliable source of
 offered-then-refused bugs — change one side and re-test the other.
 
 **Forge of the Fluft (SFD-208)** grants an ACTIVATED ABILITY to a friendly
-Legend, which no table models. Leave it.
+Legend, which no table models. ~~Leave it.~~ **DONE at `250add8`** — and the
+advice was wrong: no new table was needed. `abilitiesAvailableTo`, written for
+Heimerdinger - Inventor, is already the single answer to "what can this source
+activate" and is shared by the enumerator, the validator and the executor. The
+Forge is a second entry in that list. Recorded here rather than deleted, because
+"no table models it" was a judgement about the code that a look at the code
+overturned — the same shape as the two wrong `[Repeat]` notes this file's own
+log records.
 
 ## Known gap, player-facing
 
