@@ -2,6 +2,8 @@ import type { GameState, PendingDeath, PlayerState } from "../model/game-state.j
 import type { UnitInstance } from "../model/card.js";
 import { computeAutoPayment } from "./rune-payment.js";
 import { parkDecision } from "./decisions.js";
+import { killGear } from "./triggers.js";
+import { effectiveMight } from "./effective-might.js";
 
 /**
  * Highlander's death ward — "the next time it would die this turn, heal
@@ -28,7 +30,100 @@ export const ZHONYAS_HOURGLASS = "OGN-077";
 /** For coverage.ts — the cards this module's rules implement. Highlander's ward
  *  is registered by the card that grants it; the Hourglass has no other home. */
 export function deathReplacementDefIds(): string[] {
-  return [ZHONYAS_HOURGLASS];
+  return [ZHONYAS_HOURGLASS, GUARDIAN_ANGEL, SORAKA_WANDERER];
+}
+
+/**
+ * Guardian Angel — "If I would die, kill Guardian Angel instead. Heal me,
+ * exhaust me, and recall me."
+ *
+ * **ART-ONLY ABILITY**, transcribed from the card image; see
+ * docs/sfd-equipment-abilities.md. Its `text.plain` holds an `[Equip]` line and
+ * nothing else.
+ *
+ * Zhonya's Hourglass' shape with one difference that is the whole card: the
+ * Hourglass saves ANY friendly unit, and this saves only its WEARER. So it is
+ * matched by attachment rather than by mere presence — an unattached Guardian
+ * Angel in `activeGear` saves nobody.
+ */
+const GUARDIAN_ANGEL = "SFD-051";
+
+/**
+ * Soraka - Wanderer — "If another unit you control HERE would die, if it has
+ * LESS Might than me, instead heal it, exhaust it, and recall it."
+ *
+ * The pool's first death replacement sourced from a UNIT, and the first with a
+ * condition on the DYING unit rather than on the saver. Three clauses and all
+ * three are printed:
+ *
+ *  - **ANOTHER** — she cannot save herself, which is what stops her being
+ *    unkillable. By INSTANCE, so a second Soraka standing with her does save
+ *    the first.
+ *  - **HERE** — positional, so she saves nobody while she stands in base and
+ *    nobody at another battlefield.
+ *  - **LESS Might than me** — strictly less, read through `effectiveMight` so
+ *    an aura or an Equipment on either unit counts. A unit of EQUAL Might is
+ *    not saved, which is the difference between "less" and "no more".
+ *
+ * MANDATORY, like the Hourglass — no "you may" — so it asks nothing.
+ */
+const SORAKA_WANDERER = "SFD-173";
+
+/**
+ * The free, MANDATORY replacement that applies to this death, if any — Guardian
+ * Angel's and Soraka's.
+ *
+ * One function so `killUnit` has a single place to ask, and so the ORDER
+ * between them is stated once rather than falling out of two ifs. Guardian Angel
+ * is checked first because it is the narrower card: it saves only its wearer and
+ * costs the gear, and letting Soraka's free save consume a death the Angel was
+ * attached for would waste it. Neither is a choice, so there is no question to
+ * fold them into — the same ground the Hourglass is preferred on, and recorded
+ * in docs/rules-conformance.md.
+ */
+export function freeDeathReplacement(
+  state: GameState,
+  unit: UnitInstance,
+  ownerIndex: 0 | 1,
+  battlefieldId: string | undefined,
+  /**
+   * What the dying unit was WEARING, captured by `killUnit` before it detached
+   * everything.
+   *
+   * **Passed in rather than read off the board, and that is load-bearing.**
+   * `killUnit` runs `detachAllFrom` before any replacement is considered — it
+   * has to, because a dangling `attachedToInstanceId` reads in play as a Might
+   * bonus from an Equipment attached to nothing. So by the time this function
+   * runs, the Guardian Angel is already unattached and a live-board lookup finds
+   * nothing. The first version did exactly that and never fired; the test caught
+   * it. `PendingDeath.wornEquipment` exists for this same reason.
+   */
+  wornEquipment: readonly { instanceId: string; defId: string }[],
+): GameState | undefined {
+  const wornAngel = wornEquipment.find((g) => g.defId === GUARDIAN_ANGEL);
+  // Re-found on the live board to get the real instance for `killGear`, which
+  // needs the gear as it currently is rather than as it was when captured.
+  const angel = wornAngel
+    ? state.players[ownerIndex].activeGear.find((g) => g.instanceId === wornAngel.instanceId)
+    : undefined;
+  if (angel) {
+    // killGear, not a quiet removal: the Angel is KILLED, so it goes through the
+    // funnel that fires a gear's own killed-trigger — the same reading the
+    // Hourglass takes.
+    return reviveToBase(killGear(state, angel, ownerIndex), unit, ownerIndex);
+  }
+
+  // "HERE" — a unit dying in BASE is at no battlefield, so Soraka never reaches
+  // it however close she is standing.
+  if (battlefieldId === undefined) return undefined;
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const here = bf?.units[state.players[ownerIndex].id] ?? [];
+  const soraka = here.find((u) => u.defId === SORAKA_WANDERER && u.instanceId !== unit.instanceId);
+  if (soraka === undefined) return undefined;
+  const ctx = { isCombat: false as const, battlefieldId };
+  // Strictly LESS. Equal Might is not saved.
+  if (effectiveMight(state, unit, ownerIndex, ctx) >= effectiveMight(state, soraka, ownerIndex, ctx)) return undefined;
+  return reviveToBase(state, unit, ownerIndex);
 }
 
 /**

@@ -352,7 +352,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // docs/sfd-equipment-abilities.md.
   ["SFD-030", "art-only: 'My hold effects are also conquer effects, and vice versa' needs a moment-rewriting layer, which has no precedent here"],
   ["SFD-042", "art-only: 'if this was attached to me THIS TURN, +2 Might' needs a per-attachment turn stamp on the gear"],
-  ["SFD-051", "art-only: 'if I would die, kill Guardian Angel instead' needs a death replacement sourced from a GEAR (death-ward.ts shape)"],
   ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
   ["SFD-073", "art-only: 'I am a Mech' grants a TAG rather than a keyword, and `tags` is printed-only today"],
   ["SFD-090", "art-only: 'play all units banished with this' needs banish-with-source tracking"],

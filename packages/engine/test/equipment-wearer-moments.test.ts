@@ -52,7 +52,13 @@ const EYE_OF_THE_HERALD = "SFD-153"; // when I move, play a 1 Might Recruit toke
 
 const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONESHIVER, DORANS_RING, CULL, EYE_OF_THE_HERALD];
 /** The art-only Equipment still unwritten — each needs its own primitive. */
-const STILL_ART_ONLY = ["SFD-030", "SFD-042", "SFD-051", "SFD-059", "SFD-073", "SFD-090"];
+/** **Guardian Angel (SFD-051) has left this list**, which is why it is now five.
+ *  Its art half — "if I would die, kill Guardian Angel instead" — is a free,
+ *  MANDATORY death replacement sourced from a GEAR, and it is written beside
+ *  Zhonya's Hourglass in death-ward.ts. The five that remain are the ones
+ *  docs/sfd-continuation-prompt.md recommends NOT doing: each needs a subsystem
+ *  out of proportion to one card. */
+const STILL_ART_ONLY = ["SFD-030", "SFD-042", "SFD-059", "SFD-073", "SFD-090"];
 /** Sacred Shears — art-only like the six above, and written now, but NOT by the
  *  wearer's-moments mechanism. See its own describe block at the bottom. */
 const SACRED_SHEARS = "SFD-172";
@@ -235,7 +241,7 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     }
   });
 
-  it("reports the SIX still-unwritten ones as NOT implemented", () => {
+  it("reports the FIVE still-unwritten ones as NOT implemented", () => {
     // The instrument fix, and the half that would silently rot: each of these
     // reported `true` before 2026-08-06 purely because its `[Equip]` cost is
     // registered, while its whole printed ability does nothing.

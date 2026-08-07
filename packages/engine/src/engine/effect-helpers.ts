@@ -6,7 +6,14 @@ import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
-import { ZHONYAS_HOURGLASS, isDeathWarded, offerPaidDeathWard, reviveToBase, reviveWithDeathWard } from "./death-ward.js";
+import {
+  ZHONYAS_HOURGLASS,
+  freeDeathReplacement,
+  isDeathWarded,
+  offerPaidDeathWard,
+  reviveToBase,
+  reviveWithDeathWard,
+} from "./death-ward.js";
 import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGear } from "./triggers.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
@@ -141,6 +148,13 @@ export function killUnit(
   // rules would let the controller pick which replacement applies. The Hourglass
   // wins here because it is not a choice at all, so there is no question to
   // fold the other into. Recorded in docs/rules-conformance.md.
+  // Guardian Angel's and Soraka - Wanderer's free saves, asked beside the
+  // Hourglass and for the same reason: all three are MANDATORY, so none of them
+  // is a question and none can be folded into `offerDeathReplacement` below.
+  // Their order relative to each other is stated inside that one function.
+  const freeSave = freeDeathReplacement(state, unit, ownerIndex, battlefieldId, wornEquipment);
+  if (freeSave) return freeSave;
+
   const hourglass = state.players[ownerIndex].activeGear.find((g) => g.defId === ZHONYAS_HOURGLASS);
   if (hourglass) {
     // killGear, not a quiet removal: the Hourglass is KILLED, so it goes to the
