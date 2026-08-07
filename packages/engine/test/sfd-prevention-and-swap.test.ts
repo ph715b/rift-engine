@@ -137,12 +137,21 @@ describe("Azir - Ascendant (SFD-050): swap places with a unit you control", () =
     expect(activationCostOf(AZIR_ASCENDANT, "swap")).toMatchObject({ power: { domain: "Calm", count: 1 } });
   });
 
-  /** His Equipment half is unwritten, and the note says so rather than the card
-   *  reporting finished. */
-  it("carries a partial note naming the unwritten Equipment half", () => {
-    const note = partialImplementationNote(registry.get(AZIR_ASCENDANT));
-    expect(note, "no partial note").toBeDefined();
-    expect(note).toContain("Equipment");
+  /**
+   * **REPLACED 2026-08-07, premise fixed rather than assertion weakened.** This
+   * asserted that Azir CARRIED a partial note naming his unwritten Equipment
+   * half, which was true while "if it's equipped, you may attach one of its
+   * Equipment to me" had nowhere to live — the engine chooses targets at announce
+   * time and there was no attach axis on an activation.
+   *
+   * That axis exists now (`attachesFromTargetToSelf`), so the note was deleted per
+   * PARTIALLY_IMPLEMENTED's own convention and this assertion is inverted rather
+   * than removed with it. The Equipment half has its own file,
+   * `sfd-azir-ascendant.test.ts`; what this block tests is the swap, unchanged.
+   */
+  it("is whole now — the Equipment half landed and its note is gone", () => {
+    expect(isCardImplemented(registry.get(AZIR_ASCENDANT)), "SFD-050 is not reported implemented").toBe(true);
+    expect(partialImplementationNote(registry.get(AZIR_ASCENDANT)), "a note outlived its clause").toBeUndefined();
   });
 });
 

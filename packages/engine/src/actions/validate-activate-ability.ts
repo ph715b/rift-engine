@@ -17,7 +17,7 @@ import {
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
 } from "../engine/target-lookup.js";
-import { attachableEquipment } from "../engine/equipment.js";
+import { attachableEquipment, equipmentPairedWith } from "../engine/equipment.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
@@ -213,6 +213,16 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     const legal = attachableEquipment(state, action.playerIndex, mode.attachesEquipment, action.targetUnitInstanceId ?? "");
     if (!legal.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
       return fail(`${action.targetPermanentInstanceId} is not an Equipment ${card.name} can attach to that unit`);
+    }
+  }
+
+  // Azir - Ascendant's reverse axis. Naming NO Equipment is legal — the card says
+  // "you MAY" — so only a named one is checked, and it must be worn by the very
+  // unit chosen, through the same walk the enumerator fanned out from.
+  if (mode.attachesFromTargetToSelf && action.targetPermanentInstanceId !== undefined) {
+    const worn = equipmentPairedWith(state, action.targetUnitInstanceId ?? "", "attachedToIt");
+    if (!worn.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
+      return fail(`${action.targetPermanentInstanceId} is not an Equipment worn by that unit`);
     }
   }
 

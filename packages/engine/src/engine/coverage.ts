@@ -302,56 +302,27 @@ export function implementingModule(defId: string): string | undefined {
  * when the rest lands. A card is either finished or it is on this list.
  */
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // The list above was EMPTY for a while, and that is the shape working rather
-  // than an omission. Entries are DELETED when the rest lands, never reworded: Sett - The
-  // Boss lived here while only his on-conquer clause worked, Convergent Mutation
-  // for the hours between its enumeration gap being found and `asymmetricSlots`
-  // landing, and Spirit's Refuge until `granted-keywords.KEYWORD_AURAS` gave a
-  // GEAR-source aura with a per-target condition somewhere to live.
-  //
-  // Keep the mechanism rather than deleting it, for the reason
+  // **Keep the mechanism even when this list empties**, for the reason
   // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
   // defId, so the next two-clause card written by halves reports DONE on the
-  // first half, and this list is the only thing that says otherwise.
+  // first half, and this list is the only thing that says otherwise. It has been
+  // empty before and refilled the same week.
   //
-  // **The next two-clause cards arrived on 2026-08-05**, six of them, in SFD's
-  // first card wave — and the prediction above was exact. Each was measured
-  // reporting `isCardImplemented = true` with no partial note before these
-  // entries were written, i.e. each read as finished while half of it was
-  // missing. Every one was reported by the agent that wrote the other half
-  // rather than found afterwards, which is the discipline working: none of them
-  // could add an entry here, because this file is shared.
-  //
-  // Three of the six are blocked on the SAME missing primitive — a gear-token
-  // (the Gold token, `sfd-t03`) — which four separate agents hit independently
-  // across eleven cards. That is the wave's largest single finding.
-  // The six Equipment whose printed `[Equip]` cost this engine cannot yet
-  // express. Attachment itself works — these are cost shapes, not a missing
-  // subsystem — and each is here rather than under a keyword flag so the 25
-  // Equipment that DO work are not greyed with them.
-  // **Reworded, not deleted, and the distinction matters.** This list's own
-  // convention is that entries are DELETED when the rest lands rather than
-  // amended — an amended entry is how a card stays "nearly done" forever. Half
-  // of this one HAS landed (the compound `[Equip]` cost now parses and is
-  // wired), so leaving the old text would assert something false about the
-  // parser. What remains is the art-only half, and the note now names that and
-  // nothing else, which is the shape the definition of done requires: a partial
-  // may name missing CARD TEXT, never missing engine.
-  // Azir - Ascendant's swap is written; his "if it's equipped, you may attach
-  // one of its Equipment to me" is not. That is a second, OPTIONAL choice made
-  // mid-resolution, and this engine chooses targets at announce time — so it
-  // needs an attach axis on the activation, not just a resolver line. Names
-  // missing CARD TEXT, which is what a partial note is allowed to name.
-  ["SFD-050", "the swap works; 'if it's equipped, you may attach one of its Equipment to me' is unwritten"],
   // **The Equipment whose printed ability exists ONLY on the card art**, and the
   // worst blind spot this file has had. `needsImplementation` reads the card
   // text; for every one of these `text.plain` holds the `[Equip]` line and
   // nothing else, so the generated equip ability made them report
   // `isCardImplemented = true` — a card that looks finished while doing NONE of
   // what it prints, which this map's own doc comment calls the wrong direction to
-  // err in. Fifteen cards read that way until 2026-08-06; the eight
-  // wearer's-moments ones are now written and have left this list, and these
-  // seven are what is honestly left. Transcribed abilities in
+  // err in.
+  //
+  // **Fifteen cards read that way until 2026-08-06.** The eight wearer's-moments
+  // ones left first; Guardian Angel, Last Rites, Brutalizer and Experimental
+  // Hexplate followed on 2026-08-07. Two of those four were held here on notes
+  // that turned out to be MIS-PRICED rather than blocked — see this file's git
+  // history and the log in docs/rules-conformance.md.
+  //
+  // These three are what is honestly left. Transcribed abilities in
   // docs/sfd-equipment-abilities.md.
   ["SFD-030", "art-only: 'My hold effects are also conquer effects, and vice versa' needs a moment-rewriting layer, which has no precedent here"],
   ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],

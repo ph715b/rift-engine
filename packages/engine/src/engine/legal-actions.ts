@@ -230,6 +230,21 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
             }
             continue;
           }
+          // Azir - Ascendant's "if it's equipped, you MAY attach one of its
+          // Equipment to me" — the reverse direction: the Equipment is chosen off
+          // the TARGET and ends up on the SOURCE.
+          //
+          // The decline goes first and unconditionally, because "you may" stays
+          // refusable even when a legal Equipment exists — and because a target
+          // wearing nothing must still be a legal swap. Same shared walk Angle
+          // Shot's validator uses, so the two cannot disagree about what is worn.
+          if (mode.attachesFromTargetToSelf) {
+            push({ ...withMode, targetUnitInstanceId: target.instanceId });
+            for (const gear of equipmentPairedWith(state, target.instanceId, "attachedToIt")) {
+              push({ ...withMode, targetUnitInstanceId: target.instanceId, targetPermanentInstanceId: gear.instanceId });
+            }
+            continue;
+          }
           if (!mode.movesTarget) {
             push({ ...withMode, targetUnitInstanceId: target.instanceId });
             continue;

@@ -230,6 +230,25 @@ export interface AbilityMode {
    */
   attachesEquipment?: "detached" | "attached" | "any";
   /**
+   * The OPTIONAL second choice on Azir - Ascendant: "if it's equipped, **you may
+   * attach one of its Equipment to me**".
+   *
+   * A different AXIS from `attachesEquipment` above, not a fourth value of it.
+   * That one chooses an Equipment to attach TO the target; this one chooses one
+   * currently ON the target and attaches it to the SOURCE. The direction is
+   * reversed, so sharing the field would make every existing reader wrong about
+   * which permanent ends up wearing what.
+   *
+   * **Optional, so the enumeration includes a DECLINE variant** — a bare
+   * `targetUnitInstanceId` with no Equipment named. "You may" has to stay
+   * refusable even when a legal Equipment exists.
+   *
+   * Fanned out at ANNOUNCE time like every other choice here, which is exactly
+   * what this card's old partial note said was missing: it is a second target on
+   * the action, not a question asked mid-resolution.
+   */
+  attachesFromTargetToSelf?: true;
+  /**
    * What THIS mode costs, when the modes of one ability are priced differently —
    * Jax again, whose detached-attach costs `[1]` and whose re-attach is free.
    *
@@ -287,6 +306,25 @@ export interface ActivatedAbilityDefinition {
    *  grant. Carried onto the synthetic sole mode by `modesOf`, so the axis is
    *  declared in one place whether or not the ability has modes. */
   attachesEquipment?: "detached" | "attached" | "any";
+  /**
+   * The OPTIONAL second choice on Azir - Ascendant: "if it's equipped, **you may
+   * attach one of its Equipment to me**".
+   *
+   * A different AXIS from `attachesEquipment` above, not a fourth value of it.
+   * That one chooses an Equipment to attach TO the target; this one chooses one
+   * currently ON the target and attaches it to the SOURCE. The direction is
+   * reversed, so sharing the field would make every existing reader wrong about
+   * which permanent ends up wearing what.
+   *
+   * **Optional, so the enumeration includes a DECLINE variant** — a bare
+   * `targetUnitInstanceId` with no Equipment named. "You may" has to stay
+   * refusable even when a legal Equipment exists.
+   *
+   * Fanned out at ANNOUNCE time like every other choice here, which is exactly
+   * what this card's old partial note said was missing: it is a second target on
+   * the action, not a question asked mid-resolution.
+   */
+  attachesFromTargetToSelf?: true;
   /**
    * A restriction on ACTIVATING rather than on resolving — Caitlyn - Patrolling's
    * "use this ability only while I'm at a battlefield".
@@ -1040,10 +1078,20 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // (`abilityModesUsedThisTurn`) is cleared by `turn-manager`'s runEnd for
     // every unit, so nothing new needs resetting.
     //
-    // The Equipment half is NOT written, and the card therefore carries a
-    // partial note: "you may attach one of its Equipment to me" is a second,
-    // optional choice made mid-resolution, and this engine chooses targets at
-    // announce time. Recorded rather than silently dropped.
+    // **The Equipment half is written now**, and the partial note it carried is
+    // deleted. That note said the clause needed "an attach axis on the
+    // activation, not a resolver line", and it was right: "you may attach one of
+    // its Equipment to me" is a second OPTIONAL choice, and this engine chooses
+    // at announce time. `attachesFromTargetToSelf` is that axis.
+    //
+    // It is a NEW axis rather than a value of `attachesEquipment`, because the
+    // direction is reversed: that field picks an Equipment to attach TO the
+    // target, and this picks one already ON the target to move to the SOURCE.
+    //
+    // **Attached AFTER the swap**, deliberately. `attachEquipment` is positional
+    // only through its wearer, so the order does not change where the gear ends
+    // up — but it does decide what an `equipmentAttached` listener sees, and a
+    // listener reading the board mid-swap would find Azir at neither location.
     kind: "Unit",
     modesOncePerTurn: true,
     modes: [
@@ -1055,10 +1103,15 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
         // that also reaches BASE. Swapping with a unit at home is exactly how he
         // teleports out of a losing fight.
         targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
-        resolve: (state, ctx, event, sourceInstanceId) =>
-          event.targetUnitInstanceId === undefined
-            ? state
-            : swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId),
+        attachesFromTargetToSelf: true,
+        resolve: (state, ctx, event, sourceInstanceId) => {
+          if (event.targetUnitInstanceId === undefined) return state;
+          const swapped = swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId);
+          // Absent means the player declined — "you MAY" — so the swap stands
+          // alone. 422's do-as-much-as-you-can, not a guard.
+          if (event.targetPermanentInstanceId === undefined) return swapped;
+          return attachEquipment(swapped, ctx.casterIndex, event.targetPermanentInstanceId, sourceInstanceId);
+        },
       },
     ],
   },
@@ -2124,6 +2177,7 @@ export function modesOf(abilityDefId: string): readonly AbilityMode[] {
       label: "",
       targeting: definition.targeting ?? { kind: "none" },
       ...(definition.attachesEquipment ? { attachesEquipment: definition.attachesEquipment } : {}),
+      ...(definition.attachesFromTargetToSelf ? { attachesFromTargetToSelf: definition.attachesFromTargetToSelf } : {}),
       resolve: definition.resolve,
     },
   ];
