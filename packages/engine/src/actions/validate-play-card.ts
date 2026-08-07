@@ -43,6 +43,7 @@ import {
   timingRejection,
 } from "../engine/timing.js";
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
+import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
 import { counterableSpells } from "../engine/counter-spell.js";
 
 /**
@@ -543,6 +544,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
       // (ActionValidator.java:1487-1504).
       if (destination.controllerId !== actor.id) {
         return fail(`${card.name} can only place tokens at a battlefield you control`);
+      }
+      // Rockfall Path — re-derived from the same predicate the enumerator filters
+      // with, so a token destination can never be offered and then refused.
+      if (!mayPlayUnitAt(state, destination.id)) {
+        return fail(`${card.name} cannot play a unit at ${destination.name}`);
       }
     } else if (!cardMovesTarget(card.defId)) {
       return fail(`${card.name} cannot be played directly to a battlefield`);

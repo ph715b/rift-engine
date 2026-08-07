@@ -70,6 +70,18 @@ interface ContinuousBattlefield {
    * query. See `repeatEnergyDiscountFor`.
    */
   repeatEnergyDiscountForController?: number;
+  /**
+   * "Units can't be played here" (Rockfall Path).
+   *
+   * **PLAYED, not moved or placed.** The card restricts one verb, and the
+   * distinction is the whole of it: a unit may still MOVE here, be forced here
+   * by Charm or Temptation, or arrive by a Recall. Reading it as "no unit may
+   * become present" would make it a far stronger card than it prints.
+   *
+   * Symmetric — "units", not "your units" — so it binds both players, like every
+   * other unqualified battlefield ability here.
+   */
+  noUnitsPlayedHere?: true;
 }
 
 /** Forgotten Monument (SFD-209) — "players can't score here until their third
@@ -78,6 +90,8 @@ const FORGOTTEN_MONUMENT = "SFD-209";
 /** Marai Spire (SFD-211) — "While you control this battlefield, friendly
  *  [Repeat] costs cost [1 Energy] less." */
 const MARAI_SPIRE = "SFD-211";
+/** Rockfall Path (SFD-216) — "Units can't be played here." */
+const ROCKFALL_PATH = "SFD-216";
 
 const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   [TRIFARIAN_WAR_CAMP]: { mightBonusHere: 1 },
@@ -94,6 +108,9 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
   // The Energy half only — the pip printed is an Energy pip, and Called Shot's
   // Repeat is 0 Energy + 1 Chaos Power, which this therefore cannot touch.
   [MARAI_SPIRE]: { repeatEnergyDiscountForController: 1 },
+  // "Units can't be played here." No controller clause, so it binds BOTH players
+  // — including whoever controls the battlefield.
+  [ROCKFALL_PATH]: { noUnitsPlayedHere: true },
 };
 
 
@@ -117,6 +134,21 @@ export function mayScoreAt(state: GameState, battlefieldId: string): boolean {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   const before = bf?.defId ? BATTLEFIELD_CONTINUOUS[bf.defId]?.noScoringBeforeTurn : undefined;
   return before === undefined || state.turnNumber >= before;
+}
+
+/**
+ * Rockfall Path's "Units can't be played here" — may a unit be PLAYED onto this
+ * battlefield at all?
+ *
+ * Asked of the battlefield alone, with no player argument, because the card names
+ * none: it binds both sides equally.
+ *
+ * The one function `mayPlayUnitToBattlefield` composes into, so the enumerator
+ * and the validator cannot disagree — the split that produced an AI throwing on
+ * an action it was offered, recorded on that very function.
+ */
+export function mayPlayUnitAt(state: GameState, battlefieldId: string): boolean {
+  return at(state, battlefieldId)?.noUnitsPlayedHere !== true;
 }
 
 /** For coverage.ts, and for the completeness gate that asks whether all 24

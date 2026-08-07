@@ -64,7 +64,7 @@ import {
   deflectSurchargeForTargets,
   hasKeyword,
 } from "./granted-keywords.js";
-import { hiddenCardLimitAt, mayMoveToBaseFrom } from "./battlefield-continuous.js";
+import { hiddenCardLimitAt, mayMoveToBaseFrom, mayPlayUnitAt } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
@@ -1203,6 +1203,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       if (card.kind === "Spell" && cardPlacesTokens(card.defId)) {
         for (const bf of state.battlefields) {
           if (bf.controllerId !== actor.id) continue;
+          // Rockfall Path: "units can't be PLAYED here", and a unit token played
+          // to a battlefield is a unit being played — Recruit the Vanguard's own
+          // text is "play a 1 Might Recruit unit token". Gated here as well as on
+          // the Unit path, because the two reach a destination by different
+          // routes and only this one covers a Spell that makes a body.
+          if (!mayPlayUnitAt(state, bf.id)) continue;
           // Rule 811 again: "if a hidden spell ... causes you to play a unit, you
           // must CHOOSE to play that unit at that battlefield" — so a from-hidden
           // Sprite Call has exactly one destination, not a choice of them.

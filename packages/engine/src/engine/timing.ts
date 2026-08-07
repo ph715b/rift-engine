@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { mayPlayUnitAt } from "./battlefield-continuous.js";
 import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
@@ -141,6 +142,10 @@ export function mayPlayUnitToBattlefield(state: GameState, playerIndex: 0 | 1, b
   // composed WITH rule 813's own restriction below rather than replacing it, so
   // both have to allow a destination for it to be offered.
   if (!mayPlayUnitToBattlefieldUnderRestrictions(state, playerIndex)) return false;
+  // Rockfall Path bars THIS destination, for both players and in every turn
+  // state. Composed the same way and for the same reason: every gate has to
+  // allow a destination for it to be offered.
+  if (!mayPlayUnitAt(state, battlefieldId)) return false;
   if (state.turnState === "Neutral") return true;
   const destination = state.battlefields.find((bf) => bf.id === battlefieldId);
   return destination === undefined || destination.controllerId === state.players[playerIndex].id;
