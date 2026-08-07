@@ -28,16 +28,27 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   const found = resolveActivation(state, action.playerIndex, action.permanentInstanceId, action.viaAbilityDefId);
   if (!found) throw new Error(`No activatable permanent ${action.permanentInstanceId}`);
 
-  // The cost belongs to the ABILITY, the exhaust to the SOURCE (416.1) — which
-  // are the same card for everything except a borrowed ability.
-  const paid = payActivationCost(state, action.playerIndex, action.permanentInstanceId, found.abilityDefId, action.payment, {
-    ...(action.costPermanentInstanceId !== undefined ? { costPermanentInstanceId: action.costPermanentInstanceId } : {}),
-    ...(action.costDiscardCardInstanceId !== undefined ? { costDiscardCardInstanceId: action.costDiscardCardInstanceId } : {}),
-  });
-  if (paid === undefined) throw new Error(`${found.card.name}'s activation cost cannot be paid`);
-
+  // Resolved before the payment because the MODE can carry the price — Jax -
+  // Grandmaster At Arms's two differ by [1]. Paying the ability's cost and then
+  // resolving the mode would charge his free mode for his priced one.
   const mode = resolveMode(found.abilityDefId, found.card, action.modeId);
   if (!mode) throw new Error(`${found.card.name} has no such mode available`);
+
+  // The cost belongs to the ABILITY, the exhaust to the SOURCE (416.1) — which
+  // are the same card for everything except a borrowed ability.
+  const paid = payActivationCost(
+    state,
+    action.playerIndex,
+    action.permanentInstanceId,
+    found.abilityDefId,
+    action.payment,
+    {
+      ...(action.costPermanentInstanceId !== undefined ? { costPermanentInstanceId: action.costPermanentInstanceId } : {}),
+      ...(action.costDiscardCardInstanceId !== undefined ? { costDiscardCardInstanceId: action.costDiscardCardInstanceId } : {}),
+    },
+    mode.id,
+  );
+  if (paid === undefined) throw new Error(`${found.card.name}'s activation cost cannot be paid`);
 
   // Record the mode BEFORE resolving, so "you've not chosen this turn" is true of
   // a mode whose own effect ends up doing nothing — the choice was still spent.

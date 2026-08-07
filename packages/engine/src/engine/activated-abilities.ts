@@ -35,7 +35,7 @@ import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
-import { attachEquipment } from "./equipment.js";
+import { attachEquipment, attachableEquipment } from "./equipment.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 
 /**
@@ -163,6 +163,36 @@ export interface AbilityMode {
    * (going home) has an implicit destination and must not be fanned out.
    */
   movesTarget?: true;
+  /**
+   * This mode ATTACHES an Equipment to the unit it targets, so enumeration fans
+   * out per Equipment as well as per unit — Jax - Grandmaster At Arms.
+   *
+   * The value says WHICH Equipment are eligible, because Jax's two modes differ
+   * on exactly that: `"detached"` is his priced mode ("attach a DETACHED
+   * Equipment"), `"attached"` his free one ("attach an ATTACHED Equipment",
+   * i.e. move one). A single boolean would collapse the pair into one ability
+   * that costs the cheaper of the two prices for either job.
+   *
+   * The Equipment rides `targetPermanentInstanceId` and the unit
+   * `targetUnitInstanceId` — a gear must never reach a reader expecting a unit,
+   * the same separation `unitOrGear` and `{ kind: "gear" }` already keep.
+   */
+  attachesEquipment?: "detached" | "attached";
+  /**
+   * What THIS mode costs, when the modes of one ability are priced differently —
+   * Jax again, whose detached-attach costs `[1]` and whose re-attach is free.
+   *
+   * Overrides the ability's own `cost` entirely rather than merging with it: a
+   * mode that names a price names the whole price, so reading one is never a
+   * question of which fields came from where.
+   *
+   * Threaded through `activationCostOf(defId, modeId)`, which is what every
+   * pricing site goes through — `canPayActivationCost`, `payActivationCost`, the
+   * enumerator's payment and the validator's re-derivation. A per-mode price that
+   * reached only some of those would be the offered-then-refused split this
+   * codebase keeps paying for, and it would be silent.
+   */
+  cost?: ActivationCost;
   resolve: (state: GameState, ctx: EffectContext, event: ActivatedAbilityEvent, sourceInstanceId: string) => GameState;
 }
 
@@ -426,6 +456,61 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       players[ctx.casterIndex] = { ...actor, restrictedGearPower: actor.restrictedGearPower + ORNN_GEAR_POWER };
       return { ...state, players };
     },
+  },
+  "SFD-193": {
+    // Jax - Grandmaster At Arms — "[1], [Exhaust]: Attach a detached Equipment
+    // you control to a unit you control. [Exhaust]: Attach an attached Equipment
+    // you control to a unit you control."
+    //
+    // **Two activated abilities on one card, priced differently** — the first
+    // card in the pool to need that, and the reason `AbilityMode` grew a `cost`.
+    // They are modes rather than two registry entries because the registry is
+    // keyed by defId: a second entry would need a second key, and every lookup
+    // (`abilitiesAvailableTo`, `resolveActivation`, `hasActivatableAbility`,
+    // coverage) starts from the card's own id.
+    //
+    // Both exhaust, so only one is usable per turn regardless. What the price
+    // separates is which JOB costs Energy: putting an idle Equipment onto a unit
+    // costs [1]; picking one up off a unit and moving it is free. Collapsing them
+    // into one mode would sell the priced job at the free price.
+    //
+    // `attachesEquipment` fans the enumeration out over unit x Equipment. The
+    // unit is the TARGET (`targetUnitInstanceId`) because that is what makes it a
+    // chosen unit for [Deflect] and for The Dreaming Tree; the Equipment rides
+    // `targetPermanentInstanceId`.
+    kind: "Legend",
+    modes: [
+      {
+        id: "detached",
+        label: "Attach a detached Equipment",
+        cost: { energy: 1, exhaust: true },
+        // "A unit you control" — no battlefield in the text, so `anywhere`,
+        // which is the scope that also reaches BASE units (the default is
+        // battlefields only and would have made a home Equipment unmovable).
+        targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+        attachesEquipment: "detached",
+        resolve: (state, ctx, event) =>
+          event.targetPermanentInstanceId && event.targetUnitInstanceId
+            ? attachEquipment(state, ctx.casterIndex, event.targetPermanentInstanceId, event.targetUnitInstanceId)
+            : state,
+      },
+      {
+        id: "attached",
+        label: "Move an attached Equipment",
+        cost: { exhaust: true },
+        // "A unit you control" — no battlefield in the text, so `anywhere`,
+        // which is the scope that also reaches BASE units (the default is
+        // battlefields only and would have made a home Equipment unmovable).
+        targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+        attachesEquipment: "attached",
+        // The same helper for both: `attachEquipment` already moves an Equipment
+        // that was attached elsewhere, which is the whole of this mode.
+        resolve: (state, ctx, event) =>
+          event.targetPermanentInstanceId && event.targetUnitInstanceId
+            ? attachEquipment(state, ctx.casterIndex, event.targetPermanentInstanceId, event.targetUnitInstanceId)
+            : state,
+      },
+    ],
   },
   "SFD-197": {
     // Azir - Emperor of the Sands, second half — "[1], [Exhaust]: Play a 2 Might
@@ -1114,10 +1199,23 @@ export function hasActivatableAbility(defId: string): boolean {
   return defId in ACTIVATED_ABILITIES;
 }
 
-/** What activating `defId` costs, with the common `{ exhaust: true }` default
- *  made explicit so no caller has to remember it. */
-export function activationCostOf(defId: string): ActivationCost {
-  return ACTIVATED_ABILITIES[defId]?.cost ?? { exhaust: true };
+/**
+ * What activating `defId` costs, with the common `{ exhaust: true }` default made
+ * explicit so no caller has to remember it.
+ *
+ * `modeId` is what makes a MODAL ability able to price its options differently
+ * (Jax - Grandmaster At Arms). Omitting it deliberately still answers — the
+ * ability's own cost — because every existing caller of a non-modal ability
+ * passes nothing, and because a mode with no `cost` of its own falls through to
+ * exactly that answer anyway.
+ */
+export function activationCostOf(defId: string, modeId?: string): ActivationCost {
+  const ability = ACTIVATED_ABILITIES[defId];
+  if (modeId !== undefined) {
+    const mode = modesOf(defId).find((m) => m.id === modeId);
+    if (mode?.cost) return mode.cost;
+  }
+  return ability?.cost ?? { exhaust: true };
 }
 
 /**
@@ -1157,13 +1255,16 @@ export function canPayActivationCost(
   /** The ability being used, when it is not the source's own — Heimerdinger
    *  pays somebody else's cost with his own exhaust. Defaults to the source. */
   abilityDefId: string = card.defId,
+  /** The mode being used, for an ability whose modes are priced differently —
+   *  Jax. Omitted everywhere else, where there is one price to ask about. */
+  modeId?: string,
 ): boolean {
   const ability = ACTIVATED_ABILITIES[abilityDefId];
   // A printed restriction on USING the ability, asked before any cost — see
   // `availableWhile`. Checked here so the enumerator and the validator, which
   // both come through this function, cannot disagree about whether it is legal.
   if (ability?.availableWhile && !ability.availableWhile(state, playerIndex, card.instanceId)) return false;
-  const cost = activationCostOf(abilityDefId);
+  const cost = activationCostOf(abilityDefId, modeId);
   if (cost.exhaust && card.exhausted) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;
   // Power is paid from state, so affordability is asked through the very helper
@@ -1232,8 +1333,10 @@ export function payActivationCost(
   /** What the action named for a cost that carries a CHOICE — Malzahar's kill,
    *  Unlicensed Armory's discard. Absent for every cost paid from state. */
   chosen?: { costPermanentInstanceId?: string; costDiscardCardInstanceId?: string },
+  /** The mode being paid for — see `activationCostOf`. */
+  modeId?: string,
 ): GameState | undefined {
-  const cost = activationCostOf(defId);
+  const cost = activationCostOf(defId, modeId);
   let next = state;
   if (cost.recycleFromTrash !== undefined) {
     const recycled = recycleFromTrash(next, playerIndex, cost.recycleFromTrash);

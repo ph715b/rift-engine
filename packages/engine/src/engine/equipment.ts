@@ -85,6 +85,38 @@ export function attachEquipment(
   return { ...state, players };
 }
 
+/**
+ * The Equipment `playerIndex` controls that could be attached to `unitInstanceId`
+ * right now — Jax - Grandmaster At Arms's two modes, which differ only in this
+ * list.
+ *
+ * ONE walk, exported so the enumerator and the validator ask it in the same
+ * words. Two copies of this filter is precisely how an action gets offered and
+ * then refused, which is this repo's most-repeated bug.
+ *
+ * `which` is the printed distinction: "attach a DETACHED Equipment" against
+ * "attach an ATTACHED Equipment". The second excludes the unit the Equipment is
+ * ALREADY on — re-attaching it where it sits is a no-op the player would have
+ * paid an exhaust for, the same reason the move fan-out refuses a unit's current
+ * battlefield as a destination.
+ *
+ * Only the player's OWN gear, because both modes read "an Equipment you control
+ * to a unit you control" — and `attachEquipment` is a no-op on anyone else's
+ * anyway, which would be a cost paid for nothing.
+ */
+export function attachableEquipment(
+  state: GameState,
+  playerIndex: 0 | 1,
+  which: "detached" | "attached",
+  unitInstanceId: string,
+): GearInstance[] {
+  return state.players[playerIndex].activeGear.filter((g) => {
+    if (!isEquipmentGear(g)) return false;
+    if (which === "detached") return g.attachedToInstanceId == null;
+    return g.attachedToInstanceId != null && g.attachedToInstanceId !== unitInstanceId;
+  });
+}
+
 /** Detaches one Equipment, leaving it in `activeGear` unattached. */
 export function detachEquipment(state: GameState, ownerIndex: 0 | 1, gearInstanceId: string): GameState {
   const owner = state.players[ownerIndex];

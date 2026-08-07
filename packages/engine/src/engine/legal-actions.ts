@@ -66,6 +66,7 @@ import {
 } from "./granted-keywords.js";
 import { hiddenCardLimitAt, mayMoveToBaseFrom, mayPlayUnitAt } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
+import { attachableEquipment } from "./equipment.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
@@ -134,35 +135,51 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
     // A list, not a lookup: Heimerdinger offers every friendly permanent's
     // ability with himself as the source, so one card can be several candidates.
     for (const { abilityDefId } of abilitiesAvailableTo(state, playerIndex, permanent)) {
-      // Asks the same payability question the validator does — an exhaust, a
-      // Recycle, a spent Buff and an Energy cost fail for different reasons, and
-      // only the registry knows which this ability has.
-      if (!canPayActivationCost(state, playerIndex, permanent, abilityDefId)) continue;
-
-      const cost = activationCostOf(abilityDefId);
-      const payment = cost.energy !== undefined ? activationPayment(state, playerIndex, cost) : undefined;
-      if (cost.energy !== undefined && payment === undefined) continue;
-
-      const base: ActivateAbilityAction = {
-        type: "ActivateAbility",
-        playerIndex,
-        permanentInstanceId: permanent.instanceId,
-        // Named only when it is somebody else's ability, so an ordinary
-        // activation's action is byte-for-byte what it always was.
-        ...(abilityDefId !== permanent.defId ? { viaAbilityDefId: abilityDefId } : {}),
-        ...(payment !== undefined ? { payment } : {}),
-      };
-
-      // A cost that carries a CHOICE fans out its own axis, crossed with the
-      // mode/target axes below — Malzahar - Fanatic names WHICH friendly
-      // permanent he kills to pay, Unlicensed Armory WHICH card it discards. A
-      // single `[{}]` for every other ability, so their actions are unchanged.
-      const costChoices = activationCostChoices(state, playerIndex, permanent.instanceId, cost);
-      const variants: ActivateAbilityAction[] = [];
+      // Each variant carries the cost choices of the MODE that produced it —
+      // Jax - Grandmaster At Arms prices his two modes differently, so a single
+      // list per ability would charge one mode's price for the other's job.
+      //
+      // Carried at PUSH time rather than looked up afterwards. A first version
+      // registered them in a Map keyed by the variant after each mode's block,
+      // and the `continue`s above it (a `unitOrGear` mode, a target-less one)
+      // jumped straight past the registration — Malzahar - Fanatic lost his
+      // kill-choice axis entirely, which his own test caught.
+      const variants: { action: ActivateAbilityAction; costChoices: Partial<ActivateAbilityAction>[] }[] = [];
 
       // One candidate per MODE still available — Udyr's four are four separate
       // choices, and one he has already taken this turn is not offered again.
       for (const mode of availableModes(abilityDefId, permanent)) {
+        // **Priced inside the mode loop, not outside it.** Jax - Grandmaster At
+        // Arms's two modes cost [1]+exhaust and exhaust; one price computed per
+        // ABILITY would sell whichever job the cheaper mode named. Every other
+        // ability's modes share one price, so this is the same answer for them
+        // however many times it is asked.
+        //
+        // Asks the same payability question the validator does — an exhaust, a
+        // Recycle, a spent Buff and an Energy cost fail for different reasons, and
+        // only the registry knows which this ability has.
+        if (!canPayActivationCost(state, playerIndex, permanent, abilityDefId, mode.id)) continue;
+
+        const cost = activationCostOf(abilityDefId, mode.id);
+        const payment = cost.energy !== undefined ? activationPayment(state, playerIndex, cost) : undefined;
+        if (cost.energy !== undefined && payment === undefined) continue;
+
+        const base: ActivateAbilityAction = {
+          type: "ActivateAbility",
+          playerIndex,
+          permanentInstanceId: permanent.instanceId,
+          // Named only when it is somebody else's ability, so an ordinary
+          // activation's action is byte-for-byte what it always was.
+          ...(abilityDefId !== permanent.defId ? { viaAbilityDefId: abilityDefId } : {}),
+          ...(payment !== undefined ? { payment } : {}),
+        };
+
+        // A cost that carries a CHOICE fans out its own axis, crossed with the
+        // mode/target axes below — Malzahar - Fanatic names WHICH friendly
+        // permanent he kills to pay, Unlicensed Armory WHICH card it discards. A
+        // single `[{}]` for every other ability, so their actions are unchanged.
+        const costChoices = activationCostChoices(state, playerIndex, permanent.instanceId, cost);
+        const push = (action: ActivateAbilityAction) => variants.push({ action, costChoices });
         // `modeId` is omitted for a plain ability's single unnamed mode, so an
         // ordinary activation's action is exactly what it always was.
         const withMode = mode.id === "" ? base : { ...base, modeId: mode.id };
@@ -179,12 +196,12 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
             ...(mode.targeting.excludesSelf ? { excludeInstanceId: permanent.instanceId } : {}),
             ...(mode.targeting.includesFacedown !== undefined ? { includesFacedown: mode.targeting.includesFacedown } : {}),
           })) {
-            variants.push({ ...withMode, targetPermanentInstanceId: t.instanceId });
+            push({ ...withMode, targetPermanentInstanceId: t.instanceId });
           }
           continue;
         }
         if (mode.targeting.kind !== "unit") {
-          variants.push(withMode);
+          push(withMode);
           continue;
         }
         // Fan out one action per legal target, exactly as the PlayCard path does
@@ -199,8 +216,18 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           // is the mirror-image gap; one filter reaching only half its call
           // sites is how a spec field comes to be silently ignored.
           if (!unitSatisfiesAttackingOnly(state, target, mode.targeting.attackingOnly)) continue;
+          // A mode that ATTACHES an Equipment needs to name WHICH, so the
+          // fan-out is unit x Equipment — the same second-axis shape
+          // `movesTarget` uses, off the same shared walk the validator checks
+          // against. A unit with nothing attachable to it is simply not offered.
+          if (mode.attachesEquipment) {
+            for (const gear of attachableEquipment(state, playerIndex, mode.attachesEquipment, target.instanceId)) {
+              push({ ...withMode, targetUnitInstanceId: target.instanceId, targetPermanentInstanceId: gear.instanceId });
+            }
+            continue;
+          }
           if (!mode.movesTarget) {
-            variants.push({ ...withMode, targetUnitInstanceId: target.instanceId });
+            push({ ...withMode, targetUnitInstanceId: target.instanceId });
             continue;
           }
           // A mode that MOVES its target needs a destination too, so the fan-out
@@ -210,12 +237,12 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           const from = findUnitOnBattlefield(state, target.instanceId);
           for (const bf of state.battlefields) {
             if (from !== undefined && state.battlefields[from.battlefieldIndex]!.id === bf.id) continue;
-            variants.push({ ...withMode, targetUnitInstanceId: target.instanceId, destinationBattlefieldId: bf.id });
+            push({ ...withMode, targetUnitInstanceId: target.instanceId, destinationBattlefieldId: bf.id });
           }
         }
       }
 
-      for (const variant of variants) {
+      for (const { action: variant, costChoices } of variants) {
         // **[Deflect] on what this variant CHOSE.** Priced per variant for the
         // same reason a Spell's is: the price depends on the target, so one
         // variant can be affordable while another is not, and a single payment

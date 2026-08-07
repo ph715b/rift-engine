@@ -11,6 +11,7 @@ import { payPowerFromChanneled } from "../engine/effect-helpers.js";
 import { energyAfterFloat } from "../engine/rune-payment.js";
 import { chosenUnitsOfActivation, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import { eligibleTargets, findUnitOnBattlefield, unitOrGearTargets, unitSatisfiesAttackingOnly } from "../engine/target-lookup.js";
+import { attachableEquipment } from "../engine/equipment.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 
 /**
@@ -43,11 +44,23 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   }
   const { card, abilityDefId } = found;
 
+  // **The mode is resolved BEFORE the cost, because for Jax - Grandmaster At Arms
+  // the mode IS the cost** — his detached-attach costs [1] and his re-attach is
+  // free. Everything below prices `mode.id`, which is the same answer for every
+  // other ability in the pool, whose modes share one price.
+  //
+  // Every ability is a list of modes, plain ones having exactly one — so this
+  // needs no "is it modal" branch, and neither do the enumerator or the executor.
+  const mode = resolveMode(abilityDefId, card, action.modeId);
+  if (!mode) {
+    return fail(`${card.name} has no such mode available${action.modeId ? ` (${action.modeId})` : ""}`);
+  }
+
   // Not always an exhaust: Vi - Destructive's cost is a Recycle and nothing else,
   // so she is repeatable while her trash lasts. canPayActivationCost answers both
   // shapes, and the enumerator asks the same question so an ability is never
   // offered and then refused.
-  if (!canPayActivationCost(state, action.playerIndex, card, abilityDefId)) {
+  if (!canPayActivationCost(state, action.playerIndex, card, abilityDefId, mode.id)) {
     return fail(`${card.name}'s activation cost cannot be paid right now`);
   }
 
@@ -68,7 +81,7 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // offered-then-refused failure this file's own comment above exists to prevent.
   // It was unreachable until OGN-242 became the first ability to combine `energy`
   // with `power`, and the first test to drive that path through `submit` found it.
-  const cost = activationCostOf(abilityDefId);
+  const cost = activationCostOf(abilityDefId, mode.id);
   if (cost.energy !== undefined) {
     const afterPower = cost.power
       ? (payPowerFromChanneled(state, action.playerIndex, cost.power.domain, cost.power.count) ?? state)
@@ -128,13 +141,6 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     }
   }
 
-  // Every ability is a list of modes, plain ones having exactly one — so this
-  // needs no "is it modal" branch, and neither do the enumerator or the executor.
-  const mode = resolveMode(abilityDefId, card, action.modeId);
-  if (!mode) {
-    return fail(`${card.name} has no such mode available${action.modeId ? ` (${action.modeId})` : ""}`);
-  }
-
   const targeting = mode.targeting;
   if (targeting.kind === "unit") {
     if (action.targetUnitInstanceId === undefined) {
@@ -167,6 +173,21 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     });
     if (!legal.some((t) => t.instanceId === action.targetPermanentInstanceId)) {
       return fail(`${action.targetPermanentInstanceId} is not a legal target for ${card.name}'s ability`);
+    }
+  }
+
+  // A mode that ATTACHES an Equipment needs to name WHICH, and it must be one the
+  // same walk the enumerator fans out from would have offered — friendly, an
+  // Equipment, and on the right side of the detached/attached line this mode is
+  // about. Without the walk a hand-built action could move an opponent's
+  // Equipment, or pay Jax's [1] mode to re-seat one that was already attached.
+  if (mode.attachesEquipment) {
+    if (action.targetPermanentInstanceId === undefined) {
+      return fail(`${card.name}'s ability needs an Equipment to attach`);
+    }
+    const legal = attachableEquipment(state, action.playerIndex, mode.attachesEquipment, action.targetUnitInstanceId ?? "");
+    if (!legal.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
+      return fail(`${action.targetPermanentInstanceId} is not an Equipment ${card.name} can attach to that unit`);
     }
   }
 
