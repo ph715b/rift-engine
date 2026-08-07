@@ -325,7 +325,49 @@ export type TargetingSpec =
    * whose identity is hidden — so it needs its own opt-in rather than falling out
    * of the existing walk.
    */
-  | { kind: "unitOrGear"; owner?: "friendly"; excludesSelf?: true; includesFacedown?: true };
+  | { kind: "unitOrGear"; owner?: "friendly"; excludesSelf?: true; includesFacedown?: true }
+  /**
+   * A unit AND an Equipment **with the same controller** — Angle Shot's "Choose a
+   * unit and an Equipment with the same controller. Attach that Equipment to that
+   * unit or detach that Equipment from that unit."
+   *
+   * The first SPELL to name an Equipment alongside a unit. `attachesEquipment`
+   * already does this for ACTIVATED abilities (Jax, Forge of the Fluft), but it
+   * is a field on the ability rather than a targeting spec, and the spell path
+   * fans out from the spec alone — `variantsForTargeting` is handed a
+   * `TargetingSpec` and nothing else. Expressing it as a spec is what lets the
+   * modal path work unchanged, since each mode already carries its own.
+   *
+   * **"With the same controller" is a relationship between the two targets**, so
+   * it belongs here for the reason `sameBattlefield` records: by the time a
+   * resolver runs, the choice is made and paid for, and a resolver that refused
+   * would leave the card spent and doing nothing.
+   *
+   * It is NOT "yours" — the card says "the same controller", not "you control",
+   * so an enemy unit and that enemy's Equipment are a legal pair. Angle Shot is a
+   * `[Reaction]`, and stripping an opponent's Equipment mid-combat is the play it
+   * exists for.
+   *
+   * The unit rides `targetUnitInstanceId` and the Equipment
+   * `targetPermanentInstanceId` — the same separation `unitOrGear` and
+   * `attachesEquipment` already keep, so a gear never reaches a reader expecting
+   * a unit.
+   */
+  | {
+      kind: "unitAndEquipment";
+      /**
+       * How the Equipment must stand relative to the chosen unit.
+       *
+       * `"attachable"` — anything but already on that unit, which is the no-op.
+       * Detached Equipment and Equipment worn by another unit both qualify:
+       * `attachEquipment` moves one that was attached elsewhere, so "attach that
+       * Equipment to that unit" reaches both.
+       *
+       * `"attachedToIt"` — currently worn by that very unit, which is the only
+       * state "detach that Equipment FROM THAT UNIT" can mean.
+       */
+      relation: "attachable" | "attachedToIt";
+    };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
  *  `"any"` is the absence of a constraint, which is `undefined` there. */

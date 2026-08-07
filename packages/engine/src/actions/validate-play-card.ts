@@ -51,6 +51,7 @@ import {
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
 import { counterFilter, counterableSpells } from "../engine/counter-spell.js";
+import { equipmentPairedWith } from "../engine/equipment.js";
 
 /**
  * Validates a PlayCard action for a Unit/Spell/Gear, with a rune payment
@@ -205,6 +206,23 @@ function targetingRejection(
     }
     if (!unitOrGearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
       return `${choices.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`;
+    }
+  } else if (targeting.kind === "unitAndEquipment") {
+    // BOTH halves are required — 355 makes every named choice mandatory, and a
+    // card that named only one would resolve half of "attach that Equipment to
+    // that unit".
+    if (!choices.targetUnitInstanceId || !choices.targetPermanentInstanceId) {
+      return `${cardName} requires a unit and an Equipment`;
+    }
+    // Asked through the same walk the enumerator offers from, so a legal pair is
+    // never offered and then refused. It carries the "same controller" rule, so
+    // an Equipment paired with a unit its controller does not own fails here.
+    if (
+      !equipmentPairedWith(state, choices.targetUnitInstanceId, targeting.relation).some(
+        (g) => g.instanceId === choices.targetPermanentInstanceId,
+      )
+    ) {
+      return `${choices.targetPermanentInstanceId} is not an Equipment that can pair with ${choices.targetUnitInstanceId}`;
     }
   } else if (targeting.kind === "gear") {
     if (!choices.targetPermanentInstanceId) {

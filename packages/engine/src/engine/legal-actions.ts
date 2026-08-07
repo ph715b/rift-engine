@@ -70,7 +70,7 @@ import {
 } from "./granted-keywords.js";
 import { hiddenCardLimitAt, mayMoveToBaseFrom, mayPlayUnitAt } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
-import { attachableEquipment } from "./equipment.js";
+import { attachableEquipment, equipmentPairedWith } from "./equipment.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import type { CardInstance } from "../model/card.js";
@@ -723,6 +723,23 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const t of unitOrGearTargets(state)) {
         if (!atHiddenBattlefield(state, t.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetPermanentInstanceId: t.instanceId });
+      }
+    } else if (targeting.kind === "unitAndEquipment") {
+      // Angle Shot: unit x Equipment, the same second-axis shape an ABILITY's
+      // `attachesEquipment` fans out over, and asked through the same shared
+      // walk (`equipmentPairedWith`) the validator checks against so the two
+      // cannot disagree about which pairs are legal.
+      //
+      // Every unit on the board is a candidate, either player's — "the same
+      // controller" relates the two TARGETS to each other, not to the caster.
+      for (const target of eligibleTargets(state, playerIndex, undefined, "anywhere")) {
+        if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
+        for (const gear of equipmentPairedWith(state, target.instanceId, targeting.relation)) {
+          effectVariants.push({
+            targetUnitInstanceId: target.instanceId,
+            targetPermanentInstanceId: gear.instanceId,
+          });
+        }
       }
     } else if (targeting.kind === "gear") {
       for (const g of gearTargets(state)) effectVariants.push({ targetPermanentInstanceId: g.instanceId });

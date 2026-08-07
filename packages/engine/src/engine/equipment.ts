@@ -133,6 +133,37 @@ export function attachableEquipment(
   });
 }
 
+/**
+ * The Equipment that can pair with `unitInstanceId` under Angle Shot's "an
+ * Equipment **with the same controller**".
+ *
+ * The one walk the enumerator and the validator both ask, the split
+ * `attachableEquipment` above keeps for the ability path and for the same
+ * reason: two sites deciding "is this pair legal" separately is how an offered
+ * play comes to be refused.
+ *
+ * **The controller is the UNIT's, not the caster's** — that is the whole content
+ * of "the same controller", and it is why this takes a unit id rather than a
+ * player index. A unit that has somehow left the board pairs with nothing.
+ */
+export function equipmentPairedWith(
+  state: GameState,
+  unitInstanceId: string,
+  relation: "attachable" | "attachedToIt",
+): GearInstance[] {
+  const found = findUnitAnywhere(state, unitInstanceId);
+  if (!found) return [];
+  if (relation === "attachedToIt") {
+    return state.players[found.ownerIndex].activeGear.filter(
+      (g) => isEquipmentGear(g) && g.attachedToInstanceId === unitInstanceId,
+    );
+  }
+  // "Attach that Equipment to that unit" reaches a detached one AND one worn by
+  // somebody else, since `attachEquipment` moves it — which is exactly
+  // `attachableEquipment`'s `"any"`, whose only exclusion is the no-op.
+  return attachableEquipment(state, found.ownerIndex, "any", unitInstanceId);
+}
+
 /** Detaches one Equipment, leaving it in `activeGear` unattached. */
 export function detachEquipment(state: GameState, ownerIndex: 0 | 1, gearInstanceId: string): GameState {
   const owner = state.players[ownerIndex];

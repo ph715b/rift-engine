@@ -48,7 +48,7 @@ import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
-import { wearerListener } from "../equipment.js";
+import { attachEquipment, detachEquipment, wearerListener } from "../equipment.js";
 import { revealedFromDeck } from "../top-of-deck.js";
 
 /**
@@ -82,6 +82,59 @@ import { revealedFromDeck } from "../top-of-deck.js";
 const DETONATE_DRAW = 2;
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "SFD-011": {
+    // Angle Shot — "[Reaction] Choose a unit and an Equipment with the same
+    // controller. Attach that Equipment to that unit or detach that Equipment
+    // from that unit. Draw 1."
+    //
+    // **MODAL, because "or" between two instructions is a choice**, and the two
+    // are not expressible as one: attaching wants an Equipment that is NOT on the
+    // unit and detaching wants the one that IS. A single spec would offer every
+    // pair to both jobs, and half of them would resolve to nothing.
+    //
+    // The pairing rule ("the same controller") lives in the TARGETING rather than
+    // in these resolvers, for the reason `sameBattlefield` records: by the time a
+    // resolver runs the choice is made and paid for, so refusing here would leave
+    // the card spent and doing nothing. See `unitAndEquipment`.
+    //
+    // **The draw is on BOTH modes and is unconditional** — it is a third sentence,
+    // not a rider on the attach, and nothing in the text ties it to either. A
+    // resolver that dropped it on one mode would be a silently weaker card.
+    modes: [
+      {
+        id: "attach",
+        label: "Attach the Equipment to the unit",
+        targeting: { kind: "unitAndEquipment", relation: "attachable" },
+        resolve: (state, ctx, event) => {
+          if (!event.targetPermanentInstanceId || !event.targetUnitInstanceId) return state;
+          // Attached by its CONTROLLER's index, not the caster's: the pair share a
+          // controller and `attachEquipment` writes into that player's activeGear,
+          // so passing the caster would look for an enemy's gear in our own list.
+          const owner = findUnitAnywhere(state, event.targetUnitInstanceId);
+          if (!owner) return drawCards(state, ctx.casterIndex, 1);
+          const attached = attachEquipment(
+            state,
+            owner.ownerIndex,
+            event.targetPermanentInstanceId,
+            event.targetUnitInstanceId,
+          );
+          return drawCards(attached, ctx.casterIndex, 1);
+        },
+      },
+      {
+        id: "detach",
+        label: "Detach the Equipment from the unit",
+        targeting: { kind: "unitAndEquipment", relation: "attachedToIt" },
+        resolve: (state, ctx, event) => {
+          if (!event.targetPermanentInstanceId || !event.targetUnitInstanceId) return state;
+          const owner = findUnitAnywhere(state, event.targetUnitInstanceId);
+          if (!owner) return drawCards(state, ctx.casterIndex, 1);
+          const detached = detachEquipment(state, owner.ownerIndex, event.targetPermanentInstanceId);
+          return drawCards(detached, ctx.casterIndex, 1);
+        },
+      },
+    ],
+  },
   "SFD-005": {
     // Detonate — "Kill a gear. Its controller draws 2."
     //

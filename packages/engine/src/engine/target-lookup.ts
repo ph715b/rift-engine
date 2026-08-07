@@ -4,6 +4,13 @@ import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./ca
 import { effectiveMight } from "./effective-might.js";
 import { counterableSpells } from "./counter-spell.js";
 import { attackerIndexAt } from "./combat-designation.js";
+// NOTE: equipment.ts imports findUnitAnywhere from this module, so this is a
+// CYCLE. It resolves because both sides are hoisted function declarations called
+// only at runtime, never at module initialisation — the same shape as the
+// pre-existing card-effects cycle coverage.ts records. Duplicating the walk here
+// instead would put the "same controller" rule in two places, which is the bug
+// this repo keeps shipping.
+import { equipmentPairedWith } from "./equipment.js";
 
 export interface BattlefieldUnitLocation {
   unit: UnitInstance;
@@ -465,6 +472,18 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // exist" is not the same question as "a legal choice exists".
       return unitListCandidates(state, playerIndex, targeting).length > 0;
     }
+    case "unitAndEquipment":
+      // Angle Shot. BOTH halves are required (355), so a board with units but no
+      // Equipment on the right side of them offers nothing and the card is
+      // uncastable — "the targeting IS the effect" for a Spell.
+      //
+      // Asked through the same walk the enumerator and the validator use, so all
+      // three agree about which pairs exist. Scope is `anywhere` and the owner is
+      // unconstrained for the reason the spec records: "the same controller"
+      // relates the two targets to each other, not to the caster.
+      return eligibleTargets(state, playerIndex, undefined, "anywhere").some(
+        (u) => equipmentPairedWith(state, u.instanceId, targeting.relation).length > 0,
+      );
     case "gear":
       return gearTargets(state).length > 0;
     case "ownTrashCard": {
