@@ -1,5 +1,5 @@
 import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
-import type { UnitInstance } from "../model/card.js";
+import type { CardInstance, UnitInstance } from "../model/card.js";
 import type { EventTriggerDefinition, GameEvent } from "./triggers.js";
 import type { DecisionDefinition, DecisionOption } from "./decisions.js";
 import {
@@ -8,12 +8,15 @@ import {
   completeDeath,
   drawCards,
   giveMightThisTurn,
+  holdCardsRecycled,
   payEnergyFromPool,
   payPowerFromChanneled,
   readyRunes,
   readyUnit,
 } from "./effect-helpers.js";
 import { computeAutoPayment } from "./rune-payment.js";
+import { modifiedEnergyCost } from "./cost-modifiers.js";
+import { playCardIgnoringCost } from "./play-free.js";
 import { pendingDeathFor, releasePendingDeath } from "./death-ward.js";
 import { RAINBOW } from "./hidden.js";
 // Rule 711's "Might 5 or greater", already defined once for Fiora - Victorious.
@@ -55,6 +58,32 @@ export type StunEvent = Extract<GameEvent, { kind: "unitsStunned" }>;
  */
 /** Irelia - Blade Dancer's "you may pay [1] to ready me". */
 const IRELIA_READY_COST = 1;
+
+/** Rek'sai - Void Burrower reveals the top 2. */
+const REKSAI_REVEAL = 2;
+
+/**
+ * Pays a revealed card's FULL printed cost, or undefined when it cannot be paid.
+ *
+ * Void Rush's `voidRushPayment` with the discount removed, and it inherits that
+ * function's three named limitations — all of which UNDER-offer, so the card is
+ * withheld rather than handed over unpaid: floating Power is not counted, a split
+ * Power pip is tried all-primary then all-alt but never mixed, and a Legend can
+ * never be in a Main Deck so it is refused rather than priced.
+ */
+function reksaiPayment(state: GameState, playerIndex: 0 | 1, card: CardInstance): GameState | undefined {
+  if (card.kind === "Legend") return undefined;
+  let paid: GameState | undefined = state;
+  if (card.powerCost > 0) {
+    paid =
+      payPowerFromChanneled(state, playerIndex, card.powerDomain, card.powerCost) ??
+      (card.powerDomainAlt !== undefined
+        ? payPowerFromChanneled(state, playerIndex, card.powerDomainAlt, card.powerCost)
+        : undefined);
+  }
+  if (!paid) return undefined;
+  return payEnergyFromPool(paid, playerIndex, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId));
+}
 
 export interface LegendAbilityDefinition {
   /** "At the end of your turn..." — fires only for the player whose turn is
@@ -146,6 +175,31 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-187": {
+    // Rek'sai - Void Burrower — "When you conquer, you may exhaust me to reveal
+    // the top 2 cards of your Main Deck. You may banish one, then play it.
+    // Recycle the rest."
+    //
+    // Void Rush (SFD-188) already does the reveal-2 / banish-one / play-it half,
+    // and this borrows its shape wholesale. **Two differences, both printed:**
+    //  - Void Rush DRAWS what it did not banish; this RECYCLES it (bottom of the
+    //    deck, per 416).
+    //  - Void Rush plays its card for 2 Energy less; this says only "play it", so
+    //    the card is paid for IN FULL. Nothing unpayable is offered, which is
+    //    416.3's "the action must be able to be completed for the cost to be
+    //    paid" — the rule Void Rush's own option list already applies.
+    //
+    // TWO questions rather than one, because the card asks two: "you MAY exhaust
+    // me" is a cost paid before anything is seen, and "you MAY banish one" is a
+    // choice made after seeing. Collapsing them would make a player commit
+    // Rek'sai to a reveal they have already been shown the results of.
+    onConquer: (state, ownerIndex) =>
+      // An exhausted Rek'sai cannot pay, so she is never asked — the same rule
+      // Volibear and Irelia's first clause apply.
+      state.players[ownerIndex].legend.exhausted
+        ? state
+        : parkDecision(state, { kind: "SFD-187-look", playerIndex: ownerIndex }),
+  },
   "SFD-195": {
     // Irelia - Blade Dancer — "When you choose a friendly unit, you may exhaust
     // me and pay [rainbow] to ready it. When you conquer, you may pay [1] to
@@ -399,6 +453,80 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   // a "you may", and `advanceDecisions` auto-resolves anything with a single
   // option. Exhausting Volibear costs a later turn's use, so declining is a real
   // play rather than a formality.
+  "SFD-187-look": {
+    prompt: () => "Rek'sai - Void Burrower: exhaust her to reveal the top 2 of your deck?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const owner = state.players[d.playerIndex];
+      // Nothing to reveal is nothing to pay for — an empty deck makes the whole
+      // ability a no-op, so the exhaust is not offered for it.
+      if (!owner.legend.exhausted && owner.deck.length > 0) {
+        options.push({ id: "look", label: "Exhaust Rek'sai and reveal 2" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "look") return state;
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state; // cost no longer payable
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      // The reveal itself is not a state change — this engine has no per-player
+      // hidden view of a deck, so what the NEXT decision offers IS the reveal.
+      // Void Rush records the same reading.
+      return parkDecision({ ...state, players }, { kind: "SFD-187-banish", playerIndex: d.playerIndex });
+    },
+  },
+
+  "SFD-187-banish": {
+    prompt: () => "Rek'sai - Void Burrower: banish one and play it? (the rest are recycled)",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline (recycle both)" }];
+      for (const card of state.players[d.playerIndex].deck.slice(0, REKSAI_REVEAL)) {
+        // Priced when the OPTIONS are built, at FULL cost — this card grants no
+        // discount. A card that cannot be paid for is never offered.
+        if (reksaiPayment(state, d.playerIndex, card) === undefined) continue;
+        options.push({ id: card.instanceId, label: `Banish and play ${card.name}`, instanceId: card.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      const revealed = state.players[d.playerIndex].deck.slice(0, REKSAI_REVEAL);
+      const named = optionId === "decline" ? undefined : revealed.find((c) => c.instanceId === optionId);
+      // Re-paid rather than trusted from an option list built against an earlier
+      // state: if the pool drained inside the response window nothing is banished
+      // and everything is recycled, which withholds the payoff rather than handing
+      // it over free. Void Rush makes the same call.
+      const paid = named ? reksaiPayment(state, d.playerIndex, named) : state;
+      const chosen = paid ? named : undefined;
+      const base = paid ?? state;
+
+      // Every revealed card comes off the top first, whichever way this went — a
+      // Spell played below can draw, and leaving one on top would let it be drawn
+      // when the card says it was recycled.
+      const recycled = revealed.filter((c) => c.instanceId !== chosen?.instanceId);
+      const players = [...base.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        // "RECYCLE the rest" — bottom of the deck (416), not the trash and not the
+        // hand. That is the whole difference from Void Rush's "draw any you didn't
+        // banish".
+        deck: [...players[d.playerIndex].deck.slice(revealed.length), ...recycled],
+        // "PLAY it" — a card you played, so [Legion] and Viktor - Innovator see it.
+        ...(chosen ? { cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1 } : {}),
+      };
+      const offDeck: GameState = { ...base, players };
+      if (!chosen) return holdCardsRecycled(offDeck, d.playerIndex, recycled.length);
+
+      // The banish is transient — banished and played in one instruction — so the
+      // card goes straight to play rather than through `PlayerState.banished`.
+      // Inherits play-free.ts's recorded divergence: a SPELL played this way
+      // resolves immediately and with no targets, because nothing announced it.
+      const played = playCardIgnoringCost(offDeck, d.playerIndex, chosen);
+      return holdCardsRecycled(played, d.playerIndex, recycled.length);
+    },
+  },
+
   /**
    * Irelia's first clause — "you may exhaust me and pay [rainbow] to ready it".
    *
