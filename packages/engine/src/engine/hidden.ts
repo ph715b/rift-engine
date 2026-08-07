@@ -86,12 +86,38 @@ export function controlsAnyFacedownCard(state: GameState, playerIndex: 0 | 1): b
  * Can this hidden card be played yet?
  *
  * Rule 811: "**Beginning on the next turn**, this gains [Reaction] and you may
- * play this, ignoring its base cost." Not "not during this Action phase" — a
- * turn can end and come back to you — so it compares turn NUMBERS, which
- * `turn-manager.runEnd` only advances on wrapping back to the First Player.
+ * play this, ignoring its base cost", and 2027 restates it as "on any subsequent
+ * turn".
+ *
+ * **"The next TURN" is not "the next `turnNumber`", and reading it as one cost
+ * the first player their whole [Hidden] window.** `turn-manager.runEnd` only
+ * advances `turnNumber` when play wraps back to the First Player, so it counts
+ * ROUNDS. A `turnNumber > hiddenOnTurn` test therefore skips the opponent's turn
+ * that falls between yours — which, since a hidden card is played at Reaction
+ * speed, is the single moment it exists to be played in.
+ *
+ * The bug was asymmetric, which is why it survived: hide as the SECOND player and
+ * the round wraps the instant your turn ends, so `turnNumber` has already
+ * advanced and everything works. Hide as the FIRST player and your card is dead
+ * until your own next turn. Reported from play as "I am unable to play cards from
+ * hidden — during the AI's turn / in a showdown".
+ *
+ * So the question is "has the owner's hiding turn ended", asked in two parts:
+ * a later round is unambiguous, and within the SAME round it is the opponent's
+ * turn that means the next turn has begun. Hiding is only legal on your own turn
+ * (validate-hide-card checks `activePlayerIndex`), so during the hiding turn
+ * itself the second clause is false and the card is correctly still dead.
+ *
+ * **Known limit:** an EXTRA turn taken by the owner immediately after hiding
+ * (`extraTurns`) advances neither `turnNumber` nor `activePlayerIndex`, so the
+ * card stays dead through it although a turn has passed. Closing that needs a
+ * monotonic per-TURN counter, which `GameState` does not carry; recorded in
+ * docs/rules-conformance.md rather than guessed at.
  */
 export function hiddenCardIsPlayable(state: GameState, hidden: HiddenCard, battlefieldId?: string): boolean {
-  if (state.turnNumber <= hidden.hiddenOnTurn) return false;
+  const laterRound = state.turnNumber > hidden.hiddenOnTurn;
+  const opponentsTurnThisRound = state.turnNumber === hidden.hiddenOnTurn && state.activePlayerIndex !== hidden.ownerIndex;
+  if (!laterRound && !opponentsTurnThisRound) return false;
   return battlefieldId === undefined || !saboteurBlocks(state, hidden.ownerIndex, battlefieldId);
 }
 

@@ -6,7 +6,7 @@ import { executeHideCard } from "../src/actions/execute-hide-card.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { chooseAction } from "../src/ai/heuristic-ai.js";
-import { hiddenCardAt, isFacedownPlaceholder, maskHiddenCards } from "../src/engine/hidden.js";
+import { hiddenCardAt, hiddenCardIsPlayable, isFacedownPlaceholder, maskHiddenCards } from "../src/engine/hidden.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance } from "../src/model/card.js";
@@ -158,6 +158,90 @@ describe("playing from Hidden (rule 811)", () => {
 
     const nextTurn = { ...sameTurn, turnNumber: sameTurn.turnNumber + 1 };
     expect(fromHiddenPlays(nextTurn, consult).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * **"The next TURN" is not "the next `turnNumber`".** `turn-manager.runEnd`
+   * advances `turnNumber` only when play wraps back to the First Player, so it
+   * counts ROUNDS — and the gate used to read `turnNumber > hiddenOnTurn`, which
+   * skips the opponent's turn that falls between yours.
+   *
+   * Since a hidden card is played at REACTION speed, that skipped turn is the
+   * single moment it exists to be played in. Reported from play as "I am unable
+   * to play cards from hidden — during the AI's turn / in a showdown".
+   *
+   * The test above hides this by simulating "the next turn" as a `turnNumber`
+   * bump, which is the buggy model itself. These ask the question the way the
+   * game does.
+   */
+  it("IS playable on the opponent's turn in the same round — 811's 'next turn'", () => {
+    const consult = card(CONSULT_THE_PAST);
+    const state = hideableState(consult);
+    const hidden = executeHideCard(state, hideAction(state, consult));
+    expect(hidden.turnNumber, "hiding must not itself advance the round").toBe(state.turnNumber);
+
+    // Your turn ends; the opponent's begins, and they open a Showdown you hold
+    // Focus in. Same ROUND, so `turnNumber` has not moved — but a turn HAS
+    // passed, which is what 811 asks about.
+    //
+    // A Showdown rather than a bare `activePlayerIndex` flip, because on a
+    // NEUTRAL opponent's turn you hold no priority and so can play nothing at
+    // all — the card being dead there is the turn structure, not this gate. The
+    // Showdown is the window the card was hidden FOR, and it is what the report
+    // named.
+    const opponentsShowdown: GameState = {
+      ...hidden,
+      activePlayerIndex: 1,
+      turnState: "Showdown",
+      showdownBattlefieldId: "bf1",
+      showdownKind: "Combat",
+      chainOpen: false,
+      focusHolder: 0,
+      chainPriority: 0,
+    };
+    expect(
+      fromHiddenPlays(opponentsShowdown, consult).length,
+      "the card was dead on the opponent's turn — the window it was hidden for",
+    ).toBeGreaterThan(0);
+  });
+
+  /** The negative that keeps the fix honest: during YOUR OWN hiding turn it is
+   *  still dead, which is the half of 811 that was never broken. Hiding is legal
+   *  only on your own turn, so this is the state the second clause must reject. */
+  it("is still dead on your own turn, the one you hid it on", () => {
+    const consult = card(CONSULT_THE_PAST);
+    const state = hideableState(consult);
+    const sameTurn = executeHideCard(state, hideAction(state, consult));
+
+    expect(sameTurn.activePlayerIndex, "you can only hide on your own turn").toBe(0);
+    expect(fromHiddenPlays(sameTurn, consult)).toHaveLength(0);
+  });
+
+  /**
+   * The bug was ASYMMETRIC, which is why it survived: hide as the SECOND player
+   * and the round wraps the instant your turn ends, so `turnNumber` has already
+   * advanced and the old gate happened to be right. Both seats must behave the
+   * same, and asserting only one of them is what a per-seat bug hides behind.
+   */
+  it("behaves the same whichever seat hid it", () => {
+    for (const owner of [0, 1] as const) {
+      const consult = card(CONSULT_THE_PAST);
+      const state = hideableState(consult);
+      const hidden = executeHideCard(state, hideAction(state, consult));
+      // Re-seat the facedown card and ask from the OTHER player's turn.
+      const reseated: GameState = {
+        ...hidden,
+        activePlayerIndex: owner === 0 ? 1 : 0,
+        battlefields: hidden.battlefields.map((bf) => ({
+          ...bf,
+          hiddenCards: bf.hiddenCards.map((h) => ({ ...h, ownerIndex: owner })),
+        })),
+      };
+      const playable = reseated.battlefields
+        .flatMap((bf) => bf.hiddenCards)
+        .every((h) => hiddenCardIsPlayable(reseated, h));
+      expect(playable, `owner ${owner}: dead on the opponent's turn`).toBe(true);
+    }
   });
 
   it("costs 0 — the base cost is ignored, not discounted", () => {
