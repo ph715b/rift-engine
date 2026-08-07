@@ -412,6 +412,22 @@ export function setCodeOf(defId: string): string {
  */
 export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS"];
 
+/**
+ * Sets whose BATTLEFIELDS are all implemented — a separate list, and it has to
+ * be.
+ *
+ * A set's battlefields finish on their own schedule: SFD prints 15 of them
+ * against 198 cards needing code, and the last battlefield (Forge of the Fluft)
+ * landed while 78 cards were still open. Gating them on `COMPLETE_SETS` would
+ * mean either leaving 15 finished battlefields unprotected until the whole set
+ * lands, or declaring the set complete while it is not — and the second turns
+ * the CARD gate red for the wrong reason.
+ *
+ * So: one list per thing being gated. `test/battlefield-coverage.test.ts` reads
+ * this one, and it starts protecting a set the moment it is added.
+ */
+export const COMPLETE_BATTLEFIELD_SETS: readonly string[] = ["OGN", "SFD"];
+
 /** How much of one set is implemented. `unimplemented`/`partial` hold
  *  "OGN-001 (Name)" strings rather than counts, because naming the cards is
  *  the part of these gates worth keeping. */

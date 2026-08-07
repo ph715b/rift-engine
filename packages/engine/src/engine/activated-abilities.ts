@@ -189,7 +189,7 @@ export interface AbilityMode {
    * `targetUnitInstanceId` — a gear must never reach a reader expecting a unit,
    * the same separation `unitOrGear` and `{ kind: "gear" }` already keep.
    */
-  attachesEquipment?: "detached" | "attached";
+  attachesEquipment?: "detached" | "attached" | "any";
   /**
    * What THIS mode costs, when the modes of one ability are priced differently —
    * Jax again, whose detached-attach costs `[1]` and whose re-attach is free.
@@ -244,6 +244,10 @@ export interface ActivatedAbilityDefinition {
    *  TargetingSpec so legal-actions' existing fan-out and the web UI's existing
    *  target picker both apply unchanged. */
   targeting?: TargetingSpec;
+  /** A NON-modal ability that attaches an Equipment — Forge of the Fluft's
+   *  grant. Carried onto the synthetic sole mode by `modesOf`, so the axis is
+   *  declared in one place whether or not the ability has modes. */
+  attachesEquipment?: "detached" | "attached" | "any";
   /**
    * A restriction on ACTIVATING rather than on resolving — Caitlyn - Patrolling's
    * "use this ability only while I'm at a battlefield".
@@ -301,6 +305,11 @@ const VI_DESTRUCTIVE = "OGN-036";
 
 /** The four OGN Legends whose whole printed text is an activated ability. */
 const MISS_FORTUNE_BOUNTY_HUNTER = "OGN-267";
+
+/** Forge of the Fluft — a BATTLEFIELD whose printed text is an ability its
+ *  controller's Legend has. Keyed here by the battlefield's own defId, the way
+ *  the Gold token's ability is keyed by the token's. */
+const FORGE_OF_THE_FLUFT = "SFD-208";
 const DARIUS_HAND_OF_NOXUS = "OGN-253";
 const KAISA_DAUGHTER_OF_THE_VOID = "OGN-247";
 const YASUO_UNFORGIVEN = "OGN-259";
@@ -468,6 +477,37 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       players[ctx.casterIndex] = { ...actor, restrictedGearPower: actor.restrictedGearPower + ORNN_GEAR_POWER };
       return { ...state, players };
     },
+  },
+  [FORGE_OF_THE_FLUFT]: {
+    // Forge of the Fluft (SFD-208) — "While you control this battlefield,
+    // friendly legends have '[Exhaust]: Attach an Equipment you control to a
+    // unit you control.'"
+    //
+    // **A BATTLEFIELD that grants an ACTIVATED ability**, which no table modelled
+    // until Heimerdinger's borrow list turned out to be the door: the ability
+    // lives here under the battlefield's own id, and `abilitiesAvailableTo`
+    // offers it to the Legend of whoever controls the Forge. That is the same
+    // shape Heimerdinger already has ("I have all [Exhaust] abilities of all
+    // friendly legends, units, and gear"), so the enumerator, the validator and
+    // the executor needed nothing new — all three resolve an activation through
+    // `resolveActivation`, which was already a (source, abilityDefId) pair.
+    //
+    // 416.1 decides whose exhaust pays: "the Exhaust symbol represents the cost
+    // 'Exhaust this' or 'Exhaust me'", and the LEGEND is who has the ability. So
+    // the Legend exhausts and the battlefield does not — the same reading
+    // Heimerdinger's own comment records.
+    //
+    // "An Equipment", with no detached/attached line, so `attachesEquipment:
+    // "any"` — the union of Jax - Grandmaster At Arms's two modes rather than a
+    // third kind of eligibility.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    attachesEquipment: "any",
+    resolve: (state, ctx, event) =>
+      event.targetPermanentInstanceId && event.targetUnitInstanceId
+        ? attachEquipment(state, ctx.casterIndex, event.targetPermanentInstanceId, event.targetUnitInstanceId)
+        : state,
   },
   "SFD-078": {
     // Temporal Portal — ":rb_rune_rainbow:, [Exhaust]: Give the next spell you
@@ -1634,7 +1674,24 @@ export function abilitiesAvailableTo(
     return defIds.map((abilityDefId) => ({ abilityDefId, definition: ACTIVATED_ABILITIES[abilityDefId]! }));
   }
   const own = ACTIVATED_ABILITIES[source.defId];
-  return own ? [{ abilityDefId: source.defId, definition: own }] : [];
+  const granted: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [];
+  // Forge of the Fluft — "while you control this battlefield, friendly LEGENDS
+  // have ...". Offered here rather than by a new registry for the reason
+  // Heimerdinger is: this function is the single answer to "what can this source
+  // activate", and the enumerator, the validator and the executor all come
+  // through it. A parallel path would be a fourth place to keep in step.
+  if (source.defId === state.players[playerIndex].legend.defId && controlsForgeOfTheFluft(state, playerIndex)) {
+    granted.push({ abilityDefId: FORGE_OF_THE_FLUFT, definition: ACTIVATED_ABILITIES[FORGE_OF_THE_FLUFT]! });
+  }
+  return own ? [{ abilityDefId: source.defId, definition: own }, ...granted] : granted;
+}
+
+/** Does this player CONTROL a Forge of the Fluft right now? Controller-scoped
+ *  rather than positional — the ability is about the Legend, who is in no
+ *  location at all, so `at()` has nothing to be asked about. */
+function controlsForgeOfTheFluft(state: GameState, playerIndex: 0 | 1): boolean {
+  const playerId = state.players[playerIndex]?.id;
+  return playerId !== undefined && state.battlefields.some((bf) => bf.controllerId === playerId && bf.defId === FORGE_OF_THE_FLUFT);
 }
 
 /** Does this card offer anything to activate — its own ability or borrowed ones? */
@@ -1701,6 +1758,7 @@ export function modesOf(abilityDefId: string): readonly AbilityMode[] {
       id: SOLE_MODE,
       label: "",
       targeting: definition.targeting ?? { kind: "none" },
+      ...(definition.attachesEquipment ? { attachesEquipment: definition.attachesEquipment } : {}),
       resolve: definition.resolve,
     },
   ];

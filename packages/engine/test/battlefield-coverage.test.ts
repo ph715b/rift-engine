@@ -6,7 +6,8 @@ import {
   beginningPhaseBattlefieldDefIds,
 } from "../src/engine/battlefield-abilities.js";
 import { continuousBattlefieldDefIds } from "../src/engine/battlefield-continuous.js";
-import { COMPLETE_SETS, implementingModule, setCodeOf } from "../src/engine/coverage.js";
+import { activatedAbilityDefIds } from "../src/engine/activated-abilities.js";
+import { COMPLETE_BATTLEFIELD_SETS, implementingModule, setCodeOf } from "../src/engine/coverage.js";
 
 /**
  * The completeness gate for battlefields — the only thing that can tell a
@@ -24,25 +25,37 @@ import { COMPLETE_SETS, implementingModule, setCodeOf } from "../src/engine/cove
  * ability is a Chain Pending Item, a CONTINUOUS one is read at a gate, and the
  * Beginning-Phase pair are resolved inline. Nothing should be in two of them.
  *
- * **Scoped to `COMPLETE_SETS` since 2026-08-04**, for the same reason the card
+ * **Scoped to `COMPLETE_BATTLEFIELD_SETS` since 2026-08-04**, for the same reason the card
  * gates already are. SFD prints 15 battlefields and landed with none of them
  * implemented; leaving this whole-pool would have meant a suite that is red for
  * as long as the set takes, and a gate expected to be red says nothing when it
  * is. OGN's 24 keep their hard gate; SFD's 15 are reported as progress and
- * become gated the moment "SFD" joins COMPLETE_SETS — one line, in the same
+ * become gated the moment "SFD" joins COMPLETE_BATTLEFIELD_SETS — one line, in the same
  * place that promotes the cards.
  */
 
 describe("every printed battlefield does something", () => {
   const defs = loadBattlefieldDefinitions();
-  const gated = defs.filter((d) => COMPLETE_SETS.includes(setCodeOf(d.id)));
-  const inProgress = defs.filter((d) => !COMPLETE_SETS.includes(setCodeOf(d.id)));
+  const gated = defs.filter((d) => COMPLETE_BATTLEFIELD_SETS.includes(setCodeOf(d.id)));
+  const inProgress = defs.filter((d) => !COMPLETE_BATTLEFIELD_SETS.includes(setCodeOf(d.id)));
 
-  /** The three places a battlefield's printed text can be implemented. */
+  /**
+   * The FOUR places a battlefield's printed text can be implemented.
+   *
+   * The fourth is Forge of the Fluft, whose text is an ACTIVATED ability its
+   * controller's Legend has — so it is keyed by the battlefield's own defId in
+   * `ACTIVATED_ABILITIES` and offered through `abilitiesAvailableTo`, the same
+   * borrow list Heimerdinger uses. This gate is the only thing that can see a
+   * battlefield at all, so a source it does not know about reads as a
+   * battlefield that does nothing.
+   */
   const implemented = new Map<string, string>([
     ...battlefieldAbilityDefIds().map((id) => [id, "triggered"] as const),
     ...continuousBattlefieldDefIds().map((id) => [id, "continuous"] as const),
     ...beginningPhaseBattlefieldDefIds().map((id) => [id, "beginning-phase"] as const),
+    ...activatedAbilityDefIds()
+      .filter((id) => defs.some((d) => d.id === id))
+      .map((id) => [id, "granted activated ability"] as const),
   ]);
 
   it("the pool is 39 battlefields — 24 OGN and 15 SFD, and OGS prints none", () => {
@@ -55,8 +68,10 @@ describe("every printed battlefield does something", () => {
       ["OGN", 24],
       ["SFD", 15],
     ]);
-    // The gate is only worth something while it actually gates something.
-    expect(gated.length, "no battlefield is under a hard gate — COMPLETE_SETS has lost its subject").toBe(24);
+    // The gate is only worth something while it actually gates something. All 39
+    // now: OGN's 24 have been hard-gated since this file was written, and SFD's
+    // 15 joined them when Forge of the Fluft — the last one — landed.
+    expect(gated.length, "no battlefield is under a hard gate — COMPLETE_BATTLEFIELD_SETS has lost its subject").toBe(39);
   });
 
   it("every battlefield of a COMPLETE set has an implementation, and the failure NAMES it", () => {
@@ -82,8 +97,8 @@ describe("every printed battlefield does something", () => {
           (left.length > 0 ? ` — left: ${left.map((d) => `${d.id} (${d.name})`).join(", ")}` : ""),
       );
       expect(
-        left.length === 0 && !COMPLETE_SETS.includes(set),
-        `${set}'s battlefields are all implemented — add ${set} to COMPLETE_SETS so this gate starts protecting them`,
+        left.length === 0 && !COMPLETE_BATTLEFIELD_SETS.includes(set),
+        `${set}'s battlefields are all implemented — add ${set} to COMPLETE_BATTLEFIELD_SETS so this gate starts protecting them`,
       ).toBe(false);
     }
     expect(done.length + inProgress.filter((d) => !implemented.has(d.id)).length).toBe(inProgress.length);

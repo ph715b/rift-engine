@@ -107,11 +107,15 @@ export function attachEquipment(
 export function attachableEquipment(
   state: GameState,
   playerIndex: 0 | 1,
-  which: "detached" | "attached",
+  which: "detached" | "attached" | "any",
   unitInstanceId: string,
 ): GearInstance[] {
   return state.players[playerIndex].activeGear.filter((g) => {
     if (!isEquipmentGear(g)) return false;
+    // `"any"` is Forge of the Fluft's grant, which draws no detached/attached
+    // line at all — it is the UNION of Jax's two modes, not a third kind. The
+    // only exclusion left is the no-op: an Equipment already on this very unit.
+    if (which === "any") return g.attachedToInstanceId !== unitInstanceId;
     if (which === "detached") return g.attachedToInstanceId == null;
     return g.attachedToInstanceId != null && g.attachedToInstanceId !== unitInstanceId;
   });
