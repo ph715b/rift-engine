@@ -642,6 +642,20 @@ export type GameEvent =
    */
   | { kind: "cardsRecycled"; ownerIndex: 0 | 1; count: number }
   /**
+   * RUNES recycled to the rune deck — Sivir - Battle Mistress's "when you recycle
+   * a rune".
+   *
+   * **Its own event, not a widening of `cardsRecycled` above**, and that one's
+   * comment says why: "RUNES are deliberately not a caller: the card's own
+   * reminder text says so." Karma - Channeler reads cards; Sivir reads runes.
+   * Folding them would fire each card on the other's moment.
+   *
+   * One event per INSTRUCTION with a count, exactly as `cardsRecycled` is — a
+   * cost that recycles two runes is one recycling, not two. That is the reading
+   * this engine already applies to every batch event.
+   */
+  | { kind: "runesRecycled"; ownerIndex: 0 | 1; count: number }
+  /**
    * A Combat Showdown has just opened at `battlefieldId` — 465's Combat Step 1,
    * the moment units there gain the Attacker and Defender designations. Fired for
    * a freshly staged Combat and for a Non-Combat one promoted by 317.2, since
@@ -825,6 +839,7 @@ export type HeldEventKind =
   | "battlefieldHeld"
   | "unitKilledBySpell"
   | "cardsRecycled"
+  | "runesRecycled"
   | "combatBegan"
   | "combatWon"
   | "unitsStunned"

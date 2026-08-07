@@ -162,6 +162,13 @@ export interface LegendAbilityDefinition {
    * recorded partial (an aura arriving is not seen).
    */
   onUnitBecameMighty?: (state: GameState, ownerIndex: 0 | 1, unitInstanceId: string) => GameState;
+  /** "When you recycle a rune..." — Sivir - Battle Mistress. Rides
+   *  `runesRecycled`, one event per INSTRUCTION with a count (see that event for
+   *  why it is not a widening of `cardsRecycled`). */
+  onRunesRecycled?: (state: GameState, ownerIndex: 0 | 1, count: number) => GameState;
+  /** "When one or more ENEMY units die..." — Sivir's second clause. Handed the
+   *  death so the body can check whose unit it was. */
+  onEnemyUnitDied?: (state: GameState, ownerIndex: 0 | 1) => GameState;
   /** "At start of your Beginning Phase..." — fires on the same event Mushroom
    *  Pouch listens to, before holds score (see turn-manager.runBeginning). */
   onBeginningPhase?: (state: GameState, ownerIndex: 0 | 1) => GameState;
@@ -198,6 +205,29 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "SFD-203": {
+    // Sivir - Battle Mistress — "When you recycle a rune, you may exhaust me to
+    // play a Gold gear token exhausted. When one or more enemy units die, ready
+    // me."
+    //
+    // **The SECOND two-hook Legend**, after Irelia — and the one that shows the
+    // adapter rework was not a one-card fix. Her two clauses are on different
+    // events and, like Irelia's, their costs differ in the way that matters: the
+    // first spends Sivir herself, so an exhausted Sivir is never offered it; the
+    // second READIES her, so it is exactly for an exhausted Sivir and carries no
+    // exhaust gate at all.
+    //
+    // Together they are an engine: recycle a rune for a Gold, kill something to
+    // stand her back up, repeat.
+    onRunesRecycled: (state, ownerIndex) => parkDecision(state, { kind: "SFD-203-gold", playerIndex: ownerIndex }),
+    onEnemyUnitDied: (state, ownerIndex) => {
+      const owner = state.players[ownerIndex];
+      if (!owner.legend.exhausted) return state; // already ready — nothing to do
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ownerIndex] = { ...owner, legend: { ...owner.legend, exhausted: false } };
+      return { ...state, players };
+    },
+  },
   "SFD-205": {
     // Fiora - Grand Duelist — "When one of your units becomes [Mighty], you may
     // exhaust me to channel 1 rune exhausted."
@@ -514,6 +544,25 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   // a "you may", and `advanceDecisions` auto-resolves anything with a single
   // option. Exhausting Volibear costs a later turn's use, so declining is a real
   // play rather than a formality.
+  "SFD-203-gold": {
+    prompt: () => "Sivir - Battle Mistress: exhaust her to play a Gold gear token exhausted?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!state.players[d.playerIndex].legend.exhausted) {
+        options.push({ id: "gold", label: "Exhaust Sivir for a Gold" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "gold") return state;
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state; // cost no longer payable
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      return placeGoldTokens({ ...state, players }, d.playerIndex, 1);
+    },
+  },
+
   "SFD-205-channel": {
     prompt: () => "Fiora - Grand Duelist: exhaust her to channel 1 rune exhausted?",
     options: (state, d) => {
@@ -868,6 +917,8 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       onUnitChosen,
       onBattlefieldHeld,
       onUnitBecameMighty,
+      onRunesRecycled,
+      onEnemyUnitDied,
     } = ability;
 
     if (onEndOfTurn) {
@@ -890,6 +941,36 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
           (conquerCondition?.(state, listener.ownerIndex, event.battlefieldId) ?? true),
         resolve: (state, listener, event) =>
           event.kind === "battlefieldConquered" ? onConquer(state, listener.ownerIndex, event.battlefieldId) : state,
+      });
+    }
+
+    if (onRunesRecycled) {
+      add(defId, {
+        on: "runesRecycled",
+        applies: (state, listener, event) =>
+          event.kind === "runesRecycled" &&
+          event.ownerIndex === listener.ownerIndex &&
+          !state.players[listener.ownerIndex].legend.exhausted,
+        resolve: (state, listener, event) =>
+          event.kind === "runesRecycled" ? onRunesRecycled(state, listener.ownerIndex, event.count) : state,
+      });
+    }
+
+    if (onEnemyUnitDied) {
+      add(defId, {
+        on: "unitDied",
+        // "When one or more ENEMY units die" — the dying unit must not be the
+        // listener's. `unitDied` fires per death, so a sweep that kills three
+        // enemies places three Pending Items; readying an already-ready Legend is
+        // idempotent, so that is harmless here rather than a triple payout. Said
+        // out loud because the batch-event trap in this codebase is the opposite
+        // case, where per-item firing DOUBLE-PAYS.
+        //
+        // No exhaust gate: readying her IS the effect, so an exhausted Sivir is
+        // exactly who this clause is for.
+        applies: (_state, listener, event) =>
+          event.kind === "unitDied" && event.death.ownerIndex !== listener.ownerIndex,
+        resolve: (state, listener, event) => (event.kind === "unitDied" ? onEnemyUnitDied(state, listener.ownerIndex) : state),
       });
     }
 

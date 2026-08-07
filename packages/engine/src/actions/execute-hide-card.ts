@@ -1,4 +1,5 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
+import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import type { RuneCard } from "../model/rune.js";
 import type { HideCardAction } from "./player-action.js";
 import { validateHideCard } from "./validate-hide-card.js";
@@ -68,5 +69,7 @@ export function executeHideCard(state: GameState, action: HideCardAction): GameS
       : bf,
   );
 
-  return { ...state, players, battlefields };
+  // Sivir - Battle Mistress — 811's hide price is a rainbow Power, and a Power
+  // payment recycles the rune that paid it.
+  return holdRunesRecycled({ ...state, players, battlefields }, action.playerIndex, recycled.length);
 }

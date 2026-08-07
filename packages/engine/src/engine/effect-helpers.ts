@@ -569,12 +569,18 @@ export function payPowerFromChanneled(
 
   const spentIds = new Set(spend.map((r) => r.id));
   const readyCredit = spend.filter((r) => r.state === "Ready").length;
-  return updatePlayer(state, playerIndex, (p) => ({
+  // Sivir - Battle Mistress. A Power payment RECYCLES its runes (416), which is
+  // exactly what she reads. Fired here rather than at each caller, because this
+  // helper is the shared cost path several of them go through.
+  //
+  // Speculative calls are harmless: `options` builders call this to ASK whether a
+  // cost is payable and throw the result away, so the held trigger goes with it.
+  return holdRunesRecycled(updatePlayer(state, playerIndex, (p) => ({
     ...p,
     channeled: p.channeled.filter((r) => !spentIds.has(r.id)),
     runeDeck: [...p.runeDeck, ...spend.map((r) => ({ ...r, state: "Ready" as const }))],
     floatingEnergy: p.floatingEnergy + readyCredit,
-  }));
+  })), playerIndex, spend.length);
 }
 
 /**
@@ -977,6 +983,21 @@ export function recycleFromTrash(state: GameState, playerIndex: 0 | 1, count: nu
 export function holdCardsRecycled(state: GameState, ownerIndex: 0 | 1, count: number): GameState {
   if (count <= 0) return state;
   return holdEventTrigger(state, { kind: "cardsRecycled", ownerIndex, count });
+}
+
+/**
+ * Holds Sivir - Battle Mistress's "when you recycle a rune" — the RUNE twin of
+ * `holdCardsRecycled` above, with the same "did anything actually move?" guard.
+ *
+ * A helper rather than an inline `holdEventTrigger`, because SEVEN places in this
+ * engine send a rune to the bottom of the rune deck: paying a card's Power cost,
+ * paying an ability's, `payPowerFromChanneled`, floating a rune for Power, the
+ * Hide cost, a battlefield ability and one card. The guard is the same at all of
+ * them, and a helper is how the eighth gets it for free.
+ */
+export function holdRunesRecycled(state: GameState, ownerIndex: 0 | 1, count: number): GameState {
+  if (count <= 0) return state;
+  return holdEventTrigger(state, { kind: "runesRecycled", ownerIndex, count });
 }
 
 /**

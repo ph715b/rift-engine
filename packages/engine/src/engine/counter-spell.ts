@@ -83,6 +83,26 @@ export function counterSpell(state: GameState, spellCardInstanceId: string): Gam
     .filter((entry) => !isPlayedTriggerFor(entry, spellCardInstanceId));
   const pendingTriggers = state.pendingTriggers.filter((entry) => !isPlayedTriggerFor(entry, spellCardInstanceId));
 
+  // **Emptying the chain returns the turn to an Open State** — 334 ("the turn is
+  // said to be in an Open State if no Chain exists") and 345 Step 4 ("if the
+  // Chain is empty, play proceeds in an Open State"). Left closed and empty, the
+  // very next PassFocus pops `undefined` off the chain and the engine throws.
+  //
+  // Unreachable while every counter resolved from the chain, which is why it was
+  // missing: an ordinary counter removes its victim while its OWN entry is still
+  // on the chain, so the pop it is in the middle of sees the empty chain and
+  // `finishChainPop` reopens it. **Hard Bargain counters when its RANSOM IS
+  // ANSWERED**, long after its own entry was popped — so the last item can vanish
+  // with no pop in flight. Found by `DECKS=sfd`, not by the suite.
+  //
+  // Reopened here rather than by calling the pop path, because Focus must NOT
+  // pass: 346 passes Focus when the last item RESOLVES, and a countered spell
+  // never resolves. `chainOpenedByTrigger` goes with it — it is only meaningful
+  // while a chain exists, and `finishChainPop` clears it for the same reason.
+  if (spellChain.length === 0 && !state.chainOpen) {
+    return { ...state, spellChain, pendingTriggers, chainOpen: true, chainPasses: 0, chainOpenedByTrigger: false };
+  }
+
   return { ...state, spellChain, pendingTriggers };
 }
 

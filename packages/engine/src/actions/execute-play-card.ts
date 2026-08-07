@@ -6,6 +6,7 @@ import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
 import { modifiedEnergyCost } from "../engine/cost-modifiers.js";
+import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -557,5 +558,8 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // to attach to.
   if (card.kind === "Gear") placed = holdQuickDrawAttach(placed, action.playerIndex, card);
 
-  return placed;
+  // Sivir - Battle Mistress — the runes this play's Power cost recycled (416).
+  // ONE event for the instruction with a count, not one per rune: the same
+  // reading `cardsRecycled` already takes for its batch.
+  return holdRunesRecycled(placed, action.playerIndex, recycled.length);
 }

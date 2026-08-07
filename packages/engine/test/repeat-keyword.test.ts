@@ -766,6 +766,41 @@ describe("Hard Bargain ransoms a spell once per execution", () => {
     // And nothing was charged for the second, dead question.
     expect(after.players[1]!.channeled.filter((r) => r.state === "Exhausted")).toHaveLength(0);
   });
+
+  /**
+   * **The counter that empties the chain must return the turn to an Open State**
+   * — 334 ("the turn is said to be in an Open State if no Chain exists") and 345
+   * Step 4 ("if the Chain is empty, play proceeds in an Open State").
+   *
+   * Hard Bargain is the first card that can empty the chain from OUTSIDE a chain
+   * resolution. An ordinary counter removes its victim while its own entry is
+   * still on the chain, so the pop that follows sees the chain empty and reopens
+   * it; this card's counter fires when the RANSOM IS ANSWERED, which is after
+   * Hard Bargain itself has already been popped. The last item then disappears
+   * with nobody about to pop anything, and the chain was left closed and empty —
+   * a state the rules have no name for, in which the next PassFocus pops
+   * `undefined` and the engine throws.
+   *
+   * Found by `DECKS=sfd`, not by this suite: the fixtures above assign
+   * `spellChain` directly and leave `chainOpen` at its default `true`, so none of
+   * them was ever a genuinely closed chain. A real game reaches it in one line.
+   *
+   * Focus does NOT pass here, and that is the reason `counterSpell` reopens the
+   * chain itself rather than calling the pop path: 346 passes Focus when the last
+   * item RESOLVES, and a countered spell never resolves.
+   */
+  it("countering the LAST chain item returns the turn to an Open State", () => {
+    const { state, bargainId, victimId } = chainWithVictim(8);
+    const play = playsOf(state, bargainId).find((a) => !a.repeatPaid && a.targetChainCardInstanceId === victimId)!;
+    const after = answerDecisions(untilDecision(accept(state, play)));
+
+    expect(after.spellChain, "the chain should be empty").toHaveLength(0);
+    expect(after.chainOpen, "an empty chain left CLOSED — the next pass pops nothing").toBe(true);
+    expect(after.chainPasses, "stale passes carried into the open state").toBe(0);
+    // The symptom, not just the cause: the very next pass used to throw.
+    const pass = legalActions(after).find((a) => a.type === "PassFocus");
+    if (pass) expect(() => submit(after, pass)).not.toThrow();
+  });
 });
 
 /**

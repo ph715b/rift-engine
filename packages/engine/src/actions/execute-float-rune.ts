@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import type { FloatRuneAction } from "./player-action.js";
 import { validateFloatRune } from "./validate-float-rune.js";
 
@@ -43,5 +44,8 @@ export function executeFloatRune(state: GameState, action: FloatRuneAction): Gam
 
   const players = [...state.players] as [PlayerState, PlayerState];
   players[action.playerIndex] = updatedActor;
-  return { ...state, players };
+  // Sivir - Battle Mistress. Only the `forPower` branch recycles — floating a
+  // rune for ENERGY exhausts it and leaves it in the pool, which is not a
+  // recycling at all. That asymmetry is the whole of this action's doc comment.
+  return holdRunesRecycled({ ...state, players }, action.playerIndex, action.forPower ? 1 : 0);
 }
