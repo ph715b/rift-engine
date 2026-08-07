@@ -35,6 +35,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
+  grantedRepeatCostOf,
   repeatCostOf,
   slotOwner,
   slotScope,
@@ -1132,6 +1133,58 @@ export function legalActions(state: GameState): PlayerAction[] {
         // the same rule the optional-Power branch above applies.
         if (paidRepeat) {
           actions.push({ type: "PlayCard", playerIndex, card, payment: paidRepeat, ...variant, ...hiddenFields, repeatPaid: true });
+        }
+      }
+      // Temporal Portal's GRANTED `[Repeat]`, priced from the card's PRINTED cost
+      // through the same `computeEffectiveCost` call the printed instance goes
+      // through — and for the same recorded reason: adding an additional cost on
+      // top of an already-float-reduced figure double-counts the float away and
+      // is the offered-then-refused split this branch's twin already carries a
+      // note about.
+      //
+      // Enumerated as its own variant AND crossed with the printed instance when
+      // the card has one, because 3509 makes them independently payable: pay
+      // neither, either, or both, at four different prices for three different
+      // execution counts.
+      const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
+      if (grantedCost && !fromHidden) {
+        for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
+          const grantedEffective = computeEffectiveCost(
+            actor.floatingEnergy,
+            actor.floatingPower,
+            modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
+              modifiedRepeatEnergy(state, playerIndex, grantedCost.energy) +
+              (alsoPrinted ? modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy) : 0),
+            card.powerCost + (grantedCost.power ?? 0) + (alsoPrinted ? repeatCost!.power ?? 0 : 0),
+            card.powerDomain,
+            card.powerDomainAlt,
+            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+            restrictedPowerFor(actor, card.kind),
+            actor.floatingRainbowPower,
+          );
+          const grantedVariant = {
+            ...variant,
+            grantedRepeatPaid: true as const,
+            ...(alsoPrinted ? { repeatPaid: true as const } : {}),
+          };
+          // The `[Deflect]` tax is owed once per EXECUTION that chooses the unit
+          // — the 2026-08-06 ruling, applied here by asking the same helpers the
+          // validator asks, against the candidate action itself.
+          const grantedDeflected = deflectSurchargeForTargets(state, playerIndex, [
+            ...chosenUnitsOfPlay(grantedVariant),
+            ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
+          ]);
+          const paidGranted = computeAutoPayment(
+            actor.channeled,
+            grantedEffective.energyCost,
+            grantedEffective.powerCost,
+            card.powerDomain,
+            card.powerDomainAlt,
+            grantedDeflected + (alsoPrinted ? repeatCost!.rainbowPower ?? 0 : 0),
+          );
+          if (paidGranted) {
+            actions.push({ type: "PlayCard", playerIndex, card, payment: paidGranted, ...variant, ...hiddenFields, ...grantedVariant });
+          }
         }
       }
       const acceleratedForVariant =

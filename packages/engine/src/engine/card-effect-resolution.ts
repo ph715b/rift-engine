@@ -136,5 +136,16 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
       : effect;
     if (repeatMode) resolved = repeatMode.resolve(resolved, ctx, repeatChoicesOf(entry));
   }
+  // Temporal Portal's GRANTED instance — 3525: "the spell or ability's
+  // instructions will be executed an additional time on resolution for each
+  // instance of Repeat that is paid for". A spell that is both printed-[Repeat]
+  // and granted, with both paid, therefore runs THREE times.
+  //
+  // It reuses the first execution's choices rather than carrying its own, which
+  // is the recorded partial: 3521 gives each execution its own choices at the
+  // Make Relevant Choices step, and only the printed instance has a field for
+  // them. The same board-reads-the-previous-execution rule applies either way
+  // (359.3), so the third pass sees what the second left behind.
+  if (entry.grantedRepeatPaid) resolved = effect.resolve(resolved, ctx, choicesOf(entry));
   return { ...clearCharge(resolved), spellResolvingForIndex: null };
 }

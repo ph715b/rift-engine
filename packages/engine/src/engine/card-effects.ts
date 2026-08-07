@@ -672,6 +672,29 @@ const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
 };
 
 /** What this card's `[Repeat]` costs, or undefined if it has none. */
+/**
+ * The GRANTED `[Repeat]` cost a spell has while Temporal Portal's grant is armed
+ * — "[Repeat] equal to its cost", so the card's whole printed cost, Energy pip
+ * and Power pip both.
+ *
+ * PRINTED, not effective: 874's Defy example is the rules being explicit that a
+ * card's cost for reference purposes is what it prints, and every discount in
+ * this engine reduces what a play COSTS rather than what the card is. A version
+ * reading the discounted figure would make a Marai Spire cheapen the grant too,
+ * which is a different card's text.
+ *
+ * `undefined` when nothing is armed, so the caller's shape matches
+ * `repeatCostOf`'s exactly — the two are asked side by side everywhere.
+ */
+export function grantedRepeatCostOf(
+  card: { energyCost: number; powerCost: number; kind: string },
+  grantsArmed: number,
+): RepeatCostSpec | undefined {
+  // GEAR and UNITS are not spells, and the card says "the next SPELL you play".
+  if (grantsArmed <= 0 || card.kind !== "Spell") return undefined;
+  return { energy: card.energyCost, power: card.powerCost };
+}
+
 export function repeatCostOf(defId: string): RepeatCostSpec | undefined {
   return REPEAT_COSTS[defId];
 }

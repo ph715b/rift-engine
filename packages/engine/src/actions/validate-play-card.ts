@@ -29,6 +29,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalUnitCostOf,
+  grantedRepeatCostOf,
   repeatCostOf,
   slotScope,
 } from "../engine/card-effects.js";
@@ -411,6 +412,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
 
   // `[Repeat]` (820.1). Three separate questions, and they fail differently.
   const repeatCost = repeatCostOf(card.defId);
+  // Temporal Portal's GRANTED instance, priced from the card's PRINTED cost.
+  // Re-derived from state rather than trusted from the action: a client could
+  // otherwise claim a grant it never armed and buy a second execution for the
+  // repeat's price alone.
+  const grantedRepeatCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
+  if (action.grantedRepeatPaid && grantedRepeatCost === undefined) {
+    return fail(`${card.name} has no granted [Repeat] to pay for`);
+  }
   if (action.repeatPaid && repeatCost === undefined) {
     return fail(`${card.name} does not have [Repeat]`);
   }
@@ -644,6 +653,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : 0;
   const repeatPower = action.repeatPaid ? repeatCost?.power ?? 0 : 0;
   const repeatRainbow = action.repeatPaid ? repeatCost?.rainbowPower ?? 0 : 0;
+  // The granted instance is a SECOND additional cost and adds on top of the
+  // printed one — 3509 makes them independently payable, so a spell can owe
+  // both. `modifiedRepeatEnergy` applies to it too: Marai Spire's discount is
+  // about [Repeat] costs, and a granted instance is one.
+  const grantedEnergy = action.grantedRepeatPaid
+    ? modifiedRepeatEnergy(state, action.playerIndex, grantedRepeatCost?.energy ?? 0)
+    : 0;
+  const grantedPower = action.grantedRepeatPaid ? grantedRepeatCost?.power ?? 0 : 0;
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
@@ -652,13 +669,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         actor.floatingPower,
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId) - discardDiscount) +
           accelerateEnergy +
-          repeatEnergy,
+          repeatEnergy +
+          grantedEnergy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
         Math.max(0, card.powerCost - repeatableDiscount) +
           acceleratePower +
           repeatPower +
+          grantedPower +
           (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
         // The optional cost's own domain wins when it was paid, for the reason
         // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so

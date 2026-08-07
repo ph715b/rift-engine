@@ -342,6 +342,9 @@ export function runEnd(state: GameState): GameState {
     // like every field here — he is a [Reaction], so the turn his count is
     // measured against can be the opponent's.
     enemyChoicesThisTurn: 0,
+    // Temporal Portal's armed grant is "the next spell you play THIS TURN" and
+    // expires unspent with the turn, like every other field here.
+    nextSpellRepeatGrants: 0,
     // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
     // itself from — both are "this turn" state, so both end with the turn.
     nextUnitsEnterReady: 0,

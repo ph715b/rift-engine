@@ -120,7 +120,15 @@ export interface ActivationCost {
    * `payPowerFromChanneled`, the same helper Flame Chompers and Mistfall use,
    * and needs nothing on the action.
    */
-  power?: { domain: Domain; count: number };
+  /**
+   * Power of a specific domain, recycled from the channeled pool (rule 416).
+   *
+   * `null` is RAINBOW — any domain pays — which is what `payPowerFromChanneled`
+   * has always meant by `null` and what Temporal Portal's pip prints. Widened
+   * rather than given a second field, because every consumer here already hands
+   * this straight to that function.
+   */
+  power?: { domain: Domain | null; count: number };
   /**
    * Kill a friendly permanent to pay — Malzahar - Fanatic's "Kill a friendly unit
    * or gear, Exhaust:".
@@ -458,6 +466,35 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       const players = [...state.players] as [PlayerState, PlayerState];
       const actor = players[ctx.casterIndex];
       players[ctx.casterIndex] = { ...actor, restrictedGearPower: actor.restrictedGearPower + ORNN_GEAR_POWER };
+      return { ...state, players };
+    },
+  },
+  "SFD-078": {
+    // Temporal Portal — ":rb_rune_rainbow:, [Exhaust]: Give the next spell you
+    // play this turn [Repeat] equal to its cost."
+    //
+    // The first card that GRANTS a keyword to a card not yet played, and the
+    // grant is a count rather than a flag: 3509 says "if a spell or ability has
+    // more than one instance of Repeat, each Cost may be paid or not paid
+    // individually", and 3525 adds one execution per instance paid. So two
+    // Portals arm two instances.
+    //
+    // The rainbow pip needed no new cost machinery — `payPowerFromChanneled` has
+    // always read `null` as "any domain", which is what rainbow means (811 uses
+    // the same pip for Hide). Only the cost TYPE had to widen.
+    //
+    // `banksResource`: the grant changes nothing `evaluate` can price — it is a
+    // discount on a card not yet played — so the heuristic AI would score it a
+    // tie with Pass. Flagged like the Seals and Kai'Sa rather than given a
+    // speculative heuristic, which this project has a standing rule against.
+    kind: "Gear",
+    cost: { power: { domain: null, count: 1 }, exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, nextSpellRepeatGrants: actor.nextSpellRepeatGrants + 1 };
       return { ...state, players };
     },
   },

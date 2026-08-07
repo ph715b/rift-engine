@@ -522,6 +522,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // moves between announcing and resolving, and a choice re-derived at
           // resolution would be a different choice.
           ...(action.repeatPaid !== undefined ? { repeatPaid: action.repeatPaid } : {}),
+          // Temporal Portal's granted instance. Same dropped-field hazard as
+          // every field around it: enumerated, validated, then lost on the hop
+          // to the chain would leave the player having paid for an execution
+          // that never happens.
+          ...(action.grantedRepeatPaid !== undefined ? { grantedRepeatPaid: action.grantedRepeatPaid } : {}),
           ...(action.repeatChoices !== undefined ? { repeatChoices: action.repeatChoices } : {}),
           // Which option a modal card chose. Same dropped-field hazard as every
           // field above: enumerated, validated, and then silently lost here
@@ -579,6 +584,20 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
 
   // Ezreal - Prodigal Explorer — the enemy units and gear this play CHOSE.
   placed = recordEnemyChoices(placed, action.playerIndex, enemyChosen);
+
+  // Temporal Portal — "the NEXT SPELL you play this turn". Spent by playing a
+  // spell, whether or not the granted cost was paid, and spent in FULL: two
+  // Portals both name the same next spell, so both instances attach to it and
+  // both are gone once it is played.
+  //
+  // Down here with the rest, and for the reason the note above records —
+  // `updatedActor` is written back from the ORIGINAL actor, so a clear applied
+  // in the Spell branch would be silently undone.
+  if (card.kind === "Spell" && placed.players[action.playerIndex].nextSpellRepeatGrants > 0) {
+    const cleared = [...placed.players] as [PlayerState, PlayerState];
+    cleared[action.playerIndex] = { ...cleared[action.playerIndex], nextSpellRepeatGrants: 0 };
+    placed = { ...placed, players: cleared };
+  }
 
   // Sivir - Battle Mistress — the runes this play's Power cost recycled (416).
   // ONE event for the instruction with a count, not one per rune: the same

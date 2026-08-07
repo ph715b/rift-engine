@@ -117,6 +117,9 @@ export interface SpellChainEntry {
   /** `[Repeat]`'s additional cost was paid as this spell was announced (820.1.c.1),
    *  so its instructions run one additional time when it resolves (820.1.d). */
   repeatPaid?: true;
+  /** The GRANTED `[Repeat]` instance was paid too — Temporal Portal's. A second
+   *  named instance rather than a list; see `nextSpellRepeatGrants`. */
+  grantedRepeatPaid?: true;
   /** The second execution's own targets — see RepeatChoices. Absent with
    *  `repeatPaid` set means "the same choices again", which is a legal thing to
    *  choose and is what the enumerator samples. */
@@ -414,6 +417,27 @@ export interface PlayerState {
    * every time he is used.
    */
   enemyChoicesThisTurn: number;
+  /**
+   * How many GRANTED instances of `[Repeat]` the next spell this player plays
+   * will have — Temporal Portal's "give the next spell you play this turn
+   * [Repeat] equal to its cost".
+   *
+   * A count rather than a flag because 3509 and 3525 are explicit: "if a spell
+   * or ability has more than one instance of Repeat, each Cost may be paid or
+   * not paid individually", and each paid instance adds one execution. Two
+   * Portals armed before one spell therefore grant two instances.
+   *
+   * Cleared by the NEXT SPELL PLAYED whether or not any granted cost was paid —
+   * "the next spell you play" is spent by playing a spell, not by paying.
+   *
+   * **PARTIAL, recorded in docs/rules-conformance.md: at most ONE granted
+   * instance is payable per play.** The action carries a single
+   * `grantedRepeatPaid`, so a spell that is both printed-[Repeat] and granted
+   * can execute three times, which is the deepest the card pool can go — but a
+   * second Portal's instance cannot be paid. What that needs is per-instance
+   * CHOICES (3521), which is a list where every layer here has a field.
+   */
+  nextSpellRepeatGrants: number;
   /**
    * How many EQUIPMENT this player has played this turn — Azir's "use only if
    * you've played an Equipment this turn".

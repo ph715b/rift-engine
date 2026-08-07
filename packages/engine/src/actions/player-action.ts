@@ -125,6 +125,16 @@ export interface PlayCardAction {
    */
   repeatPaid?: true;
   /**
+   * The GRANTED `[Repeat]` instance was paid — Temporal Portal's "give the next
+   * spell you play this turn [Repeat] equal to its cost".
+   *
+   * Its own field rather than a second `repeatPaid`, because 3509 makes the two
+   * instances independently payable: a Rocket Barrage under a Portal can pay its
+   * printed Repeat, the granted one, both, or neither, and those are four
+   * different prices and three different execution counts.
+   */
+  grantedRepeatPaid?: true;
+  /**
    * The targets for `[Repeat]`'s SECOND execution — 820.1.d's "choices made for
    * the additional execution do not have to be the same as the choices made for
    * the initial execution", made "at the usual time" and so carried on the
