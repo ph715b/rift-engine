@@ -398,6 +398,23 @@ export interface PlayerState {
    */
   gearPlayedThisTurn: number;
   /**
+   * How many times this player has CHOSEN an enemy unit or an enemy gear this
+   * turn, with a spell or a UNIT's ability — Ezreal - Prodigal Explorer's "use
+   * only if you've chosen enemy units and/or gear twice this turn with spells or
+   * unit abilities".
+   *
+   * A counter rather than a flag because the threshold is TWO, and one per
+   * CHOICE rather than per card: a spell naming two enemy units gets there on its
+   * own, which is what `holdUnitsChosen`'s own comment already anticipated ("a
+   * card counting choices must count both").
+   *
+   * Three narrowings live in `recordEnemyChoices`, and each is a way to be
+   * wrong: enemy only, gear as well as units, and NOT a Legend's or a gear's own
+   * ability — "unit abilities" is printed and Jax's Legend ability chooses units
+   * every time he is used.
+   */
+  enemyChoicesThisTurn: number;
+  /**
    * How many EQUIPMENT this player has played this turn — Azir's "use only if
    * you've played an Equipment this turn".
    *

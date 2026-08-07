@@ -4,6 +4,7 @@ import { payActivationCost, recordModeUsed, resolveActivation, resolveMode, trac
 import { contextFor } from "../engine/effect-context.js";
 import { validateActivateAbility } from "./validate-activate-ability.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
+import { recordEnemyChoices } from "../engine/effect-helpers.js";
 
 /**
  * Resolves a validated ActivateAbility action: pay the exhaust cost, then run the
@@ -70,8 +71,22 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
       ? holdUnitsChosen(recorded, action.playerIndex, [action.targetUnitInstanceId])
       : recorded;
 
+  // Ezreal - Prodigal Explorer's tally — "with spells or UNIT abilities", so the
+  // source's kind is the whole gate here. A Legend's ability chooses units every
+  // time Jax - Grandmaster At Arms is used and must not count; nor must a gear's.
+  // Read off the resolved source rather than from the action, which does not say
+  // what it named.
+  const counted =
+    found.card.kind === "Unit"
+      ? recordEnemyChoices(
+          chosen,
+          action.playerIndex,
+          [action.targetUnitInstanceId, action.targetPermanentInstanceId].filter((id): id is string => id !== undefined),
+        )
+      : chosen;
+
   return mode.resolve(
-    chosen,
+    counted,
     contextFor(action.playerIndex),
     {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),

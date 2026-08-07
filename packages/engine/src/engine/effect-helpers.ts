@@ -1110,6 +1110,44 @@ export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, 
  * seeded `Rng`). Same convention, and the same reason, as `recycleFromTrash`
  * taking the front of the trash. Recorded in docs/rules-conformance.md.
  */
+/**
+ * Records that `chooserIndex` has chosen these permanents — Ezreal - Prodigal
+ * Explorer's "you've chosen enemy units and/or gear twice this turn with spells
+ * or unit abilities".
+ *
+ * Counts one per CHOICE, not one per card: a spell naming two enemy units gets
+ * Ezreal there on its own. That is `holdUnitsChosen`'s reading of 355 too, and
+ * its comment says so — "a card counting choices must count both".
+ *
+ * **Three narrowings, each of them a way to be wrong.**
+ *  - ENEMY only. Choosing your own units is choosing, but not this card's clause.
+ *  - GEAR as well as units, which is why this takes permanent ids rather than the
+ *    unit list `holdUnitsChosen` takes. An enemy gear named by Rocket Barrage
+ *    counts, and a version reading only the unit fields would silently never see
+ *    the "and/or gear" half.
+ *  - The CALLER decides whether the source qualifies ("spells or unit
+ *    abilities"), because only the caller knows what the source was — a Legend's
+ *    ability chooses units every time Jax is used, and does not count.
+ *
+ * An id naming nothing enemy is simply not counted: a friendly target, a
+ * facedown card, an id that has left play. No throw, the same
+ * target-vanished convention every helper here follows.
+ */
+export function recordEnemyChoices(state: GameState, chooserIndex: 0 | 1, chosenIds: readonly string[]): GameState {
+  const opponentIndex: 0 | 1 = chooserIndex === 0 ? 1 : 0;
+  const opponent = state.players[opponentIndex];
+  const enemy = chosenIds.filter((id) => {
+    if (opponent.activeGear.some((g) => g.instanceId === id)) return true;
+    return findUnitAnywhere(state, id)?.ownerIndex === opponentIndex;
+  });
+  if (enemy.length === 0) return state;
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const chooser = players[chooserIndex];
+  players[chooserIndex] = { ...chooser, enemyChoicesThisTurn: chooser.enemyChoicesThisTurn + enemy.length };
+  return { ...state, players };
+}
+
 export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): GameState {
   if (count <= 0) return state;
   let next = state;

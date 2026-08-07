@@ -75,6 +75,7 @@ function makePlayer(id: string): PlayerState {
     restrictedSpellPower: 0,
     restrictedGearPower: 0,
     gearPlayedThisTurn: 0,
+    enemyChoicesThisTurn: 0,
     equipmentPlayedThisTurn: 0,
     nextUnitsEnterReady: 0,
     unitsLostThisTurn: 0,

@@ -338,6 +338,10 @@ export function runEnd(state: GameState): GameState {
     restrictedGearPower: 0,
     gearPlayedThisTurn: 0,
     equipmentPlayedThisTurn: 0,
+    // Ezreal - Prodigal Explorer's "twice THIS TURN". Cleared for both players,
+    // like every field here — he is a [Reaction], so the turn his count is
+    // measured against can be the opponent's.
+    enemyChoicesThisTurn: 0,
     // Sun Disc's armed charge and the per-turn death tally Spoils of War prices
     // itself from — both are "this turn" state, so both end with the turn.
     nextUnitsEnterReady: 0,

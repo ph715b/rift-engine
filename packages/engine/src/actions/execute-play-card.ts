@@ -12,6 +12,7 @@ import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
+import { recordEnemyChoices } from "../engine/effect-helpers.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -418,6 +419,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   let updatedActor: PlayerState;
   let nextState = state;
 
+  // Ezreal - Prodigal Explorer's tally, filled in by the Spell branch below and
+  // applied after the acting player is written back — see the note there.
+  let enemyChosen: string[] = [];
   if (card.kind === "Spell") {
     // The Dreaming Tree — "when a player CHOOSES a friendly unit here with a
     // spell". 355 makes each chosen unit a target as the Spell is ANNOUNCED, so
@@ -534,6 +538,21 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // at the same moment (355's announcement) — the two differ only in what they
     // reach, which is why they are two calls rather than one event with a filter.
     nextState = holdUnitsChosen(nextState, action.playerIndex, chosen);
+    // Ezreal - Prodigal Explorer counts CHOICES, and his clause reaches gear as
+    // well as units — so this is the unit choices above PLUS the permanent-target
+    // fields, which is where a chosen gear rides.
+    //
+    // COLLECTED here, at 355's announcement, and applied at the bottom of this
+    // function. It cannot be applied here: `updatedActor` is built from the
+    // ORIGINAL `actor` and written back below, so anything this branch writes to
+    // the acting player is silently overwritten. Recording it inline read as a
+    // flat zero with nothing thrown, which is how this was found.
+    enemyChosen = [
+      ...chosen,
+      ...[action.targetPermanentInstanceId, action.repeatChoices?.targetPermanentInstanceId].filter(
+        (id): id is string => id !== undefined,
+      ),
+    ];
   } else {
     updatedActor = {
       ...actor,
@@ -557,6 +576,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // A no-op for every Gear without the keyword, and for a board with no unit
   // to attach to.
   if (card.kind === "Gear") placed = holdQuickDrawAttach(placed, action.playerIndex, card);
+
+  // Ezreal - Prodigal Explorer — the enemy units and gear this play CHOSE.
+  placed = recordEnemyChoices(placed, action.playerIndex, enemyChosen);
 
   // Sivir - Battle Mistress — the runes this play's Power cost recycled (416).
   // ONE event for the instruction with a count, not one per rune: the same

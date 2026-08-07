@@ -4,6 +4,10 @@ import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
+/** Ezreal - Prodigal Explorer's "TWICE this turn" — the whole of his condition,
+ *  named so the test and the check quote one number. */
+const EZREAL_CHOICES_NEEDED = 2;
+
 const ORNN_GEAR_POWER = 1;
 /** Renata Glasc - Chem-Baroness's "an additional [1]" on each Gold. */
 const RENATA_GOLD_BONUS_ENERGY = 1;
@@ -511,6 +515,36 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
             : state,
       },
     ],
+  },
+  "SFD-199": {
+    // Ezreal - Prodigal Explorer — "[Exhaust]: [Reaction] — Draw 1. Use only if
+    // you've chosen enemy units and/or gear twice this turn with spells or unit
+    // abilities."
+    //
+    // **The condition is the card**, and it is a per-turn count of CHOICES rather
+    // than of cards: one spell naming two enemy units satisfies him on its own.
+    // That reading is 355's and is already this engine's — `holdUnitsChosen`
+    // raises one event per chosen unit and its comment says why.
+    //
+    // "Use only if" is a restriction on ACTIVATING, so it is `availableWhile`
+    // and not a guard inside the resolver: a resolver that refused would have
+    // taken the exhaust already, and the player would have paid for nothing. Both
+    // the enumerator and the validator reach it through `canPayActivationCost`.
+    //
+    // The counting lives at the two ANNOUNCE sites (`execute-play-card` and
+    // `execute-activate-ability`) rather than here, because "with spells or unit
+    // abilities" is a fact about the SOURCE and only those sites know it. See
+    // `recordEnemyChoices` for the three narrowings.
+    //
+    // The `[Reaction]` tag needs nothing: `validate-activate-ability` applies no
+    // turnState, chain or priority check to ANY activation — a standing
+    // permissiveness recorded in that file's own doc comment, not something this
+    // card introduces.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) => state.players[playerIndex].enemyChoicesThisTurn >= EZREAL_CHOICES_NEEDED,
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
   },
   "SFD-197": {
     // Azir - Emperor of the Sands, second half — "[1], [Exhaust]: Play a 2 Might
