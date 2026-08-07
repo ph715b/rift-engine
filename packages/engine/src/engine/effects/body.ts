@@ -37,6 +37,7 @@ import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import { wearerListener } from "../equipment.js";
 import { gainPoints } from "../effect-helpers.js";
+import { placeGoldTokens } from "../token.js";
 
 /**
  * Card implementations for **Body** — one file, one owner.
@@ -500,15 +501,10 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-101": {
     // Fae Dragon — "When you play me, buff up to four friendly units."
     //
-    // **HALF THE CARD, and registration is per defId, so this file reports
-    // SFD-101 as DONE the moment this entry exists.** Her second sentence,
-    // "when you spend a buff, play a Gold gear token exhausted", is NOT
-    // implemented and cannot be from here: there is no `buffSpent` event.
-    // `effect-helpers.spendBuff` is the single funnel every spend goes through
-    // (Wildclaw Shaman, Kraken Hunter, Overt Operation, Mistfall's payers) and it
-    // fires nothing, where its mirror `addBuff` holds `unitBuffed`. The clause
-    // needs one `holdEventTrigger` there plus the event kind — both in shared
-    // files. Until then she needs a coverage.PARTIALLY_IMPLEMENTED row.
+    // **HALF THE CARD** — the other half is her `buffSpent` listener in
+    // `eventTriggers` below, added once the event existed. This comment used to
+    // say what was needed ("one `holdEventTrigger` in `spendBuff` plus the event
+    // kind — both in shared files"), and that was exactly the work.
     //
     // FOUR targets, which no TargetingSpec on this path can carry. `unitSlots` is
     // a fixed 2-tuple, and `unitList` — which would be exactly right — is
@@ -540,6 +536,23 @@ export const deathTriggers: Record<string, DeathknellEffect> = {};
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-101": {
+    // Fae Dragon's second sentence — "When you spend a buff, play a Gold gear
+    // token exhausted."
+    //
+    // "When YOU spend" is the spender, not the buffed unit's owner — 705.1 makes
+    // those the same today, and the event names the spender so they can diverge.
+    //
+    // Fires once per Buff SPENT, not per spending card: Overt Operation spends
+    // several and each one pays. That falls out of `spendBuff` being the funnel
+    // rather than out of anything decided here.
+    //
+    // Her own buffs feed it, which is the card's whole engine: she buffs four
+    // units on arrival, and every one of those buffs spent later is a Gold.
+    on: "buffSpent",
+    applies: (_state, listener, event) => event.kind === "buffSpent" && event.spenderIndex === listener.ownerIndex,
+    resolve: (state, listener) => placeGoldTokens(state, listener.ownerIndex, 1),
+  },
   "SFD-108": {
     // Warmog's Armor — "When I conquer, buff me."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds

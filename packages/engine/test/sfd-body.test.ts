@@ -6,9 +6,10 @@ import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { resolveShowdown } from "../src/engine/combat.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { deflectSurcharge } from "../src/engine/granted-keywords.js";
-import { addBuff } from "../src/engine/effect-helpers.js";
+import { addBuff, spendBuff } from "../src/engine/effect-helpers.js";
 import { optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
-import { implementingModules, isCardImplemented } from "../src/engine/coverage.js";
+import { implementingModules, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
+import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { SpellInstance, UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -522,13 +523,13 @@ describe("Fae Dragon (SFD-101): buff up to four friendly units", () => {
     expect(buffedCount(answerDecisions(asked, choose("decline")))).toBe(0);
   });
 
-  it("is registered as a UNIT TRIGGER — HALF the card, deliberately", () => {
-    // `isCardImplemented` is NOT asserted, and that is the point: her second
-    // sentence ("when you spend a buff, play a Gold gear token exhausted") has no
-    // `buffSpent` event to hang on and is not written. Registration is per defId,
-    // so coverage reads her as done until a `PARTIALLY_IMPLEMENTED` row says
-    // otherwise — at which point `isCardImplemented` becomes false and an
-    // assertion on it here would have to be deleted rather than corrected.
+  it("is registered as a UNIT TRIGGER and as an EVENT one — both halves now", () => {
+    // This used to assert one half and say so: her second sentence had no
+    // `buffSpent` event to hang on. It has one now, held from
+    // `effect-helpers.spendBuff` — the single funnel every spend goes through —
+    // so `isCardImplemented` is asserted, and BOTH registries are named. A test
+    // that checked only "unit-triggers" would pass against a Dragon whose second
+    // clause had been deleted.
     //
     // "unit-triggers" specifically, and not merely "some module": measured with
     // her trigger key renamed, `implementingModule` still answered "pending
@@ -536,6 +537,87 @@ describe("Fae Dragon (SFD-101): buff up to four friendly units", () => {
     // registry claims the card off the QUESTION alone. A test asserting only that
     // something implements her would have passed against a card that never fired.
     expect(implementingModules(FAE_DRAGON)).toContain("unit-triggers");
+    expect(implementingModules(FAE_DRAGON)).toContain("event triggers");
+    expect(isCardImplemented(registry.get(FAE_DRAGON))).toBe(true);
+    expect(partialImplementationNote(registry.get(FAE_DRAGON)), "a note outlived its clause").toBeUndefined();
+  });
+});
+
+/**
+ * Fae Dragon's second sentence — "When you spend a buff, play a Gold gear token
+ * exhausted."
+ *
+ * The event is the work and it is not hers: `spendBuff` is the ONE funnel every
+ * spend in the pool goes through (Wildclaw Shaman, Kraken Hunter, Overt
+ * Operation, Udyr, Mistfall's payers, two battlefields), and it returns
+ * `undefined` on an illegal spend — which makes it the only place a spend is
+ * known to have HAPPENED rather than been attempted.
+ *
+ * So the tests that matter are about which spends count, not about the Gold.
+ */
+describe("Fae Dragon pays for a spent buff", () => {
+  /** The Dragon in play for player 0, with `buffed` already carrying a buff. */
+  function inPlay(): GameState {
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.baseUnits = [
+      { ...realUnitInstance(FAE_DRAGON), instanceId: "dragon" },
+      makeUnit({ instanceId: "friend", might: 1, buffed: true }),
+    ];
+    return state;
+  }
+
+  const golds = (state: GameState) => state.players[0]!.activeGear.filter((g) => g.defId === GOLD_TOKEN_DEF_ID);
+
+  it("plays a Gold, exhausted, when a buff is spent", () => {
+    const after = resolveHeldTriggers(spendBuff(inPlay(), 0, "friend")!);
+
+    expect(golds(after), "no Gold was played").toHaveLength(1);
+    expect(golds(after)[0]!.exhausted, "the Gold entered ready — the card prints exhausted").toBe(true);
+  });
+
+  /** An ILLEGAL spend is not a spend. `spendBuff` refuses an unbuffed unit
+   *  (705), and a refusal must not pay. */
+  it("does NOT pay when the spend was refused", () => {
+    const state = inPlay();
+    // The Dragon herself carries no buff, so this spend is illegal.
+    expect(spendBuff(state, 0, "dragon"), "an unbuffed unit was allowed to spend").toBeUndefined();
+    expect(golds(resolveHeldTriggers(state)), "a refused spend paid out").toHaveLength(0);
+  });
+
+  /** "When YOU spend" — the opponent's spend is not hers. */
+  it("does NOT pay for the OPPONENT's spend", () => {
+    const state = inPlay();
+    state.players[1]!.baseUnits = [makeUnit({ instanceId: "theirs", might: 1, buffed: true })];
+    const after = resolveHeldTriggers(spendBuff(state, 1, "theirs")!);
+
+    expect(golds(after), "she paid for an opponent's spend").toHaveLength(0);
+  });
+
+  /**
+   * ONE Gold per BUFF, so a stacked buff spent twice pays twice — which falls
+   * out of `spendBuff` being called per spend rather than out of anything her
+   * entry decides. Lee Sin - Ascetic's "any number of buffs" is what makes a
+   * second spend on one unit possible at all.
+   */
+  it("pays once per BUFF, not once per unit", () => {
+    const state = inPlay();
+    state.players[0]!.baseUnits = state.players[0]!.baseUnits.map((u) =>
+      u.instanceId === "friend" ? { ...u, extraBuffs: 1 } : u,
+    );
+    const once = spendBuff(state, 0, "friend")!;
+    const twice = spendBuff(once, 0, "friend")!;
+
+    expect(golds(resolveHeldTriggers(twice)), "a stacked buff spent twice paid once").toHaveLength(2);
+    // The premise: the first spend really did leave it buffed.
+    expect(once.players[0]!.baseUnits.find((u) => u.instanceId === "friend")!.buffed).toBe(true);
+  });
+
+  /** With no Dragon in play nobody pays — the control for every case above. */
+  it("pays nothing without her", () => {
+    const state = inPlay();
+    state.players[0]!.baseUnits = state.players[0]!.baseUnits.filter((u) => u.instanceId !== "dragon");
+
+    expect(golds(resolveHeldTriggers(spendBuff(state, 0, "friend")!)), "a Gold arrived with no Dragon").toHaveLength(0);
   });
 });
 

@@ -835,11 +835,17 @@ export function spendBuff(state: GameState, playerIndex: 0 | 1, targetInstanceId
   // leaves the unit buffed, so a stack of three survives two spends. Only when
   // the last one goes does `buffed` clear — which is what keeps every other
   // reader of that boolean correct.
+  // Fae Dragon — HELD here rather than at the eight call sites, for the reason
+  // this function returns `undefined` on an illegal spend: this is the only
+  // place a spend is known to have happened. A stacked buff spent down to two is
+  // still a spend, so both branches below fire it.
+  const spent = holdEventTrigger(state, { kind: "buffSpent", spenderIndex: playerIndex, unitInstanceId: targetInstanceId });
+
   if ((location.unit.extraBuffs ?? 0) > 0) {
-    return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) - 1 }));
+    return updateUnitAnywhere(spent, targetInstanceId, (u) => ({ ...u, extraBuffs: (u.extraBuffs ?? 0) - 1 }));
   }
 
-  return updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: false }));
+  return updateUnitAnywhere(spent, targetInstanceId, (u) => ({ ...u, buffed: false }));
 }
 
 /**

@@ -697,6 +697,25 @@ export type GameEvent =
    */
   | { kind: "runesRecycled"; ownerIndex: 0 | 1; count: number }
   /**
+   * A Buff was SPENT (704.1) — Fae Dragon's "when you spend a buff, play a Gold
+   * gear token exhausted".
+   *
+   * The mirror of `unitBuffed`, which `addBuff` has always held, and it arrives
+   * from the one place every spend goes through: `effect-helpers.spendBuff`
+   * returns `undefined` rather than an unchanged state when the spend is
+   * illegal, so a caller cannot take the payoff without paying — which makes it
+   * the only site where a spend is known to have HAPPENED.
+   *
+   * `spenderIndex`, not the unit's owner: 705.1 already restricts spending to
+   * units you control, so the two agree today — but the card says "when YOU
+   * spend", and naming the spender is what keeps it true if a card ever spends
+   * from a unit it does not own.
+   *
+   * ONE event per Buff. A stack of three spent twice is two events, because
+   * `spendBuff` is called twice — there is no batch caller to be wrong about.
+   */
+  | { kind: "buffSpent"; spenderIndex: 0 | 1; unitInstanceId: string }
+  /**
    * A Combat Showdown has just opened at `battlefieldId` — 465's Combat Step 1,
    * the moment units there gain the Attacker and Defender designations. Fired for
    * a freshly staged Combat and for a Non-Combat one promoted by 317.2, since
@@ -881,6 +900,7 @@ export type HeldEventKind =
   | "unitKilledBySpell"
   | "cardsRecycled"
   | "runesRecycled"
+  | "buffSpent"
   | "combatBegan"
   | "combatWon"
   | "unitsStunned"

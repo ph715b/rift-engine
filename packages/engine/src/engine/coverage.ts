@@ -302,7 +302,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Three of the six are blocked on the SAME missing primitive — a gear-token
   // (the Gold token, `sfd-t03`) — which four separate agents hit independently
   // across eleven cards. That is the wave's largest single finding.
-  ["SFD-101", "'buff up to four friendly units' works; 'when you spend a buff, play a Gold gear token' needs a buffSpent event, held from effect-helpers.spendBuff"],
   ["SFD-166", "'Draw 1' works; 'When a friendly unit is played this turn, buff it' needs a delayed-trigger flag on PlayerState read at the play site"],
   ["SFD-175", "the on-play pump works; 'As I'm revealed from your deck, [Add] 2 Energy' needs a reveal-from-deck hook"],
   // The six Equipment whose printed `[Equip]` cost this engine cannot yet
