@@ -46,9 +46,9 @@ import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
-import type { UnitInstance } from "../../model/card.js";
+import type { GearInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
-import { attachEquipment, detachEquipment, wearerListener } from "../equipment.js";
+import { attachEquipment, detachEquipment, isEquipmentGear, wearerListener } from "../equipment.js";
 import { revealedFromDeck } from "../top-of-deck.js";
 
 /**
@@ -761,6 +761,39 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "SFD-024": {
+    // Rell - Magnetic — "[Tank] When I attack, you may play an Equipment with
+    // Energy cost no more than [2] from hand, ignoring its cost. If you do, then
+    // do this: Attach it to me."
+    //
+    // The moment is `combatBegan` with `isAttackingAt`, the shared adapter every
+    // "when I attack" card in this pool uses — so Rell and Yasuo cannot come to
+    // different answers about who is attacking. The designation is fixed when the
+    // combat opens (383), so it is asked in `applies` and never re-asked: moving
+    // her away during the response window must not cancel a trigger that has
+    // already fired.
+    //
+    // A parked DECISION rather than auto-selection, unlike the on-attack damage
+    // cards beside it: "you MAY" with a filtered list is a question, and which
+    // Equipment you commit is a real choice. With no eligible Equipment the offer
+    // is dropped whole rather than shown as a lone Decline — the same call every
+    // other optional offer here makes, and the one that keeps `advanceDecisions`
+    // from auto-resolving a question with a single option.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener) => {
+      if (listener.card.kind !== "Unit") return state;
+      if (rellEquipCandidates(state, listener.ownerIndex).length === 0) return state;
+      // Rell's own instance rides the decision, because "attach it to ME" means
+      // the body that attacked — not whichever Rell is on the board when the
+      // answer arrives.
+      return parkDecision(state, {
+        kind: "SFD-024-equip",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
   "SFD-016": {
     // Recurve Bow — "When I attack or defend, deal 2 to an enemy unit here."
     // **ART-ONLY ABILITY.** None of this is in the card data — `text.plain` holds
@@ -1291,7 +1324,66 @@ function canPayPhoenix(state: GameState, playerIndex: 0 | 1): boolean {
   return withPower !== undefined && payEnergyFromPool(withPower, playerIndex, 1) !== undefined;
 }
 
+/**
+ * The Equipment in hand Rell - Magnetic may play — "an Equipment with Energy
+ * cost no more than [2] from HAND".
+ *
+ * One walk, asked by the trigger (to decide whether there is a question at all)
+ * and by the decision (to build and to resolve its options), so "is there an
+ * offer" and "what may be chosen" cannot disagree.
+ *
+ * The ceiling is on the PRINTED Energy cost, not a modified one: the play
+ * ignores the cost entirely, so there is no modified price to compare against,
+ * and a discount that made an expensive Equipment eligible would be reading the
+ * card backwards.
+ */
+const RELL_MAX_EQUIP_ENERGY = 2;
+
+function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance[] {
+  return state.players[playerIndex].hand.filter(
+    (c): c is GearInstance => c.kind === "Gear" && isEquipmentGear(c) && c.energyCost <= RELL_MAX_EQUIP_ENERGY,
+  );
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Rell - Magnetic's "you may play an Equipment ... ignoring its cost. If you
+   * do, then do this: Attach it to me."
+   *
+   * **The CALLER removes the card from its zone** — `playCardIgnoringCost` says
+   * so in its own contract and does neither the payment nor the zone move. So the
+   * hand is rebuilt here before the play.
+   *
+   * "If you do, THEN do this" ties the attach strictly to the play, so both
+   * happen in the paying branch and declining gives neither.
+   */
+  "SFD-024-equip": {
+    prompt: () => "Rell - Magnetic: play an Equipment from hand for free and attach it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...rellEquipCandidates(state, d.playerIndex).map((g) => ({ id: g.instanceId, label: g.name, instanceId: g.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const chosen = rellEquipCandidates(state, d.playerIndex).find((g) => g.instanceId === optionId);
+      if (!chosen) return state;
+
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        hand: players[d.playerIndex].hand.filter((c) => c.instanceId !== chosen.instanceId),
+      };
+      const played = playCardIgnoringCost({ ...state, players }, d.playerIndex, chosen);
+
+      // "Attach it to ME." Rell may have died in the response window between the
+      // trigger and this answer, in which case the Equipment is simply played and
+      // stays unattached — 422's do-as-much-as-you-can, and `attachEquipment` is
+      // a no-op on a missing wearer anyway.
+      return d.cardInstanceId === undefined
+        ? played
+        : attachEquipment(played, d.playerIndex, chosen.instanceId, d.cardInstanceId);
+    },
+  },
   /**
    * Recurve Bow's "deal 2 to an enemy unit here", raised by its WEARER attacking
    * or defending. `battlefieldId` is captured when the question is raised, so it
