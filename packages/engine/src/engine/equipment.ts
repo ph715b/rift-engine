@@ -79,7 +79,7 @@ export function attachEquipment(
   players[ownerIndex] = {
     ...owner,
     activeGear: owner.activeGear.map((g) =>
-      g.instanceId === gearInstanceId ? { ...g, attachedToInstanceId: unitInstanceId } : g,
+      g.instanceId === gearInstanceId ? { ...g, attachedToInstanceId: unitInstanceId, attachedThisTurn: true as const } : g,
     ),
   };
   // Jax - Unrelenting and Aphelios - Exalted. HELD here rather than at the five
@@ -164,6 +164,21 @@ export function equipmentPairedWith(
   return attachableEquipment(state, found.ownerIndex, "any", unitInstanceId);
 }
 
+/**
+ * Drops Brutalizer's freshness flag.
+ *
+ * The key is REMOVED rather than set to `undefined`: `attachedThisTurn` is
+ * declared `?: true`, and under `exactOptionalPropertyTypes` an explicit
+ * `undefined` is a different type from an absent key. Exported so `runEnd`'s
+ * end-of-turn sweep clears it exactly the way a detach does — two spellings of
+ * "not fresh" is how one of them comes to be wrong.
+ */
+export function withoutAttachFreshness(gear: GearInstance): GearInstance {
+  if (gear.attachedThisTurn === undefined) return gear;
+  const { attachedThisTurn: _spent, ...rest } = gear;
+  return rest;
+}
+
 /** Detaches one Equipment, leaving it in `activeGear` unattached. */
 export function detachEquipment(state: GameState, ownerIndex: 0 | 1, gearInstanceId: string): GameState {
   const owner = state.players[ownerIndex];
@@ -171,7 +186,9 @@ export function detachEquipment(state: GameState, ownerIndex: 0 | 1, gearInstanc
   players[ownerIndex] = {
     ...owner,
     activeGear: owner.activeGear.map((g) =>
-      g.instanceId === gearInstanceId ? { ...g, attachedToInstanceId: null } : g,
+      // Freshness goes with the attachment it described — a detached Brutalizer
+      // re-attached next turn must be fresh again, not stale.
+      g.instanceId === gearInstanceId ? withoutAttachFreshness({ ...g, attachedToInstanceId: null }) : g,
     ),
   };
   return { ...state, players };
@@ -237,7 +254,38 @@ export function equipmentMightBonusFor(state: GameState, unitInstanceId: string)
   // wears anything) falls through to 1 and the reduce below finds no gear.
   const wearer = findUnitAnywhere(state, unitInstanceId)?.unit;
   const multiplier = wearer?.defId === GEARHEAD ? 2 : 1;
-  return equipmentAttachedTo(state, unitInstanceId).reduce((sum, g) => sum + equipMightBonusOf(g) * multiplier, 0);
+  return equipmentAttachedTo(state, unitInstanceId).reduce(
+    (sum, g) => sum + (equipMightBonusOf(g) + brutalizerBonus(g)) * multiplier,
+    0,
+  );
+}
+
+/**
+ * Brutalizer's art-only "**If this was attached to me THIS TURN**, I have an
+ * additional +2 Might".
+ *
+ * **ART-ONLY.** `text.plain` holds the `[Equip]` line and nothing else; see
+ * docs/sfd-equipment-abilities.md.
+ *
+ * Inside the same reduce as the printed badge rather than beside it, so
+ * Gearhead's "your Equipment give double Might" doubles this too. That is the
+ * reading the multiplier's placement already commits to for every other bonus,
+ * and splitting it out would silently exempt one card from an aura that says
+ * "your Equipment".
+ *
+ * The freshness is a FLAG on the gear, not a turn number: `turnNumber` counts
+ * ROUNDS by construction (`runEnd` bumps it only when play wraps to the first
+ * player), so both players' turns share one, and a gear attached on my turn
+ * would still read as fresh on the opponent's. The flag is written by
+ * `attachEquipment` — the single writer of `attachedToInstanceId`, so no attach
+ * source can skip it — and cleared for BOTH players by `runEnd`, the convention
+ * every other "this turn" field here follows.
+ */
+const BRUTALIZER = "SFD-042";
+const BRUTALIZER_FRESH_MIGHT = 2;
+
+function brutalizerBonus(gear: GearInstance): number {
+  return gear.defId === BRUTALIZER && gear.attachedThisTurn === true ? BRUTALIZER_FRESH_MIGHT : 0;
 }
 
 /**

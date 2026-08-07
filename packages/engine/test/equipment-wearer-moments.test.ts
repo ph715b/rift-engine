@@ -51,14 +51,24 @@ const CULL = "SFD-134"; // when I conquer, play a Gold gear token exhausted
 const EYE_OF_THE_HERALD = "SFD-153"; // when I move, play a 1 Might Recruit token here
 
 const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONESHIVER, DORANS_RING, CULL, EYE_OF_THE_HERALD];
-/** The art-only Equipment still unwritten — each needs its own primitive. */
-/** **Guardian Angel (SFD-051) has left this list**, which is why it is now five.
- *  Its art half — "if I would die, kill Guardian Angel instead" — is a free,
- *  MANDATORY death replacement sourced from a GEAR, and it is written beside
- *  Zhonya's Hourglass in death-ward.ts. The five that remain are the ones
- *  docs/sfd-continuation-prompt.md recommends NOT doing: each needs a subsystem
- *  out of proportion to one card. */
-const STILL_ART_ONLY = ["SFD-030", "SFD-042", "SFD-059", "SFD-073", "SFD-090"];
+/**
+ * The art-only Equipment still unwritten.
+ *
+ * **Guardian Angel (SFD-051) left first**, taking this from six to five: its art
+ * half is a free, MANDATORY death replacement sourced from a GEAR, written beside
+ * Zhonya's Hourglass in death-ward.ts.
+ *
+ * **Last Rites (SFD-150) and Brutalizer (SFD-042) left on 2026-08-07**, under the
+ * decision to finish SFD rather than stop at 193/198. Brutalizer is the one worth
+ * a note here, because the reason it sat on the do-not-do list for two sessions
+ * was a MIS-PRICING rather than a subsystem: the standing note called for "a
+ * per-attachment turn stamp", and `equipment.ts` is the declared single writer of
+ * `attachedToInstanceId`, so the stamp is one flag at one site. Re-reading the
+ * code beat believing the note, which is now six for six in this repo.
+ *
+ * This list shrinks as each lands; it is not a fixed set.
+ */
+const STILL_ART_ONLY = ["SFD-030", "SFD-059", "SFD-073", "SFD-090"];
 /** Sacred Shears — art-only like the six above, and written now, but NOT by the
  *  wearer's-moments mechanism. See its own describe block at the bottom. */
 const SACRED_SHEARS = "SFD-172";
@@ -241,7 +251,7 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     }
   });
 
-  it("reports the FIVE still-unwritten ones as NOT implemented", () => {
+  it("reports the still-unwritten ones as NOT implemented", () => {
     // The instrument fix, and the half that would silently rot: each of these
     // reported `true` before 2026-08-06 purely because its `[Equip]` cost is
     // registered, while its whole printed ability does nothing.

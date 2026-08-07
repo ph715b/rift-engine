@@ -167,6 +167,25 @@ export interface GearInstance extends CardInstanceBase {
   powerDomainAlt?: Domain;
   attachedToInstanceId: string | null;
   /**
+   * Was this gear attached to its current wearer THIS TURN? Brutalizer's
+   * art-only "if this was attached to me this turn, I have an additional +2
+   * Might" — the only card that asks.
+   *
+   * A flag rather than a turn number, and that is load-bearing: `turnNumber`
+   * counts ROUNDS (`turn-manager.runEnd` bumps it only when play wraps to the
+   * first player), so both players' turns share one and a gear attached on your
+   * turn would still read as fresh on the opponent's.
+   *
+   * Written by `attachEquipment` and cleared by `detachEquipment` — the two
+   * single writers of `attachedToInstanceId`, so no attach source can set one
+   * without the other — and swept for BOTH players at `runEnd`, like every other
+   * "this turn" state in this engine.
+   *
+   * Optional so every existing gear construction site is unaffected; absent
+   * reads as "not fresh", which is the conservative answer.
+   */
+  attachedThisTurn?: true;
+  /**
    * Keywords this gear carries. Present so a keyword can be GRANTED to it at
    * runtime — Fading Memories gives "a unit at a battlefield **or a gear**"
    * [Temporary], and without this the gear half of that card had nowhere to

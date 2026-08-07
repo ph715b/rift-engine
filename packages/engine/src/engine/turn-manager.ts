@@ -5,6 +5,7 @@ import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
 import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
+import { withoutAttachFreshness } from "./equipment.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -318,6 +319,9 @@ export function runEnd(state: GameState): GameState {
   const players = afterTriggers.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireMightThisTurn),
+    // Brutalizer is fresh only for the turn it was attached in, and this is
+    // the sweep that ends it — for BOTH players, like every field here.
+    activeGear: p.activeGear.map(withoutAttachFreshness),
     floatingEnergy: 0,
     floatingPower: {},
     floatingRainbowPower: 0,
