@@ -535,6 +535,38 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, _ctx, _unitId, event) =>
       (event.additionalCostUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
   },
+  "SFD-160": {
+    // Zaun Punk — "You may kill a friendly gear as an additional cost to play
+    // me. When you play me, if you paid the additional cost, kill a gear."
+    //
+    // **A cost and an effect that look identical and are not.** The first kill
+    // is a COST, paid with a gear the caster names on the action (rule 355.11 —
+    // a cost is not a target), and the second is the payoff: "kill A GEAR",
+    // unqualified, so it reaches EITHER side. That asymmetry is the card — you
+    // trade one of yours for any one of theirs.
+    //
+    // The cost rides `additionalCostPermanentInstanceId`, the pool's first
+    // GEAR-valued additional cost, for the reason that field exists: a gear must
+    // never reach a reader expecting a unit.
+    //
+    // `killGear`, not a hand-rolled removal: paying a cost with a permanent is
+    // still killing it, so the gear's own "when I am killed" self-trigger fires.
+    // The same reading Cruel Patron's kill-as-a-cost takes below.
+    //
+    // The payoff half is a parked decision because "a gear" with several on the
+    // board is a real choice; with none left it is dropped whole rather than
+    // offered as a lone decline.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      const paidWith = event.additionalCostPermanentInstanceId;
+      if (paidWith === undefined) return state; // declined — "if you do" gives nothing
+      const gear = state.players[ctx.casterIndex].activeGear.find((g) => g.instanceId === paidWith);
+      if (gear === undefined) return state;
+      const paid = killGear(state, gear, ctx.casterIndex);
+      const anyGearLeft = paid.players.some((p) => p.activeGear.length > 0);
+      return anyGearLeft ? parkDecision(paid, { kind: "SFD-160-kill", playerIndex: ctx.casterIndex }) : paid;
+    },
+  },
   "OGN-208": {
     // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
     //
@@ -1199,6 +1231,26 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  "SFD-160-kill": {
+    // Zaun Punk's payoff — "kill a gear", unqualified, so either side's.
+    prompt: () => "Zaun Punk: kill a gear",
+    options: (state) =>
+      ([0, 1] as const).flatMap((owner) =>
+        state.players[owner].activeGear.map((g) => ({
+          id: `${owner}:${g.instanceId}`,
+          label: `Kill ${g.name}`,
+          instanceId: g.instanceId,
+        })),
+      ),
+    // No decline: the card prints "kill a gear", not "you may". The trigger
+    // already checked there is one to kill, so this is never an empty question.
+    resolve: (state, _d, optionId) => {
+      const [ownerRaw, instanceId] = optionId.split(":");
+      const ownerIndex = ownerRaw === "1" ? 1 : 0;
+      const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === instanceId);
+      return gear ? killGear(state, gear, ownerIndex) : state;
+    },
+  },
   "SFD-165-play": {
     // Glasc Mixologist's "[Deathknell] — you may play a unit from your trash,
     // ignoring its cost."

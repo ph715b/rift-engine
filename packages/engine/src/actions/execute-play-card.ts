@@ -371,6 +371,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostUnitInstanceIds !== undefined
         ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
         : {}),
+      ...(action.additionalCostPermanentInstanceId !== undefined
+        ? { additionalCostPermanentInstanceId: action.additionalCostPermanentInstanceId }
+        : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then
@@ -419,6 +422,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         : {}),
       ...(action.additionalCostUnitInstanceIds !== undefined
         ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
+        : {}),
+      ...(action.additionalCostPermanentInstanceId !== undefined
+        ? { additionalCostPermanentInstanceId: action.additionalCostPermanentInstanceId }
         : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
       // Same Accelerate forwarding as the base branch — a reinforce play pays
@@ -514,6 +520,9 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         : {}),
       ...(action.additionalCostUnitInstanceIds !== undefined
         ? { additionalCostUnitInstanceIds: action.additionalCostUnitInstanceIds }
+        : {}),
+      ...(action.additionalCostPermanentInstanceId !== undefined
+        ? { additionalCostPermanentInstanceId: action.additionalCostPermanentInstanceId }
         : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that

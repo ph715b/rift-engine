@@ -33,6 +33,8 @@ import {
   grantedRepeatCostOf,
   repeatCostOf,
   slotScope,
+  costNamesGear,
+  type OptionalUnitCost,
 } from "../engine/card-effects.js";
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -118,7 +120,7 @@ function additionalCostRejection(
   state: GameState,
   action: PlayCardAction,
   cardName: string,
-  kind: "exhaustReadyFriendly" | "spendBuffFriendly" | "killFriendly",
+  kind: OptionalUnitCost,
   id: string,
 ): string | null {
   const actor = state.players[action.playerIndex]!;
@@ -469,8 +471,21 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // A MANDATORY additional cost has to be named. Rule 355.11 keeps it a cost
   // rather than a target, but unlike an optional one there is no declining it —
   // Cruel Patron with nothing of yours to kill is simply unplayable.
-  if (optionalCost?.mandatory && action.additionalCostUnitInstanceId === undefined) {
+  // A GEAR-valued cost rides its own field, so "was it paid" is a different
+  // question — asked through `costNamesGear` rather than by each site guessing.
+  const costWantsGear = optionalCost !== undefined && costNamesGear(optionalCost.kind);
+  if (optionalCost?.mandatory && costWantsGear && action.additionalCostPermanentInstanceId === undefined) {
+    return fail(`${card.name} requires a friendly gear as an additional cost`);
+  }
+  if (optionalCost?.mandatory && !costWantsGear && action.additionalCostUnitInstanceId === undefined) {
     return fail(`${card.name} requires a friendly unit as an additional cost`);
+  }
+  // The named gear has to be one the caster actually controls. "Friendly" is the
+  // whole eligibility test for both cards — neither asks it to be ready, or
+  // attached, or anything else.
+  if (costWantsGear && action.additionalCostPermanentInstanceId !== undefined) {
+    const owned = actor.activeGear.some((g) => g.instanceId === action.additionalCostPermanentInstanceId);
+    if (!owned) return fail(`${card.name}'s additional cost requires a friendly gear you control`);
   }
   // A REPEATABLE cost names a SET, and every member has to be separately
   // eligible — the same three checks the single-unit branch below makes, applied

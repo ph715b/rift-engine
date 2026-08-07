@@ -39,6 +39,7 @@ import {
   repeatCostOf,
   slotOwner,
   slotScope,
+  costNamesGear,
 } from "./card-effects.js";
 import {
   abilitiesAvailableTo,
@@ -851,6 +852,18 @@ export function legalActions(state: GameState): PlayerAction[] {
     const optionalCost = optionalUnitCostOf(card.defId);
     const variants: Partial<PlayCardAction>[] = optionalCost
       ? afterVision.flatMap((v) => {
+          // A GEAR-valued cost fans out over `activeGear` and rides its own
+          // field — Zaun Punk kills a friendly gear, Legion Quartermaster
+          // returns one to hand. Handled first and returned early, because none
+          // of the unit machinery below means anything for it: a gear is never
+          // ready-or-not for this purpose, never buffed, and never repeatable.
+          if (costNamesGear(optionalCost.kind)) {
+            const paid = actor.activeGear.map((g) => ({ ...v, additionalCostPermanentInstanceId: g.instanceId }));
+            // Same decline rule as the unit costs below: a MANDATORY cost has
+            // no decline, so Legion Quartermaster with no gear of his own is
+            // simply not offered rather than offered and refused.
+            return optionalCost.mandatory ? paid : [v, ...paid];
+          }
           const own = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
           // A READY unit and a BUFFED unit are different sets; the registry says
           // which this card wants rather than this loop guessing.

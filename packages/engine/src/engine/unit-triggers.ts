@@ -53,6 +53,10 @@ export interface UnitTriggerEvent {
    *  Wildclaw Shaman needed it, which forced its "you may" onto the ordinary
    *  target field and lost the decline whenever every friendly unit was buffed. */
   additionalCostUnitInstanceId?: string;
+  /** The friendly GEAR spent for an additional cost — Zaun Punk's kill,
+   *  Legion Quartermaster's return-to-hand. Its own field for the reason the
+   *  action's is: a gear must never reach a reader expecting a unit. */
+  additionalCostPermanentInstanceId?: string;
   /** The units spent for a REPEATABLE additional cost (Kraken Hunter's buffs,
    *  Commander Ledros' kills) — a list, so nothing reading the single field
    *  above can be handed four of them. */
@@ -394,6 +398,7 @@ export function dispatchOnPlayUnit(
     visionRecycle?: boolean;
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
+    additionalCostPermanentInstanceId?: string;
     additionalCostUnitInstanceIds?: readonly string[];
     discardCardInstanceId?: string;
     acceleratePaid?: boolean;
@@ -472,6 +477,12 @@ export function dispatchOnPlayUnit(
     ...(extra?.trashCardInstanceId !== undefined ? { trashCardInstanceId: extra.trashCardInstanceId } : {}),
     ...(extra?.additionalCostUnitInstanceId !== undefined
       ? { additionalCostUnitInstanceId: extra.additionalCostUnitInstanceId }
+      : {}),
+    // Forwarded for the reason every field beside it is: enumerated,
+    // validated, and then dropped on this hop leaves the card paying its cost
+    // and doing nothing.
+    ...(extra?.additionalCostPermanentInstanceId !== undefined
+      ? { additionalCostPermanentInstanceId: extra.additionalCostPermanentInstanceId }
       : {}),
     ...(extra?.additionalCostUnitInstanceIds !== undefined
       ? { additionalCostUnitInstanceIds: extra.additionalCostUnitInstanceIds }

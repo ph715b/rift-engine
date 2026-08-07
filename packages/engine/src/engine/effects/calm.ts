@@ -27,6 +27,7 @@ import {
   grantTemporary,
   ownUnitsEverywhere,
   readyRunes,
+  returnPermanentToHand,
   readyUnit,
   recallUnitToBase,
   returnCardFromTrash,
@@ -517,6 +518,30 @@ function mightContext(state: GameState, location: AnyUnitLocation): { isCombat: 
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-044": {
+    // Legion Quartermaster — "As an additional cost to play me, return a
+    // friendly gear to its owner's hand."
+    //
+    // **MANDATORY, and that is the whole shape of the card.** There is no "you
+    // may", so the enumerator offers no decline variant and a Quartermaster with
+    // no gear of your own is simply unplayable — the same consequence Cruel
+    // Patron's kill has, and the reason `mandatory` is a flag on the cost rather
+    // than a per-card branch.
+    //
+    // He has no other text: the return IS the whole entry, and it is a COST
+    // rather than an effect, which is why `targeting` is "none" and the gear
+    // rides `additionalCostPermanentInstanceId` (355.11 — a cost is not a
+    // target).
+    //
+    // "To its OWNER's hand" — and the cost is a FRIENDLY gear, so the owner is
+    // the caster. `returnPermanentToHand` locates it either way rather than
+    // assuming, which keeps this right if control of a gear ever moves.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.additionalCostPermanentInstanceId
+        ? returnPermanentToHand(state, event.additionalCostPermanentInstanceId)
+        : state,
+  },
   "OGN-044": {
     // Clockwork Keeper — "You may pay [1 Calm] as an additional cost to play me.
     // When you play me, if you paid the additional cost, draw 1."

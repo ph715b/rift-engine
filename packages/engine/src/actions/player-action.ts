@@ -64,6 +64,17 @@ export interface PlayCardAction {
    *  above, so nothing that reads "the one unit this cost named" can be handed
    *  four of them. */
   additionalCostUnitInstanceIds?: readonly string[];
+  /**
+   * The friendly GEAR spent for an additional cost — Zaun Punk's kill, Legion
+   * Quartermaster's return-to-hand.
+   *
+   * Its own field rather than the unit one above, because a gear is not a unit
+   * and must never reach a reader expecting one — the same separation
+   * `targetPermanentInstanceId` already keeps for targets. `costNamesGear` says
+   * which field a given cost rides on, and the enumerator and both validators
+   * ask it rather than each deciding.
+   */
+  additionalCostPermanentInstanceId?: string;
   /** For a Unit card only: deploy directly to this battlefield instead of
    *  base. Legal only when the acting player already has a unit of their
    *  own there — mirrors ActionValidator.validateUnitDirectToBattlefield's

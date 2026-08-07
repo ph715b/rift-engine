@@ -486,7 +486,26 @@ function chosenTargets(event: ResolveEvent): string[] {
  * Both name a friendly unit, but a READY one and a BUFFED one are different
  * sets, so the shape has to be recorded rather than assumed.
  */
-export type OptionalUnitCost = "exhaustReadyFriendly" | "spendBuffFriendly" | "killFriendly";
+/**
+ * The two GEAR-valued kinds are SFD's, and they are why this type is no longer
+ * only about units: Zaun Punk kills a friendly gear and Legion Quartermaster
+ * returns one to hand. The chosen gear rides `additionalCostPermanentInstanceId`
+ * rather than the unit field, because a gear must never reach a reader expecting
+ * a unit — the same separation `unitOrGear` targeting already keeps.
+ */
+export type OptionalUnitCost =
+  | "exhaustReadyFriendly"
+  | "spendBuffFriendly"
+  | "killFriendly"
+  | "killFriendlyGear"
+  | "returnFriendlyGearToHand";
+
+/** Does this cost name a GEAR rather than a unit? One predicate, asked by the
+ *  enumerator and both validators, so the three cannot disagree about which
+ *  field the choice rides on. */
+export function costNamesGear(kind: OptionalUnitCost): boolean {
+  return kind === "killFriendlyGear" || kind === "returnFriendlyGearToHand";
+}
 
 /** Whether the cost may be declined. Rule 805 calls Accelerate an "Optional
  *  Additional Cost"; Cruel Patron's "As an additional cost to play me, kill a
@@ -539,6 +558,16 @@ export interface UnitCostSpec {
  * must". The decline variant is now always offered.
  */
 const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
+  // SFD's two GEAR-valued costs, the first additional costs in the pool paid
+  // with a permanent that is not a unit.
+  //
+  // Zaun Punk's is OPTIONAL ("you may kill a friendly gear as an additional
+  // cost"), so it fans out a decline; Legion Quartermaster's is MANDATORY ("As
+  // an additional cost to play me, return a friendly gear to its owner's hand")
+  // and therefore makes him unplayable with no gear of your own — the same shape,
+  // and the same consequence, as Cruel Patron's kill below.
+  "SFD-160": { kind: "killFriendlyGear" },
+  "SFD-044": { kind: "returnFriendlyGearToHand", mandatory: true },
   "OGN-048": { kind: "exhaustReadyFriendly" }, // Meditation
   "OGN-147": { kind: "spendBuffFriendly" }, // Wildclaw Shaman
   // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
