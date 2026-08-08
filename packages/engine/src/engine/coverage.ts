@@ -332,7 +332,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   //
   // This one is what is honestly left. Transcribed abilities in
   // docs/sfd-equipment-abilities.md.
-  ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
+  // **The one note in this file that was NOT overstated**, and it is now priced
+  // rather than estimated. An Equipment's text is read as its WEARER's — the
+  // reading the eight wearer's-moments cards establish — so copying the wearer's
+  // text onto it DOUBLES that unit's abilities. A faithful copy therefore has to
+  // reach every defId-keyed table, measured at 23 of them over 256 units. Some
+  // are free (a doubled keyword is redundant under 817.1.a; an on-play trigger
+  // cannot re-fire, because the attach happens after the play), some are cheap
+  // (event triggers, through the key list Relentless Pursuit's grant added), and
+  // two are not: continuous Might auras (13 cards) and cost modifiers (11) each
+  // walk their own unit list, and a gear is in none of them.
+  ["SFD-059", "art-only: 'copy that unit's text to this Equipment' doubles the wearer's abilities, which needs a copy layer in all 23 defId-keyed tables"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when
