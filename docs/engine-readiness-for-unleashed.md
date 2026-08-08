@@ -6,9 +6,11 @@ wrote their own copy, they drifted, and the copy in front of a session beat the
 correct one — twice, both times leaving the web suite red. Run the loop from
 `CLAUDE.md`.
 
-Written 2026-08-07 at `de9ddba`. **Every figure below was measured at that
-commit. Re-measure anyway** — that instruction has been right every time it was
-ignored in this repo, including twice in the session that wrote it.
+Written 2026-08-07. **Every figure below was measured with `master` at `362ccf0`,
+before Phase 0 landed. Re-measure anyway** — that instruction has been right
+every time it was ignored in this repo, including twice in the session that wrote
+it. Nothing in Phase 0 touched an engine resolver, so the reachability numbers
+should reproduce; if they do not, that is the finding, not a nuisance.
 
 ## The goal, stated so it can be checked
 
@@ -74,13 +76,17 @@ surveys; that was deliberate and should stay.
 
 ---
 
-## Phase 0 — land what is already done
+## Phase 0 — DONE (2026-08-07, `1cf5db9`)
 
-`fix/verification-loop-and-web-suite` (`de9ddba`) fixes the red web suite and
-adds `CLAUDE.md`. **`master` is currently red on the web suite**, so this goes
-first and alone.
+`fix/verification-loop-and-web-suite` is merged and pushed. `master` was red on
+the web suite for the whole SFD session and is now green on both workspaces;
+`CLAUDE.md` exists and carries the canonical loop.
 
-Run the loop, merge, push. No agents.
+**Start at Phase 1.** This heading is kept rather than deleted so that a session
+reading top-to-bottom is told the state instead of being sent to redo it — the
+stale-instruction failure this repo has recorded against
+`PARTIALLY_IMPLEMENTED`, against the Divergent table, and against the loop
+itself. **Re-measure before trusting it, like everything else here.**
 
 ---
 
