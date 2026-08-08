@@ -841,6 +841,59 @@ export function legendAbilityDefIds(): string[] {
 }
 
 /**
+ * The keys of `LegendAbilityDefinition` that are NOT triggered abilities.
+ *
+ * A deliberately tiny denylist rather than a list of the trigger hooks, because
+ * the failure this exists to prevent is a NEW hook being added and silently
+ * missing from a census. Anything unrecognised counts as a trigger, so a new
+ * `onWhatever` is included the day it is written; a new CONTINUOUS entry has to
+ * be named here, and `trigger-census.test.ts` fails until it is.
+ *
+ * - `mightBonus` is a continuous modifier recomputed inside effective-might.ts.
+ *   It dispatches nothing, and counting it is precisely how "9 Legend abilities"
+ *   became a wrong answer to "how many Legend triggers" — Master Yi's only entry
+ *   is this one.
+ * - `conquerCondition` is a MODIFIER of `onConquer` (383.4's "a requirement
+ *   besides the trigger"), not an ability of its own.
+ */
+const NON_TRIGGER_KEYS: ReadonlySet<string> = new Set(["mightBonus", "conquerCondition"]);
+
+/** The key that is still dispatched INLINE — `dispatchLegendBeginningPhase`
+ *  rather than the held adapter — because holding it would resolve
+ *  Beginning-Phase abilities after `scoreHolds`. */
+const INLINE_TRIGGER_KEYS: ReadonlySet<string> = new Set(["onBeginningPhase"]);
+
+const triggerKeysOf = (ability: LegendAbilityDefinition): string[] =>
+  Object.keys(ability).filter((key) => !NON_TRIGGER_KEYS.has(key));
+
+/**
+ * Legend defIds carrying a TRIGGERED ability, which is not the same question as
+ * `legendAbilityDefIds` above — that one returns the table's KEYS, so it counts
+ * Master Yi, whose only entry is a continuous `mightBonus`.
+ *
+ * Counting a table's keys and counting its dispatch shapes are two different
+ * wrong answers to "how many cards", and this repo has given both.
+ */
+export function legendTriggerDefIds(): string[] {
+  return Object.entries(LEGEND_ABILITIES)
+    .filter(([, ability]) => triggerKeysOf(ability).length > 0)
+    .map(([defId]) => defId);
+}
+
+/** Of those, the ones with a hook that still resolves at its source. */
+export function legendInlineTriggerDefIds(): string[] {
+  return Object.entries(LEGEND_ABILITIES)
+    .filter(([, ability]) => triggerKeysOf(ability).some((key) => INLINE_TRIGGER_KEYS.has(key)))
+    .map(([defId]) => defId);
+}
+
+/** Every distinct hook key in use, for the census to assert against — a new one
+ *  forces a decision about which side of the held/inline line it falls on. */
+export function legendTriggerKeysInUse(): string[] {
+  return [...new Set(Object.values(LEGEND_ABILITIES).flatMap((a) => Object.keys(a)))].sort();
+}
+
+/**
  * The Legend hooks whose moment is ALREADY a held event, presented to
  * triggers.ts as ordinary listeners — so a Legend's triggered ability is a Chain
  * Pending Item (383) like every other one, respondable before it resolves.
