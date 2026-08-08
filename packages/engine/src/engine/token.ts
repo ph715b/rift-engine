@@ -203,6 +203,11 @@ export function createGearToken(spec: GearTokenSpec, entersExhausted: boolean): 
     instanceId: `token-${spec.tag.toLowerCase()}-${tokenCounter}`,
     defId: `TOKEN-${spec.tag.toUpperCase()}`,
     name: spec.name,
+    // A gear token is CREATED, never played, so its timing tier is never asked.
+    // The field is required rather than optional precisely so this site has to
+    // answer — instead of a new gear defaulting to non-Reaction silently, the
+    // way every `[Quick-Draw]` Gear did until 2026-08-08.
+    isReaction: false,
     domains: [],
     // Every SFD card that makes one says "play a Gold gear token EXHAUSTED", so
     // the caller states it rather than defaulting: a gear token that quietly
