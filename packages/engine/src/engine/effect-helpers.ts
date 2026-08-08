@@ -2,6 +2,7 @@ import type { GameState, PendingDeath, PlayerState } from "../model/game-state.j
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
+import { mergeKeywordValue } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
@@ -918,16 +919,22 @@ export function grantKeywordThisTurn(
    * (`[Ganking]`, `[Tank]`) and was the hardcoded behaviour before a numbered
    * grant existed.
    *
-   * `Math.max` against what is already there, so a smaller grant never downgrades
-   * a bigger one — 817.1.a makes duplicate instances redundant rather than
-   * cumulative, and taking the larger is what "redundant" means for a number.
+   * Folded through `mergeKeywordValue`, which asks the keyword how it stacks:
+   * **two Cleaves on one unit are [Assault 6]**, because 807 sums the value of
+   * every granted Assault, while two grants of `[Ganking]` stay `[Ganking]`
+   * because its own rule calls repeats redundant.
+   *
+   * This was a flat `Math.max` until 2026-08-08, justified by reading 817.1.a as
+   * a general redundancy rule. 817 is TEMPORARY's rule; Assault, Shield and
+   * Deflect each say "summed" in their own sections.
    */
   value = 1,
 ): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => ({
-    ...u,
-    keywordsThisTurn: { ...u.keywordsThisTurn, [keyword]: Math.max(u.keywordsThisTurn[keyword] ?? 0, value) },
-  }));
+  return updateUnitAnywhere(state, targetInstanceId, (u) => {
+    const keywordsThisTurn = { ...u.keywordsThisTurn };
+    mergeKeywordValue(keywordsThisTurn, keyword, value);
+    return { ...u, keywordsThisTurn };
+  });
 }
 
 /**

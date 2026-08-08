@@ -33,9 +33,12 @@ const PLAIN_EQUIPMENT = registry
 
 const gear = (defId: string) => createCardInstance(registry.get(defId)) as GearInstance;
 
-/** A wearer and an unequipped bystander, with `legendDefId` in the Legend zone. */
-function board(legendDefId: string, equipmentDefId = PLAIN_EQUIPMENT.id) {
-  const equipment = gear(equipmentDefId);
+/** A wearer and an unequipped bystander, with `legendDefId` in the Legend zone.
+ *  Variadic since 2026-08-08: "your Equipment EACH give [Assault]" cannot be
+ *  measured with only one Equipment on the wearer. */
+function board(legendDefId: string, ...equipmentDefIds: string[]) {
+  const defIds = equipmentDefIds.length > 0 ? equipmentDefIds : [PLAIN_EQUIPMENT.id];
+  const equipments = defIds.map((id) => gear(id));
   const state: GameState = makeState({
     phase: "Action",
     players: [
@@ -44,14 +47,22 @@ function board(legendDefId: string, equipmentDefId = PLAIN_EQUIPMENT.id) {
           makeUnit({ name: "Wearer", instanceId: "wearer" }),
           makeUnit({ name: "Bare", instanceId: "bare" }),
         ],
-        activeGear: [equipment],
+        activeGear: equipments,
       }),
       makePlayer("p2", { baseUnits: [makeUnit({ name: "Foe", instanceId: "foe" })] }),
     ],
   });
   state.players[0]!.legend = { ...state.players[0]!.legend, defId: legendDefId };
-  return { state: attachEquipment(state, 0, equipment.instanceId, "wearer"), equipment };
+  const attached = equipments.reduce((s, e) => attachEquipment(s, 0, e.instanceId, "wearer"), state);
+  return { state: attached, equipment: equipments[0]! };
 }
+
+/** A SECOND Equipment granting no keyword of its own, so a two-Equipment wearer's
+ *  whole [Assault] is Lucian's. */
+const SECOND_PLAIN_EQUIPMENT = registry
+  .all()
+  .filter(isGearDef)
+  .find((d) => d.isEquipment === true && d.id !== SERRATED_DIRK && d.id !== PLAIN_EQUIPMENT.id)!;
 
 const assaultOn = (state: GameState, unitInstanceId: string, ownerIndex: 0 | 1 = 0) => {
   const unit = state.players[ownerIndex]!.baseUnits.find((u) => u.instanceId === unitInstanceId)!;
@@ -98,13 +109,31 @@ describe("Lucian - Purifier gives [Assault] through your Equipment", () => {
   });
 
   /**
-   * 817.1.a makes duplicate keyword instances redundant, so Serrated Dirk's
-   * printed [Assault 2] under Lucian is still 2 — not 3. Taking the larger is
-   * what "redundant" means for a numbered keyword, and it is how every other
-   * source in `equipmentKeywordsFor` already merges.
+   * **Premise corrected 2026-08-08, from a playtest report.** This asserted 2,
+   * on the reading that 817.1.a makes duplicate keyword instances redundant —
+   * 817 is TEMPORARY's rule. Assault's own is **807**: "the Assault Value of all
+   * granted Assault keywords is summed."
+   *
+   * So Serrated Dirk's printed [Assault 2], plus the instance Lucian grants
+   * through it, is [Assault 3].
    */
-  it("does not stack with an Equipment's own printed [Assault]", () => {
+  it("STACKS with an Equipment's own printed [Assault] — 807 sums them", () => {
     const { state } = board(LUCIAN, SERRATED_DIRK);
-    expect(assaultOn(state, "wearer"), "Lucian stacked on top of [Assault 2]").toBe(2);
+    expect(assaultOn(state, "wearer"), "Lucian's instance was swallowed by the Dirk's").toBe(3);
+  });
+
+  /**
+   * **"Your Equipment EACH give [Assault]" — one instance per Equipment, and
+   * this is the bug as it was reported.**
+   *
+   * A unit wearing two of your Equipment was getting [Assault 1], because the
+   * grant was a flat `Math.max(…, 1)` gated on `worn.length > 0` rather than one
+   * instance per gear. Neither Equipment here grants a keyword of its own, so
+   * the whole value is Lucian's — which is what makes this the clean measurement
+   * of "each".
+   */
+  it("gives ONE instance PER Equipment — two plain Equipment is [Assault 2]", () => {
+    const { state } = board(LUCIAN, PLAIN_EQUIPMENT.id, SECOND_PLAIN_EQUIPMENT.id);
+    expect(assaultOn(state, "wearer"), "'each give' granted a flat 1 however many were worn").toBe(2);
   });
 });

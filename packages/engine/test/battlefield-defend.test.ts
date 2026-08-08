@@ -99,15 +99,22 @@ describe("Fortified Position (OGN-279): a unit gains [Shield 2] this combat", ()
     expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p2"]![0]!, 1)["Shield"]).toBe(2);
   });
 
-  it("never lowers a bigger printed Shield", () => {
-    // 817.1.a makes duplicate instances redundant rather than cumulative, and
-    // taking the larger is what "redundant" means for a number.
+  it("ADDS to a printed Shield — 815.1.c.2 sums every granted instance", () => {
+    // **Premise corrected 2026-08-08.** This asserted 3 ("never lowers a bigger
+    // printed Shield"), on the reading that 817.1.a makes duplicate instances
+    // redundant. 817 is TEMPORARY's rule. Shield's own is 815.1.c.2 — "If a Unit
+    // has Shield, or has been granted Shield, and is granted Shield by an
+    // additional source, the Shield Value of all granted Shield keywords is
+    // summed" — with Stalwart Poro + Block as its worked example.
+    //
+    // Fortified Position prints no "if they didn't already" clause. Spirit's
+    // Refuge does, and that one is honoured on the card rather than by the merge.
     const tanky = makeUnit({ name: "Tanky", keywords: { Shield: 3 } });
     const settled = answerDecisions(
       beginCombatAt(contestedAt(FORTIFIED_POSITION, [tanky], [makeUnit()]), "bf1", 1),
       (options) => options.find((o) => o.instanceId === tanky.instanceId)!.id,
     );
-    expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p1"]![0]!, 0)["Shield"]).toBe(3);
+    expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p1"]![0]!, 0)["Shield"]).toBe(5);
   });
 });
 

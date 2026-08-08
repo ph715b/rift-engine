@@ -322,21 +322,25 @@ describe("[Repeat] executes the instructions one additional time (820.1.d)", () 
   });
 
   /**
-   * A KEYWORD does not stack, and this is the negative that proves the engine
-   * knows the difference. 817.1.a makes multiple instances of a keyword
-   * redundant, so repeating Blood Rush is a legal way to waste 1 Energy — the
-   * unit ends on [Assault 2], NOT [Assault 4].
+   * **Premise corrected 2026-08-08: a valued keyword DOES stack.**
    *
-   * If a future change makes `grantKeywordThisTurn` accumulate instead of taking
-   * a max, this is what fails.
+   * This asserted 2 and cited 817.1.a — which is TEMPORARY's redundancy rule,
+   * not a general one. Assault has its own, and it is the opposite: **807**,
+   * "the Assault Value of all granted Assault keywords is summed", with Petty
+   * Officer + Cleave = [Assault 4] as its worked example. So repeating Blood
+   * Rush is not a legal way to waste 1 Energy; it is [Assault 4].
+   *
+   * The assertion is not weakened — it is pointed at the right number, and the
+   * distinction the old comment claimed to prove is now proved properly, on a
+   * keyword whose own rule really does call repeats redundant.
    */
-  it("a KEYWORD does not stack — 817.1.a makes the second instance redundant", () => {
+  it("a VALUED keyword stacks — 807 sums every granted [Assault]", () => {
     const { state, spellId } = caster(BLOOD_RUSH, "Fury", 8, 1);
     const play = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "ally0")!;
     const after = resolveChain(accept(state, play));
 
     const ally = after.players[0]!.baseUnits.find((u) => u.instanceId === "ally0")!;
-    expect(ally.keywordsThisTurn.Assault).toBe(2);
+    expect(ally.keywordsThisTurn.Assault).toBe(4);
   });
 
   /**
