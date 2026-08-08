@@ -378,6 +378,40 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   //    than a partial, because the card's text IS implemented and the gap is in
   //    how far a doubling reaches. A note here would say the card does nothing,
   //    which is the over-report this map exists to prevent, pointed the other way.
+  //
+  // **AND IT REFILLED ON 2026-08-08, with UNL's Equipment, in exactly the same
+  // way.** The list was empty for one day. All five UNL Equipment carry art-only
+  // content — a Might badge on all five, and a whole ability on four — and three
+  // of them reported `isCardImplemented = true` while doing NONE of that
+  // ability, because the generated `[Equip]` ability registers the defId and
+  // `text.plain` holds only the Equip line. That is the identical blind spot
+  // this section was written for, one set later, found the same way: by reading
+  // the card images rather than the data.
+  //
+  // Transcriptions in docs/unl-equipment-abilities.md. Two of the five are NOT
+  // here and the difference is worth stating, because "carries art-only content"
+  // and "is missing an implementation" are different claims:
+  //
+  //   UNL-096 Hunter's Machete grants `[Hunt]` on its art, and that IS
+  //   implemented — as an `EQUIP_GRANTED_KEYWORDS` entry, which is the same
+  //   mechanism Doran's Shield's `[Tank]` uses. Nothing about it is missing.
+  //
+  //   UNL-158 Shepherd's Heirloom already reports unimplemented on its own,
+  //   because its `[Equip] — Spend 1 XP` cost is the one `ActivationCost` cannot
+  //   price. A note would be redundant, and this map must not carry redundant
+  //   ones: every entry here is a card that would otherwise look finished.
+  [
+    "UNL-019",
+    "art-only: its end-of-turn unattach-and-deal-4 is unwritten (only the [Equip] cost and +4 badge work)",
+  ],
+  [
+    "UNL-039",
+    "art-only: its [Level 3] additional +1 Might is unwritten (only the [Equip] cost and +1 badge work)",
+  ],
+  [
+    "UNL-188",
+    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
+  ],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

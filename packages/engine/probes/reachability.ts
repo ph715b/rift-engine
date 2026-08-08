@@ -127,7 +127,29 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * across a session of card work means the cards are not reachable in play,
  * whatever coverage says.
  */
-const PINNED_UNION = 444;
+/**
+ * **444 → 441 on 2026-08-08, and THE FALL IS THE FIX** — the second time this
+ * has happened and both times for the identical reason, one set apart.
+ *
+ * Reading UNL's five Equipment card images found that four carry an ability
+ * printed only on the art, three of which are unwritten. Those three had been
+ * reporting `isCardImplemented = true`, because `text.plain` holds only the
+ * `[Equip]` line and the generated equip ability registers the defId. Naming
+ * them in `PARTIALLY_IMPLEMENTED` is what dropped this number, and the route is
+ * worth stating because it is not obvious: `deck-generator` builds each covering
+ * deck from `needsImplementation && isCardImplemented`, so a card that stops
+ * reporting implemented stops being SEATED, and a card that is never seated can
+ * never be exercised.
+ *
+ * So the three cards left this count by ceasing to be a lie, not by regressing.
+ * Bisected rather than assumed: reverting only the `PARTIALLY_IMPLEMENTED`
+ * entries restores 444 exactly, and reverting only the Might badges does not
+ * move it at all.
+ *
+ * **A drop still has to be explained before it is accepted, every time.** The
+ * previous fall (2026-08-06) was SFD's version of this same art-only trap.
+ */
+const PINNED_UNION = 441;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

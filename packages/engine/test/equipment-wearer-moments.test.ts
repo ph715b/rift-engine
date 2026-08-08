@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
+import { COMPLETE_SETS, isCardImplemented, partialImplementationNote, setCodeOf } from "../src/engine/coverage.js";
 import { recordConquest, scoreHolds } from "../src/engine/scoring.js";
 import { holdEventTrigger } from "../src/engine/triggers.js";
 import { wearerListener, wearerOf } from "../src/engine/equipment.js";
@@ -269,21 +269,53 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     }
   });
 
-  it("has NO art-only Equipment left carrying a note — the sweep that replaced the list", () => {
+  it("has no art-only Equipment note in a FINISHED set — the sweep that replaced the list", () => {
     // The premise the loop above lost. Asserted over every Equipment in the pool
     // rather than over a hand-kept list, so it cannot go stale the way the list
-    // did: a note added for any Equipment fails this by name.
+    // did: a note added for any Equipment in a hard-gated set fails this by name.
     //
     // **36 since Unleashed landed (2026-08-08), up from 31.** The count is here
     // as a positive control on the sweep itself — an empty or truncated filter
-    // would make the assertion below vacuously pass — and UNL's five are
-    // included deliberately: an art-only note appearing on one of them would be
-    // just as wrong as on an SFD card, and this is the only thing that looks.
+    // would make the assertion below vacuously pass.
+    //
+    // **Scoped to COMPLETE_SETS, and the day it landed proved why.** This
+    // asserted a flat empty list while SFD was the newest set and every one of
+    // its art-only Equipment had been written. Unleashed then brought five more
+    // Equipment, four of them carrying an ability that exists only on the card
+    // art, and three of those are unwritten — so a flat "no Equipment anywhere
+    // carries a note" now demands three card implementations as the price of
+    // loading a set's JSON. In a finished set a note IS a regression; in a set
+    // under construction it is the mechanism telling the truth.
     const equipment = registry.all().filter((d) => d.type === "Gear" && d.isEquipment === true);
     expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(36);
-    const noted = equipment.filter((d) => partialImplementationNote(d) !== undefined).map((d) => `${d.id} (${d.name})`);
+    const noted = equipment
+      .filter((d) => partialImplementationNote(d) !== undefined)
+      .filter((d) => COMPLETE_SETS.includes(setCodeOf(d.id)))
+      .map((d) => `${d.id} (${d.name})`);
     expect(noted).toEqual([]);
     expect(STILL_ART_ONLY, "an id left the note list without leaving this constant").toEqual([]);
+  });
+
+  it("NAMES the art-only Equipment a set under construction still owes", () => {
+    // The other half, and the reason the scoping above is not a weakening: what
+    // used to be asserted as "none" is now asserted as "these three, by name".
+    // An art-only ability is invisible to every text-reading gate in the repo —
+    // that is the whole failure mode — so the list has to be stated somewhere
+    // that fails when it changes.
+    //
+    // Transcriptions are in docs/unl-equipment-abilities.md. Two of UNL's five
+    // Equipment are deliberately absent: Hunter's Machete's art-only `[Hunt]`
+    // grant IS implemented, and Shepherd's Heirloom already reports
+    // unimplemented on its unpriceable `[Equip] — Spend 1 XP` cost.
+    const owed = registry
+      .all()
+      .filter((d) => d.type === "Gear" && d.isEquipment === true)
+      .filter((d) => (partialImplementationNote(d) ?? "").includes("art-only"))
+      .map((d) => d.id)
+      .sort();
+    expect(owed).toEqual(["UNL-019", "UNL-039", "UNL-188"]);
+    // And each really does look unfinished, which is the point of the note.
+    for (const id of owed) expect(isCardImplemented(registry.get(id)), `${id} still reports implemented`).toBe(false);
   });
 
   it("and Sacred Shears has left that list", () => {

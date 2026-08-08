@@ -1244,8 +1244,28 @@ export interface EventTriggerDefinition {
  */
 export const HUNT_TRIGGER_KEY = "KEYWORD-HUNT";
 
+/**
+ * Registry keys a listener answers to because of a KEYWORD it currently has,
+ * rather than because of its defId.
+ *
+ * Separate from `triggerKeysOn` and asked with STATE, which is the whole point:
+ * a keyword can be granted. The first draft of this read printed keywords in
+ * `triggerKeysOn` and justified it with "nothing grants `[Hunt]`, measured over
+ * all four sets" — a claim that was true of the card TEXT and false of the
+ * cards. UNL-096 Hunter's Machete grants `[Hunt]` **on its art**, where no text
+ * measurement could see it, so a unit wearing the Machete would have carried the
+ * keyword through `effectiveKeywords` and still never been handed this key.
+ *
+ * Read through `effectiveKeywords` so printed, granted, aura-given,
+ * battlefield-given and equipment-given Hunt all reach the same trigger — the
+ * reading `deflectSurcharge` already takes for its own keyword.
+ */
+function keywordTriggerKeys(state: GameState, listener: Listener): string[] {
+  return huntMagnitudeOf(state, listener) > 0 ? [HUNT_TRIGGER_KEY] : [];
+}
+
 /** This listener's `[Hunt]` value right now, or 0 if it has none. Through
- *  `effectiveKeywords` so a granted or equipment-borne Hunt would count exactly
+ *  `effectiveKeywords` so a granted or equipment-borne Hunt counts exactly
  *  as a printed one — the same reading `deflectSurcharge` takes. */
 function huntMagnitudeOf(state: GameState, listener: Listener): number {
   if (listener.card.kind !== "Unit") return 0;
@@ -1367,18 +1387,7 @@ export function listensFor(trigger: EventTriggerDefinition, kind: GameEvent["kin
  */
 export function triggerKeysOn(card: CardInstance): string[] {
   const granted = "grantedTriggersThisTurn" in card ? card.grantedTriggersThisTurn ?? [] : [];
-  // `[Hunt N]`'s key. A KEYWORD answering as a trigger is the third way a
-  // permanent reaches a definition that is not its own defId, and it is here
-  // rather than as 12 identical registry entries because the ability is
-  // genuinely one ability — see HUNT_TRIGGER_KEY.
-  //
-  // Off the PRINTED keywords rather than `effectiveKeywords`, because this
-  // function has no state to ask. That is exact for this pool (nothing grants
-  // `[Hunt]`, measured over all four sets) and the magnitude IS read through
-  // `effectiveKeywords` at trigger time, so a granted Hunt would only need this
-  // one line to widen.
-  const keyword = card.kind === "Unit" && card.keywords.Hunt !== undefined ? [HUNT_TRIGGER_KEY] : [];
-  return [card.defId, ...granted, ...keyword];
+  return [card.defId, ...granted];
 }
 
 /**
@@ -1402,7 +1411,10 @@ export function triggerKeysOn(card: CardInstance): string[] {
  * correct: the gear has no printed effect text of its own to fire.
  */
 function triggerCandidates(state: GameState, listener: Listener): { listener: Listener; key: string }[] {
-  const own = triggerKeysOn(listener.card).map((key) => ({ listener, key }));
+  const own = [...triggerKeysOn(listener.card), ...keywordTriggerKeys(state, listener)].map((key) => ({
+    listener,
+    key,
+  }));
   if (listener.card.kind !== "Gear") return own;
   const copied = copiedTextSourceFor(state, listener.card);
   const asWearer = copied ? wearerListener(state, listener) : undefined;

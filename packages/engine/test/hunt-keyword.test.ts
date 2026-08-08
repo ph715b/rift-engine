@@ -4,7 +4,7 @@ import { eventTriggerDefIds, holdEventTrigger, HUNT_TRIGGER_KEY } from "../src/e
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { isCardImplemented, needsImplementation, unimplementedKeywordsOn } from "../src/engine/coverage.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
+import { makeState, makeUnit, realGearInstance, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
  * `[Hunt N]` — "When I conquer or hold, gain N XP." Unleashed, 12 cards.
@@ -153,7 +153,11 @@ describe("the keyword is registered ONCE, not twelve times", () => {
   const registry = defaultCardRegistry();
   const huntCards = registry.all().filter((def) => (def.text ?? "").includes("[Hunt"));
 
-  it("all 12 printing cards are served by the one key", () => {
+  it("all 12 TEXT-printing cards are served by the one key", () => {
+    // Twelve print it in their rules text. A THIRTEENTH carries it on its ART —
+    // UNL-096 Hunter's Machete, an Equipment — and is deliberately not counted
+    // here, because this sweep is over `def.text` and the art is exactly what
+    // that cannot see. Its own test is below.
     expect(huntCards).toHaveLength(12);
     expect(eventTriggerDefIds()).toContain(HUNT_TRIGGER_KEY);
     // And NONE of them has an entry of its own — the thing that would silently
@@ -183,6 +187,39 @@ describe("the keyword is registered ONCE, not twelve times", () => {
       [state.players[0]!.id]: [makeUnit({ defId: "ZZZ-002", name: "Synthetic Hunter 7", keywords: { Hunt: 7 } })],
     };
     expect(conquer(state).players[0]!.xp).toBe(7);
+  });
+});
+
+describe("[Hunt] granted by an Equipment, which no text measurement can see", () => {
+  const HUNTERS_MACHETE = "UNL-096";
+
+  it("the wearer Hunts, at the Machete's granted value", () => {
+    // **The thirteenth Hunt card, and it is on the ART.** UNL-096 Hunter's
+    // Machete prints `[HUNT] (When I conquer or hold, gain 1 XP.)` in the band
+    // where an Equipment's granted keywords are drawn; its `text.plain` says
+    // nothing about it, which is why the card is invisible to every sweep in the
+    // repo and why the first draft of this keyword excluded it by construction.
+    //
+    // The unit carries no Hunt of its own, so a payout here can only have come
+    // through the attachment.
+    const state = makeState();
+    const wearer = makeUnit({ defId: "ZZZ-100", name: "Bare Wearer" });
+    state.battlefields[0]!.units = { [state.players[0]!.id]: [wearer] };
+    state.players[0]!.activeGear = [
+      { ...realGearInstance(HUNTERS_MACHETE), attachedToInstanceId: wearer.instanceId },
+    ];
+    expect(conquer(state).players[0]!.xp).toBe(1);
+  });
+
+  it("and stops Hunting the moment it is unattached", () => {
+    // The half that proves it is read fresh rather than stamped onto the unit —
+    // the same property `equipmentKeywordsFor` is written for, and the reason
+    // the key is derived with STATE instead of from the card instance.
+    const state = makeState();
+    const wearer = makeUnit({ defId: "ZZZ-101", name: "Bare Wearer" });
+    state.battlefields[0]!.units = { [state.players[0]!.id]: [wearer] };
+    state.players[0]!.activeGear = [{ ...realGearInstance(HUNTERS_MACHETE), attachedToInstanceId: null }];
+    expect(conquer(state).players[0]!.xp).toBe(0);
   });
 });
 

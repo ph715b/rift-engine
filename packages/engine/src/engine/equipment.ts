@@ -752,6 +752,16 @@ const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> =
   "SFD-064": { Shield: 2 }, // Cloth Armor — "[Shield 2]"
   "SFD-102": { Deflect: 1 }, // Hexdrinker — "[Deflect]"
   "SFD-133": { Ganking: 1 }, // Boots of Swiftness — "[Ganking]"
+  // **UNL-096 Hunter's Machete — "[HUNT] (When I conquer or hold, gain 1 XP.)",
+  // and it is on the ART, not in the card's text.** Read off the image
+  // 2026-08-08.
+  //
+  // It is the first Equipment in the pool to grant a keyword that is a TRIGGER
+  // rather than a combat modifier, and it falsified a claim made in
+  // `triggerKeysOn` two days earlier: "nothing grants [Hunt], measured over all
+  // four sets" — true of the card TEXT and false of the cards. The measurement
+  // was of the wrong thing, which is the standing lesson about this data.
+  "UNL-096": { Hunt: 1 },
 };
 
 /**

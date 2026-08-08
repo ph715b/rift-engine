@@ -287,6 +287,16 @@ const EQUIP_MIGHT_BONUS: Record<string, number> = {
   "SFD-190": 3, // Forgefire Cape
   "SFD-191": 3, // Rabadon's Deathcrown
   "SFD-192": 2, // Shurelya's Requiem
+
+  // **UNL's five, read off the art 2026-08-08**, the same way SFD's were and for
+  // the same reason: `attributes.might` is null on all five and the badge is in
+  // no text field. Every one of them carries a bonus, so the set added no
+  // 0-badge Equipment.
+  "UNL-019": 4, // Blighted Battleaxe
+  "UNL-039": 1, // Soul Sword
+  "UNL-096": 2, // Hunter's Machete
+  "UNL-158": 2, // Shepherd's Heirloom
+  "UNL-188": 3, // Hextech Gauntlets
 };
 
 /**
