@@ -101,10 +101,14 @@ describe("per-set completeness gating", () => {
     expect(ogs.unimplemented).toEqual([]);
     expect(zzz.declaredComplete).toBe(false);
     expect(zzz.unimplemented).toEqual(["ZZZ-001 (Unwritten Card In No Set)"]);
-    // The real in-progress set: not declared, and not empty either — if this
-    // ever reads 0 the JSON stopped loading and every other SFD test would be
-    // vacuously green.
-    expect(sfd.declaredComplete).toBe(false);
+    // **SFD finished on 2026-08-07 and is declared**, so it is no longer the
+    // in-progress subject — `ZZZ` above is, and it is synthetic precisely so this
+    // scoping can be proved with no unfinished real set to borrow. The two halves
+    // that still matter for SFD are kept: it is declared, and it is not empty —
+    // if `needing` ever reads 0 the JSON stopped loading and every other SFD test
+    // in the suite would be vacuously green.
+    expect(sfd.declaredComplete).toBe(true);
+    expect(sfd.unimplemented).toEqual([]);
     expect(sfd.needing).toBeGreaterThan(0);
   });
 
@@ -117,14 +121,15 @@ describe("per-set completeness gating", () => {
     // exactly the mistake being caught: OGN and OGS are finished, so undeclaring
     // them must raise the flag on both.
     //
-    // SFD joined the pool on 2026-08-04 and is genuinely unfinished, so it is
-    // the one set here that must NOT raise the flag however it is declared.
-    // That makes this check stronger than it was: it used to distinguish
-    // "flagged" from "flagged" across two finished sets, and now it has a real
-    // negative case rather than only the synthetic one below.
+    // **All three real sets are finished as of 2026-08-07**, so undeclaring them
+    // must raise the flag on all three. The real negative case SFD used to
+    // provide is gone with it — the synthetic one below is what carries that half
+    // now, and it always could: `coverageBySet` takes its complete-set list as an
+    // ARGUMENT precisely so neither direction depends on a real set happening to
+    // be in the right state.
     const undeclared = coverageBySet(registry.all(), []);
     expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD"]);
-    expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS"]);
+    expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS", "SFD"]);
     // And declaring only one leaves the flag on the other, so the check is per
     // set rather than an all-or-nothing.
     const half = coverageBySet(registry.all(), ["OGN"]);

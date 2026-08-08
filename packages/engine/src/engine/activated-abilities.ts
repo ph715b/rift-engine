@@ -44,7 +44,7 @@ import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
-import { attachEquipment, attachableEquipment, unitsBanishedWith } from "./equipment.js";
+import { attachEquipment, attachableEquipment, copiedTextSourceFor, unitsBanishedWith } from "./equipment.js";
 import { banishCard } from "./effect-helpers.js";
 import { playCardIgnoringCost } from "./play-free.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
@@ -2202,7 +2202,10 @@ const HEIMERDINGER_INVENTOR = "OGN-111";
 export function abilitiesAvailableTo(
   state: GameState,
   playerIndex: 0 | 1,
-  source: { defId: string },
+  /** `attachedToInstanceId` is read only for Svellsongur's copied text; every
+   *  caller that has the real instance passes it, and a bare `{ defId }` simply
+   *  copies nothing. */
+  source: { defId: string; attachedToInstanceId?: string | null },
 ): { abilityDefId: string; definition: ActivatedAbilityDefinition }[] {
   if (source.defId === HEIMERDINGER_INVENTOR) {
     const actor = state.players[playerIndex];
@@ -2217,8 +2220,22 @@ export function abilitiesAvailableTo(
     const defIds = [...new Set(friendly.map((c) => c.defId).filter((defId) => defId in ACTIVATED_ABILITIES))];
     return defIds.map((abilityDefId) => ({ abilityDefId, definition: ACTIVATED_ABILITIES[abilityDefId]! }));
   }
+  // Svellsongur's copied text — "copy that unit's text to this Equipment's effect
+  // text". An activated ability IS text, so the gear offers its wearer's.
+  //
+  // Offered rather than replaced: the gear keeps whatever it prints (nothing, for
+  // this one), and the copy is a second entry — the same shape Forge of the
+  // Fluft's grant takes below. That is also what makes it a DOUBLING at the only
+  // level an activation can be doubled: the ability exhausts the GEAR rather than
+  // the unit, so a wearer and its Svellsongur can each pay once.
+  const copiedFrom = copiedTextSourceFor(state, source);
+  const copied: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [];
+  if (copiedFrom !== undefined) {
+    const wearerAbility = ACTIVATED_ABILITIES[copiedFrom.unit.defId];
+    if (wearerAbility) copied.push({ abilityDefId: copiedFrom.unit.defId, definition: wearerAbility });
+  }
   const own = ACTIVATED_ABILITIES[source.defId];
-  const granted: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [];
+  const granted: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [...copied];
   // Forge of the Fluft — "while you control this battlefield, friendly LEGENDS
   // have ...". Offered here rather than by a new registry for the reason
   // Heimerdinger is: this function is the single answer to "what can this source

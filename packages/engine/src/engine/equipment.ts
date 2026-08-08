@@ -336,6 +336,72 @@ export function returnLapsedGearControl(state: GameState): GameState {
 }
 
 /**
+ * Svellsongur — "As this is attached to a unit, copy that unit's text to this
+ * Equipment's effect text for as long as this is attached to it."
+ *
+ * **ART-ONLY.** `text.plain` holds the `[Equip]` line and nothing else; see
+ * docs/sfd-equipment-abilities.md.
+ *
+ * # What copying the text actually DOES
+ *
+ * An Equipment's effect text is read as its WEARER's — that is what the eight
+ * wearer's-moments cards establish for "when I conquer" printed on a gear. So
+ * copying the wearer's text onto the Equipment gives that unit its own abilities
+ * a SECOND time: a Svellsongur on Ahri - Alluring means she scores her hold point
+ * twice. Doubling is the whole of the card.
+ *
+ * # What is copied, and what is deliberately not
+ *
+ * A faithful copy has to reach every defId-keyed table — measured at 23 of them
+ * over 256 units. Three groups:
+ *
+ *  - **FREE.** A doubled KEYWORD is redundant under 817.1.a, and an ON-PLAY
+ *    trigger cannot re-fire because the attach happens after the play. Together
+ *    those are 99 of the units in the pool and nothing is owed for them.
+ *  - **DONE.** Event triggers (77 cards), their decision continuations (50),
+ *    `[Deathknell]`s (13) and activated abilities (10).
+ *  - **NOT DONE, and recorded as a divergence** in docs/rules-conformance.md:
+ *    continuous Might auras (13 cards) and cost modifiers (11). Each walks its
+ *    own list of UNITS and a gear is in none of them, so doubling them needs a
+ *    phantom-source concept this engine has never had.
+ */
+const SVELLSONGUR = "SFD-059";
+
+/**
+ * The unit whose text `gear` is copying, or undefined — Svellsongur's wearer.
+ *
+ * Returns the WEARER rather than a boolean because every reader needs the unit:
+ * the trigger walk needs its defId AND a listener standing where it stands, and
+ * the ability registry needs its defId.
+ */
+export function copiedTextSourceFor(
+  state: GameState,
+  /** Structural for the reason `wearerOf` below is: `abilitiesAvailableTo` asks
+   *  this about a source it knows only as a defId and an attachment link. */
+  gear: { defId: string; attachedToInstanceId?: string | null },
+): { unit: UnitInstance; ownerIndex: 0 | 1; battlefieldId?: string } | undefined {
+  return gear.defId === SVELLSONGUR ? wearerOf(state, gear) : undefined;
+}
+
+/**
+ * How many Svellsongurs are among `worn` — the multiplier that unit's own
+ * abilities are worth.
+ *
+ * A count rather than a flag because two of them are two copies of the text, and
+ * nothing in 817.1.a makes a copied ABILITY redundant the way it makes a keyword
+ * redundant.
+ *
+ * **Takes the WORN LIST rather than a unit id**, which is what its one caller
+ * needs: a `[Deathknell]` is held after `killUnit` has already detached
+ * everything, so asking the board would always find nothing. `DeathContext`
+ * carries `wornEquipment` for exactly this — the same field Sacred Shears reads,
+ * and for the same reason.
+ */
+export function textCopiesAmong(worn: readonly GearInstance[] | undefined): number {
+  return (worn ?? []).filter((g) => g.defId === SVELLSONGUR).length;
+}
+
+/**
  * Skyfall of Areion — "My hold effects are also conquer effects, and vice
  * versa."
  *
@@ -756,7 +822,10 @@ export function equipmentKeywordDefIds(): string[] {
  */
 export function wearerOf(
   state: GameState,
-  gear: GearInstance,
+  /** Structural rather than a `GearInstance`, because the only field read is the
+   *  attachment link and one caller (`abilitiesAvailableTo`) is handed a bare
+   *  `{ defId, attachedToInstanceId }` source rather than the instance. */
+  gear: { attachedToInstanceId?: string | null },
 ): { unit: UnitInstance; ownerIndex: 0 | 1; battlefieldId?: string } | undefined {
   const wornBy = gear.attachedToInstanceId;
   if (!wornBy) return undefined;

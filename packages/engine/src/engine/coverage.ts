@@ -322,27 +322,25 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // that turned out to be MIS-PRICED rather than blocked — see this file's git
   // history and the log in docs/rules-conformance.md.
   //
-  // The Zero Drive and Skyfall of Areion followed on 2026-08-07, and both notes
-  // had over-priced their own mechanism. The Drive's "banish-with-source
-  // tracking" is one optional field plus the death-watch that fills it; the
-  // Skyfall's "moment-rewriting layer, which has no precedent here" is one
-  // function that hands a trigger's own `applies` the OTHER moment, because every
-  // hold and conquer trigger in this pool already decides for itself against
-  // `event.kind`.
+  // **The list is EMPTY as of 2026-08-07, and SFD is complete.** The last three
+  // out were The Zero Drive, Skyfall of Areion and Svellsongur, and all three
+  // notes had over-priced their own mechanism:
   //
-  // This one is what is honestly left. Transcribed abilities in
-  // docs/sfd-equipment-abilities.md.
-  // **The one note in this file that was NOT overstated**, and it is now priced
-  // rather than estimated. An Equipment's text is read as its WEARER's — the
-  // reading the eight wearer's-moments cards establish — so copying the wearer's
-  // text onto it DOUBLES that unit's abilities. A faithful copy therefore has to
-  // reach every defId-keyed table, measured at 23 of them over 256 units. Some
-  // are free (a doubled keyword is redundant under 817.1.a; an on-play trigger
-  // cannot re-fire, because the attach happens after the play), some are cheap
-  // (event triggers, through the key list Relentless Pursuit's grant added), and
-  // two are not: continuous Might auras (13 cards) and cost modifiers (11) each
-  // walk their own unit list, and a gear is in none of them.
-  ["SFD-059", "art-only: 'copy that unit's text to this Equipment' doubles the wearer's abilities, which needs a copy layer in all 23 defId-keyed tables"],
+  //  - The Drive's "banish-with-source tracking" is one optional field on
+  //    `GearInstance` plus the death-watch that fills it.
+  //  - The Skyfall's "moment-rewriting layer, which has no precedent here" is one
+  //    function handing a trigger's own `applies` the OTHER moment — small only
+  //    because every hold and conquer trigger in this pool already decides for
+  //    itself against `event.kind`.
+  //  - **Svellsongur's was the closest to right and is still not a note this file
+  //    should carry.** Copying the wearer's text DOUBLES that unit's abilities,
+  //    and what is implemented is every table where an ability can be doubled at
+  //    all: event triggers, their decision continuations, `[Deathknell]`s and
+  //    activated abilities. The two tables left — continuous Might auras and cost
+  //    modifiers — are a recorded DIVERGENCE in docs/rules-conformance.md rather
+  //    than a partial, because the card's text IS implemented and the gap is in
+  //    how far a doubling reaches. A note here would say the card does nothing,
+  //    which is the over-report this map exists to prevent, pointed the other way.
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when
@@ -419,7 +417,7 @@ export function setCodeOf(defId: string): string {
  * What did NOT change: the gates still name the cards. A count or a percentage
  * would be cheaper to compute and useless to act on.
  */
-export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS"];
+export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD"];
 
 /**
  * Sets whose BATTLEFIELDS are all implemented — a separate list, and it has to

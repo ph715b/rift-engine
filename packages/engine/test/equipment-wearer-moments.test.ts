@@ -69,7 +69,7 @@ const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONES
  *
  * This list shrinks as each lands; it is not a fixed set.
  */
-const STILL_ART_ONLY = ["SFD-059"];
+const STILL_ART_ONLY: string[] = [];
 /** Sacred Shears — art-only like the six above, and written now, but NOT by the
  *  wearer's-moments mechanism. See its own describe block at the bottom. */
 const SACRED_SHEARS = "SFD-172";
@@ -256,10 +256,28 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     // The instrument fix, and the half that would silently rot: each of these
     // reported `true` before 2026-08-06 purely because its `[Equip]` cost is
     // registered, while its whole printed ability does nothing.
+    //
+    // **The list is EMPTY as of 2026-08-07** — all 31 art-only Equipment are
+    // written — so the loop below is vacuous and the assertion that matters has
+    // moved to the sweep in the next test. The loop is kept rather than deleted
+    // for the reason `PARTIALLY_IMPLEMENTED` itself is kept empty: the next
+    // art-only card added to that list has to be held to this, and a deleted
+    // check holds nothing.
     for (const id of STILL_ART_ONLY) {
       expect(isCardImplemented(registry.get(id)), `${id} still reports implemented`).toBe(false);
       expect(partialImplementationNote(registry.get(id)), `${id} has no note saying what is missing`).toMatch(/art-only/);
     }
+  });
+
+  it("has NO art-only Equipment left carrying a note — the sweep that replaced the list", () => {
+    // The premise the loop above lost. Asserted over all 31 rather than over a
+    // hand-kept list, so it cannot go stale the way the list did: a note added
+    // for any Equipment fails this by name.
+    const equipment = registry.all().filter((d) => d.type === "Gear" && d.isEquipment === true);
+    expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(31);
+    const noted = equipment.filter((d) => partialImplementationNote(d) !== undefined).map((d) => `${d.id} (${d.name})`);
+    expect(noted).toEqual([]);
+    expect(STILL_ART_ONLY, "an id left the note list without leaving this constant").toEqual([]);
   });
 
   it("and Sacred Shears has left that list", () => {

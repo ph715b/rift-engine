@@ -10,7 +10,7 @@ import { parkDecision } from "./decisions.js";
 // equipment.ts already imports this module for `Listener` and `holdEventTrigger`
 // — the same cycle, and safe for the same reason: the binding is read inside a
 // resolver, never at module init.
-import { recordBanishedWithGear, wearerOf, wearsMomentMirror } from "./equipment.js";
+import { copiedTextSourceFor, recordBanishedWithGear, textCopiesAmong, wearerListener, wearerOf, wearsMomentMirror } from "./equipment.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
 import { attackEventTriggers, spellCastEventTriggers } from "./unit-triggers.js";
@@ -513,7 +513,19 @@ function holdDeathknell(state: GameState, death: DeathContext): GameState {
     listenerDefId: death.unit.defId,
     listenerName: death.unit.name,
     ...(death.battlefieldId !== undefined ? { battlefieldId: death.battlefieldId } : {}),
-    event: { death, times: 1 + karthusCount(state, death.ownerIndex) },
+    // Karthus doubles every Deathknell its controller has; a Svellsongur doubles
+    // the abilities of the ONE unit wearing it, so it is counted off the DEATH
+    // rather than off the board. `wornEquipment` is what carries the answer —
+    // `killUnit` detaches before this runs, exactly as Sacred Shears records.
+    //
+    // MULTIPLIED rather than summed: each is "an additional time" applied to
+    // what the other leaves, so a Karthus and one copy is four executions, not
+    // three. Both are read as the unit dies, for the reason Karthus's own note
+    // gives — neither can be un-done inside the response window.
+    event: {
+      death,
+      times: (1 + karthusCount(state, death.ownerIndex)) * (1 + textCopiesAmong(death.wornEquipment)),
+    },
   };
   return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
 }
@@ -1201,6 +1213,36 @@ export function triggerKeysOn(card: CardInstance): string[] {
   return [card.defId, ...granted];
 }
 
+/**
+ * Every (listener, trigger key) pair this permanent answers to.
+ *
+ * Two pairs are ordinary — the card's own printed key and anything granted this
+ * turn — and both keep the listener they were found with. The third is
+ * Svellsongur's copied text, and it is the reason this is a pair rather than a
+ * bare key list: a UNIT's trigger written against `listener.battlefieldId` and
+ * `listener.ownerIndex` cannot run on a GEAR listener, which sits in a flat
+ * `activeGear` list with no location at all. `wearerListener` is exactly that
+ * rewrite, and it already exists for the eight wearer's-moments Equipment.
+ *
+ * **The copy resolves as the WEARER, which is what makes it a doubling.** The
+ * rewritten listener carries the wearer's instanceId and defId, so the chain gets
+ * a second entry identical to the one the unit placed for itself, and
+ * `resolvePendingTrigger` re-finds the same unit and runs the same ability again.
+ * Nothing about resolution had to learn anything.
+ *
+ * A Svellsongur's OWN defId is still asked and finds nothing registered, which is
+ * correct: the gear has no printed effect text of its own to fire.
+ */
+function triggerCandidates(state: GameState, listener: Listener): { listener: Listener; key: string }[] {
+  const own = triggerKeysOn(listener.card).map((key) => ({ listener, key }));
+  if (listener.card.kind !== "Gear") return own;
+  const copied = copiedTextSourceFor(state, listener.card);
+  const asWearer = copied ? wearerListener(state, listener) : undefined;
+  // A Svellsongur worn by a unit that has somehow left the board copies nothing —
+  // the same target-vanished no-op `wearerListener` already answers with.
+  return copied && asWearer ? [...own, { listener: asWearer, key: copied.unit.defId }] : own;
+}
+
 export function eventTriggerFor(defId: string): EventTriggerDefinition | undefined {
   return allEventTriggers()[defId];
 }
@@ -1380,10 +1422,14 @@ export function holdEventTrigger(
     // Relentless Pursuit's "this turn, that unit has 'when I conquer…'". Both are
     // registry keys and both go through this one loop, so a granted ability
     // captures, holds, orders and resolves exactly as a printed one does.
-    // Skyfall of Areion's mirror, computed once per listener rather than per
-    // trigger: whether a unit wears one is a fact about the unit.
-    const mirror = mirroredMoment(state, listener, event);
-    for (const key of triggerKeysOn(listener.card)) {
+    // Both of the ways a permanent can answer to a trigger that is not its own:
+    // Relentless Pursuit's GRANT and Svellsongur's COPY. The copy brings its own
+    // rewritten listener, which is why this is a pair.
+    for (const { listener: seenBy, key } of triggerCandidates(state, listener)) {
+      // Skyfall of Areion's mirror, computed against the listener this trigger
+      // will actually run as — a copied one is the WEARER, whose Equipment is
+      // what the mirror asks about.
+      const mirror = mirroredMoment(state, seenBy, event);
       const trigger = registry[key];
       if (!trigger) continue;
       // WHICH event this trigger sees. The real one when it listens for that
@@ -1399,22 +1445,22 @@ export function holdEventTrigger(
           ? mirror
           : undefined;
       if (seen === undefined) continue;
-      if (trigger.applies && !trigger.applies(state, listener, seen)) continue;
+      if (trigger.applies && !trigger.applies(state, seenBy, seen)) continue;
       // Captured against the board as it stands NOW — before any other listener in
       // this same walk has resolved, which is what makes it a snapshot of the
       // moment of the event (383) rather than of whatever the chain did next.
       const entry = (captured: unknown): TriggerChainEntry => ({
         kind: "trigger",
-        playerIndex: listener.ownerIndex,
-        listenerInstanceId: listener.card.instanceId,
+        playerIndex: seenBy.ownerIndex,
+        listenerInstanceId: seenBy.card.instanceId,
         // The KEY that matched, not the card's defId. `resolvePendingTrigger`
         // looks the definition back up by this field, so a granted ability
         // stamped with its wearer's defId would resolve as the wrong ability, or
         // throw for a card with no printed event trigger at all.
         listenerDefId: key,
-        listenerName: listener.card.name,
-        listenerCard: listener.card,
-        ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
+        listenerName: seenBy.card.name,
+        listenerCard: seenBy.card,
+        ...(seenBy.battlefieldId !== undefined ? { battlefieldId: seenBy.battlefieldId } : {}),
         ...(captured !== undefined ? { captured } : {}),
         // `seen`, not the raw event — a mirrored moment must survive onto the
         // chain, or `resolvePendingTrigger` would hand this trigger an event of
@@ -1422,9 +1468,9 @@ export function holdEventTrigger(
         event: seen,
       });
       if (trigger.captureEach) {
-        for (const one of trigger.captureEach(state, listener, seen)) held.push(entry(one));
+        for (const one of trigger.captureEach(state, seenBy, seen)) held.push(entry(one));
       } else {
-        held.push(entry(trigger.capture?.(state, listener, seen)));
+        held.push(entry(trigger.capture?.(state, seenBy, seen)));
       }
     }
   }
