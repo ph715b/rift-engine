@@ -19,6 +19,14 @@ import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGea
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
 import { offerDeathReplacement } from "./legend-abilities.js";
+// Both of these are the same safe cycle again — unit-triggers and
+// battlefield-abilities each import from here, and both bindings below are read
+// only inside `completeForcedMove`, which runs long after every module has
+// initialised. The cycle that DID bite this codebase (an ability registered under
+// key "undefined") was a top-level constant read DURING init, not a function
+// called at runtime; that distinction is the whole reason these three are fine.
+import { holdMoveTrigger } from "./unit-triggers.js";
+import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 import { parkDecision } from "./decisions.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
@@ -770,9 +778,9 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
  * enemy onto neutral ground therefore contests it for THEM, which is the card's
  * real use and not something a caster-indexed call would have got right.
  *
- * On-move triggers deliberately do NOT fire: they read "when I move" on cards
- * whose controller chose to move them, and no card in this pool has one that
- * could be reached this way. Named here rather than left to be discovered.
+ * On-move triggers DO fire — see `completeForcedMove` below, and 445.2. This
+ * comment used to say the opposite, on two grounds that were both wrong; the
+ * correction is documented there rather than repeated here.
  */
 export function forceMoveToBattlefield(state: GameState, targetInstanceId: string, destinationBattlefieldId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
@@ -785,15 +793,95 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
     return state;
   }
 
+  // Where it came FROM, read BEFORE the removal — the same ordering constraint
+  // execute-move-unit records, and unanswerable afterwards.
+  const from = location.zone === "base" ? "base" : state.battlefields[location.zone.battlefieldIndex]!.id;
+
   const removed = removeUnitAnywhere(state, targetInstanceId);
+  // Not exhausted — that is the Standard Move's COST (415.1.b), argued above —
+  // but the move itself is counted, because 445.2 makes this a Move and Miss
+  // Fortune - Captain's "the FIRST time I move each turn" asks about Moves.
+  const moved = { ...unit, movesThisTurn: unit.movesThisTurn + 1 };
   const battlefields = [...removed.battlefields];
   const destination = battlefields[destinationIndex]!;
   battlefields[destinationIndex] = {
     ...destination,
-    units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), unit] },
+    units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), moved] },
   };
 
-  return applyContested({ ...removed, battlefields }, destinationBattlefieldId, ownerIndex);
+  const next = completeForcedMove({ ...removed, battlefields }, moved, ownerIndex, from, destinationBattlefieldId);
+  return applyContested(next, destinationBattlefieldId, ownerIndex);
+}
+
+/**
+ * Fires the three things a completed MOVE fires, for a move an effect caused.
+ *
+ * # Why this exists — the rule the two force-movers had backwards
+ *
+ * `forceMoveToBattlefield` carried, for months, a comment asserting that on-move
+ * triggers "deliberately do NOT fire" because they "read 'when I move' on cards
+ * whose controller chose to move them", and that "no card in this pool has one
+ * that could be reached this way". Both halves were wrong.
+ *
+ * **445.2** is unambiguous, and does not mention who chose: *"A Permanent changing
+ * its position from any space on the Board to another space on the Board is a
+ * Move, unless it is caused by a corrective Recall or an Attached Permanent
+ * changing locations to or with its Top-Most Card."* **316.7.c** then lists a move
+ * as possibly "the result of a Standard Move Intrinsic Ability, a **Spell**, or
+ * other Game Effect" — the same sentence `forceMoveToBattlefield` already cited
+ * for the exhaust, read only as far as the half that suited.
+ *
+ * The pool claim was false too: fifteen listeners watch a move (three in
+ * `ON_MOVE_TRIGGERS`, twelve on the `unitMoved` event), and several watch a unit
+ * they do not control — Stealthy Pursuer's "a friendly unit moves FROM my
+ * location" and Volibear - Imposing's watch on an opponent's moves are reachable
+ * by any Charm, which is exactly what a playtester reported: *"Move triggers do
+ * not trigger if a unit is charmed or moved by another effect."*
+ *
+ * # What still does NOT fire, and why that is a different rule
+ *
+ * **454** carves out the one exception by name: *"Recalls are not Moves. They do
+ * not cause Triggered Abilities to trigger that are triggered by Move actions."*
+ * So `relocateToBaseUnchanged` fires nothing and must keep firing nothing. This
+ * is the distinction the old comment reached for and got the wrong side of: the
+ * exclusion is RECALLS, not effect-caused moves.
+ *
+ * # Held, not dispatched
+ *
+ * All three go on the chain as Pending Items (383), matching `execute-move-unit`
+ * exactly — an effect-caused move must give the opponent the same response window
+ * a Standard Move does, or the two paths differ in a way a player can feel.
+ */
+function completeForcedMove(
+  state: GameState,
+  /** The unit AFTER its `movesThisTurn` bump — Yasuo - Windrider reads the
+   *  post-move count off the event, so the caller must place this one. */
+  moved: UnitInstance,
+  /** The unit's CONTROLLER, not the caster. Charm moves an enemy unit, and it is
+   *  the enemy who moved — which is also what `applyContested` already assumes,
+   *  and what makes "a FRIENDLY unit moves" mean the right thing to a listener. */
+  ownerIndex: 0 | 1,
+  from: string,
+  /** The destination battlefield's id, or `"base"` — the same sentinel `from`
+   *  has always used for a unit leaving base. */
+  to: string,
+): GameState {
+  let next = holdMoveTrigger(state, moved, ownerIndex, {
+    battlefieldId: to,
+    isFirstMoveThisTurn: moved.movesThisTurn === 1,
+  });
+  next = holdEventTrigger(next, {
+    kind: "unitMoved",
+    moverIndex: ownerIndex,
+    unitInstanceId: moved.instanceId,
+    from,
+    to,
+    movesThisTurn: moved.movesThisTurn,
+  });
+  // The battlefield it LEFT — Back-Alley Bar's "when a unit moves from here".
+  // `from` is "base" for a unit leaving base, which matches no battlefield and so
+  // fires nothing, exactly as on the Standard Move path.
+  return holdBattlefieldTrigger(next, "unitMovedFrom", from, ownerIndex, moved.instanceId);
 }
 
 /**
@@ -849,9 +937,14 @@ export function forceMoveToBase(state: GameState, targetInstanceId: string): Gam
     ...bf,
     units: { ...bf.units, [ownerId]: (bf.units[ownerId] ?? []).filter((u) => u.instanceId !== targetInstanceId) },
   };
+  // A Move to base is still a Move (445.2) — Base is a Location (107.2.b) and
+  // 359.3.e works this exact case by name, so it counts and it triggers. The one
+  // thing it is NOT is a Recall; that is `relocateToBaseUnchanged`, and 454 is
+  // why that one fires nothing.
+  const moved = { ...unit, movesThisTurn: unit.movesThisTurn + 1 };
   const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, unit] };
-  return { ...state, battlefields, players };
+  players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, moved] };
+  return completeForcedMove({ ...state, battlefields, players }, moved, ownerIndex, bf.id, "base");
 }
 
 /**

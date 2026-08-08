@@ -933,6 +933,13 @@ const ON_MOVE_TRIGGERS: Record<string, MoveTriggerDefinition> = {
     // Noxian Drummer — When I move to a battlefield, play a 1-Might Recruit unit
     // token here. "HERE" is the battlefield he moved TO, taken from the carried
     // event rather than from where he stands now.
+    //
+    // **"To a BATTLEFIELD" is a real restriction**, and it went unguarded for as
+    // long as the only move that fired this was the Standard Move, which can only
+    // ever end at one. A spell can now send him home (445.2 makes that a Move
+    // too), and without this he would answer it by placing a Recruit at a
+    // battlefield whose id is the string "base".
+    applies: (event) => event.battlefieldId !== "base",
     resolve: (state, ctx, _unitInstanceId, event) => placeTokenAtDestination(state, ctx.casterIndex, { battlefieldId: event.battlefieldId }),
   },
   "OGN-162": {

@@ -1742,10 +1742,19 @@ export const decisions: Record<string, DecisionDefinition> = {
     resolve: (state, d, optionId) =>
       optionId === "follow" && d.cardInstanceId && d.battlefieldId
         ? // Through the real move funnel, so arriving contests the battlefield
-          // and stages a Showdown exactly as a walk-in would. It fires no
-          // on-move trigger, which `forceMoveToBattlefield`'s own note already
-          // records as this engine's reading of a spell-driven move.
-          forceMoveToBattlefield(state, d.cardInstanceId, d.battlefieldId)
+          // and stages a Showdown exactly as a walk-in would — and, since 445.2,
+          // fires his own on-move triggers as well, because being moved by an
+          // effect is still moving.
+          //
+          // **"I may be moved WITH IT"** — with the unit, not "to that
+          // battlefield" — so when the friendly unit went home, so does he. The
+          // dispatcher is what makes that one line instead of a branch that
+          // would have quietly sent him to a battlefield named "base".
+          forceMoveToDestination(
+            state,
+            d.cardInstanceId,
+            d.battlefieldId === "base" ? { destinationIsBase: true } : { destinationBattlefieldId: d.battlefieldId },
+          )
         : state,
   },
   // Stacked Deck's "put 1 into your hand and recycle the rest".

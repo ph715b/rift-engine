@@ -1091,7 +1091,14 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) => {
       if (event.kind !== "unitMoved") return state;
       const wearer = wearerListener(state, listener);
-      return wearer === undefined ? state : placeRecruitToken(state, wearer.ownerIndex, { battlefieldId: event.to });
+      // Unlike Corina above, this one says only "when I move ... HERE" with no
+      // "to a battlefield" clause, so a wearer sent home by a spell (445.2, now a
+      // Move) makes its Recruit AT BASE. `TokenDestination` has said `"base" | {
+      // battlefieldId }` all along; this is the first card that needed the left
+      // side, and passing `{ battlefieldId: "base" }` would have named a
+      // battlefield that does not exist.
+      const destination = event.to === "base" ? "base" : { battlefieldId: event.to };
+      return wearer === undefined ? state : placeRecruitToken(state, wearer.ownerIndex, destination);
     },
   },
   "OGN-235": {
@@ -1214,19 +1221,22 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // mechanisms fire at the same moment and both resolve a chain-pop later, so
     // the choice costs nothing but the file it lives in.
     //
-    // It fires only for a STANDARD move (execute-move-unit), which is what the
-    // card says: a Recall is not a Move (454), and a spell-driven relocation
-    // (`forceMoveToBattlefield`) is deliberately outside the event too — so
-    // Corina dragged somewhere by an opponent's card makes nothing.
+    // A Recall is still not a Move (454), so `relocateToBaseUnchanged` makes
+    // nothing. But a SPELL-driven relocation is one (445.2) and now fires this
+    // event, so Corina dragged across the board by an opponent's Charm does make
+    // her three Recruits — the card says "when I move", not "when you move me".
     //
-    // `to` is always a battlefield id (a MoveUnit action names one), so "to a
-    // battlefield" needs no test of its own.
+    // **"To a BATTLEFIELD" is hers, though**, and it does need a test of its own
+    // now. This comment used to say it did not, on the grounds that "`to` is
+    // always a battlefield id (a MoveUnit action names one)" — true of the
+    // Standard Move, and no longer true at all: a spell can send her to base,
+    // where "play three Recruits HERE" has no battlefield to name.
     on: "unitMoved",
     applies: (_state, listener, event) =>
       // Identity, not ownership: the event is about ONE unit, and hers is the
       // only move she cares about. "When I move", not "when a friendly unit
       // moves".
-      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId && event.to !== "base",
     resolve: (state, listener, event) =>
       event.kind === "unitMoved"
         ? // Three separate placements rather than a count: `placeRecruitToken`
