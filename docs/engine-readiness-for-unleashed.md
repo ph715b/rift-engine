@@ -382,7 +382,11 @@ paginated envelope, `ogn.json` has a BOM and six mojibaked apostrophes).
 
 Do not start UNL until all of these hold:
 
-- [ ] `master` green on the full `CLAUDE.md` loop, both workspaces.
+- [x] `master` green on the full `CLAUDE.md` loop, both workspaces.
+      Verified 2026-08-08 at `7909718`: 3192 engine tests across 200 files, 118
+      web across 17, typecheck 0 errors both workspaces, both builds, five probes
+      with walkout at 191/107/32 and reachability at 430/468 with all 8 controls
+      green.
 - [x] One command reports whole-pool reachability, and its union figure is pinned.
       `node probes/reachability.ts`, pinned at 367/468 (2026-08-07).
 - [x] Every implemented-but-never-exercised card is either exercised, or on an
