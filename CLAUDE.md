@@ -12,9 +12,15 @@ npm run build --workspace=@rift-engine/engine     # BEFORE the typecheck AND any
 npm run typecheck                                 # both workspaces; COUNT the errors
 npm run build
 cd packages/engine
-node probes/{ai-health,passive-human,chain-depth,walkout,exercised}.ts
-DECKS=sfd node probes/exercised.ts
+node probes/{ai-health,passive-human,chain-depth,walkout,reachability}.ts
 ```
+
+`reachability` REPLACES the two `exercised` lines that used to sit here — it runs
+the preset decks and one covering run per set in a single 10-second process, and
+gates every instrument control both of those lines gated, per run. `exercised.ts`
+is still the per-mode drill-down (`DECKS=sfd node probes/exercised.ts`, plus
+`mostPlayed` and the offered/taken split); it is no longer the thing that has to
+be remembered twice.
 
 **Step 1 is the ROOT `npm test`, not `npx vitest run` in `packages/engine`.**
 This has now bitten twice, both times the same way: an ENGINE change breaks a
@@ -42,6 +48,12 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 **Pinned probe figures.** `walkout` is **191 walkouts / 107 points / 32 closed
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
+
+`reachability` is pinned at **367 of 468 cards needing code ever exercised**
+(OGN 184/248, OGS 20/22, SFD 163/198; measured 2026-08-07 at 40 games per mode).
+That one is a FLOOR, not an equality — it is supposed to rise, and the probe
+prints a line asking for the pin to be bumped when it does. A DROP is red, and
+means a card that used to act in a game no longer does.
 
 ## Do not copy this loop into a handoff
 

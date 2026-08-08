@@ -45,6 +45,13 @@ number.
 **Union across the three covering runs: ~357 of 468 cards needing code.**
 **~111 implemented cards have never been observed acting in a game.**
 
+> **Superseded 2026-08-07 by Phase 1a's actual measurement — the estimate was low.**
+> `probes/reachability.ts` reports **367 of 468 exercised, 101 never**. The table
+> above and the ~357 under it are a SUM of three runs; the union is bigger because
+> the presets and the OGS covering run each reach OGN cards the OGN covering run
+> misses (OGN alone 173, union 184). Every figure in the table reproduced exactly.
+> See Phase 1a below for the real numbers and the buckets.
+
 Two things make that the top priority rather than a curiosity:
 
 - **The preset decks reach ZERO SFD cards.** All seven are OGN/OGS, so the
@@ -94,7 +101,46 @@ itself. **Re-measure before trusting it, like everything else here.**
 
 **This is the bulk of the work and the reason for the whole plan.**
 
-### 1a. Make the covering runs a gate rather than a thing you can type
+### 1a. DONE (2026-08-07) — `probes/reachability.ts`
+
+One entry point, presets plus one covering run per set, **~10 seconds**. It is in
+`CLAUDE.md`'s loop **in place of** the two `exercised.ts` lines (it gates every
+instrument control both of those gated, per run); `exercised.ts` remains the
+per-mode drill-down.
+
+**Measured, and pinned in `CLAUDE.md`: 367 of 468 cards needing code have ever
+been exercised. 101 have not.** OGN 184/248, OGS 20/22, SFD 163/198. The pin is a
+FLOOR — the number is meant to rise, and the probe prints a line asking for the
+pin to be bumped when it does; a DROP is red.
+
+The 101 are all NAMED in the report, partitioned three ways — and this is the
+input to 1b below:
+
+| bucket | count | of which |
+|---|---|---|
+| `offeredNeverTaken` | 56 | OGN 38, SFD 18 |
+| `seatedNeverOffered` | 45 | OGN 26, OGS 2, SFD 17 — **6 are Legends**, never offerable by construction |
+| `neverSeated` | **0** | the covering runs really do seat all 468 |
+
+Notes for whoever touches it next:
+
+- **The modes are derived from the registry, not listed.** A hardcoded
+  `["OGN","OGS","SFD"]` is correct today and silently wrong the day `unl.json`
+  lands — which is this exact failure one set earlier.
+- The loop, the deck selection and the instrument controls moved to
+  `probes/exercise-run.ts` (+ `pool-facts.ts`) and `exercised.ts` was refactored
+  onto them rather than keeping a second copy. Verified by its output being
+  **byte-identical in all four modes** before and after.
+- **All four gates were mutation-proven**: merging only the first run, raising the
+  pin past the truth, a stale allowlist entry, and dropping a mode each turn it
+  red. The `everySetReachable` control had to be rewritten to read the
+  MEASUREMENT (`bySet.seated`) rather than `setCodesWithLegend` — computed from
+  the same input `MODES` is, it could not fail.
+- `probes/unexercised-allowlist.ts` exists and is empty. It is wired to a gate
+  from the first entry: a card excused there that turns up exercised fails by
+  name.
+
+### 1a (as originally specified). Make the covering runs a gate rather than a thing you can type
 
 Today `DECKS=sfd` is in the loop and `DECKS=ogn` / `DECKS=ogs` are not, though
 both already work. There is also no run that reports the UNION, so "how much of
@@ -219,7 +265,8 @@ paginated envelope, `ogn.json` has a BOM and six mojibaked apostrophes).
 Do not start UNL until all of these hold:
 
 - [ ] `master` green on the full `CLAUDE.md` loop, both workspaces.
-- [ ] One command reports whole-pool reachability, and its union figure is pinned.
+- [x] One command reports whole-pool reachability, and its union figure is pinned.
+      `node probes/reachability.ts`, pinned at 367/468 (2026-08-07).
 - [ ] Every implemented-but-never-exercised card is either exercised, or on an
       allowlist **with a reason** — the `ai-ab-harness` "structural, not a weight"
       category is a legitimate reason; "we did not get to it" is not.

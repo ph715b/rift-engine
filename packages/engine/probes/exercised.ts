@@ -1,9 +1,19 @@
 /**
- * Exercised coverage: of the cards this engine has IMPLEMENTED, how many has any
- * automated run ever actually played?
+ * Exercised coverage for ONE deck set: of the cards this engine has IMPLEMENTED,
+ * how many did this run actually play?
  *
  * `coverage.ts` answers "is it registered". This answers "has it run". See
- * `exercise-log.ts` for what the three signals mean and for the one blind spot.
+ * `exercise-log.ts` for what the three signals mean and for the one blind spot,
+ * and `exercise-run.ts` for the run loop itself — which lives there because
+ * `reachability.ts` runs the same loop over every deck set and a second copy
+ * would drift.
+ *
+ * **For the pool-wide number, run `reachability.ts` instead.** This probe reports
+ * one mode; the union across all of them is a different question and used to have
+ * no answer at all.
+ *
+ *     GAMES=40 node packages/engine/probes/exercised.ts
+ *     DECKS=sfd node packages/engine/probes/exercised.ts
  *
  * # Read the three numbers together or not at all
  *
@@ -15,8 +25,6 @@
  * so `exercised / inDecks` measures the engine and the AI, while `inDecks / inPool`
  * measures the decks. They fail for different reasons and are fixed by different
  * work.
- *
- *     GAMES=40 node packages/engine/probes/exercised.ts
  *
  * The gate here is on INSTRUMENT HEALTH, not on a coverage threshold. Any
  * threshold would be a number picked to pass. What is gated is that all three
@@ -31,8 +39,8 @@
  * reach a hand** — roughly a quarter. So a single copy of a card is unlikely to
  * appear in any given game, and `inDecks` badly overstates what one run can reach.
  *
- * Worse, the games are less independent than the count suggests. This probe pairs
- * `at(PRESET_DECKS, seed)` with `at(PRESET_DECKS, seed + 1)` and shuffles them with
+ * Worse, the games are less independent than the count suggests. The run pairs
+ * `at(DECKS, seed)` with `at(DECKS, seed + 1)` and shuffles them with
  * `mulberry32(seed)` and `mulberry32(seed + 1)` — so deck X shuffled with seed `s`
  * turns up BOTH as player A at seed `s` and as player B at seed `s - 1`. Across 40
  * games each deck sees only about **five distinct shuffles**, not forty.
@@ -42,120 +50,42 @@
  * enumeration bug and was pure sampling. **Before calling a never-offered card a
  * defect, check it was ever drawn.** To actually reach a card, put it in at the
  * 3-copy maximum and vary the seed — more games alone buys less than it looks like.
- *
- * # It counts from the state stream, and it has to
- *
- * README.md's standing rule: *count from the state stream, never from inside the
- * engine*, because the heuristic AI's lookahead applies every candidate action
- * through the real executors to score it — a probe that wrapped a resolver once
- * reported a card "played 259 times" when the true answer was zero. The same trap
- * is wide open here and is avoided the same way: `record` reads the action that was
- * actually SUBMITTED, and `scanChain` reads only the state `submit` returned.
- * Nothing observes a resolver. Instrumenting `card-effects.ts` would have been the
- * obvious implementation and would have counted the AI thinking as the AI acting.
  */
-import {
-  activatedAbilityFor,
-  chooseAction,
-  defaultCardRegistry,
-  generateCoveringDecks,
-  needsImplementation,
-  setCodeOf,
-  submit,
-} from "@rift-engine/engine";
-import { at, legacyBattlefields, PRESET_DECKS, report, startedGame } from "./harness.ts";
-import { ExerciseLog, topCounts } from "./exercise-log.ts";
+import { defaultCardRegistry, setCodeOf } from "@rift-engine/engine";
+import { report } from "./harness.ts";
+import { poolFacts } from "./pool-facts.ts";
+import { runControls, runExercise } from "./exercise-run.ts";
+import { topCounts } from "./exercise-log.ts";
 
 const GAMES = Number(process.env.GAMES ?? 40);
-const ACTION_CAP = 3000;
 
 const registry = defaultCardRegistry();
+const facts = poolFacts(registry);
 
 /**
  * `DECKS=sfd` swaps the seven pinned presets for one GENERATED deck per SFD
  * Legend, every implemented SFD card deliberately seated.
- *
- * Opt-in rather than the default, and the presets are untouched, because four
- * other probes read `PRESET_DECKS` and three of them pin recorded figures
- * (walkout's 191/107/32, chain-depth's Sett decks). Changing what everyone
- * plays to measure one set would move numbers that exist to catch regressions.
  *
  * The reason this mode exists at all: SFD reached 60 implemented cards while
  * this probe reported 0 of them exercised, because a card no deck contains
  * cannot be played however many games run. That is a DECK problem, and it is
  * fixed by decks.
  */
-const DECK_SET = process.env.DECKS?.toUpperCase();
-const GENERATED = DECK_SET === undefined ? undefined : generateCoveringDecks(DECK_SET, registry);
-if (GENERATED) {
-  if (GENERATED.unbuildable.length > 0) {
-    throw new Error(`DECKS=${DECK_SET}: ${GENERATED.unbuildable.length} unbuildable — ${GENERATED.unbuildable.join("; ")}`);
-  }
-  if (GENERATED.decks.length === 0) throw new Error(`DECKS=${DECK_SET}: no Legend in that set`);
+const run = runExercise(process.env.DECKS, GAMES, registry);
+if (run.generated) {
   // Loud, because a covering run that silently covers nothing is the exact
   // shape `make-buffdeck.mjs` failed in: reporting its input as its output.
   console.error(
-    `DECKS=${DECK_SET}: ${GENERATED.decks.length} generated decks, ` +
-      `${GENERATED.covered} subjects seated, ${GENERATED.orphans.length} orphans`,
+    `DECKS=${run.mode}: ${run.generated.decks} generated decks, ` +
+      `${run.generated.covered} subjects seated, ${run.generated.orphans.length} orphans`,
   );
-  for (const orphan of GENERATED.orphans) console.error(`  ORPHAN (no Legend can hold it): ${orphan}`);
-}
-const DECKS: readonly (typeof PRESET_DECKS)[number][] = GENERATED ? GENERATED.decks.map((d) => d.deck) : PRESET_DECKS;
-const log = new ExerciseLog();
-
-/** Every defId the decks in this run could put in front of a player. Legend and
- *  champion included: they never appear in `cardIds` but are absolutely in play. */
-const inDecks = new Set<string>();
-const decksUsed = new Set<string>();
-
-let invalid = 0;
-let gamesRun = 0;
-
-for (let seed = 1; seed <= GAMES; seed++) {
-  const deckA = at(DECKS, seed);
-  const deckB = at(DECKS, seed + 1);
-  for (const deck of [deckA, deckB]) {
-    decksUsed.add(deck.name);
-    inDecks.add(deck.legendId);
-    inDecks.add(deck.championId);
-    for (const id of deck.cardIds) inDecks.add(id);
-    for (const id of deck.sideboardCardIds) inDecks.add(id);
-  }
-
-  // Battlefields PINNED, per README.md: these numbers get quoted, and rolling them
-  // per match makes successive runs incomparable — `walkout` once reported 236
-  // instead of the recorded 154 from that alone.
-  let state = startedGame(deckA, deckB, seed, { battlefields: legacyBattlefields() });
-  gamesRun++;
-
-  for (let taken = 0; taken < ACTION_CAP; taken++) {
-    const action = chooseAction(state);
-    const before = state;
-    const res = submit(state, action);
-    if (res.result.type === "Invalid") {
-      invalid++;
-      break;
-    }
-    log.scanOffers(before);
-    log.record(before, action);
-    state = res.state;
-    log.scanChain(state);
-    if (res.result.type === "GameOver") break;
-  }
+  for (const orphan of run.generated.orphans) console.error(`  ORPHAN (no Legend can hold it): ${orphan}`);
 }
 
+const log = run.log;
+const inDecks = run.inDecks;
 const exercised = log.exercised();
-const defs = registry.all();
-const pool = defs.map((d) => d.id);
-
-/** The subset with rules text that had to be WRITTEN. The whole-registry count is
- *  288; `needsImplementation` is 270, and that 270 is the denominator every other
- *  doc and gate in this repo quotes. Both are reported, because an instrument
- *  quietly using a different denominator from the rest of the project is how a
- *  figure ends up argued about instead of trusted. A vanilla card being unexercised
- *  costs nothing — there is no code behind it to be wrong. */
-const needsCode = new Set(defs.filter(needsImplementation).map((d) => d.id));
-const nameOf = new Map(defs.map((d) => [d.id, d.name]));
+const needsCode = facts.needsCode;
 
 interface SetRow {
   inPool: number;
@@ -171,7 +101,7 @@ interface SetRow {
 }
 
 const sets: Record<string, SetRow> = {};
-for (const defId of pool) {
+for (const defId of facts.pool) {
   const code = setCodeOf(defId);
   const row = (sets[code] ??= {
     inPool: 0,
@@ -192,26 +122,16 @@ for (const row of Object.values(sets)) {
   row.reachableOfPool = pct(row.inDecks, row.inPool);
 }
 
-const typeOf = new Map(defs.map((d) => [d.id, d.type]));
-/** A Legend can never be OFFERED: it starts in play and is never played, so its
- *  only signals are an activated ability or a trigger. Marked rather than filtered,
- *  because "a Legend that never fired" is still worth seeing — just not as evidence
- *  of an enumeration gap. */
-const label = (id: string): string =>
-  `${id} ${nameOf.get(id) ?? "?"}` +
-  (typeOf.get(id) === "Legend" ? " [Legend — never offerable]" : "") +
-  (needsCode.has(id) ? "" : " (vanilla)");
-
 /** In a deck, drawable, and still never did anything. Named, because a bare defId
  *  is not a lead anyone will follow. */
-const inDeckButNeverExercised = [...inDecks].filter((id) => !exercised.has(id)).sort().map(label);
+const inDeckButNeverExercised = [...inDecks].filter((id) => !exercised.has(id)).sort().map(facts.label);
 
 /** **The engine offered it and the AI declined — every time.** Split out because
  *  it is a completely different fact from "never reachable", and lumping the two
  *  together turns a documented AI limitation into a fake backlog of broken cards.
  *  Expect the resource-banking permanents here permanently: `abilityBanksResource`
  *  drops them from the AI's candidate pool on purpose. */
-const offeredButNeverTaken = [...log.offered].filter((id) => !exercised.has(id)).sort().map(label);
+const offeredButNeverTaken = [...log.offered].filter((id) => !exercised.has(id)).sort().map(facts.label);
 
 /** In a deck and NEVER even offered. These are the real leads — nothing about AI
  *  taste explains them, so it is reachability, a cost the AI can never meet, or a
@@ -219,65 +139,31 @@ const offeredButNeverTaken = [...log.offered].filter((id) => !exercised.has(id))
 const inDeckButNeverOffered = [...inDecks]
   .filter((id) => !log.offered.has(id) && !exercised.has(id))
   .sort()
-  .map(label);
+  .map(facts.label);
 
 /** Exercised but in no deck list — expected to be tokens, which are created rather
  *  than played. Anything else here means this observer resolved a defId wrongly. */
 const exercisedOutsideDecks = [...exercised].filter((id) => !inDecks.has(id)).sort();
 
-/** Cards in these decks carrying an activated ability the AI would consider —
- *  `banksResource` ones are excluded because `heuristic-ai` deliberately drops
- *  them, so counting them would make the control demand the impossible. */
-const activatableInDecks = [...inDecks].filter((id) => {
-  const ability = activatedAbilityFor(id);
-  return ability !== undefined && ability.banksResource !== true;
-}).length;
+/** `activatableInDecks` is a COUNT and is reported under `signals`, not here:
+ *  `every(Boolean)` over the controls would read a legitimate 0 as a failure. */
+const { activatableInDecks, ...runHealth } = runControls(run);
 
 const controls = {
-  /** All three signals fired. A zero in any of them means that whole detection
-   *  path is broken, which no coverage percentage would reveal. */
-  playedSeen: log.played.size > 0,
-  /**
-   * **Conditioned on the decks CONTAINING something the AI would activate**,
-   * because otherwise this control measures the decks rather than the observer.
-   *
-   * `DECKS=SFD` found that the hard way: 40 games, zero activations, gate red —
-   * and correctly so, because the only activatable SFD card in the pool is the
-   * Gold token, whose ability is flagged `banksResource` and is therefore
-   * dropped from the AI's candidate pool ON PURPOSE (`evaluate` scores board
-   * state, so a banked resource can only tie with Pass). There was nothing to
-   * activate and nothing wrong.
-   *
-   * So the premise is checked instead of the gate being weakened: if no card in
-   * these decks has an ability this AI would ever take, the control has no
-   * subject and says so rather than failing. If one DOES and none fired, that is
-   * still a red gate, which is the case this exists for.
-   */
-  activatedSeen: activatableInDecks === 0 || log.activated.size > 0,
-  triggeredSeen: log.triggered.size > 0,
+  ...runHealth,
   /** The negative control. If everything in the pool reports exercised, the
    *  observer is marking rather than measuring. */
-  somethingUnexercised: exercised.size < pool.length,
-  /** Every ActivateAbility resolved to a permanent this observer could find. */
-  activationsResolve: log.activationsUnresolved === 0,
-  /** Games actually played out rather than dying on the first action. */
-  gamesRan: gamesRun === GAMES,
-  /** **Everything the AI played was something `legalActions` offered.** The one
-   *  real invariant this probe can assert rather than merely report — and the
-   *  failure it catches is the offered-then-refused family that has now bitten
-   *  this repo three times (most recently Get Excited! at a `[Deflect]` unit,
-   *  which threw out of `chooseAction` mid-game). Restricted to the two action
-   *  kinds `offered` tracks. */
-  takenWasOffered: [...log.played.keys(), ...log.activated.keys()].every((id) => log.offered.has(id)),
+  somethingUnexercised: exercised.size < facts.pool.length,
 };
 
 report(
   "exercised",
   {
     games: GAMES,
-    decksUsed: [...decksUsed].sort(),
-    invalid,
-    pool: pool.length,
+    mode: run.mode,
+    decksUsed: [...run.decksUsed].sort(),
+    invalid: run.invalid,
+    pool: facts.pool.length,
     poolNeedingCode: needsCode.size,
     inDecks: inDecks.size,
     exercised: exercised.size,

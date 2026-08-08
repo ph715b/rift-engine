@@ -23,9 +23,36 @@ which is the entire reason they are TypeScript.
 | `passive-human.ts` | a game where the human only passes still ends | 16/16, 0 stalled |
 | `chain-depth.ts` | triggers are held, reach the chain, and strand nothing | held > 0, onChain > 0, strandedPen === 0 |
 | `walkout.ts` | a Combat Showdown one side leaves still awards the battlefield | walkouts > 0 **and** every one awards control |
-| `exercised.ts` | which cards have ever actually *run*, as opposed to being registered | instrument health only — all three signals fired, nothing unresolved, something still unexercised |
+| `exercised.ts` | which cards have ever actually *run*, as opposed to being registered, for ONE deck set | instrument health only — all three signals fired, nothing unresolved, something still unexercised |
+| `reachability.ts` | the same question over the WHOLE pool: presets plus one covering run per set, unioned | every run healthy with `invalid: 0`, the union beats every single run, and it has not fallen below the pinned 367 |
 
 All take `GAMES=<n>`.
+
+### `reachability.ts` is the one in the loop
+
+`exercised.ts` measures one deck set per invocation, and the loop only ever ran
+two of its four modes — so the pool-wide number had no answer anybody could read,
+and the answer it *did* give was misleading in a specific direction: all seven
+preset decks are OGN/OGS, so the default run reports **SFD 0%** and always will.
+198 cards shipped in a month had never been in a game unless somebody typed
+`DECKS=sfd`.
+
+Union across all four modes: **367 of 468 cards needing code**, leaving 101 that
+no automated run has ever seen act. Every one of them is NAMED in the report and
+split three ways — `offeredNeverTaken`, `seatedNeverOffered`, `neverSeated` —
+because those take completely different work and lumping them together
+manufactures a backlog of broken cards that are not broken.
+
+The modes are derived from the registry, not listed. A hardcoded
+`["OGN","OGS","SFD"]` would be correct today and silently wrong the day
+`unl.json` lands, which is this exact failure one set earlier.
+
+`probes/unexercised-allowlist.ts` is where a card earns an excuse instead of a
+fix — a structural AI limitation or a documented observer blind spot, and nothing
+else. A card listed there that turns up exercised **fails the gate by name**,
+because an excuse nobody re-reads is the failure mode this repo has recorded
+against `PARTIALLY_IMPLEMENTED`, the Divergent table, and the verification loop
+itself.
 
 ### `exercised.ts` is a report, not a threshold
 
