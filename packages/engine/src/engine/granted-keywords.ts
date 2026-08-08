@@ -2,6 +2,7 @@ import { findUnitAnywhere } from "./target-lookup.js";
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
+import { mergeKeywordValue } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
@@ -209,7 +210,19 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     source: "gear",
     scope: "anywhere",
     excludesSelf: false,
-    appliesTo: (unit) => unit.buffed,
+    // **"…have [Deflect] IF THEY DIDN'T ALREADY" is a condition the CARD prints**,
+    // and it has to be asked here rather than left to the merge.
+    //
+    // It used to be free: while every source merged with `Math.max`, granting
+    // Deflect 1 to a unit printing Deflect 2 simply could not raise it. That
+    // stopped being true on 2026-08-08, when Deflect started summing per
+    // 810.1.c.3 — and the accident that had been implementing this clause became
+    // a bug that would have made the Refuge read [Deflect 3].
+    //
+    // A card whose text says the opposite of the default is the reason
+    // `appliesTo` exists. Both sources of "already" are asked: the printed
+    // keyword and a this-turn grant.
+    appliesTo: (unit) => unit.buffed && (unit.keywords.Deflect ?? 0) === 0 && (unit.keywordsThisTurn.Deflect ?? 0) === 0,
     keywords: ["Deflect"],
   },
 
@@ -558,20 +571,27 @@ export function effectiveKeywords(
   }
 
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
-  // Higher wins, matching how every other source here merges: two Equipment
-  // granting `[Shield 2]` do not add up to `[Shield 4]`.
+  // **Every merge below goes through `mergeKeywordValue`, which asks the KEYWORD
+  // how it stacks.** Assault, Shield and Deflect sum (807 / 815.1.c.2 /
+  // 810.1.c.3, each with its own worked example); everything else is redundant
+  // and takes the presence. This file asserted the opposite until 2026-08-08 —
+  // see `SUMMED_KEYWORD_VALUES`.
+  //
+  // So two Equipment granting `[Shield 2]` really do add up to `[Shield 4]`,
+  // which is the sentence that used to sit here saying they do not.
   for (const [keyword, value] of Object.entries(fromEquipment)) {
-    const key = keyword as Keyword;
-    out[key] = Math.max(out[key] ?? 0, value);
+    mergeKeywordValue(out, keyword as Keyword, value);
   }
   // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
   // holds for the turn; a conditional grant is re-asked every time. Both end up
   // in the same answer, because every reader wants "does it have this NOW".
+  // Cleave's "[Assault 3] this turn" on a unit that PRINTS [Assault 1] is 807's
+  // own worked example, and the answer it gives is 4.
   for (const [kw, n] of Object.entries(unit.keywordsThisTurn)) {
-    out[kw as Keyword] = Math.max(out[kw as Keyword] ?? 0, n ?? 1);
+    mergeKeywordValue(out, kw as Keyword, n ?? 1);
   }
   if (grant && grant.when(state, unit, ownerIndex)) {
-    for (const kw of grant.keywords) out[kw] = Math.max(out[kw] ?? 0, 1);
+    for (const kw of grant.keywords) mergeKeywordValue(out, kw, 1);
   }
   // Another permanent's aura, folded in on the same terms as the card's own
   // grants — every reader wants "does it have this NOW", and nothing downstream
@@ -579,22 +599,25 @@ export function effectiveKeywords(
   // Spirit's Refuge's "if they didn't already" true: a printed `[Deflect 2]` is
   // never lowered to the granted 1.
   //
-  // **Multiple instances of the same keyword collapse to one**, because this map
-  // holds a VALUE per keyword and not a COUNT. That is right for the valued
-  // keywords ([Assault], [Shield], [Deflect]) — two sources granting [Shield] is
-  // still [Shield 1], and the rules' redundancy rule (817.1.a) says so. It is a
-  // real divergence for [Vision], whose rules text says "multiple instances of
-  // Vision trigger separately"; see docs/rules-conformance.md.
-  for (const kw of fromAuras) out[kw] = Math.max(out[kw] ?? 0, 1);
+  // `fromAuras` is a LIST and deliberately not deduped — `auraGrantedKeywords`
+  // pushes each matching aura's keywords, so two sources granting [Assault] are
+  // two entries here and therefore two instances, which is exactly what 807
+  // sums. For a redundant keyword the repeat is a no-op.
+  //
+  // Still a divergence for [Vision], whose instances "trigger separately" (818):
+  // that is a COUNT of triggers, and this map holds values. Recorded in
+  // docs/rules-conformance.md.
+  for (const kw of fromAuras) mergeKeywordValue(out, kw, 1);
   // Folded in on the same terms — a keyword a battlefield grants must behave
   // exactly like a printed one, and nothing downstream should be able to tell
   // where it came from.
-  for (const kw of fromBattlefield) out[kw] = Math.max(out[kw] ?? 0, 1);
-  // A computed value, merged on the same `Math.max` terms as everything above:
-  // a card that also PRINTED [Assault 1] keeps the higher of the two, and a
-  // count of 0 never lowers anything.
+  for (const kw of fromBattlefield) mergeKeywordValue(out, kw, 1);
+  // Ancient Warmonger's "I have [Assault] equal to the number of enemy units
+  // here". It prints no Assault, so this IS its Assault — and 807 sums it with
+  // any additional source, which is what the card's own reminder text means by
+  // "+1 Might for each INSTANCE of Assault". A count of 0 adds nothing.
   if (dynamic) {
-    out[dynamic.keyword] = Math.max(out[dynamic.keyword] ?? 0, dynamic.value(state, unit, ownerIndex));
+    mergeKeywordValue(out, dynamic.keyword, dynamic.value(state, unit, ownerIndex));
   }
   return out;
 }

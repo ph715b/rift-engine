@@ -112,8 +112,14 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * move destination (355.7 / 359.3.e) gave it the destination it prints, and the
  * AI took it in self-play the same day. A rise here is exactly what a rules fix
  * to a reachable card should look like, which is why the pin is a floor.
+ *
+ * **430 -> 431 on 2026-08-08, and the card is SFD-168 Vanguard Armory.** It sat
+ * in `offeredNeverTaken` — enumerated every game and declined every game by the
+ * 1-ply AI. Making Assault/Shield/Deflect SUM across sources (807/815/810) is
+ * what changed its mind: Equipment now grants what it prints, so an Armory play
+ * scores where it used to tie with Pass.
  */
-const PINNED_UNION = 430;
+const PINNED_UNION = 431;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

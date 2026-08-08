@@ -659,16 +659,24 @@ describe("an attached Equipment grants its wearer keywords", () => {
     expect(effectiveKeywords(state, unit, 0).Tank).toBeUndefined();
   });
 
-  it("stacks two different Equipment, and does not ADD two of the same keyword", () => {
+  it("stacks two different Equipment, and SUMS two of the same VALUED keyword", () => {
     const both = wearing(SERRATED_DIRK, BOOTS);
     const kw = keywordsOf(both.state, both.unitId);
     expect(kw.Assault).toBe(2);
     expect(kw.Ganking).toBe(1);
 
-    // Two Cloth Armors are [Shield 2], not [Shield 4] — higher wins, which is how
-    // every other source in effectiveKeywords already merges.
+    // **Premise corrected 2026-08-08.** This asserted [Shield 2] for two Cloth
+    // Armors, on the reading that higher wins. Shield's own rule is 815.1.c.2 —
+    // "the Shield Value of all granted Shield keywords is summed" — so two Cloth
+    // Armors are [Shield 4].
     const twoCloth = wearing(CLOTH_ARMOR, CLOTH_ARMOR);
-    expect(keywordsOf(twoCloth.state, twoCloth.unitId).Shield, "two Shields were added together").toBe(2);
+    expect(keywordsOf(twoCloth.state, twoCloth.unitId).Shield, "two Shields did not sum").toBe(4);
+
+    // The other half of the rule, so the summing policy cannot leak past the
+    // three valued keywords: [Ganking]'s own text is "Multiple instances of
+    // Ganking are redundant", so two Boots stay [Ganking 1].
+    const twoBoots = wearing(BOOTS, BOOTS);
+    expect(keywordsOf(twoBoots.state, twoBoots.unitId).Ganking, "an unvalued keyword was summed").toBe(1);
   });
 
   it("reaches COMBAT — Doran's Shield really makes its wearer a Tank", () => {

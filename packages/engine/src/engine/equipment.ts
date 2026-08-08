@@ -6,6 +6,7 @@ import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 import type { Keyword } from "../model/keyword.js";
+import { mergeKeywordValue } from "../model/keyword.js";
 import { holdEventTrigger, type Listener } from "./triggers.js";
 
 /**
@@ -761,17 +762,17 @@ const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> =
  * the attachment exactly as the Might badge does — detaching Doran's Shield
  * takes `[Tank]` with it in the same instant.
  *
- * A unit wearing two Equipment that grant the same keyword takes the HIGHER
- * value, matching how `effectiveKeywords` already merges every other source: a
- * second `[Shield 2]` is not `[Shield 4]`.
+ * A unit wearing two Equipment that grant the same keyword folds them on that
+ * keyword's own terms — **two `[Shield 2]` really are `[Shield 4]`** (815.1.c.2),
+ * while two `[Tank]` stay `[Tank]`. This comment said the opposite until
+ * 2026-08-08; see `SUMMED_KEYWORD_VALUES`.
  */
 export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): Partial<Record<Keyword, number>> {
   const out: Partial<Record<Keyword, number>> = {};
   const worn = equipmentAttachedTo(state, unitInstanceId);
   for (const gear of worn) {
     for (const [keyword, value] of Object.entries(EQUIP_GRANTED_KEYWORDS[gear.defId] ?? {})) {
-      const key = keyword as Keyword;
-      out[key] = Math.max(out[key] ?? 0, value);
+      mergeKeywordValue(out, keyword as Keyword, value);
     }
   }
   // Lucian - Purifier — "YOUR Equipment each give [Assault]."
@@ -785,14 +786,20 @@ export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): 
   // attached to always share one, since `attachEquipment` only ever attaches to
   // "a unit you control".
   //
-  // `Math.max`, like every other source here: Serrated Dirk's [Assault 2] under
-  // Lucian is still [Assault 2], not 3. 817.1.a makes duplicate keyword
-  // instances redundant, and taking the larger is what redundant means for a
-  // numbered one.
+  // **"EACH give" — so it is ONE INSTANCE PER EQUIPMENT, and 807 sums them.**
+  // A unit wearing two of your Equipment gets [Assault 2] from Lucian alone, and
+  // Serrated Dirk's printed [Assault 2] under Lucian is [Assault 3], not 2.
+  //
+  // This granted a flat 1 however many Equipment were worn until 2026-08-08,
+  // justified by reading 817.1.a as a general redundancy rule — 817 is
+  // TEMPORARY's rule, and Assault's own section says the values sum. **Found in
+  // playtest**, which is the only place it was ever going to be found: the
+  // observer cannot see a continuous keyword grant (SFD-183 is one of the five
+  // Legends on `probes/unexercised-allowlist.ts` for exactly that reason).
   if (worn.length > 0) {
     const wearer = findUnitAnywhere(state, unitInstanceId);
     if (wearer && state.players[wearer.ownerIndex]?.legend.defId === LUCIAN_PURIFIER) {
-      out.Assault = Math.max(out.Assault ?? 0, LUCIAN_ASSAULT);
+      for (const _gear of worn) mergeKeywordValue(out, "Assault", LUCIAN_ASSAULT);
     }
   }
   return out;

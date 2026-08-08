@@ -289,14 +289,21 @@ describe("Lucian - Gunslinger (SFD-028): when I attack, deal my [Assault] to an 
     expect(unitAt(after, "victim")!.damage, "the attack trigger never fired").toBe(1);
   });
 
-  it("READS the keyword — a granted [Assault 3] makes it a 3", () => {
-    // The whole reason this is not a hardcoded 1. Cleave grants exactly this.
+  it("READS the keyword — his printed [Assault 1] plus a granted [Assault 3] is 4", () => {
+    // The whole reason this is not a hardcoded 1. Cleave grants exactly this —
+    // and **this is rule 807's own worked example with the names changed**:
+    // "Petty Officer has Assault. It is chosen as the target of Cleave, which
+    // says 'Give a unit [Assault 3] this turn.' After Cleave resolves, Petty
+    // Officer has Assault 4 this turn."
+    //
+    // **Premise corrected 2026-08-08.** It asserted 3 — the granted value
+    // REPLACING the printed one, which is what the old `Math.max` merge did.
     const buffed = realUnitInstance(LUCIAN_GUNSLINGER);
     buffed.keywordsThisTurn = { Assault: 3 };
     const { state } = attacking(buffed);
 
     const after = beginCombatAt(state, "bf1", 0);
-    expect(unitAt(after, "victim")!.damage).toBe(3);
+    expect(unitAt(after, "victim")!.damage).toBe(4);
   });
 
   it("does NOT fire when he is the DEFENDER", () => {

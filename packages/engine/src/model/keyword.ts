@@ -45,6 +45,57 @@ export const KEYWORDS = [
 
 export type Keyword = (typeof KEYWORDS)[number];
 
+/**
+ * The keywords whose VALUE accumulates when more than one source grants it.
+ *
+ * **The rules say this per keyword, and for these three they all say "summed".**
+ * Not a general principle — every other keyword has its own rule and most of
+ * them say the opposite:
+ *
+ * - **807** (Assault): "If a Unit has Assault or has been granted Assault and is
+ *   granted Assault by an additional source, the Assault Value of all granted
+ *   Assault keywords is summed." Worked example: Petty Officer has Assault, is
+ *   targeted by Cleave ("Give a unit [Assault 3] this turn"), and ends the turn
+ *   on **Assault 4**.
+ * - **815.1.c.2** (Shield) and **810.1.c.3** (Deflect): the same sentence, with
+ *   the same worked example shape (Stalwart Poro + Block).
+ *
+ * Everything else is redundancy: "Multiple instances of Accelerate/Ganking/
+ * Hidden/Tank/Temporary are redundant" each appear verbatim, and Quick-Draw's
+ * says instances "have no effect beyond the first". Those take the presence, not
+ * a sum, which is what the `Math.max` merge gives them.
+ *
+ * **This existed as the OPPOSITE claim until 2026-08-08.** `granted-keywords.ts`
+ * asserted that "two sources granting [Shield] is still [Shield 1], and the
+ * rules' redundancy rule (817.1.a) says so" — 817 is TEMPORARY's rule, and
+ * reading it as a general one made Lucian - Purifier's "your Equipment each give
+ * [Assault]" grant 1 no matter how many Equipment a unit wore. Found in
+ * playtest.
+ *
+ * `[Vision]` is deliberately absent: its instances "trigger separately" (818),
+ * which is a COUNT of triggers rather than a value, and this map holds values.
+ * That remains a recorded divergence.
+ */
+export const SUMMED_KEYWORD_VALUES: ReadonlySet<Keyword> = new Set<Keyword>(["Assault", "Shield", "Deflect"]);
+
+/**
+ * Folds one granted instance of `keyword` into a running keyword map, on the
+ * terms that keyword's own rule states.
+ *
+ * The ONE function every merge site calls, because the sites are six deep across
+ * three files and six copies of a two-way branch is six chances to get the
+ * second way wrong — the failure this codebase keeps rediscovering.
+ */
+export function mergeKeywordValue(
+  into: Partial<Record<Keyword, number>>,
+  keyword: Keyword,
+  value: number,
+): void {
+  into[keyword] = SUMMED_KEYWORD_VALUES.has(keyword)
+    ? (into[keyword] ?? 0) + value
+    : Math.max(into[keyword] ?? 0, value);
+}
+
 const KEYWORD_BY_UPPER_NAME = new Map<string, Keyword>(KEYWORDS.map((k) => [k.toUpperCase(), k]));
 
 export function keywordFromBracketText(word: string): Keyword | undefined {
