@@ -604,8 +604,55 @@ export function payPowerFromChanneled(
   count: number,
 ): GameState | undefined {
   const actor = state.players[playerIndex];
-  const spend = actor.channeled.filter((r) => matchesPowerDomain(r, domain)).slice(0, count);
-  if (spend.length < count) return undefined;
+
+  // **FLOATING POWER PAYS FIRST, and that is a fix rather than a preference.**
+  //
+  // Reported from playtesting against Draven - Vanquisher's "you may pay [Fury]":
+  // *"I want to be able to pay manually as I may have Seals or Treasures I want
+  // to use instead of recycling."* A Seal's whole text is "[Exhaust]: Add 1
+  // <domain> Power", which lands in `floatingPower` — and this helper read only
+  // the CHANNELED pool, so that Power was not merely hard to spend here, it was
+  // unreachable. `rules-conformance.md` carries it as the "Ornn's rainbow Power
+  // paying a gear ABILITY's cost" row: "the two cost pipelines simply do not
+  // meet."
+  //
+  // Three things make floating-first correct rather than one of two defensible
+  // orders, so no choice has to be offered:
+  //
+  //  - **A card's Power cost already spends floating first** (`powerAfterFloat`,
+  //    via `computeEffectiveCost`). An ABILITY's ignoring it was an asymmetry
+  //    between two paths for the same resource, not a rule.
+  //  - **Floating Power expires** — `runEnd` clears it — while a rune recycled
+  //    here goes to the bottom of the deck and comes back. Spending the
+  //    perishable resource first is strictly better for the payer, every time.
+  //  - It is the order this engine states everywhere else: fungible before
+  //    restricted, floating before the pool that survives.
+  //
+  // Still NOT reached: `restrictedSpellPower` / `restrictedGearPower`. Those
+  // carry a card-KIND gate ("Spells only", "gear or gear abilities") and this
+  // helper is not told the kind, so Ornn's own row stays open — narrower now
+  // than it was, and named.
+  let owed = count;
+  const floatingSpend = new Map<Domain, number>();
+  // A `null` domain is RAINBOW, so any floating domain pays it; a named domain
+  // takes only its own, which is what `matchesPowerDomain` means for the runes
+  // below.
+  for (const [held, available] of Object.entries(actor.floatingPower) as [Domain, number | undefined][]) {
+    if (owed === 0) break;
+    if (domain !== null && held !== domain) continue;
+    const take = Math.min(available ?? 0, owed);
+    if (take > 0) {
+      floatingSpend.set(held, take);
+      owed -= take;
+    }
+  }
+  // Malzahar - Fanatic's rainbow, which is unrestricted by card kind and so is
+  // safe to spend here where the two restricted pools above are not.
+  const fromRainbow = Math.min(actor.floatingRainbowPower, owed);
+  owed -= fromRainbow;
+
+  const spend = actor.channeled.filter((r) => matchesPowerDomain(r, domain)).slice(0, owed);
+  if (spend.length < owed) return undefined;
 
   const spentIds = new Set(spend.map((r) => r.id));
   const readyCredit = spend.filter((r) => r.state === "Ready").length;
@@ -626,15 +673,24 @@ export function payPowerFromChanneled(
     // [Deflect] surcharge — so a per-site tally would miss whichever one nobody
     // remembered.
     //
-    // PIPS, not rainbow pips: her text means two Power of any domains, which is
-    // what `spend.length` counts.
+    // PIPS, not rainbow pips: her text means two Power of any domains.
     //
     // **Speculative calls do NOT inflate it**, and that is load-bearing rather
     // than lucky: this helper is called all over the codebase purely to ASK
     // whether a cost is payable, with the resulting state thrown away. The tally
     // rides that discarded state exactly as the held `cardsRecycled` trigger
     // below already does.
-    powerSpentThisTurn: p.powerSpentThisTurn + spend.length,
+    // The floating pools this payment drew on, spent before any rune was
+    // touched. Subtracted rather than zeroed: a partial payment leaves the rest.
+    floatingPower: Object.fromEntries(
+      Object.entries(p.floatingPower).map(([held, n]) => [held, (n ?? 0) - (floatingSpend.get(held as Domain) ?? 0)]),
+    ),
+    floatingRainbowPower: p.floatingRainbowPower - fromRainbow,
+    // PIPS, and the FULL cost — floating Power spent is Power spent, so this
+    // counts `count` rather than only the runes recycled. Reading `spend.length`
+    // here would quietly stop paying Sivir out the moment a Seal covered the
+    // cost, which is the shape of bug this tally exists to prevent.
+    powerSpentThisTurn: p.powerSpentThisTurn + count,
   })), playerIndex, spend.length);
 }
 
