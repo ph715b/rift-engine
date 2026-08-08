@@ -333,6 +333,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
+    // Bard - Mercurial's "exhaust your legend as an additional cost". Paid here,
+    // with the rest of the cost, so it is spent whether or not the trigger that
+    // reads it ends up doing anything — a cost is paid for the play, not for the
+    // payout. The validator has already refused an exhausted Legend, so this
+    // cannot exhaust one twice.
+    legend: action.exhaustLegendPaid ? { ...actor.legend, exhausted: true } : actor.legend,
     // Ornn's Forge's "the FIRST friendly non-token gear played each turn", and
     // Azir's "if you've played an Equipment this turn". Bumped HERE, in the
     // executor, for exactly the reason the Firebrand note below gives: a cost
@@ -428,6 +434,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // how it was paid for. Same dropped-field hazard as the fields above.
         ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
         ...(action.optionalPowerPaid !== undefined ? { optionalPowerPaid: action.optionalPowerPaid } : {}),
+        // Bard - Mercurial's paid Legend exhaust. Forwarded on BOTH unit hops for
+        // the reason this file records twice: a flag that is enumerated,
+        // validated, and dropped here leaves the card paying its cost and doing
+        // nothing.
+        ...(action.exhaustLegendPaid !== undefined ? { exhaustLegendPaid: action.exhaustLegendPaid } : {}),
       // Kinkou Monk is the first UNIT trigger with a two-slot spec; Spells have
       // carried this field since Gentlemen's Duel.
       ...(action.secondTargetUnitInstanceId !== undefined
@@ -475,6 +486,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       // the same optional cost and fires the same trigger.
       ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
       ...(action.optionalPowerPaid !== undefined ? { optionalPowerPaid: action.optionalPowerPaid } : {}),
+        // Bard - Mercurial's paid Legend exhaust. Forwarded on BOTH unit hops for
+        // the reason this file records twice: a flag that is enumerated,
+        // validated, and dropped here leaves the card paying its cost and doing
+        // nothing.
+        ...(action.exhaustLegendPaid !== undefined ? { exhaustLegendPaid: action.exhaustLegendPaid } : {}),
       // Kinkou Monk is the first UNIT trigger with a two-slot spec; Spells have
       // carried this field since Gentlemen's Duel.
       ...(action.secondTargetUnitInstanceId !== undefined

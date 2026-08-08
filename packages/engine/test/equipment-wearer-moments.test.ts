@@ -69,7 +69,7 @@ const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONES
  *
  * This list shrinks as each lands; it is not a fixed set.
  */
-const STILL_ART_ONLY = ["SFD-030", "SFD-059"];
+const STILL_ART_ONLY = ["SFD-059"];
 /** Sacred Shears — art-only like the six above, and written now, but NOT by the
  *  wearer's-moments mechanism. See its own describe block at the bottom. */
 const SACRED_SHEARS = "SFD-172";

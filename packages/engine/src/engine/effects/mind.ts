@@ -20,6 +20,7 @@ import {
   dealDamageToAllUnitsAtAllBattlefields,
   exhaustAllFriendlyUnits,
   exhaustGear,
+  forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   giveMightThisTurnToAllEnemies,
@@ -34,11 +35,13 @@ import {
 } from "../effect-helpers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
-import { parkDecision } from "../decisions.js";
+import { parkDecision, repeatDecision } from "../decisions.js";
+import { isOpenBattlefield } from "../unit-triggers.js";
 import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { UnitInstance } from "../../model/card.js";
 import { wearerListener } from "../equipment.js";
 import { isMechUnit } from "../equipment.js";
 
@@ -558,7 +561,76 @@ const FROSTCOAT_DEBUFF = 2;
  *  ceiling, inclusive ("no more than"). */
 const PICKPOCKET_MAX_GEAR_COST = 1;
 
+/**
+ * The units Bard - Mercurial could still move to `battlefieldId` - every unit its
+ * controller has anywhere ELSE, base included.
+ *
+ * "YOUR units" says nothing about where they are or what they are, so a Recruit
+ * token sitting at home and a Champion at another battlefield are equally
+ * eligible. Deliberately NOT filtered to tokens, which is the one difference from
+ * Azir - Sovereign's `movableTokensFor`.
+ *
+ * Units already standing there are excluded, and that is what makes "any number"
+ * terminate: every answer that moves one shortens this list.
+ */
+function movableUnitsFor(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const here = new Set((bf?.units[state.players[playerIndex].id] ?? []).map((u) => u.instanceId));
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => !here.has(u.instanceId));
+}
+
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-079": {
+    // Bard - Mercurial - "You may exhaust your legend as an additional cost to
+    // play me. When you play me, if you paid the additional cost, move any number
+    // of your units to an open battlefield."
+    //
+    // # The cost
+    //
+    // `costExhaustsLegend` (card-effects.ts), and it is a BOOLEAN rather than a
+    // `UnitCostSpec` because a player has exactly one Legend - there is nothing to
+    // choose, which is `OPTIONAL_POWER_COSTS`' shape rather than
+    // `OPTIONAL_UNIT_COSTS`'. See that set's own note.
+    //
+    // # The move, which is the hard half
+    //
+    // **"An OPEN battlefield" is rule 170.11.c** - "unoccupied AND uncontrolled" -
+    // and `isOpenBattlefield` is already that predicate, written for Sai Scout and
+    // Sneaky Deckhand's placement grant. Both halves matter: a battlefield can be
+    // uncontrolled with units standing on it, and a controlled one can be
+    // momentarily empty before the Cleanup lapses it.
+    //
+    // **Asked rather than fanned out**, and here that is forced rather than
+    // chosen. Bard is a UNIT, so `destinationBattlefieldId` on his play action
+    // already means "reinforce to this battlefield" - the field a move would have
+    // ridden is taken, and it means something else. The choice space is also a
+    // subset product (which battlefield x which subset of your units), which is
+    // exactly what `unitList`'s own note says the enumerator samples rather than
+    // enumerates.
+    //
+    // So it is two questions: WHERE, then WHICH, the second re-parking itself with
+    // a standing "stop" - Azir - Sovereign's "any number of your token units"
+    // shape, one file over, and it terminates for the same reason his does. With
+    // exactly one open battlefield the first question has one option and
+    // `advanceDecisions` retires it unasked.
+    //
+    // **The destination is captured at the first answer**, not re-derived at the
+    // second: the units arriving make it no longer open, so a question that
+    // re-asked would offer nothing after the first move.
+    //
+    // "YOUR units" - every unit the caster controls, base and battlefields alike,
+    // and Bard himself among them if he was played to a battlefield. Nothing in
+    // the sentence excludes him.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      if (!event.exhaustLegendPaid) return state;
+      // No open battlefield is not a question. A trigger that resolves to nothing
+      // still closes the chain, so asking would cost both players a PassFocus for
+      // an empty list.
+      if (state.battlefields.filter(isOpenBattlefield).length === 0) return state;
+      return parkDecision(state, { kind: "SFD-079-where", playerIndex: ctx.casterIndex });
+    },
+  },
   "SFD-084": {
     // Jayce - Man of Progress — "When you play me, you may kill a friendly gear.
     // If you do, you may play a gear with Energy cost no more than [7] from hand
@@ -1388,6 +1460,58 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Bard - Mercurial's destination - "to an OPEN battlefield" (170.11.c:
+   * unoccupied and uncontrolled).
+   *
+   * Asked before the units for a reason that is not merely order: the first unit
+   * to arrive OCCUPIES the battlefield and so makes it no longer open, and a
+   * question that re-derived the destination each time would offer nothing after
+   * the first move. Captured on `battlefieldId` and carried forward.
+   *
+   * No decline here - declining is what the second question's standing "stop"
+   * is, and "any number" includes zero. One open battlefield is therefore one
+   * option, which `advanceDecisions` resolves without ever showing it.
+   */
+  "SFD-079-where": {
+    prompt: () => "Bard - Mercurial: which open battlefield?",
+    options: (state) => state.battlefields.filter(isOpenBattlefield).map((bf) => ({ id: bf.id, label: bf.name })),
+    resolve: (state, d, optionId) =>
+      repeatDecision(state, { kind: "SFD-079-move", playerIndex: d.playerIndex, battlefieldId: optionId }),
+  },
+  /**
+   * Bard - Mercurial's "move ANY NUMBER of your units" - asked once per unit,
+   * with a standing "stop".
+   *
+   * Azir - Sovereign's shape (effects/order.ts) and it terminates the same way:
+   * every answer that continues also removes a candidate, because the unit is now
+   * there. "Stop" is always present, which is what lets `advanceDecisions` retire
+   * the question once the last unit has arrived.
+   *
+   * `forceMoveToBattlefield`, not the Move ACTION: 415.1.b makes the exhaust part
+   * of a Standard Move's cost rather than of moving, and this is a Game Effect
+   * moving them (316.7.c) - so they arrive as they were. It applies Contested for
+   * their controller (458), which on an OPEN battlefield means the caster simply
+   * takes it.
+   */
+  "SFD-079-move": {
+    prompt: () => "Bard - Mercurial: move a unit to that battlefield?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "stop", label: "Move no more units" }];
+      if (d.battlefieldId === undefined) return options;
+      for (const unit of movableUnitsFor(state, d.playerIndex, d.battlefieldId)) {
+        options.push({ id: unit.instanceId, label: `Move ${unit.name}`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "stop" || d.battlefieldId === undefined) return state;
+      const moved = forceMoveToBattlefield(state, optionId, d.battlefieldId);
+      // Onto the FRONT: a continuation of the question being answered, not a new
+      // one, so it cannot be interleaved with another trigger's question.
+      return repeatDecision(moved, { kind: "SFD-079-move", playerIndex: d.playerIndex, battlefieldId: d.battlefieldId });
+    },
+  },
   "SFD-084-kill": {
     // Jayce - Man of Progress's "you may kill a friendly gear. If you do, ..."
     prompt: () => "Jayce - Man of Progress: kill a friendly gear to play one free this turn?",

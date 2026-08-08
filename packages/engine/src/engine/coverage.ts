@@ -322,14 +322,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // that turned out to be MIS-PRICED rather than blocked — see this file's git
   // history and the log in docs/rules-conformance.md.
   //
-  // The Zero Drive followed on 2026-08-07: its note said "needs
-  // banish-with-source tracking", and that turned out to be one optional field on
-  // `GearInstance` plus the death-watch that fills it — the ninth of this repo's
-  // mechanism-naming notes to be pessimistic rather than wrong.
+  // The Zero Drive and Skyfall of Areion followed on 2026-08-07, and both notes
+  // had over-priced their own mechanism. The Drive's "banish-with-source
+  // tracking" is one optional field plus the death-watch that fills it; the
+  // Skyfall's "moment-rewriting layer, which has no precedent here" is one
+  // function that hands a trigger's own `applies` the OTHER moment, because every
+  // hold and conquer trigger in this pool already decides for itself against
+  // `event.kind`.
   //
-  // These two are what is honestly left. Transcribed abilities in
+  // This one is what is honestly left. Transcribed abilities in
   // docs/sfd-equipment-abilities.md.
-  ["SFD-030", "art-only: 'My hold effects are also conquer effects, and vice versa' needs a moment-rewriting layer, which has no precedent here"],
   ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
 ]);
 

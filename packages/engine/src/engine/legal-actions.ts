@@ -36,6 +36,7 @@ import {
 import {
   cardModesOf,
   cardMovesTarget,
+  costExhaustsLegend,
   cardPlacesTokens,
   moveDestinationAllowed,
   type TargetingSpec,
@@ -976,6 +977,20 @@ export function legalActions(state: GameState): PlayerAction[] {
         })
       : afterVision;
 
+    // Bard - Mercurial's "you may exhaust your legend as an additional cost".
+    //
+    // Two variants per candidate rather than a fan-out, because a player has one
+    // Legend and there is nothing to pick — `OPTIONAL_POWER_COSTS`' shape, and the
+    // decline leads for the same reason it does above.
+    //
+    // Offered only while the Legend is READY, so a card whose cost cannot be paid
+    // is never offered and then refused (416.3, and the same rule
+    // `canPayActivationCost` applies to an ability's exhaust). The plain variant
+    // survives either way — the cost is a "may".
+    const variantsWithLegend: Partial<PlayCardAction>[] = costExhaustsLegend(card.defId)
+      ? variants.flatMap((v) => (actor.legend.exhausted ? [v] : [v, { ...v, exhaustLegendPaid: true as const }]))
+      : variants;
+
     // Charm needs a destination as well as a target, and unlike a token-placing
     // spell's it is mandatory: "Move an enemy unit" with nowhere to go is not a
     // move, so the card is simply not offered rather than offered and refused.
@@ -992,7 +1007,7 @@ export function legalActions(state: GameState): PlayerAction[] {
     // for. The unit's OWNER is irrelevant to the question being asked, which is
     // "is it already standing here".
     const withDestinations: Partial<PlayCardAction>[] = cardMovesTarget(card.defId)
-      ? variants.flatMap((v) => {
+      ? variantsWithLegend.flatMap((v) => {
           const currentBattlefieldIndex =
             v.targetUnitInstanceId !== undefined ? findUnitOnBattlefield(state, v.targetUnitInstanceId)?.battlefieldIndex : undefined;
           return state.battlefields
@@ -1006,7 +1021,7 @@ export function legalActions(state: GameState): PlayerAction[] {
               moveDestinationAllowed(state, card.defId, withDest.targetUnitInstanceId, withDest.destinationBattlefieldId!),
             );
         })
-      : variants;
+      : variantsWithLegend;
 
     for (const variant of withDestinations) {
       // fromHiddenBattlefieldId rides on EVERY variant this card produces — it is

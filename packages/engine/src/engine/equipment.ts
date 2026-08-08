@@ -335,6 +335,27 @@ export function returnLapsedGearControl(state: GameState): GameState {
   return { ...state, players };
 }
 
+/**
+ * Skyfall of Areion — "My hold effects are also conquer effects, and vice
+ * versa."
+ *
+ * **ART-ONLY.** `text.plain` holds the `[Equip]` line and nothing else; see
+ * docs/sfd-equipment-abilities.md.
+ *
+ * **"MY" is the WEARER's**, the reading the eight wearer's-moments Equipment
+ * already establish for a pronoun on an Equipment — and here it is again the only
+ * reading that does anything, because the gear has no hold or conquer effects of
+ * its own to mirror.
+ */
+const SKYFALL_OF_AREION = "SFD-030";
+
+/** Does this unit wear a Skyfall of Areion? Its own predicate rather than the
+ *  `some` written out in triggers.ts, so the card's id lives beside the rest of
+ *  the Equipment table it belongs to. */
+export function wearsMomentMirror(state: GameState, unitInstanceId: string): boolean {
+  return equipmentAttachedTo(state, unitInstanceId).some((g) => g.defId === SKYFALL_OF_AREION);
+}
+
 /** The units recorded against `gear`, in the order they were banished. Its own
  *  accessor so the ability that reads the list and the trigger that writes it
  *  quote one field name. */

@@ -10,7 +10,7 @@ import { parkDecision } from "./decisions.js";
 // equipment.ts already imports this module for `Listener` and `holdEventTrigger`
 // — the same cycle, and safe for the same reason: the binding is read inside a
 // resolver, never at module init.
-import { recordBanishedWithGear } from "./equipment.js";
+import { recordBanishedWithGear, wearerOf, wearsMomentMirror } from "./equipment.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
 import { attackEventTriggers, spellCastEventTriggers } from "./unit-triggers.js";
@@ -1304,6 +1304,58 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
  * 383 and 343 together require; see allListeningPermanents for why placement order
  * and resolution order are opposites.
  */
+/**
+ * Skyfall of Areion's rewritten moment — "My hold effects are also conquer
+ * effects, and vice versa."
+ *
+ * # Why the moment is REWRITTEN rather than the trigger re-registered
+ *
+ * The card changes when an ability fires, and every "when I hold" in this pool
+ * decides that in its own `applies`, against `event.kind`. So the cheapest honest
+ * layer is to hand that predicate the OTHER moment: a hold, seen by a Skyfall
+ * wearer's conquer trigger, arrives as a `battlefieldConquered` and every
+ * existing condition works unchanged. Registering each trigger under both kinds
+ * would instead need every one of the eleven cards edited, and would make the
+ * mirror unconditional rather than a property of who is wearing what.
+ *
+ * The two events are structurally parallel — `{holderIndex, battlefieldId}` and
+ * `{conquerorIndex, battlefieldId}` — which is what makes the translation total
+ * rather than lossy.
+ *
+ * # What is deliberately dropped
+ *
+ * `wasUncontrolled` is NOT carried onto a mirrored conquest, and that is the
+ * card rather than an omission: holding a battlefield means you already control
+ * it, so "a battlefield that was uncontrolled" is false by construction. The
+ * field's own note makes absent the conservative reading — Yone - Blademaster
+ * stays silent rather than paying out wrongly.
+ *
+ * # Who it applies to
+ *
+ * A UNIT wearing one. "MY hold effects" is the WEARER's, the reading the eight
+ * wearer's-moments Equipment establish for a pronoun on an Equipment, and the
+ * only one that does anything here — the gear has no hold or conquer effects of
+ * its own to mirror.
+ */
+function mirroredMoment(state: GameState, listener: Listener, event: GameEvent): GameEvent | undefined {
+  if (event.kind !== "battlefieldHeld" && event.kind !== "battlefieldConquered") return undefined;
+  // WHOSE moments these are. A unit's own, or — for a GEAR listener — its
+  // wearer's, because the eight wearer's-moments Equipment write "when I
+  // conquer" as the gear and mean the unit. A Warmog's Armor and a Skyfall on
+  // the same body is exactly the case the card is for, and a check that only
+  // looked at unit listeners would silently skip it.
+  const unitInstanceId =
+    listener.card.kind === "Unit"
+      ? listener.card.instanceId
+      : listener.card.kind === "Gear"
+        ? wearerOf(state, listener.card)?.unit.instanceId
+        : undefined;
+  if (unitInstanceId === undefined || !wearsMomentMirror(state, unitInstanceId)) return undefined;
+  return event.kind === "battlefieldHeld"
+    ? { kind: "battlefieldConquered", conquerorIndex: event.holderIndex, battlefieldId: event.battlefieldId }
+    : { kind: "battlefieldHeld", holderIndex: event.conquerorIndex, battlefieldId: event.battlefieldId };
+}
+
 export function holdEventTrigger(
   state: GameState,
   event: GameEvent,
@@ -1328,10 +1380,26 @@ export function holdEventTrigger(
     // Relentless Pursuit's "this turn, that unit has 'when I conquer…'". Both are
     // registry keys and both go through this one loop, so a granted ability
     // captures, holds, orders and resolves exactly as a printed one does.
+    // Skyfall of Areion's mirror, computed once per listener rather than per
+    // trigger: whether a unit wears one is a fact about the unit.
+    const mirror = mirroredMoment(state, listener, event);
     for (const key of triggerKeysOn(listener.card)) {
       const trigger = registry[key];
-      if (!trigger || !listensFor(trigger, event.kind)) continue;
-      if (trigger.applies && !trigger.applies(state, listener, event)) continue;
+      if (!trigger) continue;
+      // WHICH event this trigger sees. The real one when it listens for that
+      // moment; otherwise Skyfall of Areion's mirror of it, when there is one.
+      //
+      // In that order, and never both — a card that already lists BOTH moments
+      // (Last Rites' "when I conquer or hold") is by its own text already what
+      // the Skyfall would make it, and firing it twice for one moment would be
+      // the mirror paying out where it has nothing to add.
+      const seen = listensFor(trigger, event.kind)
+        ? event
+        : mirror !== undefined && listensFor(trigger, mirror.kind)
+          ? mirror
+          : undefined;
+      if (seen === undefined) continue;
+      if (trigger.applies && !trigger.applies(state, listener, seen)) continue;
       // Captured against the board as it stands NOW — before any other listener in
       // this same walk has resolved, which is what makes it a snapshot of the
       // moment of the event (383) rather than of whatever the chain did next.
@@ -1348,12 +1416,15 @@ export function holdEventTrigger(
         listenerCard: listener.card,
         ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
         ...(captured !== undefined ? { captured } : {}),
-        event,
+        // `seen`, not the raw event — a mirrored moment must survive onto the
+        // chain, or `resolvePendingTrigger` would hand this trigger an event of
+        // a kind it does not listen for and drop it at the `listensFor` guard.
+        event: seen,
       });
       if (trigger.captureEach) {
-        for (const one of trigger.captureEach(state, listener, event)) held.push(entry(one));
+        for (const one of trigger.captureEach(state, listener, seen)) held.push(entry(one));
       } else {
-        held.push(entry(trigger.capture?.(state, listener, event)));
+        held.push(entry(trigger.capture?.(state, listener, seen)));
       }
     }
   }

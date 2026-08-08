@@ -720,6 +720,27 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: n
  */
 const X_RAINBOW_COST_DEF_IDS = new Set(["OGN-268"]); // Bullet Time
 
+/**
+ * Cards whose optional additional cost is EXHAUSTING YOUR LEGEND — Bard -
+ * Mercurial's "You may exhaust your legend as an additional cost to play me."
+ *
+ * A set rather than a `UnitCostSpec` kind, and the reason is that there is
+ * nothing to choose: a player has one Legend, so the cost is a boolean and not a
+ * pick. `OPTIONAL_UNIT_COSTS` exists to fan a variant out per eligible permanent
+ * and to carry the chosen id on the action; both would be dead weight here, and
+ * the id would ride a field named for units on a card that is not one.
+ *
+ * So this is `OPTIONAL_POWER_COSTS`' shape — two enumerated variants and one flag
+ * the trigger reads — differing only in what is spent. The flag is
+ * `exhaustLegendPaid`; see its note on `PlayCardAction` for why it is not shared.
+ */
+const OPTIONAL_LEGEND_EXHAUST_DEF_IDS = new Set(["SFD-079"]); // Bard - Mercurial
+
+/** Does this card offer to be paid for by exhausting its caster's Legend? */
+export function costExhaustsLegend(defId: string): boolean {
+  return OPTIONAL_LEGEND_EXHAUST_DEF_IDS.has(defId);
+}
+
 /** Does this card ask the caster for an X of rainbow Power? */
 export function hasXRainbowCost(defId: string): boolean {
   return X_RAINBOW_COST_DEF_IDS.has(defId);

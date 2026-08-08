@@ -82,6 +82,10 @@ export interface UnitTriggerEvent {
   /** Clockwork Keeper's optional Power cost — "if you PAID the additional cost,
    *  draw 1", so the trigger has to know, and only the action does. */
   optionalPowerPaid?: boolean;
+  /** Bard - Mercurial's "if you PAID the additional cost" — his whole trigger is
+   *  gated on it, and only the action knows: exhausting a Legend leaves the same
+   *  mark on the board as an Awaken-less turn does. */
+  exhaustLegendPaid?: boolean;
 }
 
 export interface UnitTriggerDefinition {
@@ -427,6 +431,7 @@ export function dispatchOnPlayUnit(
     discardCardInstanceId?: string;
     acceleratePaid?: boolean;
     optionalPowerPaid?: boolean;
+    exhaustLegendPaid?: boolean;
   },
 ): GameState {
   // **No Legend dispatch here.** Volibear - Relentless Storm used to be fired
@@ -543,6 +548,7 @@ export function dispatchOnPlayUnit(
     ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
     ...(extra?.optionalPowerPaid !== undefined ? { optionalPowerPaid: extra.optionalPowerPaid } : {}),
+    ...(extra?.exhaustLegendPaid !== undefined ? { exhaustLegendPaid: extra.exhaustLegendPaid } : {}),
   });
 }
 

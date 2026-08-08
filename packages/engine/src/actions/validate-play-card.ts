@@ -33,6 +33,7 @@ import {
 import {
   cardModesOf,
   cardMovesTarget,
+  costExhaustsLegend,
   cardPlacesTokens,
   moveDestinationAllowed,
   discardChoiceOf,
@@ -724,6 +725,22 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // about what the play costs.
   const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
   const optionalPower = optionalPowerCostOf(card.defId);
+  // Bard - Mercurial's "you may exhaust your legend as an additional cost".
+  //
+  // Re-derived from the board rather than trusted from the action, the discipline
+  // every other cost here keeps: a hand-built action could claim the cost was
+  // paid with an already-exhausted Legend and get the payout for nothing. Only
+  // the READINESS is checked — a player always has a Legend, so there is nothing
+  // to look up.
+  if (action.exhaustLegendPaid) {
+    if (!costExhaustsLegend(card.defId)) {
+      return fail(`${card.name} has no additional cost that exhausts your legend`);
+    }
+    if (actor.legend.exhausted) {
+      return fail(`${card.name}'s additional cost needs a ready legend, and ${actor.name}'s is exhausted`);
+    }
+  }
+
   // The rainbow surcharge this play owes beyond its own cost — `[Deflect]` on
   // what it chooses, plus Vex - Cheerless's tax on an enemy spell cast into her
   // combat. Computed HERE, above Bullet Time's X check, because that check is an

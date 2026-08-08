@@ -120,6 +120,22 @@ export interface PlayCardAction {
    *  `acceleratePaid`, which additionally means "enters ready". */
   optionalPowerPaid?: true;
   /**
+   * Bard - Mercurial's "you may exhaust your legend as an additional cost to play
+   * me" — whether the caster took the option.
+   *
+   * A BOOLEAN with no id, unlike `OPTIONAL_UNIT_COSTS`' costs, and that is the
+   * shape of the price rather than a shortcut: a player has exactly one Legend, so
+   * there is nothing to choose. That makes it `optionalPowerPaid`'s sibling
+   * (two enumerated variants, one flag the trigger reads) rather than a sixth
+   * `OptionalUnitCost` kind, which would have fanned out over a list of one and
+   * ridden a field named for units on a card that is not one.
+   *
+   * Its OWN field for the reason every flag here has one: `optionalPowerPaid`
+   * means runes were spent and is read by the pricing, and a shared flag would
+   * have charged Bard for Power he does not print.
+   */
+  exhaustLegendPaid?: true;
+  /**
    * Which axis a TARGET-KEYED discount was taken on — Irelia - Graceful's "your
    * spells that choose me cost [1] **or** [rainbow] less".
    *
