@@ -46,6 +46,11 @@ export interface UnitTriggerEvent {
    *  enumerated but gets dropped on this hop is the exact bug shape this file's
    *  dispatch comment already records twice. */
   secondTargetUnitInstanceId?: string;
+  /** The GEAR a `gear`-kind spec named — Akshan - Mischievous' "move an enemy
+   *  gear to your base". Its own field for the reason the action's is: a gear
+   *  must never reach a reader expecting a unit, and this is the first UNIT
+   *  trigger to choose one. */
+  targetPermanentInstanceId?: string;
   visionRecycle?: boolean;
   trashCardInstanceId?: string;
   /** The friendly unit named for this card's OPTIONAL additional cost, or
@@ -413,6 +418,7 @@ export function dispatchOnPlayUnit(
   extra?: {
     targetUnitInstanceId?: string;
     secondTargetUnitInstanceId?: string;
+    targetPermanentInstanceId?: string;
     visionRecycle?: boolean;
     trashCardInstanceId?: string;
     additionalCostUnitInstanceId?: string;
@@ -513,6 +519,12 @@ export function dispatchOnPlayUnit(
     ...(extra?.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: extra.targetUnitInstanceId } : {}),
     ...(extra?.secondTargetUnitInstanceId !== undefined
       ? { secondTargetUnitInstanceId: extra.secondTargetUnitInstanceId }
+      : {}),
+    // Forwarded for the reason every field beside it is, and this file records
+    // the consequence of forgetting twice: enumerated, validated, then dropped on
+    // this hop leaves the card paying its cost and doing nothing.
+    ...(extra?.targetPermanentInstanceId !== undefined
+      ? { targetPermanentInstanceId: extra.targetPermanentInstanceId }
       : {}),
     ...(extra?.visionRecycle !== undefined ? { visionRecycle: extra.visionRecycle } : {}),
     ...(extra?.trashCardInstanceId !== undefined ? { trashCardInstanceId: extra.trashCardInstanceId } : {}),

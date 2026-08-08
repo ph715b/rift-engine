@@ -11,6 +11,7 @@ import {
   shareABattlefield,
   unitListChoiceError,
   gearTargets,
+  gearOwnerMatches,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
@@ -216,16 +217,32 @@ function targetingRejection(
       return `${choices.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`;
     }
   } else if (targeting.kind === "unitAndEquipment") {
-    // BOTH halves are required — 355 makes every named choice mandatory, and a
-    // card that named only one would resolve half of "attach that Equipment to
-    // that unit".
-    if (!choices.targetUnitInstanceId || !choices.targetPermanentInstanceId) {
+    // The UNIT half is always required — 355 makes a named choice mandatory, and
+    // a card that skipped it would resolve nothing at all.
+    if (!choices.targetUnitInstanceId) {
+      return `${cardName} requires a target unit`;
+    }
+    // The EQUIPMENT half is required unless the card says "you may". Angle Shot
+    // does not; Relentless Pursuit does, and its decline variant names no gear.
+    if (!choices.targetPermanentInstanceId && !targeting.optionalEquipment) {
       return `${cardName} requires a unit and an Equipment`;
+    }
+    // "A FRIENDLY unit", when the card says so. Re-derived from the same
+    // `eligibleTargets` walk the enumerator offers from, so an owner constraint
+    // cannot be enforced on one side only.
+    if (
+      targeting.owner !== undefined &&
+      !eligibleTargets(state, playerIndex, targeting.owner, "anywhere").some(
+        (u) => u.instanceId === choices.targetUnitInstanceId,
+      )
+    ) {
+      return `${choices.targetUnitInstanceId} is not a ${targeting.owner} unit`;
     }
     // Asked through the same walk the enumerator offers from, so a legal pair is
     // never offered and then refused. It carries the "same controller" rule, so
     // an Equipment paired with a unit its controller does not own fails here.
     if (
+      choices.targetPermanentInstanceId !== undefined &&
       !equipmentPairedWith(state, choices.targetUnitInstanceId, targeting.relation).some(
         (g) => g.instanceId === choices.targetPermanentInstanceId,
       )
@@ -236,8 +253,15 @@ function targetingRejection(
     if (!choices.targetPermanentInstanceId) {
       return `${cardName} requires a target gear`;
     }
-    if (!gearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
+    const gear = gearTargets(state).find((t) => t.instanceId === choices.targetPermanentInstanceId);
+    if (!gear) {
       return `${choices.targetPermanentInstanceId} is not a gear in play`;
+    }
+    // Akshan - Mischievous' "an ENEMY gear", through the shared predicate the
+    // enumerator filters with — an owner constraint enforced on one side only is
+    // the offered-then-refused split.
+    if (!gearOwnerMatches(targeting.owner, gear.ownerIndex, playerIndex)) {
+      return `${gear.name} is not an ${targeting.owner} gear`;
     }
   } else if (targeting.kind === "ownTrashCard") {
     if (!choices.trashCardInstanceId) {

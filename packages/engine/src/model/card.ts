@@ -120,6 +120,48 @@ export interface UnitInstance extends CardInstanceBase {
    */
   keywordsThisTurn: Partial<Record<Keyword, number>>;
   /**
+   * TRIGGERED ABILITIES granted to this unit for the current turn — Relentless
+   * Pursuit's "This turn, that unit has 'When I conquer, you may move me to my
+   * base.'"
+   *
+   * The pool's first grant of an ABILITY rather than of a keyword or a number,
+   * and it is a sibling of `keywordsThisTurn` rather than an extension of it:
+   * that field holds keywords, and a keyword is a name the rules already define,
+   * where this holds a key into the event-trigger registry. Sharing one field
+   * would mean `effectiveKeywords` had to know which of its entries were not
+   * keywords at all.
+   *
+   * Each entry is a registry key, so the granted ability is written exactly where
+   * a printed one is and resolves through the same path — `holdEventTrigger`
+   * matches these alongside `card.defId`, and stamps the granted key onto the
+   * chain entry so `resolvePendingTrigger` finds the same definition.
+   *
+   * Optional so every existing unit construction site is unaffected, and swept by
+   * `runEnd` alongside `keywordsThisTurn` for the reason that one is: "this turn"
+   * state has to expire with the turn.
+   */
+  grantedTriggersThisTurn?: readonly string[];
+  /**
+   * Who this unit goes back to at end of turn — Hostile Takeover's "Lose control
+   * of that unit and recall it at end of turn."
+   *
+   * **Control in this engine IS which player's list a unit sits in**, the model
+   * `takeControlOfUnit` records and docs/rules-conformance.md carries a row for.
+   * That makes a stolen unit indistinguishable from an owned one, which is
+   * exactly right for Possession — it steals permanently — and is precisely what
+   * a card that gives the unit BACK cannot live with. This field is the memory
+   * that model lacks, and it is deliberately the only thing added: control stays
+   * list membership, and this says where the unit came from.
+   *
+   * On the UNIT rather than on either player, so it travels with the thing it is
+   * about: a stolen unit that dies takes the obligation with it into the trash,
+   * where a per-player list would keep an entry pointing at nothing.
+   *
+   * Cleared by `runEnd` as the unit is handed back. Optional, so every unit that
+   * was never stolen is unaffected — absent means "this is mine".
+   */
+  returnControlAtEndOfTurnToIndex?: 0 | 1;
+  /**
    * Which modes of this unit's own activated ability it has already used this
    * turn — Udyr's "Choose one you've not chosen this turn".
    *
@@ -204,6 +246,29 @@ export interface GearInstance extends CardInstanceBase {
    * reads as "nothing banished with it", which is true of all thirty other Gear.
    */
   banishedInstanceIds?: readonly string[];
+  /**
+   * This gear is BORROWED — Akshan - Mischievous' "move an enemy gear to your
+   * base. You control it until I leave the board."
+   *
+   * Control of a gear is `activeGear` membership, the same model units use, so
+   * taking it IS moving it between the two lists. What that model cannot express
+   * on its own is an expiry, and this is it: whose it was, and which permanent's
+   * presence the loan depends on.
+   *
+   * A `whileInPlayInstanceId` rather than a duration, because the card names a
+   * permanent and not a turn — Akshan can be killed the instant he arrives, or
+   * hold the gear for the rest of the game. `equipment.returnLapsedGearControl`
+   * checks it every Cleanup, which is the one hook that runs after every resolved
+   * action in both `submit` and the AI's lookahead.
+   *
+   * Distinct from `UnitInstance.returnControlAtEndOfTurnToIndex`, which is Hostile
+   * Takeover's, and deliberately not merged with it: one expires on a clock and
+   * the other on a body, and a shared field would have to carry both and be read
+   * by two sweeps that agree about neither.
+   *
+   * Optional, so every gear that was never borrowed is unaffected.
+   */
+  borrowedControl?: { fromIndex: 0 | 1; whileInPlayInstanceId: string };
   /**
    * Keywords this gear carries. Present so a keyword can be GRANTED to it at
    * runtime — Fading Memories gives "a unit at a battlefield **or a gear**"

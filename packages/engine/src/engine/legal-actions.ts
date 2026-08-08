@@ -20,6 +20,7 @@ import {
   shareABattlefield,
   unitListCandidates,
   gearTargets,
+  gearOwnerMatches,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
@@ -759,10 +760,16 @@ export function legalActions(state: GameState): PlayerAction[] {
       // walk (`equipmentPairedWith`) the validator checks against so the two
       // cannot disagree about which pairs are legal.
       //
-      // Every unit on the board is a candidate, either player's — "the same
-      // controller" relates the two TARGETS to each other, not to the caster.
-      for (const target of eligibleTargets(state, playerIndex, undefined, "anywhere")) {
+      // Angle Shot names no owner, so every unit on the board is a candidate —
+      // "the same controller" relates the two TARGETS to each other, not to the
+      // caster. Relentless Pursuit says "a FRIENDLY unit" before it mentions an
+      // Equipment, and that constraint rides `owner`.
+      for (const target of eligibleTargets(state, playerIndex, targeting.owner, "anywhere")) {
         if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
+        // The DECLINE variant, for a card whose Equipment half is a "you may".
+        // Pushed whether or not a legal Equipment exists, because "may" has to
+        // stay refusable — the rule the optional additional costs keep.
+        if (targeting.optionalEquipment) effectVariants.push({ targetUnitInstanceId: target.instanceId });
         for (const gear of equipmentPairedWith(state, target.instanceId, targeting.relation)) {
           effectVariants.push({
             targetUnitInstanceId: target.instanceId,
@@ -771,7 +778,12 @@ export function legalActions(state: GameState): PlayerAction[] {
         }
       }
     } else if (targeting.kind === "gear") {
-      for (const g of gearTargets(state)) effectVariants.push({ targetPermanentInstanceId: g.instanceId });
+      // `owner` is Akshan - Mischievous' "an ENEMY gear"; absent leaves the walk
+      // unfiltered, which is Rocket Barrage's and Detonate's "a gear".
+      for (const g of gearTargets(state)) {
+        if (!gearOwnerMatches(targeting.owner, g.ownerIndex, playerIndex)) continue;
+        effectVariants.push({ targetPermanentInstanceId: g.instanceId });
+      }
     } else if (targeting.kind === "ownTrashCard") {
       for (const trashCard of actor.trash) {
         if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;

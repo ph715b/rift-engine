@@ -748,6 +748,30 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
  * with the rest of this turn's state and cannot be smuggled into a later turn by
  * a card that reads the printed set.
  */
+/**
+ * Grants `triggerKey` to a unit for the rest of the turn — Relentless Pursuit's
+ * "This turn, that unit has 'When I conquer, you may move me to my base.'"
+ *
+ * The key is an event-trigger registry key, so the granted ability is written
+ * exactly where a printed one is; `triggers.triggerKeysOn` is what makes the
+ * listener walk find it, and `runEnd` sweeps it.
+ *
+ * Idempotent, on 817.1.a's reasoning applied one level out: granting the same
+ * ability twice would place it on the chain twice for one moment, which no card
+ * in this pool asks for and the second Relentless Pursuit on one unit would
+ * silently do.
+ *
+ * A unit that has left the board is a silent no-op — the target-vanished
+ * convention every helper here follows.
+ */
+export function grantTriggerThisTurn(state: GameState, targetInstanceId: string, triggerKey: string): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) =>
+    (u.grantedTriggersThisTurn ?? []).includes(triggerKey)
+      ? u
+      : { ...u, grantedTriggersThisTurn: [...(u.grantedTriggersThisTurn ?? []), triggerKey] },
+  );
+}
+
 export function grantKeywordThisTurn(
   state: GameState,
   targetInstanceId: string,
@@ -1526,6 +1550,78 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
  * and it matters, because leaving it at the battlefield would hand the taker a
  * body already contesting a fight it was defending an instant ago.
  */
+/**
+ * Takes control of a unit and LEAVES IT STANDING WHERE IT IS — Hostile
+ * Takeover's "Take control of an enemy unit at a battlefield. Ready it. (Start a
+ * combat if other enemies are there. Otherwise, conquer.)"
+ *
+ * The opposite half of `takeControlOfUnit` below, which recalls to base, and the
+ * two must stay apart: the recall is what makes Possession safe, and the
+ * PARENTHETICAL here is the whole card. A unit that changes hands at a
+ * battlefield "otherwise becomes present" for its new controller (190.4), so
+ * Contested is applied for them — which starts a combat when enemies are still
+ * standing there and takes the battlefield when they are not.
+ *
+ * **Borrowed, not taken.** `returnControlAtEndOfTurnToIndex` records the original
+ * owner so `runEnd` can hand it back; that field is the only thing this engine's
+ * control model was missing, and see its own note for why.
+ *
+ * A unit in a BASE is refused rather than stolen in place, and that is the card
+ * ("an enemy unit AT A BATTLEFIELD") rather than a limitation here: standing a
+ * borrowed unit in the thief's base would contest nothing and score nothing.
+ */
+export function borrowUnitInPlace(state: GameState, targetInstanceId: string, newControllerIndex: 0 | 1): GameState {
+  const location = findUnitOnBattlefield(state, targetInstanceId);
+  if (!location || location.ownerIndex === newControllerIndex) return state;
+  const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
+  const bf = state.battlefields[battlefieldIndex]!;
+  const takerId = state.players[newControllerIndex].id;
+  const battlefields = [...state.battlefields];
+  battlefields[battlefieldIndex] = {
+    ...bf,
+    units: {
+      ...bf.units,
+      [ownerId]: (bf.units[ownerId] ?? []).filter((u) => u.instanceId !== targetInstanceId),
+      // Buffs and damage survive, exactly as they do in `takeControlOfUnit`: the
+      // unit changes hands, it is not reprinted (709 removes a Buff only on
+      // LEAVING PLAY, and this never does).
+      [takerId]: [...(bf.units[takerId] ?? []), { ...unit, returnControlAtEndOfTurnToIndex: ownerIndex }],
+    },
+  };
+  // 190.4's "Moves **or otherwise becomes present**". Changing hands is the
+  // second, which is the same reading `placeToken` takes for a token appearing at
+  // a battlefield its controller does not control.
+  return applyContested({ ...state, battlefields }, bf.id, newControllerIndex);
+}
+
+/**
+ * Hands every borrowed unit back to its owner and recalls it — the second half
+ * of Hostile Takeover, run by `runEnd`.
+ *
+ * "(Send it to base. This isn't a move.)" is the card's own parenthetical and it
+ * is load-bearing twice over: it goes to the OWNER's base rather than the
+ * thief's, and it is not a move, so it is `relocateToBaseUnchanged` rather than
+ * `recallUnitToBase` — no move trigger fires, and Vilemaw's Lair's "units can't
+ * move from here to base" does not stop it.
+ *
+ * Walks both players because a Hostile Takeover can be cast by either, and the
+ * turn ending is not necessarily the caster's: the card is `[Hidden]`, so it is
+ * cast as a Reaction on someone else's turn as often as not.
+ */
+export function returnBorrowedUnits(state: GameState): GameState {
+  const borrowed = state.battlefields.flatMap((bf) =>
+    state.players.flatMap((p) => (bf.units[p.id] ?? []).filter((u) => u.returnControlAtEndOfTurnToIndex !== undefined)),
+  );
+  return borrowed.reduce((next, unit) => {
+    const ownerIndex = unit.returnControlAtEndOfTurnToIndex!;
+    const removed = removeUnitAnywhere(next, unit.instanceId);
+    // The obligation is cleared as it is discharged, so a unit stolen twice in
+    // one game is not handed to the wrong player on the second turn.
+    const { returnControlAtEndOfTurnToIndex: _returned, ...rest } = unit;
+    return updatePlayer(removed, ownerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, rest] }));
+  }, state);
+}
+
 export function takeControlOfUnit(state: GameState, targetInstanceId: string, newControllerIndex: 0 | 1): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location || location.ownerIndex === newControllerIndex) return state;

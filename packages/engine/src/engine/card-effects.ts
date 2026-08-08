@@ -92,7 +92,18 @@ export type TargetingSpec =
    * Rides `targetPermanentInstanceId` like `unitOrGear` does, because a gear is
    * still not a unit and must never reach a reader expecting one.
    */
-  | { kind: "gear" }
+  | {
+      kind: "gear";
+      /**
+       * Whose gear may be chosen — Akshan - Mischievous' "move an ENEMY gear to
+       * your base".
+       *
+       * Absent means either player's, which is Rocket Barrage's "Kill a gear" and
+       * Detonate's, so both are untouched. Measured from the CASTER, the same
+       * seat every other `owner` on this union is measured from.
+       */
+      owner?: "friendly" | "enemy";
+    }
   | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
   /**
    * Two ordered target slots with a MINIMUM number that must be filled —
@@ -367,6 +378,32 @@ export type TargetingSpec =
        * state "detach that Equipment FROM THAT UNIT" can mean.
        */
       relation: "attachable" | "attachedToIt";
+      /**
+       * Whose UNIT may be chosen. Angle Shot constrains neither side — "the same
+       * controller" relates its two targets to each other rather than to the
+       * caster — but Relentless Pursuit says "move a FRIENDLY unit" before it
+       * mentions an Equipment at all, so the unit half needs its own owner rule.
+       *
+       * Absent means unconstrained, which is Angle Shot's reading and leaves it
+       * untouched.
+       */
+      owner?: "friendly" | "enemy";
+      /**
+       * The EQUIPMENT half is a "you may" — Relentless Pursuit's "You may attach
+       * an Equipment with the same controller to it".
+       *
+       * A property of the spec rather than a question asked at resolution,
+       * because that is where every other attach choice in this engine is made:
+       * `attachesEquipment` and `attachesFromTargetToSelf` both fan out at
+       * ANNOUNCE time, and 355 makes a chosen permanent a target — announcing it
+       * is what lets an opponent respond to the pairing, exactly as in paper.
+       *
+       * The consequence is one extra variant per unit, carrying no
+       * `targetPermanentInstanceId` at all. Declining has to stay legal even
+       * where a legal Equipment exists, which is the same rule the optional
+       * additional costs keep.
+       */
+      optionalEquipment?: true;
     };
 
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
@@ -664,6 +701,10 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: n
   "SFD-013": { energy: 1, domain: "Fury", count: 1 }, // Blast Corps Cadet — [1][Fury]
   "SFD-067": { domain: "Mind", count: 1 }, // Frostcoat Cub — [Mind], no Energy
   "SFD-098": { energy: 1 }, // Sea Monkey — [1], no rune at all
+  // Akshan - Mischievous — [Body][Body]. The pool's first optional cost of TWO
+  // runes; every other one is a single pip, which is why `count` had never been
+  // exercised above 1.
+  "SFD-109": { domain: "Body", count: 2 },
 };
 
 /**
@@ -880,6 +921,13 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // same controller." The first card whose DESTINATION is restricted rather than
   // free — see `moveDestinationAllowed`.
   "SFD-129",
+  // Relentless Pursuit — "[Action] Move a friendly unit. You may attach an
+  // Equipment with the same controller to it. This turn, that unit has 'When I
+  // conquer, you may move me to my base.'" The first card here whose move
+  // composes with a SECOND choice on the same target (the Equipment); the
+  // destination axis and the `unitAndEquipment` axis are independent, and
+  // `withDestinations` already fans one over the other.
+  "SFD-184",
 ]);
 
 /**

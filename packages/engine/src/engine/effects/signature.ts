@@ -5,6 +5,7 @@ import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import {
   addBuff,
   banishCard,
+  borrowUnitInPlace,
   dealDamage,
   destroyUnit,
   legionActive,
@@ -13,11 +14,13 @@ import {
   drawCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
+  grantTriggerThisTurn,
   giveMightThisTurnToOwnUnit,
   ownUnitsEverywhere,
   payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
+  recallUnitToBase,
   removeUnitAnywhere,
   stunUnits,
 } from "../effect-helpers.js";
@@ -32,7 +35,7 @@ import { playCardIgnoringCost } from "../play-free.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
 import type { CardInstance, GearInstance, UnitInstance } from "../../model/card.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
-import { isEquipmentGear, isMechUnit } from "../equipment.js";
+import { attachEquipment, isEquipmentGear, isMechUnit } from "../equipment.js";
 import { SAND_SOLDIER_TOKEN, placeToken, type TokenDestination } from "../token.js";
 
 /**
@@ -57,6 +60,18 @@ import { SAND_SOLDIER_TOKEN, placeToken, type TokenDestination } from "../token.
  * or oracle citation, and an engine test.
  */
 const DANGER_ZONE_MIGHT = 1;
+
+/**
+ * The event-trigger registry key Relentless Pursuit grants — "When I conquer,
+ * you may move me to my base."
+ *
+ * A named constant because it is written in two places that must agree: the
+ * resolver that grants it and the registry entry that answers to it. A typo in
+ * either would be SILENT — the grant would name an ability nothing implements,
+ * and the unit would simply never trigger, which reads exactly like a card that
+ * was never played.
+ */
+const RELENTLESS_PURSUIT_GRANT = "SFD-184-conquer-home";
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-182": {
@@ -699,6 +714,106 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return giveMightThisTurnToOwnUnit(countered, ctx.casterIndex, event.targetUnitInstanceId, amount);
     },
   },
+  "SFD-202": {
+    // Hostile Takeover (Mind + Order) — "[Hidden] Take control of an enemy unit
+    // at a battlefield. Ready it. (Start a combat if other enemies are there.
+    // Otherwise, conquer.) Lose control of that unit and recall it at end of
+    // turn. (Send it to base. This isn't a move.)"
+    //
+    // # What was actually missing
+    //
+    // `takeControlOfUnit` existed and is the wrong half of the card: it recalls to
+    // the taker's BASE, which is what makes Possession's permanent theft safe, and
+    // this card's whole parenthetical is about the unit staying where it stands.
+    // `borrowUnitInPlace` is that half — it leaves the unit at the battlefield and
+    // applies Contested for its new controller (190.4's "or otherwise becomes
+    // present"), which is what "start a combat if other enemies are there,
+    // otherwise conquer" describes. Both outcomes fall out of Contested rather
+    // than being branched on here: the Cleanup opens a Combat Showdown when both
+    // players have units present and a Non-Combat one when they do not, and 352.1
+    // is what turns the second into a conquest.
+    //
+    // The REVERSAL genuinely did not exist, exactly as the handoff said. In this
+    // engine control IS which player's list a unit sits in — the row
+    // docs/rules-conformance.md carries — so a stolen unit is indistinguishable
+    // from an owned one and nothing could ever give it back. One optional field on
+    // the unit (`returnControlAtEndOfTurnToIndex`) is the whole of the memory that
+    // model lacked, and `runEnd` discharges it.
+    //
+    // # The ready, and the order
+    //
+    // "Ready it" AFTER the theft, printed order, and it matters: `readyUnit` is
+    // gated by `mayReadyPermanent`, which refuses to ready an ENEMY unit under
+    // Mageseeker Warden. By the time this runs the unit is ours, so the Warden
+    // does not bite — which is right, since it is our unit being readied.
+    //
+    // A ready is also what makes the borrowed body worth having: it arrives on our
+    // side able to fight, where a unit that had already attacked this turn would
+    // otherwise stand exhausted.
+    //
+    // `scope` left at its default, so "an enemy unit AT A BATTLEFIELD" is enforced
+    // by the targeting and a unit sheltering in the opponent's base is out of
+    // reach — the same reading Possession takes of the same phrase.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      const borrowed = borrowUnitInPlace(state, event.targetUnitInstanceId, ctx.casterIndex);
+      return readyUnit(borrowed, event.targetUnitInstanceId);
+    },
+  },
+  "SFD-184": {
+    // Relentless Pursuit (Fury + Body) — "[Action] Move a friendly unit. You may
+    // attach an Equipment with the same controller to it. This turn, that unit
+    // has 'When I conquer, you may move me to my base.'"
+    //
+    // # Three instructions, three mechanisms, all chosen at ANNOUNCE time
+    //
+    // The MOVE rides `destinationBattlefieldId` through
+    // `MOVE_TARGET_SPELL_DEF_IDS`, the same field Charm and Ride The Wind use.
+    //
+    // The ATTACH is `unitAndEquipment` with `optionalEquipment`, which is new
+    // here: Angle Shot's version requires both halves and constrains neither
+    // owner. Fanned out rather than asked at resolution, which is the standing
+    // rule for an attach in this engine — `attachesEquipment` and
+    // `attachesFromTargetToSelf` both do it, and 355 makes the Equipment a target
+    // whose announcement an opponent can respond to.
+    //
+    // The GRANT is `grantTriggerThisTurn`, and it is the pool's first ability
+    // given to a unit rather than a keyword or a number. The handoff that scoped
+    // this card said "nothing grants a triggered ability" and named
+    // `keywordsThisTurn` as the nearest shape; what it needed was one sibling
+    // field holding a REGISTRY KEY, so the granted ability is written in the same
+    // table a printed one is and resolves through the same path.
+    //
+    // # The order
+    //
+    // Move, then attach, then grant — the order the card prints them in. Only the
+    // first two could interact and they do not: attaching reads no location.
+    //
+    // A vanished target is a no-op throughout: the unit can be killed in response
+    // to the announcement, and each helper already answers safely for a unit it
+    // cannot find.
+    targeting: { kind: "unitAndEquipment", relation: "attachable", owner: "friendly", optionalEquipment: true },
+    resolve: (state, ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (!unitId) return state;
+      const moved =
+        event.destinationBattlefieldId !== undefined
+          ? forceMoveToBattlefield(state, unitId, event.destinationBattlefieldId)
+          : state;
+      // Attached by the PAIR's controller, not the caster's — "with the same
+      // controller" relates the Equipment to the unit, and `attachEquipment`
+      // writes into that player's `activeGear`. Angle Shot's note records the
+      // same reasoning; passing the caster there looked for an enemy's gear in
+      // our own list.
+      const owner = findUnitAnywhere(moved, unitId);
+      const attached =
+        event.targetPermanentInstanceId !== undefined && owner !== undefined
+          ? attachEquipment(moved, owner.ownerIndex, event.targetPermanentInstanceId, unitId)
+          : moved;
+      return grantTriggerThisTurn(attached, unitId, RELENTLESS_PURSUIT_GRANT);
+    },
+  },
   "SFD-198": {
     // Arise! (Calm + Order) — "Play a 2 [Might] Sand Soldier unit token for each
     // Equipment you control. Then do this: Ready up to two of them."
@@ -891,6 +1006,47 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  /**
+   * The ability Relentless Pursuit GRANTS — "When I conquer, you may move me to
+   * my base."
+   *
+   * **Keyed by a grant key rather than by a defId**, which is the whole shape of
+   * the mechanism: nothing on the board has the defId `SFD-184` (the spell is in
+   * a trash by the time this can fire, and no trash listener walks it), so the
+   * key names an ability rather than a card. `grantTriggersThisTurn` writes it
+   * onto the unit and `triggers.triggerKeysOn` is what makes the listener walk
+   * match it. Registering it under the bare `SFD-184` would have worked by
+   * accident and read as a printed conquer trigger the spell does not have.
+   *
+   * **"When I conquer" is positional**, the reading every other "when I" in this
+   * pool takes: the battlefield conquered must be the one the granted unit is
+   * standing at, and the conqueror must be its controller.
+   *
+   * **"You MAY move me"** — a decision, not a freebie, and this one genuinely can
+   * be wrong to take: leaving is giving up the battlefield you just took, which
+   * is why a card that pushes a unit forward pairs it with a way home. Declining
+   * leads, as everywhere else a "you may" is asked.
+   *
+   * "To my base" is `recallUnitToBase`, the helper Flash and Maddened Marauder
+   * use — so it exhausts, and it is refused by Vilemaw's Lair's "units can't move
+   * from here to base". Both are that helper's behaviour rather than choices
+   * made here; the exhaustion question is already filed as Unverified in
+   * docs/rules-conformance.md against those two cards, and this card inherits it
+   * rather than adding a second reading.
+   */
+  [RELENTLESS_PURSUIT_GRANT]: {
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener) =>
+      parkDecision(state, {
+        kind: "SFD-184-home",
+        playerIndex: listener.ownerIndex,
+        targetInstanceId: listener.card.instanceId,
+      }),
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -940,6 +1096,32 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * The "you may" inside the ability Relentless Pursuit grants — "you may move me
+   * to my base", asked when the granted unit conquers.
+   *
+   * Offered only while the unit is actually AT a battlefield, so a unit already
+   * home (or dead, or moved away in the response window) asks nothing rather than
+   * offering a move that would resolve to nothing. `recallUnitToBase` is itself a
+   * no-op off a battlefield, so this is about not asking a pointless question
+   * rather than about correctness.
+   *
+   * `targetInstanceId` is the unit, captured when the trigger fired — "me" means
+   * the unit that conquered, and by the time the answer arrives "the unit that
+   * conquered" is not something the board can be asked for.
+   */
+  "SFD-184-home": {
+    prompt: () => "Relentless Pursuit: move that unit to your base?",
+    options: (state, d) =>
+      d.targetInstanceId !== undefined && findUnitOnBattlefield(state, d.targetInstanceId) !== undefined
+        ? [
+            { id: "decline", label: "Stay" },
+            { id: "home", label: "Move to base", instanceId: d.targetInstanceId },
+          ]
+        : [],
+    resolve: (state, d, optionId) =>
+      optionId === "home" && d.targetInstanceId !== undefined ? recallUnitToBase(state, d.targetInstanceId) : state,
+  },
   // Super Mega Death Rocket's "you may discard 1 to return this from your trash
   // to your hand", raised by its conquer trigger.
   //

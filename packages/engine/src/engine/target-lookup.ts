@@ -472,20 +472,28 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       // exist" is not the same question as "a legal choice exists".
       return unitListCandidates(state, playerIndex, targeting).length > 0;
     }
-    case "unitAndEquipment":
+    case "unitAndEquipment": {
       // Angle Shot. BOTH halves are required (355), so a board with units but no
       // Equipment on the right side of them offers nothing and the card is
       // uncastable — "the targeting IS the effect" for a Spell.
       //
       // Asked through the same walk the enumerator and the validator use, so all
-      // three agree about which pairs exist. Scope is `anywhere` and the owner is
-      // unconstrained for the reason the spec records: "the same controller"
-      // relates the two targets to each other, not to the caster.
-      return eligibleTargets(state, playerIndex, undefined, "anywhere").some(
-        (u) => equipmentPairedWith(state, u.instanceId, targeting.relation).length > 0,
-      );
+      // three agree about which pairs exist. Scope is `anywhere`; the owner is
+      // unconstrained unless the card names one, for the reason the spec records:
+      // "the same controller" relates the two targets to each other, not to the
+      // caster, and only a card whose UNIT half says "friendly" needs more.
+      const units = eligibleTargets(state, playerIndex, targeting.owner, "anywhere");
+      // When the Equipment is a "you may", a bare unit is a complete choice —
+      // Relentless Pursuit moves a friendly unit whether or not any Equipment
+      // exists to attach, so an Equipment-less board must not make it uncastable.
+      if (targeting.optionalEquipment) return units.length > 0;
+      return units.some((u) => equipmentPairedWith(state, u.instanceId, targeting.relation).length > 0);
+    }
     case "gear":
-      return gearTargets(state).length > 0;
+      // Akshan - Mischievous' "an enemy gear" — asked through the same predicate
+      // the enumerator and the validator use, so a board with only friendly gear
+      // makes his paid half do nothing rather than being offered and refused.
+      return gearTargets(state).some((g) => gearOwnerMatches(targeting.owner, g.ownerIndex, playerIndex));
     case "ownTrashCard": {
       const trash = state.players[playerIndex].trash;
       return trash.some((c) => targeting.cardKind === undefined || c.kind === targeting.cardKind);
@@ -531,6 +539,23 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
  *  again, so "what counts as a gear in play" is answered in exactly one place. */
 export function gearTargets(state: GameState): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
   return unitOrGearTargets(state).filter((t) => t.isGear);
+}
+
+/**
+ * Does a gear owned by `ownerIndex` satisfy `owner`, measured from `chooserIndex`?
+ *
+ * One function for the enumerator, the validator and `hasAnyLegalEffectChoice` —
+ * the three that must agree about which gear is offered, and the three this
+ * codebase's most-repeated bug is a disagreement between. `undefined` means no
+ * constraint, so the two cards that name none are unfiltered.
+ */
+export function gearOwnerMatches(
+  owner: "friendly" | "enemy" | undefined,
+  ownerIndex: 0 | 1,
+  chooserIndex: 0 | 1,
+): boolean {
+  if (owner === undefined) return true;
+  return owner === "friendly" ? ownerIndex === chooserIndex : ownerIndex !== chooserIndex;
 }
 
 export function unitOrGearTargets(

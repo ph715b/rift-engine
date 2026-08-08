@@ -384,6 +384,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       const next: GameState = { ...state, players };
       return dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, "base", {
         ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+        // Akshan - Mischievous' enemy gear. Forwarded for the reason
+        // `trashCardInstanceId` beside it carries a paragraph about: a field
+        // enumerated, validated, and then dropped on THIS hop leaves the card
+        // paying its cost and doing nothing.
+        ...(action.targetPermanentInstanceId !== undefined
+          ? { targetPermanentInstanceId: action.targetPermanentInstanceId }
+          : {}),
         ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
         // Annie-Stubborn's "return a spell from your trash" is the only
         // on-play trigger reading this today. It was silently dropped here
@@ -443,6 +450,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     let next: GameState = { ...state, players, battlefields };
     next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: action.destinationBattlefieldId }, {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+        // Akshan - Mischievous' enemy gear. Forwarded for the reason
+        // `trashCardInstanceId` beside it carries a paragraph about: a field
+        // enumerated, validated, and then dropped on THIS hop leaves the card
+        // paying its cost and doing nothing.
+        ...(action.targetPermanentInstanceId !== undefined
+          ? { targetPermanentInstanceId: action.targetPermanentInstanceId }
+          : {}),
       ...(action.visionRecycle !== undefined ? { visionRecycle: action.visionRecycle } : {}),
       // Same dropped-field fix as the base branch above — a reinforce play
       // fires the same trigger.
@@ -539,6 +553,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           playerIndex: action.playerIndex,
           card,
           ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
+        // Akshan - Mischievous' enemy gear. Forwarded for the reason
+        // `trashCardInstanceId` beside it carries a paragraph about: a field
+        // enumerated, validated, and then dropped on THIS hop leaves the card
+        // paying its cost and doing nothing.
+        ...(action.targetPermanentInstanceId !== undefined
+          ? { targetPermanentInstanceId: action.targetPermanentInstanceId }
+          : {}),
           ...(action.secondTargetUnitInstanceId !== undefined ? { secondTargetUnitInstanceId: action.secondTargetUnitInstanceId } : {}),
           ...(action.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: action.targetUnitInstanceIds } : {}),
           ...(action.targetChainCardInstanceId !== undefined ? { targetChainCardInstanceId: action.targetChainCardInstanceId } : {}),

@@ -1182,6 +1182,25 @@ export function listensFor(trigger: EventTriggerDefinition, kind: GameEvent["kin
   return Array.isArray(trigger.on) ? trigger.on.includes(kind) : trigger.on === kind;
 }
 
+/**
+ * Every event-trigger registry key this card answers to — its printed one, then
+ * anything granted to it for the turn.
+ *
+ * One function so the walk and any future dispatch site cannot disagree about
+ * what "this card's triggers" means. The printed key comes FIRST, which fixes the
+ * order two abilities on one card are placed on the chain in; 383 in fact lets a
+ * player choose that order, and this engine fixes it, which is the divergence
+ * docs/rules-conformance.md already records for simultaneous triggers.
+ *
+ * Only a UNIT can carry a grant today — `grantedTriggersThisTurn` lives on
+ * `UnitInstance` — so the `in` test is a shape test, the same one
+ * `timingTierOf` uses for `isReaction`.
+ */
+export function triggerKeysOn(card: CardInstance): string[] {
+  const granted = "grantedTriggersThisTurn" in card ? card.grantedTriggersThisTurn ?? [] : [];
+  return [card.defId, ...granted];
+}
+
 export function eventTriggerFor(defId: string): EventTriggerDefinition | undefined {
   return allEventTriggers()[defId];
 }
@@ -1305,27 +1324,37 @@ export function holdEventTrigger(
   const registry = allEventTriggers();
   const held: TriggerChainEntry[] = [];
   for (const listener of allListeningPermanents(state, placesFirst)) {
-    const trigger = registry[listener.card.defId];
-    if (!trigger || !listensFor(trigger, event.kind)) continue;
-    if (trigger.applies && !trigger.applies(state, listener, event)) continue;
-    // Captured against the board as it stands NOW — before any other listener in
-    // this same walk has resolved, which is what makes it a snapshot of the
-    // moment of the event (383) rather than of whatever the chain did next.
-    const entry = (captured: unknown): TriggerChainEntry => ({
-      kind: "trigger",
-      playerIndex: listener.ownerIndex,
-      listenerInstanceId: listener.card.instanceId,
-      listenerDefId: listener.card.defId,
-      listenerName: listener.card.name,
-      listenerCard: listener.card,
-      ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
-      ...(captured !== undefined ? { captured } : {}),
-      event,
-    });
-    if (trigger.captureEach) {
-      for (const one of trigger.captureEach(state, listener, event)) held.push(entry(one));
-    } else {
-      held.push(entry(trigger.capture?.(state, listener, event)));
+    // The card's own printed trigger, plus anything GRANTED to it this turn —
+    // Relentless Pursuit's "this turn, that unit has 'when I conquer…'". Both are
+    // registry keys and both go through this one loop, so a granted ability
+    // captures, holds, orders and resolves exactly as a printed one does.
+    for (const key of triggerKeysOn(listener.card)) {
+      const trigger = registry[key];
+      if (!trigger || !listensFor(trigger, event.kind)) continue;
+      if (trigger.applies && !trigger.applies(state, listener, event)) continue;
+      // Captured against the board as it stands NOW — before any other listener in
+      // this same walk has resolved, which is what makes it a snapshot of the
+      // moment of the event (383) rather than of whatever the chain did next.
+      const entry = (captured: unknown): TriggerChainEntry => ({
+        kind: "trigger",
+        playerIndex: listener.ownerIndex,
+        listenerInstanceId: listener.card.instanceId,
+        // The KEY that matched, not the card's defId. `resolvePendingTrigger`
+        // looks the definition back up by this field, so a granted ability
+        // stamped with its wearer's defId would resolve as the wrong ability, or
+        // throw for a card with no printed event trigger at all.
+        listenerDefId: key,
+        listenerName: listener.card.name,
+        listenerCard: listener.card,
+        ...(listener.battlefieldId !== undefined ? { battlefieldId: listener.battlefieldId } : {}),
+        ...(captured !== undefined ? { captured } : {}),
+        event,
+      });
+      if (trigger.captureEach) {
+        for (const one of trigger.captureEach(state, listener, event)) held.push(entry(one));
+      } else {
+        held.push(entry(trigger.capture?.(state, listener, event)));
+      }
     }
   }
   if (held.length === 0) return state;

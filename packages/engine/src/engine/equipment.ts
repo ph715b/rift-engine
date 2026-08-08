@@ -254,6 +254,87 @@ export function recordBanishedWithGear(
   return { ...state, players };
 }
 
+/**
+ * Takes control of an enemy gear for as long as `whileInPlayInstanceId` is on the
+ * board — Akshan - Mischievous' "move an enemy gear to your base. You control it
+ * until I leave the board."
+ *
+ * Control of a gear is `activeGear` membership, so this is a move between the two
+ * lists plus the record that says how to undo it. Detached on the way across:
+ * whatever it was worn by belongs to the other player, and an Equipment cannot be
+ * attached to a unit its controller does not own (`attachEquipment`'s own rule),
+ * so leaving the link would be a state nothing else here can produce.
+ *
+ * A no-op when the gear is not the other player's — "an ENEMY gear", and taking
+ * your own is the no-op the targeting already refuses.
+ */
+export function borrowGear(
+  state: GameState,
+  takerIndex: 0 | 1,
+  gearInstanceId: string,
+  whileInPlayInstanceId: string,
+): GameState {
+  const fromIndex: 0 | 1 = takerIndex === 0 ? 1 : 0;
+  const gear = state.players[fromIndex].activeGear.find((g) => g.instanceId === gearInstanceId);
+  if (!gear) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[fromIndex] = {
+    ...players[fromIndex],
+    activeGear: players[fromIndex].activeGear.filter((g) => g.instanceId !== gearInstanceId),
+  };
+  players[takerIndex] = {
+    ...players[takerIndex],
+    activeGear: [
+      ...players[takerIndex].activeGear,
+      // `attachedThisTurn` is dropped with the attachment it described; a gear
+      // that arrives unworn is not freshly attached to anything.
+      { ...withoutAttachFreshness(gear), attachedToInstanceId: null, borrowedControl: { fromIndex, whileInPlayInstanceId } },
+    ],
+  };
+  return { ...state, players };
+}
+
+/**
+ * Hands back every borrowed gear whose lender has left the board — the second
+ * half of Akshan - Mischievous, run by `runCleanup`.
+ *
+ * In the Cleanup rather than at a death, and that is the point: "until I LEAVE
+ * THE BOARD" is not "until I die". Being recalled to hand, banished, or returned
+ * to a deck all end the loan too, and a death-watch would catch only the first.
+ * The Cleanup is the one hook that runs after every resolved action in both
+ * `submit` and the AI's lookahead — the reason `finalizePendingTriggers` lives
+ * there.
+ *
+ * Detached on the way back for the same reason `borrowGear` detaches on the way
+ * out: it is crossing between two players' lists, and an Equipment worn by a unit
+ * its controller does not own is a state nothing else can produce.
+ */
+export function returnLapsedGearControl(state: GameState): GameState {
+  const onBoard = new Set(
+    state.players.flatMap((p, index) => [
+      ...p.baseUnits.map((u) => u.instanceId),
+      ...state.battlefields.flatMap((bf) => (bf.units[state.players[index as 0 | 1].id] ?? []).map((u) => u.instanceId)),
+    ]),
+  );
+  const lapsed = state.players.flatMap((p) =>
+    p.activeGear.filter((g) => g.borrowedControl !== undefined && !onBoard.has(g.borrowedControl.whileInPlayInstanceId)),
+  );
+  if (lapsed.length === 0) return state;
+
+  const players = state.players.map((p) => ({
+    ...p,
+    activeGear: p.activeGear.filter((g) => !lapsed.some((l) => l.instanceId === g.instanceId)),
+  })) as [PlayerState, PlayerState];
+  for (const gear of lapsed) {
+    const { borrowedControl, ...rest } = gear;
+    players[borrowedControl!.fromIndex] = {
+      ...players[borrowedControl!.fromIndex],
+      activeGear: [...players[borrowedControl!.fromIndex].activeGear, { ...rest, attachedToInstanceId: null }],
+    };
+  }
+  return { ...state, players };
+}
+
 /** The units recorded against `gear`, in the order they were banished. Its own
  *  accessor so the ability that reads the list and the trigger that writes it
  *  quote one field name. */

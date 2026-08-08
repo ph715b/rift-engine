@@ -3,6 +3,7 @@ import { removeUnheldHiddenCards } from "./hidden.js";
 import { holdEventTrigger } from "./triggers.js";
 import { attackerIndexAt, unitsPresentAt } from "./combat-designation.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+import { returnLapsedGearControl } from "./equipment.js";
 
 /**
  * The Cleanup, run after every resolved action.
@@ -31,7 +32,14 @@ export function runCleanup(state: GameState): GameState {
   // (step 4) before facedown cards are checked against who controls their
   // battlefield, or a card would survive one extra Cleanup at a battlefield its
   // owner had already lost.
-  return finalizePendingTriggers(designateArrivals(stageShowdowns(removeUnheldHiddenCards(lapseUnoccupiedControl(state)))));
+  // `returnLapsedGearControl` sits beside step 4's control lapse, because it is
+  // the same kind of thing one zone over: Akshan - Mischievous' borrowed gear goes
+  // home the moment he leaves the board, and "leaves the board" is not "dies" —
+  // a recall or a banish ends the loan too, which is why it is a per-Cleanup sweep
+  // rather than a death-watch.
+  return finalizePendingTriggers(
+    designateArrivals(stageShowdowns(removeUnheldHiddenCards(returnLapsedGearControl(lapseUnoccupiedControl(state))))),
+  );
 }
 
 /**

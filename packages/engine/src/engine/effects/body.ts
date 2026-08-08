@@ -35,7 +35,7 @@ import { effectiveKeywords, isMighty } from "../granted-keywords.js";
 import { isFightingAt } from "../combat-designation.js";
 import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
-import { detachEquipment, equipmentAttachedTo } from "../equipment.js";
+import { attachEquipment, borrowGear, detachEquipment, equipmentAttachedTo, isEquipmentGear } from "../equipment.js";
 import { wearerListener } from "../equipment.js";
 import { gainPoints } from "../effect-helpers.js";
 import { placeGoldTokens } from "../token.js";
@@ -409,6 +409,59 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "SFD-109": {
+    // Akshan - Mischievous — "[Weaponmaster] You may pay [Body][Body] as an
+    // additional cost to play me. When you play me, if you paid the additional
+    // cost, move an enemy gear to your base. You control it until I leave the
+    // board. If it's an Equipment, attach it to me."
+    //
+    // # The handoff said his `[Body][Body]` half already worked. It did not.
+    //
+    // Nothing was registered for this card at all — measured, not assumed:
+    // `implementingModule("SFD-109")` returned undefined and `OPTIONAL_POWER_COSTS`
+    // had no entry for him. The additional cost lands with this card, which is
+    // also the pool's first optional cost of TWO runes (Clockwork Keeper's,
+    // Frostcoat Cub's and Blast Corps Cadet's are all one).
+    //
+    // # "You control it until I leave the board"
+    //
+    // `borrowGear`, and the expiry is the whole of what did not exist: control of
+    // a gear is `activeGear` membership, so taking it was already expressible and
+    // giving it back was not. `returnLapsedGearControl` runs in the CLEANUP rather
+    // than off a death, because "leaves the board" is wider than "dies" — a
+    // recall, a banish and a bounce to hand all end the loan, and a death-watch
+    // would catch only one of the four.
+    //
+    // # "Move an enemy gear to your BASE"
+    //
+    // Gear in this engine has no location at all — `activeGear` is a flat
+    // per-player list — so "to your base" IS the change of list, and there is
+    // nothing further to move. The phrase is the rules describing where gear
+    // lives, not a destination this card chooses.
+    //
+    // # "If it's an Equipment, attach it to ME"
+    //
+    // Conditional on the printed tag, so a stolen Seal or Vanguard Armory simply
+    // arrives unattached. `attachEquipment` is asked from AKSHAN's controller,
+    // which is now the gear's too — that is what `borrowGear` just made true, and
+    // it is why the attach comes second.
+    //
+    // The target is chosen whether or not the cost was paid, which is Blast Corps
+    // Cadet's recorded consequence of targeting being declared per card rather
+    // than per branch: an unpaid Akshan names a gear and does nothing to it.
+    targeting: { kind: "gear", owner: "enemy" },
+    resolve: (state, ctx, unitId, event) => {
+      if (!event.optionalPowerPaid || !event.targetPermanentInstanceId) return state;
+      const taken = borrowGear(state, ctx.casterIndex, event.targetPermanentInstanceId, unitId);
+      const gear = taken.players[ctx.casterIndex].activeGear.find(
+        (g) => g.instanceId === event.targetPermanentInstanceId,
+      );
+      // Nothing arrived — the gear was killed in response, or was never the
+      // opponent's. The usual target-vanished no-op.
+      if (!gear || !isEquipmentGear(gear)) return taken;
+      return attachEquipment(taken, ctx.casterIndex, gear.instanceId, unitId);
+    },
+  },
   "SFD-098": {
     // Sea Monkey — "You may pay [1] as an additional cost to play me. When you
     // play me, if you paid the additional cost, buff me."

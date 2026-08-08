@@ -2,7 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
-import { destroyUnit, drawCards, healAllUnits } from "./effect-helpers.js";
+import { destroyUnit, drawCards, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
@@ -296,6 +296,20 @@ export function runEnd(state: GameState): GameState {
     withPermanents,
   );
 
+  // Hostile Takeover's "Lose control of that unit and recall it at end of turn."
+  //
+  // Run HERE — after the end-of-turn triggers are held, before the resets below.
+  // After the holds, because those triggers are about the turn that is ending and
+  // a stolen unit was part of it: an "at the end of your turn" ability reading the
+  // board must see the thief still holding it, which is what the theft bought.
+  // Before the resets, because the obligation is this-turn state like everything
+  // they clear, and clearing it first would strand the unit permanently.
+  //
+  // NOT held as a trigger. It is a delayed EFFECT of a spell that already
+  // resolved, not an ability anyone controls, so there is nothing to respond to
+  // and nothing to order against 383's simultaneous triggers.
+  const afterBorrows = returnBorrowedUnits(afterTriggers);
+
   // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
   // +1 Might that carries into later turns — which is what makes the eight
@@ -310,13 +324,19 @@ export function runEnd(state: GameState): GameState {
     // Udyr's this-turn [Ganking] and his record of which modes he has spent —
     // both expire here for the same reason mightThisTurn does.
     ...("keywordsThisTurn" in u ? { keywordsThisTurn: {} } : {}),
+    // Relentless Pursuit's granted "when I conquer" — the same kind of this-turn
+    // state one field over, and it expires the same way. Deleted rather than set
+    // to `[]`: `exactOptionalPropertyTypes` makes an absent key a different type
+    // from an empty one, and absent is what every unit that was never granted
+    // anything carries.
+    ...("grantedTriggersThisTurn" in u ? { grantedTriggersThisTurn: undefined } : {}),
     ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
     ...("movesThisTurn" in u ? { movesThisTurn: 0 } : {}),
   });
 
-  const players = afterTriggers.players.map((p) => ({
+  const players = afterBorrows.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireMightThisTurn),
     // Brutalizer is fresh only for the turn it was attached in, and this is
@@ -374,7 +394,7 @@ export function runEnd(state: GameState): GameState {
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 
-  const battlefields = afterTriggers.battlefields.map((bf) => {
+  const battlefields = afterBorrows.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
       units[playerId] = list.map(expireMightThisTurn);
@@ -394,7 +414,7 @@ export function runEnd(state: GameState): GameState {
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.
   return healAllUnits({
-    ...afterTriggers,
+    ...afterBorrows,
     players,
     battlefields,
     activePlayerIndex: nextIndex,
