@@ -361,6 +361,15 @@ What is already there, measured today:
 - **XP / rule 728 has nothing.** This is the real subsystem, and it is the one
   thing worth scoping properly before the JSON is copied in.
 
+> **Scoped 2026-08-08, and it is NOT the real subsystem.**
+> `docs/xp-and-unl-keywords-scope.md` has the measurement. XP is a public
+> per-player integer, gained and spent, explicitly **not a Game Object** ("cannot
+> be targeted, readied, or exhausted"), with no cap — so it is one field plus two
+> helpers. The work is the keywords that read it, and **there are five, not
+> four**: `[Predict]` appears on 5 UNL cards and is in neither this plan nor the
+> oracle's `Keyword.java`. It is an action word, and `top-of-deck.ts` already does
+> what it does.
+
 Adding the set itself is one file plus one `CARD_FILES` entry — `deriveId`
 already turns `unl-001-…` into `UNL-001` unchanged. **It is never a
 data-sourcing problem**, and the SFD prompt was wrong to treat it as one. Check
@@ -391,7 +400,17 @@ Do not start UNL until all of these hold:
       Instruction half and PINS the combat half that remains.
 - [x] `docs/wip/remaining.json` deleted — after re-measuring it rather than
       trusting the note: all 66 ids resolve and all 66 are implemented.
-- [ ] XP / rule 728 scoped in writing, against the rules PDF and the oracle.
+- [x] XP / rule 728 scoped in writing, against the rules PDF and the oracle.
+      **`docs/xp-and-unl-keywords-scope.md`** (2026-08-08). Headline: **XP is one
+      integer** — a public per-player counter, gained and spent, not a Game
+      Object, uncapped — so the resource is not the subsystem this plan expected.
+      The work is the five keywords that read and write it, and **there are five,
+      not four**: `[Predict]` (5 cards) is in neither this plan nor the oracle's
+      `Keyword.java`, and is an ACTION WORD whose behaviour `top-of-deck.ts`
+      already implements. `[Hunt N]` dispatches generically off two events that
+      are already held. `[Ambush]` needs no parser change at all. One real design
+      question, with a recommendation: `[Level N]` inline per card, matching
+      `[Legion]`, rather than a general Dependent-Ability layer.
 
 ## Housekeeping to fold in anywhere
 
