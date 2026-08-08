@@ -5,8 +5,12 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
-import { drawCards, fileIntoNonBoardZone } from "./effect-helpers.js";
+import { banishCard, drawCards, fileIntoNonBoardZone } from "./effect-helpers.js";
 import { parkDecision } from "./decisions.js";
+// equipment.ts already imports this module for `Listener` and `holdEventTrigger`
+// — the same cycle, and safe for the same reason: the binding is read inside a
+// resolver, never at module init.
+import { recordBanishedWithGear } from "./equipment.js";
 // Same cycle, same reason, as the effect-helpers import above: the binding is
 // read only inside `allEventTriggers`, which composes lazily.
 import { attackEventTriggers, spellCastEventTriggers } from "./unit-triggers.js";
@@ -333,6 +337,50 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
     applies: (_state, listener, death) =>
       (death.wornEquipment ?? []).some((g) => g.instanceId === listener.card.instanceId),
     resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
+
+  /**
+   * The Zero Drive (SFD-090) — `[Deathknell]` — Banish me.
+   *
+   * **Printed on the ART**, like Sacred Shears' just above and the other thirty;
+   * `text.plain` carries only the `[Equip]` line and the activation. Transcribed
+   * in docs/sfd-equipment-abilities.md.
+   *
+   * This is the half that FILLS the list its activated ability empties — without
+   * it "play all units banished with this" is a sentence about an empty set, and
+   * that is why the card's old partial note ("needs banish-with-source
+   * tracking") named the storage rather than the trigger.
+   *
+   * A DEATH-WATCH on the same reasoning Sacred Shears records: 808's Deathknell
+   * is keyed by the DYING card's defId and the gear does not die — its wearer
+   * does, and `killUnit` detaches the gear first. So `wornEquipment` is the only
+   * thing that can say the death was this Drive's, and it is compared by
+   * INSTANCE so two Drives keep two separate lists.
+   *
+   * **The unit is banished FROM THE TRASH**, which is where `completeDeath` has
+   * already filed it — a death-watch resolves after the death funnel, on purpose,
+   * "so a listener sees a board the unit has already left". So this is not a
+   * replacement of the death (809.1.b.1) and the unit's own `[Deathknell]` has
+   * already fired, which is what "Deathknell — banish me" says: the banish is one
+   * more death trigger, not an alternative to dying.
+   *
+   * The record is written to the gear WHEREVER it now is. `killUnit`'s detach
+   * leaves it in `activeGear`, which is the only case reachable today; the
+   * `banished` fallback is there because this card's own ability puts a Drive
+   * there and a second Drive could in principle watch a death in between.
+   */
+  "SFD-090": {
+    applies: (_state, listener, death) =>
+      (death.wornEquipment ?? []).some((g) => g.instanceId === listener.card.instanceId),
+    resolve: (state, listener, death) => {
+      const banished = banishCard(state, death.ownerIndex, death.unit.instanceId);
+      // Nothing to remember if the banish did not happen — a unit already
+      // banished, or one some other effect has moved out of the trash.
+      if (banished.players[death.ownerIndex].banished.every((c) => c.instanceId !== death.unit.instanceId)) {
+        return banished;
+      }
+      return recordBanishedWithGear(banished, listener.ownerIndex, listener.card.instanceId, death.unit.instanceId);
+    },
   },
 
   /**

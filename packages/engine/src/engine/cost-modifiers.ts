@@ -7,6 +7,7 @@ import { MIGHTY_THRESHOLD } from "./constants.js";
 import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
 import type { UnitInstance } from "../model/card.js";
 import { isMechUnit } from "./equipment.js";
+import { deflectSurchargeForTargets } from "./granted-keywords.js";
 
 /** Every unit a player controls, each with the MightContext its location
  *  implies — a base unit has no battlefield id, so a positional aura resolves it
@@ -360,6 +361,108 @@ export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId:
 const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
 const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
 
+/**
+ * Vex - Cheerless — "While I'm in combat, friendly spells cost [1][rainbow] less
+ * to a minimum of [1], and enemy spells cost [1][rainbow] more."
+ *
+ * The pool's first cost modifier that points BOTH WAYS at once, and the first
+ * conditioned on a game state rather than on a board shape. Three things about it
+ * are worth writing down, because each was a wrong first guess.
+ *
+ * **"In combat" is a STATE question here, not the event predicate.** The
+ * handoff that scoped this card named `combat-designation.isFightingAt`, and that
+ * function cannot answer it: it takes a `GameEvent` and asks whether a listener
+ * was designated by THAT event. A cost is priced with no event in hand. The state
+ * that survives the whole fight is the open Combat Showdown — `showdownKind` plus
+ * `showdownBattlefieldId` — so "I'm in combat" is "I am standing at the
+ * battlefield the open Combat Showdown is at".
+ *
+ * `designatedInstanceIds` was the rejected sharper alternative, and rejected for
+ * the reason effects/fury.ts's Sudden Storm already records: it is written only by
+ * a Cleanup, so a unit that walked in and started this very fight would read as
+ * not being in it.
+ *
+ * **The two halves need two different mechanisms, and merging them would be
+ * wrong.** The friendly half REDUCES the card's own Power, which is domain-
+ * restricted and is what `powerCost` means. The enemy half is `[1][rainbow]` MORE
+ * — a rainbow debt beside the card's own cost, which is exactly `[Deflect]`'s
+ * shape, so it rides the same `rainbowRunes` bucket rather than inflating a
+ * domained `powerCost` the card never printed. Adding it to `powerCost` would
+ * demand the enemy pay the surcharge in the SPELL's domain, which is stricter
+ * than printed and would refuse legal plays.
+ *
+ * **Two Vexes, one per side, cancel.** Counted as a signed swing rather than a
+ * boolean for that reason: nothing in the rules makes her ability redundant with
+ * an opponent's copy, and 817.1.a's redundancy rule reaches keywords, not
+ * continuous abilities — the same reading `heraldCount` takes for two Heralds
+ * stacking.
+ *
+ * The floor is on the ENERGY only, because that is what the card prints
+ * (`to a minimum of :rb_energy_1:`); the Power reduction takes the shared clamp
+ * at 0. Recorded in docs/rules-conformance.md.
+ */
+const VEX_CHEERLESS = "SFD-146";
+const VEX_ENERGY_SWING = 1;
+const VEX_POWER_SWING = 1;
+const VEX_FRIENDLY_ENERGY_FLOOR = 1;
+
+/**
+ * Vex's swing on a spell `playerIndex` is playing, measured from THEIR seat:
+ * positive is a tax they owe, negative is a discount they get, zero is no Vex in
+ * the fight.
+ *
+ * Spells only — her sentence names them twice and says nothing about a Unit or a
+ * Gear, so the kind is checked here rather than at each call site.
+ */
+function vexSpellSwing(state: GameState, playerIndex: 0 | 1, cardKind: string): number {
+  if (cardKind !== "Spell") return 0;
+  if (state.showdownKind !== "Combat" || state.showdownBattlefieldId === null) return 0;
+  const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
+  if (bf === undefined) return 0;
+  const vexesOf = (index: 0 | 1): number =>
+    (bf.units[state.players[index].id] ?? []).filter((u) => u.defId === VEX_CHEERLESS).length;
+  return vexesOf(playerIndex === 0 ? 1 : 0) - vexesOf(playerIndex);
+}
+
+/** The POWER half of Vex's FRIENDLY discount — what the three cost sites take
+ *  off the printed Power, beside `scaledPowerDiscount`. Her enemy half is not
+ *  here: it is a rainbow surcharge, and `rainbowSurchargeForPlay` owns it. */
+export function combatSpellPowerDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardKind: string,
+): number {
+  return Math.max(0, -vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING;
+}
+
+/**
+ * Every rainbow Power a PLAY owes ON TOP of the card's own cost — the one
+ * function the enumerator, the validator and the executor all ask.
+ *
+ * Two contributors today, and they are different KINDS of debt that happen to be
+ * payable with the same rune: `[Deflect]` is keyed on the units the play chooses,
+ * Vex - Cheerless's tax is keyed on the board. Summed here rather than at each
+ * site for the reason `deflectSurchargeForTargets` gives for existing at all —
+ * this file's most repeated bug is the enumerator offering a play the validator
+ * then refuses, and a second surcharge added at four sites minus one is exactly
+ * how that happens for a sixth time.
+ *
+ * Does NOT include `[Repeat]`'s own rainbow pip or Bullet Time's X. Those are
+ * printed COSTS the action opts into, not surcharges the board imposes, and the
+ * validator checks each against its own flag.
+ */
+export function rainbowSurchargeForPlay(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardKind: string,
+  chosenInstanceIds: readonly (string | undefined)[],
+): number {
+  return (
+    deflectSurchargeForTargets(state, playerIndex, chosenInstanceIds) +
+    Math.max(0, vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING
+  );
+}
+
 /** Does `playerIndex` have a Jayce permission that this card can use? Asked
  *  identically by the validator, the executor and the enumerator — the three
  *  that must agree on a price. Reading it does NOT spend it; `execute-play-card`
@@ -382,6 +485,7 @@ export function freeGearPlayApplies(
 export function costModifierDefIds(): string[] {
   return [
     EZREAL_PRODIGY,
+    VEX_CHEERLESS,
     NEEDLESSLY_LARGE_YORDLE,
     ...PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS,
     IRELIA_GRACEFUL,
@@ -528,6 +632,23 @@ export function modifiedEnergyCost(
     );
     // Eager Apprentice's own floor of 1, stated on the card.
     if (hasEagerApprenticeAtBattlefield) cost = Math.max(1, cost - 1);
+  }
+
+  // Vex - Cheerless's ENERGY half, both directions. Her Power halves are
+  // `combatSpellPowerDiscount` (friendly) and `rainbowSurchargeForPlay` (enemy).
+  //
+  // The friendly floor is written as `max(min(cost, FLOOR), ...)` rather than as
+  // Eager Apprentice's plain `max(1, ...)` on purpose: a spell already priced
+  // BELOW the floor — a Hidden play, or one Sky Splitter has zeroed — would be
+  // RAISED to 1 by the plain form. "Costs 1 less to a minimum of 1" cannot make a
+  // card more expensive, and the clamp is only ever meant to stop the reduction
+  // going past 1.
+  const vexSwing = vexSpellSwing(state, playerIndex, cardKind);
+  if (vexSwing < 0) {
+    cost = Math.max(Math.min(cost, VEX_FRIENDLY_ENERGY_FLOOR), cost + vexSwing * VEX_ENERGY_SWING);
+  } else if (vexSwing > 0) {
+    // No floor on the tax — a surcharge has no minimum to clamp against.
+    cost += vexSwing * VEX_ENERGY_SWING;
   }
 
   // Ornn's Forge — "the FIRST friendly non-token gear played each turn costs [1]

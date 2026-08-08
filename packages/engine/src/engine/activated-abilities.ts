@@ -2,6 +2,7 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
+import { VANGUARD_ARMORY_TOKENS } from "./constants.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
 /** Ezreal - Prodigal Explorer's "TWICE this turn" — the whole of his condition,
@@ -43,7 +44,9 @@ import { killGear } from "./triggers.js";
 import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
-import { attachEquipment, attachableEquipment } from "./equipment.js";
+import { attachEquipment, attachableEquipment, unitsBanishedWith } from "./equipment.js";
+import { banishCard } from "./effect-helpers.js";
+import { playCardIgnoringCost } from "./play-free.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 
 /**
@@ -148,6 +151,19 @@ export interface ActivationCost {
    * fires: being spent as a cost is still being killed.
    */
   killSelf?: true;
+  /**
+   * BANISH the source to pay — The Zero Drive's "Banish this:".
+   *
+   * Not `killSelf` with a different destination. Killing a gear fires its "when
+   * I am killed" self-trigger and files it in a trash where a dozen cards in this
+   * pool can recur it; banishing it fires nothing and puts it somewhere nothing
+   * here reaches. For the Zero Drive that difference IS the card — the whole
+   * point of the cost is that the Drive does not come back for a second harvest.
+   *
+   * Like `killSelf`, once and only once by construction rather than by an
+   * exhaust: a Drive that has paid is gone.
+   */
+  banishSelf?: true;
   /**
    * Power of a specific domain, recycled from the channeled pool (rule 416) —
    * Treasure Trove's "[Chaos], Exhaust: Kill this".
@@ -1629,6 +1645,106 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     resolve: (state, _ctx, event) =>
       event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, HEART_OF_DARK_ICE_MIGHT) : state,
   },
+  "SFD-090": {
+    // The Zero Drive — "[3][Mind], Banish this: Play all units banished with
+    // this, ignoring their costs. (Use only if unattached.)"
+    //
+    // # Where the units come from
+    //
+    // From `GearInstance.banishedInstanceIds`, filled by this card's OTHER half —
+    // the art-only `[Deathknell] — Banish me` it grants its wearer, registered as
+    // a death-watch in triggers.ts. Without that half this ability is a sentence
+    // about an empty set, which is exactly what the card's old partial note meant
+    // by "needs banish-with-source tracking".
+    //
+    // # Why the Drive is read out of the BANISHED zone
+    //
+    // "Banish this" is the COST, and a cost is paid before the effect resolves —
+    // so by the time this runs the Drive is in `PlayerState.banished`, carrying
+    // its list with it. That is not incidental: `banishCard` moves the INSTANCE
+    // rather than re-creating it, precisely so the list survives the payment.
+    //
+    // # "(Use only if unattached.)"
+    //
+    // `availableWhile`, not a guard in here. A resolver that refused would have
+    // taken the 3 Energy and the Mind Power and banished the Drive first — the
+    // reason `availableWhile` exists at all. Both the enumerator and the
+    // validator ask it through `canPayActivationCost`, so an attached Drive is
+    // never offered rather than offered and refused.
+    //
+    // # "Ignoring their costs"
+    //
+    // `playCardIgnoringCost`, the pool's standard route for a free play, and they
+    // land in BASE: the card names no location, and 419.3.a's default for a unit
+    // played with no destination stated is its controller's base.
+    //
+    // **They are played by the DRIVE's controller.** Reachable only where the two
+    // agree today — `attachEquipment` refuses to attach across controllers, so a
+    // Drive only ever watches its own side's units die — and it is written from
+    // the Drive's seat rather than each unit's because that is whose ability this
+    // is.
+    kind: "Gear",
+    cost: { energy: 3, power: { domain: "Mind", count: 1 }, banishSelf: true },
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      state.players[playerIndex].activeGear.some(
+        (g) => g.instanceId === sourceInstanceId && g.attachedToInstanceId === null,
+      ),
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _event, sourceInstanceId) => {
+      const drive = state.players[ctx.casterIndex].banished.find((c) => c.instanceId === sourceInstanceId);
+      if (!drive || drive.kind !== "Gear") return state;
+      return unitsBanishedWith(drive).reduce((next, unitId) => {
+        // Looked up per unit and inside the fold, because each play mutates the
+        // banished zone the next lookup reads. A unit that is no longer there is
+        // skipped rather than throwing — the usual target-vanished convention,
+        // and reachable here since a `[Deathknell]` resolving between the deaths
+        // could have moved one.
+        const owner = next.players[ctx.casterIndex];
+        const card = owner.banished.find((c) => c.instanceId === unitId);
+        if (!card || card.kind !== "Unit") return next;
+        const players = [...next.players] as [PlayerState, PlayerState];
+        players[ctx.casterIndex] = { ...owner, banished: owner.banished.filter((c) => c.instanceId !== unitId) };
+        return playCardIgnoringCost({ ...next, players }, ctx.casterIndex, card);
+      }, state);
+    },
+  },
+  "SFD-168": {
+    // Vanguard Armory — "[Exhaust]: Play three 1 [Might] Recruit unit tokens.
+    // (You may play them to different locations.)"
+    //
+    // # The parenthetical is the whole difficulty, and it is an ENUMERATION
+    // problem
+    //
+    // Three independent destinations is a cross product, not a fan-out: with a
+    // base and three controlled battlefields that is 4³ = 64 candidate actions
+    // for one activation, every one of which the AI would have to score. Every
+    // other multi-token card in the pool sends them all to ONE chosen place
+    // (Recruit the Vanguard, Arise!) precisely because it prints no such
+    // parenthetical; this card prints one, so collapsing it would drop the
+    // ability that makes the card worth 7 Energy — spreading three bodies.
+    //
+    // So the destinations are ASKED, once per token, through a decision that
+    // re-parks itself with one fewer to place. That is `OGN-230-spend`'s shape
+    // ("any number", a repeated question with a standing answer) applied to a
+    // bounded count, and it keeps the action space at one ActivateAbility.
+    //
+    // **The cost of that is a recorded divergence, not a new one.** 355 makes
+    // choices for an activated ability at the moment it is announced; a parked
+    // decision asks at resolution. docs/rules-conformance.md already carries that
+    // row for every held trigger, and this inherits it rather than adding one.
+    //
+    // A destination list of exactly one (a player with no battlefield they
+    // control) is not a question at all — `advanceDecisions` executes a
+    // single-option decision without showing it, so the common case costs the
+    // player no clicks.
+    kind: "Gear",
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      // The count is in `constants.ts` rather than here, so this ability and the
+      // question it parks quote one number without importing each other — see
+      // that constant's note for the import cycle this avoids.
+      parkDecision(state, { kind: "SFD-168-place", playerIndex: ctx.casterIndex, count: VANGUARD_ARMORY_TOKENS }),
+  },
   [ORB_OF_REGRET]: {
     kind: "Gear",
     // "A unit" names no battlefield and no owner, so a unit in either player's
@@ -1889,6 +2005,16 @@ export function payActivationCost(
     // killing it, so its own "when I am killed" self-trigger must fire — the
     // same reasoning Cruel Patron's kill-as-a-cost already follows.
     next = killGear(next, gear, playerIndex);
+  }
+  if (cost.banishSelf) {
+    const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === instanceId);
+    if (!gear) return undefined;
+    // NOT `killGear`. Banishing is not killing, so no self-trigger fires and the
+    // gear does not pass through a trash — see `banishSelf`'s own note for why
+    // that distinction is the Zero Drive's whole cost. `banishCard` carries the
+    // INSTANCE across, which is what preserves its `banishedInstanceIds` for the
+    // effect that is about to read them.
+    next = banishCard(next, playerIndex, instanceId);
   }
   // The two costs that carry a CHOICE, paid from what the action named.
   if (cost.killFriendlyPermanent) {

@@ -5,7 +5,13 @@ import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "../engine/triggers.js";
 import { holdUnitsChosenBySpell } from "../engine/battlefield-abilities.js";
 import { consumeNextUnitEntersReady, gearEntersExhausted, unitEntersReady } from "../engine/deploy.js";
-import { freeGearPlayApplies, modifiedEnergyCost, targetChoiceDiscount, scaledPowerDiscount } from "../engine/cost-modifiers.js";
+import {
+  freeGearPlayApplies,
+  modifiedEnergyCost,
+  targetChoiceDiscount,
+  scaledPowerDiscount,
+  combatSpellPowerDiscount,
+} from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -243,7 +249,17 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       );
   const powerToPay = ignoresBaseCost
     ? 0
-    : Math.max(0, card.powerCost - targetDiscount.power - scaledPowerDiscount(state, action.playerIndex, card.defId));
+    : Math.max(
+        0,
+        card.powerCost -
+          targetDiscount.power -
+          scaledPowerDiscount(state, action.playerIndex, card.defId) -
+          // Vex - Cheerless's friendly half. Her enemy half is a rainbow
+          // surcharge and is already in `action.payment.rainbowRunes`, which this
+          // function spends without re-deriving — the same treatment `[Deflect]`
+          // gets, for the same reason: the validator has already priced it.
+          combatSpellPowerDiscount(state, action.playerIndex, card.kind),
+      );
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —

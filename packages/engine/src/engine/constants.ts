@@ -21,6 +21,18 @@ export const WIN_THRESHOLD_1V1 = 8;
 export const MIGHTY_THRESHOLD = 5;
 
 /**
+ * Vanguard Armory's "play THREE 1 [Might] Recruit unit tokens".
+ *
+ * Here for exactly the reason `MIGHTY_THRESHOLD` above is, and it was not a
+ * guess: the ability lives in `activated-abilities.ts` and the question it parks
+ * lives in `effects/order.ts`, and importing the number from the first into the
+ * second closed a cycle through `token.js` that registered the Gold token's
+ * ability under the key `"undefined"`. That module's own guard threw and named
+ * it — this constant is the fix, not a precaution.
+ */
+export const VANGUARD_ARMORY_TOKENS = 3;
+
+/**
  * "Your **Mechs**" — a printed tag, so it is answerable from a card DEFINITION
  * and not only from a live instance. That is what lets it be asked at ENTRY
  * (`keywordOnEntry`, before the unit exists as an instance) as well as on the

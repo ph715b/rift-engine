@@ -30,9 +30,10 @@ import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
-import type { CardInstance, UnitInstance } from "../../model/card.js";
+import type { CardInstance, GearInstance, UnitInstance } from "../../model/card.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
-import { isMechUnit } from "../equipment.js";
+import { isEquipmentGear, isMechUnit } from "../equipment.js";
+import { SAND_SOLDIER_TOKEN, placeToken, type TokenDestination } from "../token.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -698,7 +699,85 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return giveMightThisTurnToOwnUnit(countered, ctx.casterIndex, event.targetUnitInstanceId, amount);
     },
   },
+  "SFD-198": {
+    // Arise! (Calm + Order) — "Play a 2 [Might] Sand Soldier unit token for each
+    // Equipment you control. Then do this: Ready up to two of them."
+    //
+    // # The count is the board's, read at resolution
+    //
+    // "For each Equipment you control" is `equipmentControlledBy` — the caster's
+    // `activeGear` filtered to Equipment. It counts DETACHED Equipment too: the
+    // card says control, not "attached", and a piece of gear sitting unworn in
+    // `activeGear` is controlled just as much as one on a unit. It also counts an
+    // Equipment taken from an opponent, because control is what `activeGear`
+    // membership means here — the row rules-conformance.md carries about control
+    // being which list a permanent sits in.
+    //
+    // Read at RESOLUTION rather than when the spell is announced, which is the
+    // default for everything a resolver reads and matters here because a spell in
+    // response can kill the gear.
+    //
+    // # The destination
+    //
+    // **Not a per-token choice.** The handoff that scoped this card said Arise!
+    // shared Vanguard Armory's per-token destination axis; the printed text does
+    // not — Vanguard Armory prints "(You may play them to different locations.)"
+    // and this card prints no parenthetical at all. So it takes Recruit the
+    // Vanguard's shape instead: one chosen destination for all of them, riding
+    // `destinationBattlefieldId`, with SFD-198 added to
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS` so the enumerator and the validator agree
+    // about which battlefields are legal ("ones you CONTROL", which is stricter
+    // than the Unit deploy rule).
+    //
+    // # "Ready up to two of them"
+    //
+    // Maxed out rather than asked, and `readyRunes` is the precedent that settles
+    // it: readying is strictly beneficial and never wrong, so taking all of it IS
+    // the faithful implementation of "up to N". Here the tokens are also
+    // INDISTINGUISHABLE — same 2 Might, same tag, minted in the same instant — so
+    // "which two" is not a choice a player could answer differently to any effect.
+    //
+    // "Of THEM" is the tokens this spell just made, so the ids are captured from
+    // the placement rather than re-derived from the board afterwards: a Sand
+    // Soldier already standing there from Desert's Call is not one of them.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      const count = equipmentControlledBy(state, ctx.casterIndex).length;
+      let next = state;
+      const placed: string[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const before = new Set(ownUnitsEverywhere(next, ctx.casterIndex).map((u) => u.instanceId));
+        next = placeToken(next, ctx.casterIndex, destination, SAND_SOLDIER_TOKEN);
+        // One at a time and diffed each time, the same recovery `placeSandSoldier`
+        // in effects/order.ts uses and for the same reason: `placeToken` returns
+        // only the state, and a token minted with a fresh instanceId is the only
+        // new id in the caster's units. Undefined when nothing landed —
+        // `placeToken` no-ops on a battlefield id that names nothing.
+        const token = ownUnitsEverywhere(next, ctx.casterIndex).find((u) => !before.has(u.instanceId));
+        if (token) placed.push(token.instanceId);
+      }
+      return placed.slice(0, ARISE_READY_COUNT).reduce((s, id) => readyUnit(s, id), next);
+    },
+  },
 };
+
+/** Arise!'s "ready up to two of them". */
+const ARISE_READY_COUNT = 2;
+
+/**
+ * Every Equipment `playerIndex` controls — `activeGear` filtered by the printed
+ * Equipment tag.
+ *
+ * Its own function rather than the filter written inline, because "an Equipment
+ * you control" is a phrase two cards in this set count and one of them is priced
+ * off it. Attached or not: the phrase says control, and `activeGear` membership
+ * is what control means for a permanent here.
+ */
+function equipmentControlledBy(state: GameState, playerIndex: 0 | 1): GearInstance[] {
+  return state.players[playerIndex].activeGear.filter((g) => isEquipmentGear(g));
+}
 
 /** Void Rush's "reducing its cost by [2 Energy]". */
 const VOID_RUSH_DISCOUNT = 2;

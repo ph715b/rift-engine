@@ -24,7 +24,14 @@ import {
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
 } from "./target-lookup.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy, targetChoiceDiscount, scaledPowerDiscount } from "./cost-modifiers.js";
+import {
+  modifiedEnergyCost,
+  modifiedRepeatEnergy,
+  targetChoiceDiscount,
+  scaledPowerDiscount,
+  combatSpellPowerDiscount,
+  rainbowSurchargeForPlay,
+} from "./cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -619,7 +626,14 @@ export function legalActions(state: GameState): PlayerAction[] {
         actor.floatingEnergy,
         actor.floatingPower,
         modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand),
-        Math.max(0, card.powerCost - scaledPowerDiscount(state, playerIndex, card.defId)),
+        Math.max(
+          0,
+          card.powerCost -
+            scaledPowerDiscount(state, playerIndex, card.defId) -
+            // Vex - Cheerless's friendly half. Her ENEMY half is a rainbow
+            // surcharge and rides `surcharge` below, not this term.
+            combatSpellPowerDiscount(state, playerIndex, card.kind),
+        ),
         card.powerDomain,
         card.powerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
@@ -1012,11 +1026,18 @@ export function legalActions(state: GameState): PlayerAction[] {
           : repeatableSpend > 0
             ? repeatablePayment
             : payment;
-      // **[Deflect]: what THIS variant's target choice costs on top.** Computed
-      // here rather than beside its use below, because the discard branch
-      // immediately after emits its own candidates and owes the same tax — see
-      // that branch for why it cannot simply fall through to the re-pricing.
-      const deflected = deflectSurchargeForTargets(state, playerIndex, chosenUnitsOfPlay(variant));
+      // **The rainbow surcharge this VARIANT owes on top.** Computed here rather
+      // than beside its use below, because the discard branch immediately after
+      // emits its own candidates and owes the same tax — see that branch for why
+      // it cannot simply fall through to the re-pricing.
+      //
+      // `[Deflect]` on what this variant chooses, PLUS Vex - Cheerless's flat tax
+      // on an enemy spell cast into her combat. Through the one shared function so
+      // the validator cannot price it differently — Vex is board-keyed rather than
+      // target-keyed, so unlike `[Deflect]` she can make a variant that targets
+      // nothing owe a surcharge, which is why every branch below must go through
+      // this figure rather than skipping when the target list is empty.
+      const deflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, chosenUnitsOfPlay(variant));
 
       // One candidate per discardable card, priced against the DISCOUNTED cost —
       // and taxed for [Deflect] like every other variant.
@@ -1114,6 +1135,13 @@ export function legalActions(state: GameState): PlayerAction[] {
       // deals nothing, which is what "any amount" means and is occasionally what
       // a player wants (it still costs its printed Energy). Capped by the pool
       // rather than by a number, so the fan-out is at most one per rune.
+      //
+      // **The surcharge is added to X rather than replacing it.** X and a
+      // surcharge are two debts sharing one bucket, so the payment must cover
+      // both — and `validate-play-card` subtracts the surcharge back off before
+      // checking that the rainbow runes match the X the action claims. This
+      // branch owed nothing until Vex - Cheerless: Bullet Time targets no unit,
+      // so `[Deflect]` could never reach it, and a board-keyed tax can.
       if (hasXRainbowCost(card.defId) && !fromHidden) {
         for (let x = 0; x <= actor.channeled.length; x += 1) {
           const priced = computeAutoPayment(
@@ -1122,7 +1150,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             effectiveCost.powerCost,
             card.powerDomain,
             card.powerDomainAlt,
-            x,
+            x + deflected,
           );
           if (!priced) break; // pools only get tighter as X grows
           actions.push({ type: "PlayCard", playerIndex, card, payment: priced, ...variant, ...hiddenFields, xAmount: x });
@@ -1250,7 +1278,12 @@ export function legalActions(state: GameState): PlayerAction[] {
           actor.floatingPower,
           modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
             modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
-          card.powerCost + (repeatCost.power ?? 0),
+          // Vex's friendly discount comes off the card's OWN Power and is clamped
+          // there before the Repeat's is added, which is the order
+          // `validate-play-card` applies — an additional cost is not reduced by a
+          // discount aimed at the printed one.
+          Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind)) +
+            (repeatCost.power ?? 0),
           card.powerDomain,
           card.powerDomainAlt,
           card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
@@ -1263,8 +1296,13 @@ export function legalActions(state: GameState): PlayerAction[] {
         // set twice over. Asked through the very helpers the validator uses,
         // against the candidate action itself, rather than doubling `deflected`
         // by hand: this figure is where the offered-then-refused split lives.
+        //
+        // Vex - Cheerless's tax rides the same figure and is owed ONCE, not per
+        // execution: hers is a price on PLAYING an enemy spell, and a `[Repeat]`
+        // is one play that executes twice. `rainbowSurchargeForPlay` adds it once
+        // however long the chosen-unit list it is handed is.
         const repeatVariant = { ...variant, repeatPaid: true as const };
-        const repeatDeflected = deflectSurchargeForTargets(state, playerIndex, [
+        const repeatDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
           ...chosenUnitsOfPlay(repeatVariant),
           ...chosenUnitsOfRepeat(repeatVariant),
         ]);
@@ -1303,7 +1341,12 @@ export function legalActions(state: GameState): PlayerAction[] {
             modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
               modifiedRepeatEnergy(state, playerIndex, grantedCost.energy) +
               (alsoPrinted ? modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy) : 0),
-            card.powerCost + (grantedCost.power ?? 0) + (alsoPrinted ? repeatCost!.power ?? 0 : 0),
+            // Vex's friendly discount, clamped against the card's own Power before
+            // either additional cost is added — the printed-Repeat branch above
+            // says why that order is the validator's.
+            Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind)) +
+              (grantedCost.power ?? 0) +
+              (alsoPrinted ? repeatCost!.power ?? 0 : 0),
             card.powerDomain,
             card.powerDomainAlt,
             card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
@@ -1318,7 +1361,10 @@ export function legalActions(state: GameState): PlayerAction[] {
           // The `[Deflect]` tax is owed once per EXECUTION that chooses the unit
           // — the 2026-08-06 ruling, applied here by asking the same helpers the
           // validator asks, against the candidate action itself.
-          const grantedDeflected = deflectSurchargeForTargets(state, playerIndex, [
+          // Vex - Cheerless's tax is in this figure too, and once — see the
+          // printed-Repeat branch above for why a play that executes three times
+          // still owes her only one.
+          const grantedDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
             ...chosenUnitsOfPlay(grantedVariant),
             ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
           ]);

@@ -219,6 +219,48 @@ export function isMechUnit(state: GameState, unit: UnitInstance): boolean {
  * end-of-turn sweep clears it exactly the way a detach does — two spellings of
  * "not fresh" is how one of them comes to be wrong.
  */
+/**
+ * Records that `unitInstanceId` was banished WITH `gearInstanceId` — The Zero
+ * Drive's list, and the only writer of `GearInstance.banishedInstanceIds`.
+ *
+ * Here rather than in triggers.ts for the reason this module is the single
+ * writer of `attachedToInstanceId`: a gear field with two writers is a gear field
+ * that drifts.
+ *
+ * Searches `activeGear` AND `banished`, because a Drive can be in either by the
+ * time a death it was watching resolves — the ordinary case is in play, and its
+ * own ability banishes it.
+ *
+ * A gear id that names nothing is a silent no-op, the same target-vanished
+ * convention every other helper here follows.
+ */
+export function recordBanishedWithGear(
+  state: GameState,
+  ownerIndex: 0 | 1,
+  gearInstanceId: string,
+  unitInstanceId: string,
+): GameState {
+  const withRecord = (gear: GearInstance): GearInstance =>
+    gear.instanceId === gearInstanceId
+      ? { ...gear, banishedInstanceIds: [...(gear.banishedInstanceIds ?? []), unitInstanceId] }
+      : gear;
+  const owner = state.players[ownerIndex];
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = {
+    ...owner,
+    activeGear: owner.activeGear.map(withRecord),
+    banished: owner.banished.map((c) => (c.kind === "Gear" ? withRecord(c) : c)),
+  };
+  return { ...state, players };
+}
+
+/** The units recorded against `gear`, in the order they were banished. Its own
+ *  accessor so the ability that reads the list and the trigger that writes it
+ *  quote one field name. */
+export function unitsBanishedWith(gear: { banishedInstanceIds?: readonly string[] }): readonly string[] {
+  return gear.banishedInstanceIds ?? [];
+}
+
 export function withoutAttachFreshness(gear: GearInstance): GearInstance {
   if (gear.attachedThisTurn === undefined) return gear;
   const { attachedThisTurn: _spent, ...rest } = gear;

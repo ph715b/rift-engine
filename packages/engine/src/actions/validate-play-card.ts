@@ -20,7 +20,15 @@ import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
-import { modifiedEnergyCost, modifiedRepeatEnergy, optionalCostDiscount, targetChoiceDiscount, scaledPowerDiscount } from "../engine/cost-modifiers.js";
+import {
+  modifiedEnergyCost,
+  modifiedRepeatEnergy,
+  optionalCostDiscount,
+  targetChoiceDiscount,
+  scaledPowerDiscount,
+  combatSpellPowerDiscount,
+  rainbowSurchargeForPlay,
+} from "../engine/cost-modifiers.js";
 import {
   cardModesOf,
   cardMovesTarget,
@@ -692,14 +700,31 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // about what the play costs.
   const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
   const optionalPower = optionalPowerCostOf(card.defId);
+  // The rainbow surcharge this play owes beyond its own cost — `[Deflect]` on
+  // what it chooses, plus Vex - Cheerless's tax on an enemy spell cast into her
+  // combat. Computed HERE, above Bullet Time's X check, because that check is an
+  // equality against the rainbow bucket and the surcharge shares the bucket.
+  //
+  // Through the same function the enumerator prices with, which is the whole
+  // discipline this block already keeps for `[Deflect]`: two spellings of one
+  // surcharge is how the offered-then-refused split has shipped three times.
+  const surcharge = rainbowSurchargeForPlay(state, action.playerIndex, card.kind, [
+    ...chosenUnitsOfPlay(action),
+    ...chosenUnitsOfRepeat(action),
+  ]);
   // Bullet Time — the X the action names has to be exactly the rainbow runes it
   // supplies. Checked here rather than trusting the enumerator, since a hand-built
   // action could claim a large X and pay nothing.
+  //
+  // The surcharge is subtracted back off first: X and a tax are two debts in one
+  // bucket, so a taxed Bullet Time supplies more rainbow than its X and a bare
+  // equality would refuse the enumerator's own candidate.
   if (hasXRainbowCost(card.defId)) {
     const x = action.xAmount ?? 0;
     if (x < 0) return fail(`${card.name} cannot pay a negative amount`);
-    if ((action.payment.rainbowRunes ?? []).length !== x) {
-      return fail(`${card.name} was played for X=${x} but supplied ${(action.payment.rainbowRunes ?? []).length} rainbow Power`);
+    const forX = (action.payment.rainbowRunes ?? []).length - surcharge;
+    if (forX !== x) {
+      return fail(`${card.name} was played for X=${x} but supplied ${Math.max(0, forX)} rainbow Power`);
     }
   }
 
@@ -750,7 +775,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
-        Math.max(0, card.powerCost - repeatableDiscount - targetDiscount.power - scaledPowerDiscount(state, action.playerIndex, card.defId)) +
+        Math.max(
+          0,
+          card.powerCost -
+            repeatableDiscount -
+            targetDiscount.power -
+            scaledPowerDiscount(state, action.playerIndex, card.defId) -
+            // Vex - Cheerless's friendly half. Her enemy half is a rainbow
+            // surcharge, checked against its own bucket further down.
+            combatSpellPowerDiscount(state, action.playerIndex, card.kind),
+        ) +
           acceleratePower +
           repeatPower +
           grantedPower +
@@ -839,26 +873,44 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (unchooseable !== undefined) {
     return fail(`${unchooseable} can't be chosen by enemy spells and abilities`);
   }
+  // `surcharge` was computed above, beside Bullet Time's X check that shares this
+  // bucket. `deflected` keeps its name here because the MESSAGE below still
+  // attributes it, and for one card in the pool it is no longer the whole story —
+  // see the breakdown.
   const deflected = deflectSurchargeForTargets(state, action.playerIndex, [
     ...chosenUnitsOfPlay(action),
     ...chosenUnitsOfRepeat(action),
   ]);
+  const combatTax = surcharge - deflected;
   const rainbow = payment.rainbowRunes ?? [];
+  // Bullet Time's X is owed on top of every surcharge and is not one — it is a
+  // cost the ACTION opts into, checked against `xAmount` above, so it is added
+  // back here rather than being folded into `surcharge`.
+  const xRainbow = hasXRainbowCost(card.defId) ? action.xAmount ?? 0 : 0;
   // Danger Zone's Repeat is `[1][rainbow]`, and a rainbow pip is not
   // domain-checked — so it rides this bucket beside the Deflect tax rather than
   // `powerRunes`. Owed ON TOP of any surcharge: they are two different debts
   // that happen to be payable with the same kind of rune.
-  if (rainbow.length < deflected + repeatRainbow) {
-    // The [Repeat] half is named only when it is actually owed. Every card in the
-    // pool but Danger Zone owes zero, and a breakdown reading "0 for [Repeat]" on
-    // the other 300 was noise — it also silently rewrote the sentence the web
-    // package asserts on, which is how this message came to be tested by a suite
-    // the engine's own verification loop does not run.
-    const owed = deflected + repeatRainbow;
+  if (rainbow.length < surcharge + repeatRainbow + xRainbow) {
+    // Each half is named only when it is actually owed. Every card in the pool
+    // but Danger Zone owes zero `[Repeat]` rainbow, and a breakdown reading "0
+    // for [Repeat]" on the other 300 was noise — it also silently rewrote the
+    // sentence the web package asserts on, which is how this message came to be
+    // tested by a suite the engine's own verification loop does not run. Vex's
+    // tax is named the same way and for the same reason.
+    const owed = surcharge + repeatRainbow + xRainbow;
+    const parts = [
+      ...(deflected > 0 ? [`${deflected} for [Deflect]`] : []),
+      ...(combatTax > 0 ? [`${combatTax} for Vex - Cheerless`] : []),
+      ...(repeatRainbow > 0 ? [`${repeatRainbow} for [Repeat]`] : []),
+      ...(xRainbow > 0 ? [`${xRainbow} for X`] : []),
+    ];
     const why =
-      repeatRainbow > 0
-        ? `(${deflected} for [Deflect], ${repeatRainbow} for [Repeat])`
-        : `for [Deflect] on its target${deflected === 1 ? "" : "s"}`;
+      parts.length > 1
+        ? `(${parts.join(", ")})`
+        : combatTax > 0 && deflected === 0
+          ? "for Vex - Cheerless"
+          : `for [Deflect] on its target${deflected === 1 ? "" : "s"}`;
     return fail(`${card.name} must pay ${owed} rainbow Power ${why}, but named ${rainbow.length}`);
   }
   const alreadySpent = new Set([...payment.energyRunes, ...payment.powerRunes]);

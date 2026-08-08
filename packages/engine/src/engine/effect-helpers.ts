@@ -1478,15 +1478,23 @@ export function relocateToBaseUnchanged(state: GameState, targetInstanceId: stri
  * genuinely stays banished: Time Warp's "Banish this", which is what stops the
  * spell being recurred out of a trash for a second extra turn.
  *
- * Removes from wherever the card currently is — hand, trash or the chain's
- * already-trashed copy — so a caller does not have to know which. A card that is
- * in none of them is left alone rather than duplicated into the zone.
+ * Removes from wherever the card currently is — hand, trash, ACTIVE GEAR, or the
+ * chain's already-trashed copy — so a caller does not have to know which. A card
+ * that is in none of them is left alone rather than duplicated into the zone.
+ *
+ * **`activeGear` was added for The Zero Drive's "Banish this:" cost**, and it is
+ * the first time this function has had to reach a permanent IN PLAY. It carries
+ * the instance across rather than re-creating it, which is what preserves that
+ * gear's `banishedInstanceIds` for the effect the cost is paying for. Deliberately
+ * a plain move and not `killGear`: banishing is not killing, so no self-trigger
+ * fires — see `ActivationCost.banishSelf`.
  */
 export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): GameState {
   const owner = state.players[playerIndex];
   const card =
     owner.hand.find((c) => c.instanceId === cardInstanceId) ??
     owner.trash.find((c) => c.instanceId === cardInstanceId) ??
+    owner.activeGear.find((c) => c.instanceId === cardInstanceId) ??
     owner.banished.find((c) => c.instanceId === cardInstanceId);
   if (!card || owner.banished.some((c) => c.instanceId === cardInstanceId)) return state;
 
@@ -1494,6 +1502,7 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
     ...p,
     hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
     trash: p.trash.filter((c) => c.instanceId !== cardInstanceId),
+    activeGear: p.activeGear.filter((c) => c.instanceId !== cardInstanceId),
     banished: fileIntoNonBoardZone(p.banished, card),
   }));
 }

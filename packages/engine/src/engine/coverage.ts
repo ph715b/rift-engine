@@ -322,11 +322,15 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // that turned out to be MIS-PRICED rather than blocked — see this file's git
   // history and the log in docs/rules-conformance.md.
   //
-  // These three are what is honestly left. Transcribed abilities in
+  // The Zero Drive followed on 2026-08-07: its note said "needs
+  // banish-with-source tracking", and that turned out to be one optional field on
+  // `GearInstance` plus the death-watch that fills it — the ninth of this repo's
+  // mechanism-naming notes to be pessimistic rather than wrong.
+  //
+  // These two are what is honestly left. Transcribed abilities in
   // docs/sfd-equipment-abilities.md.
   ["SFD-030", "art-only: 'My hold effects are also conquer effects, and vice versa' needs a moment-rewriting layer, which has no precedent here"],
   ["SFD-059", "art-only: 'copy that unit's text to this Equipment' needs text copying, which nothing in the engine models"],
-  ["SFD-090", "art-only: 'play all units banished with this' needs banish-with-source tracking"],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

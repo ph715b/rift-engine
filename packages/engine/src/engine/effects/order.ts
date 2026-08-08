@@ -34,6 +34,19 @@ import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
 import { wearerListener } from "../equipment.js";
+import { mayPlayUnitAt } from "../battlefield-continuous.js";
+// From the LEAF constants module, not from `activated-abilities.js` where the
+// ability lives: that import closed a cycle through token.js and registered the
+// Gold token's ability under the key "undefined". See the constant's own note.
+import { VANGUARD_ARMORY_TOKENS } from "../constants.js";
+
+/** Which of Vanguard Armory's three this question is about — counted UP from the
+ *  remaining count, because "Recruit 1 of 3" is what a player is looking at and
+ *  "2 left" is not. */
+function vanguardTokenOrdinal(d: { count?: number }): string {
+  const remaining = d.count ?? 1;
+  return `${VANGUARD_ARMORY_TOKENS - remaining + 1} of ${VANGUARD_ARMORY_TOKENS}`;
+}
 
 /**
  * Shurima's Sand Soldier: a 2-Might unit token, entering exhausted like any
@@ -1472,6 +1485,51 @@ export const decisions: Record<string, DecisionDefinition> = {
       // the decision because the board no longer knows: the unit is in a trash and
       // the Cleanup between the two submits has already lapsed control there.
       return chosen ? playUnitFree(recycled, d.playerIndex, chosen as UnitInstance, d.battlefieldId) : recycled;
+    },
+  },
+  /**
+   * Vanguard Armory's "(You may play them to different locations.)" — asked once
+   * per token, with `count` counting down.
+   *
+   * The ability itself is in `activated-abilities.ts`; only the question lives
+   * here, which is the same split `OGN-242-banish` above already has and for the
+   * same reason: an activated ability belongs to that registry, and a decision
+   * belongs to its card's domain file.
+   *
+   * **Why a question rather than a fan-out.** Three independent destinations is a
+   * CROSS PRODUCT — 4³ candidate actions on a board with three controlled
+   * battlefields — so enumerating it would put 64 near-identical activations in
+   * front of the AI for one 7-Energy gear. Asked one at a time it is one action
+   * and at most three cheap questions, and it re-parks itself exactly the way
+   * `OGN-230-spend` below does. Terminates on the count rather than on the board:
+   * every answer places a token and decrements, and nothing an answer does can
+   * add to it.
+   *
+   * **The destinations are the ones a token may be PLAYED to**: base, or a
+   * battlefield its controller CONTROLS. That is Recruit the Vanguard's rule,
+   * asked through the same `mayPlayUnitAt` gate (Rockfall Path bars a
+   * destination for both players) — deliberately stricter than the Unit
+   * direct-deploy check, which accepts mere presence.
+   *
+   * With no controlled battlefield the list is one option long and
+   * `advanceDecisions` executes it without ever showing it, so the ordinary case
+   * costs the player nothing.
+   */
+  "SFD-168-place": {
+    prompt: (state, d) => `Vanguard Armory: where does Recruit ${vanguardTokenOrdinal(d)} go?`,
+    options: (state, d) => [
+      { id: "base", label: "Your base" },
+      ...state.battlefields
+        .filter((bf) => bf.controllerId === state.players[d.playerIndex].id && mayPlayUnitAt(state, bf.id))
+        .map((bf) => ({ id: bf.id, label: bf.name })),
+    ],
+    resolve: (state, d, optionId) => {
+      const destination: TokenDestination = optionId === "base" ? "base" : { battlefieldId: optionId };
+      const placed = placeRecruitToken(state, d.playerIndex, destination);
+      const remaining = (d.count ?? 1) - 1;
+      // Onto the FRONT, so the three placements stay one instruction — anything
+      // else queued was raised later. `repeatDecision`'s own note.
+      return remaining > 0 ? repeatDecision(placed, { ...d, count: remaining }) : placed;
     },
   },
   // Albus Ferros' "spend any number of buffs". Asked once per buff, with a

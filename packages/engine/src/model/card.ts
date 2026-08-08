@@ -186,6 +186,25 @@ export interface GearInstance extends CardInstanceBase {
    */
   attachedThisTurn?: true;
   /**
+   * Units banished **with this gear** — The Zero Drive's "play all units
+   * banished with this".
+   *
+   * The pool's first banish that remembers its SOURCE, and the source lives on
+   * the gear rather than beside the banished card for two reasons. The list IS a
+   * property of this gear ("with THIS", compared by instance, so two Zero Drives
+   * keep two lists), and it needs no cleanup: a gear that leaves takes its list
+   * with it, where a per-player map keyed by gear id would outlive its gear.
+   *
+   * It survives the gear's own banishment intact, which is what makes the card
+   * work at all — "Banish this" is the ability's COST, so by the time the effect
+   * resolves the gear is in `PlayerState.banished` and this list is the only
+   * record of what to bring back.
+   *
+   * Optional so every existing gear construction site is unaffected; absent
+   * reads as "nothing banished with it", which is true of all thirty other Gear.
+   */
+  banishedInstanceIds?: readonly string[];
+  /**
    * Keywords this gear carries. Present so a keyword can be GRANTED to it at
    * runtime — Fading Memories gives "a unit at a battlefield **or a gear**"
    * [Temporary], and without this the gear half of that card had nowhere to

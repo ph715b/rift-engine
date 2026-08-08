@@ -838,7 +838,16 @@ export function cardHasOptionalExhaustCost(defId: string): boolean {
  *  the Unit direct-deploy check in validate-play-card.ts, and deliberately so:
  *  the oracle flags the same distinction as a real difference rather than a
  *  copy-paste (ActionValidator.java:1487-1504). */
-const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set(["OGS-015", "OGN-094"]); // Recruit the Vanguard, Sprite Call
+const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
+  "OGS-015", // Recruit the Vanguard
+  "OGN-094", // Sprite Call
+  // Arise! — "Play a 2 Might Sand Soldier unit token for each Equipment you
+  // control." No parenthetical, so all of them land at ONE chosen destination
+  // exactly as Recruit the Vanguard's four do; the card that DOES print a
+  // per-token split (Vanguard Armory) is an activated ability and reaches its
+  // destinations another way.
+  "SFD-198",
+]);
 
 export function cardPlacesTokens(defId: string): boolean {
   return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);
