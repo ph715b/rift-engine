@@ -79,6 +79,29 @@ export type TargetingSpec =
       scope?: TargetScope;
       exhaustedOnly?: true;
       attackingOnly?: true;
+      /**
+       * The printed text says "you MAY choose" — declining is a legal option, so
+       * the enumerator must offer a no-target variant even when legal targets
+       * exist. Tideturner (OGN-199), and swept as the only card in the pool this
+       * reaches.
+       *
+       * Needed because the enumerator's fallback pushes the empty variant only
+       * when `effectVariants.length === 0`, which is deliberate — a Unit is
+       * playable with no legal target while a Spell is not — and has the side
+       * effect that a "you may" appears exactly when there is nothing to decline.
+       *
+       * A property of the SPEC rather than of the resolver, the same reason
+       * `attackingOnly` above gives: by the time a resolver runs, the choice has
+       * been made and paid for. **355.7's Make Relevant Choices step is where a
+       * "you may" is decided** — 402.2 says it in as many words for a triggered
+       * ability ("if the first part of a Triggered Ability's effect is 'you may',
+       * its controller decides whether or not to perform it NOW") — so the
+       * decline has to exist as an enumerable choice, not as a resolver branch.
+       *
+       * Only consulted for a UNIT's on-play trigger. A Spell's targeting IS its
+       * effect, so an optional target there would mean paying for nothing.
+       */
+      optionalChoice?: true;
     }
   | { kind: "battlefield" }
   /**

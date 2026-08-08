@@ -459,7 +459,15 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // board). Only ever permitted when the board really offers no choice —
   // otherwise a caster could dodge a mandatory trigger by omitting the field.
   // A Spell's targeting is its whole effect, so this never applies there.
-  const targetOmissionAllowed = card.kind === "Unit" && !hasAnyLegalEffectChoice(state, action.playerIndex, targeting);
+  // **…or because the card's own text says "you MAY".** Tideturner (OGN-199):
+  // declining is one of the choices 402.2 puts at the Make Relevant Choices
+  // step, so omitting the target is legal even when the board offers one. The
+  // enumerator pushes exactly this variant off the same `optionalChoice` flag —
+  // one condition, two readers, which is the only thing that stops a decline
+  // being offered and then refused.
+  const declineAllowed = card.kind === "Unit" && targeting.kind === "unit" && targeting.optionalChoice === true;
+  const targetOmissionAllowed =
+    card.kind === "Unit" && (declineAllowed || !hasAnyLegalEffectChoice(state, action.playerIndex, targeting));
   // Nothing was chosen AND nothing could have been — skip the targeting
   // checks only (never the payment/destination/Vision ones below).
   const omitted =

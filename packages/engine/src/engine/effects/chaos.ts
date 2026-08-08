@@ -620,27 +620,38 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // which is the card's whole trick. The target spec is therefore "anywhere",
     // and the resolver rejects a same-location choice.
     //
-    // **"You MAY" — and in this engine it is NOT optional. Measured 2026-08-05,
-    // and this comment used to claim the opposite** ("enumeration offers the
-    // no-target variant too, so declining is a real option"). It does not:
-    // `legal-actions.ts` pushes the empty variant only when
-    // `effectVariants.length === 0`, so the decline appears exactly when there
-    // is nothing to decline. With any friendly unit at another location, every
-    // enumerated variant names one, and the swap is forced.
+    // **"You MAY" — and it is genuinely optional now. FIXED 2026-08-07.**
     //
-    // The resolver below already handles the absent target, so the mechanism
-    // supports declining; only the enumeration does not offer it. Fixing it
-    // needs a per-card "this trigger is optional" marker, because the
-    // `length === 0` rule is deliberate — see that line's own comment on why a
-    // Unit is playable with no legal target and a Spell is not.
+    // The history is worth keeping because it is one comment that has been wrong
+    // in both directions: it first claimed the decline WAS offered ("enumeration
+    // offers the no-target variant too"), which was false; the 2026-08-05
+    // correction said it was forced, which was true and then stayed on the page
+    // for two days after the mechanism to fix it was identified.
+    //
+    // `legal-actions.ts` pushed the empty variant only when
+    // `effectVariants.length === 0`, so the decline appeared exactly when there
+    // was nothing to decline: with any friendly unit at another location every
+    // enumerated variant named one and the swap was forced. The resolver below
+    // always handled an absent target, so the mechanism supported declining and
+    // only the enumeration did not offer it.
+    //
+    // `optionalChoice` is that per-card marker, read by the enumerator AND by
+    // `validate-play-card`'s `targetOmissionAllowed` — one flag, two readers, so
+    // a decline cannot be offered and then refused. Deliberately NOT folded into
+    // the `length === 0` rule, which says something different ("a trigger with
+    // nothing to choose does nothing") and must keep applying to every on-play
+    // trigger that is mandatory.
+    //
+    // **402.2** is the rule: "if the first part of a Triggered Ability's effect
+    // is 'you may', its controller decides whether or not to perform the
+    // Triggered Ability NOW" — at the Make Relevant Choices step, which is why
+    // the decline is an enumerated variant rather than a branch in the resolver.
     //
     // **Tideturner is the ONLY card in the pool this reaches** — swept over
     // every Unit whose text says "you may <verb>" and whose on-play trigger
     // targets at announce time; every other optional on-play choice in the pool
-    // is a parked decision, which can be declined. Recorded in
-    // docs/rules-conformance.md rather than fixed here: it is a behaviour change
-    // to a card in a declared-complete set.
-    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    // is a parked decision, which can already be declined.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", optionalChoice: true },
     resolve: (state, ctx, unitId, event) =>
       event.targetUnitInstanceId ? swapUnitLocations(state, ctx.casterIndex, unitId, event.targetUnitInstanceId) : state,
   },

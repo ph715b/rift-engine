@@ -918,6 +918,23 @@ export function legalActions(state: GameState): PlayerAction[] {
     // the effect, so "no legal target" really does mean "can't cast."
     if (card.kind === "Unit" && effectVariants.length === 0) effectVariants.push({});
 
+    // **"You MAY choose" — so DECLINING is one of the choices.** Tideturner
+    // (OGN-199) is the only card in the pool this reaches, swept 2026-08-05.
+    //
+    // Separate from the rule above rather than folded into it, because the two
+    // say different things: that one is "a trigger with nothing to choose does
+    // nothing", this one is "a trigger whose text is optional may be declined
+    // even when there IS something to choose". Folding them would make every
+    // Unit's on-play trigger optional, which is wrong for the 47 that are not.
+    //
+    // 402.2 puts the decision at the Make Relevant Choices step — "if the first
+    // part of a Triggered Ability's effect is 'you may', its controller decides
+    // whether or not to perform the Triggered Ability NOW" — which is why it is
+    // an enumerated variant rather than a branch inside the resolver.
+    if (card.kind === "Unit" && !isModal && targeting.kind === "unit" && targeting.optionalChoice === true) {
+      if (!effectVariants.some((v) => v.targetUnitInstanceId === undefined)) effectVariants.push({});
+    }
+
     // [Vision] choice fan-out: every effect variant above also needs a
     // recycle-true and recycle-false copy, since the choice must already be
     // decided in the submitted action (this engine can't pause mid-resolution
