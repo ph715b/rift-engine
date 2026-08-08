@@ -143,7 +143,40 @@ function candidateActions(state: GameState): PlayerAction[] {
  * silent wrong answer, the failure mode this project keeps paying for.
  * `decisions.ts`'s MAX_ADVANCE_STEPS is the precedent: it throws.
  */
-const MAX_SETTLE_PASSES = 64;
+const MAX_SETTLE_PASSES = 1024;
+
+/**
+ * Iterations the settle loop may run WITHOUT the remaining work going down,
+ * before it calls the resolution stuck.
+ *
+ * **This is the real bound; `MAX_SETTLE_PASSES` above is now only a backstop.**
+ * A constant total was the wrong shape and it took a live failure to see why: it
+ * conflates "this resolution is LONG" with "this resolution is STUCK", and those
+ * want opposite responses. The old 64 was measured against "a combat-closing
+ * PassFocus with two deaths and a conquest costs ~24" — an honest measurement of
+ * every case that existed, and blind to the one that arrived later.
+ *
+ * What arrived: `killTemporaryPermanents` kills every Temporary permanent at
+ * once, and a board holding death-watch listeners turns one mass death into one
+ * triggered ability PER DEATH PER LISTENER. Measured from the trace this bound
+ * now prints — **a chain of 40**, all of it UNL-068 Spectral Centaur and UNL-129
+ * Vicious Snapjaws. That is rule 383 working, not a defect. A chain item needs
+ * BOTH players to pass before it resolves, so 40 items cost ~80 iterations and
+ * the loop died at 64 having done nothing wrong.
+ *
+ * Progress is measured as `chain + pendingDecisions + (staged Showdown ? 1 : 0)`
+ * strictly DECREASING. 16 gives generous slack over the two-passes-per-item
+ * floor while still catching a genuine non-terminating resolution in well under
+ * a second — and, unlike a bigger constant, it does not have to be re-guessed
+ * the next time a card makes a legitimately deeper chain.
+ */
+const MAX_SETTLE_PASSES_WITHOUT_PROGRESS = 16;
+
+/** How much deferred work is outstanding. The quantity the loop must drive to
+ *  zero, and the one a stall is defined against. */
+function outstandingWork(state: GameState): number {
+  return state.spellChain.length + state.pendingDecisions.length + (state.turnState === "Showdown" ? 1 : 0);
+}
 
 /**
  * Drives deferred resolution to completion, so a candidate action can be
@@ -191,7 +224,55 @@ function settleDeferredResolution(
   opponentReplies = false,
 ): GameState {
   let settled = state;
+  /**
+   * What each iteration DID, kept only to be printed if the loop gives up.
+   *
+   * The message used to name a count and nothing else, and a count cannot
+   * distinguish the two failures that reach it: a chain that will not drain, and
+   * a chain that drains while something refills it faster. Those want opposite
+   * fixes, and telling them apart by re-reading the code is guesswork. One
+   * bounded array of short strings costs nothing on the hot path — it is only
+   * ever read on the throw.
+   */
+  const trace: string[] = [];
+  let previousWork = outstandingWork(settled);
+  let sinceProgress = 0;
   for (let i = 0; i < MAX_SETTLE_PASSES; i++) {
+    // Progress is the work going down SINCE THE LAST ITERATION — not below the
+    // lowest ever seen.
+    //
+    // The historic-minimum version of this was written first and was wrong, in a
+    // way worth recording because it looked more principled: the work
+    // legitimately RISES above where it started, since resolving one chain item
+    // is what fires the triggers that add the next twelve. Measured on the real
+    // failure — a chain of 1 becoming 12, then draining cleanly — a minimum-based
+    // guard called a perfectly healthy resolution stuck at iteration 17, because
+    // 12 down to 6 never dips below the 1 it began at.
+    //
+    // An oscillating resolution can evade a since-last-iteration test; that is
+    // what `MAX_SETTLE_PASSES` is a backstop for, and it reports the difference.
+    const work = outstandingWork(settled);
+    if (work < previousWork) sinceProgress = 0;
+    else sinceProgress += 1;
+    previousWork = work;
+    if (sinceProgress > MAX_SETTLE_PASSES_WITHOUT_PROGRESS) {
+      throw new Error(
+        `settleDeferredResolution stalled: ${sinceProgress} iterations with no fall in outstanding work ` +
+          `(now ${work}) (chainOpen=${settled.chainOpen}, chain=${settled.spellChain.length}, ` +
+          `pendingDecisions=${settled.pendingDecisions.length}, turnState=${settled.turnState})` +
+          `\n  trace: ${trace.slice(-24).join(" ")}` +
+          `\n  chain now: ${settled.spellChain
+            .map((e) => ("listenerDefId" in e ? (e.listenerDefId ?? "?") : "spell"))
+            .join(", ")}`,
+      );
+    }
+    // Only the tail is ever printed, so the buffer stays small on a long but
+    // healthy resolution — a 40-item chain is ~80 iterations of nothing wrong.
+    trace.push(
+      `${i}:chain=${settled.spellChain.length}${settled.chainOpen ? "o" : "c"}` +
+        `,pend=${settled.pendingDecisions.length},ts=${settled.turnState},act=${actingPlayerIndex(settled)}`,
+    );
+    if (trace.length > 32) trace.shift();
     // A pending question comes first — nothing else is legal until it is
     // answered, so a settle that ignored it would spin on PassFocus actions the
     // engine is refusing and score a half-resolved board.
@@ -284,10 +365,19 @@ function settleDeferredResolution(
   // or that work is still queued, so the AI would score a board the game can never
   // reach and pick a move on it. Throwing matches decisions.ts's MAX_ADVANCE_STEPS,
   // the same "a queue that will not drain is a bug, not a state" call.
+  // The BACKSTOP, not the real bound — the stall guard above is what normally
+  // fires. Reaching here means work kept falling for a thousand iterations,
+  // which is a resolution making progress forever: unbounded generation, not a
+  // deadlock. Different bug, so it says so rather than reusing the stall message.
   throw new Error(
-    `settleDeferredResolution did not settle in ${MAX_SETTLE_PASSES} iterations ` +
+    `settleDeferredResolution ran ${MAX_SETTLE_PASSES} iterations while still making progress — ` +
+      `the resolution is unbounded rather than stuck ` +
       `(chainOpen=${settled.chainOpen}, chain=${settled.spellChain.length}, ` +
-      `pendingDecisions=${settled.pendingDecisions.length}, turnState=${settled.turnState})`,
+      `pendingDecisions=${settled.pendingDecisions.length}, turnState=${settled.turnState})` +
+      `\n  trace: ${trace.join(" ")}` +
+      `\n  chain now: ${settled.spellChain
+        .map((e) => ("listenerDefId" in e ? (e.listenerDefId ?? "?") : "spell"))
+        .join(", ")}`,
   );
 }
 

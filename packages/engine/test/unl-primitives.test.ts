@@ -275,7 +275,7 @@ describe("the two activated abilities a domain file could not register", () => {
  * Found while writing Petal Pixie, whose aura counted one unit too many because
  * she was counting HERSELF.
  */
-describe("[Temporary] false positives — DIAGNOSED, HELD BACK, and pinned as broken", () => {
+describe("[Temporary] is not held by a card that only mentions it", () => {
   const registry = defaultCardRegistry();
 
   const MENTIONS_ONLY = [
@@ -287,27 +287,37 @@ describe("[Temporary] false positives — DIAGNOSED, HELD BACK, and pinned as br
     ["UNL-090", "LeBlanc - Everywhere At Once"],
   ] as const;
 
-  it("all six STILL wrongly carry it, and therefore still die every turn", () => {
-    // **This test asserts a BUG, on purpose.** The fix is written and commented
-    // out in `card-loader.GRANTED_ONLY_KEYWORDS`; applying it makes
-    // `settleDeferredResolution` throw during the UNL covering run, because five
-    // units that used to die every turn start surviving and the games get dense
-    // enough to reach a latent on-play-trigger loop. `probes/stuck-chain.ts`
-    // names the stuck item — Starhound at 60 games, Evershade Stalker at 250
-    // — and neither card is at fault.
+  it("none of the six carries it, so none is killed by the Beginning-Phase sweep", () => {
+    // **This test asserted the BUG for one commit**, because applying the fix
+    // made `settleDeferredResolution` throw and shipping a hang is worse than
+    // shipping a known bug. The throw turned out not to be a loop at all: a mass
+    // death fires one trigger per death per listener, the chain legitimately
+    // reached 40, and the AI's settle cap was a constant 64 that could not drain
+    // it at the two-passes-per-item a chain costs. That cap is now a
+    // no-progress guard, so a long resolution and a stuck one are different
+    // things, and the six entries went in.
     //
-    // Pinned this way round so that the day someone fixes that loop,
-    // uncommenting the six entries turns this red and hands them the other half
-    // of the job. Silence would lose it.
+    // OGN-106 Sprite Mother had never survived a turn until this landed.
     for (const [defId, name] of MENTIONS_ONLY) {
       const def = registry.get(defId);
       expect(def.name, `${defId} is a different card now`).toBe(name);
       if (def.type !== "Unit") throw new Error("unreachable");
-      expect(
-        def.keywords.Temporary,
-        `${defId} (${name}) no longer mis-parses [Temporary] — GOOD. Re-run the probes; if they are green, ` +
-          `flip this test to expect undefined and delete this message.`,
-      ).toBe(1);
+      expect(def.keywords.Temporary, `${defId} (${name}) parses [Temporary] and so dies every turn`).toBeUndefined();
+    }
+  });
+
+  it("keeps the keywords those cards DO print — the reason this table is per-keyword", () => {
+    // A blanket `CONDITIONAL_KEYWORD_DEF_IDS` entry returns `{}` and would have
+    // stripped these too, trading a lethal bug for three silent ones.
+    const kept: readonly [string, "Shield" | "Accelerate" | "Backline"][] = [
+      ["UNL-048", "Shield"],
+      ["UNL-082", "Accelerate"],
+      ["UNL-090", "Backline"],
+    ];
+    for (const [defId, keyword] of kept) {
+      const def = registry.get(defId);
+      if (def.type !== "Unit") throw new Error("unreachable");
+      expect(def.keywords[keyword], `${defId} lost its real [${keyword}]`).toBe(1);
     }
   });
 

@@ -13,6 +13,8 @@ import { parkDecision } from "../src/engine/decisions.js";
 import { makePlayer, makeState, makeUnit } from "./fixtures.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { chooseAction } from "../src/ai/heuristic-ai.js";
+import { runCleanup } from "../src/engine/cleanup.js";
+import { runBeginning } from "../src/engine/turn-manager.js";
 
 function buildInitialGameState(): GameState {
   const registry = defaultCardRegistry();
@@ -583,5 +585,89 @@ describe("the AI answers pending questions", () => {
     const asked = askedToCull();
     const after = submit(asked, chooseAction(asked)).state;
     expect(after.players[1]!.baseUnits.map((u) => u.name)).toEqual(["Strong"]);
+  });
+});
+
+/**
+ * The settle loop's bound, which is what decides whether a legitimately LONG
+ * resolution is mistaken for a stuck one.
+ *
+ * This existed as a flat 64-iteration cap and it fired on a correct board. A
+ * mass death — `killTemporaryPermanents` kills every Temporary permanent at
+ * once — puts one triggered ability on the chain per death PER death-watch
+ * listener, which is rule 383 rather than a defect. Measured from the trace the
+ * throw now prints: a chain of 40, all of it Spectral Centaur and Vicious
+ * Snapjaws. A chain item needs BOTH players to pass before it resolves, so 40
+ * items cost ~80 iterations and the loop died at 64 having done nothing wrong.
+ *
+ * The bound is now "iterations with no fall in outstanding work", so length and
+ * stuckness are different things. These tests pin that distinction, because the
+ * failure it replaces was silent for exactly as long as nobody built a deep
+ * enough board.
+ */
+describe("the settle loop tells a LONG resolution from a stuck one", () => {
+  /**
+   * A board where one sweep cascades into many held triggers: N death-watch
+   * listeners (UNL-068 Spectral Centaur, "when another friendly unit dies") and
+   * N Temporary units that all die together in the Beginning Phase.
+   *
+   * **Phase `"Beginning"` is load-bearing.** `killTemporaryPermanents` runs in
+   * `runBeginning`, so a board built in the Action phase kills nothing and the
+   * whole test is vacuous — which is exactly what the first version of it was.
+   */
+  function massDeathBoard(listeners: number): GameState {
+    const state = { ...makeState(), phase: "Beginning" as const };
+    const own = state.players[0]!.id;
+    state.battlefields[0]!.units = {
+      [own]: [
+        ...Array.from({ length: listeners }, (_, i) =>
+          makeUnit({ defId: "UNL-068", name: `Centaur${i}`, might: 3 }),
+        ),
+        ...Array.from({ length: listeners }, (_, i) =>
+          makeUnit({ name: `Doomed${i}`, might: 1, keywords: { Temporary: 1 } }),
+        ),
+      ],
+    };
+    return state;
+  }
+
+  it("settles a board whose mass death makes a deep chain", () => {
+    // The regression this is really about: with a flat cap, enough listeners
+    // makes `chooseAction` THROW on a board the rules are perfectly happy with.
+    // Eight listeners and eight doomed units is well past the old 64.
+    // `runBeginning` is the driver, NOT `runCleanup` — the first version used
+    // the latter and was VACUOUS, because the sweep runs in the Beginning Phase
+    // and nothing died. Caught by mutating the bound back to the old flat 64 and
+    // seeing these tests still pass, which is the only reason it was noticed.
+    const state = runCleanup(runBeginning(massDeathBoard(8)));
+    expect(() => chooseAction(state)).not.toThrow();
+  });
+
+  it("scales — twice the board is still not 'stuck'", () => {
+    // A flat cap fails this by construction whatever number it is set to, which
+    // is the argument for bounding on progress instead. If this ever throws, the
+    // fix is not a bigger constant.
+    expect(() => chooseAction(runCleanup(runBeginning(massDeathBoard(16))))).not.toThrow();
+  });
+
+  it("refuses a board it cannot resolve, rather than scoring a half-settled one", () => {
+    // The negative control on relaxing the bound: it must not have turned a
+    // detectable failure into a silent wrong answer.
+    //
+    // **It does NOT exercise the no-progress counter**, and saying so is the
+    // point — the first version of this test claimed it did. A decision whose
+    // kind nothing registers is refused by `definitionFor` at PARK time, before
+    // the settle loop ever runs, so the throw comes from a different guard
+    // entirely. Both calls are inside the assertion here because that is where
+    // the throw actually is.
+    //
+    // What is genuinely unexercised: the no-progress path itself, and the
+    // `MAX_SETTLE_PASSES` backstop. Neither has a reachable subject in this
+    // pool — the one board that used to reach the old cap turned out to be a
+    // LONG resolution, not a stuck one, which is the whole reason the bound
+    // changed. Reported as unexercised rather than asserted.
+    expect(() =>
+      chooseAction(parkDecision(makeState(), { kind: "ZZZ-not-a-decision", playerIndex: 0 })),
+    ).toThrow();
   });
 });
