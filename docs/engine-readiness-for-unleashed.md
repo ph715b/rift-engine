@@ -108,18 +108,29 @@ One entry point, presets plus one covering run per set, **~10 seconds**. It is i
 instrument control both of those gated, per run); `exercised.ts` remains the
 per-mode drill-down.
 
-**Measured, and pinned in `CLAUDE.md`: 367 of 468 cards needing code have ever
-been exercised. 101 have not.** OGN 184/248, OGS 20/22, SFD 163/198. The pin is a
-FLOOR — the number is meant to rise, and the probe prints a line asking for the
-pin to be bumped when it does; a DROP is red.
+**Measured, and pinned in `CLAUDE.md`: 429 of 468 cards needing code have ever
+been exercised. 39 have not.** OGN 224/248, OGS 20/22, SFD 185/198, at the
+probe's default 250 games per mode. The pin is a FLOOR — the number is meant to
+rise, and the probe prints a line asking for the pin to be bumped; a DROP is red.
 
-The 101 are all NAMED in the report, partitioned three ways — and this is the
-input to 1b below:
+**The plan's ~111 was measured at 40 games per mode, and most of it was
+sampling.** The depth is load-bearing:
+
+| games/mode | exercised | never | `drawnNeverOffered` | wall clock |
+|---|---|---|---|---|
+| 40 | 367 | 101 | 8 | 10s |
+| 100 | 417 | 51 | 4 | 25s |
+| **250** (default) | **429** | **39** | **1** | **60s** |
+| 500 | 435 | 33 | 0 | 120s |
+
+The 39 are all NAMED, partitioned five ways:
 
 | bucket | count | of which |
 |---|---|---|
-| `offeredNeverTaken` | 56 | OGN 38, SFD 18 |
-| `seatedNeverOffered` | 45 | OGN 26, OGS 2, SFD 17 — **6 are Legends**, never offerable by construction |
+| `offeredNeverTaken` | 33 | the engine offers it, the 1-ply AI declines — the `ai-ab-harness` category |
+| `startsInPlayNeverActed` | 5 | Legends: on the board from turn 1, never drawn, never offered |
+| `drawnNeverOffered` | 1 | OGN-158 Volibear, 12 Energy — the pool's most expensive card |
+| `seatedNeverDrawn` | **0** | |
 | `neverSeated` | **0** | the covering runs really do seat all 468 |
 
 Notes for whoever touches it next:
@@ -136,9 +147,47 @@ Notes for whoever touches it next:
   red. The `everySetReachable` control had to be rewritten to read the
   MEASUREMENT (`bySet.seated`) rather than `setCodesWithLegend` — computed from
   the same input `MODES` is, it could not fail.
-- `probes/unexercised-allowlist.ts` exists and is empty. It is wired to a gate
-  from the first entry: a card excused there that turns up exercised fails by
+- `probes/unexercised-allowlist.ts` holds the 5 Legends, each with a reason read
+  off the CODE. A card excused there that turns up exercised fails the gate by
   name.
+- `probes/why-not-offered.ts` is the follow-up instrument: `CARDS=OGN-158 …` says
+  whether a card was ever affordable, ever legal-timed, and ever enumerated. It
+  is what dissolved 1b, and it is the tool for any future entry in that bucket.
+
+### 1b. DONE (2026-08-07) — and there was no enumeration backlog
+
+**Nothing to fix.** The 8 leads the 40-game run produced were investigated with
+`why-not-offered.ts` and **7 of the 8 were sampling**: at 250 games per mode the
+engine offers them freely (Punch First 59 times, Blood Money 71, Dazzling Aurora
+14). The eighth is OGN-158 Volibear at 12 Energy — the pool's most expensive card
+against a median of 3, affordable twice in 1000 games. At 500 games per mode
+`drawnNeverOffered` is **empty**.
+
+So the two categories that remain are both already documented, and both are
+allowlisted or explained rather than fixed:
+
+1. **33 cards the engine OFFERS and the AI declines** — Sabotage, Stacked Deck,
+   Party Favors, Meditation, Time Warp… exactly the `ai-ab-harness` "structural,
+   not a weight" category, plus the `abilityBanksResource` Legends. Reachability
+   is PROVEN for every one of them: the enumerator emitted them.
+2. **5 Legends the observer cannot see**, each re-read against the code rather
+   than taken from `exercise-log.ts`'s header:
+   - **OGN-251 Jinx** — `onBeginningPhase`, the one held-trigger conversion
+     deliberately left undone, so it resolves inline and never reaches
+     `pendingTriggers`.
+   - **OGS-019 Master Yi**, **SFD-181 Rumble**, **SFD-183 Lucian** — continuous
+     effects (`mightBonus`, granted keywords) read during a calculation. No
+     action, no Chain item, no event, so no signal can exist.
+   - **OGS-023 Garen** — *not* a blind spot. Its conquer trigger is held and
+     `test/legend-triggers-held.test.ts` proves it reaches the chain; its
+     condition (4+ friendly units surviving at the conquered battlefield) has
+     simply never come up. A deck built to mass units would close it.
+
+**The dispatch-hop bug class this phase was built to catch did not appear.** That
+is a real result rather than a null one: `invalid: 0` held across every run at
+every depth, and `takenWasOffered` held too.
+
+### 1b (as originally specified). Work the named list down
 
 ### 1a (as originally specified). Make the covering runs a gate rather than a thing you can type
 
@@ -267,9 +316,13 @@ Do not start UNL until all of these hold:
 - [ ] `master` green on the full `CLAUDE.md` loop, both workspaces.
 - [x] One command reports whole-pool reachability, and its union figure is pinned.
       `node probes/reachability.ts`, pinned at 367/468 (2026-08-07).
-- [ ] Every implemented-but-never-exercised card is either exercised, or on an
+- [x] Every implemented-but-never-exercised card is either exercised, or on an
       allowlist **with a reason** — the `ai-ab-harness` "structural, not a weight"
       category is a legitimate reason; "we did not get to it" is not.
+      **Enforced, not just done**: `reachability`'s `everyUnexercisedExplained`
+      control is red unless every never-exercised card is either proven reachable
+      by the enumerator having OFFERED it (33 of them) or carries a written
+      reason (6). Currently 0 unexplained. Mutation-proven by deleting an entry.
 - [ ] Every Divergent row re-read against the code, with the stale ones corrected.
 - [ ] The three Phase 2b fixes landed, each recorded in
       `docs/rules-conformance.md` in the same change and PINNED by a test where

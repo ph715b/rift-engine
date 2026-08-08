@@ -23,18 +23,22 @@
  * A count is not actionable, so every card is named — the same rule every gate in
  * this repo already follows.
  *
- * # The three reasons a card is on that list are not interchangeable
+ * # The reasons a card is on that list are not interchangeable
  *
  * | bucket | meaning | is it a defect? |
  * |---|---|---|
  * | `offeredNeverTaken` | the engine offered it, the AI declined every time | **usually not** — a 1-ply evaluator cannot price a deferred or informational effect |
- * | `seatedNeverOffered` | in a deck, and `legalActions` never enumerated it | maybe — but check it was ever DRAWN first |
+ * | `drawnNeverOffered` | it reached a hand and `legalActions` never enumerated it | **the real leads** |
+ * | `startsInPlayNeverActed` | a Legend or champion: on the board from turn 1, never drawn, never offered | only its trigger/activation can show it — read the card |
+ * | `seatedNeverDrawn` | in a deck, never reached a hand in these games | no — sampling |
  * | `neverSeated` | no run could put it in front of a player at all | a deck/pool problem, not an engine one |
  *
- * `exercised.ts`'s header has the sampling caveat that governs the middle row: a
- * game draws about **10 of a 39-card deck**, so one copy very likely never
- * appears, and OGS-011 Flash once read convincingly as an enumeration bug purely
- * from that.
+ * **The middle three used to be one bucket, and it hid the only actionable one.**
+ * A game draws about 10 of a 39-card deck, so a card that never reached a hand
+ * could not possibly have been offered — OGS-011 Flash sat in a deck for 10 games,
+ * was never drawn once, and read convincingly as an enumeration bug. The README
+ * has carried that warning for months as something a reader had to remember;
+ * `log.drawn` measures it instead.
  *
  * # What is gated, and what deliberately is not
  *
@@ -63,7 +67,29 @@ import { poolFacts } from "./pool-facts.ts";
 import { PRESETS, runControls, runExercise, type ExerciseRun } from "./exercise-run.ts";
 import { UNEXERCISED_ALLOWLIST } from "./unexercised-allowlist.ts";
 
-const GAMES = Number(process.env.GAMES ?? 40);
+/**
+ * **250, not 40, and the difference is the whole point of this instrument.**
+ *
+ * Measured 2026-08-07, union of cards needing code ever exercised:
+ *
+ * | games/mode | exercised | never | `drawnNeverOffered` | wall clock |
+ * |---|---|---|---|---|
+ * | 40 | 367 | 101 | 8 | 10s |
+ * | 100 | 417 | 51 | 4 | 25s |
+ * | **250** | **429** | **39** | **1** | **60s** |
+ * | 500 | 435 | 33 | 0 | 120s |
+ *
+ * At 40 games the never-exercised list is dominated by SAMPLING, not by defects:
+ * 7 of its 8 "the engine never offered this" leads were offered freely once the
+ * games were deep enough (Punch First 59 times, Blood Money 71). A gate that
+ * names 101 cards of which ~60 are noise manufactures exactly the fake backlog of
+ * broken-cards-that-are-not-broken this probe's own header warns about.
+ *
+ * 250 buys the honest list for a minute. Use `GAMES=40` for a quick regression
+ * check and `GAMES=500` when working the list down — but do not read the buckets
+ * from a shallow run.
+ */
+const GAMES = Number(process.env.GAMES ?? 250);
 
 /**
  * The recorded union, as `walkout` pins 191/107/32.
@@ -72,11 +98,12 @@ const GAMES = Number(process.env.GAMES ?? 40);
  * a gate that failed on an improvement would just get edited away. Going UP prints
  * a line asking for the pin to be bumped; going DOWN is red.
  *
- * Measured 2026-08-07 at 40 games per mode, battlefields pinned. Re-measure
- * before changing it, and if it moves without a deliberate cause, that is the
- * finding.
+ * Measured 2026-08-07 at the DEFAULT 250 games per mode, battlefields pinned.
+ * It is only comparable at that depth — the table above is the whole reason — so
+ * a `GAMES=40` run is expected to sit below it and does not gate.
  */
-const PINNED_UNION = 367;
+const PINNED_UNION = 429;
+const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();
 const facts = poolFacts(registry);
@@ -100,10 +127,14 @@ for (const mode of MODES) {
 const unionExercised = new Set<string>();
 const unionOffered = new Set<string>();
 const unionSeated = new Set<string>();
+const unionDrawn = new Set<string>();
+const unionStartsInPlay = new Set<string>();
 for (const run of runs) {
   for (const id of run.log.exercised()) unionExercised.add(id);
   for (const id of run.log.offered) unionOffered.add(id);
   for (const id of run.inDecks) unionSeated.add(id);
+  for (const id of run.log.drawn) unionDrawn.add(id);
+  for (const id of run.startsInPlay) unionStartsInPlay.add(id);
 }
 
 const needsCode = facts.needsCode;
@@ -159,13 +190,33 @@ for (const defId of facts.pool) {
 const pct = (n: number, d: number): string => (d === 0 ? "n/a" : `${Math.round((n / d) * 100)}%`);
 for (const row of Object.values(bySet)) row.exercisedOfNeedsCode = pct(row.exercised, row.needsCode);
 
-/** Implemented, needs code, and no run has ever seen it act. Partitioned by the
- *  three reasons, because they take completely different work — and lumping them
- *  together turns a documented AI limitation into a fake backlog of broken cards. */
+/**
+ * Implemented, needs code, and no run has ever seen it act — partitioned FOUR
+ * ways, because each one takes completely different work and lumping them
+ * together turns a documented AI limitation into a fake backlog of broken cards.
+ *
+ * The split that matters most is the last two. "Seated and never offered" used to
+ * be one bucket, and it silently mixed the only real lead here with pure
+ * sampling: a game draws about 10 of a 39-card deck, so a card that never reached
+ * a hand could not possibly have been offered. OGS-011 Flash cost a session that
+ * way. `log.drawn` measures it now instead of asking the reader to remember.
+ */
 const never = [...needsCode].filter((id) => !unionExercised.has(id)).sort();
-const neverSeated = never.filter((id) => !unionSeated.has(id));
-const seatedNeverOffered = never.filter((id) => unionSeated.has(id) && !unionOffered.has(id));
 const offeredNeverTaken = never.filter((id) => unionOffered.has(id));
+const unoffered = never.filter((id) => !unionOffered.has(id));
+/** Begins the game on the board, so it is never drawn and never offered by
+ *  construction — its only signals are an activated ability or a trigger. Neither
+ *  of the two buckets below applies, and reading it as either is a false lead. */
+const startsInPlayNeverActed = unoffered.filter((id) => unionStartsInPlay.has(id));
+const rest = unoffered.filter((id) => !unionStartsInPlay.has(id));
+/** **Reached a hand, and `legalActions` never enumerated it.** The real leads:
+ *  nothing about sampling or AI taste explains these, so it is a cost the AI can
+ *  never meet, a gate that is wrong, or a gap in enumeration. */
+const drawnNeverOffered = rest.filter((id) => unionDrawn.has(id));
+/** Seated but never drawn in any of these games. Sampling, not a defect — and it
+ *  is fixed by seeds and copies, not by engine work. */
+const seatedNeverDrawn = rest.filter((id) => unionDrawn.has(id) === false && unionSeated.has(id));
+const neverSeated = rest.filter((id) => !unionSeated.has(id));
 
 /** An excused card that turns up exercised, or one that is not in the registry at
  *  all. Both mean the allowlist is describing an engine that no longer exists —
@@ -176,7 +227,19 @@ const staleAllowlist = Object.keys(UNEXERCISED_ALLOWLIST)
   .filter((id) => unionExercised.has(id) || !inPool.has(id))
   .sort()
   .map((id) => (inPool.has(id) ? `${facts.label(id)} — EXERCISED, excuse is stale` : `${id} — not in the registry`));
-const unexplained = never.filter((id) => UNEXERCISED_ALLOWLIST[id] === undefined);
+/**
+ * Never exercised, never even OFFERED, and with no written reason — the only
+ * cards that are genuinely unaccounted for.
+ *
+ * A card in `offeredNeverTaken` is deliberately NOT counted here: the enumerator
+ * emitted it, so its reachability — the entire question this probe exists to ask
+ * — is proven by measurement, every run, and does not need a hand-written excuse
+ * restating it. Writing 33 entries asserting a fact the instrument already checks
+ * would be a rubber stamp, and a rubber stamp is what the allowlist's own header
+ * forbids. What it declines to prove is that the card's EFFECT is correct, which
+ * is a unit test's job and never was self-play's.
+ */
+const unexplained = never.filter((id) => !unionOffered.has(id) && UNEXERCISED_ALLOWLIST[id] === undefined);
 
 /**
  * A set with cards needing code that no run seated a single one of.
@@ -197,6 +260,9 @@ const setsWithoutLegend = facts.setCodes.filter(
 );
 
 const biggestSingleRun = Math.max(...runs.map((r) => r.log.exercised().size));
+/** The pinned figure and the allowlist are both statements about a 250-game run.
+ *  Asserting them against any other depth compares two different measurements. */
+const atPinnedDepth = GAMES === PINNED_AT_GAMES;
 
 const controls = {
   /** Every per-run instrument control, including `invalid: 0`. */
@@ -207,13 +273,40 @@ const controls = {
   /** The negative control: an observer that marks rather than measures reports
    *  everything exercised. */
   somethingUnexercised: unionExercised.size < facts.pool.length,
-  /** The regression gate. A rise is fine and asks for the pin to be bumped. */
-  unionNotBelowPin: exercisedNeedingCode.length >= PINNED_UNION,
-  allowlistCurrent: staleAllowlist.length === 0,
+  /**
+   * The regression gate. A rise is fine and asks for the pin to be bumped.
+   *
+   * Both this and `allowlistCurrent` are asserted ONLY at the pinned depth. A
+   * shallower run legitimately exercises less, and a deeper one legitimately
+   * exercises more — so at any other `GAMES` these would fail for the sampling
+   * reason rather than a real one, and a gate that goes red for a reason the
+   * operator already knows is a gate people learn to ignore. They still REPORT
+   * at every depth; only the assertion is conditioned.
+   */
+  unionNotBelowPin: !atPinnedDepth || exercisedNeedingCode.length >= PINNED_UNION,
+  allowlistCurrent: !atPinnedDepth || staleAllowlist.length === 0,
+  /**
+   * **Phase 4's gate, enforced.** Every implemented card that no run has seen act
+   * is either proven reachable by the enumerator offering it, or carries a
+   * written reason. "We did not get to it" is not one, and a new card that falls
+   * into neither turns this red by name.
+   */
+  everyUnexercisedExplained: !atPinnedDepth || unexplained.length === 0,
   everySetReachable: setsWithoutRun.length === 0,
+  /** The five buckets PARTITION the never-exercised list — every card lands in
+   *  exactly one. Cheap, and it is the check that would have caught the overlap
+   *  when `seatedNeverOffered` was split three ways: a card silently in two
+   *  buckets, or in none, makes every count above it wrong. */
+  bucketsPartition:
+    offeredNeverTaken.length +
+      drawnNeverOffered.length +
+      startsInPlayNeverActed.length +
+      seatedNeverDrawn.length +
+      neverSeated.length ===
+    never.length,
 };
 
-if (exercisedNeedingCode.length > PINNED_UNION) {
+if (atPinnedDepth && exercisedNeedingCode.length > PINNED_UNION) {
   console.error(
     `reachability: union is ${exercisedNeedingCode.length}, above the pinned ${PINNED_UNION} — ` +
       `bump PINNED_UNION in probes/reachability.ts and the figure in CLAUDE.md.`,
@@ -230,21 +323,31 @@ report(
     union: {
       seated: unionSeated.size,
       seatedNeedingCode: [...unionSeated].filter(isNeeded).length,
+      /** Ever reached a hand. The ceiling on what could have been OFFERED, and
+       *  the denominator that makes "never offered" mean anything. */
+      drawn: unionDrawn.size,
       exercised: unionExercised.size,
       /** **The headline.** Of the cards that had code written for them, how many
        *  have ever been observed acting in a game. */
       exercisedNeedingCode: exercisedNeedingCode.length,
       neverExercisedNeedingCode: never.length,
       pinned: PINNED_UNION,
+      pinnedAtGames: PINNED_AT_GAMES,
+      /** False means the pin and the allowlist are reported but NOT asserted. */
+      atPinnedDepth,
     },
     bySet,
     perRun,
     neverExercised: {
       total: never.length,
-      unexplained: unexplained.length,
-      allowlisted: never.length - unexplained.length,
+      /** Neither offered nor excused. The actionable number. */
+      unexplained: unexplained.map(facts.label),
+      provenReachableByOffer: offeredNeverTaken.length,
+      allowlisted: never.filter((id) => UNEXERCISED_ALLOWLIST[id] !== undefined).length,
       offeredNeverTaken: offeredNeverTaken.map(facts.label),
-      seatedNeverOffered: seatedNeverOffered.map(facts.label),
+      drawnNeverOffered: drawnNeverOffered.map(facts.label),
+      startsInPlayNeverActed: startsInPlayNeverActed.map(facts.label),
+      seatedNeverDrawn: seatedNeverDrawn.map(facts.label),
       neverSeated: neverSeated.map(facts.label),
     },
     staleAllowlist,

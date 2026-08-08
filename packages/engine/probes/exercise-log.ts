@@ -119,6 +119,26 @@ export class ExerciseLog {
    */
   readonly offered = new Set<string>();
 
+  /**
+   * defIds that ever reached a player's HAND.
+   *
+   * This is the signal that separates the two things "never offered" used to
+   * mean, and they are not the same finding at all: a card `legalActions` refused
+   * to enumerate is a lead, and a card that was never DRAWN is sampling. The
+   * README has carried the warning since OGS-011 Flash sat in Annie's deck for 10
+   * games, reached a hand in none of them, and read convincingly as an
+   * enumeration bug — but the warning was something a reader had to remember to
+   * act on, and nothing measured it. Now it is measured.
+   *
+   * A game lasts 5–8 turns and only about **10 distinct cards of a 39-card deck**
+   * ever reach a hand, so this bucket is expected to be large and is not a defect.
+   *
+   * Hand only, deliberately. It is the zone `PlayCard` is enumerated from for
+   * nearly everything; a card that went deck → trash was never playable, and a
+   * card that reached the board was played and is therefore already exercised.
+   */
+  readonly drawn = new Set<string>();
+
   /** Call with the state BEFORE the action, and only for actions the engine
    *  accepted — an Invalid result exercised nothing. */
   record(before: GameState, action: PlayerAction): void {
@@ -150,6 +170,15 @@ export class ExerciseLog {
         const found = permanentsInPlay(state).find((c) => c.instanceId === action.permanentInstanceId);
         if (found !== undefined) this.offered.add(found.defId);
       }
+    }
+  }
+
+  /** Call with the state BEFORE the action, alongside `scanOffers` — the pairing
+   *  is the point, since the question is what was enumerable from the hand the AI
+   *  was actually looking at. */
+  scanHands(state: GameState): void {
+    for (const player of state.players) {
+      for (const card of player.hand) this.drawn.add(card.defId);
     }
   }
 

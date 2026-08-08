@@ -49,11 +49,16 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **367 of 468 cards needing code ever exercised**
-(OGN 184/248, OGS 20/22, SFD 163/198; measured 2026-08-07 at 40 games per mode).
-That one is a FLOOR, not an equality — it is supposed to rise, and the probe
-prints a line asking for the pin to be bumped when it does. A DROP is red, and
-means a card that used to act in a game no longer does.
+`reachability` is pinned at **429 of 468 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 185/198), at its default **250 games per mode**,
+which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
+probe prints a line asking for the pin to be bumped when it does. A DROP is red.
+
+**Do not read its buckets from a shallow run.** The depth is load-bearing and was
+measured: at `GAMES=40` the same probe reports 101 never-exercised and 8 cards
+"the engine never offered", and **7 of those 8 are pure sampling** — Punch First
+is offered 59 times once the games are deep enough. The pin and the allowlist are
+therefore asserted ONLY at 250; at any other `GAMES` they report but do not gate.
 
 ## Do not copy this loop into a handoff
 

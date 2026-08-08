@@ -22,7 +22,7 @@
  * "played 259 times" when the true answer was zero.
  */
 import { chooseAction, generateCoveringDecks, submit, activatedAbilityFor } from "@rift-engine/engine";
-import type { CardRegistry } from "@rift-engine/engine";
+import type { CardRegistry, GameState } from "@rift-engine/engine";
 import { at, legacyBattlefields, PRESET_DECKS, startedGame, type DeckList } from "./harness.ts";
 import { ExerciseLog } from "./exercise-log.ts";
 
@@ -41,6 +41,15 @@ export interface ExerciseRun {
   /** Every defId these decks could put in front of a player. Legend and champion
    *  included: they never appear in `cardIds` but are absolutely in play. */
   readonly inDecks: Set<string>;
+  /**
+   * The Legends and champions of these decks — the cards that begin the game ON
+   * THE BOARD (`player-setup` pulls one copy of the champion into `championZone`).
+   *
+   * They are never drawn and never offered, by construction, so they must not be
+   * read as either an enumeration gap or a sampling miss. Their only signals are
+   * an activated ability or a trigger.
+   */
+  readonly startsInPlay: Set<string>;
   readonly decksUsed: Set<string>;
   /** Actions the engine REFUSED after the AI chose them. Expected to be zero —
    *  it is the offered-then-refused detector, a bug family this repo has shipped
@@ -89,10 +98,26 @@ export function decksFor(
  * match makes successive runs incomparable — `walkout` once reported 236 walkouts
  * instead of the recorded 154 from that alone.
  */
-export function runExercise(deckSet: string | undefined, games: number, registry: CardRegistry): ExerciseRun {
+export function runExercise(
+  deckSet: string | undefined,
+  games: number,
+  registry: CardRegistry,
+  /**
+   * Called with every state the AI was about to act on, for a probe that needs to
+   * ask its OWN question of the same games (see `why-not-offered.ts`). Kept
+   * optional and inert by default so the recorded figures cannot move.
+   *
+   * The GAME index is passed too, and it is not a convenience: a card sits in a
+   * hand across every action of a turn, so counting states badly overstates how
+   * many independent situations were sampled. An observer that wants to say "this
+   * was never affordable" needs to know whether that was 40 games or 2.
+   */
+  onStep?: (before: GameState, game: number) => void,
+): ExerciseRun {
   const { decks: DECKS, generated } = decksFor(deckSet, registry);
   const log = new ExerciseLog();
   const inDecks = new Set<string>();
+  const startsInPlay = new Set<string>();
   const decksUsed = new Set<string>();
   let invalid = 0;
   let gamesRun = 0;
@@ -104,6 +129,8 @@ export function runExercise(deckSet: string | undefined, games: number, registry
       decksUsed.add(deck.name);
       inDecks.add(deck.legendId);
       inDecks.add(deck.championId);
+      startsInPlay.add(deck.legendId);
+      startsInPlay.add(deck.championId);
       for (const id of deck.cardIds) inDecks.add(id);
       for (const id of deck.sideboardCardIds) inDecks.add(id);
     }
@@ -120,6 +147,8 @@ export function runExercise(deckSet: string | undefined, games: number, registry
         break;
       }
       log.scanOffers(before);
+      log.scanHands(before);
+      onStep?.(before, seed);
       log.record(before, action);
       state = res.state;
       log.scanChain(state);
@@ -127,13 +156,26 @@ export function runExercise(deckSet: string | undefined, games: number, registry
     }
   }
 
-  return { mode: deckSet?.toUpperCase() ?? PRESETS, games, log, inDecks, decksUsed, invalid, gamesRun, ...(generated ? { generated } : {}) };
+  return {
+    mode: deckSet?.toUpperCase() ?? PRESETS,
+    games,
+    log,
+    inDecks,
+    startsInPlay,
+    decksUsed,
+    invalid,
+    gamesRun,
+    ...(generated ? { generated } : {}),
+  };
 }
 
 export interface RunControls {
   readonly playedSeen: boolean;
   readonly activatedSeen: boolean;
   readonly triggeredSeen: boolean;
+  /** Cards reached a hand at all. Zero would mean `scanHands` is looking in the
+   *  wrong place and every "never drawn" verdict below it is manufactured. */
+  readonly drawnSeen: boolean;
   readonly activationsResolve: boolean;
   readonly gamesRan: boolean;
   readonly takenWasOffered: boolean;
@@ -165,6 +207,7 @@ export function runControls(run: ExerciseRun): RunControls {
     playedSeen: run.log.played.size > 0,
     activatedSeen: activatableInDecks === 0 || run.log.activated.size > 0,
     triggeredSeen: run.log.triggered.size > 0,
+    drawnSeen: run.log.drawn.size > 0,
     activationsResolve: run.log.activationsUnresolved === 0,
     gamesRan: run.gamesRun === run.games,
     /** **Everything the AI played was something `legalActions` offered.** The one

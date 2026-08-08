@@ -24,9 +24,11 @@ which is the entire reason they are TypeScript.
 | `chain-depth.ts` | triggers are held, reach the chain, and strand nothing | held > 0, onChain > 0, strandedPen === 0 |
 | `walkout.ts` | a Combat Showdown one side leaves still awards the battlefield | walkouts > 0 **and** every one awards control |
 | `exercised.ts` | which cards have ever actually *run*, as opposed to being registered, for ONE deck set | instrument health only — all three signals fired, nothing unresolved, something still unexercised |
-| `reachability.ts` | the same question over the WHOLE pool: presets plus one covering run per set, unioned | every run healthy with `invalid: 0`, the union beats every single run, and it has not fallen below the pinned 367 |
+| `reachability.ts` | the same question over the WHOLE pool: presets plus one covering run per set, unioned | every run healthy with `invalid: 0`, the union beats every single run, and it has not fallen below the pinned 429 |
+| `why-not-offered.ts` | why one named card was never offered — affordability, timing, or a real gap | `CARDS=` reached a hand in at least one game (the `tried > 0` rule) |
 
-All take `GAMES=<n>`.
+All take `GAMES=<n>`. `reachability` defaults to **250** and takes ~60s; the rest
+default to 40.
 
 ### `reachability.ts` is the one in the loop
 
@@ -37,11 +39,28 @@ preset decks are OGN/OGS, so the default run reports **SFD 0%** and always will.
 198 cards shipped in a month had never been in a game unless somebody typed
 `DECKS=sfd`.
 
-Union across all four modes: **367 of 468 cards needing code**, leaving 101 that
-no automated run has ever seen act. Every one of them is NAMED in the report and
-split three ways — `offeredNeverTaken`, `seatedNeverOffered`, `neverSeated` —
-because those take completely different work and lumping them together
-manufactures a backlog of broken cards that are not broken.
+Union across all four modes: **429 of 468 cards needing code**, leaving 39 that no
+automated run has ever seen act. Every one is NAMED and split five ways, because
+those take completely different work and lumping them together manufactures a
+backlog of broken cards that are not broken.
+
+**Sample depth is load-bearing — read the buckets only from the default run.**
+
+| games/mode | exercised | never | `drawnNeverOffered` | wall clock |
+|---|---|---|---|---|
+| 40 | 367 | 101 | 8 | 10s |
+| 100 | 417 | 51 | 4 | 25s |
+| **250** (default) | **429** | **39** | **1** | **60s** |
+| 500 | 435 | 33 | 0 | 120s |
+
+At 40 games the list is dominated by sampling: **7 of its 8 "the engine never
+offered this" leads were offered freely at depth** — Punch First 59 times, Blood
+Money 71. That is the OGS-011 Flash lesson one level up, and it is why the pin
+and the allowlist are asserted only at 250.
+
+What survives at 500 is 28 cards the engine offers and the 1-ply AI declines
+(Sabotage, Stacked Deck, Party Favors — the `ai-ab-harness` category) plus 5
+Legends that are observer blind spots. **Zero enumeration defects.**
 
 The modes are derived from the registry, not listed. A hardcoded
 `["OGN","OGS","SFD"]` would be correct today and silently wrong the day
@@ -75,7 +94,7 @@ interchangeable:
 
 | bucket | meaning | is it a defect? |
 |---|---|---|
-| `inDeckButNeverOffered` | `legalActions` never enumerated it | maybe — but check it was ever DRAWN first |
+| `inDeckButNeverOffered` | `legalActions` never enumerated it | maybe — but check it was ever DRAWN first; `reachability` now measures that for you |
 | `offeredButNeverTaken` | offered, and the AI declined every time | **no.** `abilityBanksResource` drops resource abilities on purpose, and a 1-ply evaluator cannot price a deferred effect |
 | `inDeckButNeverExercised` | the union of both | — |
 
