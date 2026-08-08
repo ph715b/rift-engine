@@ -1,3 +1,11 @@
+> **SUPERSEDED — SFD IS COMPLETE (2026-08-07, `970eedd`).**
+> All 198 SFD cards are implemented and `"SFD"` is in
+> `coverage.COMPLETE_SETS`, so the set is hard-gated alongside OGN and OGS.
+> `PARTIALLY_IMPLEMENTED` is empty. **Nothing in this file is still to do.**
+> It is kept for the surveys and the reasoning; every card list and every
+> price in it is historical. See `docs/rules-conformance.md`'s Log for what
+> the finish cost and what it left as divergences.
+
 # SFD — finishing the set (SUPERSEDED)
 
 > **SUPERSEDED on 2026-08-07 by `docs/sfd-final-18-prompt.md`.**

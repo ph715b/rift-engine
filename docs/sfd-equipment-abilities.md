@@ -75,9 +75,19 @@ board order the way Yasuo and Teemo do; that inherits only the divergence
 happens at resolution rather than at finalization (402) — instead of adding
 auto-selection as a second one.
 
-## Not implemented — one-offs (8)
+## ALL 31 ARE IMPLEMENTED as of 2026-08-07 (`970eedd`)
 
-Each needs its own wiring, and several need a primitive that does not exist.
+The section below was the to-do list and is kept for its transcriptions, which
+are still the only record of what these cards print. `PARTIALLY_IMPLEMENTED` is
+empty; the last three out were The Zero Drive, Skyfall of Areion and Svellsongur.
+**Svellsongur carries a recorded DIVERGENCE rather than a note** — its copy
+doubles the wearer's triggered abilities, `[Deathknell]`s and activated
+abilities, and does not double continuous Might auras or cost modifiers. See
+docs/rules-conformance.md.
+
+## Was: not implemented — one-offs (8)
+
+Each needed its own wiring, and several needed a primitive that did not exist.
 
 | card | printed | needs |
 |---|---|---|
