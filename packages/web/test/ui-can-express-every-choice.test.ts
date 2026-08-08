@@ -78,6 +78,13 @@ function fieldsTheUiMentions(): Set<string> {
 /**
  * Choices the board CANNOT express today, each with what it costs the player.
  *
+ * **FOUR left this list on 2026-08-08** — `repeatPaid`, `grantedRepeatPaid`,
+ * `optionalPowerPaid` and `exhaustLegendPaid`, about twenty cards including the
+ * whole `[Repeat]` keyword. They turned out to be ONE shape — a yes/no
+ * additional cost — and took one step; see `src/optional-cost-choices.ts`. The
+ * `has no STALE gap` test below is what forced their deletion rather than
+ * letting them sit here as excuses.
+ *
  * Measured 2026-08-08. Every entry is a real card choice the engine fans out and
  * the UI resolves by taking the first candidate. None of them is fatal the way
  * Relentless Pursuit's was — each still submits a LEGAL play — but each is a
@@ -88,12 +95,7 @@ const KNOWN_GAPS: Record<string, string> = {
     "WHICH spell on the chain to counter — 6 cards (Defy, Wind Wall, Mystic Reversal, Not So Fast, Hard Bargain, Riposte's spell half). With two spells waiting, the target is arbitrary. Recorded in rules-conformance.md since 2026-08-06.",
   modeId:
     "WHICH mode — 2 cards (Angle Shot, Rocket Barrage). Angle Shot's two modes are attach and DETACH, so the arbitrary pick can be the opposite of what the player wanted.",
-  repeatPaid: "Whether to pay [Repeat] — 14 cards. The extra execution is never offered.",
   repeatChoices: "A [Repeat]'s SECOND set of targets (820.1.d), which the engine accepts and the UI cannot name.",
-  grantedRepeatPaid: "Temporal Portal's granted [Repeat] instance, on top of any printed one.",
-  optionalPowerPaid:
-    "Whether to pay an optional Power cost — 5 cards (Clockwork Keeper, Blast Corps Cadet, Frostcoat Cub, Sea Monkey, Akshan - Mischievous). Akshan's whole paid half is gated on it.",
-  exhaustLegendPaid: "Whether to exhaust your Legend — Bard - Mercurial, whose entire trigger is gated on it.",
   discardCardInstanceId: "WHICH card to discard — 2 cards (Brazen Buccaneer, Get Excited!, whose damage IS the discarded card's cost).",
   additionalCostUnitInstanceIds:
     "HOW MANY units to spend on a repeatable cost, and which — 2 cards (Kraken Hunter, Commander Ledros). Ledros KILLS them, so an arbitrary pick is destructive.",

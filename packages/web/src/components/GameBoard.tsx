@@ -60,6 +60,11 @@ import { autoPayFill } from "../auto-payment.js";
 import { submittedPlay } from "../submitted-play.js";
 import { cardHasDestination } from "../card-destination.js";
 import { matchesPendingChoices } from "../pending-match.js";
+import {
+  matchesOptionalCosts,
+  pendingOptionalCostAxis,
+  type ResolvedOptionalCosts,
+} from "../optional-cost-choices.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -158,6 +163,11 @@ interface PendingPlay {
   /** True once the Equipment step is finished, by picking one or declining —
    *  see `matchesPendingEquipment`, which cannot tell those apart without it. */
   equipmentChoiceResolved?: boolean;
+  /** The yes/no additional costs answered so far — `[Repeat]`, a granted
+   *  `[Repeat]`, an optional Power cost, exhausting your Legend. All four are one
+   *  shape and one step; see `optional-cost-choices.ts`. An axis absent here has
+   *  not been asked yet, which is why `false` has to be storable. */
+  optionalCosts?: ResolvedOptionalCosts;
   trashCardInstanceId?: string;
   visionRecycle?: boolean;
   additionalCostUnitInstanceId?: string;
@@ -225,6 +235,11 @@ type PendingStep =
    *  and because declining has to be distinguishable from not having chosen —
    *  see `matchesPendingEquipment`. */
   | "equipment"
+  /** A yes/no additional cost — `[Repeat]`, a granted `[Repeat]`, an optional
+   *  Power cost, or exhausting your Legend. ONE step for four fields and ~20
+   *  cards, asked one axis at a time because a card can carry more than one
+   *  (3509 makes a printed and a granted `[Repeat]` independently payable). */
+  | "optionalCost"
   | "additionalCost"
   | "trashCard"
   | "vision";
@@ -813,6 +828,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // The X variants are otherwise identical, so this is the only thing that
       // separates them — see pending-match.ts on why it was missing.
       if (!matchesPendingChoices(a, pending)) return false;
+      if (!matchesOptionalCosts(a, pending.optionalCosts ?? {})) return false;
       const chosenList = pending.targetUnitInstanceIds;
       if (chosenList !== undefined) {
         const candidateList = a.targetUnitInstanceIds ?? [];
@@ -870,6 +886,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // second yet", exactly the ambiguity additionalCostResolved solves for
     // Meditation's cost.
     const stillChoosing = !pending.optionalTargetsResolved;
+    // The yes/no additional costs come FIRST, before any target. `[Repeat]`
+    // changes how many times the card executes, and 820.1.d gives the additional
+    // execution its own choices — so a player naming targets before deciding
+    // whether the spell resolves twice is choosing without the fact that matters
+    // most. Asked one axis at a time; `pendingOptionalCostAxis` returns undefined
+    // the moment they are all settled, or when the enumerator never offered both
+    // answers (an unaffordable cost is not a question).
+    if (pendingOptionalCostAxis(candidates, pending.optionalCosts ?? {}) !== undefined) return "optionalCost";
     // A `unitList` card keeps asking until it has its maximum, or until the
     // player presses Done — which is only offered once the minimum is met.
     // `max: undefined` ("any number") therefore asks until Done or until nothing
@@ -997,6 +1021,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // would size the payment against one action and submit another — the
       // failure this whole function's doc comment is about.
       matchesPendingChoices(a, pending) &&
+      matchesOptionalCosts(a, pending.optionalCosts ?? {}) &&
       sameTargetList(a.targetUnitInstanceIds, pending.targetUnitInstanceIds) &&
       (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
@@ -1445,6 +1470,17 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function declineAdditionalCost() {
     if (!pendingPlay) return;
     setPendingPlay({ ...pendingPlay, additionalCostResolved: true });
+  }
+
+  /** Answers the yes/no additional cost currently being asked. Stores `false`
+   *  explicitly rather than leaving the axis absent — absent means "not yet
+   *  asked", and conflating the two would make a declined [Repeat] match the
+   *  paid candidate. The same distinction `equipmentChoiceResolved` keeps. */
+  function answerOptionalCost(paid: boolean) {
+    if (!pendingPlay) return;
+    const axis = pendingOptionalCostAxis(pendingCandidates(), pendingPlay.optionalCosts ?? {});
+    if (!axis) return;
+    setPendingPlay({ ...pendingPlay, optionalCosts: { ...(pendingPlay.optionalCosts ?? {}), [axis.field]: paid } });
   }
 
   /** Declining the Equipment half of a `unitAndEquipment` card — Relentless
