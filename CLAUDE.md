@@ -49,10 +49,15 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **429 of 468 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 185/198), at its default **250 games per mode**,
+`reachability` is pinned at **432 of 468 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198), at its default **250 games per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
+
+**Bump this line in the SAME change as the probe's `PINNED_UNION`.** It sat at
+429 while the probe had moved to 430 and then 431 — the probe is the source of
+truth and this is a convenience copy, which makes it exactly the kind of figure
+this file warns about everywhere else.
 
 **Do not read its buckets from a shallow run.** The depth is load-bearing and was
 measured: at `GAMES=40` the same probe reports 101 never-exercised and 8 cards

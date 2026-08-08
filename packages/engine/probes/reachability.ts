@@ -118,8 +118,19 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * 1-ply AI. Making Assault/Shield/Deflect SUM across sources (807/815/810) is
  * what changed its mind: Equipment now grants what it prints, so an Armory play
  * scores where it used to tie with Pass.
+ *
+ * **431 -> 432 the same day, and this one belongs to NEITHER fix alone.** The
+ * card is SFD-193 Jax - Grandmaster At Arms, a Legend, so his only possible
+ * signal is an activated ability or a trigger. His whole card is attaching
+ * Equipment, and he needed BOTH of the day's fixes at once: effect-caused moves
+ * firing move triggers (445.2, feat/ui-choice-gate) and Equipment actually
+ * granting the keywords it prints (807/815/810). Measured on each branch alone —
+ * 430 and 431 — and only the merge reaches him.
+ *
+ * Worth keeping because it is the argument for this probe existing: no unit test
+ * would have shown a card that two independent fixes unlock jointly.
  */
-const PINNED_UNION = 431;
+const PINNED_UNION = 432;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();
