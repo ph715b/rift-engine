@@ -6,6 +6,7 @@ import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
   cardNeedsTarget,
+  cardModesOf,
   cardMovesTarget,
   targetingChoosesUnit,
   equipmentAttachedTo,
@@ -168,6 +169,13 @@ interface PendingPlay {
    *  shape and one step; see `optional-cost-choices.ts`. An axis absent here has
    *  not been asked yet, which is why `false` has to be storable. */
   optionalCosts?: ResolvedOptionalCosts;
+  /** WHICH mode of a modal card — Angle Shot's attach vs DETACH, Rocket
+   *  Barrage's damage vs kill-a-gear. Chosen BEFORE any target, because each
+   *  mode has its OWN targeting: `targetingForAnyCard` returns `{kind:"none"}`
+   *  for a modal card until it is told which mode, so without this no target
+   *  step could ever fire. Angle Shot was dead outright and Rocket Barrage
+   *  always killed a gear and never dealt its damage. */
+  modeId?: string;
   trashCardInstanceId?: string;
   visionRecycle?: boolean;
   additionalCostUnitInstanceId?: string;
@@ -235,6 +243,9 @@ type PendingStep =
    *  and because declining has to be distinguishable from not having chosen —
    *  see `matchesPendingEquipment`. */
   | "equipment"
+  /** WHICH mode of a modal card. First of all the steps, because every later
+   *  one reads the MODE's targeting rather than the card's. */
+  | "mode"
   /** A yes/no additional cost — `[Repeat]`, a granted `[Repeat]`, an optional
    *  Power cost, or exhausting your Legend. ONE step for four fields and ~20
    *  cards, asked one axis at a time because a card can carry more than one
@@ -829,6 +840,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // separates them — see pending-match.ts on why it was missing.
       if (!matchesPendingChoices(a, pending)) return false;
       if (!matchesOptionalCosts(a, pending.optionalCosts ?? {})) return false;
+      if (pending.modeId !== undefined && a.modeId !== pending.modeId) return false;
       const chosenList = pending.targetUnitInstanceIds;
       if (chosenList !== undefined) {
         const candidateList = a.targetUnitInstanceIds ?? [];
@@ -874,7 +886,9 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function pendingStep(): PendingStep | null {
     const pending = pendingPlay;
     if (!pending) return null;
-    const targeting = targetingForAnyCard(pending.card);
+    // The MODE's targeting once one is chosen. A modal card reports
+    // `{kind:"none"}` until then, which is why the mode step has to come first.
+    const targeting = targetingForAnyCard(pending.card, pending.modeId);
     // Narrowed by the choices already made, so e.g. a pair's second slot is
     // judged against the first target's own candidates.
     const candidates = pendingCandidates();
@@ -886,7 +900,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // second yet", exactly the ambiguity additionalCostResolved solves for
     // Meditation's cost.
     const stillChoosing = !pending.optionalTargetsResolved;
-    // The yes/no additional costs come FIRST, before any target. `[Repeat]`
+    // The MODE comes before everything, including the costs: each mode has its
+    // own targeting AND can be priced differently (Jax's two modes differ on
+    // exactly that), so nothing else can be asked until it is known.
+    if (pending.modeId === undefined && candidates.some((a) => a.modeId !== undefined)) {
+      const modes = new Set(candidates.map((a) => a.modeId));
+      // One mode is not a choice — the same rule `advanceDecisions` applies to a
+      // single-option decision. Only a card with two live modes stops to ask.
+      if (modes.size > 1) return "mode";
+    }
+    // The yes/no additional costs come next, before any target. `[Repeat]`
     // changes how many times the card executes, and 820.1.d gives the additional
     // execution its own choices — so a player naming targets before deciding
     // whether the spell resolves twice is choosing without the fact that matters
@@ -1022,6 +1045,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // failure this whole function's doc comment is about.
       matchesPendingChoices(a, pending) &&
       matchesOptionalCosts(a, pending.optionalCosts ?? {}) &&
+      (pending.modeId === undefined || a.modeId === pending.modeId) &&
       sameTargetList(a.targetUnitInstanceIds, pending.targetUnitInstanceIds) &&
       (a.targetBattlefieldId ?? null) === (pending.targetBattlefieldId ?? null) &&
       (a.trashCardInstanceId ?? null) === (pending.trashCardInstanceId ?? null) &&
@@ -1472,6 +1496,23 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPendingPlay({ ...pendingPlay, additionalCostResolved: true });
   }
 
+  /** The modes still on offer for the armed card, in the card's own order, each
+   *  with the label its definition prints. Read off the CANDIDATES rather than
+   *  the definition, so a mode with no legal target (Angle Shot's detach with
+   *  nothing attached) is never offered and then refused. */
+  function offeredModes(): { id: string; label: string }[] {
+    if (!pendingPlay) return [];
+    const live = new Set(pendingCandidates().map((a) => a.modeId).filter((id): id is string => id !== undefined));
+    return cardModesOf(pendingPlay.card)
+      .filter((m) => live.has(m.id))
+      .map((m) => ({ id: m.id, label: m.label || m.id }));
+  }
+
+  function chooseMode(modeId: string) {
+    if (!pendingPlay) return;
+    setPendingPlay({ ...pendingPlay, modeId });
+  }
+
   /** Answers the yes/no additional cost currently being asked. Stores `false`
    *  explicitly rather than leaving the axis absent — absent means "not yet
    *  asked", and conflating the two would make a declined [Repeat] match the
@@ -1539,7 +1580,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  which is what makes stopping early legal at all. */
   function pendingMinTargets(): number {
     if (!pendingPlay) return 0;
-    const targeting = targetingForAnyCard(pendingPlay.card);
+    const targeting = targetingForAnyCard(pendingPlay.card, pendingPlay.modeId);
     if (targeting.kind === "unitSlots" || targeting.kind === "unitList") return targeting.min;
     // Riposte's unit is mandatory (355.8 makes it uncastable without one), so it
     // counts here exactly as a plain single-target card's does.
@@ -1966,7 +2007,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     switch (currentStep) {
       case "firstTarget":
       case "secondTarget": {
-        const targeting = targetingForAnyCard(pendingPlay.card);
+        const targeting = targetingForAnyCard(pendingPlay.card, pendingPlay.modeId);
         if (targeting.kind !== "unitSlots") return ` — choose a target for ${name}`;
         const slot = currentStep === "firstTarget" ? 0 : 1;
         const role = targeting.slots[slot];
@@ -2000,6 +2041,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         return ` — exhaust a ready friendly unit to boost ${name}, or Decline`;
       case "equipment":
         return ` — choose an Equipment to attach, or Decline`;
+      case "mode":
+        return ` — choose what ${name} does`;
+      // These two open a chooser of their own, so they had no prompt for a long
+      // time. A control that explains itself is still a board that has stopped
+      // without saying why, and the step gate below now requires a sentence.
+      case "trashCard":
+        return ` — choose a card from your trash for ${name}`;
+      case "vision":
+        return ` — [Vision]: keep the top card of your deck, or recycle it`;
+      case "optionalCost": {
+        // The axis's own prompt, which NAMES the cost — a bare "pay the
+        // additional cost?" is a question a player cannot answer.
+        const axis = pendingOptionalCostAxis(pendingCandidates(), pendingPlay.optionalCosts ?? {});
+        return axis ? ` — ${axis.prompt(pendingPlay.card)}` : null;
+      }
       default:
         return null;
     }
@@ -2612,6 +2668,18 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         )}
         {currentStep === "additionalCost" && <button onClick={declineAdditionalCost}>Decline</button>}
         {currentStep === "equipment" && <button onClick={declineEquipment}>Decline</button>}
+        {currentStep === "mode" &&
+          offeredModes().map((m) => (
+            <button key={m.id} onClick={() => chooseMode(m.id)}>
+              {m.label}
+            </button>
+          ))}
+        {currentStep === "optionalCost" && (
+          <>
+            <button onClick={() => answerOptionalCost(true)}>Pay</button>
+            <button onClick={() => answerOptionalCost(false)}>Don't pay</button>
+          </>
+        )}
         {/* X, as one button per affordable amount. A stepper would need its own
             bounds; the engine already enumerated exactly the amounts this pool
             can pay for, so the buttons ARE the candidate list. */}

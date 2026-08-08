@@ -78,6 +78,9 @@ function fieldsTheUiMentions(): Set<string> {
 /**
  * Choices the board CANNOT express today, each with what it costs the player.
  *
+ * **FIVE left this list on 2026-08-08** — `modeId` went with the four below,
+ * once modal cards could be told apart at all.
+ *
  * **FOUR left this list on 2026-08-08** — `repeatPaid`, `grantedRepeatPaid`,
  * `optionalPowerPaid` and `exhaustLegendPaid`, about twenty cards including the
  * whole `[Repeat]` keyword. They turned out to be ONE shape — a yes/no
@@ -93,8 +96,6 @@ function fieldsTheUiMentions(): Set<string> {
 const KNOWN_GAPS: Record<string, string> = {
   targetChainCardInstanceId:
     "WHICH spell on the chain to counter — 6 cards (Defy, Wind Wall, Mystic Reversal, Not So Fast, Hard Bargain, Riposte's spell half). With two spells waiting, the target is arbitrary. Recorded in rules-conformance.md since 2026-08-06.",
-  modeId:
-    "WHICH mode — 2 cards (Angle Shot, Rocket Barrage). Angle Shot's two modes are attach and DETACH, so the arbitrary pick can be the opposite of what the player wanted.",
   repeatChoices: "A [Repeat]'s SECOND set of targets (820.1.d), which the engine accepts and the UI cannot name.",
   discardCardInstanceId: "WHICH card to discard — 2 cards (Brazen Buccaneer, Get Excited!, whose damage IS the discarded card's cost).",
   additionalCostUnitInstanceIds:
@@ -149,5 +150,77 @@ describe("the board can express every choice the engine offers", () => {
       expect(fields.has(field), `${field} is not a PlayCardAction field`).toBe(true);
       expect(why.length, `${field}'s entry does not say what it costs the player`).toBeGreaterThan(40);
     }
+  });
+});
+
+/**
+ * Every step the board can ENTER must be one the player can answer.
+ *
+ * # Why this exists
+ *
+ * Added 2026-08-08, immediately after shipping a step that could not be answered.
+ * The `optionalCost` step went in with its prompt and its buttons in the same
+ * edit — and that edit threw on its last line, so the file was never written and
+ * only a later, smaller edit landed. The step existed, `pendingStep` returned it,
+ * and the board rendered no prompt and no controls. **The suite was green, the
+ * typecheck was clean, and the card would simply have hung.**
+ *
+ * That is the same failure shape as the twelve gaps above, one level down: not a
+ * choice the board cannot express, but a QUESTION the board cannot answer.
+ *
+ * # What it asserts
+ *
+ * Every member of the `PendingStep` union has a prompt case, and every step not
+ * answered by clicking the board has a control keyed to it. Both lists are read
+ * out of the component's own source, so a new step fails here by name rather than
+ * hanging in play.
+ */
+const BOARD_SOURCE = join(HERE, "..", "src", "components", "GameBoard.tsx");
+
+/** Steps answered by clicking a CARD or a BATTLEFIELD rather than a button —
+ *  they need a prompt but no control of their own. Declared, because the source
+ *  cannot say which; the test below fails if one is not a real step, so it
+ *  cannot drift into an excuse for a step that has no affordance at all. */
+const CLICK_ANSWERED = new Set(["firstTarget", "secondTarget", "listTarget", "battlefieldTarget", "placement"]);
+
+function pendingSteps(): string[] {
+  const source = readFileSync(BOARD_SOURCE, "utf8");
+  const start = source.indexOf("type PendingStep =");
+  expect(start, "PendingStep was renamed — this scan is measuring nothing").toBeGreaterThan(-1);
+  const body = source.slice(start, source.indexOf(";", start));
+  return [...new Set([...body.matchAll(/\|\s*"([a-zA-Z]+)"/g)].map((m) => m[1]!))];
+}
+
+describe("every step the board can enter can be answered", () => {
+  it("finds the steps at all — the scan itself works", () => {
+    const steps = pendingSteps();
+    expect(steps.length, "no steps parsed").toBeGreaterThan(8);
+    expect(steps).toContain("optionalCost");
+  });
+
+  it("tells the player what each step is asking", () => {
+    // A step with no prompt is a board that has stopped for a reason it will not
+    // say. Every one needs a case in the hint switch.
+    const source = readFileSync(BOARD_SOURCE, "utf8");
+    const unexplained = pendingSteps().filter((step) => !source.includes(`case "${step}":`));
+    expect(unexplained, "these steps stop the board and say nothing").toEqual([]);
+  });
+
+  it("gives every non-click step a control to answer it with", () => {
+    // The one that would have caught the `optionalCost` slip: the step existed
+    // and rendered nothing, so the play could never be completed.
+    const source = readFileSync(BOARD_SOURCE, "utf8");
+    const unanswerable = pendingSteps()
+      .filter((step) => !CLICK_ANSWERED.has(step))
+      .filter((step) => !source.includes(`currentStep === "${step}"`));
+    expect(unanswerable, "these steps can be entered and never left").toEqual([]);
+  });
+
+  it("every CLICK_ANSWERED entry is a real step", () => {
+    // Stops the declared list becoming a way to excuse a step that has no
+    // affordance at all — a stale entry would silently exempt a new step of the
+    // same name.
+    const steps = new Set(pendingSteps());
+    for (const step of CLICK_ANSWERED) expect(steps.has(step), `${step} is not a PendingStep`).toBe(true);
   });
 });
