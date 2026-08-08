@@ -1,3 +1,8 @@
+> **The verification loop in this file is a DRIFTED COPY.** The canonical one
+> is `CLAUDE.md` at the repo root — this file's version omits the ROOT `npm test`
+> and so cannot see the web suite, which is how a red web test survived an entire
+> session. Use `CLAUDE.md`.
+
 > **DONE — all 24 battlefield abilities are implemented as of `f6bc2e0`
 > (2026-08-04), and the four UI reports below are closed or settled.**
 >

@@ -6,6 +6,11 @@
 > price in it is historical. See `docs/rules-conformance.md`'s Log for what
 > the finish cost and what it left as divergences.
 
+> **The verification loop in this file is a DRIFTED COPY.** The canonical one
+> is `CLAUDE.md` at the repo root — this file's version omits the ROOT `npm test`
+> and so cannot see the web suite, which is how a red web test survived an entire
+> session. Use `CLAUDE.md`.
+
 # SFD — the final 11
 
 **This supersedes `docs/sfd-final-18-prompt.md`**, whose (A)/(B) question is now
