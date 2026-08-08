@@ -242,11 +242,25 @@ describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not ju
       ["SFD-071", "Breakneck Mech — only if you control another Mech"],
       ["SFD-094", "Direwing — only if you control another Dragon"],
       ["SFD-176", "Xin Zhao - Vigilant — only with two or more other units in your base"],
+      // **UNL's five, and the prediction held a second time**: Unleashed prints
+      // the phrase on seven cards, two of them unconditional (UNL-001 Arena
+      // Kingpin and UNL-196 Daisy!, both now overrides) and these five gated.
+      //
+      // UNL-151 is the one that is not merely another "if" clause: its
+      // readiness sits behind `[Level 3]`, an XP THRESHOLD, so it is not
+      // conditional on board state at all and cannot be read by deploy.ts the
+      // way the two OGN entries are. It becomes correct when [Level] lands, and
+      // until then it is here rather than silently entering ready at 0 XP.
+      ["UNL-008", "Towering Pairofant — only if a unit died this turn"],
+      ["UNL-037", "Shadow Watcher — only if a friendly unit died in your Beginning Phase"],
+      ["UNL-122", "Crescent Guardian — only if you paid its optional additional cost"],
+      ["UNL-151", "Bandle Soldier — only at 3+ XP ([Level 3]), not a board condition"],
+      ["UNL-194", "Shadow — only if played to a battlefield, not to your base"],
     ]);
     const printing = defaultCardRegistry()
       .all()
       .filter((def) => /I enter ready/.test(def.text ?? ""));
-    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(10);
+    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(17);
     const unaccounted = printing
       .filter((def) => !CONDITIONAL.has(def.id))
       .filter((def) => !(def.type === "Unit" && def.keywords.Quick === 1))
@@ -313,6 +327,19 @@ describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art",
       "SFD-202 Order", // Hostile Takeover
       "SFD-204 Chaos", // On the Hunt
       "SFD-206 Order", // Riposte
+      // UNL's nine, confirmed by inspection 2026-08-08 like SFD's fourteen —
+      // each pip cropped from `media.image_url` and read at 6x. All nine are
+      // split capsules and all nine glyph counts match the printed Power cost.
+      // That makes the pool-wide pattern 35 of 35 across four sets.
+      "UNL-184 Body", // Thrill of the Hunt
+      "UNL-186 Chaos", // Death from Below
+      "UNL-190 Mind", // Lilting Lullaby
+      "UNL-192 Body", // Alpha Strike
+      "UNL-196 Order", // Daisy!
+      "UNL-198 Chaos", // Moonfall
+      "UNL-200 Order", // Mirror Image
+      "UNL-202 Chaos", // Void Assault
+      "UNL-204 Order", // Keeper's Verdict
     ]);
   });
 

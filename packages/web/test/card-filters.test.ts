@@ -111,6 +111,15 @@ describe("filtering", () => {
     // that returned its input unchanged would satisfy every assertion there,
     // because every real card is implemented.
     //
+    // **The pool stopped being finished on 2026-08-08**, when Unleashed landed
+    // with 200-odd cards still unwritten — so this no longer needs a synthetic
+    // card to have something to hide. It keeps one anyway, and the assertion
+    // below is now written as a DELTA rather than as a count: adding one
+    // unimplemented card to the input must add nothing to the output. The
+    // absolute form ("exactly one card is hidden") was a fact about the pool
+    // wearing the costume of a fact about the filter, and it failed the moment
+    // the pool changed underneath it while the filter was working perfectly.
+    //
     // Proved on a SYNTHETIC card that cannot be implemented out from under it —
     // it has real rules text and no registration anywhere, so
     // `isCardImplemented` is false for it by construction rather than by the
@@ -125,10 +134,14 @@ describe("filtering", () => {
       false,
     );
 
-    const withUnwritten = [...ALL, unwritten];
-    const shown = run({ implementedOnly: true }, withUnwritten);
-    expect(shown.length, "the filter kept a card with no implementation").toBe(withUnwritten.length - 1);
-    expect(shown.some((c) => c.id === "ZZZ-001")).toBe(false);
+    const baseline = run({ implementedOnly: true }, ALL);
+    const withUnwritten = run({ implementedOnly: true }, [...ALL, unwritten]);
+    expect(withUnwritten.length, "the filter kept a card with no implementation").toBe(baseline.length);
+    expect(withUnwritten.some((c) => c.id === "ZZZ-001")).toBe(false);
+
+    // And the filter is not simply returning nothing, which would also satisfy
+    // the delta above.
+    expect(baseline.length, "the filter shows no cards at all").toBeGreaterThan(0);
   });
 
   it("reports an active filter so the Clear affordance can appear", () => {

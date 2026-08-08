@@ -58,15 +58,16 @@ describe("every printed battlefield does something", () => {
       .map((id) => [id, "granted activated ability"] as const),
   ]);
 
-  it("the pool is 39 battlefields — 24 OGN and 15 SFD, and OGS prints none", () => {
+  it("the pool is 54 battlefields — 24 OGN, 15 SFD, 15 UNL, and OGS prints none", () => {
     // A positive control on the measurement itself: an empty or truncated
     // definition list would make every assertion below vacuously pass.
-    expect(defs).toHaveLength(39);
+    expect(defs).toHaveLength(54);
     const bySet = new Map<string, number>();
     for (const d of defs) bySet.set(setCodeOf(d.id), (bySet.get(setCodeOf(d.id)) ?? 0) + 1);
     expect([...bySet].sort()).toEqual([
       ["OGN", 24],
       ["SFD", 15],
+      ["UNL", 15],
     ]);
     // The gate is only worth something while it actually gates something. All 39
     // now: OGN's 24 have been hard-gated since this file was written, and SFD's

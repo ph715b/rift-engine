@@ -210,6 +210,15 @@ button:disabled {
   display: block;
 }
 
+/* XP sits INLINE after the points, unlike the hand count directly above it,
+   which is `display: block` and takes its own line. Two counters on one line is
+   what the header has room for; a third line would push the Legend/Champion
+   block down, and that block's height is the measured constraint that stops the
+   base rows scrolling. `nowrap` so "0 XP" cannot break across the separator. */
+.side-column-xp {
+  white-space: nowrap;
+}
+
 .side-column-cards {
   display: flex;
   flex-direction: column;

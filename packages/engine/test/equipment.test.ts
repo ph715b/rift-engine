@@ -254,21 +254,37 @@ describe("a unit leaving play", () => {
 });
 
 describe("the generated [Equip] ability", () => {
-  it("gives ALL 31 Equipment a working ability, with no per-card code", () => {
+  it("gives 35 of the pool's 36 Equipment a working ability, with no per-card code", () => {
     // The scope-reducer: the cost parses, the attach is generic, so a table
-    // entry per card would be 31 copies of one thing, each free to drift.
+    // entry per card would be 35 copies of one thing, each free to drift.
     //
-    // **25, then 29, then 31.** The rainbow four were skipped outright while
-    // `ActivationCost.power.domain` was `Domain` — not weak, UNATTACHABLE — and
-    // Temporal Portal's own rainbow pip widened it to `Domain | null`, which is
-    // what `payPowerFromChanneled` has always read as "any domain". The last two
-    // were the COMPOUND costs, which the parser refused whole rather than
-    // half-read; it now reads both halves, and the extras were already
-    // `ActivationCost` fields.
+    // **25, then 29, then 31, and now 36 printed / 35 wired.** The rainbow four
+    // were skipped outright while `ActivationCost.power.domain` was `Domain` —
+    // not weak, UNATTACHABLE — and Temporal Portal's own rainbow pip widened it
+    // to `Domain | null`, which is what `payPowerFromChanneled` has always read
+    // as "any domain". The next two were the COMPOUND costs, which the parser
+    // refused whole rather than half-read.
+    //
+    // **Unleashed printed 5 more and 4 wired themselves**, including Hextech
+    // Gauntlets' compound cost — which is the payoff for having parsed the cost
+    // instead of tabulating it, measured rather than hoped for.
     const equipment = registry.all().filter((c) => c.type === "Gear" && c.isEquipment === true);
-    expect(equipment).toHaveLength(31);
-    const wired = equipment.filter((c) => hasActivatableAbility(c.id));
-    expect(wired, `unwired: ${equipment.filter((c) => !hasActivatableAbility(c.id)).map((c) => c.id).join(", ")}`).toHaveLength(31);
+    expect(equipment).toHaveLength(36);
+
+    // The one that does NOT wire, named rather than counted — a bare count would
+    // let a second unwired card hide behind this one.
+    //
+    // UNL-158 Shepherd's Heirloom prints `[Equip] — Spend 1 XP`, and XP is a
+    // cost shape `ActivationCost` does not carry: it has energy, power, exhaust
+    // and two recycle forms, all of which `parseEquipCost` reads off runes and
+    // pips. There is nothing to parse here and nothing to pay with, so the
+    // generated ability is correctly absent rather than generated for free.
+    //
+    // This is NOT silent: the card also prints "When you play this, gain 1 XP",
+    // so it has unwritten prose and reports unimplemented on that alone. It
+    // wires itself the day `ActivationCost` learns an `xp` field.
+    const unwired = equipment.filter((c) => !hasActivatableAbility(c.id)).map((c) => c.id);
+    expect(unwired).toEqual(["UNL-158"]);
   });
 
   /** The four that the widening freed, asserted as a group and by cost, because

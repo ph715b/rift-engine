@@ -16,11 +16,15 @@
  * was widening `card-loader`'s `KW_PATTERN`, whose `[A-Za-z][a-zA-Z]*` could not
  * match the token at all and dropped it silently.
  *
- * Still out of scope, and named so the next set cannot reopen the hole: the Java
- * enum's HUNT/LEVEL (UNL Round 1's G-XP mechanic) and AMBUSH/BACKLINE (UNL Round
- * 2a). **None of the four is printed by a single SFD card** — measured over
- * sfd.json, not assumed — so the XP resource of rule 728 is a UNL problem, not
- * an SFD one.
+ * The four UNL brings are declared the same way, on the day unl.json landed
+ * (2026-08-08) rather than after somebody noticed a card doing nothing — and
+ * all four are in `UNIMPLEMENTED_KEYWORDS` for exactly as long as the
+ * subsystems behind them are unwritten.
+ *
+ * `[Predict]` is NOT among them, and that is a decision rather than an
+ * oversight: it prints as an **action word** (`[Predict].` mid-sentence, like
+ * `[Buff]` and `[Stun]`), not as something a card HAS. It is in
+ * NON_KEYWORD_BRACKETS below.
  */
 export const KEYWORDS = [
   "Ganking",
@@ -41,6 +45,12 @@ export const KEYWORDS = [
   "Weaponmaster", // Unit, on play: may [Equip] one of your Equipment to me for 1 rainbow less.
   "Quick-Draw", // Gear: has [Reaction]; when played, attach it to a unit you control.
   "Repeat", // Spell: may pay an additional cost to repeat this spell's effect.
+  // Unleashed (UNL). All four are in UNIMPLEMENTED_KEYWORDS. Card counts are
+  // over the pool that LOADS (235 of 280 raw entries), not the raw file.
+  "Hunt", // 12 cards. "When I conquer or hold, gain N XP." Bare = 1; also 2 and 3.
+  "Level", // 16 cards. Dependent keyword (727): "While you have N+ XP, get the effect."
+  "Ambush", // 12 cards. "You may play me as a [Reaction] to a battlefield where you have units."
+  "Backline", // 4 cards. "I must be assigned combat damage last" — see combat.assignmentOrder.
 ] as const;
 
 export type Keyword = (typeof KEYWORDS)[number];
@@ -72,11 +82,17 @@ export function keywordFromBracketText(word: string): Keyword | undefined {
  * whole point is that a new one forces a decision: implement it as a keyword,
  * or name it here with what consumes it.
  *
- * Measured across the loaded pool rather than assumed: **15 distinct bracketed
- * words, 12 of them in KEYWORDS and these 3.** (`Quick` is the thirteenth
- * keyword and appears in no bracket at all — every card that has it prints it
- * as prose, which is what `QUICK_TEXT_OVERRIDES` exists for. So "every bracket
- * is a keyword" is a claim satisfied by twelve, not thirteen.)
+ * Measured across the loaded pool rather than assumed, and re-measured each
+ * time a set lands: 15 distinct bracketed words when the pool was OGN+OGS, 21
+ * after SFD, and **27 after UNL** — 20 keywords and 7 entries here (`Add`
+ * appearing in two castings makes 8 spellings). `coverage-drift.test.ts` states
+ * that census card by card, which is what turns a new set's tokens into a
+ * failing test rather than a silent drop.
+ *
+ * (`Quick` is still the one keyword that appears in NO bracket — every card
+ * that has it prints it as prose, which is what `QUICK_TEXT_OVERRIDES` exists
+ * for. So "every bracket is a keyword" is a claim satisfied by nineteen of the
+ * twenty.)
  */
 export const NON_KEYWORD_BRACKETS = [
   // The two timing tiers (rules 159 / 806 / 813). Read by card-loader's
@@ -99,6 +115,52 @@ export const NON_KEYWORD_BRACKETS = [
   // is not a keyword. Read by `decks/deck-validation.ts`'s `isUniqueCard`,
   // which tightens that card's copy cap from MAX_COPIES to 1.
   "Unique",
+  //
+  // ---- Unleashed (UNL), landed 2026-08-08 ----
+  //
+  // **The grant arrow, and the largest single token this set brings: 38 cards.**
+  // It separates a condition from what the condition grants — `[Level 3][>] I
+  // have +1 Might`, `[Legion][>] You may play me from your trash`,
+  // `[Reaction][>] :rb_exhaust:: [Add] :rb_rune_rainbow:`.
+  //
+  // **Named here as `>` and not as `&gt;`**, which is the form the raw JSON
+  // holds: `unl.json` carries the entity 49 times, and `card-loader`'s
+  // `decodeTextEntities` — which predates this set, for SFD's `&quot;` — has
+  // already turned it into a bare `>` by the time any of these gates read the
+  // text. Allow-listing the escaped spelling would have matched nothing and
+  // left all 38 cards reported as unknown, while the entry itself looked
+  // deliberate.
+  //
+  // It is PUNCTUATION, so nothing "reads" it in the sense the entries above are
+  // read — which is the whole reason it has to be named here. A separator that
+  // no allow-list mentions is indistinguishable from a keyword nobody
+  // implemented, and at 38 cards it would have been the loudest possible false
+  // alarm on the day the set landed.
+  ">",
+  // The ability divider, on `UNL-049` Honeyfruit alone: its `[Level 6]` half
+  // grants a SECOND activated ability, and this is what separates the two. One
+  // card, named rather than folded into the arrow above, because they are
+  // different glyphs doing different jobs.
+  ">>",
+  // Three ACTION WORDS — verbs inside an instruction, like `[Add]` above. No
+  // card "has" one, so none is a keyword.
+  //
+  //   `[Stun]` (12 cards) and `[Buff]` (9) are mechanisms this engine already
+  //   has: `UnitInstance.stunned` and `UnitInstance.buffed`/`spendBuff`. OGN and
+  //   SFD print both as plain prose ("Stun a unit."); UNL is simply the first
+  //   set to bracket them. So these two entries are the whole of their cost.
+  //
+  //   `[Predict]` (5 cards) is the one that needed deciding rather than
+  //   recording, and it is NOT free. Its bare form is `engine/top-of-deck.ts`'s
+  //   existing "look at the top card, you may recycle it". Its VALUED form
+  //   `[Predict 2]` — `UNL-062` Dramatic Visionary and `UNL-136` Scryer's Bloom —
+  //   reads "look at the top TWO, recycle any of them and put the rest back in
+  //   any order", which is a subset choice plus an ordering decision and is not
+  //   built. Both cards report unimplemented on their own text today, which is
+  //   the correct answer and the reason this entry does not overstate anything.
+  "Stun",
+  "Buff",
+  "Predict",
 ] as const;
 
 const NON_KEYWORD_BRACKETS_UPPER = new Set<string>(NON_KEYWORD_BRACKETS.map((t) => t.toUpperCase()));

@@ -8,6 +8,18 @@ interface PlayerSideColumnProps {
   points: number;
   /** This game's Victory Score — see PointTracker's own note. */
   victoryScore: number;
+  /**
+   * This player's XP (Unleashed's resource — see `PlayerState.xp`).
+   *
+   * Shown for BOTH players and shown AT ZERO, unlike the hand count above it,
+   * which is optional because the AI's is hidden information and yours is the
+   * cards you can already see. XP is neither: the rules make its amount Public
+   * Information, and zero is the reading every `[Level N]` card is gated
+   * against — so a counter that appeared only once it was non-zero would go
+   * missing at exactly the moment a player is asking why their Level ability is
+   * switched off.
+   */
+  xp: number;
   handCount?: number;
   legend: LegendInstance;
   champion: UnitInstance | null;
@@ -68,6 +80,7 @@ export function PlayerSideColumn({
   label,
   points,
   victoryScore,
+  xp,
   handCount,
   legend,
   champion,
@@ -121,6 +134,10 @@ export function PlayerSideColumn({
       <div className="side-column-header">
         <span>
           {label} — <strong>{points} pts</strong>
+          <span className="side-column-xp" title="XP — public information, and it has no cap">
+            {" "}
+            · {xp} XP
+          </span>
           {handCount !== undefined && <span className="side-column-hand-count"> · hand: {handCount}</span>}
         </span>
         <PointTracker points={points} threshold={victoryScore} />

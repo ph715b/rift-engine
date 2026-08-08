@@ -3,6 +3,7 @@ import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  COMPLETE_SETS,
   coverageBySet,
   implementableText,
   implementingModule,
@@ -270,7 +271,7 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
    * Equipment-attachment subsystem this engine does not have, and `[Repeat]`
    * needs a spell to be able to pay an additional cost to repeat itself.
    */
-  it("flags nothing at all, now that [Repeat] has landed too", () => {
+  it("flags UNL's remaining three and nothing from a finished set", () => {
     // Named rather than counted, because a count cannot tell "Equip is still
     // pending" from "Deflect silently regressed".
     //
@@ -290,22 +291,39 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // keyword, and a card with no implementation is a different (and louder)
     // kind of missing.
     //
-    // The list being empty is also the state it was in from 2026-08-02 to
-    // 2026-08-04, and the mechanism was kept through that emptiness on purpose —
-    // SFD reopened it within two days. Keep it.
+    // **And it reopened a THIRD time when Unleashed landed on 2026-08-08**, with
+    // four more — which is the second time this list has gone from empty to full
+    // on the day a set's JSON arrived, and the whole argument for keeping the
+    // mechanism through its empty periods.
+    //
+    // **`[Hunt]` left again the same day**, once its keyword-keyed trigger
+    // landed. That is the mechanism working as designed rather than churn:
+    // deleting one entry is what flips every card whose only remaining gap it
+    // was, and this list is the only thing that says which keyword is still
+    // pending.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged].sort()).toEqual([]);
+    expect([...flagged].sort()).toEqual(["Ambush", "Backline", "Level"]);
 
-    // And the direction that matters for OGN/OGS: a keyword losing its
-    // implementation would show up here as a card from a finished set, which is
-    // the regression this whole file is pointed at.
+    // And the direction that matters for OGN/OGS/SFD: a keyword losing its
+    // implementation would show up here as a card from a FINISHED set, which is
+    // the regression this whole file is pointed at. UNL is the only set allowed
+    // to appear, and it must appear — an empty set here would mean the four
+    // keywords above were declared and then matched nothing.
     const flaggedSets = new Set(
       registry
         .all()
         .filter((def) => unimplementedKeywordsOn(def).length > 0)
         .map((def) => def.id.split("-")[0]!),
     );
-    expect([...flaggedSets]).toEqual([]);
+    expect([...flaggedSets]).toEqual(["UNL"]);
+
+    // **Backline specifically must NOT drag OGN-068 Caitlyn - Patrolling in.**
+    // She prints the effect as prose and is implemented per-card in
+    // `combat.ASSIGNED_LAST_DEF_IDS`; only UNL prints the bracket. This is the
+    // whole reason `unimplementedKeywordsOn` reads the TEXT rather than
+    // `def.keywords`, and it would regress silently — she would simply go grey
+    // in the deck builder, in a set that is supposed to be hard-gated.
+    expect(unimplementedKeywordsOn(registry.get("OGN-068"))).toEqual([]);
   });
 
   it("a keyword-only card is now genuinely finished — Pouty Poro's whole text is [Deflect]", () => {
@@ -451,24 +469,27 @@ describe("a bracketed token nothing knows about", () => {
     // asserting an empty list — so the half that has to be proved is that it can
     // still see something.
     //
-    // The subject used to be `[Weaponmaster]` on a card called SFD-001, and BOTH
-    // halves of that stopped working on 2026-08-04: Weaponmaster is now a
-    // declared keyword, and SFD-001 is a real card (Against the Odds). A control
-    // whose subject the pool has since absorbed proves nothing, so it moves to a
-    // token that is genuinely unknown — `[Backline]` is UNL's, named in
-    // KEYWORDS' own doc comment as still out of scope, and it must be replaced
-    // again the day Unleashed lands.
+    // The subject has now been absorbed by the pool TWICE, which is the pattern
+    // worth naming rather than the individual tokens. It was `[Weaponmaster]` on
+    // a card called SFD-001 until 2026-08-04, when Weaponmaster became a declared
+    // keyword and SFD-001 became a real card (Against the Odds). It was then
+    // `[Backline]` until 2026-08-08, when Unleashed landed and modelled it —
+    // exactly the replacement the previous revision of this comment predicted.
+    //
+    // So the subject is now a token no real set can absorb, rather than the next
+    // real keyword on the horizon: a control that names a PENDING feature has a
+    // shelf life, and twice now it has expired on the day the work happened,
+    // failing a test that was doing its job. `[Vorpal]` is not a Riftbound
+    // keyword and is not going to become one.
     const invented: CardDefinition = {
       ...registry.get("OGN-024"),
       id: "ZZZ-001",
-      name: "Unleashed Newcomer",
-      text: "[Backline] (Reminder text nobody has written yet.) Deal 4 to a unit at a battlefield.",
+      name: "Invented Newcomer",
+      text: "[Vorpal] (Reminder text nobody has written yet.) Deal 4 to a unit at a battlefield.",
     };
-    expect(isKnownBracketToken("Backline"), "[Backline] is modelled now — this control needs a new subject").toBe(
-      false,
-    );
+    expect(isKnownBracketToken("Vorpal"), "[Vorpal] is modelled now — this control needs a new subject").toBe(false);
     const unknown = [...bracketTokens([invented])].filter(([token]) => !isKnownBracketToken(token));
-    expect(unknown).toEqual([["Backline", ["ZZZ-001 (Unleashed Newcomer)"]]]);
+    expect(unknown).toEqual([["Vorpal", ["ZZZ-001 (Invented Newcomer)"]]]);
   });
 
   it("sees a token the keyword parser's own grammar cannot", () => {
@@ -512,9 +533,25 @@ describe("a bracketed token nothing knows about", () => {
   });
 
   it("the pool's token census, stated rather than assumed", () => {
-    // **21 distinct bracketed words** as of 2026-08-04, up from 15 when the pool
-    // was OGN+OGS: 16 keywords, and 4 allow-listed non-keywords appearing as 5
-    // spellings.
+    // **30 distinct bracketed words** as of 2026-08-08, up from 21 after SFD and
+    // 15 when the pool was OGN+OGS: 20 keywords, and 7 allow-listed non-keywords
+    // appearing as 8 spellings.
+    //
+    // Unleashed's nine newcomers are `Ambush`, `Backline`, `Hunt` and `Level`
+    // (keywords), and `>`, `>>`, `Buff`, `Predict` and `Stun` (not keywords).
+    // Two of those are worth stating for the same reason the SFD notes below are:
+    //
+    //   `>` and `>>` are PUNCTUATION — the grant arrow and the ability divider.
+    //   They are here as bare `>` and not as `&gt;` because `decodeTextEntities`
+    //   runs before anything reads the text, and the raw JSON's escaped form
+    //   never reaches this sweep. Allow-listing `&gt;` would have matched nothing
+    //   while looking deliberate, leaving 38 cards reported unknown.
+    //
+    //   `Stun` and `Buff` are action words whose MECHANISMS already existed —
+    //   OGN and SFD print both as prose. UNL is simply the first set to bracket
+    //   them, which is the case this census is best at surfacing: no new
+    //   behaviour, but a new token, and a token nothing knows about is
+    //   indistinguishable from a keyword nobody implemented.
     //
     // Two of the six newcomers are worth stating outright, because each is a way
     // this census can read as fine while something is wrong:
@@ -532,22 +569,31 @@ describe("a bracketed token nothing knows about", () => {
     //   reason the two grammars are deliberately different.
     const words = new Set([...bracketTokens(registry.all()).keys()].map((t) => t.replace(/\s+\d+$/, "")));
     expect([...words].sort()).toEqual([
+      ">",
+      ">>",
       "ADD",
       "Accelerate",
       "Action",
       "Add",
+      "Ambush",
       "Assault",
+      "Backline",
+      "Buff",
       "Deathknell",
       "Deflect",
       "Equip",
       "Ganking",
       "Hidden",
+      "Hunt",
       "Legion",
+      "Level",
       "Mighty",
+      "Predict",
       "Quick-Draw",
       "Reaction",
       "Repeat",
       "Shield",
+      "Stun",
       "Tank",
       "Temporary",
       "Unique",
@@ -629,16 +675,31 @@ describe("a partial note says how much is left", () => {
     }
   });
 
-  it("derives keyword notes for SFD only, never for a finished set", () => {
-    // The derived half was inert by construction until 2026-08-04 and now has 58
-    // real subjects, all of them SFD. Asserting per SET rather than globally
-    // keeps the two halves distinguishable: a note appearing on an OGN or OGS
-    // card means a keyword quietly lost its implementation, which is a
-    // regression, while a note on an SFD card is just work not done yet.
+  it("derives keyword notes only for a set still under construction", () => {
+    // Asserting per SET rather than globally keeps the two halves
+    // distinguishable: a note on a card from a HARD-GATED set means a keyword
+    // quietly lost its implementation, which is a regression; a note on a card
+    // from the set currently being built is just work not done yet.
+    //
+    // **Written against COMPLETE_SETS rather than against a set NAME**, because
+    // the named version has now been wrong twice — it said "OGS only" until SFD
+    // landed and "SFD only" until UNL did, each time failing on the day the work
+    // happened rather than on the day something broke. The invariant is what was
+    // meant all along: a finished set is one nothing is allowed to flag.
     for (const def of registry.all()) {
-      if (def.id.startsWith("SFD-")) continue;
-      expect(unimplementedKeywordsOn(def), `${def.id} (${def.name})`).toEqual([]);
+      if (!COMPLETE_SETS.includes(def.id.split("-")[0]!)) continue;
+      expect(unimplementedKeywordsOn(def), `${def.id} (${def.name}) is in a hard-gated set`).toEqual([]);
     }
+  });
+
+  it("and the sweep above is not vacuous — some set really is under construction", () => {
+    // The half that would rot silently: once every set is in COMPLETE_SETS the
+    // loop above skips everything and passes while asserting nothing. This is
+    // the positive control, and it is the line to DELETE (with a note saying the
+    // pool is finished) rather than to weaken, if that day comes.
+    const flagged = registry.all().filter((def) => unimplementedKeywordsOn(def).length > 0);
+    expect(flagged.length, "no card anywhere carries an unimplemented keyword — is the sweep still reaching?").toBeGreaterThan(0);
+    for (const def of flagged) expect(COMPLETE_SETS).not.toContain(def.id.split("-")[0]!);
   });
 });
 

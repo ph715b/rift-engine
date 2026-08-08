@@ -270,11 +270,17 @@ describe("coverage now tells the truth about art-only Equipment", () => {
   });
 
   it("has NO art-only Equipment left carrying a note — the sweep that replaced the list", () => {
-    // The premise the loop above lost. Asserted over all 31 rather than over a
-    // hand-kept list, so it cannot go stale the way the list did: a note added
-    // for any Equipment fails this by name.
+    // The premise the loop above lost. Asserted over every Equipment in the pool
+    // rather than over a hand-kept list, so it cannot go stale the way the list
+    // did: a note added for any Equipment fails this by name.
+    //
+    // **36 since Unleashed landed (2026-08-08), up from 31.** The count is here
+    // as a positive control on the sweep itself — an empty or truncated filter
+    // would make the assertion below vacuously pass — and UNL's five are
+    // included deliberately: an art-only note appearing on one of them would be
+    // just as wrong as on an SFD card, and this is the only thing that looks.
     const equipment = registry.all().filter((d) => d.type === "Gear" && d.isEquipment === true);
-    expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(31);
+    expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(36);
     const noted = equipment.filter((d) => partialImplementationNote(d) !== undefined).map((d) => `${d.id} (${d.name})`);
     expect(noted).toEqual([]);
     expect(STILL_ART_ONLY, "an id left the note list without leaving this constant").toEqual([]);

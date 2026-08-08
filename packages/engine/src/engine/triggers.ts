@@ -5,7 +5,10 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
-import { banishCard, drawCards, fileIntoNonBoardZone } from "./effect-helpers.js";
+import { banishCard, drawCards, fileIntoNonBoardZone, gainXp } from "./effect-helpers.js";
+// Same cycle as the two above, and safe for the same reason: read inside a
+// resolver / inside `allEventTriggers`, never at module init.
+import { effectiveKeywords } from "./granted-keywords.js";
 import { parkDecision } from "./decisions.js";
 // equipment.ts already imports this module for `Listener` and `holdEventTrigger`
 // — the same cycle, and safe for the same reason: the binding is read inside a
@@ -1204,13 +1207,106 @@ export interface EventTriggerDefinition {
   resolve: EventTriggerEffect;
 }
 
+/**
+ * `[Hunt N]` — "When I conquer or hold, gain N XP." Unleashed, 12 cards, N in
+ * {1, 2, 3} with the bare form meaning 1.
+ *
+ * **A KEYWORD registered as one trigger, not twelve card entries**, which is the
+ * whole reason this key exists. Every other entry in this registry is a defId
+ * because every other ability is a card's own; Hunt is genuinely one ability
+ * printed twelve times, and the only thing that varies is a magnitude the
+ * keyword itself carries. `triggerKeysOn` hands this key to any unit printing
+ * the keyword, `holdEventTrigger` stamps the MATCHED key onto the chain entry,
+ * and `resolvePendingTrigger` finds this definition back by it — machinery that
+ * already existed for granted and copied abilities, needing nothing new.
+ *
+ * Twelve identical entries would also have been actively worse than verbose:
+ * eight of the twelve print OTHER text as well, so each would have had to fold
+ * Hunt into its own definition and branch on `event.kind` — twelve copies of one
+ * rule, each free to drift, which is exactly what the Java oracle's note warns
+ * against for this keyword ("no per-card-name switch needed, unlike almost
+ * everything else in this pool").
+ *
+ * **"I" means this unit, so it must be AT the battlefield.** That is Kai'Sa -
+ * Survivor's and the Adaptatron's reading of a unit's own conquer trigger, and
+ * what separates it from a Legend's "when YOU conquer". Both moments are already
+ * held events, and `holdEventTrigger`'s own note names "when I conquer or hold"
+ * (Last Rites) as a shape it handles — including not double-firing under
+ * Skyfall of Areion's mirror, since a definition listing both kinds is already
+ * what the mirror would make it.
+ *
+ * **The magnitude is CAPTURED**, not re-read at resolution. A held trigger is
+ * separated from its moment by a response window, and `[Deflect]`'s entry
+ * already shows keyword values here are computed on read and genuinely move as
+ * auras, equipment and Might change. Capturing is 383's snapshot-at-the-moment
+ * rule, and it is the difference between paying the N the card had when it
+ * conquered and the N it happens to have when the chain gets round to it.
+ */
+export const HUNT_TRIGGER_KEY = "KEYWORD-HUNT";
+
+/** This listener's `[Hunt]` value right now, or 0 if it has none. Through
+ *  `effectiveKeywords` so a granted or equipment-borne Hunt would count exactly
+ *  as a printed one — the same reading `deflectSurcharge` takes. */
+function huntMagnitudeOf(state: GameState, listener: Listener): number {
+  if (listener.card.kind !== "Unit") return 0;
+  return effectiveKeywords(state, listener.card, listener.ownerIndex).Hunt ?? 0;
+}
+
+/**
+ * Was this listener's OWN battlefield the one conquered or held, and by its own
+ * controller? Both events are `{index, battlefieldId}` and differ only in the
+ * index's name, which is what lets one predicate serve both.
+ *
+ * A unit in BASE has no `battlefieldId` and is refused by the comparison itself
+ * — `undefined` matches no battlefield id. An explicit `=== undefined` guard
+ * stood here first and was deleted after a mutation run: removing it failed
+ * nothing, because it could not. Unreachable code that looks like a safety check
+ * is worse than no check, since the next reader trusts it.
+ */
+function huntMomentIsMine(listener: Listener, event: GameEvent): boolean {
+  if (event.kind === "battlefieldConquered") {
+    return event.conquerorIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId;
+  }
+  if (event.kind === "battlefieldHeld") {
+    return event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId;
+  }
+  return false;
+}
+
+/** Triggers keyed by a KEYWORD rather than a defId. One today. */
+const keywordEventTriggers: Record<string, EventTriggerDefinition> = {
+  [HUNT_TRIGGER_KEY]: {
+    on: ["battlefieldConquered", "battlefieldHeld"],
+    // Both conditions are asked BEFORE the trigger reaches the chain, per the
+    // reasoning on `applies`: holding one whose condition was never met opens a
+    // response window for an ability that will pay nothing. The magnitude is one
+    // of them because a `[Hunt 0]` cannot exist — a unit with no Hunt at all is
+    // the only way to get zero, and that is "did not trigger", not "gained 0".
+    applies: (state, listener, event) => huntMomentIsMine(listener, event) && huntMagnitudeOf(state, listener) > 0,
+    // **Deliberately NOT captured**, following `capture`'s own rule: capture only
+    // what the event cannot carry and what will not still be true at resolution;
+    // "capturing a fact that has not moved just makes the entry bigger."
+    //
+    // `[Hunt]` is only ever PRINTED — no card in any of the four sets grants it,
+    // and no battlefield, aura or Equipment does either, measured over the pool.
+    // A printed keyword's magnitude cannot move during a response window, so a
+    // captured N and a re-read N are the same number by construction, and a
+    // capture here would be machinery no test could ever prove right.
+    //
+    // The day something GRANTS `[Hunt]` this becomes observable and the two
+    // readings come apart — that is when to capture, and `triggerKeysOn`'s
+    // keyword line is the other half that would need widening at the same time.
+    resolve: (state, listener) => gainXp(state, listener.ownerIndex, huntMagnitudeOf(state, listener)),
+  },
+};
+
 let composedEventTriggers: Record<string, EventTriggerDefinition> | null = null;
 
 /** Composed lazily, same import-cycle reason as the registries in
  *  card-effects.ts and unit-triggers.ts. */
 function allEventTriggers(): Record<string, EventTriggerDefinition> {
   composedEventTriggers ??= mergeRegistries<EventTriggerDefinition>("event trigger", [
-    { name: "engine/triggers.ts", entries: {} },
+    { name: "engine/triggers.ts", entries: keywordEventTriggers },
     // The "when I attack" family, adapted from unit-triggers.ts's own table. It
     // is a merge SOURCE like a domain file rather than entries spliced in, so a
     // card registered in both places is the same named duplicate error as any
@@ -1271,7 +1367,18 @@ export function listensFor(trigger: EventTriggerDefinition, kind: GameEvent["kin
  */
 export function triggerKeysOn(card: CardInstance): string[] {
   const granted = "grantedTriggersThisTurn" in card ? card.grantedTriggersThisTurn ?? [] : [];
-  return [card.defId, ...granted];
+  // `[Hunt N]`'s key. A KEYWORD answering as a trigger is the third way a
+  // permanent reaches a definition that is not its own defId, and it is here
+  // rather than as 12 identical registry entries because the ability is
+  // genuinely one ability — see HUNT_TRIGGER_KEY.
+  //
+  // Off the PRINTED keywords rather than `effectiveKeywords`, because this
+  // function has no state to ask. That is exact for this pool (nothing grants
+  // `[Hunt]`, measured over all four sets) and the magnitude IS read through
+  // `effectiveKeywords` at trigger time, so a granted Hunt would only need this
+  // one line to widen.
+  const keyword = card.kind === "Unit" && card.keywords.Hunt !== undefined ? [HUNT_TRIGGER_KEY] : [];
+  return [card.defId, ...granted, ...keyword];
 }
 
 /**

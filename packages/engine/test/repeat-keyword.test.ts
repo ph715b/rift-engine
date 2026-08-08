@@ -4,6 +4,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { repeatCostOf, repeatCostDefIds } from "../src/engine/card-effects.js";
+import { COMPLETE_SETS } from "../src/engine/coverage.js";
 import { modifiedRepeatEnergy } from "../src/engine/cost-modifiers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
@@ -159,16 +160,55 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
     }
   });
 
-  it("covers every card in the set that prints the keyword, and nothing else", () => {
+  it("covers every card in a FINISHED set that prints the keyword, and nothing else", () => {
+    // Cards that GRANT or DISCOUNT Repeat print no cost of their own, so none is
+    // in the table: Temporal Portal and Marai Spire (SFD), and Syndra -
+    // Transcendent (UNL), whose "your spells have [Repeat] :2::chaos:" gives the
+    // cost to OTHER cards.
+    const granters = ["SFD-078", "SFD-211", "UNL-146"];
     const printed = registry
       .all()
       .filter((def) => (def.text ?? "").includes("[Repeat]"))
       .map((def) => def.id)
+      .filter((id) => !granters.includes(id))
       .sort();
-    // Temporal Portal GRANTS Repeat and Marai Spire DISCOUNTS it; neither prints
-    // a cost of its own, so neither is in the table.
-    const granters = ["SFD-078", "SFD-211"];
-    expect(printed.filter((id) => !granters.includes(id))).toEqual(repeatCostDefIds().sort());
+
+    // **Scoped to hard-gated sets, because UNL is under construction.** The
+    // unscoped version was correct exactly while the pool was finished, and
+    // asserting it over a set being built would demand six card implementations
+    // as the price of loading the set's JSON. A card missing from the table
+    // silently offers no repeat variant, so the UNL six are NAMED in the next
+    // test rather than left to be noticed.
+    const gated = printed.filter((id) => COMPLETE_SETS.includes(id.split("-")[0]!));
+    expect(gated).toEqual(repeatCostDefIds().sort());
+  });
+
+  it("names the [Repeat] cards a set under construction has not priced yet", () => {
+    // Stated, not counted, and stated HERE rather than in a doc: an unpriced
+    // [Repeat] is invisible in play — the enumerator simply never offers the
+    // repeat variant, and the card looks like it works.
+    //
+    // Four of these six print a plain 2-Energy cost and are ordinary table
+    // entries. The other two are why this list is not just "not done yet":
+    //
+    //   UNL-017 Square Up prints `[Repeat] — Discard 1`, a cost that is not
+    //   energy, power or exhaust. `RepeatCostSpec` has no way to say it.
+    //
+    //   UNL-182 Curtain Call prints THREE alternative costs and says "you may
+    //   pay EACH additional cost to repeat this spell's effect" — which is
+    //   820.1.c.2's multi-instance case, the exact thing the one-instance
+    //   `repeatPaid` boolean two tests above records as unreachable. It is
+    //   reachable now, and that premise-test is scoped to the table, so this is
+    //   the only place that says so.
+    const unpriced = registry
+      .all()
+      .filter((def) => (def.text ?? "").includes("[Repeat]"))
+      .map((def) => def.id)
+      .filter((id) => !COMPLETE_SETS.includes(id.split("-")[0]!))
+      .filter((id) => id !== "UNL-146") // grants it; prints no cost of its own
+      .filter((id) => !repeatCostDefIds().includes(id))
+      .sort();
+    expect(unpriced).toEqual(["UNL-009", "UNL-017", "UNL-032", "UNL-061", "UNL-134", "UNL-182"]);
   });
 });
 

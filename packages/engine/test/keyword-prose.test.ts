@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { proseKeywordDefIds } from "../src/cards/card-loader.js";
+import { bareKeywordNotHeld, proseKeywordDefIds } from "../src/cards/card-loader.js";
 import { KEYWORDS, type Keyword } from "../src/model/keyword.js";
 import { implementableText, needsImplementation } from "../src/engine/coverage.js";
 
@@ -28,6 +28,14 @@ import { implementableText, needsImplementation } from "../src/engine/coverage.j
  *
  * The loader brackets the word once, per defId, so everything downstream sees an
  * ordinary card. These tests pin that both halves came out right.
+ *
+ * **Unleashed added a THIRD case, and it is the one this sweep used to get
+ * wrong.** The failure message said "add its defId to PROSE_KEYWORD_DEF_IDS",
+ * which brackets the word and therefore GRANTS the keyword — correct for both
+ * SFD cards, and wrong for a card whose text merely contains the word. UNL
+ * brings two of those (a stray upstream `ambush` on Gemhand Hunter, and the
+ * English verb "Repeat" on Sprite Fountain), so the sweep now has two answers
+ * and `BARE_KEYWORD_NOT_HELD` is the one it cannot infer from the text.
  */
 describe("a keyword printed without its brackets", () => {
   const registry = defaultCardRegistry();
@@ -52,11 +60,34 @@ describe("a keyword printed without its brackets", () => {
     // The gate. A new set printing "Ganking (...)" instead of "[Ganking] (...)"
     // fails here, NAMING the card and the keyword, rather than shipping a unit
     // that quietly does not have it.
-    const bare = proseKeywordCards().map((c) => `${c.id} (${c.name}) prints a bare "${c.keyword}"`);
+    const known = new Set(bareKeywordNotHeld().map((e) => `${e.id}:${e.keyword}`));
+    const bare = proseKeywordCards()
+      .filter((c) => !known.has(`${c.id}:${c.keyword}`))
+      .map((c) => `${c.id} (${c.name}) prints a bare "${c.keyword}"`);
     expect(
       bare,
-      "this card names a keyword with no brackets, so it does not HAVE it — add its defId to PROSE_KEYWORD_DEF_IDS",
+      "a card names a keyword with no brackets. Decide WHICH it is: the data lost the brackets and the card really " +
+        "has it (add to PROSE_KEYWORD_DEF_IDS, which brackets it), or the word is prose/noise and it does not " +
+        "(add to BARE_KEYWORD_NOT_HELD, which changes nothing but records the decision)",
     ).toEqual([]);
+  });
+
+  it("the cards that merely CONTAIN a keyword's name do not get the keyword", () => {
+    // The positive control for the second answer, and the half that would go
+    // wrong silently: the whole risk of BARE_KEYWORD_NOT_HELD is that it is used
+    // to quiet the sweep for a card that really did lose its brackets. So each
+    // entry asserts the card DOESN'T carry the keyword — which is only
+    // meaningful because `bracketProseKeywords` would have given it one.
+    for (const { id, keyword } of bareKeywordNotHeld()) {
+      const def = registry.tryGet(id);
+      expect(def, `${id} is in BARE_KEYWORD_NOT_HELD but is not a card in the pool`).toBeDefined();
+      const keywords = "keywords" in def! ? (def as { keywords: Partial<Record<Keyword, number>> }).keywords : {};
+      expect(keywords[keyword], `${id} was granted [${keyword}] — it is supposed to only MENTION the word`).toBeUndefined();
+      // And the word really is there, so an entry cannot outlive the data that
+      // justified it — the same rule every allow-list in this repo follows.
+      expect(def!.text.toLowerCase(), `${id} no longer prints a bare "${keyword}"`).toContain(keyword.toLowerCase());
+      expect(def!.text).not.toContain(`[${keyword}]`);
+    }
   });
 
   it("the two known cards really do carry the keyword now", () => {

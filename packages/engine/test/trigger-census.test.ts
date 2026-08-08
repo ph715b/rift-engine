@@ -108,7 +108,19 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // Granted abilities, registered under a synthetic key beside the real
     // defIds. Named rather than counted so a second one is a decision: it either
     // belongs in this list or something is registering a malformed id.
-    expect(syntheticKeys(knownCardIds)).toEqual(["SFD-184-conquer-home"]);
+    //
+    // **There are two KINDS of synthetic key now, and the difference matters to
+    // anyone reading a census that counts cards:**
+    //
+    //   `SFD-184-conquer-home` is a GRANTED ability — one card's clause, handed
+    //   to another unit for a turn. It inflates a card count by one if counted.
+    //
+    //   `KEYWORD-HUNT` is a KEYWORD's ability, and it deflates one instead: it
+    //   is a single registry entry standing in for the 12 UNL cards that print
+    //   `[Hunt N]`. Counting registry keys as cards would report those twelve as
+    //   one, which is the opposite error and the reason this census asks the
+    //   card registry rather than the trigger tables.
+    expect(syntheticKeys(knownCardIds)).toEqual(["KEYWORD-HUNT", "SFD-184-conquer-home"]);
   });
 
   it("the only event kind still resolved inline is beginningPhase", () => {

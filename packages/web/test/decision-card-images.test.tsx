@@ -38,6 +38,7 @@ function stateWith(overrides: { deck?: string[]; opponentHand?: string[] }): Gam
     channeled: [],
     runeDeck: [],
     points: 0,
+    xp: 0,
   });
   return {
     players: [player("p1", [], overrides.deck ?? []), player("p2", overrides.opponentHand ?? [], [])],

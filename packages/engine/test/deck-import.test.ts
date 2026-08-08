@@ -75,15 +75,15 @@ describe("deck source 2: the user's real .deck files", () => {
     }
   });
 
-  it("validates the real decks built entirely from in-scope (Origins/Proving Grounds) cards", () => {
+  it("validates ALL 8 real decks, now that every set the oracle has is loaded", () => {
+    // **This used to name four of the eight.** The list grew as sets landed —
+    // OGN+OGS, then SFD — and with Unleashed loaded on 2026-08-08 the pool is
+    // all four sets the oracle ships, so every deck the user actually owns
+    // validates. That is the milestone this file was built to measure, and it is
+    // asserted over `fileNames` rather than a hand-kept list so it cannot
+    // silently shrink back.
     const registry = defaultCardRegistry();
-    const inScopeDeckNames = [
-      "Annie_-_Dark_Child_Custom_Deck.deck",
-      "Kai_Sa_-_Daughter_of_the_Void_Custom_Deck.deck",
-      "Miss_Fortune_-_Bounty_Hunter_Custom_Deck.deck",
-      "Yasuo_-_Unforgiven_Custom_Deck.deck",
-    ];
-    for (const fileName of inScopeDeckNames) {
+    for (const fileName of fileNames) {
       const contents = readFileSync(`${REAL_DECKS_DIR}\\${fileName}`, "utf8");
       const deckList = parseDeckFile(contents)!;
       const result = validateDeckList(deckList, registry);
@@ -91,30 +91,40 @@ describe("deck source 2: the user's real .deck files", () => {
     }
   });
 
-  it("rejects real decks that reference cards outside the loaded card scope, with a clear error", () => {
-    const registry = defaultCardRegistry();
-    // This deck used to be rejected for SFD-185 (a Spiritforged card), and on
-    // 2026-08-04 SFD was loaded and that id started resolving. The deck is
-    // still correctly rejected, now for UNL-128 — Unleashed is the next set out
-    // of scope, and `unl.json` sits unimported in the oracle repo exactly as
-    // sfd.json did.
+  it("rejects a deck referencing an id outside the loaded card scope, NAMING the id", () => {
+    // **Now proved on a SYNTHETIC id, because the real subject has run out.**
     //
-    // So what this pins is not "SFD is out of scope" but "an unknown id is
-    // named in the error rather than silently dropped", which is the property
-    // that has to survive every set landing. The id is asserted from the
-    // rejection itself for the same reason.
+    // This test has been rewritten twice by the pool catching up with it: it
+    // pinned SFD-185 until Spiritforged landed on 2026-08-04, then UNL-128 until
+    // Unleashed landed on 2026-08-08 — and with all four of the oracle's sets
+    // loaded there is no longer a real card id that fails to resolve. Each
+    // rewrite was work caused by the test naming a card rather than the
+    // property, and the property never changed: an unknown id is NAMED in the
+    // error rather than silently dropped.
+    //
+    // `ZZZ-999` cannot be implemented out from under this the way two real sets
+    // were. The deck is the real Draven list with one id swapped, so everything
+    // except the unknown id is a genuine 40-card deck that validated a moment
+    // ago in the test above — which is what makes the rejection attributable.
+    const registry = defaultCardRegistry();
     const contents = readFileSync(
       `${REAL_DECKS_DIR}\\_Hartford__Best-of_Draven_-_TCG_SogeKing.deck`,
       "utf8",
     );
     const deckList = parseDeckFile(contents)!;
-    const result = validateDeckList(deckList, registry);
+    expect(validateDeckList(deckList, registry), "the unmodified deck no longer validates").toEqual({ ok: true });
+
+    // Swap a NON-champion slot: the deck must still contain its champion, and
+    // replacing that copy fails on the champion rule first — a rejection for the
+    // wrong reason, which would have passed a `.ok === false` check and proved
+    // nothing about naming the id.
+    const swapIndex = deckList.cardIds.findIndex((id) => id !== deckList.championId);
+    expect(swapIndex, "every card in this deck is the champion").toBeGreaterThanOrEqual(0);
+    const cardIds = [...deckList.cardIds];
+    cardIds[swapIndex] = "ZZZ-999";
+    const result = validateDeckList({ ...deckList, cardIds }, registry);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("UNL-128");
-    // And the half that would otherwise go unnoticed: SFD ids in this same deck
-    // now resolve, so the rejection is genuinely about the remaining unknown set
-    // rather than about Spiritforged still being absent.
-    expect(registry.tryGet("SFD-185"), "SFD-185 should resolve now that Spiritforged is loaded").toBeDefined();
+    if (!result.ok) expect(result.error, "the error does not name the offending id").toContain("ZZZ-999");
   });
 });
 

@@ -121,6 +121,43 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //
   // Both corrections came from re-reading the PDF rather than the note. A
   // comment is a claim, and claims are checkable.
+  //
+  // ---- Unleashed (UNL), on the day unl.json landed (2026-08-08) ----
+  //
+  // All four sit behind ONE thing that does now exist — `PlayerState.xp`, added
+  // the same day — and none of them behind a subsystem the size of attachment.
+  // They are here because the keyword is PARSED and read by nothing, which is
+  // the `[Deflect]`-shipped-inert shape, and each leaves the map the moment its
+  // own listener lands rather than when the set is finished.
+  //
+  // Counts are over the pool that LOADS (235 of 280 raw entries): the raw file's
+  // higher numbers count alternate-art printings that `shouldSkip` drops.
+  // **`[Hunt]` LEFT this map on 2026-08-08**, the same day it arrived — one
+  // keyword-keyed entry in `triggers.ts` (`HUNT_TRIGGER_KEY`) serves all 12
+  // cards, because both of its moments were already held events and the only
+  // thing that varies between the cards is the magnitude the keyword carries.
+  // Deleting the entry is what flips every card whose only remaining gap it was;
+  // for UNL-100 Voracious Gromp, whose entire printed text is `[Hunt 3]` and its
+  // reminder, that is the whole card.
+  [
+    "Level",
+    "[Level] is ignored — its ability is granted unconditionally instead of at an XP threshold",
+  ],
+  [
+    "Ambush",
+    "[Ambush] is ignored — this can't yet be played as a [Reaction] to a battlefield you hold",
+  ],
+  // **Backline is here for the UNL cards and does NOT grey Caitlyn**, which is
+  // the whole reason `unimplementedKeywordsOn` reads the TEXT rather than
+  // `def.keywords`. OGN-068 Caitlyn - Patrolling prints the effect as prose and
+  // is implemented per-card in `combat.ASSIGNED_LAST_DEF_IDS`; she carries no
+  // `[Backline]` bracket, so she is not flagged. The 4 UNL cards that DO print
+  // the bracket get nothing from `assignmentOrder` until it learns to ask the
+  // keyword, and are flagged until it does.
+  [
+    "Backline",
+    "[Backline] is ignored — this is not yet assigned combat damage last",
+  ],
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.

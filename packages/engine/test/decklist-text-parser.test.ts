@@ -50,7 +50,7 @@ Sideboard:
 1 Fiora, Peerless
 `;
 
-describe("parseDecklistText: real community-export fixture (heavy resolution gaps)", () => {
+describe("parseDecklistText: real community-export fixture (now fully resolvable)", () => {
   const registry = defaultCardRegistry();
   const result = parseDecklistText(MASTER_YI_TEXT, registry);
 
@@ -63,32 +63,58 @@ describe("parseDecklistText: real community-export fixture (heavy resolution gap
     expect(legendDef.name).toBe("Master Yi - Wuju Bladesman");
   });
 
-  it("leaves championId empty and flags it unresolved — no 'Tempered' variant exists in our data", () => {
-    expect(result!.deckList.championId).toBe("");
-    expect(result!.unresolvedNames).toContain("Master Yi, Tempered");
+  it("resolves the champion — 'Master Yi, Tempered' is UNL-113 now that Unleashed is loaded", () => {
+    // This asserted the OPPOSITE until 2026-08-08, and the flip is the fixture
+    // doing its job: a real export names cards from sets the engine acquires
+    // over time, so its resolution profile is a MEASUREMENT of pool coverage,
+    // not a fixed expectation. The property that "an unresolvable champion
+    // leaves championId empty" moved to a synthetic name below, where no set can
+    // take it away.
+    expect(result!.deckList.championId).toBe("UNL-113");
+    expect(registry.get(result!.deckList.championId).name).toBe("Master Yi - Tempered");
+    expect(result!.unresolvedNames).not.toContain("Master Yi, Tempered");
   });
 
-  it("resolves the MainDeck cards that exist and flags the ones that don't (no champion appended since none resolved)", () => {
-    // **SFD landing on 2026-08-04 moved this fixture, and that is the point of
-    // keeping a real export as the fixture.** Four of the names it references
-    // were "a handful of later-set units/spells" — they were Spiritforged's,
-    // and they resolve now:
+  it("still leaves championId empty for a champion no set ships", () => {
+    // The half the flip above would otherwise have deleted. Synthetic subject on
+    // purpose — this is the third time a real name in this file has been
+    // resolved out from under a test by a set landing.
+    const text = MASTER_YI_TEXT.replace("1 Master Yi, Tempered", "1 Zzyzx, The Unprintable");
+    const unresolvable = parseDecklistText(text, registry)!;
+    expect(unresolvable.deckList.championId).toBe("");
+    expect(unresolvable.unresolvedNames).toContain("Zzyzx, The Unprintable");
+  });
+
+  it("resolves EVERY name in the export now that all four sets are loaded", () => {
+    // **The fixture has now moved twice, and this is where it lands.** It was
+    // 23 resolvable cards on OGN+OGS, 33 when Spiritforged landed on 2026-08-04
+    // (Lonely Poro, Punch First, Ruin Runner and Fiora, Peerless), and with
+    // Unleashed on 2026-08-08 the last three names resolve too — Scuttle Crab,
+    // Rengar, Trophy Hunter, and the Tempered champion.
     //
-    //   Lonely Poro (3) -> SFD-036   Punch First (3) -> SFD-097
-    //   Ruin Runner (2) -> SFD-105   Fiora, Peerless (2) -> SFD-110
+    // So the fixture's job has changed rather than ended: a verbatim community
+    // export, referencing four sets, now round-trips completely. That is a
+    // stronger statement than any of its partial-resolution versions, and it is
+    // the one thing none of the synthetic fixtures in this file can make.
     //
-    // Charm+Defy+Discipline+Pit Rookie+Sabotage (3 each) + Lonely Poro+Punch
-    // First (3 each) + En Garde+Zhonya's+First Mate+Ruin Runner+Fiora, Peerless
-    // (2 each) + Challenge+Primal Strength (1 each) = 33.
-    expect(result!.deckList.cardIds).toHaveLength(3 * 7 + 2 * 5 + 1 * 2);
-    // What is still out of scope: Scuttle Crab and Rengar are Unleashed's, and
-    // no "Tempered" Master Yi exists in any loaded set.
-    for (const name of ["Scuttle Crab", "Rengar, Trophy Hunter", "Master Yi, Tempered"]) {
-      expect(result!.unresolvedNames).toContain(name);
-    }
-    for (const name of ["Lonely Poro", "Punch First", "Ruin Runner", "Fiora, Peerless"]) {
-      expect(result!.unresolvedNames, `${name} is in SFD and should resolve now`).not.toContain(name);
-    }
+    // 39 MainDeck copies + the champion's single appended copy.
+    expect(result!.deckList.cardIds).toHaveLength(3 * 9 + 2 * 5 + 1 * 2 + 1);
+    expect(result!.unresolvedNames, "a real export no longer has gaps to resolve").toEqual([]);
+  });
+
+  it("still flags a MainDeck name no set ships, and appends no champion when the champion is one", () => {
+    // The flagging half, kept on a synthetic subject. Both properties at once
+    // because they interact: an unresolved champion means no appended copy, so
+    // the count drops by exactly one.
+    const text = MASTER_YI_TEXT.replace("1 Master Yi, Tempered", "1 Zzyzx, The Unprintable").replace(
+      "3 Scuttle Crab",
+      "3 Qwrtz, Also Unprintable",
+    );
+    const gappy = parseDecklistText(text, registry)!;
+    expect(gappy.unresolvedNames.sort()).toEqual(["Qwrtz, Also Unprintable", "Zzyzx, The Unprintable"]);
+    expect(gappy.deckList.championId).toBe("");
+    // 39 - 3 dropped copies, and no champion appended.
+    expect(gappy.deckList.cardIds).toHaveLength(3 * 9 + 2 * 5 + 1 * 2 - 3);
   });
 
   it("dedupes a name that fails to resolve in both MainDeck and Sideboard", () => {
@@ -117,18 +143,24 @@ describe("parseDecklistText: real community-export fixture (heavy resolution gap
     expect(result!.deckList.runeDomainBCount).toBe(7); // Body
   });
 
-  it("leaves the sideboard empty (all-or-nothing) while ANY of its names is unresolved", () => {
-    // Four of this sideboard's five names resolve now — Disarming Rake became
-    // SFD-032, Ruin Runner SFD-105, Fiora, Peerless SFD-110, and Challenge was
-    // always OGN-128. Alpha Strike (Unleashed) is the one holdout, and the
-    // all-or-nothing rule means one holdout still empties the whole sideboard.
-    //
-    // That is a stronger case for the rule than the original was: it used to be
-    // demonstrated by a sideboard where almost nothing resolved, where "empty"
-    // is what you would expect anyway.
-    expect(result!.deckList.sideboardCardIds).toEqual([]);
-    expect(result!.unresolvedNames).toContain("Alpha Strike");
-    expect(result!.unresolvedNames).not.toContain("Disarming Rake");
+  it("fills the sideboard now that its last holdout resolves", () => {
+    // Alpha Strike was the one name keeping this sideboard empty — it is UNL-192
+    // — so all five names resolve and the all-or-nothing rule now falls the
+    // other way. 3 + 2 + 1 + 1 + 1.
+    expect(result!.deckList.sideboardCardIds).toHaveLength(8);
+    expect(result!.unresolvedNames).not.toContain("Alpha Strike");
+  });
+
+  it("empties the WHOLE sideboard when any single name is unresolved (all-or-nothing)", () => {
+    // The rule itself, which the fixture can no longer demonstrate on its own.
+    // Proved by breaking exactly ONE of the five names: the other four still
+    // resolve, so an empty sideboard can only be the all-or-nothing rule and not
+    // a sideboard that failed to parse.
+    const text = MASTER_YI_TEXT.replace("2 Alpha Strike", "2 Zzyzx, The Unprintable");
+    const broken = parseDecklistText(text, registry)!;
+    expect(broken.deckList.sideboardCardIds, "one bad name did not empty the sideboard").toEqual([]);
+    expect(broken.unresolvedNames).toContain("Zzyzx, The Unprintable");
+    expect(broken.unresolvedNames, "the other four names should still resolve").not.toContain("Disarming Rake");
   });
 });
 
@@ -138,9 +170,11 @@ describe("parseDecklistText: a resolvable champion appends exactly one copy", ()
     const text = MASTER_YI_TEXT.replace("1 Master Yi, Tempered", "1 Master Yi, Meditative");
     const result = parseDecklistText(text, registry)!;
     expect(result.deckList.championId).not.toBe("");
-    // 33 resolvable main-deck cards (see the fixture's own test above, which
-    // rose from 23 when SFD landed) plus the champion's single appended copy.
-    expect(result.deckList.cardIds).toHaveLength(3 * 7 + 2 * 5 + 1 * 2 + 1);
+    // 39 resolvable main-deck copies (see the fixture's own test above, which
+    // rose from 23 to 33 when SFD landed and to 39 when UNL did) plus the
+    // champion's single appended copy. Swapping WHICH champion resolves must not
+    // change the count — that is the "exactly one copy" this test is named for.
+    expect(result.deckList.cardIds).toHaveLength(3 * 9 + 2 * 5 + 1 * 2 + 1);
   });
 });
 

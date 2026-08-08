@@ -78,7 +78,7 @@ function player(id: string) {
     readyRunesAtEndOfTurn: 0,
     spellChoiceDrawnBattlefieldIds: [],
     deck: [], hand: [], trash: [], banished: [], activeGear: [], runeDeck: [], channeled: [], baseUnits: [],
-    points: 0, floatingEnergy: 0, floatingPower: {}, floatingRainbowPower: 0, cardsPlayedThisTurn: 0,
+    points: 0, xp: 0, floatingEnergy: 0, floatingPower: {}, floatingRainbowPower: 0, cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false, extraMightPerBuffThisTurn: 0, discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [], unitsEnterReadyThisTurn: false, restrictedSpellEnergy: 0,
     restrictedSpellPower: 0, nextUnitsEnterReady: 0, unitsLostThisTurn: 0, nextSpellEnergyDiscount: 0,

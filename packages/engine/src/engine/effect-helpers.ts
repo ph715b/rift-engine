@@ -1530,6 +1530,45 @@ export function gainPoints(state: GameState, playerIndex: 0 | 1, amount: number)
   return updatePlayer(state, playerIndex, (p) => ({ ...p, points: p.points + amount }));
 }
 
+/**
+ * Gains XP (see `PlayerState.xp`).
+ *
+ * **No `mayGainXp` counterpart, and that asymmetry with `gainPoints` is the
+ * point of writing it as a choke point anyway.** Tianna Crownguard is why points
+ * needed one; nothing in the 280-card Unleashed pool says "opponents can't gain
+ * XP", measured over unl.json rather than assumed. If a later set prints it,
+ * this is the one line that has to learn about it instead of the 35 cards that
+ * gain XP each doing `xp + n` inline — which is precisely the nine-site mess
+ * `gainPoints` was extracted from after the fact.
+ *
+ * No cap, per the rules section cited on `PlayerState.xp`, so nothing clamps.
+ */
+export function gainXp(state: GameState, playerIndex: 0 | 1, amount: number): GameState {
+  if (amount <= 0) return state;
+  return updatePlayer(state, playerIndex, (p) => ({ ...p, xp: p.xp + amount }));
+}
+
+/** Can this player pay `amount` XP right now? The question the play enumerator
+ *  and the activation offer both have to ask BEFORE offering the option, so that
+ *  `spendXp` failing is a bug rather than an ordinary outcome. */
+export function canSpendXp(state: GameState, playerIndex: 0 | 1, amount: number): boolean {
+  return state.players[playerIndex].xp >= amount;
+}
+
+/**
+ * Spends XP, or `undefined` if the player cannot afford it.
+ *
+ * `undefined`-on-failure rather than a silent floor at zero, matching
+ * `payEnergyFromPool` directly above: a cost that quietly underpays is the shape
+ * where a card's "if you paid the additional cost" half reads as paid. Callers
+ * that want the question without the payment ask `canSpendXp`.
+ */
+export function spendXp(state: GameState, playerIndex: 0 | 1, amount: number): GameState | undefined {
+  if (amount <= 0) return state;
+  if (!canSpendXp(state, playerIndex, amount)) return undefined;
+  return updatePlayer(state, playerIndex, (p) => ({ ...p, xp: p.xp - amount }));
+}
+
 export function payEnergyFromPool(state: GameState, playerIndex: 0 | 1, amount: number): GameState | undefined {
   if (amount <= 0) return state;
   const actor = state.players[playerIndex];

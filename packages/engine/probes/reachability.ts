@@ -61,7 +61,7 @@
  *    the SFD-0% failure, generalised: a set arrives, no mode reaches it, and the
  *    report stays cheerfully green about a set nobody has ever played.
  */
-import { defaultCardRegistry, setCodeOf } from "@rift-engine/engine";
+import { COMPLETE_SETS, defaultCardRegistry, setCodeOf } from "@rift-engine/engine";
 import { report } from "./harness.ts";
 import { poolFacts } from "./pool-facts.ts";
 import { PRESETS, runControls, runExercise, type ExerciseRun } from "./exercise-run.ts";
@@ -113,7 +113,21 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * AI took it in self-play the same day. A rise here is exactly what a rules fix
  * to a reachable card should look like, which is why the pin is a floor.
  */
-const PINNED_UNION = 430;
+/**
+ * **430 → 444 on 2026-08-08, when Unleashed landed.** A different kind of rise
+ * from the one above: not a rules fix making one card reachable, but 226 new
+ * cards needing code of which the runs immediately exercised **14**, entirely
+ * through generic machinery — keywords, the generated `[Equip]` ability, and the
+ * covering UNL run the mode list derived for itself the moment the set had
+ * Legends.
+ *
+ * 6% for UNL against 90-94% for the three finished sets is exactly the shape to
+ * expect from a set whose cards are not written yet, and it is the number to
+ * watch: this pin should climb steeply as UNL is implemented, and a FLAT figure
+ * across a session of card work means the cards are not reachable in play,
+ * whatever coverage says.
+ */
+const PINNED_UNION = 444;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();
@@ -250,7 +264,27 @@ const staleAllowlist = Object.keys(UNEXERCISED_ALLOWLIST)
  * forbids. What it declines to prove is that the card's EFFECT is correct, which
  * is a unit test's job and never was self-play's.
  */
-const unexplained = never.filter((id) => !unionOffered.has(id) && UNEXERCISED_ALLOWLIST[id] === undefined);
+const unaccounted = never.filter((id) => !unionOffered.has(id) && UNEXERCISED_ALLOWLIST[id] === undefined);
+/**
+ * Split by whether the card's set is HARD-GATED, because the two mean opposite
+ * things and only one of them is a finding.
+ *
+ * A card in a set named in `COMPLETE_SETS` that no run offered and nobody has
+ * excused is genuinely unaccounted for — that is this gate's whole subject, and
+ * it stays at zero.
+ *
+ * A card in a set still being BUILT is not unaccounted for; it is unwritten, and
+ * `coverage.ts` already names it. Unleashed landed on 2026-08-08 with 212 such
+ * cards, and gating on them would have turned this probe red on the day the JSON
+ * arrived and kept it red for the whole set — a wall of noise arriving at the one
+ * moment the instruments most need to be readable, which is the same reasoning
+ * `COMPLETE_SETS` itself was introduced with.
+ *
+ * They are still COUNTED and still printed, so "unwritten" can never quietly
+ * become "invisible".
+ */
+const unexplained = unaccounted.filter((id) => COMPLETE_SETS.includes(id.split("-")[0]!));
+const unwrittenSetInProgress = unaccounted.filter((id) => !COMPLETE_SETS.includes(id.split("-")[0]!));
 
 /**
  * A set with cards needing code that no run seated a single one of.
@@ -351,8 +385,14 @@ report(
     perRun,
     neverExercised: {
       total: never.length,
-      /** Neither offered nor excused. The actionable number. */
+      /** Neither offered nor excused, in a HARD-GATED set. The actionable
+       *  number, and the one `everyUnexercisedExplained` asserts on. */
       unexplained: unexplained.map(facts.label),
+      /** The same condition in a set still being built — not a finding, but
+       *  counted so it cannot become invisible. Named rather than listed: at 212
+       *  cards the list would bury every other figure in this report, and
+       *  `coverage.coverageBySet` is where the names belong. */
+      unwrittenInSetUnderConstruction: unwrittenSetInProgress.length,
       provenReachableByOffer: offeredNeverTaken.length,
       allowlisted: never.filter((id) => UNEXERCISED_ALLOWLIST[id] !== undefined).length,
       offeredNeverTaken: offeredNeverTaken.map(facts.label),

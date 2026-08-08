@@ -6,6 +6,84 @@ last item of the readiness gate in `engine-readiness-for-unleashed.md`.
 
 **Do not copy the verification loop into this file.** It is in `CLAUDE.md`.
 
+> ## Re-measured 2026-08-08, and then the JSON landed — read this first
+>
+> **Every count in the table below is over the RAW 280 entries, and the pool
+> that actually loads is 235.** `card-loader`'s `shouldSkip` drops 30
+> alternate-art printings and 15 Battlefields (which load separately). So each
+> figure below is an overcount, and the corrected counts are in
+> `coverage-drift.test.ts`'s census and `keyword.ts` — measured, not restated.
+>
+> ### One correction to a correction
+>
+> An earlier revision of this block claimed **`[Ambush]`'s "zero parser changes"
+> was false for 6 of 18 cards**, because the alternate-art printings drop their
+> reminder text and so would not get `isReaction`. **That was wrong, and the
+> document was right.** All six of those printings are `metadata.alternate_art`
+> and never reach the registry. In the pool that loads, **all 12 Ambush cards
+> carry `[Reaction]` in their own text** and the free ride holds exactly as
+> scoped. It is recorded rather than deleted because the mistake is the one this
+> repo keeps making — measuring the FILE instead of the pool — and it was made
+> here while explicitly re-measuring to avoid it.
+>
+> ### What survived re-measurement, and was acted on
+>
+> 1. **Four bracketed tokens the table below omits entirely.** All are now in
+>    `NON_KEYWORD_BRACKETS`:
+>
+>    | token | cards | what it is |
+>    |---|---|---|
+>    | `[>]` | **38** | the grant arrow — `[Level 3][>] I have +1 Might`, `[Legion][>] …`. Punctuation, not an ability. |
+>    | `[Stun]` | 12 | action word; `UnitInstance.stunned` already exists. OGN/SFD print it as prose, UNL brackets it. |
+>    | `[Buff]` | 9 | action word; `spendBuff`/`buffed` already exist. |
+>    | `[>>]` | 1 | ability divider, on `UNL-049` Honeyfruit alone. |
+>
+>    **Note the spelling.** The raw JSON holds `&gt;`, but `decodeTextEntities`
+>    (written for SFD's `&quot;`) decodes it before any gate reads the text, so
+>    the allow-list entry is a bare `>`. Allow-listing `&gt;` matches nothing
+>    while looking deliberate — a trap this document walked into first.
+>
+> 2. **`[Predict]` has a MAGNITUDE.** The count of 5 was right. But `[Predict 2]`
+>    — `UNL-062` Dramatic Visionary and `UNL-136` Scryer's Bloom — reads *"look
+>    at the top TWO, **recycle any of them and put the rest back in any
+>    order**"*, a subset choice plus an ordering decision. `top-of-deck.ts`
+>    covers the bare form and **not** this one.
+>
+> 3. **`[Hunt]`'s bare form means Hunt 1.** Split measured over the loaded pool:
+>    **bare ×6, `[Hunt 2]` ×5, `[Hunt 3]` ×1.** `parseKeywords` already defaults
+>    a magnitude-less bracket to 1, so this needs nothing — but a generic
+>    listener reading the magnitude must not treat absent as zero.
+>
+> 4. **XP-as-a-cost has a fourth shape** the section below does not list: an
+>    **`[Equip]` cost.** `UNL-158` Shepherd's Heirloom prints `[Equip] — Spend 1
+>    XP`, and it is **the one Equipment of 36 that does not self-wire**, because
+>    `ActivationCost` has no `xp` field. Everything else about the Equipment
+>    pipeline absorbed UNL's five for free.
+>
+> ### Found only by landing the JSON
+>
+> - **12 of the 36 UNL Legends are the same 12 printed three times** (plain,
+>   "(Overnumbered)", "(Signature)"). The Signature prints carry an ASTERISK in
+>   their collector number, so `deriveId` yields ids like `UNL-236*` — the first
+>   ids in this pool that are not `[A-Z]{3}-\d+`. All 235 are distinct; nothing
+>   needed changing, but a regex that assumed the old shape would.
+> - **Two cards print a bare keyword name they do NOT have**, which needed a new
+>   mechanism (`BARE_KEYWORD_NOT_HELD`) because the existing one GRANTS the
+>   keyword: `UNL-094` Gemhand Hunter's trailing lowercase `ambush` — the Java
+>   oracle names it outright as a data artifact — and `UNL-078` Sprite Fountain's
+>   "Repeat this gear's play effect", which is the English verb.
+> - **Nine dual-domain cards need a split-pip decision that is in the ART.**
+>   Inferred from a 26-of-26 pattern and recorded **Unverified** in
+>   `docs/rules-conformance.md`; it is the only inferred entry in that table.
+> - **All 8 of the user's real `.deck` files now validate**, and the real
+>   community-export fixture in `decklist-text-parser.test.ts` resolves
+>   completely for the first time.
+>
+> **Unrelated stale figure found in passing:** `CLAUDE.md` pinned reachability at
+> 429/SFD 185 while the probe's own `PINNED_UNION` had been 430 since
+> 2026-08-07. Both are now **444** (OGN 224/248, OGS 20/22, SFD 186/198, **UNL
+> 14/226**) — UNL's 14 came for free from generic machinery on the day it landed.
+
 ## The headline: XP is one integer, and the plan over-priced it
 
 The plan called XP "the real subsystem, and the one thing worth scoping properly".
@@ -177,10 +255,59 @@ against a real card before building**, but it looks like the one place where XP 
 
 ## Order of work
 
+0. **Land `unl.json`, with every token decision made in the same change.**
+   **DONE 2026-08-08.** Not in the original list, and it was the gate on steps 2
+   and 4–7: nothing after XP had real cards to be tested against. `CARD_FILES`
+   gained the file (pool 494 → **729**), the four separator/action-word tokens
+   went into `NON_KEYWORD_BRACKETS` and `[Predict]` with them, `Hunt`/`Level`/
+   `Ambush`/`Backline` went into `KEYWORDS` **and into `UNIMPLEMENTED_KEYWORDS`**
+   — the shape SFD's four used, so a card printing a keyword whose subsystem is
+   unbuilt reports NOT implemented instead of shipping inert — and the token
+   census moved 21 → **30**.
+
+   **It cost 20 failing tests across 11 files**, which is the number worth
+   carrying into the next set. Almost none were bugs: they were premises that
+   had been true while the pool was finished. The ones that took real thought
+   were the four where the honest fix was to stop naming a set and assert the
+   INVARIANT instead — `COMPLETE_SETS.includes(...)` rather than
+   `id.startsWith("SFD-")` — in `coverage-drift`, `repeat-keyword`, the web
+   `card-filters` partition, and the `reachability` probe's
+   `everyUnexercisedExplained` gate. Each of those had already been rewritten
+   once by SFD landing. They should not need rewriting again.
+
 1. **`PlayerState.xp` + `gainXp`/`spendXp` + the board rendering it.** Nothing
-   else can be tested without it.
+   else can be tested without it. **DONE 2026-08-08** — `xp` sits beside
+   `points` and deliberately outside `runEnd`'s sweep, `gainXp`/`canSpendXp`/
+   `spendXp` are the only writers, `test/xp.test.ts` pins the rules clause by
+   clause, and both side columns render it at zero.
 2. **`[Hunt N]`**, generic off the keyword magnitude against the two existing held
-   events. The faucet.
+   events. The faucet. **DONE 2026-08-08.** One registry entry under
+   `HUNT_TRIGGER_KEY` serves all 12 cards: `triggerKeysOn` hands a unit printing
+   the keyword a key that is not its defId, which is machinery that already
+   existed for granted and copied abilities. `[Hunt]` left
+   `UNIMPLEMENTED_KEYWORDS` the same day it arrived, which finished UNL-100
+   Voracious Gromp outright (his entire printed text is the keyword).
+
+   **Three things the scoping did not say, each found by an instrument:**
+
+   - **`reachability` cannot see a keyword fire.** It did not move by one card
+     when Hunt landed, because a keyword is not a registered card effect and
+     nothing in the exercise log records it. `probes/hunt-xp.ts` exists for this
+     and is now in the loop: **45 XP rises across 250 games**, which is what says
+     the keyword is live rather than inert.
+   - **Peak XP in 250 games is 3, and exactly one rise per game that gets any.**
+     So at today's AI play `[Level 3]` is reachable and **`[Level 6]`, `[Level
+     11]` and `[Level 16]` are not** — 11 of the 16 Level cards would be dead in
+     self-play. Measure this again before scoping step 6; it may be that Level
+     needs the XP COSTS (step 7) and more Hunters in the covering deck before it
+     can be exercised at all.
+   - **Two pieces of the first draft were unprovable and were deleted**, both
+     caught by mutation rather than review: an `=== undefined` guard on the
+     listener's battlefield (the comparison below it already refused `undefined`,
+     so removing the guard failed nothing), and a `capture` of the magnitude
+     (`[Hunt]` is only ever printed, so a captured N and a re-read N are the same
+     number by construction). The `capture` field's own doc gives the rule —
+     capture only what will not still be true at resolution.
 3. **`[Predict]`** into `NON_KEYWORD_BRACKETS` and onto `top-of-deck.ts`. Needed
    before the JSON loads cleanly.
 4. **`[Backline]`** as a keyword, keeping Caitlyn's per-card entry working.

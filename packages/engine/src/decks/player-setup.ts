@@ -85,6 +85,7 @@ export function buildPlayerFromDeckList(
     channeled: [],
     baseUnits: [],
     points: 0,
+    xp: 0,
     floatingEnergy: 0,
     floatingPower: {},
     floatingRainbowPower: 0,

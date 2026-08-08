@@ -1,6 +1,7 @@
 import ognRaw from "./ogn.json" with { type: "json" };
 import ogsRaw from "./ogs.json" with { type: "json" };
 import sfdRaw from "./sfd.json" with { type: "json" };
+import unlRaw from "./unl.json" with { type: "json" };
 import type { Domain } from "../model/domain.js";
 import { isDomain, lowestOrdinalDomain } from "../model/domain.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
@@ -9,9 +10,7 @@ import { extractCardItems, type RawCard } from "./raw-card-schema.js";
 
 /**
  * Card pool in scope: Origins (OGN) + Proving Grounds (OGS) + Spiritforged
- * (SFD). SFD's milestone is now open, so it is loaded here; `unl.json`
- * (Unleashed) still exists only in the oracle repo and gets added the same
- * way when its own milestone opens.
+ * (SFD) + Unleashed (UNL). All four sets the oracle has are now loaded.
  *
  * `sfd.json` was taken byte-for-byte from the frozen Java oracle
  * (A:\Projects\riftbound-engine\src\main\resources\cards\sfd.json), the same
@@ -19,10 +18,32 @@ import { extractCardItems, type RawCard } from "./raw-card-schema.js";
  * keeps 206; the other 82 are 15 Battlefields, 66 Showcase/alternate-art
  * prints and 1 Token. 206 + 15 = the set's printed 221.
  *
- * Note it is a BARE ARRAY, like ogn.json and unlike ogs.json's paginated
- * `{items}` envelope — `extractCardItems` already reads both. Unlike either
- * of the older two it carries no BOM, and unlike ogn.json it is free of the
- * latin-1 mojibake recorded in docs/rules-conformance.md.
+ * `unl.json` has the same provenance, byte-for-byte, and landed 2026-08-08.
+ * **280 raw entries, of which `shouldSkip` keeps 235** — the other 45 are 15
+ * Battlefields and 30 alternate-art prints, with no Token and no Showcase
+ * rarity at all. Kept: 126 Units, 54 Spells, 19 Gear, 36 Legends.
+ *
+ * **Two things about this set that the other three do not prepare you for**,
+ * both measured against the file rather than inferred:
+ *
+ *   **36 Legends is 12 legends printed three times.** Every UNL legend has a
+ *   plain printing, an "(Overnumbered)" one and a "(Signature)" one, with
+ *   identical rules text. The Signature prints carry an ASTERISK in their
+ *   collector number, so `deriveId` yields ids of the form `UNL-236*`. That is
+ *   the first id in this pool that is not `[A-Z]{3}-\d+`, and it is a real id
+ *   rather than something to strip: all 235 derived ids are distinct.
+ *
+ *   **It is the first set to bring HTML entities in VOLUME.** The raw
+ *   `text.plain` holds `&gt;` 49 times and `&quot;` 10 times. `decodeTextEntities`
+ *   below already handles both — it was written for SFD's two `&quot;` — so by
+ *   the time anything downstream reads the text these are a bare `>` and `"`.
+ *   That is why NON_KEYWORD_BRACKETS names the arrow as `>` and NOT as `&gt;`:
+ *   the escaped spelling never reaches a gate, and allow-listing it would have
+ *   matched nothing while looking deliberate.
+ *
+ * Note it is a BARE ARRAY, like ogn.json and sfd.json and unlike ogs.json's
+ * paginated `{items}` envelope — `extractCardItems` already reads both. Like
+ * sfd.json it carries no BOM.
  *
  * Statically imported (not read via `fs` at runtime) so this module works
  * unmodified in both Node and a bundled browser build (e.g. packages/web) —
@@ -32,7 +53,7 @@ import { extractCardItems, type RawCard } from "./raw-card-schema.js";
  * unconditionally, even if the function that uses them is never called
  * client-side.
  */
-const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw, sfdRaw];
+const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw, sfdRaw, unlRaw];
 
 /**
  * The bracket grammar `parseKeywords` reads. The trailing `-` in the character
@@ -159,7 +180,50 @@ const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
   "SFD-202": "Order", // Hostile Takeover — Mind/Order, 2 Power
   "SFD-204": "Chaos", // On the Hunt — Body/Chaos, 2 Power
   "SFD-206": "Order", // Riposte — Body/Order, 2 Power
+
+  // **UNL's nine — CONFIRMED BY INSPECTION 2026-08-08**, each `media.image_url`
+  // pulled and its pip cropped and read at 6x. Every one is a single capsule
+  // split left/right into its two domains' colours, and in all nine the glyph
+  // count equals the printed Power cost (four of them are 2-Power, which is the
+  // case the colour-count trap bites).
+  //
+  // **The pool-wide pattern is now 35 of 35, across four sets, with no
+  // exception**, and the project owner confirmed the rule it implies: a card
+  // printing two domains in its cast cost can have its Power pip paid by
+  // recycling EITHER of those domains. So this table is, today, exactly "alt =
+  // the higher-ordinal of the card's two domains" for every dual-domain card
+  // with a Power cost — see the note below on why it is still a table.
+  "UNL-184": "Body", // Thrill of the Hunt — Fury/Body
+  "UNL-186": "Chaos", // Death from Below — Fury/Chaos
+  "UNL-190": "Mind", // Lilting Lullaby — Calm/Mind
+  "UNL-192": "Body", // Alpha Strike — Calm/Body
+  "UNL-196": "Order", // Daisy! — Calm/Order (a Unit, not a Spell — the only one)
+  "UNL-198": "Chaos", // Moonfall — Mind/Chaos
+  "UNL-200": "Order", // Mirror Image — Mind/Order
+  "UNL-202": "Chaos", // Void Assault — Body/Chaos
+  "UNL-204": "Order", // Keeper's Verdict — Body/Order
 };
+
+/**
+ * **Why this is still a hand table when the rule would derive it.**
+ *
+ * All 35 entries are now "the higher-ordinal of the card's two domains", so
+ * `powerDomainAlt = domains[1]` for every dual-domain card with a Power cost
+ * would reproduce this table exactly, and would absorb the next set for free.
+ *
+ * It is deliberately not done yet, and the reason is what the table is FOR. The
+ * split pip is a fact about the printed card that no field of the JSON carries —
+ * it is in the art — and the 35/35 pattern is evidence about the cards printed
+ * so far, not a rule this loader can check. Deriving it would silently grant an
+ * alt domain to a future solid-pip card and make a cost payable that is not, and
+ * nothing in the pipeline could see it: a too-wide Power domain never fails, it
+ * just accepts a rune it should have refused.
+ *
+ * The census in card-loader.test.ts is the thing that makes the table cheap —
+ * a new set's candidates arrive as a NAMED failure, which is one inspection per
+ * set rather than a standing cost. Collapse this to a derivation only if the
+ * rules text (not the pattern) says every dual-domain pip is split.
+ */
 
 /** Rune/Battlefield/Token-supertype/Showcase-rarity/alternate-art entries never become playable
  *  CardDefinitions. Mirrors CardLoader.java's `skip()` (registry/CardLoader.java:274-282). */
@@ -383,6 +447,14 @@ const QUICK_TEXT_OVERRIDES = new Set([
   // into a strictly better card that enters ready unconditionally. They are
   // listed in card-loader.test.ts's CONDITIONAL map instead.
   "SFD-006", // Eager Drakehound — "I enter ready.", the same shape as Vanguard Attendant
+  // UNL. Seven Unleashed cards print the phrase and the split is the same as
+  // SFD's: these two are UNCONDITIONAL, the other five are not and are listed in
+  // card-loader.test.ts's CONDITIONAL map. One of those five is worth naming
+  // here because it is a NEW shape rather than an "if" clause — UNL-151 Bandle
+  // Soldier prints `[Level 3][>] I enter ready.`, so its readiness is gated on
+  // an XP threshold, and an override would hand it out at 0 XP.
+  "UNL-001", // Arena Kingpin — "I enter ready.", then an unrelated exhaust ability
+  "UNL-196", // Daisy! — "I enter ready.", then a cost reduction and an attack trigger
 ]);
 
 /**
@@ -593,6 +665,49 @@ const PROSE_KEYWORD_DEF_IDS: Record<string, readonly Keyword[]> = {
  *  same reasoning as `hiddenKeywordFalsePositiveDefIds`. */
 export function proseKeywordDefIds(): string[] {
   return Object.keys(PROSE_KEYWORD_DEF_IDS);
+}
+
+/**
+ * The EXACT OPPOSITE of the table above, and Unleashed is what forced the
+ * distinction: cards printing a keyword's bare name that genuinely do **not**
+ * have the keyword.
+ *
+ * `keyword-prose.test.ts` swept for "a bare keyword name with no bracketed form
+ * anywhere in the text" and told you to add the card to PROSE_KEYWORD_DEF_IDS —
+ * which BRACKETS the word, i.e. grants it. That instruction was right for both
+ * SFD cards and is wrong for both of these, where following it would hand a unit
+ * a keyword the card does not print. So the sweep needs two answers, and the one
+ * it cannot infer from the text is this one.
+ *
+ * Neither entry is a judgement call; both were checked against the frozen Java
+ * oracle rather than read off the string:
+ *
+ *   **UNL-094 Gemhand Hunter** — its text ends `...get the effect.)ambush`, a
+ *   lowercase word glued on with no space, no brackets and no reminder text, and
+ *   present identically in `plain`, `rich` and the accessibility text. The
+ *   oracle names it outright as "Gemhand Hunter's own stray lowercase 'ambush'
+ *   artifact" (engine\EffectContext.java:1007). It is upstream data noise. The
+ *   card has `[Hunt]` and `[Level 6]` and nothing else.
+ *
+ *   **UNL-078 Sprite Fountain** — "[Deathknell][>] Repeat this gear's play
+ *   effect." That "Repeat" is the English VERB. `[Repeat]` is a Spell keyword
+ *   ("you may pay an additional cost to repeat this spell's effect") and this is
+ *   a Gear; granting it here would offer an additional cost on a card that
+ *   prints none.
+ *
+ * Nothing is rewritten for these — the entry exists so the gate can tell "a
+ * keyword lost its brackets" from "a word that happens to be a keyword's name",
+ * and so that each stays ASSERTED not to carry it.
+ */
+const BARE_KEYWORD_NOT_HELD: Record<string, readonly Keyword[]> = {
+  "UNL-094": ["Ambush"], // Gemhand Hunter — upstream data artifact
+  "UNL-078": ["Repeat"], // Sprite Fountain — the English verb
+};
+
+/** The pairs above, for the test that both EXCLUDES them from the bare-keyword
+ *  sweep and pins that each really does lack the keyword. */
+export function bareKeywordNotHeld(): { id: string; keyword: Keyword }[] {
+  return Object.entries(BARE_KEYWORD_NOT_HELD).flatMap(([id, keywords]) => keywords.map((keyword) => ({ id, keyword })));
 }
 
 /** Rewrites a bare keyword name into its bracketed form, so the rest of the

@@ -356,6 +356,33 @@ export interface PlayerState {
   channeled: RuneCard[];
   baseUnits: UnitInstance[];
   points: number;
+  /**
+   * **XP** — Unleashed's per-player resource, and nothing more than an integer.
+   *
+   * The rules section between 727 (Dependent Keywords) and 735 (Additional
+   * Turns) gives it in full: XP is accrued, spent or otherwise modified by
+   * players; its amount is Public Information; it can be **Gained** and
+   * **Spent**; it is **not a Game Object** ("cannot be targeted, readied, or
+   * exhausted"); it is not shared between allies; and it has **no cap**. So
+   * there is no zone, no object, no timing window, nothing to respond to, and
+   * nothing that can be targeted — which is why this is a field beside `points`
+   * rather than a subsystem.
+   *
+   * **Beside `points` deliberately, and NOT in `runEnd`'s sweep.** Every other
+   * counter added to this interface lately has been "this turn" state that the
+   * turn clears; XP is the opposite and persists for the game, exactly like the
+   * score. Putting it in that sweep would zero the resource every turn and make
+   * `[Level 11]` and `[Level 16]` unreachable — thresholds two UNL cards and
+   * seven others print, so nine cards would silently never switch on.
+   *
+   * REQUIRED rather than optional, matching `chosenChampionDefId`'s reasoning
+   * two fields up: an optional counter read as `xp ?? 0` puts the default in
+   * every reader instead of in the state, and a hand-built test state would then
+   * be free not to say what it is.
+   *
+   * Written only through `gainXp`/`spendXp` in effect-helpers.ts.
+   */
+  xp: number;
   floatingEnergy: number;
   floatingPower: Partial<Record<Domain, number>>;
   cardsPlayedThisTurn: number;

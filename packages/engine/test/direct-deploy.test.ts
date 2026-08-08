@@ -64,6 +64,7 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     channeled: [],
     baseUnits: [],
     points: 0,
+    xp: 0,
     floatingEnergy: 0,
     floatingPower: {},
     floatingRainbowPower: 0,

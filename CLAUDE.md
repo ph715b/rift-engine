@@ -12,8 +12,16 @@ npm run build --workspace=@rift-engine/engine     # BEFORE the typecheck AND any
 npm run typecheck                                 # both workspaces; COUNT the errors
 npm run build
 cd packages/engine
-node probes/{ai-health,passive-human,chain-depth,walkout,reachability}.ts
+node probes/{ai-health,passive-human,chain-depth,walkout,reachability,hunt-xp}.ts
 ```
+
+**`hunt-xp` is here because `reachability` CANNOT see XP.** A keyword is not a
+registered card effect, so nothing in the exercise log records one firing —
+`reachability` did not move at all when `[Hunt]` landed, which is neither
+evidence for nor against it. XP has one writer (`gainXp`), so "did any player's
+XP ever rise in a real game" is the only question that settles whether the
+keyword is live or inert in play. Expect every XP keyword to need this probe
+rather than the coverage gates.
 
 `reachability` REPLACES the two `exercised` lines that used to sit here — it runs
 the preset decks and one covering run per set in a single 10-second process, and
@@ -49,8 +57,9 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **429 of 468 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 185/198), at its default **250 games per mode**,
+`reachability` is pinned at **444 of 694 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 186/198, UNL 14/226), at its default **250 games
+per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
 

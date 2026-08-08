@@ -2234,6 +2234,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             label="AI Opponent"
             points={ai.points}
             victoryScore={victoryScore(state)}
+            xp={ai.xp}
             handCount={ai.hand.length}
             legend={ai.legend}
             champion={ai.championZone}
@@ -2530,6 +2531,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           label="You"
           points={human.points}
           victoryScore={victoryScore(state)}
+          xp={human.xp}
           legend={human.legend}
           isLegendSelectable={canActivate(human.legend.instanceId)}
           isLegendSelected={pendingAbility === human.legend.instanceId}

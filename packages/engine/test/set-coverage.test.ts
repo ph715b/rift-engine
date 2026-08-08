@@ -121,14 +121,14 @@ describe("per-set completeness gating", () => {
     // exactly the mistake being caught: OGN and OGS are finished, so undeclaring
     // them must raise the flag on both.
     //
-    // **All three real sets are finished as of 2026-08-07**, so undeclaring them
-    // must raise the flag on all three. The real negative case SFD used to
-    // provide is gone with it — the synthetic one below is what carries that half
-    // now, and it always could: `coverageBySet` takes its complete-set list as an
-    // ARGUMENT precisely so neither direction depends on a real set happening to
-    // be in the right state.
+    // **Three of the four real sets are finished**; UNL landed 2026-08-08 and is
+    // under construction, so undeclaring everything must raise the flag on the
+    // three that are done and NOT on UNL. That restores the real negative case
+    // this test lost when SFD finished — and it is the more valuable half, since
+    // a `finishedButUndeclared` that fired on an unfinished set would promote a
+    // set into the hard gate mid-build.
     const undeclared = coverageBySet(registry.all(), []);
-    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD"]);
+    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL"]);
     expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS", "SFD"]);
     // And declaring only one leaves the flag on the other, so the check is per
     // set rather than an all-or-nothing.
