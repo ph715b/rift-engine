@@ -29,6 +29,8 @@ import {
 import {
   modifiedEnergyCost,
   modifiedRepeatEnergy,
+  discountedOptionalCosts,
+  optionalCostDiscountApplies,
   targetChoiceDiscount,
   scaledPowerDiscount,
   combatSpellPowerDiscount,
@@ -670,6 +672,24 @@ export function legalActions(state: GameState): PlayerAction[] {
       card.powerDomain,
       card.powerDomainAlt,
     );
+    /**
+     * The axes worth pricing an OPTIONAL-ADDITIONAL-COST variant at.
+     *
+     * `undefined` is the undiscounted play and is always present; the two named
+     * axes appear only while Ezreal - Prodigy is on the board, so an ordinary game
+     * enumerates exactly what it always did. His "[1] or [rainbow]" is a real
+     * choice between two resources — see `optionalCostDiscount` — so each branch
+     * below that can pay an additional cost fans out over this, exactly as
+     * Irelia - Graceful's own loop does for the card's PRINTED cost.
+     *
+     * The undiscounted variant stays on offer even though his discount is not
+     * optional. It is strictly worse and no player will take it, and removing it
+     * would mean the enumerator disagreeing with a validator that still accepts
+     * it — the split this file has shipped three times.
+     */
+    const additionalCostAxes: (undefined | "energy" | "power")[] = optionalCostDiscountApplies(state, playerIndex)
+      ? [undefined, "energy", "power"]
+      : [undefined];
     // The DISCOUNTED payment is computed alongside the plain one, not inside the
     // variant loop below, because a card can be affordable only WITH the
     // discount — Brazen Buccaneer at 6 Energy with 4 runes is exactly that. An
@@ -1279,18 +1299,46 @@ export function legalActions(state: GameState): PlayerAction[] {
         // `powerDomainAlt` is passed for the same reason every other branch
         // passes it: a split-pip card has two domains and pricing through one
         // rejects runes the card accepts.
-        const paid = computeAutoPayment(
-          actor.channeled,
-          effectiveCost.energyCost + (optionalPower.energy ?? 0),
-          effectiveCost.powerCost + (optionalPower.count ?? 0),
-          optionalPower.domain ?? card.powerDomain,
-          card.powerDomainAlt,
-          deflected,
-        );
-        // Offered only when the bigger payment is really payable — a card you can
-        // afford plainly but not with the extra simply has no paid variant.
-        if (paid) {
-          actions.push({ type: "PlayCard", playerIndex, card, payment: paid, ...variant, ...hiddenFields, optionalPowerPaid: true });
+        //
+        // Ezreal - Prodigy's axis fans this out, exactly as it does the two
+        // `[Repeat]` branches and `[Accelerate]` below — these are all the same
+        // kind of cost and the enumerator has to offer all four at his price or
+        // he is dead in a real game, which is what the 2026-08-08 report found.
+        const pricedOptional = new Set<string>();
+        for (const axis of additionalCostAxes) {
+          const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
+          const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
+            energy: optionalPower.energy ?? 0,
+            power: optionalPower.count ?? 0,
+            rainbow: 0,
+          });
+          const energyCost = Math.max(0, effectiveCost.energyCost - own.energy) + additional.energy;
+          const powerCost = Math.max(0, effectiveCost.powerCost - own.power) + additional.power;
+          const shape = `${energyCost}/${powerCost}`;
+          if (pricedOptional.has(shape)) continue; // this axis buys nothing new
+          pricedOptional.add(shape);
+          const paid = computeAutoPayment(
+            actor.channeled,
+            energyCost,
+            powerCost,
+            optionalPower.domain ?? card.powerDomain,
+            card.powerDomainAlt,
+            deflected,
+          );
+          // Offered only when the bigger payment is really payable — a card you can
+          // afford plainly but not with the extra simply has no paid variant.
+          if (paid) {
+            actions.push({
+              type: "PlayCard",
+              playerIndex,
+              card,
+              payment: paid,
+              ...variant,
+              ...hiddenFields,
+              optionalPowerPaid: true,
+              ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
+            });
+          }
         }
       }
       // Irelia - Graceful — "your spells that choose me cost [1] OR [rainbow]
@@ -1351,34 +1399,6 @@ export function legalActions(state: GameState): PlayerAction[] {
       // the pool prints both [Hidden] and [Repeat], asserted in the table test.
       const repeatCost = repeatCostOf(card.defId);
       if (repeatCost && !fromHidden) {
-        // **Re-priced through `computeEffectiveCost` from the PRINTED cost, not
-        // by adding the Repeat to the already-float-reduced `effectiveCost`.**
-        // Floating Energy reduces the TOTAL a play costs, additional costs
-        // included, so adding afterwards double-counts the float away: with 1
-        // printed Energy, a [Repeat] [1] and 2 floating Energy, adding-after
-        // quotes 0 + 1 = one rune while the validator prices the whole 2 against
-        // the float and demands zero. That is the offered-then-refused split,
-        // and it is the SAME mistake the discounted branch above records having
-        // made — see this function's own note at the `effectiveCost` binding.
-        // Also found by a self-play probe rather than by the suite, and for the
-        // same reason: no unit test had floating Energy banked.
-        const repeatEffective = computeEffectiveCost(
-          actor.floatingEnergy,
-          actor.floatingPower,
-          modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
-            modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
-          // Vex's friendly discount comes off the card's OWN Power and is clamped
-          // there before the Repeat's is added, which is the order
-          // `validate-play-card` applies — an additional cost is not reduced by a
-          // discount aimed at the printed one.
-          Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind)) +
-            (repeatCost.power ?? 0),
-          card.powerDomain,
-          card.powerDomainAlt,
-          card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-          restrictedPowerFor(actor, card.kind),
-          actor.floatingRainbowPower,
-        );
         // **The `[Deflect]` tax is owed by BOTH executions** (project-owner
         // ruling, 2026-08-06 — the same unit chosen twice owes twice). This
         // variant repeats the SAME choices, so its taxable set is the first
@@ -1395,19 +1415,73 @@ export function legalActions(state: GameState): PlayerAction[] {
           ...chosenUnitsOfPlay(repeatVariant),
           ...chosenUnitsOfRepeat(repeatVariant),
         ]);
-        const paidRepeat = computeAutoPayment(
-          actor.channeled,
-          repeatEffective.energyCost,
-          repeatEffective.powerCost,
-          card.powerDomain,
-          card.powerDomainAlt,
-          repeatDeflected + (repeatCost.rainbowPower ?? 0),
-        );
-        // Offered only when the bigger payment is really payable — a spell you
-        // can afford plainly but not with the repeat simply has no paid variant,
-        // the same rule the optional-Power branch above applies.
-        if (paidRepeat) {
-          actions.push({ type: "PlayCard", playerIndex, card, payment: paidRepeat, ...variant, ...hiddenFields, repeatPaid: true });
+        // Ezreal - Prodigy's axis, and Irelia - Graceful's with it: they share the
+        // field, so a variant carrying an axis owes BOTH reductions or the
+        // validator — which applies both — prices it lower than this did. The
+        // duplicate-shape guard at the bottom is what keeps the `undefined` entry
+        // from emitting the same play twice when an axis buys nothing.
+        const priced = new Set<string>();
+        for (const axis of additionalCostAxes) {
+          const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
+          const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
+            energy: modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
+            power: repeatCost.power ?? 0,
+            rainbow: repeatCost.rainbowPower ?? 0,
+          });
+          // **Re-priced through `computeEffectiveCost` from the PRINTED cost, not
+          // by adding the Repeat to the already-float-reduced `effectiveCost`.**
+          // Floating Energy reduces the TOTAL a play costs, additional costs
+          // included, so adding afterwards double-counts the float away: with 1
+          // printed Energy, a [Repeat] [1] and 2 floating Energy, adding-after
+          // quotes 0 + 1 = one rune while the validator prices the whole 2 against
+          // the float and demands zero. That is the offered-then-refused split,
+          // and it is the SAME mistake the discounted branch above records having
+          // made — see this function's own note at the `effectiveCost` binding.
+          // Also found by a self-play probe rather than by the suite, and for the
+          // same reason: no unit test had floating Energy banked.
+          const repeatEffective = computeEffectiveCost(
+            actor.floatingEnergy,
+            actor.floatingPower,
+            Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) - own.energy) +
+              additional.energy,
+            // Vex's friendly discount comes off the card's OWN Power and is clamped
+            // there before the Repeat's is added, which is the order
+            // `validate-play-card` applies — an additional cost is not reduced by a
+            // discount aimed at the printed one.
+            Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind) - own.power) +
+              additional.power,
+            card.powerDomain,
+            card.powerDomainAlt,
+            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+            restrictedPowerFor(actor, card.kind),
+            actor.floatingRainbowPower,
+          );
+          const shape = `${repeatEffective.energyCost}/${repeatEffective.powerCost}/${additional.rainbow}`;
+          if (priced.has(shape)) continue; // this axis buys nothing this play does not already have
+          priced.add(shape);
+          const paidRepeat = computeAutoPayment(
+            actor.channeled,
+            repeatEffective.energyCost,
+            repeatEffective.powerCost,
+            card.powerDomain,
+            card.powerDomainAlt,
+            repeatDeflected + additional.rainbow,
+          );
+          // Offered only when the bigger payment is really payable — a spell you
+          // can afford plainly but not with the repeat simply has no paid variant,
+          // the same rule the optional-Power branch above applies.
+          if (paidRepeat) {
+            actions.push({
+              type: "PlayCard",
+              playerIndex,
+              card,
+              payment: paidRepeat,
+              ...variant,
+              ...hiddenFields,
+              repeatPaid: true,
+              ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
+            });
+          }
         }
       }
       // Temporal Portal's GRANTED `[Repeat]`, priced from the card's PRINTED cost
@@ -1423,72 +1497,129 @@ export function legalActions(state: GameState): PlayerAction[] {
       // execution counts.
       const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
       if (grantedCost && !fromHidden) {
+        const pricedGranted = new Set<string>();
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
-          const grantedEffective = computeEffectiveCost(
-            actor.floatingEnergy,
-            actor.floatingPower,
-            modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) +
-              modifiedRepeatEnergy(state, playerIndex, grantedCost.energy) +
-              (alsoPrinted ? modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy) : 0),
-            // Vex's friendly discount, clamped against the card's own Power before
-            // either additional cost is added — the printed-Repeat branch above
-            // says why that order is the validator's.
-            Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind)) +
-              (grantedCost.power ?? 0) +
-              (alsoPrinted ? repeatCost!.power ?? 0 : 0),
-            card.powerDomain,
-            card.powerDomainAlt,
-            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
-            restrictedPowerFor(actor, card.kind),
-            actor.floatingRainbowPower,
-          );
-          const grantedVariant = {
-            ...variant,
-            grantedRepeatPaid: true as const,
-            ...(alsoPrinted ? { repeatPaid: true as const } : {}),
-          };
-          // The `[Deflect]` tax is owed once per EXECUTION that chooses the unit
-          // — the 2026-08-06 ruling, applied here by asking the same helpers the
-          // validator asks, against the candidate action itself.
-          // Vex - Cheerless's tax is in this figure too, and once — see the
-          // printed-Repeat branch above for why a play that executes three times
-          // still owes her only one.
-          const grantedDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
-            ...chosenUnitsOfPlay(grantedVariant),
-            ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
-          ]);
-          const paidGranted = computeAutoPayment(
-            actor.channeled,
-            grantedEffective.energyCost,
-            grantedEffective.powerCost,
-            card.powerDomain,
-            card.powerDomainAlt,
-            grantedDeflected + (alsoPrinted ? repeatCost!.rainbowPower ?? 0 : 0),
-          );
-          if (paidGranted) {
-            actions.push({ type: "PlayCard", playerIndex, card, payment: paidGranted, ...variant, ...hiddenFields, ...grantedVariant });
+          for (const axis of additionalCostAxes) {
+            const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
+            // BOTH instances in one bundle, because Ezreal's pip comes off the
+            // additional costs as a whole — see `discountedOptionalCosts` for why
+            // this is once per play rather than once per instance, and for the
+            // one ruling that would change it. This crossed branch is the only
+            // place in the pool where the two readings differ.
+            const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
+              energy:
+                modifiedRepeatEnergy(state, playerIndex, grantedCost.energy) +
+                (alsoPrinted ? modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy) : 0),
+              power: (grantedCost.power ?? 0) + (alsoPrinted ? repeatCost!.power ?? 0 : 0),
+              rainbow: alsoPrinted ? repeatCost!.rainbowPower ?? 0 : 0,
+            });
+            const grantedEffective = computeEffectiveCost(
+              actor.floatingEnergy,
+              actor.floatingPower,
+              Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId) - own.energy) +
+                additional.energy,
+              // Vex's friendly discount, clamped against the card's own Power before
+              // either additional cost is added — the printed-Repeat branch above
+              // says why that order is the validator's.
+              Math.max(0, card.powerCost - combatSpellPowerDiscount(state, playerIndex, card.kind) - own.power) +
+                additional.power,
+              card.powerDomain,
+              card.powerDomainAlt,
+              card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+              restrictedPowerFor(actor, card.kind),
+              actor.floatingRainbowPower,
+            );
+            const shape = `${alsoPrinted}/${grantedEffective.energyCost}/${grantedEffective.powerCost}/${additional.rainbow}`;
+            if (pricedGranted.has(shape)) continue; // this axis buys nothing new
+            pricedGranted.add(shape);
+            const grantedVariant = {
+              ...variant,
+              grantedRepeatPaid: true as const,
+              ...(alsoPrinted ? { repeatPaid: true as const } : {}),
+            };
+            // The `[Deflect]` tax is owed once per EXECUTION that chooses the unit
+            // — the 2026-08-06 ruling, applied here by asking the same helpers the
+            // validator asks, against the candidate action itself.
+            // Vex - Cheerless's tax is in this figure too, and once — see the
+            // printed-Repeat branch above for why a play that executes three times
+            // still owes her only one.
+            const grantedDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
+              ...chosenUnitsOfPlay(grantedVariant),
+              ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
+            ]);
+            const paidGranted = computeAutoPayment(
+              actor.channeled,
+              grantedEffective.energyCost,
+              grantedEffective.powerCost,
+              card.powerDomain,
+              card.powerDomainAlt,
+              grantedDeflected + additional.rainbow,
+            );
+            if (paidGranted) {
+              actions.push({
+                type: "PlayCard",
+                playerIndex,
+                card,
+                payment: paidGranted,
+                ...variant,
+                ...hiddenFields,
+                ...grantedVariant,
+                ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
+              });
+            }
           }
         }
       }
-      const acceleratedForVariant =
-        repeatableSpend > 0 && hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden
-          ? computeAutoPayment(
-              actor.channeled,
-              effectiveCost.energyCost + ACCELERATE_ENERGY,
-              Math.max(0, effectiveCost.powerCost - repeatableSpend) + ACCELERATE_POWER,
-              acceleratePowerDomain(card),
-            )
-          : accelerated;
-      if (acceleratedForVariant) {
-        actions.push({
-          type: "PlayCard",
-          playerIndex,
-          card,
-          payment: acceleratedForVariant,
-          ...variant,
-          ...hiddenFields,
-          acceleratePaid: true,
+      // `[Accelerate]` is an Optional Additional Cost by name (805/3233), so it
+      // fans out over Ezreal - Prodigy's axis like the two `[Repeat]` branches
+      // above. `additionalCostAxes` is the single-element `[undefined]` when he
+      // is not on the board, and this then prices exactly the one candidate it
+      // always did — including the `accelerated` shortcut, which stays the
+      // payment used whenever nothing about the variant changes the price.
+      const canAccelerate = hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden;
+      const pricedAccelerated = new Set<string>();
+      for (const axis of canAccelerate ? additionalCostAxes : []) {
+        const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
+        const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
+          energy: ACCELERATE_ENERGY,
+          power: ACCELERATE_POWER,
+          rainbow: 0,
         });
+        const energyCost = Math.max(0, effectiveCost.energyCost - own.energy) + additional.energy;
+        const powerCost =
+          Math.max(0, Math.max(0, effectiveCost.powerCost - repeatableSpend) - own.power) + additional.power;
+        const shape = `${energyCost}/${powerCost}`;
+        if (pricedAccelerated.has(shape)) continue; // this axis buys nothing new
+        pricedAccelerated.add(shape);
+        // The untouched, un-repeatable, un-discounted shape is the one `accelerated`
+        // was computed for above — reused rather than re-priced so the ordinary
+        // card's enumeration is byte-for-byte what it was.
+        const acceleratedForVariant =
+          repeatableSpend === 0 && axis === undefined && own.energy + own.power === 0
+            ? accelerated
+            : computeAutoPayment(
+                actor.channeled,
+                energyCost,
+                powerCost,
+                acceleratePowerDomain(card),
+                // The repeatable-spend path priced without the alt domain before
+                // this branch was merged, and still does — narrowing what a
+                // payment may contain is safe, widening it is what moves an
+                // existing candidate's runes, and nothing here is trying to.
+                repeatableSpend > 0 ? undefined : card.powerDomainAlt,
+              );
+        if (acceleratedForVariant) {
+          actions.push({
+            type: "PlayCard",
+            playerIndex,
+            card,
+            payment: acceleratedForVariant,
+            ...variant,
+            ...hiddenFields,
+            acceleratePaid: true,
+            ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
+          });
+        }
       }
       // The default candidate puts a token-placing Spell's tokens in BASE. Rule
       // 811 forbids that for a from-hidden play: "if a hidden spell ... causes

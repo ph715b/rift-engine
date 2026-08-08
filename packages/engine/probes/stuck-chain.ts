@@ -23,7 +23,19 @@ const MODE = process.env.MODE ?? "UNL";
 const registry = defaultCardRegistry();
 const nameOf = (defId: string): string => registry.tryGet(defId)?.name ?? "(not a card)";
 
-let stuck: { defId: string; name: string; kind: string; source: string }[] | null = null;
+/** One chain entry, flattened to strings. A named type because the array below
+ *  is written inside a callback and read in a `catch`, and an inline literal
+ *  plus `| null` narrows to `never` at the read — TypeScript cannot see that the
+ *  callback ran. */
+interface ChainSnapshotEntry {
+  defId: string;
+  name: string;
+  kind: string;
+  source: string;
+}
+
+/** Empty rather than `null`, for the same narrowing reason. */
+let stuck: ChainSnapshotEntry[] = [];
 let statesSeen = 0;
 let deepest = 0;
 
@@ -53,7 +65,7 @@ try {
       deepestChain: deepest,
       threw: message,
       /** The last non-empty chain seen before the throw. */
-      chainAtFailure: (stuck ?? []).map((e) => `${e.defId} ${e.name || nameOf(e.defId)} [${e.kind}/${e.source}]`),
+      chainAtFailure: stuck.map((e) => `${e.defId} ${e.name || nameOf(e.defId)} [${e.kind}/${e.source}]`),
     },
     false,
   );

@@ -244,12 +244,29 @@ const IRELIA_GRACEFUL_DISCOUNT = 1;
  * price is untouched.
  *
  * Floored per axis at each site, so it can never turn an addition into a refund.
+ *
+ * **All FOUR optional additional costs, as of the 2026-08-08 playtest report.**
+ * It shipped reaching only `[Accelerate]` and the `OPTIONAL_POWER_COSTS` table —
+ * and reaching neither of those in a real game, because the axis it rides was
+ * refused outright by a guard that asked only whether Irelia had been chosen, and
+ * because the enumerator emitted the axis only from her branch. Every measurement
+ * this card had called `optionalCostDiscount` directly and was green throughout.
+ * `[Repeat]` is the case the report named and 820 calls it "an Optional
+ * Additional Cost keyword" by name; Temporal Portal's granted instance is one for
+ * the same reason.
  */
 const EZREAL_PRODIGY = "SFD-149";
 const EZREAL_DISCOUNT = 1;
 
 /** Is Ezreal - Prodigy in play for this player? His clause is unpositioned — it
- *  names no battlefield — so base counts. */
+ *  names no battlefield — so base counts.
+ *
+ *  Asked without an axis by the enumerator, which needs to know whether to fan a
+ *  variant out by axis at all before it knows which axis is worth pricing. */
+export function optionalCostDiscountApplies(state: GameState, playerIndex: 0 | 1): boolean {
+  return optionalCostDiscount(state, playerIndex, "energy").energy > 0;
+}
+
 export function optionalCostDiscount(
   state: GameState,
   playerIndex: 0 | 1,
@@ -261,6 +278,64 @@ export function optionalCostDiscount(
   const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
   if (!units.some((u) => u.defId === EZREAL_PRODIGY)) return none;
   return axis === "energy" ? { energy: EZREAL_DISCOUNT, power: 0 } : { energy: 0, power: EZREAL_DISCOUNT };
+}
+
+/** The three buckets a play's optional additional costs land in. Rainbow is its
+ *  own bucket for the reason `RepeatCostSpec` gives one: Danger Zone's `[Repeat]`
+ *  pip is not domain-checked, and folding it into `power` would price it against
+ *  the card's own domain. */
+export interface AdditionalCostBundle {
+  energy: number;
+  power: number;
+  rainbow: number;
+}
+
+/**
+ * A play's OPTIONAL ADDITIONAL costs after Ezreal - Prodigy's reduction — the ONE
+ * function the enumerator and the validator both price with.
+ *
+ * Its own entry point beside `modifiedRepeatEnergy` rather than a branch inside
+ * `modifiedEnergyCost`, for the reason that pair already records: this reduces
+ * the additional-cost term 356.3 adds BESIDE the printed cost, and the term is
+ * three components a single number cannot carry.
+ *
+ * **Applied once per PLAY, not once per additional cost.** The card's subject is
+ * plural ("optional additional costS you pay"), so the distributive reading —
+ * one pip off EACH cost — is at least as defensible; this is the conservative
+ * one. It is only ever observable on Temporal Portal's granted `[Repeat]` paid
+ * alongside a printed one, the single way this pool can pay two optional
+ * additional costs on one play (Accelerate is a Unit keyword and every `[Repeat]`
+ * card is a Spell, so those two can never meet). NOT yet in
+ * docs/rules-conformance.md — the change that adds the row owns that file; a
+ * user ruling the other way flips the `raw` bundle into a list.
+ *
+ * **The `[rainbow]` axis spends on the DOMAINED pip before the rainbow one.**
+ * Whose pip it comes off is the player's choice and both save exactly one rune,
+ * so the tie is broken in the direction that is never worse: a remaining rainbow
+ * pip accepts any rune, a remaining domained pip does not.
+ *
+ * `paying` is passed rather than inferred from the amounts, because 356.4.d.1 is
+ * explicit that "an optional additional cost was paid if the player made the
+ * decision to pay it. It doesn't matter how much the player actually paid" — a
+ * `[Repeat]` whose Energy half is zero is still a cost that was paid.
+ */
+export function discountedOptionalCosts(
+  state: GameState,
+  playerIndex: 0 | 1,
+  axis: "energy" | "power" | undefined,
+  paying: boolean,
+  raw: AdditionalCostBundle,
+): AdditionalCostBundle {
+  if (!paying) return raw;
+  const discount = optionalCostDiscount(state, playerIndex, axis);
+  const power = Math.max(0, raw.power - discount.power);
+  // Whatever of the [rainbow] pip the domained Power did not absorb.
+  const spentOnPower = raw.power - power;
+  return {
+    energy: Math.max(0, raw.energy - discount.energy),
+    power,
+    rainbow: Math.max(0, raw.rainbow - (discount.power - spentOnPower)),
+  };
 }
 
 export function targetChoiceDiscount(

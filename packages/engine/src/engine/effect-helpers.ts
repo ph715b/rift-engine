@@ -20,7 +20,7 @@ import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGea
 // stunUnits, long after both modules have initialised.
 import { offerDeathReplacement } from "./legend-abilities.js";
 import { parkDecision } from "./decisions.js";
-import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield, type UnitZone } from "./target-lookup.js";
 import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
 import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
@@ -446,13 +446,24 @@ export function giveMightThisTurnToAllFriendlies(state: GameState, casterIndex: 
  * operation that changed one of those inputs.
  *
  * Wrapped around the RAISE helpers rather than called by each card, so a new
- * pump gets the event by construction instead of by remembering.
+ * pump gets the event by construction instead of by remembering. `attachEquipment`
+ * is bracketed too — the "+N Might" badge is part of current Might, so an
+ * [Equip] can be the crossing.
  *
  * **Recorded partial (docs/rules-conformance.md): an aura arriving is not seen.**
  * A unit that crosses 5 because a Garen - Commander walked in never changed, and
  * nothing about the unit is written — so no comparison here brackets it. Closing
  * that needs the layer-snapshotting this engine does not have.
  */
+/** The `MightContext` fragment naming where a unit stands, as a spreadable
+ *  object so a base unit contributes no `battlefieldId` key at all rather than an
+ *  explicit `undefined` — `exactOptionalPropertyTypes` is on in this package. */
+function whereFor(state: GameState, zone: UnitZone): { battlefieldId?: string } {
+  if (zone === "base") return {};
+  const id = state.battlefields[zone.battlefieldIndex]?.id;
+  return id === undefined ? {} : { battlefieldId: id };
+}
+
 export function withMightTransitions(
   before: GameState,
   after: GameState,
@@ -463,8 +474,24 @@ export function withMightTransitions(
     const was = findUnitAnywhere(before, id);
     const now = findUnitAnywhere(next, id);
     if (!was || !now) continue;
-    const wasMighty = effectiveMight(before, was.unit, was.ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
-    const isNow = effectiveMight(next, now.unit, now.ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
+    // WHERE the unit stands is part of the question, and omitting it was a bug in
+    // both directions. 715: "Units on the board are evaluated according to their
+    // CURRENT Might", and a positional aura (Garen - Commander, Lee Sin -
+    // Centered, Trifarian War Camp's "units here have +1 Might") is part of that
+    // total. Measured as if in base, a unit at a War Camp read one point light —
+    // so a pump that really took it to 5 was silent, and a pump on a unit the
+    // aura had ALREADY made Mighty fired a trigger 715 forbids ("a Unit with
+    // Might 5 that gets +1 does not become Mighty").
+    //
+    // Read per STATE rather than once, because `before` and `after` are different
+    // boards and an effect that moved the unit would otherwise be scored against
+    // the wrong battlefield.
+    const wasMighty =
+      effectiveMight(before, was.unit, was.ownerIndex, { isCombat: false, ...whereFor(before, was.zone) }) >=
+      MIGHTY_THRESHOLD;
+    const isNow =
+      effectiveMight(next, now.unit, now.ownerIndex, { isCombat: false, ...whereFor(next, now.zone) }) >=
+      MIGHTY_THRESHOLD;
     if (wasMighty || !isNow) continue;
     next = holdEventTrigger(next, { kind: "unitBecameMighty", ownerIndex: now.ownerIndex, unitInstanceId: id });
   }

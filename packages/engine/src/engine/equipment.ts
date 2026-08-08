@@ -2,7 +2,11 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { findUnitAnywhere } from "./target-lookup.js";
 import type { GearInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
-import { payEnergyFromPool, payPowerFromChanneled } from "./effect-helpers.js";
+// effect-helpers imports `detachAllFrom` from here, so this is a CYCLE — and it
+// is the one this module already had for the two payment helpers. Safe for the
+// same reason recorded on target-lookup's: every binding is a hoisted function
+// declaration read at call time, never at module initialisation.
+import { payEnergyFromPool, payPowerFromChanneled, withMightTransitions } from "./effect-helpers.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 import type { Keyword } from "../model/keyword.js";
@@ -89,12 +93,33 @@ export function attachEquipment(
   //
   // After the write, so a listener reads a board where the gear is already worn
   // — the ordering every other hold in this engine takes.
-  return holdEventTrigger({ ...state, players }, {
+  const attached = holdEventTrigger({ ...state, players }, {
     kind: "equipmentAttached",
     ownerIndex,
     gearInstanceId,
     unitInstanceId,
   });
+
+  // **An [Equip] can make a unit [Mighty], and until 2026-08-08 nothing saw it.**
+  //
+  // Reported from playtesting against Fiora - Grand Duelist and Fiora - Worthy,
+  // both of which read "when a unit becomes [Mighty]". The badge is part of the
+  // wearer's CURRENT Might — `effectiveMight` adds `equipmentMightBonusFor` at
+  // the gate — so 715's "its Might changes from being less than 5 to being 5 or
+  // greater" is satisfied by the attach itself. Blade of the Ruined King is +4
+  // and B.F. Sword +3; this is not a corner case, it is the set's main way of
+  // getting there.
+  //
+  // Bracketed here rather than at the call sites for exactly the reason the hold
+  // above is: this is the single writer, so the five attach sources get it by
+  // construction. The OLD wearer needs no check — a move can only LOWER its
+  // Might, and `withMightTransitions` fires on an upward crossing only.
+  //
+  // Placed after `equipmentAttached`, so under the chain's LIFO resolution (343)
+  // the Mighty trigger is answered first. Both events come from one game action
+  // and 383 would have their controller order them; this engine does not offer
+  // that choice, and neither ordering is more correct than the other.
+  return withMightTransitions(state, attached, [unitInstanceId]);
 }
 
 /**

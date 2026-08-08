@@ -1123,6 +1123,14 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
         // deliberately, so that a 4-Might unit under a Garen aura counts as
         // Mighty. Nothing new was needed.
         //
+        // **That last claim was itself false until 2026-08-08**, and it is worth
+        // leaving the correction beside the correction it corrects. Looking the
+        // unit up on the board is necessary but was not sufficient: `isMighty`
+        // asked `effectiveMight` with no `battlefieldId`, so a POSITIONAL aura —
+        // which Garen - Commander's "+1 Might **here**" is — was not counted, and
+        // the 4-Might unit standing beside him did not qualify. Fixed in
+        // `granted-keywords.isMighty`, which now passes the unit's location.
+        //
         // [Mighty] and "you may exhaust me" are both settled here: the first is
         // the trigger's own condition (383.4), and the second is its COST — an
         // exhausted Legend cannot pay, and an offer nobody can take is not made.

@@ -513,9 +513,23 @@ const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
  * of which Fiora is granted BY being Mighty. Excluding combat keeps Mighty a
  * property of the unit rather than of the fight it happens to be in — which is
  * also what 711 describes.
+ *
+ * **`battlefieldId` was missing until 2026-08-08, and a note in this repo
+ * asserted the behaviour it prevented.** `legend-abilities.ts` recorded that
+ * Volibear's check works "so that a 4-Might unit under a Garen aura counts as
+ * Mighty" — but Garen - Commander's aura is POSITIONAL ("other friendly units
+ * have +1 Might **here**"), and a context with no battlefield measures every unit
+ * on the board as if it stood in base, so it did not. Same defect as the one
+ * `withMightTransitions` had, in the level check rather than the transition;
+ * found by fixing that one and asking where else Might is read without a place.
+ *
+ * No recursion: `isCombat: false` is what stops `effectiveMight` consulting
+ * `effectiveKeywords`, and that is the only edge back into this module.
  */
 export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): boolean {
-  return effectiveMight(state, unit, ownerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD;
+  const location = locationOf(state, unit);
+  const where = location === undefined || location === "base" ? {} : { battlefieldId: location };
+  return effectiveMight(state, unit, ownerIndex, { isCombat: false, ...where }) >= MIGHTY_THRESHOLD;
 }
 
 /**

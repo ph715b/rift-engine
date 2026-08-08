@@ -25,6 +25,7 @@ import {
   modifiedEnergyCost,
   modifiedRepeatEnergy,
   optionalCostDiscount,
+  discountedOptionalCosts,
   targetChoiceDiscount,
   scaledPowerDiscount,
   combatSpellPowerDiscount,
@@ -743,7 +744,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Ezreal - Prodigy. Applies only when an optional additional cost is actually
   // being paid — "costs you PAY", so declining pays nothing and discounts
   // nothing.
-  const payingOptional = action.optionalPowerPaid === true || action.acceleratePaid === true;
+  //
+  // All FOUR of them, which is the 2026-08-08 playtest fix: `[Repeat]` and
+  // Temporal Portal's granted instance are Optional Additional Costs by name
+  // (820, and 3509 for the granted one), and listing only the other two here is
+  // what made a repeated Called Shot cost full price.
+  const payingOptional =
+    action.optionalPowerPaid === true ||
+    action.acceleratePaid === true ||
+    action.repeatPaid === true ||
+    action.grantedRepeatPaid === true;
   const optionalDiscount = payingOptional
     ? optionalCostDiscount(state, action.playerIndex, action.targetDiscountAxis)
     : { energy: 0, power: 0 };
@@ -751,7 +761,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // than ignored: silently dropping it would let a client quote itself a price
   // the board does not support, and a payment one pip short would then fail
   // with a message about runes instead of about the claim.
-  if (action.targetDiscountAxis !== undefined && targetDiscount.energy + targetDiscount.power === 0) {
+  //
+  // BOTH discounts are asked, because the two share the field. Asking only about
+  // Irelia's is what made Ezreal's unreachable: his axis has nothing to do with
+  // the units a play chooses, so every Ezreal-discounted play was refused here
+  // unless it happened to choose her as well.
+  if (
+    action.targetDiscountAxis !== undefined &&
+    targetDiscount.energy + targetDiscount.power === 0 &&
+    optionalDiscount.energy + optionalDiscount.power === 0
+  ) {
     return fail(`${card.name} does not choose a unit that discounts it`);
   }
 
@@ -837,24 +856,33 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : 0;
   const grantedPower = action.grantedRepeatPaid ? grantedRepeatCost?.power ?? 0 : 0;
 
+  // Every OPTIONAL ADDITIONAL cost this play opted into, summed into one bundle
+  // and then discounted once by Ezreal - Prodigy.
+  //
+  // One bundle rather than four discounted terms, because the "[1] or [rainbow]"
+  // is a single pip that has to come off the additional costs as a whole — with
+  // the reduction spread across four independently-floored terms it would be
+  // taken up to four times, which is neither reading of the card. The bundle also
+  // makes the ORDER explicit (a [rainbow] eats the domained pip before the
+  // rainbow one), which is a choice `discountedOptionalCosts` documents.
+  //
+  // The optional cost's ENERGY half is in here too — Sea Monkey pays only Energy
+  // and Blast Corps Cadet pays one of each, so the Power line below is not the
+  // whole price. Re-derived from the same table the enumerator priced against,
+  // which is what keeps the two from disagreeing.
+  const additional = discountedOptionalCosts(state, action.playerIndex, action.targetDiscountAxis, payingOptional, {
+    energy: accelerateEnergy + repeatEnergy + grantedEnergy + (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0),
+    power: acceleratePower + repeatPower + grantedPower + (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
+    rainbow: repeatRainbow,
+  });
+
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
         Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, inHand) - discardDiscount - targetDiscount.energy) +
-          accelerateEnergy +
-          repeatEnergy +
-          grantedEnergy +
-          // The optional cost's ENERGY half — Sea Monkey pays only Energy and
-          // Blast Corps Cadet pays one of each, so the Power line below is not
-          // the whole price. Re-derived from the same table the enumerator
-          // priced against, which is what keeps the two from disagreeing.
-          // Ezreal - Prodigy discounts the ADDITIONAL cost, so the reduction is
-          // applied to this term and floored here rather than against the card's
-          // own price.
-          Math.max(0, (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0) + accelerateEnergy - optionalDiscount.energy) -
-            accelerateEnergy,
+          additional.energy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
@@ -867,12 +895,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
             // Vex - Cheerless's friendly half. Her enemy half is a rainbow
             // surcharge, checked against its own bucket further down.
             combatSpellPowerDiscount(state, action.playerIndex, card.kind),
-        ) +
-          acceleratePower +
-          repeatPower +
-          grantedPower +
-          Math.max(0, (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0) + acceleratePower - optionalDiscount.power) -
-            acceleratePower,
+        ) + additional.power,
         // The optional cost's own domain wins when it was paid, for the reason
         // `OPTIONAL_POWER_COSTS` records: the card may print no Power at all, so
         // `card.powerDomain` is null and would accept any rune.
@@ -974,18 +997,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // domain-checked — so it rides this bucket beside the Deflect tax rather than
   // `powerRunes`. Owed ON TOP of any surcharge: they are two different debts
   // that happen to be payable with the same kind of rune.
-  if (rainbow.length < surcharge + repeatRainbow + xRainbow) {
+  //
+  // `additional.rainbow`, not the printed `repeatRainbow` — Ezreal - Prodigy's
+  // `[rainbow]` axis can take this pip off, and only after the domained Power has
+  // absorbed what it can. Reading the printed figure here is exactly the
+  // offered-then-refused split, since the enumerator prices the same bundle.
+  const repeatRainbowOwed = additional.rainbow;
+  if (rainbow.length < surcharge + repeatRainbowOwed + xRainbow) {
     // Each half is named only when it is actually owed. Every card in the pool
     // but Danger Zone owes zero `[Repeat]` rainbow, and a breakdown reading "0
     // for [Repeat]" on the other 300 was noise — it also silently rewrote the
     // sentence the web package asserts on, which is how this message came to be
     // tested by a suite the engine's own verification loop does not run. Vex's
     // tax is named the same way and for the same reason.
-    const owed = surcharge + repeatRainbow + xRainbow;
+    const owed = surcharge + repeatRainbowOwed + xRainbow;
     const parts = [
       ...(deflected > 0 ? [`${deflected} for [Deflect]`] : []),
       ...(combatTax > 0 ? [`${combatTax} for Vex - Cheerless`] : []),
-      ...(repeatRainbow > 0 ? [`${repeatRainbow} for [Repeat]`] : []),
+      ...(repeatRainbowOwed > 0 ? [`${repeatRainbowOwed} for [Repeat]`] : []),
       ...(xRainbow > 0 ? [`${xRainbow} for X`] : []),
     ];
     const why =
