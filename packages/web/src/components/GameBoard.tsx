@@ -7,6 +7,7 @@ import {
   cardHasOptionalExhaustCost,
   cardNeedsTarget,
   cardMovesTarget,
+  targetingChoosesUnit,
   cardPlacesTokens,
   chooseAction,
   computeAutoPayment,
@@ -145,6 +146,15 @@ interface PendingPlay {
    *  lets one step serve two targets or six. */
   targetUnitInstanceIds?: readonly string[];
   targetBattlefieldId?: string;
+  /** The GEAR a `unitAndEquipment` card named — Relentless Pursuit's "you may
+   *  attach an Equipment with the same controller to it". Its own field rather
+   *  than a second meaning for `targetUnitInstanceId`, because a gear must never
+   *  reach a reader expecting a unit — the separation the engine's `unitOrGear`
+   *  and `{kind:"gear"}` specs already keep. */
+  targetPermanentInstanceId?: string;
+  /** True once the Equipment step is finished, by picking one or declining —
+   *  see `matchesPendingEquipment`, which cannot tell those apart without it. */
+  equipmentChoiceResolved?: boolean;
   trashCardInstanceId?: string;
   visionRecycle?: boolean;
   additionalCostUnitInstanceId?: string;
@@ -207,6 +217,11 @@ type PendingStep =
   | "xAmount"
   | "battlefieldTarget"
   | "placement"
+  /** A `unitAndEquipment` card choosing the GEAR half (Relentless Pursuit). Its
+   *  own step because the click lands in a different field from every unit step,
+   *  and because declining has to be distinguishable from not having chosen —
+   *  see `matchesPendingEquipment`. */
+  | "equipment"
   | "additionalCost"
   | "trashCard"
   | "vision";
@@ -862,11 +877,21 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       if (room && offers("targetUnitInstanceIds")) return "listTarget";
     }
     if (
-      // `chainSpellAndUnit` (Riposte) fills the SAME field as a plain `unit`
-      // spec — its other half, the spell on the chain, is already carried by
-      // every candidate the enumerator emitted. See pendingMinTargets.
-      (targeting.kind === "unit" || targeting.kind === "unitSlots" || targeting.kind === "chainSpellAndUnit") &&
+      // **Asked of the ENGINE, not of a union written out here.** This used to be
+      // `kind === "unit" || "unitSlots" || "chainSpellAndUnit"` — a partial copy
+      // of `TargetingSpec` living in this workspace, which silently answered "no
+      // unit needed" for `unitAndEquipment` when that kind was added for
+      // Relentless Pursuit. The card armed, took a destination, matched no
+      // candidate and did nothing; reported from playtesting.
+      //
+      // `targetingChoosesUnit` is exhaustive over the union with no `default`,
+      // so the next kind added breaks compilation here instead. Same reason
+      // `cardMovesTarget` was extracted after Charm.
+      targetingChoosesUnit(targeting) &&
       pending.targetUnitInstanceId === undefined &&
+      // A `unitList` card fills its own field and is handled above; this branch
+      // is the single-slot one.
+      targeting.kind !== "unitList" &&
       stillChoosing
     ) {
       if (offers("targetUnitInstanceId")) return "firstTarget";
@@ -882,6 +907,24 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       if (offers("targetBattlefieldId")) return "battlefieldTarget";
     }
     if (unitNeedsPlacement(candidates) && pending.destinationBattlefieldId === undefined) return "placement";
+    // The Equipment half of a `unitAndEquipment` card, AFTER the destination —
+    // Relentless Pursuit reads "Move a friendly unit. You may attach an
+    // Equipment…", so the click order follows the card.
+    //
+    // Scoped to `unitAndEquipment` rather than to every spec that fills
+    // `targetPermanentInstanceId`: `unitOrGear` and `{kind:"gear"}` also do, and
+    // the UI has never let a player pick WHICH gear for those — it takes the
+    // first candidate. Opening a step they have no affordance to satisfy would
+    // stall Fading Memories and Rocket Barrage, turning an arbitrary-but-working
+    // pick into the same silent no-op this is fixing. Widening it is note 3/4's
+    // work, and it needs gear to become clickable on both sides first.
+    if (
+      targeting.kind === "unitAndEquipment" &&
+      !pending.equipmentChoiceResolved &&
+      offers("targetPermanentInstanceId")
+    ) {
+      return "equipment";
+    }
     if (
       pending.card.kind === "Spell" &&
       cardHasOptionalExhaustCost(pending.card.defId) &&
@@ -1401,6 +1444,31 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPendingPlay({ ...pendingPlay, additionalCostResolved: true });
   }
 
+  /** Declining the Equipment half of a `unitAndEquipment` card — Relentless
+   *  Pursuit's "you MAY attach". Sets only the resolved flag, which is what
+   *  makes a declined attach distinguishable from an unmade choice; see
+   *  `matchesPendingEquipment`. */
+  function declineEquipment() {
+    if (!pendingPlay) return;
+    setPendingPlay({ ...pendingPlay, equipmentChoiceResolved: true });
+  }
+
+  /** Picking the Equipment. Resolves the step in the same click, exactly as a
+   *  unit click resolves the optional-cost step. */
+  function handleEquipmentClick(gearInstanceId: string) {
+    if (!pendingPlay) return;
+    setPendingPlay({ ...pendingPlay, targetPermanentInstanceId: gearInstanceId, equipmentChoiceResolved: true });
+  }
+
+  /** Is this gear a legal pick for the Equipment step right now? Read off the
+   *  live candidates rather than re-derived from the board, so the board can
+   *  never light up a gear the engine would then refuse — the rule every
+   *  highlight in this file follows. */
+  function isEquipmentLegalTarget(gearInstanceId: string): boolean {
+    if (pendingStep() !== "equipment") return false;
+    return pendingCandidates().some((a) => a.targetPermanentInstanceId === gearInstanceId);
+  }
+
   /** How many targets this card MUST have — 0 for the "up to two" cards,
    *  which is what makes stopping early legal at all. */
   function pendingMinTargets(): number {
@@ -1864,6 +1932,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           : ` — choose where to play ${name}`;
       case "additionalCost":
         return ` — exhaust a ready friendly unit to boost ${name}, or Decline`;
+      case "equipment":
+        return ` — choose an Equipment to attach, or Decline`;
       default:
         return null;
     }
@@ -2328,7 +2398,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       card={gear}
                       isSelectable={canActivate(gear.instanceId)}
                       isSelected={pendingAbility === gear.instanceId}
-                      onClick={canActivate(gear.instanceId) ? () => handleActivateClick(gear.instanceId) : undefined}
+                      // The Equipment step (Relentless Pursuit). Gear was
+                      // clickable ONLY to activate its own ability until now,
+                      // which is why a card that targets one had no affordance
+                      // at all. Targeting wins over activating while the step is
+                      // open: the player has already armed a card, so a click on
+                      // gear can only mean answering it.
+                      isTargetable={isEquipmentLegalTarget(gear.instanceId)}
+                      onClick={
+                        isEquipmentLegalTarget(gear.instanceId)
+                          ? () => handleEquipmentClick(gear.instanceId)
+                          : canActivate(gear.instanceId)
+                            ? () => handleActivateClick(gear.instanceId)
+                            : undefined
+                      }
                     />
                   ))}
                   {human.baseUnits.map((unit) => (
@@ -2458,6 +2541,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           </button>
         )}
         {currentStep === "additionalCost" && <button onClick={declineAdditionalCost}>Decline</button>}
+        {currentStep === "equipment" && <button onClick={declineEquipment}>Decline</button>}
         {/* X, as one button per affordable amount. A stepper would need its own
             bounds; the engine already enumerated exactly the amounts this pool
             can pay for, so the buttons ARE the candidate list. */}

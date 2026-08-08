@@ -406,6 +406,90 @@ export type TargetingSpec =
       optionalEquipment?: true;
     };
 
+/**
+ * Does this spec make the player CLICK A UNIT, filling `targetUnitInstanceId`?
+ *
+ * **Exhaustive by return type, and that is the whole point of it existing.**
+ * `GameBoard.pendingStep` used to ask this as a hand-written union —
+ * `kind === "unit" || kind === "unitSlots" || kind === "chainSpellAndUnit"` —
+ * which is a copy of part of this union living in another workspace. Adding
+ * `unitAndEquipment` for Relentless Pursuit therefore did nothing there: the UI
+ * never asked for the unit, decided targeting was complete with the field empty,
+ * and then matched no candidate at all, because every candidate the enumerator
+ * emits for that card names a unit. The card armed, took a destination, and
+ * silently did nothing — reported from playtesting.
+ *
+ * This is the same failure `cardMovesTarget` was extracted to fix after Charm
+ * ("I can select a unit I want to move but cannot choose where to move it"), and
+ * the same one this repo records for every hand-copied list: **a list the engine
+ * merges must never be hand-copied.**
+ *
+ * With the switch exhaustive over `TargetingSpec["kind"]` and no `default`, the
+ * next kind added breaks COMPILATION here instead of silently answering "no unit
+ * needed" — the discipline `hasAnyLegalEffectChoice` already uses one file over.
+ */
+export function targetingChoosesUnit(targeting: TargetingSpec): boolean {
+  switch (targeting.kind) {
+    case "unit":
+    case "unitSlots":
+    case "unitList":
+    // Riposte fills the same field as a plain `unit` spec; its other half, the
+    // spell on the chain, is already carried by every candidate.
+    case "chainSpellAndUnit":
+    // Relentless Pursuit. The EQUIPMENT half is a separate field — see
+    // `targetingChoosesPermanent` below — but the unit half is an ordinary click.
+    case "unitAndEquipment":
+      return true;
+    case "none":
+    case "battlefield":
+    case "gear":
+    case "unitOrGear":
+    case "ownTrashCard":
+    case "chainSpell":
+      return false;
+  }
+}
+
+/**
+ * Does this spec make the player choose a GEAR, filling
+ * `targetPermanentInstanceId`?
+ *
+ * Its own predicate rather than a second return from the one above, because the
+ * two are independent: `unitAndEquipment` answers TRUE to both and needs two
+ * clicks in two different fields, and a gear must never reach a reader expecting
+ * a unit — the separation `unitOrGear` and `{ kind: "gear" }` already keep.
+ *
+ * Exhaustive for the same reason, and it is the half the UI has never had at all:
+ * no code in `packages/web` sets `targetPermanentInstanceId`, so Fading Memories
+ * and Rocket Barrage reach it only because their candidates happen to be
+ * distinguishable without it.
+ */
+export function targetingChoosesPermanent(targeting: TargetingSpec): boolean {
+  switch (targeting.kind) {
+    case "gear":
+    case "unitOrGear":
+    case "unitAndEquipment":
+      return true;
+    case "none":
+    case "unit":
+    case "unitSlots":
+    case "unitList":
+    case "battlefield":
+    case "ownTrashCard":
+    case "chainSpell":
+    case "chainSpellAndUnit":
+      return false;
+  }
+}
+
+/** Is the GEAR half of this spec declinable? Relentless Pursuit's "you MAY
+ *  attach an Equipment" is the only one today, and the UI needs it to know
+ *  whether to offer a skip rather than stalling on a step the player has no way
+ *  to satisfy. */
+export function permanentChoiceIsOptional(targeting: TargetingSpec): boolean {
+  return targeting.kind === "unitAndEquipment" && targeting.optionalEquipment === true;
+}
+
 /** A slot's role as `eligibleTargets`/validation express owner constraints —
  *  `"any"` is the absence of a constraint, which is `undefined` there. */
 export function slotOwner(role: UnitSlotRole): "friendly" | "enemy" | undefined {
