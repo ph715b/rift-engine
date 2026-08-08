@@ -46,7 +46,13 @@ import { holdCardsRecycled } from "../effect-helpers.js";
 import { cardModeOf } from "../card-effects.js";
 import { spellsOnChain } from "../counter-spell.js";
 import { eligibleTargets } from "../target-lookup.js";
-import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
+import {
+  offerTopOfDeckBanish,
+  revealedFromDeck,
+  voidHatchlingAnswer,
+  voidHatchlingGate,
+  voidHatchlingOptions,
+} from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
 import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
@@ -939,6 +945,28 @@ function apheliosModesLeft(
   return APHELIOS_MODES.filter((m) => !used.has(m.id));
 }
 
+/**
+ * Apprentice Smith's reveal — "reveal the top card of your Main Deck. If it's a
+ * gear, draw it. Otherwise, recycle it."
+ *
+ * Extracted from his trigger so Void Hatchling can run its look-and-recycle
+ * first: this function is both the inline path and the body of the
+ * `SFD-041-reveal` continuation, which is what makes the two identical by
+ * construction rather than by two copies agreeing.
+ */
+function apprenticeSmithReveal(state: GameState, ownerIndex: 0 | 1): GameState {
+  const top = state.players[ownerIndex].deck[0];
+  if (!top) return state;
+  // "If it's a GEAR, DRAW it" — the card revealed is the top one, so the
+  // ordinary draw takes exactly it.
+  const after = top.kind === "Gear" ? drawCards(state, ownerIndex, 1) : recycleTopCard(state, ownerIndex);
+  // "As you look at or REVEAL me" (Nocturne), raised AFTER rather than before
+  // because this reveal consumes the card immediately and nothing here stops to
+  // ask — the same ordering Dazzling Aurora uses, and his decision banishes the
+  // card from wherever it has since ended up.
+  return revealedFromDeck(after, ownerIndex, [top]);
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "SFD-190": {
     // Forgefire Cape — "When I attack or defend, deal 2 to ALL enemy units here."
@@ -1345,20 +1373,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // "RECYCLE it" is the bottom of the Main Deck (1924), which is what makes
     // the Smith a repeatable filter rather than self-mill: the same card comes
     // back around eventually.
+    //
+    // The reveal itself is `apprenticeSmithReveal`, extracted so that Void
+    // Hatchling's "look at the top card first, you may recycle it" can run
+    // BEFORE it — see `voidHatchlingGate`. Without the extraction the question
+    // would be parked and the reveal would proceed anyway, which makes the
+    // Hatchling a silent no-op.
     on: "unitMoved",
     applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
     resolve: (state, listener, event) => {
       if (event.kind !== "unitMoved") return state;
-      const top = state.players[listener.ownerIndex].deck[0];
-      if (!top) return state;
-      // "If it's a GEAR, DRAW it" — the card revealed is the top one, so the
-      // ordinary draw takes exactly it.
-      const after = top.kind === "Gear" ? drawCards(state, listener.ownerIndex, 1) : recycleTopCard(state, listener.ownerIndex);
-      // "As you look at or REVEAL me" (Nocturne), raised AFTER rather than
-      // before because this reveal consumes the card immediately and nothing
-      // here stops to ask — the same ordering Dazzling Aurora uses, and his
-      // decision banishes the card from wherever it has since ended up.
-      return revealedFromDeck(after, listener.ownerIndex, [top]);
+      return voidHatchlingGate(
+        state,
+        listener.ownerIndex,
+        listener.ownerIndex,
+        { kind: "SFD-041-reveal", playerIndex: listener.ownerIndex },
+        (s) => apprenticeSmithReveal(s, listener.ownerIndex),
+      );
     },
   },
   "SFD-047": {
@@ -1526,6 +1557,22 @@ function reinforceCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Void Hatchling's look, before Apprentice Smith's reveal — "look at the top
+   * card first. You may recycle it. Then reveal those cards."
+   *
+   * Registered under the SITE's defId rather than the Hatchling's, which is what
+   * the `<defId>-<what it asks>` convention means here: the question is his, and
+   * the CONTINUATION is the Smith's. The Hatchling's own coverage claim lives in
+   * `top-of-deck.topOfDeckDefIds`, beside Nocturne's and for the same reason.
+   */
+  "SFD-041-reveal": {
+    prompt: () => "Void Hatchling: recycle the top card before Apprentice Smith reveals it?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) =>
+      apprenticeSmithReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
+  },
+
   "SFD-049-mode": {
     // Aphelios - Exalted's "choose one that hasn't been chosen this turn".
     //

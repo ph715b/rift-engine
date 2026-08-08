@@ -49,7 +49,12 @@ import type { PlayerState } from "../../model/game-state.js";
 import type { GearInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
 import { attachEquipment, detachEquipment, isEquipmentGear, wearerListener } from "../equipment.js";
-import { revealedFromDeck } from "../top-of-deck.js";
+import {
+  revealedFromDeck,
+  voidHatchlingAnswer,
+  voidHatchlingGate,
+  voidHatchlingOptions,
+} from "../top-of-deck.js";
 
 /**
  * Card implementations for **Fury** — one file, one owner.
@@ -241,26 +246,22 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // **The CASTER plays it, not its owner.** "Choose one and play it" with no
     // owner named, off a card whose whole point is stealing the top of an enemy
     // deck. A unit played this way therefore joins the caster's base.
+    //
+    // **The one site of the five where the revealer and the deck's OWNER
+    // differ**, which is why Void Hatchling's gate takes both. "If YOU would
+    // reveal cards from a deck" is about the player doing the revealing — the
+    // caster — and the top card looked at is the VICTIM's. So a caster with a
+    // Hatchling may bury the opponent's top card before stealing whatever is
+    // under it, which is the best line the card has.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => {
-      const victimIndex = ctx.opponentIndex;
-      const top = state.players[victimIndex].deck[0];
-      if (!top) return state;
-      const players = [...state.players] as [PlayerState, PlayerState];
-      players[victimIndex] = { ...players[victimIndex], deck: players[victimIndex].deck.slice(1) };
-      const played = playCardIgnoringCost({ ...state, players }, ctx.casterIndex, top);
-      // **This reveal was never funnelled, and that was a PRE-EXISTING gap** —
-      // found 2026-08-07 while surveying every reveal site for Undertitan.
-      // Nocturne's "as you look at or reveal me" and Undertitan's "as I'm
-      // revealed from your deck" are both owed here, and neither fired.
-      //
-      // The deck owner is the VICTIM, not the caster: both clauses are written
-      // from the revealed card's own point of view ("your deck"), and the deck
-      // being turned over is the opponent's. Raised AFTER the play for the
-      // ordering Dazzling Aurora records — nothing here stops to ask, and a
-      // Nocturne that was just played finds his own offer moot.
-      return revealedFromDeck(played, victimIndex, [top]);
-    },
+    resolve: (state, ctx) =>
+      voidHatchlingGate(
+        state,
+        ctx.casterIndex,
+        ctx.opponentIndex,
+        { kind: "OGN-025-reveal", playerIndex: ctx.casterIndex },
+        (s) => blindFuryReveal(s, ctx.casterIndex),
+      ),
   },
   "OGN-014": {
     // Sky Splitter — "This spell's Energy cost is reduced by the highest Might
@@ -759,6 +760,39 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
  *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
+
+/**
+ * Blind Fury's reveal — "Each opponent reveals the top card of their Main Deck.
+ * Choose one and banish it, then play it, ignoring its cost."
+ *
+ * Extracted from its resolver so Void Hatchling can run its look-and-recycle
+ * first: this function is both the inline path and the body of the
+ * `OGN-025-reveal` continuation, which makes the two identical by construction
+ * rather than by two copies agreeing.
+ *
+ * Takes the CASTER's index and derives the victim, because that is what the
+ * decision can carry — a `PendingDecision` names who answers, and in a two-player
+ * game the other seat is the opponent by construction.
+ */
+function blindFuryReveal(state: GameState, casterIndex: 0 | 1): GameState {
+  const victimIndex: 0 | 1 = casterIndex === 0 ? 1 : 0;
+  const top = state.players[victimIndex].deck[0];
+  if (!top) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[victimIndex] = { ...players[victimIndex], deck: players[victimIndex].deck.slice(1) };
+  const played = playCardIgnoringCost({ ...state, players }, casterIndex, top);
+  // **This reveal was never funnelled, and that was a PRE-EXISTING gap** —
+  // found 2026-08-07 while surveying every reveal site for Undertitan.
+  // Nocturne's "as you look at or reveal me" and Undertitan's "as I'm
+  // revealed from your deck" are both owed here, and neither fired.
+  //
+  // The deck owner is the VICTIM, not the caster: both clauses are written
+  // from the revealed card's own point of view ("your deck"), and the deck
+  // being turned over is the opponent's. Raised AFTER the play for the
+  // ordering Dazzling Aurora records — nothing here stops to ask, and a
+  // Nocturne that was just played finds his own offer moot.
+  return revealedFromDeck(played, victimIndex, [top]);
+}
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "SFD-024": {
@@ -1346,6 +1380,21 @@ function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Void Hatchling's look, before Blind Fury's reveal.
+   *
+   * The one continuation whose deck is not the answerer's: the caster answers and
+   * the OPPONENT's top card is what may be recycled, so both indices are derived
+   * from `d.playerIndex` here rather than carried. Two players, so the other seat
+   * is the opponent by construction.
+   */
+  "OGN-025-reveal": {
+    prompt: () => "Void Hatchling: recycle the top card of the enemy deck before Blind Fury reveals it?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex === 0 ? 1 : 0),
+    resolve: (state, d, optionId) =>
+      blindFuryReveal(voidHatchlingAnswer(state, d.playerIndex === 0 ? 1 : 0, optionId), d.playerIndex),
+  },
+
   /**
    * Rell - Magnetic's "you may play an Equipment ... ignoring its cost. If you
    * do, then do this: Attach it to me."

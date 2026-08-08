@@ -22,7 +22,12 @@ import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
 import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
-import { revealedFromDeck } from "./top-of-deck.js";
+import {
+  revealedFromDeck,
+  voidHatchlingAnswer,
+  voidHatchlingGate,
+  voidHatchlingOptions,
+} from "./top-of-deck.js";
 
 /**
  * The 24 printed Battlefield cards' abilities.
@@ -187,6 +192,43 @@ const EMPERORS_DAIS = "SFD-207";
 const POWER_NEXUS = "SFD-214";
 const RAVENBLOOM_CONSERVATORY = "SFD-215";
 
+/** The decision kind Ravenbloom Conservatory's reveal resumes under, named once
+ *  so the gate that parks it and the table that answers it cannot drift. */
+const RAVENBLOOM_REVEAL_DECISION = `${RAVENBLOOM_CONSERVATORY}-reveal`;
+
+/**
+ * Ravenbloom Conservatory's reveal — "reveal the top card of your Main Deck. If
+ * it's a spell, put it in your hand. Otherwise, recycle it."
+ *
+ * Extracted from its trigger so Void Hatchling can run its look-and-recycle
+ * first: this function is both the inline path and the body of the
+ * continuation, which makes the two identical by construction rather than by two
+ * copies agreeing.
+ */
+function ravenbloomReveal(state: GameState, playerIndex: 0 | 1): GameState {
+  const player = state.players[playerIndex];
+  const [top, ...rest] = player.deck;
+  // An empty deck reveals nothing — 422's do-as-much-as-you-can, not a guard
+  // against a crash.
+  if (!top) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  // **This reveal was never funnelled either** — the second of the two
+  // pre-existing gaps found while surveying reveal sites for Undertitan (Blind
+  // Fury is the other). Nocturne and Undertitan are both owed here. Raised after
+  // the card has been dealt with, like the other reveals that consume what they
+  // turn over.
+  if (top.kind === "Spell") {
+    players[playerIndex] = { ...player, deck: rest, hand: [...player.hand, top] };
+    return revealedFromDeck({ ...state, players }, playerIndex, [top]);
+  }
+  // "Recycle" is 416/425 — the BOTTOM of the same deck it came off.
+  players[playerIndex] = { ...player, deck: [...rest, top] };
+  // Karma - Channeler watches every recycle in this engine, including the ones
+  // written inline like this one.
+  return revealedFromDeck(holdCardsRecycled({ ...state, players }, playerIndex, 1), playerIndex, [top]);
+}
+
+
 /** Power Nexus asks for four RAINBOW pips — `payPowerFromChanneled` already
  *  takes `null` to mean "any domain pays", so this needed no cost machinery. */
 const POWER_NEXUS_PIPS = 4;
@@ -262,29 +304,20 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
     {
       // "When you defend here, reveal the top card of your Main Deck. If it's a
       // spell, put it in your hand. Otherwise, recycle it."
+      //
+      // The reveal is `ravenbloomReveal` below, extracted so Void Hatchling's
+      // "look at the top card first, you may recycle it" can run BEFORE it. This
+      // is the only BATTLEFIELD among his five sites, which is why his gate lives
+      // in top-of-deck.ts rather than in an effect file.
       on: "defend",
-      resolve: (state, event) => {
-        const player = state.players[event.playerIndex];
-        const [top, ...rest] = player.deck;
-        // An empty deck reveals nothing — 422's do-as-much-as-you-can, not a
-        // guard against a crash.
-        if (!top) return state;
-        const players = [...state.players] as [PlayerState, PlayerState];
-        // **This reveal was never funnelled either** — the second of the two
-        // pre-existing gaps found while surveying reveal sites for Undertitan
-        // (Blind Fury is the other). Nocturne and Undertitan are both owed here.
-        // Raised after the card has been dealt with, like the other reveals that
-        // consume what they turn over.
-        if (top.kind === "Spell") {
-          players[event.playerIndex] = { ...player, deck: rest, hand: [...player.hand, top] };
-          return revealedFromDeck({ ...state, players }, event.playerIndex, [top]);
-        }
-        // "Recycle" is 416/425 — the BOTTOM of the same deck it came off.
-        players[event.playerIndex] = { ...player, deck: [...rest, top] };
-        // Karma - Channeler watches every recycle in this engine, including the
-        // ones written inline like this one.
-        return revealedFromDeck(holdCardsRecycled({ ...state, players }, event.playerIndex, 1), event.playerIndex, [top]);
-      },
+      resolve: (state, event) =>
+        voidHatchlingGate(
+          state,
+          event.playerIndex,
+          event.playerIndex,
+          { kind: RAVENBLOOM_REVEAL_DECISION, playerIndex: event.playerIndex },
+          (s) => ravenbloomReveal(s, event.playerIndex),
+        ),
     },
   ],
   [EMPERORS_DAIS]: [
@@ -744,6 +777,21 @@ function activateConquerEffectsHere(state: GameState, event: BattlefieldTriggerE
  * live beside their abilities.
  */
 export const battlefieldDecisions: Record<string, DecisionDefinition> = {
+  /**
+   * Void Hatchling's look, before Ravenbloom Conservatory's reveal.
+   *
+   * The only one of his five continuations that lives HERE rather than in a
+   * per-domain effect file, for the reason this module's own note gives: every
+   * printed Battlefield is Colorless, so filing one by domain would be filing it
+   * nowhere.
+   */
+  [RAVENBLOOM_REVEAL_DECISION]: {
+    prompt: () => "Void Hatchling: recycle the top card before Ravenbloom Conservatory reveals?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) =>
+      ravenbloomReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
+  },
+
   [`${POWER_NEXUS}-score`]: {
     prompt: () => "Power Nexus: pay 4 Power of any domain to score 1 point?",
     options: (state, d) =>

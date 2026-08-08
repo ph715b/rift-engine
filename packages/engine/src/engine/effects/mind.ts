@@ -37,7 +37,13 @@ import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision, repeatDecision } from "../decisions.js";
 import { isOpenBattlefield } from "../unit-triggers.js";
-import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
+import {
+  offerTopOfDeckBanish,
+  revealedFromDeck,
+  voidHatchlingAnswer,
+  voidHatchlingGate,
+  voidHatchlingOptions,
+} from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -921,6 +927,66 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
 
+/**
+ * Teemo - Strategist's reveal — "reveal the top 5 cards of your Main Deck. Deal
+ * damage equal to the number of `[Hidden]` cards among them to an enemy unit
+ * here, then recycle them."
+ *
+ * Extracted from his trigger so Void Hatchling can run its look-and-recycle
+ * first: this function is both the inline path and the body of the
+ * `OGN-121-reveal` continuation, which makes the two identical by construction
+ * rather than by two copies agreeing.
+ */
+function teemoStrategistReveal(state: GameState, ownerIndex: 0 | 1, battlefieldId: string): GameState {
+  const owner = state.players[ownerIndex];
+  // "Reveal the top 5" — revealing moves nothing (425: "Cards remain in the
+  // zone they are being Revealed from"), so these are still the top of the
+  // deck while the damage is dealt, and only the recycle below moves them.
+  const revealed = owner.deck.slice(0, 5);
+  if (revealed.length === 0) return state; // nothing revealed, nothing to recycle
+  const registry = defaultCardRegistry();
+  const hiddenCount = revealed.filter((c) => isHiddenCard(registry.tryGet(c.defId))).length;
+  // "As you look at or REVEAL me" — this is the reveal half of Nocturne's
+  // trigger, and the only two sites where it fires are this and Grasping
+  // Roots' reveal-until-a-unit. Offered AFTER the reveal rather than before
+  // it, because unlike the four look sites nothing here stops to ask: the
+  // count and the recycle are both done by the time a player could answer.
+  // His decision names the card instance for exactly that reason.
+
+  // "An enemy unit HERE" — the first at this battlefield in board order,
+  // auto-selected rather than asked. Same simplification, and the same
+  // structural reason, as Yasuo - Remorseful, Crackshot Corsair and Leona -
+  // Determined; filed Unverified in docs/rules-conformance.md.
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  const enemy = Object.entries(bf?.units ?? {})
+    .filter(([id]) => id !== owner.id)
+    .flatMap(([, units]) => units)[0];
+
+  const damaged =
+    enemy !== undefined && hiddenCount > 0 ? dealDamage(state, ownerIndex, enemy.instanceId, hiddenCount) : state;
+
+  // Recycled by instance id off the POST-damage deck rather than by
+  // re-slicing the top 5, because the deal runs the full death funnel and
+  // that funnel can reach a deck: `[Deathknell]` draws exist (Watchful
+  // Sentry, in this file). **Stated as unexercised rather than claimed:** no
+  // card in this pool is known to draw from TEEMO'S controller's deck off an
+  // enemy unit's death — a Deathknell pays its own owner — so the difference
+  // between this and a re-slice is unreachable today. It is written this way
+  // because a re-slice would silently recycle a card that was never revealed
+  // the day such a card lands, and filtering costs nothing.
+  const after = damaged.players[ownerIndex];
+  const revealedIds = new Set(revealed.map((c) => c.instanceId));
+  const survivors = after.deck.filter((c) => revealedIds.has(c.instanceId));
+  if (survivors.length === 0) return damaged;
+  const players = [...damaged.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = {
+    ...after,
+    deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
+  };
+  const shuffled = holdCardsRecycled({ ...damaged, players }, ownerIndex, survivors.length);
+  return revealedFromDeck(shuffled, ownerIndex, revealed);
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "SFD-075": {
     // Prize of Progress — "When you use an activated ability of a GEAR, give me
@@ -1097,56 +1163,18 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // trigger that has already fired by moving Teemo off the battlefield he was
       // defending. 383 fixes triggering at the moment of the event.
       if (event.kind !== "combatBegan") return state;
-
-      const owner = state.players[listener.ownerIndex];
-      // "Reveal the top 5" — revealing moves nothing (425: "Cards remain in the
-      // zone they are being Revealed from"), so these are still the top of the
-      // deck while the damage is dealt, and only the recycle below moves them.
-      const revealed = owner.deck.slice(0, 5);
-      if (revealed.length === 0) return state; // nothing revealed, nothing to recycle
-      const registry = defaultCardRegistry();
-      const hiddenCount = revealed.filter((c) => isHiddenCard(registry.tryGet(c.defId))).length;
-      // "As you look at or REVEAL me" — this is the reveal half of Nocturne's
-      // trigger, and the only two sites where it fires are this and Grasping
-      // Roots' reveal-until-a-unit. Offered AFTER the reveal rather than before
-      // it, because unlike the four look sites nothing here stops to ask: the
-      // count and the recycle are both done by the time a player could answer.
-      // His decision names the card instance for exactly that reason.
-
-      // "An enemy unit HERE" — the first at this battlefield in board order,
-      // auto-selected rather than asked. Same simplification, and the same
-      // structural reason, as Yasuo - Remorseful, Crackshot Corsair and Leona -
-      // Determined; filed Unverified in docs/rules-conformance.md.
-      const bf = state.battlefields.find((b) => b.id === event.battlefieldId)!;
-      const enemy = Object.entries(bf.units)
-        .filter(([id]) => id !== owner.id)
-        .flatMap(([, units]) => units)[0];
-
-      const damaged =
-        enemy !== undefined && hiddenCount > 0
-          ? dealDamage(state, listener.ownerIndex, enemy.instanceId, hiddenCount)
-          : state;
-
-      // Recycled by instance id off the POST-damage deck rather than by
-      // re-slicing the top 5, because the deal runs the full death funnel and
-      // that funnel can reach a deck: `[Deathknell]` draws exist (Watchful
-      // Sentry, in this file). **Stated as unexercised rather than claimed:** no
-      // card in this pool is known to draw from TEEMO'S controller's deck off an
-      // enemy unit's death — a Deathknell pays its own owner — so the difference
-      // between this and a re-slice is unreachable today. It is written this way
-      // because a re-slice would silently recycle a card that was never revealed
-      // the day such a card lands, and filtering costs nothing.
-      const after = damaged.players[listener.ownerIndex];
-      const revealedIds = new Set(revealed.map((c) => c.instanceId));
-      const survivors = after.deck.filter((c) => revealedIds.has(c.instanceId));
-      if (survivors.length === 0) return damaged;
-      const players = [...damaged.players] as [PlayerState, PlayerState];
-      players[listener.ownerIndex] = {
-        ...after,
-        deck: [...after.deck.filter((c) => !revealedIds.has(c.instanceId)), ...survivors],
-      };
-      const shuffled = holdCardsRecycled({ ...damaged, players }, listener.ownerIndex, survivors.length);
-      return revealedFromDeck(shuffled, listener.ownerIndex, revealed);
+      // The reveal is `teemoStrategistReveal`, extracted so Void Hatchling's
+      // "look at the top card first, you may recycle it" can run BEFORE it — see
+      // `voidHatchlingGate`. The battlefield rides the decision because "an enemy
+      // unit HERE" is about where this combat is, and by the time an answer
+      // arrives the board can no longer be asked which one that was.
+      return voidHatchlingGate(
+        state,
+        listener.ownerIndex,
+        listener.ownerIndex,
+        { kind: "OGN-121-reveal", playerIndex: listener.ownerIndex, battlefieldId: event.battlefieldId },
+        (s) => teemoStrategistReveal(s, listener.ownerIndex, event.battlefieldId),
+      );
     },
   },
   "OGN-119": {
@@ -1460,6 +1488,24 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Void Hatchling's look, before Teemo - Strategist's reveal.
+   *
+   * Registered under the SITE's defId, like the other four continuations: the
+   * question is the Hatchling's and the body is Teemo's. `battlefieldId` was
+   * captured when the trigger fired, because "an enemy unit HERE" is about the
+   * combat that caused it and nothing on the board says which that was by the
+   * time an answer arrives.
+   */
+  "OGN-121-reveal": {
+    prompt: () => "Void Hatchling: recycle the top card before Teemo - Strategist reveals?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) =>
+      d.battlefieldId === undefined
+        ? state
+        : teemoStrategistReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex, d.battlefieldId),
+  },
+
   /**
    * Bard - Mercurial's destination - "to an OPEN battlefield" (170.11.c:
    * unoccupied and uncontrolled).

@@ -25,7 +25,13 @@ import { playUnitToBattlefield } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
-import { offerTopOfDeckBanish, revealedFromDeck } from "../top-of-deck.js";
+import {
+  offerTopOfDeckBanish,
+  revealedFromDeck,
+  voidHatchlingAnswer,
+  voidHatchlingGate,
+  voidHatchlingOptions,
+} from "../top-of-deck.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
@@ -656,6 +662,41 @@ const YORDLE_EXPLORER_POWER_THRESHOLD = 2;
 /** Jax - Unrelenting's optional draw. */
 const JAX_UNRELENTING_DRAW_COST = 1;
 
+/**
+ * Dazzling Aurora's reveal — "reveal cards from the top of your Main Deck until
+ * you reveal a unit and banish it. Play it, ignoring its cost, and recycle the
+ * rest."
+ *
+ * Extracted from her trigger so Void Hatchling can run its look-and-recycle
+ * first: this function is both the inline path and the body of the
+ * `OGN-160-reveal` continuation, which makes the two identical by construction
+ * rather than by two copies agreeing.
+ */
+function dazzlingAuroraReveal(state: GameState, ownerIndex: 0 | 1): GameState {
+  const owner = state.players[ownerIndex];
+  const unitIndex = owner.deck.findIndex((c) => c.kind === "Unit");
+  // Nothing but spells and gear left: the whole deck is revealed and recycled,
+  // which is a real outcome rather than a no-op — the order changes even though
+  // nothing is played.
+  const revealed = unitIndex === -1 ? owner.deck : owner.deck.slice(0, unitIndex + 1);
+  const found = unitIndex === -1 ? undefined : (owner.deck[unitIndex] as UnitInstance);
+  const rest = revealed.filter((c) => c.instanceId !== found?.instanceId);
+
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
+  const recycled = holdCardsRecycled({ ...state, players }, ownerIndex, rest.length);
+  // "Play it, ignoring its cost" names no destination, so the controller chooses
+  // one — see engine/free-play.ts. It is base-only in the common case and asks
+  // nothing then.
+  const played = found ? playUnitFree(recycled, ownerIndex, found) : recycled;
+  // "As you look at or REVEAL me" — every card turned over on the way here was
+  // revealed, so a Nocturne among them gets his offer. After the reveal rather
+  // than before it, because nothing here stops to ask: he may be the unit that
+  // was just played, in which case his own offer finds him gone from the deck
+  // and drops itself.
+  return revealedFromDeck(played, ownerIndex, revealed);
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "SFD-116": {
     // Yone - Blademaster — "When I conquer a battlefield that WAS UNCONTROLLED,
@@ -879,32 +920,23 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // "RECYCLE the rest" is the bottom of the Main Deck (1924), not the trash, and
     // it covers every card revealed on the way including the ones before the unit.
+    //
+    // The reveal is `dazzlingAuroraReveal`, extracted so Void Hatchling's "look
+    // at the top card first, you may recycle it" can run BEFORE it — see
+    // `voidHatchlingGate`. This is the site where that matters most of the five:
+    // "reveal UNTIL you reveal a unit" makes the top card decide how deep the
+    // search goes, so moving it is the whole of the Hatchling's value here.
     on: "endOfTurn",
     applies: (_state, listener, event) => event.kind === "endOfTurn" && event.playerIndex === listener.ownerIndex,
     resolve: (state, listener, event) => {
       if (event.kind !== "endOfTurn") return state;
-      const owner = state.players[listener.ownerIndex];
-      const unitIndex = owner.deck.findIndex((c) => c.kind === "Unit");
-      // Nothing but spells and gear left: the whole deck is revealed and recycled,
-      // which is a real outcome rather than a no-op — the order changes even
-      // though nothing is played.
-      const revealed = unitIndex === -1 ? owner.deck : owner.deck.slice(0, unitIndex + 1);
-      const found = unitIndex === -1 ? undefined : (owner.deck[unitIndex] as UnitInstance);
-      const rest = revealed.filter((c) => c.instanceId !== found?.instanceId);
-
-      const players = [...state.players] as [PlayerState, PlayerState];
-      players[listener.ownerIndex] = { ...owner, deck: [...owner.deck.slice(revealed.length), ...rest] };
-      const recycled = holdCardsRecycled({ ...state, players }, listener.ownerIndex, rest.length);
-      // "Play it, ignoring its cost" names no destination, so the controller
-      // chooses one — see engine/free-play.ts. It is base-only in the common
-      // case and asks nothing then.
-      const played = found ? playUnitFree(recycled, listener.ownerIndex, found) : recycled;
-      // "As you look at or REVEAL me" — every card turned over on the way here
-      // was revealed, so a Nocturne among them gets his offer. After the reveal
-      // rather than before it, because nothing here stops to ask: he may be the
-      // unit that was just played, in which case his own offer finds him gone
-      // from the deck and drops itself.
-      return revealedFromDeck(played, listener.ownerIndex, revealed);
+      return voidHatchlingGate(
+        state,
+        listener.ownerIndex,
+        listener.ownerIndex,
+        { kind: "OGN-160-reveal", playerIndex: listener.ownerIndex },
+        (s) => dazzlingAuroraReveal(s, listener.ownerIndex),
+      );
     },
   },
   "OGN-143": {
@@ -1273,6 +1305,21 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Void Hatchling's look, before Dazzling Aurora's reveal.
+   *
+   * Registered under the SITE's defId — the question is the Hatchling's and the
+   * CONTINUATION is hers, which is what the `<defId>-<what it asks>` convention
+   * means for a replacement effect. His own coverage claim is in
+   * `top-of-deck.topOfDeckDefIds`, beside Nocturne's and for the same reason.
+   */
+  "OGN-160-reveal": {
+    prompt: () => "Void Hatchling: recycle the top card before Dazzling Aurora reveals?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) =>
+      dazzlingAuroraReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
+  },
+
   "SFD-119-draw": {
     // Jax - Unrelenting's "you may pay [1] to draw 1."
     prompt: () => "Jax - Unrelenting: pay [1] to draw 1?",
