@@ -64,6 +64,9 @@ export * from "./engine/unit-triggers.js";
 export * from "./engine/legend-abilities.js";
 export * from "./engine/token.js";
 export * from "./engine/channel-cost.js";
+// SFD's headline subsystem, and it was NOT public until 2026-08-07 — which is
+// why the board could not show what was attached to what even in principle.
+export * from "./engine/equipment.js";
 export * from "./engine/effective-might.js";
 export * from "./engine/damage-modifiers.js";
 export * from "./engine/cost-modifiers.js";

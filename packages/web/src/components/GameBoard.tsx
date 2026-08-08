@@ -8,6 +8,9 @@ import {
   cardNeedsTarget,
   cardMovesTarget,
   targetingChoosesUnit,
+  equipmentAttachedTo,
+  equipmentMightBonusFor,
+  wearerOf,
   cardPlacesTokens,
   chooseAction,
   computeAutoPayment,
@@ -1460,6 +1463,33 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPendingPlay({ ...pendingPlay, targetPermanentInstanceId: gearInstanceId, equipmentChoiceResolved: true });
   }
 
+  /**
+   * The attachment badges for any card on the board — Equipment worn, for a
+   * unit; the wearer's name, for a gear.
+   *
+   * ONE derivation, passed down to `BattlefieldView` rather than reimplemented
+   * there, because a second copy would be a second answer to "what is attached
+   * to what" — and the first version of this question already had none at all.
+   * Returns a props object so a caller spreads it and adds nothing when there is
+   * nothing attached.
+   */
+  function attachmentProps(card: CardInstance): {
+    attachedEquipment?: readonly { instanceId: string; name: string }[];
+    attachedMightBonus?: number;
+    attachedToUnitName?: string;
+  } {
+    if (card.kind === "Unit") {
+      const worn = equipmentAttachedTo(state, card.instanceId);
+      if (worn.length === 0) return {};
+      return { attachedEquipment: worn, attachedMightBonus: equipmentMightBonusFor(state, card.instanceId) };
+    }
+    if (card.kind === "Gear" && card.attachedToInstanceId !== null) {
+      const wearer = wearerOf(state, card);
+      return wearer ? { attachedToUnitName: wearer.unit.name } : {};
+    }
+    return {};
+  }
+
   /** Is this gear a legal pick for the Equipment step right now? Read off the
    *  live candidates rather than re-derived from the board, so the board can
    *  never light up a gear the engine would then refuse — the rule every
@@ -2285,7 +2315,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       the opponent's board state partly invisible. Not clickable:
                       you can never activate an opponent's ability. */}
                   {ai.activeGear.map((gear) => (
-                    <CardView key={gear.instanceId} card={gear} isEnemy />
+                    <CardView key={gear.instanceId} card={gear} isEnemy {...attachmentProps(gear)} />
                   ))}
                   {ai.baseUnits.map((unit) => (
                     // Clickable ONLY as the answer to a pending target step —
@@ -2297,6 +2327,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       key={unit.instanceId}
                       card={unit}
                       isEnemy
+                      {...attachmentProps(unit)}
                       isSelectable={isUnitLegalTarget(unit)}
                       isTargetable={isUnitLegalTarget(unit)}
                       isChainTargeted={chainTargets.units.has(unit.instanceId)}
@@ -2317,6 +2348,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
               <BattlefieldView
                 key={bf.id}
                 battlefield={bf}
+                attachmentProps={attachmentProps}
                 human={human}
                 ai={ai}
                 humanIndex={HUMAN_INDEX}
@@ -2396,6 +2428,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     <CardView
                       key={gear.instanceId}
                       card={gear}
+                      {...attachmentProps(gear)}
                       isSelectable={canActivate(gear.instanceId)}
                       isSelected={pendingAbility === gear.instanceId}
                       // The Equipment step (Relentless Pursuit). Gear was
@@ -2418,6 +2451,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                     <CardView
                       key={unit.instanceId}
                       card={unit}
+                      {...attachmentProps(unit)}
                       // Routed through handleUnitClick, not handleSelectUnit:
                       // Meditation's optional exhaust cost accepts a friendly
                       // unit in BASE as well as at a battlefield (unlike every

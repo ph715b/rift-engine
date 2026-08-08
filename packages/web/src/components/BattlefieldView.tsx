@@ -7,6 +7,12 @@ import type { BattlefieldState, PlayerState, UnitInstance } from "@rift-engine/e
 
 interface BattlefieldViewProps {
   battlefield: BattlefieldState;
+  /** The attachment badges for a unit standing here — passed in rather than
+   *  derived, so there is ONE answer to "what is attached to what" and it lives
+   *  in `GameBoard.attachmentProps`. Optional so the many hand-built renders in
+   *  tests are unaffected; absent means no badge, which is what every unit
+   *  without Equipment shows anyway. */
+  attachmentProps?: (unit: UnitInstance) => Record<string, unknown>;
   human: PlayerState;
   ai: PlayerState;
   selectedUnitIds: Set<string>;
@@ -61,6 +67,7 @@ interface BattlefieldViewProps {
 
 export function BattlefieldView({
   battlefield,
+  attachmentProps,
   human,
   ai,
   selectedUnitIds,
@@ -211,6 +218,7 @@ export function BattlefieldView({
               key={unit.instanceId}
               card={unit}
               isEnemy
+              {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isUnitTargetable(unit)}
               isTargetable={isUnitTargetable(unit)}
               isChainTargeted={isUnitChainTargeted(unit)}
@@ -230,6 +238,7 @@ export function BattlefieldView({
             <CardView
               key={unit.instanceId}
               card={unit}
+              {...(attachmentProps?.(unit) ?? {})}
               isSelectable={isFriendlySelectable(unit)}
               isTargetable={isUnitTargetable(unit)}
               isChainTargeted={isUnitChainTargeted(unit)}

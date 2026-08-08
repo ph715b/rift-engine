@@ -77,6 +77,28 @@ interface CardViewProps {
    *  not just this one card. */
   onDragEnd?: (point: DragPoint) => void;
   onDrag?: (point: DragPoint) => void;
+  /**
+   * The Equipment attached to this UNIT, and the Might they add.
+   *
+   * **Attachment was completely invisible on the board until 2026-08-07** —
+   * nothing in `packages/web` read `attachedToInstanceId`, and `equipment.js`
+   * was not even exported from the engine index. So a unit whose Might had gone
+   * up by 2 showed the new number with nothing on screen saying why, and 43 SFD
+   * cards turned on a relationship the player could not see.
+   *
+   * Passed in rather than looked up here, because this component is
+   * presentational and resolves only the card DEFINITION — the attachment is
+   * live game state and belongs to the caller that has it.
+   */
+  attachedEquipment?: readonly { instanceId: string; name: string }[];
+  /** The Might those Equipment add, for the badge's title. Separate from the
+   *  list because it is the engine's sum (`equipmentMightBonusFor`), not
+   *  something to re-derive from names here. */
+  attachedMightBonus?: number;
+  /** For a GEAR: the name of the unit wearing it. The other half of the same
+   *  question — gear sits in a flat row with no visual link to its wearer, so
+   *  without this an attached Equipment and a loose one look identical. */
+  attachedToUnitName?: string;
 }
 
 /**
@@ -108,6 +130,9 @@ export function CardView({
   isTargetable,
   isChainTargeted,
   isUnplayable,
+  attachedEquipment,
+  attachedMightBonus,
+  attachedToUnitName,
   onClick,
   onUnavailableClick,
   unavailableNote,
@@ -233,7 +258,19 @@ export function CardView({
           )}
         </div>
       )}
-      {card.kind === "Unit" && (card.damage > 0 || card.mightThisTurn !== 0 || card.buffed) && (
+      {card.kind === "Gear" && attachedToUnitName !== undefined && (
+        // Gear renders in a flat row with no spatial link to its wearer, so an
+        // attached Equipment and a loose one are otherwise identical on screen —
+        // and "is this attached?" is a question several cards turn on (The Zero
+        // Drive's "use only if unattached", Spinning Axe's "if this is
+        // unattached, kill it").
+        <div className="card-status-badges">
+          <span className="status-badge status-attached" title={`Attached to ${attachedToUnitName}`}>
+            ⚔
+          </span>
+        </div>
+      )}
+      {card.kind === "Unit" && (card.damage > 0 || card.mightThisTurn !== 0 || card.buffed || (attachedEquipment?.length ?? 0) > 0) && (
         // Rendered regardless of real-art-vs-fallback — real card art never
         // prints marked damage, a Buff, or a this-turn modifier, since those are
         // runtime state, not part of the card's design.
@@ -259,6 +296,22 @@ export function CardView({
           {card.buffed && (
             <span className="status-badge status-buff" title="Buffed — +1 Might, until spent or this unit leaves play">
               ★
+            </span>
+          )}
+          {/* Its own badge rather than folded into the Might number, for the
+              reason the Buff above has one: the Might is already included in
+              what the card shows, and the question a player is asking is WHICH
+              Equipment — which only the title can answer. Counted, so two
+              Equipment read as two without needing two badges. */}
+          {(attachedEquipment?.length ?? 0) > 0 && (
+            <span
+              className="status-badge status-attached"
+              title={
+                `Equipped: ${attachedEquipment!.map((g) => g.name).join(", ")}` +
+                ((attachedMightBonus ?? 0) > 0 ? ` (+${attachedMightBonus} Might)` : "")
+              }
+            >
+              ⚔{attachedEquipment!.length > 1 ? attachedEquipment!.length : ""}
             </span>
           )}
         </div>

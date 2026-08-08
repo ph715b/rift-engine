@@ -1328,6 +1328,13 @@ button:disabled {
   background: #5a4a8f;
 }
 
+/* Equipment attachment — a distinct colour from the Buff green and the debuff
+   purple, because it answers a different question ("what is on this unit") and
+   the three can appear side by side on one card. Steel, to read as gear. */
+.status-attached {
+  background: #4a6b8f;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
