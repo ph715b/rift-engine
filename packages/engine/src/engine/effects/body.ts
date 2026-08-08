@@ -9,6 +9,8 @@ import {
   dealDamageToAllUnitsAtAllBattlefields,
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
+  forceMoveToBattlefield,
+  gainXp,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
@@ -16,6 +18,7 @@ import {
   payEnergyFromPool,
   payPowerFromChanneled,
   readyPermanent,
+  readyRunes,
   readyUnit,
   recycleCardFromHand,
   spendBuff,
@@ -412,6 +415,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => parkDecision(state, { kind: "SFD-111-play", playerIndex: ctx.casterIndex }),
   },
+  "UNL-110": {
+    // Clash of Giants — "Choose two units. They deal damage equal to their Mights
+    // to each other."
+    //
+    // Challenge (OGN-128, above) with the OWNERSHIP dropped: Challenge says "a
+    // friendly unit and an enemy unit", this says "two units". So both slots take
+    // the `"any"` role — the caster may point two of the OPPONENT's units at each
+    // other, or two of their own, and both are legal lines rather than oversights.
+    // Sundering Sword (effects/signature.ts) is the existing `min: 2` +
+    // `scope: "anywhere"` + any/any spec this copies.
+    //
+    // NOT `asymmetricSlots`. The two slots do the identical thing to each other,
+    // so (A,B) and (B,A) are the same outcome and `legal-actions`' pruning of the
+    // mirrored pair is right — the flag exists for Convergent Mutation, whose slot
+    // 0 is a beneficiary and slot 1 only a measurement.
+    //
+    // Scope is "anywhere" because the printed text names no battlefield (355.9.b),
+    // the same reading Challenge takes and the opposite of Marching Orders, which
+    // prints "at a battlefield" on its enemy half.
+    //
+    // `unitsDuel` carries the ordering that matters and is why this is one line:
+    // BOTH Mights are read before EITHER damage lands, so the first giant to die
+    // still lands its full Might on the way out. A deal-then-read version would
+    // let a 6-Might killing a 5-Might silently reduce the 5 coming back to
+    // nothing, which is exactly what "to each other" denies.
+    targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      unitsDuel(state, ctx.casterIndex, event.targetUnitInstanceId!, event.secondTargetUnitInstanceId!),
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -641,6 +673,46 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) =>
       parkDecision(state, { kind: "SFD-101-buff", playerIndex: ctx.casterIndex, count: FAE_DRAGON_BUFFS }),
+  },
+  "UNL-092": {
+    // Demacian Diplomat — "When you play me, gain 1 XP."
+    //
+    // The plainest XP card in Unleashed and deliberately the first one written:
+    // it chooses nothing, so there is no targeting and no decision, and the only
+    // thing it can get wrong is WHOSE counter moves. `ctx.casterIndex` — "YOU
+    // play me" is the controller, which for an on-play trigger is the player who
+    // paid for it.
+    //
+    // `gainXp` rather than touching `PlayerState.xp` here: that helper is the one
+    // funnel (it ignores a gain of zero or less rather than running the counter
+    // backwards), and going round it is how a second writer ends up disagreeing
+    // with the first.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => gainXp(state, ctx.casterIndex, DIPLOMAT_XP),
+  },
+  "UNL-097": {
+    // Kinkou Initiate — "When you play me, draw 1 if your other units have total
+    // Might 5 or more."
+    //
+    // **"OTHER" is load-bearing here in a way Kinkou Monk's is not.** His "up to
+    // two OTHER friendly units" gets the exclusion for free, because legal-actions
+    // enumerates his targets while he is still in hand. This one is a CONDITION
+    // read at resolution, by which time the Initiate is already on the board and
+    // his own 3 Might would count — so a lone Initiate would see 3 rather than 0,
+    // and a board with one 2-Might friend would cross the line at 5 when the card
+    // says it should sit at 2. The instanceId filter is the whole of the card.
+    //
+    // TOTAL Might, so it is a sum over every unit the caster controls: no
+    // battlefield is named, so base counts too (355.9.b). Each unit's Might is
+    // read WHERE IT STANDS (`mightInPlace`), because the positional auras — Garen
+    // - Commander, Lee Sin - Centered — give different answers at a battlefield
+    // and at home, and a sum taken with `isCombat: false` is the same reading
+    // `isMighty` records for every other threshold in this pool.
+    //
+    // "5 OR MORE" is `>=`. A board that is exactly 5 draws.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      otherFriendlyMightTotal(state, ctx.casterIndex, unitId) >= KINKOU_INITIATE_MIGHT ? drawCards(state, ctx.casterIndex, 1) : state,
   },
 };
 
@@ -1293,6 +1365,133 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "UNL-104": {
+    // Gentle Gemdragon — "When you play me OR another Dragon, ready up to 2 runes."
+    //
+    // Cithria of Cloudfield's `cardPlayed` listener (above) with its "another"
+    // INVERTED, and that inversion is the whole shape of this card: hers must
+    // exclude her own arrival, this one must include it. `holdEventTrigger` walks
+    // `allListeningPermanents` against the state as it stands when the event
+    // fires, and `deploy.ts` fires `cardPlayed` AFTER the unit has landed — so the
+    // Gemdragon is already a listener at her own play and no special case is
+    // needed to reach her. Measured, not assumed: the test plays her into an empty
+    // board and asserts two runes ready.
+    //
+    // "ANOTHER DRAGON" is the printed TAG, read off the played unit rather than
+    // off the event — `cardPlayed` carries the instance and the kind but not the
+    // tags, and the unit is on the board at this moment, so `findUnitAnywhere`
+    // answers it. A Spell or Gear can never qualify, which the `playedKind` check
+    // makes explicit rather than leaving to the lookup failing.
+    //
+    // She is herself tagged Dragon, so the two halves collapse in practice; they
+    // are written separately anyway because the card prints them separately and a
+    // future Dragon-tag change must not silently switch her own play off.
+    //
+    // "WHEN YOU play" — her controller only. An opponent's Dragon does nothing,
+    // the same `casterIndex` reading Cithria and Yordle Explorer take.
+    //
+    // "READY UP TO 2 RUNES" is `readyRunes`, Sona - Harmonious's and Annie - Dark
+    // Child's helper: readying is strictly beneficial, so taking the maximum is
+    // the faithful reading of "up to" rather than a shortcut, and the pool it
+    // reaches is her controller's.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" && event.casterIndex === listener.ownerIndex && playedDragon(state, listener, event),
+    resolve: (state, listener) => readyRunes(state, listener.ownerIndex, GEMDRAGON_RUNES),
+  },
+  "UNL-112": {
+    // Irresistible Faefolk — "When I move to a battlefield, you may move an enemy
+    // unit to that battlefield."
+    //
+    // Blitzcrank - Impassive's grab (OGN-067, effects/calm.ts) fired by a MOVE
+    // instead of a play, so it takes his two readings whole: "you MAY" parks a
+    // question rather than taking a target — dragging a body onto your own
+    // battlefield is frequently the wrong play, and a target on the action would
+    // have made it compulsory whenever any enemy unit existed — and nothing is
+    // asked at all when the opponent controls no units (422).
+    //
+    // Registered against the board-wide `unitMoved` rather than unit-triggers.ts's
+    // per-card `ON_MOVE_TRIGGERS`, which this file does not own; Kato the Arm
+    // (SFD-112, above) took the same route and the moment is the same one. That
+    // event fires once per unit AFTER the unit has landed, and only for a Standard
+    // Move TO A BATTLEFIELD — never for a Recall (454) or a spell-driven
+    // relocation — so the printed "to a battlefield" needs no extra check.
+    //
+    // "AN ENEMY UNIT" names no battlefield, so their base is on offer too
+    // (355.9.b) — which is the card's real use, pulling a defender out of safety
+    // into a fight the Faefolk has just started.
+    //
+    // "THAT battlefield" is `event.to`, carried onto the decision rather than
+    // re-derived from where the Faefolk stands when the question is answered.
+    // Blitzcrank's comment says why: a question answered later must not be able to
+    // drag a unit somewhere its source never was.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      const enemyIndex: 0 | 1 = listener.ownerIndex === 0 ? 1 : 0;
+      // Nothing to drag is 422's do-as-much-as-you-can and asks nothing — Kato's
+      // reading of the same shape: whether a subject EXISTS is a question about
+      // the board at resolution, not a requirement that decides whether the
+      // ability triggered, so it lives here and not in `applies`.
+      if (ownUnitsEverywhere(state, enemyIndex).length === 0) return state;
+      return parkDecision(state, {
+        kind: "UNL-112-drag",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.to,
+      });
+    },
+  },
+  "UNL-105": {
+    // Imposing Challenger — "When I move, you may move an enemy unit HERE with
+    // less Might than me to A DIFFERENT battlefield."
+    //
+    // The Faefolk one row up, pointing the other way: she pulls a body in, he
+    // shoves one out. Same `unitMoved` registration and the same reasons (see her
+    // comment for why this is not `ON_MOVE_TRIGGERS`).
+    //
+    // **"When I move" with no destination printed, and it still cannot mean a
+    // Recall.** 454 says a Recall is not a Move, and `unitMoved` only fires for a
+    // Standard Move to a battlefield — so the wider-sounding text and the Faefolk's
+    // narrower one reach exactly the same set of moments in this engine. Named
+    // rather than left to be discovered, because the two cards' texts differ and
+    // their implementations do not.
+    //
+    // THREE restrictions, and each one is doing work:
+    //  - "HERE" — the enemy must be standing at the battlefield he just moved to,
+    //    which is `event.to` and not wherever he is when the question is answered.
+    //  - "WITH LESS MIGHT THAN ME" — strictly less, read live at answer time
+    //    through `mightInPlace` so a pump cast in the response window counts. If
+    //    he is dead by then the comparison has no subject and nothing is offered
+    //    (359.3).
+    //  - "TO A DIFFERENT BATTLEFIELD" — a battlefield, so BASE is not a
+    //    destination, and a different one, so `event.to` is excluded. On a
+    //    two-battlefield board that leaves exactly one, which `advanceDecisions`
+    //    resolves without ever showing the question.
+    //
+    // TWO questions rather than one option per (unit, destination) pair — Here to
+    // Help's split, and for its reason: the second is auto-retired whenever there
+    // is only one destination, so the pair encoding would have bought nothing and
+    // cost a composite option id.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      // No qualifying enemy at the destination, or nowhere else to put one: 422
+      // again, and asked here rather than in `applies` for the reason Kato records.
+      const challenger = { ownerIndex: listener.ownerIndex, instanceId: listener.card.instanceId };
+      if (shovableEnemies(state, challenger, event.to).length === 0) return state;
+      if (state.battlefields.filter((bf) => bf.id !== event.to).length === 0) return state;
+      return parkDecision(state, {
+        kind: "UNL-105-shove",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.to,
+      });
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -1694,6 +1893,92 @@ export const decisions: Record<string, DecisionDefinition> = {
       return playUnitToBattlefield({ ...paid, players }, d.playerIndex, unit, optionId);
     },
   },
+  // Irresistible Faefolk's "you may move an enemy unit to that battlefield",
+  // raised by her on-move trigger.
+  //
+  // Blitzcrank - Impassive's `OGN-067-grab` at a different moment: declining is
+  // listed FIRST so a mis-click and the AI's tie-break both land on doing
+  // nothing, and the roster is rebuilt from live state so a unit that died while
+  // the question waited is simply no longer offered.
+  //
+  // `d.playerIndex` is the FAEFOLK's controller, so the units on offer are the
+  // other seat's — `ownUnitsEverywhere` on the flipped index, which reaches their
+  // base as well as their battlefields ("an enemy unit", no location printed).
+  "UNL-112-drag": {
+    prompt: () => "Irresistible Faefolk: move an enemy unit to the battlefield she just entered?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0).map((u) => ({
+        id: u.instanceId,
+        label: `Move ${u.name} here`,
+        instanceId: u.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" || !d.battlefieldId ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId),
+  },
+  // Imposing Challenger's WHICH — "an enemy unit here with less Might than me".
+  //
+  // The Might comparison is re-derived here rather than snapshotted onto the
+  // decision, because the response window between the move and the answer is
+  // exactly where a pump lands: a 5-Might Challenger who has just been given +2
+  // can shove a 6-Might body he could not have shoved when he moved. That is the
+  // printed reading — the restriction is on the CHOICE, and the choice is made
+  // now — and it is the same live-read `SFD-120-strike` takes of its own number.
+  //
+  // He may be gone (359.3), in which case `shovableEnemies` finds no Might to
+  // compare against and returns nothing, leaving Decline as the only answer.
+  "UNL-105-shove": {
+    prompt: () => "Imposing Challenger: move a weaker enemy unit here to a different battlefield?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...shovableEnemies(state, { ownerIndex: d.playerIndex, instanceId: d.cardInstanceId }, d.battlefieldId).map((u) => ({
+        id: u.instanceId,
+        label: `Move ${u.name} away`,
+        instanceId: u.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // The trigger always sets it; the guard exists because `exactOptionalPropertyTypes`
+      // will not let an `undefined` through onto the next seed, and silently
+      // widening the seed's field would hide a genuinely missing "here".
+      if (d.battlefieldId === undefined) return state;
+      // `repeatDecision`, not `parkDecision`: the destination is the second half
+      // of THIS question, so it belongs at the front of the queue. Sent to the
+      // back it could be answered after something else moved the very unit it is
+      // about — Fae Dragon's four buffs are split into a queue for exactly the
+      // opposite reason, and the same field settles both.
+      return repeatDecision(state, {
+        kind: "UNL-105-where",
+        playerIndex: d.playerIndex,
+        targetInstanceId: optionId,
+        battlefieldId: d.battlefieldId,
+      });
+    },
+  },
+  // Imposing Challenger's WHERE — "to a DIFFERENT battlefield".
+  //
+  // Rarely shown: `advanceDecisions` executes a one-option question without
+  // prompting, and the standard board has few enough battlefields that "anywhere
+  // but here" is usually a single answer.
+  //
+  // NOT a "you may" — the decline was the previous question. Once a unit has been
+  // named it is going somewhere, so no decline is listed here; an empty option
+  // list would drop the question and leave the unit put, which is why the trigger
+  // checks a destination exists before raising the first half at all.
+  //
+  // Base is excluded because the card says BATTLEFIELD, and `d.battlefieldId` —
+  // where the Challenger landed — is excluded because it says DIFFERENT.
+  "UNL-105-where": {
+    prompt: () => "Imposing Challenger: which battlefield does it go to?",
+    options: (state, d) =>
+      d.targetInstanceId === undefined || findUnitAnywhere(state, d.targetInstanceId) === undefined
+        ? []
+        : state.battlefields.filter((bf) => bf.id !== d.battlefieldId).map((bf) => ({ id: bf.id, label: bf.name })),
+    resolve: (state, d, optionId) =>
+      d.targetInstanceId === undefined ? state : forceMoveToBattlefield(state, d.targetInstanceId, optionId),
+  },
 };
 
 /**
@@ -1909,6 +2194,88 @@ function hereToHelpEnergy(state: GameState, playerIndex: 0 | 1, unit: UnitInstan
 function hereToHelpLabel(state: GameState, playerIndex: 0 | 1, unit: UnitInstance): string {
   const power = unit.powerCost > 0 ? `, ${unit.powerCost} ${unit.powerDomain ?? "any"} Power` : "";
   return `Play ${unit.name} (pay ${hereToHelpEnergy(state, playerIndex, unit)} Energy${power})`;
+}
+
+/** Demacian Diplomat's gain, as printed. */
+const DIPLOMAT_XP = 1;
+
+/** Kinkou Initiate's threshold — "total Might 5 or more", so the comparison is
+ *  `>=`. */
+const KINKOU_INITIATE_MIGHT = 5;
+
+/** Gentle Gemdragon's "ready up to 2 runes". */
+const GEMDRAGON_RUNES = 2;
+
+/** The tag Gentle Gemdragon reads. A printed subtype, matched exactly — the
+ *  loader copies `tags` straight off the card data onto every UnitInstance, so
+ *  this is the card's own word rather than a name match. */
+const DRAGON_TAG = "Dragon";
+
+/**
+ * Kinkou Initiate's "your OTHER units have total Might 5 or more".
+ *
+ * Sums every unit the caster controls except the Initiate himself, each read
+ * WHERE IT STANDS — see `mightInPlace` for why the location matters (positional
+ * auras) and why the sum is taken with `isCombat: false`.
+ *
+ * The exclusion is by instanceId rather than by defId: two Initiates count each
+ * other, which is what "other" means and what a defId filter would have got
+ * wrong.
+ */
+function otherFriendlyMightTotal(state: GameState, playerIndex: 0 | 1, excludeInstanceId: string): number {
+  return otherFriendlyUnits(state, playerIndex, excludeInstanceId).reduce((total, unit) => {
+    const found = findUnitAnywhere(state, unit.instanceId);
+    return found === undefined ? total : total + mightInPlace(state, found);
+  }, 0);
+}
+
+/**
+ * Gentle Gemdragon's "me OR another Dragon" — was the card just played one she
+ * pays out for?
+ *
+ * Her own instance first, so the "me" half never depends on the tag lookup
+ * succeeding; then the tag, read off the played UNIT on the board. `cardPlayed`
+ * fires after the card has resolved into play (see the event's own doc), so a
+ * Unit is findable at exactly this moment — a Spell or Gear is not a unit at all
+ * and is rejected on `playedKind` before the lookup is attempted.
+ */
+function playedDragon(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "cardPlayed") return false;
+  if (event.playedInstanceId === listener.card.instanceId) return true; // "me"
+  if (event.playedKind !== "Unit") return false;
+  return findUnitAnywhere(state, event.playedInstanceId)?.unit.tags.includes(DRAGON_TAG) === true;
+}
+
+/**
+ * Imposing Challenger's "an enemy unit HERE with less Might than me".
+ *
+ * Takes the Challenger by (owner, instanceId) rather than a `Listener`, because
+ * the same question is asked from his trigger — where a Listener is to hand — and
+ * from his decision, where only the ids survive. Both callers need the identical
+ * answer, and two copies of a three-part restriction is how one of the parts goes
+ * missing.
+ *
+ * STRICTLY less (`<`), as printed: an equal-Might body cannot be shoved. The
+ * Challenger's own Might is read live, so a pump landing in the response window
+ * widens what he can move; if he has left play there is nothing to compare
+ * against and the list is empty (359.3).
+ */
+function shovableEnemies(
+  state: GameState,
+  challenger: { ownerIndex: 0 | 1; instanceId: string | undefined },
+  battlefieldId: string | undefined,
+): UnitInstance[] {
+  if (challenger.instanceId === undefined || battlefieldId === undefined) return [];
+  const self = findUnitAnywhere(state, challenger.instanceId);
+  if (self === undefined) return [];
+  const might = mightInPlace(state, self);
+  const enemyIndex: 0 | 1 = challenger.ownerIndex === 0 ? 1 : 0;
+  const here = state.battlefields.find((bf) => bf.id === battlefieldId);
+  if (here === undefined) return [];
+  return (here.units[state.players[enemyIndex].id] ?? []).filter((unit) => {
+    const found = findUnitAnywhere(state, unit.instanceId);
+    return found !== undefined && mightInPlace(state, found) < might;
+  });
 }
 
 /** Exhausts a gear its controller owns — Mistfall pays with itself. */

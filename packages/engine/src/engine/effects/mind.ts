@@ -7,7 +7,7 @@ import type {
   SelfTriggerDefinition,
 } from "../triggers.js";
 import { killGear } from "../triggers.js";
-import { isDefendingAt, isFightingAt } from "../combat-designation.js";
+import { isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
@@ -24,8 +24,10 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   giveMightThisTurnToAllEnemies,
+  grantTemporary,
   holdCardsRecycled,
   ownUnitsEverywhere,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
   recycleUnitFromPlayToDeck,
@@ -532,6 +534,40 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       placeGoldTokens(dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId!, 3), ctx.casterIndex, 1),
   },
+  "UNL-070": {
+    // Turn to Dust — "Give a gear [Temporary]. (Kill it at the start of its
+    // controller's Beginning Phase, before scoring.)"
+    //
+    // Fading Memories' (OGN-146) gear half on its own, at half the reach and half
+    // the price, so it takes that card's machinery unchanged rather than growing
+    // any: `grantTemporary` already dispatches on where the id is found and
+    // already writes `GearInstance.keywords`, the field whose own doc comment
+    // names Fading Memories as the reason it exists. Nothing here is unit-shaped.
+    //
+    // **The kill is turn-manager's, not this resolver's.** 816 is "at the start of
+    // THIS PERMANENT'S CONTROLLER's Beginning Phase", and `killTemporaryPermanents`
+    // already sweeps the active player's `activeGear` through `killGear` so a gear
+    // that triggers on its own death (Scrapheap) still fires. So this is delayed
+    // removal, not instant: giving an OPPONENT's gear [Temporary] kills it on
+    // their next Beginning Phase, and giving your own kills it on yours.
+    //
+    // "A gear", unqualified — EITHER side's, the same reading Pickpocket's
+    // identical bare noun gets one registry down, and the opposite of the pool's
+    // "a FRIENDLY gear" cards (Zaun Punk, Jayce - Man of Progress). `kind: "gear"`
+    // with no `owner` is exactly that walk.
+    //
+    // Chosen at ANNOUNCE, as a target, rather than asked at resolution: 355 puts a
+    // spell's targets on the Chain with it, and `kind: "gear"` is the spec that
+    // says so (Rocket Barrage's second mode, whose own note works 820.1.d's
+    // "which gear is the first target"). A gear killed in the response window makes
+    // this do nothing, per 359.3.e.
+    //
+    // Re-granting is harmless (817.1.a, and `grantTemporary` says so), so no guard
+    // is needed for a gear that is already Temporary.
+    targeting: { kind: "gear" },
+    resolve: (state, _ctx, event) =>
+      event.targetPermanentInstanceId ? grantTemporary(state, event.targetPermanentInstanceId) : state,
+  },
 };
 
 /** The gear cards in `playerIndex`'s own trash — Aspiring Engineer's "a gear
@@ -903,6 +939,27 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   },
 };
 
+/** Ruined Rex's damage, and the reason his Deathknell asks rather than picks. */
+const RUINED_REX_DAMAGE = 4;
+
+/** Spectral Centaur's pump per friendly death — "+2 Might this turn", uncapped. */
+const SPECTRAL_CENTAUR_MIGHT = 2;
+
+/** Icevale Archer's optional Energy price, and her debuff as a POSITIVE number —
+ *  the sign is applied at the call site so the (absent) floor reads plainly. */
+const ICEVALE_ENERGY_COST = 1;
+const ICEVALE_DEBUFF = 1;
+
+/** Every unit the OTHER player has in play, base included — Ruined Rex's "an
+ *  enemy unit", which prints no location and so reaches base (355.9.b). Shared
+ *  between his trigger, which asks whether there is anything worth asking about,
+ *  and his decision, which asks what the answers are; the two drifting apart is
+ *  how a question gets parked that nothing can answer, exactly as `gearsInTrash`
+ *  above records. */
+function enemyUnitsOf(state: GameState, ownerIndex: 0 | 1): UnitInstance[] {
+  return ownUnitsEverywhere(state, (1 - ownerIndex) as 0 | 1);
+}
+
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
 export const deathTriggers: Record<string, DeathknellDefinition> = {
@@ -918,6 +975,39 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // funnel dispatchOnUnitDied sits behind (damage, destroy, combat) is what
   // makes that true rather than three separate sites remembering to fire.
   "OGN-096": { resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1) },
+
+  // Ruined Rex — "[Deathknell] — Deal 4 to an enemy unit. (When I die, get the
+  // effect.)"
+  //
+  // "AN ENEMY UNIT", with no location clause at all, so scope is everywhere:
+  // 355.9.b's list of Public zones names Bases alongside Battlefield Zones, and
+  // the pool says "at a battlefield" (Riptide Rex, one registry up) or "in a
+  // base" (Yone - Blademaster) when it means one. 4 is enough to reach a unit
+  // that has been parked at home all game, which is the card.
+  //
+  // "Enemy" is measured from the DYING Rex's controller, which is what
+  // `resolveHeldDeathknell` builds the context from (`death.ownerIndex`) — so a
+  // Rex killed by his own player's board wipe still shoots the opponent.
+  //
+  // A parked DECISION rather than the auto-selection Yasuo, Ahri and Teemo use:
+  // those three have no queue-shaped moment to ask in, and this one does —
+  // Undercover Agent's Deathknell already stops to ask two discards, which is the
+  // proof a Deathknell can. Recurve Bow's entry (effects/fury.ts) records the same
+  // preference for the same reason: auto-selection would be a SECOND divergence on
+  // top of the one every held trigger already carries (the choice is made at
+  // resolution rather than as the ability goes on the Chain, 355). A lone enemy is
+  // taken by `advanceDecisions` without ever prompting.
+  //
+  // MANDATORY — no "you may" is printed, so the decision offers no decline. An
+  // empty enemy board asks nothing at all (422's do-as-much-as-you-can) rather
+  // than parking a question with no options, which `advanceDecisions` would drop
+  // silently.
+  "UNL-067": {
+    resolve: (state, ctx) =>
+      enemyUnitsOf(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "UNL-067-shot", playerIndex: ctx.casterIndex }),
+  },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -925,7 +1015,44 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
 /** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
  *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
-export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
+export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  "UNL-068": {
+    // Spectral Centaur — "When ANOTHER friendly unit dies, give me +2 Might this
+    // turn."
+    //
+    // Wraith of Echoes' shape (triggers.ts's DEATH_WATCH) with the per-turn flag
+    // taken off: nothing here says "the first time each turn", so a combat that
+    // kills three friendly units feeds him three times, +6 for the turn. That is
+    // the card — a 6-Energy 5-Might body that grows out of its own side's losses.
+    //
+    // "FRIENDLY" is relative to the LISTENER, which is why a death-watch is handed
+    // both: the Centaur cares about his own controller's units, not the dying
+    // unit's view of the world.
+    //
+    // **"ANOTHER" is by INSTANCE, not by card.** Trusty Ramhound's reading, and
+    // the same reason: two Centaurs each satisfy the other's "another", which a
+    // defId comparison gets exactly backwards. Unreachable today for a different
+    // reason — `completeDeath` files the corpse before `holdUnitDied` walks the
+    // listeners, so a dying Centaur is not among them and could not pump himself
+    // anyway — but the exclusion states the card's word at the place it applies
+    // rather than resting on that ordering, which is not this file's to hold still.
+    //
+    // Both conditions are facts about the DEATH (809.1.b.3 captured them before
+    // the card reached the trash), so both settle whether the ability TRIGGERED
+    // and neither is re-asked at resolution.
+    applies: (_state, listener, death) =>
+      death.ownerIndex === listener.ownerIndex && death.unit.instanceId !== listener.card.instanceId,
+    // `giveMightThisTurnToOwnUnit` rather than `giveMightThisTurn`, and the guard
+    // is the point: "give ME" is an instruction about a body, and a Centaur who
+    // left play inside the response window this hold opens is no longer one
+    // (359.3.e). The helper answers "is this still my unit in play" in one call.
+    //
+    // giveMightThisTurn, NOT a Buff — "this turn" expires in the Expiration Step
+    // (317), which runEnd gets for free by zeroing every unit's mightThisTurn.
+    resolve: (state, listener) =>
+      giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, SPECTRAL_CENTAUR_MIGHT),
+  },
+};
 
 /**
  * Teemo - Strategist's reveal — "reveal the top 5 cards of your Main Deck. Deal
@@ -985,6 +1112,57 @@ function teemoStrategistReveal(state: GameState, ownerIndex: 0 | 1, battlefieldI
   };
   const shuffled = holdCardsRecycled({ ...damaged, players }, ownerIndex, survivors.length);
   return revealedFromDeck(shuffled, ownerIndex, revealed);
+}
+
+/**
+ * Plundering Poro — "When I conquer, play a Gold gear token exhausted."
+ *
+ * "When I conquer" is the POSITIONAL reading, identical to Kai'Sa - Evolutionary's:
+ * the Poro has to be standing AT the battlefield taken. That is what separates a
+ * unit's own conquest ("when I") from a Legend's or Super Mega Death Rocket's
+ * "when YOU conquer", which the same `battlefieldConquered` event serves and which
+ * each card asks for itself.
+ *
+ * Nothing is chosen and nothing is conditional, so the whole card is one call: the
+ * token is the Poro's payout for having been the body that took the battlefield,
+ * and 2 Energy for a 2-Might unit is priced against it.
+ *
+ * **ONE definition, registered under TWO defIds** — SFD-069 and UNL-222, the
+ * Unleashed Overnumbered reprint. Same name, same 2/2 line, same sentence, and
+ * `unl.json` gives it its own collector number, so coverage (which is per defId)
+ * needs both keys or the reprint reports unimplemented while working. Written once
+ * because two identical literals is exactly the drift `MECH_TOKEN` and
+ * `SPRITE_TOKEN` were shared from one place to prevent; a future erratum to one
+ * printing is the only thing that would split them, and that is a change to make
+ * then rather than to pre-empt now.
+ */
+const plunderingPoroConquer: EventTriggerDefinition = {
+  on: "battlefieldConquered",
+  applies: (_state, listener, event) =>
+    event.kind === "battlefieldConquered" &&
+    event.conquerorIndex === listener.ownerIndex &&
+    listener.battlefieldId === event.battlefieldId,
+  resolve: (state, listener, event) => {
+    if (event.kind !== "battlefieldConquered") return state;
+    // The conqueror is a fact about the EVENT, so re-asking it is free and cannot
+    // come to a different answer across the response window. The POSITION
+    // deliberately is not re-asked: 383 fixes what triggered at the moment of the
+    // event, and an opponent moving the Poro off the battlefield in response must
+    // not cancel a trigger that has already fired.
+    if (event.conquerorIndex !== listener.ownerIndex) return state;
+    return placeGoldTokens(state, listener.ownerIndex, 1);
+  },
+};
+
+/** Every unit of EITHER side standing at `battlefieldId` — Icevale Archer's "a
+ *  unit here", which prints no owner word. Shared between her trigger (does the
+ *  question have any answers?) and her decision (what are they?), for the reason
+ *  `gearsInTrash` records: the two drifting apart parks a question nothing can
+ *  answer, and `advanceDecisions` drops that silently. */
+function unitsAtBattlefield(state: GameState, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  return state.players.flatMap((p) => bf.units[p.id] ?? []);
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
@@ -1315,32 +1493,67 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return readyUnit(state, listener.card.instanceId);
     },
   },
-  "SFD-069": {
-    // Plundering Poro — "When I conquer, play a Gold gear token exhausted."
+  // Plundering Poro, both printings — see `plunderingPoroConquer` above for the
+  // card, and for why the two defIds share ONE definition object rather than two
+  // identical literals.
+  "SFD-069": plunderingPoroConquer,
+  "UNL-222": plunderingPoroConquer,
+  "UNL-065": {
+    // Icevale Archer — "When I attack, you may pay [1] to give a unit here -1
+    // Might this turn."
     //
-    // "When I conquer" is the POSITIONAL reading, identical to Kai'Sa -
-    // Evolutionary's above: the Poro has to be standing AT the battlefield taken.
-    // That is what separates a unit's own conquest ("when I") from a Legend's or
-    // Super Mega Death Rocket's "when YOU conquer", which the same
-    // `battlefieldConquered` event serves and which each card asks for itself.
+    // "When I ATTACK" only, so `isAttackingAt` and not Ahri - Inquisitive's
+    // side-blind `isFightingAt`: an Archer standing at a battlefield the opponent
+    // walks into gets nothing. The designation is fixed when the combat opens
+    // (383), so it is asked in `applies` and never re-asked below — moving her
+    // away inside the response window must not cancel a trigger that has fired.
     //
-    // Nothing is chosen and nothing is conditional, so the whole card is one call:
-    // the token is the Poro's payout for having been the body that took the
-    // battlefield, and 2 Energy for a 2-Might unit is priced against it.
-    on: "battlefieldConquered",
-    applies: (_state, listener, event) =>
-      event.kind === "battlefieldConquered" &&
-      event.conquerorIndex === listener.ownerIndex &&
-      listener.battlefieldId === event.battlefieldId,
+    // **"A unit here" carries no owner word, so BOTH sides are offered.** The pool
+    // says "an ENEMY unit here" when it means one (Ahri - Inquisitive, Recurve
+    // Bow, Ezreal - Dashing, all in this engine's combat-trigger family), and this
+    // card does not. Shrinking your own is a bad play, not an illegal one — the
+    // usual pair, and the same reading Smoke Screen and Frigid Touch already got.
+    //
+    // **No floor, and that is the rules text rather than an omission.** The card
+    // prints no minimum, and the Might property (143.3.b) is explicit that none is
+    // implied, quoted verbatim: "If a unit's Might is ever less than 0, it is
+    // treated as 0 when referenced by spells and abilities, and when summing Might
+    // to be assigned as damage in the Combat Damage Step. ... Although the unit's
+    // Might is treated as 0, it is not 0. Effects that calculate Might increases
+    // and decreases use the actual value of the unit's Might." So -1 on a 1-Might
+    // body takes it to 0, and a floor of 1 would quietly remove this card's ability
+    // to finish anything off. Frigid Touch (SFD-066, above) reads it the same way
+    // and says so at length.
+    //
+    // **This contradicts Frostcoat Cub (SFD-067) in this same file**, which floors
+    // its debuff at 1 and cites a rule for a minimum the text above does not state.
+    // Flagged rather than changed: altering an implemented card's behaviour is not
+    // this change's scope, and the two readings need one owner's call, not two
+    // files quietly disagreeing.
+    //
+    // ONE question, not two: whether to pay and which unit are the same decision,
+    // because paying without naming a unit buys nothing — Ava Achiever's shape.
+    // The cost is checked at RESOLUTION rather than in `applies`, which is Solari
+    // Shrine's split and the one that matters here: the response window this hold
+    // opens can gain or spend the Energy, and 383 fixes only what TRIGGERED.
+    on: "combatBegan",
+    applies: isAttackingAt,
     resolve: (state, listener, event) => {
-      if (event.kind !== "battlefieldConquered") return state;
-      // The conqueror is a fact about the EVENT, so re-asking it is free and
-      // cannot come to a different answer across the response window. The
-      // POSITION deliberately is not re-asked: 383 fixes what triggered at the
-      // moment of the event, and an opponent moving the Poro off the battlefield
-      // in response must not cancel a trigger that has already fired.
-      if (event.conquerorIndex !== listener.ownerIndex) return state;
-      return placeGoldTokens(state, listener.ownerIndex, 1);
+      if (event.kind !== "combatBegan") return state;
+      // Nothing to shrink, or nothing to pay with, is no question at all — the
+      // offer is dropped whole rather than shown as a lone Decline, which is what
+      // every other optional offer in this file does and what keeps
+      // `advanceDecisions` from auto-resolving a one-option question.
+      if (unitsAtBattlefield(state, event.battlefieldId).length === 0) return state;
+      if (payEnergyFromPool(state, listener.ownerIndex, ICEVALE_ENERGY_COST) === undefined) return state;
+      // "HERE" is the battlefield this combat opened at, captured now: by the time
+      // an answer arrives nothing on the board says which fight raised the
+      // question. `isAttackingAt` has already established she is standing there.
+      return parkDecision(state, {
+        kind: "UNL-065-chill",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.battlefieldId,
+      });
     },
   },
   "SFD-063": {
@@ -1922,6 +2135,76 @@ export const decisions: Record<string, DecisionDefinition> = {
       if (optionId !== "gold") return state;
       const caster = (1 - d.playerIndex) as 0 | 1;
       return placeGoldTokens(placeGoldTokens(state, d.playerIndex, 1), caster, 1);
+    },
+  },
+  /**
+   * Ruined Rex's `[Deathknell]` — "Deal 4 to an enemy unit."
+   *
+   * `d.playerIndex` is the DEAD Rex's controller, so the enemies are the other
+   * seat's — rebuilt from live state like every decision here, because the board
+   * can move between the death and the answer (a simultaneous combat kills more
+   * than one unit, and the funnel runs them one at a time).
+   *
+   * NO decline: the instruction carries no "you may". A single enemy is therefore
+   * a one-option question, which `advanceDecisions` executes without prompting —
+   * the same property that makes this shape usable for a mandatory instruction at
+   * all (Aspiring Engineer's note above).
+   *
+   * The damage is dealt BY the Rex's controller, so a damage modifier on that side
+   * (Annie - Fiery's +1) applies. A Deathknell resolving for a player whose unit
+   * has already left the board is 809.1.b working as printed: the ability is
+   * independent of the card that made it.
+   */
+  "UNL-067-shot": {
+    prompt: () => "Ruined Rex: deal 4 to an enemy unit",
+    options: (state, d) =>
+      enemyUnitsOf(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, RUINED_REX_DAMAGE),
+  },
+  /**
+   * Icevale Archer's "you may pay [1] to give a unit here -1 Might this turn".
+   *
+   * ONE question over both halves — whether to pay and which unit — because
+   * paying without naming a unit buys nothing. Ava Achiever's shape, down to
+   * pricing the pool ONCE rather than per option: the price is the same [1]
+   * whichever unit is named.
+   *
+   * A pool that can no longer afford it offers only "decline", and
+   * `advanceDecisions` retires that without prompting. Re-asked at ANSWER time as
+   * well as at fire time for the reason Jax - Unrelenting's identical question
+   * records: the Energy may have gone while this waited on the chain, and an
+   * option offered then is one the resolver has to honour.
+   *
+   * BOTH sides' units are listed — see the trigger for why "a unit here" is
+   * unqualified. `battlefieldId` was captured when the question was raised,
+   * because "here" is about the combat that caused it and by the time an answer
+   * arrives nothing on the board says which that was.
+   */
+  "UNL-065-chill": {
+    prompt: () => "Icevale Archer: pay [1] to give a unit here -1 Might this turn?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (d.battlefieldId === undefined) return options;
+      if (payEnergyFromPool(state, d.playerIndex, ICEVALE_ENERGY_COST) === undefined) return options;
+      for (const unit of unitsAtBattlefield(state, d.battlefieldId)) {
+        options.push({ id: unit.instanceId, label: `Pay [1]: ${unit.name} gets -1 Might`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.battlefieldId === undefined) return state;
+      // The named unit has to still be HERE: "a unit here" is where the question
+      // was asked, and one that walked away in the meantime is not it (359.3.e).
+      if (!unitsAtBattlefield(state, d.battlefieldId).some((u) => u.instanceId === optionId)) return state;
+      // Pay first, and do nothing if the Energy has gone since the offer — a
+      // half-paid effect is the card without its price. Same order, and the same
+      // reason, as Ava Achiever's answer.
+      const paid = payEnergyFromPool(state, d.playerIndex, ICEVALE_ENERGY_COST);
+      if (paid === undefined) return state;
+      // No `floor` argument, deliberately: the card prints no minimum, and the
+      // rules say a Might below 0 is a real value that is merely TREATED as 0. See
+      // the trigger's note.
+      return giveMightThisTurn(paid, optionId, -ICEVALE_DEBUFF);
     },
   },
 };

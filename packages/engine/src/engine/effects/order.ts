@@ -9,6 +9,7 @@ import {
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
+  gainXp,
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
   legionActive,
@@ -18,6 +19,7 @@ import {
   readyUnit,
   recycleCardFromHand,
   recycleUnitFromPlayToDeck,
+  returnCardFromTrash,
   spendBuff,
   stunUnits,
 } from "../effect-helpers.js";
@@ -533,6 +535,60 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return drawCards({ ...state, players }, ctx.casterIndex, 1);
     },
   },
+  "UNL-180": {
+    // The Ruination — "Kill all units." Nine Energy and three Power for every
+    // body on the table, both sides, and it is the whole card.
+    //
+    // `targeting: none`, and that is 355.11 rather than a shortcut: the units are
+    // "programmatically selected based on their characteristics rather than
+    // chosen", whose worked example in the PDF is literally "Kill all units at
+    // battlefields doesn't target anything". So there is nothing for
+    // legal-actions.ts to fan out and nothing a "can't be chosen" effect dodges.
+    //
+    // **BASE UNITS TOO.** No location is named, and 355.10.a.1 says "'Unit,'
+    // 'gear,' and 'rune' refer to objects on the Board unless specified
+    // otherwise" — a Base is on the Board (rule 197's Locations, and 90's
+    // "Permanents and Runes in Bases are Public Information"). This is what
+    // separates this card from the rules' own "kill all units AT BATTLEFIELDS"
+    // example, and it is the reason the sweep is `ownUnitsEverywhere` on both
+    // players rather than a walk of `state.battlefields`.
+    //
+    // The ids are snapshotted BEFORE the first kill and then reduced over, the
+    // same shape `dealDamageToAllUnitsAtAllBattlefields` takes: each
+    // `destroyUnit` rebuilds the board, so a captured unit object would go stale,
+    // and `destroyUnit` no-ops on an id that is already gone.
+    //
+    // Every death is credited to the caster — including their own units, which
+    // "all units" plainly reaches. Each fires its own [Deathknell] and each is
+    // seen by every death-watch; all of them are HELD (383) rather than resolving
+    // inside this loop, so the board this loop walks never shifts underneath it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const doomed = ([0, 1] as const).flatMap((owner) => ownUnitsEverywhere(state, owner).map((u) => u.instanceId));
+      return doomed.reduce((next, instanceId) => destroyUnit(next, instanceId, ctx.casterIndex), state);
+    },
+  },
+  "UNL-159": {
+    // Soul Harvest — "Kill a unit at a battlefield with 3 [Might] or less."
+    //
+    // Sandshifter's spec (SFD-158) minus the `owner`: this card names no side, so
+    // it will happily eat one of your own — a bad play, not an illegal one.
+    //
+    // `scope: "battlefield"` is written out rather than left to the default,
+    // because it is PRINTED and it is the difference between this card and
+    // Vengeance ("kill a unit", scope "anywhere"): a small unit sheltering in
+    // either base is out of reach (355.9.b, and the PDF's own "at a battlefield
+    // is a restriction" example).
+    //
+    // `maxMight` is EFFECTIVE Might — `unitWithinMaxMight`'s reading, shared with
+    // Blood Money and Sandshifter — so a 3-Might unit standing under Garen -
+    // Commander's "+1 here" is a 4 and is not offered. Enforced by the enumerator
+    // and the validator rather than here: a resolver check would come after the
+    // spell was paid for.
+    targeting: { kind: "unit", maxMight: 3, scope: "battlefield" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -837,7 +893,87 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
         .filter((u) => u.instanceId !== unitId)
         .reduce((next, u) => giveMightThisTurn(next, u.instanceId, 2), state),
   },
+  "UNL-157": {
+    // Scrutinizing Sergeant — "When you play me, gain 1 XP for each friendly
+    // unit."
+    //
+    // **He counts HIMSELF**, and that is the same reading Trifarian Gloryseeker's
+    // `countingSelf` records for [Legion]: an on-play trigger already has the card
+    // that caused it on the board, and he prints no "other" — every unit aura in
+    // this pool that excludes its own source says "other friendly units" out loud
+    // (see effective-might.ts's Sett - Kingpin note for the precedent).
+    //
+    // Counted at RESOLUTION rather than captured when the trigger fired. The
+    // trigger is held (383) and the window in between is exactly when an opponent
+    // would remove one of the bodies — "for each friendly unit" is a question
+    // about the board the ability resolves against, not about the moment he
+    // landed. No `capture` therefore, unlike Deathgrip's Might read, whose subject
+    // is about to leave play.
+    //
+    // `ownUnitsEverywhere`, so a unit at home counts as much as one in the fight:
+    // "friendly unit" names no battlefield (355.9.b), and 2869 makes "friendly"
+    // simply "controlled by you".
+    //
+    // Through `gainXp` rather than `xp + n` inline — that helper is the choke
+    // point its own doc argues for, and 3065-3075 make XP a plain uncapped
+    // resource, so nothing here clamps.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => gainXp(state, ctx.casterIndex, ownUnitsEverywhere(state, ctx.casterIndex).length),
+  },
+  "UNL-167": {
+    // Starhound — "When you play me, return a Bird, Cat, Dog, or Poro from your
+    // trash to your hand."
+    //
+    // A TRIBAL filter, and the first of its shape in this file: the four names are
+    // `tags` on the card, which `UnitInstance` carries and which Rumble - Scrapper
+    // already reads for "your Mechs". Starhound is himself a Dog, which matters
+    // only for a SECOND copy — he is on the board, not in the trash, when this
+    // resolves.
+    //
+    // **Not a "you may".** The card says "return", so the question below offers no
+    // decline; what it does have is the same "ask nothing when there is nothing to
+    // offer" guard Spectral Matron uses, so a Starhound played over an empty trash
+    // queues no Pending Item at all rather than one whose only answer is a
+    // formality. Exactly one candidate is not a choice either, and `advanceDecisions`
+    // performs it without ever showing a prompt.
+    //
+    // Asked at resolution rather than fanned onto the play, which is where a
+    // Unit's on-play choice belongs (355's Make Relevant Choices excludes "making
+    // choices for Triggered Abilities of permanents"). **A recorded divergence
+    // sits underneath that**: the PDF says a card in a trash IS a target, because
+    // "your trash is Public", and 355's example says the target "will be chosen
+    // when the ability TRIGGERS" — this engine chooses when it RESOLVES, and has
+    // no targeting kind that can name a card in a trash at all. The whole
+    // trash-playing family (Spectral Matron, Glasc Mixologist, Flame Chompers)
+    // already sits on that same simplification.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      starhoundCandidates(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "UNL-167-return", playerIndex: ctx.casterIndex }),
+  },
 };
+
+/** Starhound's four tribes, in the order the card names them. */
+const STARHOUND_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
+
+/**
+ * The cards in a player's trash Starhound may return — "a Bird, Cat, Dog, or
+ * Poro".
+ *
+ * `kind === "Unit"` is not a narrowing of the card's text but the whole of it:
+ * only `UnitInstance` carries `tags` at all (`createCardInstance` gives a Spell
+ * and a Gear none), and measured over unl.json every card bearing one of these
+ * four tags is a Unit — 24 of them, alternate printings included.
+ *
+ * ONE walk for the fire-time "is there anything to offer" test and for the option
+ * list, so the two cannot disagree — `glascCandidates`' reason exactly.
+ */
+function starhoundCandidates(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return state.players[playerIndex].trash.filter(
+    (c): c is UnitInstance => c.kind === "Unit" && c.tags.some((t) => STARHOUND_TAGS.includes(t)),
+  );
+}
 
 /**
  * The units among the top 5 of `d.playerIndex`'s deck that Baited Hook may banish
@@ -953,6 +1089,25 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   "SFD-167": {
     resolve: (state, ctx, death) => (isMighty(state, death.unit, death.ownerIndex) ? drawCards(state, ctx.casterIndex, 2) : state),
   },
+
+  // Black Rose Dignitary — "[Assault] [Deathknell][>] Channel 1 rune exhausted."
+  //
+  // Soaring Scout's Deathknell (OGN-216 above) on a 3-Energy 2-Might body with a
+  // keyword bolted on, and it shares that card's helper for that reason: the two
+  // print the same sentence, and a second hand-written channel would be a second
+  // chance to make it Ready.
+  //
+  // **Only the second half is here.** `[Assault]` is a printed keyword — "+1
+  // Might while I'm an attacker" — and it is applied by `effectiveMight`'s
+  // combat branch off `keywords.Assault`, not by anything in this file. The
+  // `[>]` between the two is the grant arrow (see model/keyword.ts's
+  // NON_KEYWORD_BRACKETS entry); it separates `[Deathknell]` from what it
+  // grants and is punctuation, not a third ability.
+  //
+  // Exhausted, not Ready: the rune can be recycled to pay Power this turn but
+  // pays no Energy until the next Awaken. `ctx.casterIndex` is the dying unit's
+  // controller, which is what an unqualified "channel" means for a Deathknell.
+  "UNL-152": { resolve: (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1) },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -1027,6 +1182,69 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
         playerIndex: listener.ownerIndex,
         cardInstanceId: listener.card.instanceId,
       });
+    },
+  },
+  "UNL-174": {
+    // Shard of Undoing — "The first time a friendly unit dies during your
+    // Beginning Phase each turn, each opponent must kill one of their units."
+    //
+    // Three printed conditions, and all three are facts about the DEATH or about
+    // the moment it happened, so all three settle at FIRE time (383.4): a
+    // death-watch is HELD, and the window it opens is over by the time it
+    // resolves — the phase has advanced to Action long before then, so asking
+    // `state.phase` at resolution would never once be true.
+    //
+    //  - "a FRIENDLY unit" — relative to the LISTENER, like every death-watch
+    //    here; the Shard cares about its own controller's losses.
+    //  - "during your BEGINNING PHASE" — both halves. `phase === "Beginning"`,
+    //    and "your" meaning the Shard's controller is the player whose turn it
+    //    is. That is a narrow window with exactly one reachable occupant today:
+    //    `killTemporaryPermanents`, which runs inside `runBeginning` and kills
+    //    the ACTIVE player's [Temporary] permanents (816, "before scoring").
+    //    A battlefield's Beginning-Phase ability is the other candidate.
+    //
+    // **"THE FIRST TIME ... EACH TURN" is derived rather than stored, and the
+    // derivation is exact.** `unitsLostThisTurn` is bumped by `completeDeath`
+    // immediately before the trigger is held, and `runEnd` zeroes it for BOTH
+    // players at the end of every turn — so during your own Beginning Phase it
+    // counts only the deaths of this turn's Awaken (which kills nothing) and this
+    // Beginning Phase. `=== 1` is therefore precisely "this is the first".
+    //
+    // The alternative was Wraith of Echoes' shape: a dedicated per-turn boolean
+    // on PlayerState, checked and set at RESOLUTION. Rejected because it is a
+    // different card's flag — sharing `firstFriendlyDeathUsedThisTurn` would let
+    // a Wraith that drew first silently disarm the Shard — and a new field would
+    // touch game-state.ts, player-setup.ts and turn-manager.ts, three files this
+    // card has no business editing.
+    //
+    // One consequence of the two shapes differing is worth stating: with two
+    // friendly units dying in the same Beginning Phase, the flag version places
+    // TWO Pending Items and the second resolves to nothing, while this places
+    // ONE. The player-visible outcome (a single kill demanded) is the same;
+    // what differs is whether an ability that "triggered and did nothing" ever
+    // existed. `destroyUnit` is called per unit in a sequence, so the two deaths
+    // are never genuinely simultaneous here anyway.
+    applies: (state, listener, death) =>
+      state.phase === "Beginning" &&
+      state.activePlayerIndex === listener.ownerIndex &&
+      death.ownerIndex === listener.ownerIndex &&
+      state.players[listener.ownerIndex].unitsLostThisTurn === 1,
+    resolve: (state, listener) => {
+      // "EACH OPPONENT" — with two seats that is the one other player. Written as
+      // a walk of the other indices rather than `1 - ownerIndex` so a third seat
+      // is a data change, the same care King's Edict's note takes over its own
+      // multiplayer clauses.
+      const opponents = ([0, 1] as const).filter((i) => i !== listener.ownerIndex);
+      return opponents.reduce(
+        // Nothing to kill is nothing to do (422), and a question with no answers
+        // would be dropped by advanceDecisions anyway — guarded here so it is not
+        // even asked, which is Vanguard Helm's shape one line up.
+        (next, opponentIndex) =>
+          ownUnits(next, opponentIndex).length === 0
+            ? next
+            : parkDecision(next, { kind: "UNL-174-kill", playerIndex: opponentIndex }),
+        state,
+      );
     },
   },
 };
@@ -1398,6 +1616,44 @@ export const decisions: Record<string, DecisionDefinition> = {
     // their own — and it decides whether Solari Shrine's "when YOU kill a stunned
     // enemy unit" pays out for the caster.
     resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex === 0 ? 1 : 0),
+  },
+  // Shard of Undoing's half of the work: one opponent naming which of their own
+  // units the gear costs them. Cull the Weak's question with a different asker —
+  // written from the ANSWERING player's point of view, since "one of THEIR units"
+  // is theirs and not the Shard controller's.
+  "UNL-174-kill": {
+    prompt: () => "Shard of Undoing: kill one of your units",
+    // "One of their units" names no battlefield, so a unit in base is as eligible
+    // as one standing out (355.10.a.1 — the bare noun means objects on the Board,
+    // and Bases are Public). Exactly one unit is not a choice and is killed
+    // without a prompt; no units at all was already filtered at fire time.
+    options: (state, d) =>
+      ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    // The KILLER is the player answering, exactly as in Cull the Weak and NOT as
+    // in King's Edict: "each opponent must KILL one of their units" puts both the
+    // choice and the kill on them, so a watcher asking "did you kill an ENEMY
+    // unit" correctly sees a friendly death and stays quiet.
+    resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
+  },
+  // Starhound's "return a Bird, Cat, Dog, or Poro from your trash to your hand".
+  //
+  // No decline: the card prints "return", not "you may return", and the trigger
+  // has already checked there is something to return — so this is never an empty
+  // question. That is the one thing separating it from Spectral Matron's
+  // otherwise identical trash question.
+  "UNL-167-return": {
+    prompt: () => "Starhound: return a Bird, Cat, Dog, or Poro from your trash to your hand",
+    options: (state, d) =>
+      starhoundCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      // Re-derived at ANSWER time against the same walk the offer came from — the
+      // trash moves while a question waits on the chain, and a Recycle can take
+      // the very card being named. Going through the candidate list rather than
+      // straight to `returnCardFromTrash` is also what stops a stale id naming an
+      // untagged card that happens to be sitting there.
+      const chosen = starhoundCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      return chosen ? returnCardFromTrash(state, d.playerIndex, chosen.instanceId) : state;
+    },
   },
   // Spectral Matron's "you may play a unit ... from your trash, ignoring its
   // cost". Flame Chompers' question in every respect but the filter and who

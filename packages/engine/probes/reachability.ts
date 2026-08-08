@@ -149,7 +149,19 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * **A drop still has to be explained before it is accepted, every time.** The
  * previous fall (2026-08-06) was SFD's version of this same art-only trap.
  */
-const PINNED_UNION = 441;
+/**
+ * **441 → 466 on 2026-08-08**, and this is the rise the note above asked for
+ * rather than another reclassification: the first wave of Unleashed card work
+ * (30 cards across six domain files, written by six agents in parallel) took UNL
+ * from 11/225 to **36/225**, 5% to 16%.
+ *
+ * Worth stating because it is the control on that whole exercise. 30 cards
+ * registered and 30 unit tests passing says the code runs; only this says the AI
+ * can actually reach them in a game, and 25 of the 30 are now observed acting in
+ * self-play. The 5 that are not are the expected tail — cards needing a board
+ * state 250 games did not produce.
+ */
+const PINNED_UNION = 466;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

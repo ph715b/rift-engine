@@ -18,6 +18,7 @@ import {
   drawCards,
   forceMoveToBattlefield,
   forceMoveToDestination,
+  gainXp,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   holdCardsRecycled,
@@ -36,7 +37,7 @@ import {
   takeControlOfUnit,
 } from "../effect-helpers.js";
 import { findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
-import { attackerIndexAt, attackingUnitsAt, isDefendingAt } from "../combat-designation.js";
+import { attackerIndexAt, attackingUnitsAt, isAttackingAt, isDefendingAt } from "../combat-designation.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
@@ -507,6 +508,69 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return gearIds.reduce((next, id) => returnPermanentToHand(next, id), bounced);
     },
   },
+  "UNL-124": {
+    // Isolate — "Move an enemy unit from a battlefield to its base. Then, if
+    // there's an enemy unit alone at that battlefield, draw 1."
+    //
+    // "FROM A BATTLEFIELD" is printed, so the default battlefield scope stands
+    // and a unit sitting in the enemy base is out of reach — the same printed
+    // distinction Rebuke and Fight or Flight above turn on.
+    //
+    // `recallUnitToBase` rather than `relocateToBaseUnchanged` — the helper Fight
+    // or Flight and Maddened Marauder already share for this identical sentence,
+    // so the three cannot come to disagree. The unit arrives EXHAUSTED and
+    // Vilemaw's Lair can forbid the move outright (422 then does as much as it
+    // can, which here is nothing).
+    //
+    // **It fires no `unitMoved`, and that is worth stating rather than assuming.**
+    // Fight or Flight's own entry claims "move triggers see it"; measured against
+    // `recallUnitToBase`, they do not — the helper rewrites the zones directly.
+    // Whether the exhaust belongs here at all is the helper's own filed-Unverified
+    // question (454 leaves a Recall's statuses untouched), inherited rather than
+    // introduced by this card.
+    //
+    // **"ALONE" is a defined term, not a mood.** The rules' Special Terms: "A
+    // unit is alone when there are no other friendly units at the same
+    // location." Friendly is relative to THAT unit, so "an enemy unit alone at
+    // that battlefield" asks whether the opponent has exactly one unit left
+    // standing there — the caster's own units at the same battlefield are
+    // irrelevant to it, which is what makes the payoff a reward for stripping a
+    // stack down to one rather than for outnumbering it.
+    //
+    // The battlefield is read BEFORE the move: "that battlefield" is where the
+    // moved unit came FROM, and by the time the count is taken it has left.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (!unitId) return state;
+      const location = findUnitAnywhere(state, unitId);
+      // 359.3 — the target may have left play, or been moved home already, while
+      // this sat on the chain. Nothing moves and nothing is drawn.
+      if (!location || location.zone === "base") return state;
+      const battlefieldId = state.battlefields[location.zone.battlefieldIndex]!.id;
+
+      const moved = recallUnitToBase(state, unitId);
+      return unitsAt(moved, ctx.opponentIndex, battlefieldId).length === 1 ? drawCards(moved, ctx.casterIndex, 1) : moved;
+    },
+  },
+  "UNL-125": {
+    // Lunar Boon — "[Reaction] Discard 1, then draw 2."
+    //
+    // Ezreal - Prodigy's on-play clause (SFD-149, below) as a spell, down to the
+    // numbers, and it shares his helper rather than carrying a second copy: the
+    // "THEN" is load-bearing, and `discardThenDraw` keeps it by parking the draw
+    // BEHIND the discard's question. Written the obvious way the two cards drawn
+    // would join the hand the player is still choosing a discard from.
+    //
+    // ONE discard instruction, so `cardsDiscarded` fires once (a Jinx - Rebel
+    // across the table readies once, not once per card) — that is
+    // `discardCards`' own contract and nothing here fires per card.
+    //
+    // `[Reaction]` needs nothing here: card-loader reads it off the printed text
+    // into `isReaction`, and legal-actions is what widens the window.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => discardThenDraw(state, ctx.casterIndex, 1, 2),
+  },
 };
 
 /**
@@ -812,7 +876,80 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, ctx, unitId) =>
       parkDecision(state, { kind: "SFD-138-return", playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
   },
+  "UNL-123": {
+    // Evershade Stalker — "When you play me, discard 1, then draw 1."
+    //
+    // Ezreal - Prodigy's clause above at 1-for-1 instead of 1-for-2, and the same
+    // helper for the same printed reason: "THEN" is ordered, and `discardThenDraw`
+    // keeps the order by parking the draw behind the discard's question. A discard
+    // that empties the hand must not be refilled first, or the card just drawn
+    // becomes a candidate for the discard that preceded it.
+    //
+    // ONE discard instruction: `cardsDiscarded` fires once, from `discardCards`,
+    // and nothing here fires per card.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => discardThenDraw(state, ctx.casterIndex, 1, 1),
+  },
+  "UNL-121": {
+    // Bewitching Spirit — "When you play me, choose a player. They discard 1."
+    //
+    // **"A PLAYER", not "an opponent", and the difference is printed.** The rules
+    // use both forms and mean different things by them — Mindsplitter (OGN-192,
+    // above) says "choose an opponent" and so reduces to no choice at all in a
+    // two-player game, while this reaches EITHER seat. So it is a real question
+    // with two answers even at 1v1, and hard-coding the opponent would be reading
+    // Mindsplitter's text onto this card. Making yourself discard is a live line
+    // (a card you want in the trash, a Jinx - Rebel of your own to ready), which
+    // is the whole reason the wording differs.
+    //
+    // The CHOOSER is the ability's controller (355.9), so the question belongs to
+    // `ctx.casterIndex` however it is answered.
+    //
+    // A decision rather than an announce-time fan-out: the choice is made when the
+    // trigger resolves (355.10's worked example of exactly this shape), and the
+    // discard the answer causes stops to ask its own question, which an action
+    // field could not carry.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "UNL-121-discard", playerIndex: ctx.casterIndex }),
+  },
+  "UNL-132": {
+    // Angler Beast — "When you play me, return all units with 2 Might or less to
+    // their owners' hands."
+    //
+    // Downwell's sweep (SFD-147, above) with a Might filter, and it shares that
+    // card's two decisions. **No targeting at all** — 355.10.d: an effect that
+    // names every object of a kind chooses none of them, so there is nothing to
+    // pick and nothing to validate. And **"all units" is BOTH bases as well as
+    // every battlefield** (355.9.b's bare noun), so `allUnitsInPlay` is the right
+    // walk; a battlefield-only sweep would leave every reserve standing.
+    //
+    // "2 Might or less" goes through `unitWithinMaxMight`, the shared predicate a
+    // `maxMight` spec uses, so it reads EFFECTIVE Might — a 1-Might unit standing
+    // under Garen - Commander is a 2 and a 2-Might unit under him is a 3 and
+    // survives. Summing `might + mightThisTurn` here instead would ignore auras,
+    // which is the exact bug three inlined copies of that sum once had.
+    //
+    // Ids are snapshotted before anything moves, for Downwell's reason: each
+    // return rewrites the zones the walk reads. They are also snapshotted before
+    // the Might is re-read, which matters here in a way it does not for Downwell —
+    // bouncing a unit can remove an aura, and a unit that qualified when the
+    // instruction began must not stop qualifying part-way through it.
+    //
+    // He can sweep HIMSELF: "all units" names no exception and he is already on
+    // the board when this resolves. At 5 Might that needs an enemy shrink effect
+    // to happen, which is why it is left to fall out rather than special-cased.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      const doomed = allUnitsInPlay(state)
+        .filter((u) => unitWithinMaxMight(state, u, ANGLER_BEAST_MAX_MIGHT))
+        .map((u) => u.instanceId);
+      return doomed.reduce((next, id) => returnUnitToHand(next, id), state);
+    },
+  },
 };
+
+/** Angler Beast's net — "all units with 2 [Might] or less". */
+const ANGLER_BEAST_MAX_MIGHT = 2;
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
@@ -905,7 +1042,37 @@ function dealDamageToAllUnitsAt(state: GameState, casterIndex: 0 | 1, battlefiel
 /** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
  *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
-export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
+export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  "UNL-129": {
+    // Vicious Snapjaws — "When another friendly unit dies, gain 1 XP."
+    //
+    // Viktor - Leader's shape (OGN-246, effects/order.ts) with the payout swapped
+    // and one of his two exclusions dropped: this card says nothing about tokens,
+    // so a Recruit dying pays out.
+    //
+    // "FRIENDLY" is relative to the LISTENER, not to the dying unit's own view of
+    // the world — which is the whole reason a death-watch is handed both. An
+    // opponent losing a unit is not the Snapjaws' moment.
+    //
+    // "ANOTHER" is his own instanceId, and it is load-bearing rather than a
+    // formality: he is a legal victim of every board wipe in the pool, and
+    // without it he would pay out on his own death. The board he is on when he
+    // dies still has him in `death.unit`, so the comparison is available.
+    //
+    // Both conditions are facts about the DEATH — captured before the corpse
+    // reached the trash (809.1.b.3) — so both settle at fire time, and the
+    // response window a held trigger opens cannot change either. That is the
+    // split `DeathWatchDefinition.applies` exists to make.
+    //
+    // No cap and no once-a-turn: three units dying to one sweep pays three times,
+    // because `killUnit` fires one death per unit and the card names no limit.
+    applies: (_state, listener, death) =>
+      death.ownerIndex === listener.ownerIndex && death.unit.instanceId !== listener.card.instanceId,
+    // Through `gainXp`, the single choke point every XP gain goes through — see
+    // its note for why it exists even with nothing yet able to forbid the gain.
+    resolve: (state, listener) => gainXp(state, listener.ownerIndex, 1),
+  },
+};
 
 /** Spirit Wheel's optional draw. */
 const SPIRIT_WHEEL_DRAW_COST = 1;
@@ -1496,7 +1663,66 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) =>
       event.kind === "combatWon" ? scoreFirstCombatWin(state, listener.ownerIndex, listener.card.instanceId) : state,
   },
+  "UNL-137": {
+    // Sinister Poro — "When I attack, you may pay [1] to move an enemy unit here
+    // to its base."
+    //
+    // Draven - Vanquisher's shape (SFD-020, effects/fury.ts) with Energy in place
+    // of a rune and a target instead of a pump. "When **I** attack" is
+    // `isAttackingAt` — the shared designation predicate, so a card that TRIGGERS
+    // on attacking and a card that TARGETS attackers cannot come to disagree
+    // about who is doing it.
+    //
+    // "You MAY pay" is a cost within the instruction (355.10.d.1's "[do X] to [do
+    // Y]"), so it parks a question rather than firing, and it is not asked at all
+    // when the Energy cannot be paid — 416.3 makes a cost that cannot be
+    // completed one you may not choose to pay, and a held trigger that resolves
+    // to nothing still costs both players a PassFocus. Asked in `applies` for that
+    // reason and re-asked at answer time because the window this opens is exactly
+    // when that Energy could be spent elsewhere.
+    //
+    // The timing is the card. `combatBegan` items resolve on the Combat Chain
+    // (465 Step 1 Task 4), BEFORE the Combat Damage Step — so a defender sent home
+    // is a defender whose Might never joins the pool. Overzealous Fan (SFD-128,
+    // above) is the same trick from the other side of the table.
+    //
+    // `recallUnitToBase`, the helper Fight or Flight's and Overzealous Fan's
+    // identically-worded "move a unit ... to its base" already share: the unit
+    // arrives EXHAUSTED, which mid-combat means it cannot walk back in. It fires
+    // no `unitMoved` — see Isolate's entry above, where that claim was measured
+    // rather than copied.
+    //
+    // **"HERE" is captured, and additionally re-checked against where he is
+    // STANDING when the question is answered.** The rules work this exact case:
+    // Yasuo - Remorseful's attack trigger, answered after an opponent's Fight or
+    // Flight has sent him home, "mistargets" because "here" is no longer the
+    // battlefield where combat is ongoing. So a Poro who has left cannot still
+    // reach into the fight, and the question is dropped as moot rather than
+    // answered. The alternative — reading `event.battlefieldId` alone, which is
+    // what Ahri - Inquisitive and Recurve Bow do for their own "here" — was
+    // rejected on that worked example; those two are the looser reading and are
+    // filed Unverified where they live.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isAttackingAt(state, listener, event) &&
+      event.kind === "combatBegan" &&
+      payEnergyFromPool(state, listener.ownerIndex, SINISTER_PORO_COST) !== undefined &&
+      enemyUnitsAt(state, listener.ownerIndex, event.battlefieldId).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      return parkDecision(state, {
+        kind: "UNL-137-move",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
 };
+
+/** Sinister Poro's price — the printed `[1]` Energy, paid to move one enemy unit
+ *  home. */
+const SINISTER_PORO_COST = 1;
 
 /**
  * Draven - Audacious's once-a-turn allowance, spent as it pays out.
@@ -2105,10 +2331,105 @@ export const decisions: Record<string, DecisionDefinition> = {
     ],
     resolve: (state, _d, optionId) => (optionId === "decline" ? state : returnUnitToHand(state, optionId)),
   },
+
+  // Bewitching Spirit's "choose a player. They discard 1."
+  //
+  // TWO options at 1v1, not one: "a player" reaches either seat, unlike
+  // Mindsplitter's "an opponent" — see the card's entry. So this is one of the
+  // few questions in this file that genuinely prompts in a two-player game
+  // rather than being executed by `advanceDecisions` as a formality.
+  //
+  // No decline: the text carries no "you may", so a player must be chosen. The
+  // OPPONENT leads, which is the convention the decline-first offers here use for
+  // the same reason — a mis-click and the AI's tie-break should land on the
+  // ordinary answer, and for a card whose whole job is to strip a hand that is
+  // the enemy's.
+  //
+  // The discard itself is `discardCards`, so with more than one card in hand it
+  // stops and asks the CHOSEN player which card goes, and it fires
+  // `cardsDiscarded` once for the instruction — a Jinx - Rebel on that side
+  // readies once.
+  "UNL-121-discard": {
+    prompt: () => "Bewitching Spirit: choose a player. They discard 1.",
+    // Typed `(0 | 1)[]` rather than inferred: a bare array literal widens to
+    // `number[]`, and `players` is a two-tuple, so the lookup below cannot be
+    // proven in-bounds and fails the typecheck. vitest transpiles without
+    // checking types, so this only appears at step 3 of the loop.
+    options: (state, d) => {
+      const order: (0 | 1)[] = d.playerIndex === 0 ? [1, 0] : [0, 1];
+      return order.map((index) => ({
+        id: String(index),
+        label: `${state.players[index].name} discards 1`,
+      }));
+    },
+    resolve: (state, _d, optionId) => discardCards(state, optionId === "1" ? 1 : 0, 1),
+  },
+
+  // Sinister Poro's "you may pay [1] to move an enemy unit here to its base."
+  // One question over both halves, not two: the payment is a cost WITHIN the
+  // instruction (355.10.d.1), so declining to pay and declining to move are the
+  // same answer — Fae Porter's entry above records the same reasoning.
+  //
+  // "HERE" is re-checked rather than trusted: with the Poro no longer standing at
+  // the battlefield the trigger fired at, the question is MOOT (no options) and
+  // `advanceDecisions` drops it, which is the "mistargets" outcome the rules work
+  // through for Yasuo - Remorseful's attack trigger. The enemies are likewise
+  // re-read from LIVE state, so a unit that has since left the fight is not
+  // offered.
+  //
+  // Priced when the options are built AND again when one is taken, the same split
+  // Fae Porter makes: the question can sit behind others, and the Energy it was
+  // offered against may have been spent in between.
+  "UNL-137-move": {
+    prompt: () => "Sinister Poro: pay 1 Energy to send an enemy unit here to its base?",
+    options: (state, d) => {
+      if (!d.cardInstanceId || !d.battlefieldId) return [];
+      const poro = findUnitAnywhere(state, d.cardInstanceId);
+      if (!poro || poro.zone === "base") return []; // dead, or sent home himself
+      if (state.battlefields[poro.zone.battlefieldIndex]!.id !== d.battlefieldId) return []; // "here" has moved
+      const decline: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (payEnergyFromPool(state, d.playerIndex, SINISTER_PORO_COST) === undefined) return decline;
+      return [
+        ...decline,
+        ...enemyUnitsAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
+          id: u.instanceId,
+          label: `Pay 1 Energy: send ${u.name} to its base`,
+          instanceId: u.instanceId,
+        })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Cost, then effect. An Energy that has been spent since the options were
+      // built makes this fizzle rather than move a unit for free.
+      const paid = payEnergyFromPool(state, d.playerIndex, SINISTER_PORO_COST);
+      if (paid === undefined) return state;
+      return recallUnitToBase(paid, optionId);
+    },
+  },
 };
 
 /** Windsinger's cap — "a unit at a battlefield with 3 [Might] or less". */
 const WINDSINGER_MAX_MIGHT = 3;
+
+/**
+ * The units `playerIndex` controls at one battlefield — and, asked of the other
+ * seat, the "enemy unit here" both Sinister Poro and Isolate count.
+ *
+ * Written against the battlefield's own map rather than filtering
+ * `ownUnitsEverywhere`, because both callers need the answer for a NAMED
+ * battlefield and neither cares about base.
+ */
+function unitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return [...(bf?.units[state.players[playerIndex].id] ?? [])];
+}
+
+/** The units the OTHER player controls at one battlefield — Sinister Poro's "an
+ *  enemy unit here", with "enemy" measured against the Poro's controller. */
+function enemyUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  return unitsAt(state, playerIndex === 0 ? 1 : 0, battlefieldId);
+}
 
 /**
  * Every unit standing at a battlefield, either owner's, with the owner index the

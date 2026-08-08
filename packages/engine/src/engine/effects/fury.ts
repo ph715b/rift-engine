@@ -15,6 +15,7 @@ import {
   discardCards,
   discardThenDraw,
   drawCards,
+  exhaustGear,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
@@ -524,7 +525,39 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return dealDamage(state, ctx.casterIndex, targetId, attacking ? SUDDEN_STORM_VS_ATTACKER : SUDDEN_STORM_BASE);
     },
   },
+  "UNL-015": {
+    // Right of Conquest — "Draw 1, then draw 1 for each battlefield you or allies
+    // control."
+    //
+    // ONE `drawCards` call for `1 + N`, not a 1 followed by a loop. The "then" is
+    // only sequencing prose here and nothing in the sentence can observe the
+    // split: no card in this pool triggers per card drawn, and the count is fixed
+    // before the first draw because drawing cannot change who controls a
+    // battlefield. Contrast Scrapyard Champion's "discard 2, THEN draw 2", where
+    // the "then" IS load-bearing and gets `discardThenDraw` — the difference is
+    // that the first half there stops to ask.
+    //
+    // **"You OR ALLIES" collapses to "you" in a two-player game** and is
+    // deliberately not modelled as anything wider. `GameState.players` is a
+    // two-tuple and every "ally" clause in this pool is written for the multiplayer
+    // formats the rules also define (400-series); reading it as "either player"
+    // would make the card count the OPPONENT's battlefields, which is the one
+    // reading that is definitely wrong.
+    //
+    // Control is `controllerId`, not presence: standing at an uncontrolled
+    // battlefield is not controlling it — the same distinction Vayne - Hunter's
+    // enter-ready clause turns on.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const controlled = state.battlefields.filter((bf) => bf.controllerId === state.players[ctx.casterIndex].id).length;
+      return drawCards(state, ctx.casterIndex, RIGHT_OF_CONQUEST_BASE_DRAW + controlled);
+    },
+  },
 };
+
+/** Right of Conquest's unconditional first card, named so the `1 +` in its
+ *  resolver is not a bare literal next to a computed count. */
+const RIGHT_OF_CONQUEST_BASE_DRAW = 1;
 
 /** Against the Odds' per-enemy step, and Sudden Storm's two amounts — named
  *  because each is a printed number the resolver would otherwise read as a bare
@@ -1194,6 +1227,126 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "UNL-027": {
+    // Inviolus Vox — "When I conquer, give a friendly unit +8 Might this turn."
+    //
+    // "When **I** conquer" is Kai'Sa - Survivor's (OGN-039, two entries up)
+    // reading exactly: he has to be standing AT the battlefield taken, which is
+    // what separates a unit's conquer trigger from a Legend's "when YOU conquer".
+    // Both conditions settle in `applies` because `battlefieldConquered` is a
+    // Chain Pending Item — holding one for somebody else's conquest costs both
+    // players a PassFocus for an ability that resolves to nothing — and the
+    // location is deliberately NOT re-asked in `resolve`, since the window the
+    // hold opens is precisely when an opponent would push him sideways (383 fixes
+    // what triggered at the moment of the event).
+    //
+    // A parked DECISION rather than an auto-selected target: "a friendly unit"
+    // with +8 on the line is a real choice, and unlike the attack triggers in this
+    // file there IS a mechanism to carry it — the conquest is a held event, so the
+    // question outlives the moment. Ribbon Dancer's `SFD-038-might` is the same
+    // shape and the pattern this follows.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      // No "you may", so the Might has to land somewhere — but with nothing of
+      // his controller's left on the board there is nothing to land on, and a
+      // Pending Item that can only resolve to nothing is not worth a response
+      // window. He is normally his own candidate, so this is the dead-Vox case.
+      ownUnitsEverywhere(state, listener.ownerIndex).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      return parkDecision(state, { kind: "UNL-027-might", playerIndex: listener.ownerIndex });
+    },
+  },
+  "UNL-011": {
+    // Fresh Beans — "When you play a unit during a showdown, you may exhaust this
+    // to draw 1."
+    //
+    // Three separate conditions, and all three are properties of the MOMENT the
+    // unit was played, so all three live in `applies`: `cardPlayed` is held, and
+    // the response window it opens can end the Showdown, exhaust the gear or hand
+    // the initiative to the opponent before this resolves. Darius - Trifarian's
+    // "your SECOND card in a turn" is the precedent — a condition about the moment
+    // is asked once, at the moment.
+    //
+    // "During a SHOWDOWN" is `state.turnState`, the same question `mayPlayCardNow`
+    // asks for the Action tier. It is the whole reason this card is not simply
+    // "when you play a unit": the only units that can be played inside a Showdown
+    // are `[Reaction]` ones and cards played from facedown (811), so the trigger
+    // is narrow by construction.
+    //
+    // "YOU play" — its own controller's unit. An opponent reinforcing the fight is
+    // not what pays for the coffee.
+    //
+    // The exhaust is a COST, so an already-exhausted Fresh Beans is not asked at
+    // all (416.3: a cost that cannot be completed is not one you may choose to
+    // pay) — and the payload is Solari Shrine's (`OGN-072-draw`) verbatim.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Unit" &&
+      state.turnState === "Showdown" &&
+      listener.card.kind === "Gear" &&
+      !listener.card.exhausted,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      // Re-asked because paying is a cost rather than a trigger condition — the
+      // same split Draven - Vanquisher and Immortal Phoenix record. Something in
+      // the response window may have spent the gear's exhaust on an unrelated
+      // ability, and a question that cannot be paid for must not be shown.
+      if (listener.card.kind !== "Gear" || listener.card.exhausted) return state;
+      return parkDecision(state, {
+        kind: "UNL-011-draw",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "UNL-023": {
+    // Katarina - Reckless, SECOND clause only — "When you play a card from face
+    // down, deal 2 to an enemy unit."
+    //
+    // **HER FIRST CLAUSE IS UNWRITTEN: "When you hide a card, ready me."** There
+    // is no `cardHidden` event — `execute-hide-card` fires only `runesRecycled`,
+    // and 811 is explicit that hiding "does not open a chain" and is not a play,
+    // so no existing moment stands in for it. Registration is per defId, so this
+    // card reports as DONE off the clause below; the gap is recorded in
+    // docs/rules-conformance.md and coverage.PARTIALLY_IMPLEMENTED.
+    //
+    // "FROM FACE DOWN" is Black Market Broker's condition exactly (SFD-121,
+    // effects/chaos.ts), and is written against the same carried fact —
+    // `cardPlayed.fromHidden`, which `executePlayCard` sets from
+    // `action.fromHiddenBattlefieldId`. The rules gloss the two spellings as one
+    // thing: "Playing a card from facedown (or 'from Hidden')" (811).
+    //
+    // "YOU play" — her own controller's facedown card. Her own arrival counts if
+    // she was herself played from facedown, since the event fires after the card
+    // has resolved into play and the listener walk therefore already finds her.
+    //
+    // "An ENEMY unit" with no battlefield named, so a unit sitting in the
+    // opponent's BASE is a legal choice — 355.9.b's bare noun, the same reading
+    // Gem Jammer's grant and Dangerous Duo's pump take. Contrast Mischievous Marai
+    // (UNL-003), which prints "an enemy unit HERE" and means something narrower.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.fromHidden === true &&
+      event.casterIndex === listener.ownerIndex &&
+      // Nothing to shoot is nothing to ask. Unlike a cost this is not 416.3 — it
+      // is the same "a Pending Item that can only resolve to nothing is not worth
+      // a response window" call Rumble's trade and Rell's equip both make.
+      ownUnitsEverywhere(state, listener.ownerIndex === 0 ? 1 : 0).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (event.fromHidden !== true) return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      return parkDecision(state, { kind: "UNL-023-shot", playerIndex: listener.ownerIndex });
+    },
+  },
 };
 
 /** The tag Rumble - Hotheaded's trash-play reads. A constant rather than a bare
@@ -1676,7 +1829,76 @@ export const decisions: Record<string, DecisionDefinition> = {
       return playUnitFree({ ...paid, players }, d.playerIndex, card);
     },
   },
+  // Inviolus Vox's "give a friendly unit +8 Might this turn", raised by his
+  // conquer trigger, which has already established that his controller has at
+  // least one unit to give it to.
+  //
+  // **NO decline option.** The card carries no "you may", so once it has triggered
+  // the Might has to land somewhere; with exactly one candidate `advanceDecisions`
+  // executes it without a prompt, which is right — there is no choice to make.
+  // Ribbon Dancer's question takes the same shape for the same reason.
+  //
+  // "A FRIENDLY unit" with no battlefield named, so base counts and Vox himself is
+  // eligible — the text says no "other", unlike Ribbon Dancer's "ANOTHER friendly
+  // unit". Candidates are rebuilt from live state, so a unit killed in the response
+  // window is simply not offered.
+  "UNL-027-might": {
+    prompt: () => "Inviolus Vox: give a friendly unit +8 Might this turn",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, d, optionId) => giveMightThisTurnToOwnUnit(state, d.playerIndex, optionId, INVIOLUS_VOX_MIGHT),
+  },
+  // Fresh Beans' "you may exhaust this to draw 1", raised by its cardPlayed
+  // listener, which has already established that a unit of its controller's was
+  // played inside a Showdown and that the gear was still ready.
+  //
+  // Two options ALWAYS, so `advanceDecisions` can never auto-resolve it — a "you
+  // may" the engine answers for you is not a "you may". Declining is a real play:
+  // the exhaust is worth keeping when a second unit is about to land this Showdown.
+  //
+  // Neither option carries an `instanceId`, deliberately, for the reason Solari
+  // Shrine's own note gives: the board renders such an option as the CARD, which
+  // is right for "pick one of your units" and wrong for a yes/no.
+  "UNL-011-draw": {
+    prompt: () => "Fresh Beans: exhaust it to draw 1?",
+    options: () => [
+      { id: "draw", label: "Exhaust and draw 1" },
+      { id: "decline", label: "Decline" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "draw" || !d.cardInstanceId) return state;
+      // Exhaust FIRST, then draw: the exhaust is the cost, and `exhaustGear`
+      // no-ops on a Fresh Beans that has left play or been spent since the offer —
+      // so a state where the cost cannot be paid must not hand over the draw.
+      const paid = exhaustGear(state, d.playerIndex, d.cardInstanceId);
+      return paid === state ? state : drawCards(paid, d.playerIndex, 1);
+    },
+  },
+  // Katarina - Reckless's "deal 2 to an enemy unit", raised by her facedown-play
+  // listener, which has already established that an enemy unit exists.
+  //
+  // No decline, for the same reason as Vox: no "you may" is printed. EVERY enemy
+  // unit is offered, base included — the clause names no battlefield.
+  //
+  // Rebuilt from live state, so a unit that died while the question waited is not
+  // on offer; `dealDamage` also answers safely for an id it cannot find, which is
+  // 359.3's "the check returns null and calculations based on it are ignored".
+  "UNL-023-shot": {
+    prompt: () => "Katarina - Reckless: deal 2 to which enemy unit?",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, KATARINA_RECKLESS_DAMAGE),
+  },
 };
+
+/** Inviolus Vox's pump and Katarina - Reckless's shot — printed numbers, named
+ *  beside Draven's so no resolver in this file reads a bare literal. */
+const INVIOLUS_VOX_MIGHT = 8;
+const KATARINA_RECKLESS_DAMAGE = 2;
 
 /** Tryndamere - Barbarian's three conditions, asked once so `applies` and
  *  `resolve` cannot disagree — the split that has produced a held trigger firing

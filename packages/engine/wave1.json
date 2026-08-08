@@ -1,0 +1,62 @@
+{
+ "fury": [
+  "UNL-027 | Unit | Inviolus Vox | When I conquer, give a friendly unit +8 :rb_might: this turn.",
+  "UNL-015 | Spell | Right of Conquest | Draw 1, then draw 1 for each battlefield you or allies control.",
+  "UNL-011 | Gear | Fresh Beans | When you play a unit during a showdown, you may exhaust this to draw 1.",
+  "UNL-004 | Unit | Prepared Neophyte | If you've spent :rb_energy_4: or more to play a spell this turn, I have +4 :rb_might:.",
+  "UNL-008 | Unit | Towering Pairofant | [Assault] (+1 :rb_might: while I'm an attacker.)If a unit died this turn, I enter ready.",
+  "UNL-023 | Unit | Katarina - Reckless | When you hide a card, ready me.When you play a card from face down, deal 2 to an enemy unit.",
+  "UNL-026 | Unit | Xerath - Freed | :rb_rune_fury:, :rb_exhaust:: Deal 3 to a unit. Use this ability only while I'm at a battlefield.",
+  "UNL-005 | Unit | Revna the Lorekeeper | [Ganking] (I can move from battlefield to battlefield.)When you play a spell, if you spent :rb_energy_4: or more, ready me."
+ ],
+ "calm": [
+  "UNL-221 | Unit | Lonely Poro (Overnumbered) | [Deathknell][>] If I died alone, draw 1.",
+  "UNL-034 | Unit | Herald of Spring | [Hunt] (When I conquer or hold, gain 1 XP.)When you play me, gain 2 XP.",
+  "UNL-037 | Unit | Shadow Watcher | If a friendly unit died during your Beginning Phase this turn, I enter ready.",
+  "UNL-035 | Unit | Monch | If an opponent controls a stunned unit, I cost :rb_energy_2: less and enter ready.",
+  "UNL-050 | Unit | Iascylla | When I hold, at the start of your next Main Phase, you may move an enemy unit to this battlefield.",
+  "UNL-054 | Spell | Tricksy Tentacles | Move any number of enemy units with the same controller and a total Might of 8 or less to a single location.",
+  "UNL-057 | Unit | Alpha Wildclaw | [Tank] (I must be assigned combat damage first.)Your units here with less Might than me can't be chosen by enemy spells and abilities.",
+  "UNL-058 | Unit | Lillia - Protector of Dreams | When you play a token unit, give me +1 :rb_might: this turn.Your token units have [Tank]. (They must be assigned combat damage first.)"
+ ],
+ "mind": [
+  "UNL-077 | Unit | Soul Shepherd | Your token units have +1 :rb_might:.",
+  "UNL-222 | Unit | Plundering Poro (Overnumbered) | When I conquer, play a Gold gear token exhausted.",
+  "UNL-068 | Unit | Spectral Centaur | When another friendly unit dies, give me +2 :rb_might: this turn.",
+  "UNL-067 | Unit | Ruined Rex | [Deathknell][>] Deal 4 to an enemy unit. (When I die, get the effect.)",
+  "UNL-076 | Unit | Petal Pixie | I have +1 :rb_might: for each of your units with [Temporary] at my battlefield.",
+  "UNL-065 | Unit | Icevale Archer | When I attack, you may pay :rb_energy_1: to give a unit here -1 :rb_might: this turn.",
+  "UNL-074 | Gear | Frigid Jewel | When you draw your second card each turn, give a friendly unit +2 :rb_might: this turn.",
+  "UNL-070 | Spell | Turn to Dust | Give a gear [Temporary]. (Kill it at the start of its controller's Beginning Phase, before scoring.)"
+ ],
+ "body": [
+  "UNL-111 | Unit | Determined Sentry | I can't move to base.",
+  "UNL-092 | Unit | Demacian Diplomat | When you play me, gain 1 XP.",
+  "UNL-104 | Unit | Gentle Gemdragon | When you play me or another Dragon, ready up to 2 runes.",
+  "UNL-110 | Spell | Clash of Giants | Choose two units. They deal damage equal to their Mights to each other.",
+  "UNL-097 | Unit | Kinkou Initiate | When you play me, draw 1 if your other units have total Might 5 or more.",
+  "UNL-112 | Unit | Irresistible Faefolk | When I move to a battlefield, you may move an enemy unit to that battlefield.",
+  "UNL-105 | Unit | Imposing Challenger | When I move, you may move an enemy unit here with less Might than me to a different battlefield.",
+  "UNL-093 | Unit | Dragonsoul Sage | [Reaction][>] :rb_exhaust:: [Add] :rb_energy_1:. (Abilities that add resources can't be reacted to.)"
+ ],
+ "chaos": [
+  "UNL-123 | Unit | Evershade Stalker | When you play me, discard 1, then draw 1.",
+  "UNL-129 | Unit | Vicious Snapjaws | When another friendly unit dies, gain 1 XP.",
+  "UNL-121 | Unit | Bewitching Spirit | When you play me, choose a player. They discard 1.",
+  "UNL-137 | Unit | Sinister Poro | When I attack, you may pay :rb_energy_1: to move an enemy unit here to its base.",
+  "UNL-132 | Unit | Angler Beast | When you play me, return all units with 2 :rb_might: or less to their owners' hands.",
+  "UNL-125 | Spell | Lunar Boon | [Reaction] (Play any time, even before spells and abilities resolve.)Discard 1, then draw 2.",
+  "UNL-124 | Spell | Isolate | Move an enemy unit from a battlefield to its base. Then, if there's an enemy unit alone at that battlefield, draw 1.",
+  "UNL-122 | Unit | Crescent Guardian | If you've played a spell this turn, you may pay :rb_rune_chaos: as an additional cost to play me. If you do, I enter ready."
+ ],
+ "order": [
+  "UNL-180 | Spell | The Ruination | Kill all units.",
+  "UNL-157 | Unit | Scrutinizing Sergeant | When you play me, gain 1 XP for each friendly unit.",
+  "UNL-159 | Spell | Soul Harvest | Kill a unit at a battlefield with 3 :rb_might: or less.",
+  "UNL-154 | Unit | Crimson Pigeons | I have +2 :rb_might: while I'm attacking with another unit.",
+  "UNL-167 | Unit | Starhound | When you play me, return a Bird, Cat, Dog, or Poro from your trash to your hand.",
+  "UNL-174 | Gear | Shard of Undoing | The first time a friendly unit dies during your Beginning Phase each turn, each opponent must kill one of their units.",
+  "UNL-152 | Unit | Black Rose Dignitary | [Assault] (+1 :rb_might: while I'm an attacker.)[Deathknell][>] Channel 1 rune exhausted. (When I die, get the effect.)",
+  "UNL-163 | Unit | Mageseeker Investigator | Opponents must pay :rb_rune_rainbow: for each unit beyond the first to move multiple units to my battlefield at the same time."
+ ]
+}

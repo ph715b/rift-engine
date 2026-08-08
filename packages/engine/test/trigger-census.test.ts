@@ -144,7 +144,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251"]);
   });
 
-  it("208 held / 3 inline of 211 trigger cards", () => {
+  it("231 held / 3 inline of 234 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -159,10 +159,15 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // it should be a decision rather than a silent edit. If this fails because a
     // card was ADDED, update these numbers and the doc row in the same change —
     // that is the thing this test exists to make impossible to forget.
+    // **208/3/211 → 231/3/234 on 2026-08-08**, when the first wave of Unleashed
+    // card work landed: 23 more cards carrying a trigger, every one of them held.
+    // `inline` did not move and must not — it is `beginningPhase` alone, three
+    // OGN cards, and a new set adding to it would be the ordering regression the
+    // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 208,
+      held: 231,
       inline: 3,
-      cards: 211,
+      cards: 234,
     });
   });
 

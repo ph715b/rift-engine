@@ -412,6 +412,28 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-188",
     "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
   ],
+  // **UNL-023 Katarina - Reckless is HALF written**, and she is the first card in
+  // this pool to make the decision-key over-report REAL rather than theoretical.
+  //
+  // Her second clause ("when you play a card from face down, deal 2") is
+  // implemented; her first ("when you hide a card, ready me") is not. That alone
+  // would be an ordinary partial. What makes her worth this comment is that
+  // `decisionDefIds()` peels a defId off every decision KEY, so her
+  // `UNL-023-shot` handler claims the whole card on its own — measured: with her
+  // event trigger deleted, `isCardImplemented("UNL-023")` still returns true.
+  //
+  // `coverage-drift.test.ts` already documents that mechanism, and its stated
+  // reason for being a TEST rather than a fix was "nothing in the pool is
+  // affected today". **Three cards from this wave affect it** (UNL-023, and
+  // UNL-121/UNL-137 whose decisions likewise claim them), so that premise has
+  // expired. Tightening `isCardImplemented` is the real fix and it is a
+  // behaviour change to a shared instrument — deliberately NOT taken here, in
+  // the same change as 30 new cards. This entry is the honest stopgap: it makes
+  // the one card that is genuinely half report as half.
+  [
+    "UNL-023",
+    "only the second clause is written — 'when you hide a card, ready me' is unimplemented",
+  ],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

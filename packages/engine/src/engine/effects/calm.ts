@@ -22,6 +22,7 @@ import {
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
+  gainXp,
   forceMoveToDestination,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
@@ -86,6 +87,11 @@ import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
  * already handles throws at import rather than silently shadowing it.
  */
 const FERAL_STRENGTH_MIGHT = 2;
+
+/** Herald of Spring's on-play XP. Named because the card ALSO prints `[Hunt]`,
+ *  whose magnitude is 1 — two different numbers on one card is exactly where a
+ *  bare literal gets read as the other one. */
+const HERALD_OF_SPRING_XP = 2;
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-031": {
@@ -736,6 +742,30 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return parkDecision(healed, { kind: "SFD-053-move", playerIndex: ctx.casterIndex, battlefieldId });
     },
   },
+  "UNL-034": {
+    // Herald of Spring — "[Hunt] (When I conquer or hold, gain 1 XP.) When you
+    // play me, gain 2 XP."
+    //
+    // ONLY the second sentence is here. `[Hunt]` is a keyword, and triggers.ts
+    // registers it ONCE for the whole pool under `HUNT_TRIGGER_KEY` rather than
+    // per card — so re-implementing it here would pay the Herald's conquer/hold
+    // XP twice, which is precisely the double-pay shape this codebase warns
+    // about for per-item events. The parenthetical is reminder text.
+    //
+    // "Gain 2 XP", not "[Hunt 2]": the two numbers are unrelated. Hunt pays on a
+    // conquer or a hold, this pays on the PLAY, and a Herald that is countered
+    // or that never reaches a battlefield still collects these 2.
+    //
+    // Through `gainXp` rather than `xp + 2` inline — the one choke point that
+    // helper's own note exists to defend, and the reason 35 XP-gaining cards do
+    // not each have to learn about a future "opponents can't gain XP".
+    //
+    // `ctx.casterIndex`, so an opponent who somehow plays him gains the XP: "you"
+    // in a triggered ability is the ability's controller, and every other on-play
+    // trigger in this file measures from the same seat.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => gainXp(state, ctx.casterIndex, HERALD_OF_SPRING_XP),
+  },
   "SFD-058": {
     // Ornn - Blacksmith's FIRST moment — "When you play me or when I hold, look
     // at the top 4 cards of your Main Deck. You may reveal a gear from among them
@@ -826,6 +856,22 @@ function noOtherFriendlyUnitsAt(state: GameState, ownerIndex: 0 | 1, battlefield
   return (bf?.units[state.players[ownerIndex].id] ?? []).length === 0;
 }
 
+/**
+ * Lonely Poro's [Deathknell], written once and registered under BOTH of the
+ * defIds the pool prints it at (SFD-036 and the Unleashed Overnumbered reprint
+ * UNL-221). See the note on the table entries below for why it is shared.
+ */
+const LONELY_PORO_DEATHKNELL: DeathknellDefinition = {
+  // `death.ownerIndex` rather than a caster index: for a Deathknell "friendly"
+  // means the DYING unit's controller, which is the same seat
+  // `resolveHeldDeathknell` builds its context from.
+  capture: (state, death) => noOtherFriendlyUnitsAt(state, death.ownerIndex, death.battlefieldId),
+  // Read from the capture, never re-derived. Re-deriving here is exactly the
+  // divergence: by now the corpse and any ally killed alongside it are both in
+  // a trash, and the board would answer "alone" either way.
+  resolve: (state, ctx, _death, captured) => (captured === true ? drawCards(state, ctx.casterIndex, 1) : state),
+};
+
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
 export const deathTriggers: Record<string, DeathknellDefinition> = {
@@ -863,16 +909,22 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // gave: reading the other deaths sitting on the chain is placement-order
   // dependent, so a Poro killed FIRST would see none of them and be right by
   // accident about half the time.
-  "SFD-036": {
-    // `death.ownerIndex` rather than a caster index: for a Deathknell "friendly"
-    // means the DYING unit's controller, which is the same seat
-    // `resolveHeldDeathknell` builds its context from.
-    capture: (state, death) => noOtherFriendlyUnitsAt(state, death.ownerIndex, death.battlefieldId),
-    // Read from the capture, never re-derived. Re-deriving here is exactly the
-    // divergence: by now the corpse and any ally killed alongside it are both in
-    // a trash, and the board would answer "alone" either way.
-    resolve: (state, ctx, _death, captured) => (captured === true ? drawCards(state, ctx.casterIndex, 1) : state),
-  },
+  "SFD-036": LONELY_PORO_DEATHKNELL,
+  // Lonely Poro AGAIN — Unleashed reprints it as an Overnumbered card
+  // (UNL-221, "[Deathknell] [>] If I died alone, draw 1."), which is the same
+  // ability on a card with a different defId, so it needs its own key.
+  //
+  // The DEFINITION is shared rather than copied, and that is the whole reason
+  // `LONELY_PORO_DEATHKNELL` exists as a const. A second literal here would be
+  // two places for the capture-vs-resolve split to drift, and the drift would be
+  // invisible: both copies would still draw a card most of the time, and only
+  // the died-beside-an-ally case would come apart. That case is exactly the one
+  // this card's capture hook was added for.
+  //
+  // No text difference to model. The UNL printing drops the parenthetical
+  // reminder ("I'm alone if there are no other friendly units here") and prints
+  // nothing else; reminder text is not rules text.
+  "UNL-221": LONELY_PORO_DEATHKNELL,
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
