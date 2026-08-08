@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
-  DeathknellEffect,
+  DeathknellDefinition,
   DeathWatchDefinition,
   EventTriggerDefinition,
   GameEvent,
@@ -828,7 +828,7 @@ function noOtherFriendlyUnitsAt(state: GameState, ownerIndex: 0 | 1, battlefield
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {
+export const deathTriggers: Record<string, DeathknellDefinition> = {
   // Lonely Poro — "[Deathknell] — If I died alone, draw 1. (When I die, get the
   // effect. I'm alone if there are no other friendly units here.)" (rule 808)
   //
@@ -852,17 +852,27 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // a card the rules would not give it. Measured, not assumed — see the mutual-
   // death case in test/sfd-calm.test.ts.
   //
-  // It is written this way because closing it needs a primitive that does not
-  // exist: `DeathknellEffect` is a bare resolver with no `applies`/`capture` pair
-  // (unlike `EventTriggerDefinition` and `DeathWatchDefinition`, both of which
-  // have one), and `DeathContext` carries no room to note the answer. Giving it
-  // one is a triggers.ts change. Deliberately NOT worked around by reading the
-  // other deaths still sitting on the chain: that answer is placement-order
-  // dependent — a Poro killed FIRST has its Deathknell at the bottom of the LIFO
-  // chain and would see none of them — so it would be right by accident half the
-  // time, which is worse than a divergence that is stated.
-  "SFD-036": (state, ctx, death) =>
-    noOtherFriendlyUnitsAt(state, ctx.casterIndex, death.battlefieldId) ? drawCards(state, ctx.casterIndex, 1) : state,
+  // **CLOSED 2026-08-07.** `DeathknellDefinition.capture` is the primitive this
+  // note said did not exist, and adding it brought a third family into line with
+  // `EventTriggerDefinition` and `DeathWatchDefinition` rather than inventing
+  // anything. The question is now asked as the Deathknell goes ON THE CHAIN —
+  // Cleanup step 3a, while the ally that died first is still standing — and the
+  // answer rides the entry to resolution.
+  //
+  // The workaround this note refused is still refused, and for the reason it
+  // gave: reading the other deaths sitting on the chain is placement-order
+  // dependent, so a Poro killed FIRST would see none of them and be right by
+  // accident about half the time.
+  "SFD-036": {
+    // `death.ownerIndex` rather than a caster index: for a Deathknell "friendly"
+    // means the DYING unit's controller, which is the same seat
+    // `resolveHeldDeathknell` builds its context from.
+    capture: (state, death) => noOtherFriendlyUnitsAt(state, death.ownerIndex, death.battlefieldId),
+    // Read from the capture, never re-derived. Re-deriving here is exactly the
+    // divergence: by now the corpse and any ally killed alongside it are both in
+    // a trash, and the board would answer "alone" either way.
+    resolve: (state, ctx, _death, captured) => (captured === true ? drawCards(state, ctx.casterIndex, 1) : state),
+  },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).

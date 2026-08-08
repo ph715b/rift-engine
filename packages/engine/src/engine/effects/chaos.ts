@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
-  DeathknellEffect,
+  DeathknellDefinition,
   DeathWatchDefinition,
   EventTriggerDefinition,
   GameEvent,
@@ -816,8 +816,9 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {
-  "SFD-148": (state, ctx, death) => {
+export const deathTriggers: Record<string, DeathknellDefinition> = {
+  "SFD-148": {
+    resolve: (state, ctx, death) => {
     // Draven - Audacious, SECOND clause — "When I die IN COMBAT, choose an
     // opponent. They score 1 point."
     //
@@ -840,7 +841,8 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
     const players = [...state.players] as [PlayerState, PlayerState];
     // Through `gainPoints`, the single choke point every point-gain goes through
     // so Tianna Crownguard's "opponents can't gain points" reaches it.
-    return gainPoints(state, opponentIndex, 1);
+      return gainPoints(state, opponentIndex, 1);
+    },
   },
   // Undercover Agent — "[Deathknell] Discard 2, then draw 2." (rule 808)
   //
@@ -852,7 +854,7 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // asks — which is exactly why "then" needs `discardThenDraw` rather than
   // wrapping drawCards around it: the draw has to queue behind the questions, or
   // the cards it adds join the pool being discarded from.
-  "OGN-178": (state, ctx) => discardThenDraw(state, ctx.casterIndex, 2, 2),
+  "OGN-178": { resolve: (state, ctx) => discardThenDraw(state, ctx.casterIndex, 2, 2) },
 
   // Kog'Maw - Caustic — "[Deathknell] Deal 4 to all units at my battlefield."
   //
@@ -874,8 +876,10 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // `ctx.casterIndex` is his controller, which is who is dealing this damage —
   // so Annie - Fiery's +1 applies to it and a damage-modifier read from the
   // victim's side would be wrong.
-  "OGN-190": (state, ctx, death) =>
-    death.battlefieldId === undefined ? state : dealDamageToAllUnitsAt(state, ctx.casterIndex, death.battlefieldId, 4),
+  "OGN-190": {
+    resolve: (state, ctx, death) =>
+      death.battlefieldId === undefined ? state : dealDamageToAllUnitsAt(state, ctx.casterIndex, death.battlefieldId, 4),
+  },
 };
 
 /**

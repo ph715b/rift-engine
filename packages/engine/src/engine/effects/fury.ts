@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
-  DeathknellEffect,
+  DeathknellDefinition,
   DeathWatchDefinition,
   EventTriggerDefinition,
   GameEvent,
@@ -739,7 +739,7 @@ const MECH_TOKEN: TokenSpec = { name: "Mech", might: 3, tag: "Mech" };
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {
+export const deathTriggers: Record<string, DeathknellDefinition> = {
   // Ferrous Forerunner — "[Deathknell] — Play two 3 Might Mech unit tokens to
   // your base." (rule 808)
   //
@@ -751,7 +751,7 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   //
   // Two separate placements rather than a count: two tokens are two game objects
   // with two instanceIds, and `placeToken` mints one.
-  "SFD-021": (state, ctx) => [0, 1].reduce((next) => placeToken(next, ctx.casterIndex, "base", MECH_TOKEN), state),
+  "SFD-021": { resolve: (state, ctx) => [0, 1].reduce((next) => placeToken(next, ctx.casterIndex, "base", MECH_TOKEN), state) },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).

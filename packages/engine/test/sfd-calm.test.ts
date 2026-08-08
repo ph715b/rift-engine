@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
+import { resolveShowdown } from "../src/engine/combat.js";
 import { addBuff, destroyUnit, readyUnit } from "../src/engine/effect-helpers.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
@@ -662,22 +663,69 @@ describe("Lonely Poro (SFD-036): [Deathknell] — if I died ALONE, draw 1", () =
     expect(names(kill(alone.state, alone.poro.instanceId).players[0]!.hand)).toEqual(["Drawn"]);
   });
 
-  it("DIVERGENCE: a mutual wipe reads as 'alone' and draws", () => {
-    // Two friendly units at one battlefield, killed one after the other with no
-    // chain resolution in between — exactly what combat.ts's `processDefeated`
-    // does to a losing side. The rules note "alone" as each [Deathknell] is added
-    // to the chain (Cleanup step 3a), so the Poro was NOT alone and must not
-    // draw; this engine asks the question at resolution, by which time the ally
-    // has already gone to the trash.
+  it("two separate KILL INSTRUCTIONS are sequential, so the second one really is alone", () => {
+    // **Premise corrected 2026-08-07.** This case was labelled "DIVERGENCE: a
+    // mutual wipe" and it is not a mutual wipe — it is two separate Kill
+    // Instructions, and drawing is the RIGHT answer for them.
     //
-    // Asserted so the divergence is a measurement rather than a suspicion, and so
-    // that closing it (a `capture` hook on DeathknellEffect) fails here loudly
-    // instead of silently. See the card's entry in effects/calm.ts.
+    // 808's Kill Instruction rule: "When a unit with a Deathknell … is to be put
+    // in the Trash due to a Kill Instruction, it first has any such ability added
+    // to the chain as a Pending Item. Note the unit's location, attributes, and
+    // other relevant information … BEFORE COMPLETING THIS KILL INSTRUCTION."
+    // Before completing THIS one — so the first kill is finished, ally in trash,
+    // by the time the second one notes anything. The Poro is alone and draws.
+    //
+    // The real divergence is the COMBAT path, which is a different rule (Cleanup
+    // 3a/3b) and is pinned in its own test below.
     const { state, poro } = poroState((s, p) => {
       s.battlefields[0]!.units = { p1: [p, makeUnit({ instanceId: "ally", name: "Ally" })] };
     });
 
-    const wiped = resolveHeldTriggers(destroyUnit(destroyUnit(state, "ally", 1), poro.instanceId, 1));
+    const sequential = resolveHeldTriggers(destroyUnit(destroyUnit(state, "ally", 1), poro.instanceId, 1));
+    expect(names(sequential.players[0]!.hand)).toEqual(["Drawn"]);
+  });
+
+  it("the note is taken as it DIES, not as the Deathknell resolves", () => {
+    // The half `DeathknellDefinition.capture` fixed (2026-08-07). Kill the Poro
+    // FIRST while the ally still stands, then kill the ally, then resolve. The
+    // Poro was not alone when it died, so it must not draw — and before the
+    // capture hook existed it did, because the question was asked at resolution
+    // with both units already in the trash.
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = { p1: [p, makeUnit({ instanceId: "ally", name: "Ally" })] };
+    });
+
+    const poroFirst = resolveHeldTriggers(destroyUnit(destroyUnit(state, poro.instanceId, 1), "ally", 1));
+    expect(poroFirst.players[0]!.hand, "it drew despite dying beside an ally").toHaveLength(0);
+  });
+
+  it("DIVERGENCE: a COMBAT mutual wipe still reads as 'alone' and draws", () => {
+    // The reachable case, and the one still open. Cleanup steps 3a and 3b are
+    // SEPARATE and ordered: 3a says "ALL Units that have Lethal Damage marked on
+    // them and that have Deathknell … will trigger such abilities NOW, making
+    // note of their current location", and only then does 3b say "ALL Units that
+    // have Lethal Damage marked on them are killed and placed in their owners'
+    // Trash". So every note in a wipe is taken while every dying unit is still
+    // standing, and the Poro was NOT alone.
+    //
+    // `combat.processDefeated` loops `killUnit` per unit, interleaving 3a and 3b,
+    // so the ally is already trashed when the Poro's note is taken. `capture`
+    // moved the question to the right MOMENT and cannot fix the ORDER; closing
+    // this needs the 3a pass batched across all defeated units before any 3b,
+    // which is entangled with the death-replacement rules (373.1/373.2 turn on
+    // simultaneity too) and is recorded as its own piece of work.
+    //
+    // Asserted so the gap is a measurement rather than a suspicion, and so that
+    // closing it fails here loudly instead of silently.
+    const { state, poro } = poroState((s, p) => {
+      s.battlefields[0]!.units = {
+        p1: [{ ...p, might: 1 }, makeUnit({ instanceId: "ally", name: "Ally", might: 1 })],
+        p2: [makeUnit({ instanceId: "big", name: "Big", might: 6 })],
+      };
+    });
+
+    const wiped = resolveHeldTriggers(resolveShowdown(state, "bf1", 1));
+    expect(wiped.battlefields[0]!.units["p1"] ?? [], "the fixture did not actually wipe the side").toHaveLength(0);
     expect(names(wiped.players[0]!.hand), "the recorded divergence is gone — update the note").toEqual(["Drawn"]);
   });
 });

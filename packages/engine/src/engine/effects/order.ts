@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
@@ -876,7 +876,7 @@ function glascCandidates(state: GameState, playerIndex: 0 | 1) {
   );
 }
 
-export const deathTriggers: Record<string, DeathknellEffect> = {
+export const deathTriggers: Record<string, DeathknellDefinition> = {
   // Glasc Mixologist — "[Deathknell] — You may play a unit with cost no more
   // than [3] and no more than [rainbow] from your trash, ignoring its cost."
   //
@@ -891,17 +891,19 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   //
   // `ctx.casterIndex` is the dying unit's controller, which is what "your trash"
   // means for a Deathknell.
-  "SFD-165": (state, ctx) =>
-    glascCandidates(state, ctx.casterIndex).length === 0
-      ? state
-      : parkDecision(state, { kind: "SFD-165-play", playerIndex: ctx.casterIndex }),
+  "SFD-165": {
+    resolve: (state, ctx) =>
+      glascCandidates(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "SFD-165-play", playerIndex: ctx.casterIndex }),
+  },
   // Soaring Scout — "[Deathknell] Channel 1 rune exhausted." (rule 808)
   //
   // Exhausted, not Ready: the rune can still be recycled to pay a Power cost
   // this turn but cannot pay Energy until the next Awaken readies it, which is
   // what makes it weaker than a free rune. Same helper Stormclaw Ursine's
   // on-play trigger uses, so the two cannot drift.
-  "OGN-216": (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1),
+  "OGN-216": { resolve: (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1) },
 
   // Machine Evangel — "[Deathknell] — Play three 1-Might Recruit unit tokens
   // into your base." (rule 808)
@@ -913,8 +915,9 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   //
   // Three separate placements rather than a count: placeRecruitToken mints one
   // token and three tokens are three game objects with three instanceIds.
-  "OGN-239": (state, ctx) =>
-    [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
+  "OGN-239": {
+    resolve: (state, ctx) => [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
+  },
 
   // Honest Broker — "[Deathknell] — Play a Gold gear token exhausted." (rule 808)
   //
@@ -929,7 +932,7 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   //
   // Nothing is read off `death.unit`, unlike Unsung Hero below: this Deathknell
   // has no condition, so there is nothing about the corpse to ask about.
-  "SFD-155": (state, ctx) => placeGoldTokens(state, ctx.casterIndex, 1),
+  "SFD-155": { resolve: (state, ctx) => placeGoldTokens(state, ctx.casterIndex, 1) },
 
   // Unsung Hero — "[Deathknell] — If I was [Mighty], draw 2." (rule 808)
   //
@@ -947,7 +950,9 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // POSITIONAL aura (Garen - Commander's "+1 here") is not seen — `isMighty`
   // asks with no battlefield, and by now the unit is at none. Everything the
   // unit carried on itself (Might, buff, this-turn pumps) is counted.
-  "SFD-167": (state, ctx, death) => (isMighty(state, death.unit, death.ownerIndex) ? drawCards(state, ctx.casterIndex, 2) : state),
+  "SFD-167": {
+    resolve: (state, ctx, death) => (isMighty(state, death.unit, death.ownerIndex) ? drawCards(state, ctx.casterIndex, 2) : state),
+  },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).

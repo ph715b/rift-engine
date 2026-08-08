@@ -221,7 +221,51 @@ export interface DeathContext {
  * unit as the acting player, since every printed Deathknell reads "draw 1" /
  * "channel…" from that unit's controller's perspective.
  */
-export type DeathknellEffect = (state: GameState, ctx: EffectContext, death: DeathContext) => GameState;
+export type DeathknellEffect = (
+  state: GameState,
+  ctx: EffectContext,
+  death: DeathContext,
+  /** Whatever this card's `capture` noted as the Deathknell went on the Chain;
+   *  `undefined` for the ten that need nothing. */
+  captured?: unknown,
+) => GameState;
+
+/**
+ * A `[Deathknell]`, with the two hooks `EventTriggerDefinition` and
+ * `DeathWatchDefinition` already have.
+ *
+ * **This is the third family brought into line, not a new mechanism.** It exists
+ * for Lonely Poro (SFD-036), whose whole text is "if I died ALONE": 383 and
+ * Cleanup step 3a note a dying card's location "and other relevant information"
+ * as the ability is ADDED TO THE CHAIN, and `combat.processDefeated` kills a
+ * losing side one unit at a time — so a Poro that died beside an ally read as
+ * alone by the time its Deathknell resolved, and drew when it should not have.
+ *
+ * The cheap workaround (reading the other deaths still on the chain) was
+ * explicitly refused when the card was written, and correctly: placement is LIFO,
+ * so a Poro killed FIRST would see none of them and the answer would be right by
+ * accident about half the time.
+ */
+export interface DeathknellDefinition {
+  /**
+   * Whether the ability triggered at all, asked as the unit dies.
+   *
+   * The same split `EventTriggerDefinition.applies` makes: a Deathknell whose
+   * printed condition is unmet must place NO Pending Item rather than one that
+   * costs both players a PassFocus and resolves to nothing.
+   */
+  applies?: (state: GameState, death: DeathContext) => boolean;
+  /**
+   * What the ability triggered ABOUT — noted at Cleanup step 3a, while the board
+   * it died on still exists.
+   *
+   * Only for facts that MOVE. Anything still true at resolution should be re-read
+   * there; capturing a fact that has not moved just makes the entry bigger. The
+   * death itself is already carried, so this is for the board around it.
+   */
+  capture?: (state: GameState, death: DeathContext) => unknown;
+  resolve: DeathknellEffect;
+}
 
 /** Triggers that fire when SOMEONE ELSE dies — Wraith of Echoes' "the first time
  *  a friendly unit dies each turn", Vanguard Helm's "when a buffed friendly unit
@@ -247,12 +291,12 @@ export interface DeathWatchDefinition {
   resolve: DeathWatchEffect;
 }
 
-let composedDeathknells: Record<string, DeathknellEffect> | null = null;
+let composedDeathknells: Record<string, DeathknellDefinition> | null = null;
 
 /** Composed lazily for the same import-cycle reason as card-effects.ts's
  *  ALL_CARD_EFFECTS — see that comment. */
-function allDeathknells(): Record<string, DeathknellEffect> {
-  composedDeathknells ??= mergeRegistries<DeathknellEffect>("Deathknell effect", [
+function allDeathknells(): Record<string, DeathknellDefinition> {
+  composedDeathknells ??= mergeRegistries<DeathknellDefinition>("Deathknell effect", [
     { name: "engine/triggers.ts", entries: {} },
     ...domainDeathTriggers(),
   ]);
@@ -504,7 +548,18 @@ export function holdUnitDied(state: GameState, death: DeathContext): GameState {
  * fired. Reading the board at resolution would let it.
  */
 function holdDeathknell(state: GameState, death: DeathContext): GameState {
-  if (!allDeathknells()[death.unit.defId]) return state;
+  const definition = allDeathknells()[death.unit.defId];
+  if (!definition) return state;
+  // Asked as the unit dies, so a Deathknell whose printed condition is unmet
+  // places no Pending Item at all rather than one that costs both players a
+  // PassFocus and resolves to nothing.
+  if (definition.applies && !definition.applies(state, death)) return state;
+  // **Cleanup step 3a**: the dying card's location "and other relevant
+  // information" are noted as the ability is ADDED TO THE CHAIN. `state` here is
+  // still the board it died on — `processDefeated` has not yet taken the next
+  // unit of a losing side — which is the entire point of capturing here rather
+  // than reading at resolution.
+  const captured = definition.capture?.(state, death);
   const entry: TriggerChainEntry = {
     kind: "trigger",
     source: "deathknell",
@@ -525,6 +580,7 @@ function holdDeathknell(state: GameState, death: DeathContext): GameState {
     event: {
       death,
       times: (1 + karthusCount(state, death.ownerIndex)) * (1 + textCopiesAmong(death.wornEquipment)),
+      ...(captured !== undefined ? { captured } : {}),
     },
   };
   return { ...state, pendingTriggers: [...state.pendingTriggers, entry] };
@@ -535,6 +591,9 @@ function holdDeathknell(state: GameState, death: DeathContext): GameState {
 interface HeldDeathknell {
   death: DeathContext;
   times: number;
+  /** What `capture` noted at Cleanup step 3a, for the abilities that ask about
+   *  the board they died on rather than about the death itself. */
+  captured?: unknown;
 }
 
 /**
@@ -545,11 +604,13 @@ interface HeldDeathknell {
  * Chain is independent of the card that made it.
  */
 export function resolveHeldDeathknell(state: GameState, entry: TriggerChainEntry): GameState {
-  const trigger = allDeathknells()[entry.listenerDefId];
-  if (!trigger) return state;
-  const { death, times } = entry.event as HeldDeathknell;
+  const definition = allDeathknells()[entry.listenerDefId];
+  if (!definition) return state;
+  const { death, times, captured } = entry.event as HeldDeathknell;
   let next = state;
-  for (let i = 0; i < times; i += 1) next = trigger(next, contextFor(death.ownerIndex), death);
+  for (let i = 0; i < times; i += 1) {
+    next = definition.resolve(next, contextFor(death.ownerIndex), death, captured);
+  }
   return next;
 }
 

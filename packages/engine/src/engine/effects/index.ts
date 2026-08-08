@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
-import type { DeathknellEffect, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
@@ -69,7 +69,7 @@ export const domainUnitTriggers: Record<string, UnitTriggerDefinition> = mergeRe
  *  SOURCES rather than an already-merged record — triggers.ts composes them
  *  lazily to stay clear of the card-effects import cycle, so it needs the
  *  un-merged list. */
-export function domainDeathTriggers(): { name: string; entries: Record<string, DeathknellEffect> }[] {
+export function domainDeathTriggers(): { name: string; entries: Record<string, DeathknellDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.deathTriggers,

@@ -1,7 +1,7 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
-  DeathknellEffect,
+  DeathknellDefinition,
   DeathWatchDefinition,
   EventTriggerDefinition,
   SelfTriggerDefinition,
@@ -905,7 +905,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
-export const deathTriggers: Record<string, DeathknellEffect> = {
+export const deathTriggers: Record<string, DeathknellDefinition> = {
   // Watchful Sentry — "[Deathknell] — Draw 1." (rule 808, "When I die, [Effect]".)
   //
   // The DYING unit's controller draws, not whoever killed it: dispatchOnUnitDied
@@ -917,7 +917,7 @@ export const deathTriggers: Record<string, DeathknellEffect> = {
   // Nothing here is conditional on HOW it died: 808 is every death, and the
   // funnel dispatchOnUnitDied sits behind (damage, destroy, combat) is what
   // makes that true rather than three separate sites remembering to fire.
-  "OGN-096": (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  "OGN-096": { resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1) },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
