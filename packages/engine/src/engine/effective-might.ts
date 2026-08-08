@@ -132,6 +132,18 @@ const ZEALOT_FLOOR = 1;
  * "At my battlefield" is positional, so he gets nothing while he stands in base —
  * the same reading, for the same reason, as Lee Sin's aura below.
  */
+/** Soul Shepherd (UNL-077) — "Your token units have +1 Might." The first aura
+ *  here keyed on a PROPERTY of the recipient rather than on a location. */
+const SOUL_SHEPHERD = "UNL-077";
+const SOUL_SHEPHERD_BONUS = 1;
+/** Petal Pixie (UNL-076) — "+1 Might for each of your units with [Temporary] at
+ *  my battlefield." Sett - Kingpin's self-scaling shape, different predicate. */
+const PETAL_PIXIE = "UNL-076";
+/** Crimson Pigeons (UNL-154) — "+2 Might while I'm attacking with another unit."
+ *  The only entry here gated on combat ROLE rather than on the board. */
+const CRIMSON_PIGEONS = "UNL-154";
+const CRIMSON_PIGEONS_BONUS = 2;
+
 const SETT_KINGPIN = "OGN-240";
 /**
  * Draven - Showboat: "My Might is increased by your points."
@@ -180,7 +192,28 @@ export function effectiveMightDefIds(): string[] {
     // is per defId, so either half alone would report him finished. Both landed
     // in the same change, which is what keeps him off PARTIALLY_IMPLEMENTED.
     RUMBLE_SCRAPPER,
+    // Unleashed's three, added 2026-08-08. All three were REFUSED by the first
+    // parallel card wave for the same reason — this file is shared, so no
+    // per-domain agent could reach it — and all three are entries in the table
+    // rather than the "per-domain continuous-Might registry" those refusals
+    // asked for. The table's own note above is the answer to that request: a
+    // small precise table is the deliberate design here, not a gap.
+    SOUL_SHEPHERD,
+    PETAL_PIXIE,
+    CRIMSON_PIGEONS,
   ];
+}
+
+/**
+ * Is a Soul Shepherd of this player's in play at all?
+ *
+ * Its own function because the aura has NO location test — every other
+ * positional helper here compares two locations, and this one only has to find
+ * the source. `ownUnitLocation` answers "where", and "anywhere" is exactly
+ * "not undefined".
+ */
+function isSoulShepherdAuraSource(state: GameState, ownerIndex: 0 | 1): boolean {
+  return ownUnitLocation(state, ownerIndex, SOUL_SHEPHERD) !== undefined;
 }
 
 /**
@@ -250,6 +283,66 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     const ownerId = state.players[ownerIndex].id;
     const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
     bonus += here.filter((u) => u.buffed).length;
+  }
+
+  // Soul Shepherd (UNL-077) — "Your token units have +1 Might."
+  //
+  // An aura over a PROPERTY of the recipient rather than over a location, which
+  // is new here: every other aura above asks where a unit is standing, and this
+  // one asks what it is. So there is no `ownLocation` test at all — the card
+  // prints no "here", and a token in base is one of "your token units".
+  //
+  // `isToken` is an INSTANCE field and deliberately so: a token has no
+  // CardDefinition, so nothing definition-shaped could answer this. It is also
+  // why the Shepherd cannot be expressed as a `KEYWORD_AURAS` entry using
+  // `appliesToDef`.
+  //
+  // Includes the Shepherd himself only if he is somehow a token, which no card
+  // in the pool does — no "other" is printed, so no exclusion is written.
+  if (isSoulShepherdAuraSource(state, ownerIndex) && unit.isToken) {
+    bonus += SOUL_SHEPHERD_BONUS;
+  }
+
+  // Petal Pixie (UNL-076) — "I have +1 Might for each of your units with
+  // [Temporary] at my battlefield."
+  //
+  // Self-scaling and POSITIONAL, so it is Sett - Kingpin's shape with a
+  // different predicate: 0 in base, because "at my battlefield" cannot be
+  // satisfied by a unit that is at none.
+  //
+  // Counts through `keywords` rather than `effectiveKeywords` — a GRANTED
+  // [Temporary] would be missed, and that is a real gap the day something grants
+  // it. Nothing in the four-set pool does (Turn to Dust, UNL-070, grants it to
+  // GEAR, which is not a unit), so the cheaper read is the honest one for now
+  // and this comment is what says when to revisit.
+  //
+  // No "other", so the Pixie counts herself if she is Temporary.
+  if (unit.defId === PETAL_PIXIE && ownLocation !== "base") {
+    const ownerId = state.players[ownerIndex].id;
+    const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
+    bonus += here.filter((u) => "Temporary" in u.keywords).length;
+  }
+
+  // Crimson Pigeons (UNL-154) — "I have +2 Might while I'm attacking with
+  // another unit."
+  //
+  // The only conditional here gated on COMBAT ROLE rather than on the board, so
+  // it reads `ctx` rather than `state`: `isCombat && isAttackingSide`. Outside a
+  // combat, and while defending, it is simply absent — which is what separates
+  // this from `[Assault]`, whose bonus this otherwise resembles.
+  //
+  // "ANOTHER unit" is by INSTANCE (Trusty Ramhound's reading), and it means
+  // another unit of the Pigeons' own on the same battlefield — an attacking side
+  // is one player's units at one location. A count of 2+ own units there is
+  // therefore exactly "attacking with another".
+  //
+  // Applies to BOTH combat roles, like [Assault] while attacking: the card
+  // prints a flat "+2 Might" with no restriction to damage dealt, so it raises
+  // what the Pigeons absorb as well as what they deal.
+  if (unit.defId === CRIMSON_PIGEONS && ctx.isCombat && ctx.isAttackingSide === true && ownLocation !== "base") {
+    const ownerId = state.players[ownerIndex].id;
+    const here = state.battlefields.find((b) => b.id === ownLocation)?.units[ownerId] ?? [];
+    if (here.length > 1) bonus += CRIMSON_PIGEONS_BONUS;
   }
 
   // Ornn - Forge God — "I have +1 Might for each friendly gear."

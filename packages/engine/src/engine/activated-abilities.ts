@@ -10,6 +10,10 @@ import { goldAddsExtraEnergy } from "./board-restrictions.js";
 const EZREAL_CHOICES_NEEDED = 2;
 
 const ORNN_GEAR_POWER = 1;
+/** Xerath - Freed (UNL-026) — a FLAT 3, unlike Caitlyn's "equal to my Might". */
+const XERATH_DAMAGE = 3;
+/** Dragonsoul Sage (UNL-093) — "[Add] [1 Energy]", unrestricted. */
+const DRAGONSOUL_SAGE_ENERGY = 1;
 /** Renata Glasc - Chem-Baroness's "an additional [1]" on each Gold. */
 const RENATA_GOLD_BONUS_ENERGY = 1;
 import { contextFor, type EffectContext } from "./effect-context.js";
@@ -949,6 +953,65 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     kind: "Unit",
     targeting: { kind: "none" },
     resolve: (state, _ctx, _event, sourceInstanceId) => addBuff(state, sourceInstanceId),
+  },
+  "UNL-026": {
+    // Xerath - Freed — "[Fury], [Exhaust]: Deal 3 to a unit. Use this ability
+    // only while I'm at a battlefield."
+    //
+    // Caitlyn - Patrolling below with two differences, both printed. The damage
+    // is a FLAT 3 rather than "equal to my Might", so nothing is read at
+    // resolution and no aura can change it. And the cost carries a Fury Power
+    // pip on top of the exhaust — `payPowerFromChanneled` recycles a matching
+    // rune, which is why the domain is named rather than left null.
+    //
+    // **"A unit", not "a unit at a battlefield"** — the distinction is
+    // load-bearing here and the two cards differ on it. Caitlyn's text names a
+    // battlefield and takes the default scope; Xerath's is a bare noun, so
+    // 355.9.b makes it the whole board and base units are legal targets. Written
+    // out explicitly rather than defaulted, because the default is the other
+    // answer.
+    //
+    // "Only while I'm at a battlefield" restricts ACTIVATING, so it is
+    // `availableWhile` and not a check in the resolver — a resolver that refused
+    // would have taken the exhaust and the rune for nothing.
+    kind: "Unit",
+    cost: { power: { domain: "Fury", count: 1 }, exhaust: true },
+    targeting: { kind: "unit", scope: "anywhere" },
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      findUnitOnBattlefield(state, sourceInstanceId)?.ownerIndex === playerIndex,
+    resolve: (state, ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      return dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, XERATH_DAMAGE);
+    },
+  },
+  "UNL-093": {
+    // Dragonsoul Sage — "[Reaction] → [Exhaust]: [Add] [1 Energy]."
+    //
+    // A rune-producer, so `banksResource` like the Seals, Malzahar and Ornn: it
+    // adds a resource the board evaluator cannot price, so the AI will not take
+    // it. Recorded rather than worked around, per this project's standing rule
+    // against speculative heuristics with no evaluative basis.
+    //
+    // **The `[Reaction]` needs nothing here.** It is a TIMING permission on the
+    // ability, and `card-loader` already sets `isReaction` from the printed
+    // token; timing.ts enforces it. The reminder text "(Abilities that add
+    // resources can't be reacted to.)" is likewise not this table's business —
+    // it is a restriction on the OPPONENT responding, which this engine cannot
+    // express at all because no activation opens a response window. That is the
+    // standing chain divergence already recorded, not a new one for this card.
+    //
+    // Unrestricted `floatingEnergy`, unlike Ornn's `restrictedGearPower`: the
+    // card prints no "use only to…" clause.
+    kind: "Unit",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, floatingEnergy: actor.floatingEnergy + DRAGONSOUL_SAGE_ENERGY };
+      return { ...state, players };
+    },
   },
   "OGN-068": {
     // Caitlyn - Patrolling — "Exhaust: Deal damage equal to my Might to a unit at

@@ -87,6 +87,10 @@ export function playCardDefIds(): string[] {
     DIREWING,
     BREAKNECK_MECH,
     XIN_ZHAO_VIGILANT,
+    // UNL's, added 2026-08-08. Refused by the parallel card wave because this
+    // file is shared; that refusal was right, and the fix is a case rather than
+    // the hook the refusal asked for.
+    TOWERING_PAIROFANT,
     ...GEAR_ENTERING_EXHAUSTED,
   ];
 }
@@ -138,21 +142,39 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     //
     // `card-loader`'s QUICK_TEXT_OVERRIDES comment already rejected "a
     // redundant on-play un-exhaust effect" for this exact text.
-    sfdConditionalEntersReady(state, playerIndex, card)
+    conditionalEntersReady(state, playerIndex, card)
   );
 }
 
 /**
- * The four SFD units whose "I enter ready" carries a condition.
+ * The units whose "I enter ready" carries a condition — SFD's four, and UNL's.
  *
  * Asked BEFORE the unit is inserted into its zone (see this function's only
  * caller in execute-play-card), so a count of "other units" needs no
  * self-exclusion — the arriving unit is not there yet. Pinned by a test,
  * because that is exactly the sort of off-by-one that reads correct.
+ *
+ * **Renamed off `sfdConditionalEntersReady` on 2026-08-08**, when Unleashed
+ * added to it. The old name was accurate when written and became a small lie the
+ * moment a second set printed the same shape; a set-scoped name on a
+ * pool-wide table is how a future card gets a near-duplicate function instead
+ * of a case.
  */
-function sfdConditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: UnitInstance): boolean {
+function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: UnitInstance): boolean {
   const player = state.players[playerIndex];
   switch (card.defId) {
+    case TOWERING_PAIROFANT:
+      // UNL — "If a unit died this turn, I enter ready."
+      //
+      // ANY unit, either side: the card prints no "friendly" and no "enemy",
+      // and 355.10.a.1's bare noun is the whole board. So both players'
+      // counters are summed, and a Pairofant played after trading in combat
+      // arrives ready off the opponent's loss as readily as your own.
+      //
+      // Needs NO new state — `unitsLostThisTurn` is incremented in the death
+      // funnel and zeroed for both players by `runEnd`, which is exactly the
+      // "this turn" window the card asks about.
+      return state.players[0].unitsLostThisTurn + state.players[1].unitsLostThisTurn > 0;
     case DUNEBREAKER:
       // "If you have two or fewer cards in your hand, I enter ready." Read
       // AFTER he has left hand to be played, which is what "you have" means at
@@ -185,6 +207,9 @@ const DUNEBREAKER_MAX_HAND = 2;
 const DIREWING = "SFD-094";
 const BREAKNECK_MECH = "SFD-071";
 const XIN_ZHAO_VIGILANT = "SFD-176";
+/** Towering Pairofant (UNL-008) — "If a unit died this turn, I enter ready."
+ *  ANY unit, either side, which is why its case sums both players' counters. */
+const TOWERING_PAIROFANT = "UNL-008";
 const XIN_ZHAO_OTHER_UNITS = 2;
 
 /**

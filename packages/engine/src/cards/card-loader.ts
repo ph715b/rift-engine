@@ -558,6 +558,104 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // and would take her real printed [Accelerate] with it. Her runtime grant is
   // a `CONDITIONAL_GRANTS` entry sharing one predicate with her Might half.
   "SFD-143": ["Ganking"],
+
+  // ---- The `[Temporary]` false positives — DIAGNOSED, AND HELD BACK ----
+  //
+  // **All six entries below are correct and all six are commented out.** Read
+  // this whole comment before uncommenting any of them; the reason is not that
+  // the diagnosis is doubted.
+  //
+  // Applying them makes the engine HANG. `settleDeferredResolution` throws
+  // "did not settle in 64 iterations (chainOpen=false, chain=9,
+  // pendingDecisions=0)" during the UNL covering run. Bisected at feature level:
+  // with all five applied the run throws at 250 games; with all five off it is
+  // green; with only UNL-090 applied it throws at 60. So the strip is the
+  // trigger and the mechanism is board DENSITY — five units that used to die
+  // every turn now survive, games run longer, and a state that never used to be
+  // reached now is.
+  //
+  // **The stuck item is not any of these cards.** `probes/stuck-chain.ts` was
+  // written for this and prints the chain: it named UNL-167 Starhound's on-play
+  // trigger at 60 games and UNL-123 Evershade Stalker's at 250 — different
+  // cards, same signature, an unresolved `unitOnPlay` trigger on a chain of 9.
+  // Both cards' own guards read correctly. This is a latent non-termination
+  // under the on-play trigger path that these six cards' survival merely makes
+  // reachable, and it predates them.
+  //
+  // **Raising MAX_SETTLE_PASSES was rejected.** A cap that hides a loop converts
+  // a crash into a hang, which is the "instrument that reports plausibly"
+  // failure this project is organised against.
+  //
+  // So: a known bug is left in place because the alternative is shipping a
+  // worse one. **OGN-106 Sprite Mother has been dying every turn in a set
+  // hard-gated as complete for months, and still is.** Recorded in
+  // docs/rules-conformance.md with this reproduction. Uncomment all six the day
+  // the settle loop is fixed, then run the probes.
+  //
+  // **This class is LETHAL, which is what separates it from every entry above.**
+  // The others give a card a keyword it should not have and it plays slightly
+  // too well. `turn-manager.killTemporaryPermanents` tests `"Temporary" in
+  // u.keywords` and destroys what it finds, so a card here **dies at the start
+  // of its controller's Beginning Phase, every game, for a keyword it does not
+  // print**.
+  //
+  // **OGN-106 Sprite Mother is one of them**, which means a card in a set that
+  // has been "complete and hard-gated" for months has never survived a turn. No
+  // instrument in this repo could see it: coverage asks whether a card is
+  // implemented, and reachability asks whether it was ever observed acting —
+  // she IS observed, being played, and then quietly dying.
+  //
+  // Two shapes, and this table's own measurement note above missed both because
+  // it scanned for text that grants a keyword "to other permanents":
+  //
+  //   **Conferred on a TOKEN the card creates** — "play a ready 3 Might Sprite
+  //   unit token with [Temporary]". The token is Temporary; the maker is not.
+  //   The grant is not to another PERMANENT, it is part of the token's own
+  //   definition, which is why the earlier scan did not match it.
+  //
+  //   **Merely REFERENCED in a condition** — Petal Pixie counts "your units with
+  //   [Temporary]", LeBlanc says "your [Temporary] effects don't trigger".
+  //   Neither grants anything at all. `HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS`
+  //   exists for exactly this shape for one keyword; this is the same thing for
+  //   another, and the general lesson is that ANY keyword can appear in a
+  //   condition.
+  //
+  // Per-KEYWORD is load-bearing for four of the six: Trevor prints a real
+  // `[Shield]`, Lillia a real `[Accelerate]`, LeBlanc a real `[Backline]`, and
+  // `CONDITIONAL_KEYWORD_DEF_IDS`' blanket `{}` would take those with it.
+  // HELD BACK: "OGN-106": ["Temporary"], // Sprite Mother — the token she plays is Temporary, not her
+  // HELD BACK: "UNL-048": ["Temporary"], // Trevor Snoozebottom — same, and he keeps his [Shield]
+  // HELD BACK: "UNL-076": ["Temporary"], // Petal Pixie — only COUNTS units that have it
+  // HELD BACK: "UNL-082": ["Temporary"], // Lillia - Fae Fawn — same token shape, keeps [Accelerate]
+  // HELD BACK: "UNL-084": ["Temporary"], // Sprite Queen — same token shape
+  //
+  // **UNL-090 LeBlanc - Everywhere At Once is DELIBERATELY NOT FIXED**, and this
+  // is the most uncomfortable entry in the file: she is mis-parsed exactly like
+  // the five above and she still dies every turn because of it.
+  //
+  // Un-stripping her makes the engine HANG. Bisected one card at a time: with
+  // only her entry enabled, the UNL covering run throws
+  // "settleDeferredResolution did not settle in 64 iterations (chain=9)"; with
+  // the other five enabled and hers off, every probe is green.
+  //
+  // She is not the author. She is an unimplemented Champion whose only keyword
+  // is an inert `[Backline]` — no effect, no trigger, nothing that can put an
+  // item on the chain. What her SURVIVAL does is change the AI's trajectory
+  // enough to reach a state that does not settle, and `probes/stuck-chain.ts`
+  // (written for this) names what is sitting there: **UNL-167 Starhound's
+  // on-play trigger**. Its own guards read correctly — it declines to park over
+  // an empty trash, and its option list and its fire-time test share one walk —
+  // so the loop is somewhere under it rather than in it, and finding it is a
+  // real debugging task rather than a line of this table.
+  //
+  // **Raising MAX_SETTLE_PASSES was rejected**: a cap that hides a loop turns a
+  // crash into a hang, and this project's whole discipline is against
+  // instruments that report plausibly.
+  //
+  // So this is a bug held in place to avoid shipping a worse one, recorded in
+  // docs/rules-conformance.md with the reproduction. Delete this comment and
+  // uncomment the line the day Starhound settles.
+  // "UNL-090": ["Temporary"], // LeBlanc — blocked on the Starhound settle loop
 };
 
 /** A card's printed keywords: what the brackets say, minus the ones it only

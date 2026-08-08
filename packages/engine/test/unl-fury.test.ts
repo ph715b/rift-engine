@@ -139,9 +139,16 @@ describe("the eight cards this file is about are the cards the registry prints",
     );
     expect(partialImplementationNote(registry.get(KATARINA_RECKLESS))).toMatch(/hide a card/);
     // The negative half is what keeps this test honest: it fails the moment a
-    // sibling implements one of the four refusals, which is exactly when this
-    // file's report about them has gone stale and should be re-read.
-    for (const defId of [PREPARED_NEOPHYTE, REVNA_THE_LOREKEEPER, TOWERING_PAIROFANT, XERATH_FREED]) {
+    // sibling implements one of the refusals, which is exactly when this file's
+    // report about them has gone stale and should be re-read.
+    //
+    // **It did its job the same day.** TOWERING_PAIROFANT and XERATH_FREED were
+    // refused here because `deploy.ts` and `ACTIVATED_ABILITIES` are shared
+    // files no domain agent may touch; both were implemented in the follow-up
+    // primitives pass and are pinned in `test/unl-primitives.test.ts` instead.
+    // Two refusals remain, and both need state that does not exist yet: a record
+    // of Energy actually spent on a spell.
+    for (const defId of [PREPARED_NEOPHYTE, REVNA_THE_LOREKEEPER]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} is implemented now — this file's REFUSED note is stale`).toBe(
         false,
       );
