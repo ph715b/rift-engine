@@ -287,7 +287,39 @@ a single table and concurrent edits to it will conflict.
 The known-stale one to start from: **"Controller vs owner"**, which claims to
 block a card that shipped.
 
-### 2b. The fixes worth making, in order
+### 2b. DONE (2026-08-07) — all three, one of them only half, and said so
+
+Each is recorded in `docs/rules-conformance.md` in the same change, and each is
+pinned by a test. **The rules PDF was read for every one of them**, and it
+corrected the plan or the row in all three cases:
+
+1. **A BASE as a spell's move destination — CLOSED.** The row cited "rule 1442";
+   the worked example is **359.3.e**. It also said "all six move-target spells";
+   it is **five** — Showstopper and Stormbringer print "to a battlefield" and
+   correctly cannot reach base, and Relentless Pursuit, which the row omitted,
+   can. The one example fixes both halves in opposite directions: the destination
+   is OFFERED even at Vilemaw's Lair and it is the MOVE that is ignored, so
+   gating the enumerator would contradict the rule. **Measured in play:
+   reachability 429 → 430, and the card that moved is Temptation**, which prints
+   "move an enemy unit to a LOCATION".
+2. **Tideturner — CLOSED.** `TargetingSpec.optionalChoice`, read by the
+   enumerator AND the validator, with 402.2 as the rule. A census test asserts it
+   is still the only card carrying the flag.
+3. **`[Deathknell]` reading the board it died on — HALF closed, honestly.** The
+   `applies`/`capture` pair exists now and fixes the **Kill Instruction** path
+   (808: note "before completing this Kill Instruction"). The **combat wipe is
+   still open** and is the reachable one: Cleanup 3a notes for ALL lethally
+   damaged units before 3b trashes any, while `processDefeated` interleaves them
+   per unit. `capture` fixed the MOMENT and cannot fix the ORDER. **The old pin
+   was itself wrong** — labelled "a mutual wipe" while driving two sequential
+   `destroyUnit` calls, which are two Kill Instructions where drawing is
+   CORRECT. It now drives a real `resolveShowdown`.
+
+**Next piece of work here**: batch Cleanup 3a across all defeated units before
+any 3b. It is entangled with the death-replacement rules (373.1/373.2 turn on
+simultaneity too), which is why it was not done blind.
+
+### 2b (as originally specified). The fixes worth making, in order
 
 1. **A BASE as a spell's move destination.** The strongest case left: **six cards
    are weaker than printed** — Charm, Showstopper, Ride The Wind, Stormbringer,
@@ -351,11 +383,14 @@ Do not start UNL until all of these hold:
       control is red unless every never-exercised card is either proven reachable
       by the enumerator having OFFERED it (33 of them) or carries a written
       reason (6). Currently 0 unexplained. Mutation-proven by deleting an entry.
-- [ ] Every Divergent row re-read against the code, with the stale ones corrected.
-- [ ] The three Phase 2b fixes landed, each recorded in
+- [x] Every Divergent row re-read against the code, with the stale ones corrected.
+      All 60 swept 2026-08-07; three were stale, all corrected in place.
+- [x] The three Phase 2b fixes landed, each recorded in
       `docs/rules-conformance.md` in the same change and PINNED by a test where
-      the gap stays open.
-- [ ] `docs/wip/remaining.json` deleted.
+      the gap stays open. Two closed outright; the Deathknell one closed its Kill
+      Instruction half and PINS the combat half that remains.
+- [x] `docs/wip/remaining.json` deleted — after re-measuring it rather than
+      trusting the note: all 66 ids resolve and all 66 are implemented.
 - [ ] XP / rule 728 scoped in writing, against the rules PDF and the oracle.
 
 ## Housekeeping to fold in anywhere
