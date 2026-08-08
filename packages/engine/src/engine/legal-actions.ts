@@ -16,6 +16,7 @@ import { counterFilter, counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
   eligibleTargets,
+  findUnitAnywhere,
   findUnitOnBattlefield,
   shareABattlefield,
   unitListCandidates,
@@ -37,6 +38,7 @@ import {
   cardModesOf,
   cardMovesTarget,
   costExhaustsLegend,
+  cardMayMoveToBase,
   cardPlacesTokens,
   moveDestinationAllowed,
   type TargetingSpec,
@@ -95,10 +97,27 @@ import type { CardInstance } from "../model/card.js";
 export function secondTargetIsAtDestination(
   state: GameState,
   targeting: { kind: string; secondAtDestination?: true },
-  action: { secondTargetUnitInstanceId?: string; destinationBattlefieldId?: string },
+  action: {
+    targetUnitInstanceId?: string;
+    secondTargetUnitInstanceId?: string;
+    destinationBattlefieldId?: string;
+    destinationIsBase?: true;
+  },
 ): boolean {
   if (targeting.kind !== "unitSlots" || targeting.secondAtDestination !== true) return true;
   if (action.secondTargetUnitInstanceId === undefined) return true; // nothing chosen yet
+  // The destination is a BASE — Dragon's Rage sending an enemy home and then
+  // naming "another enemy unit at its destination", which is another unit
+  // standing in that same base. `baseUnits` is per player and 107.2.c puts a
+  // unit only in its controller's, so "the destination" is the base of whoever
+  // owns the second target: they are at the same base exactly when they share a
+  // controller.
+  if (action.destinationIsBase === true) {
+    const second = findUnitAnywhere(state, action.secondTargetUnitInstanceId);
+    if (second === undefined || second.zone !== "base") return false;
+    const moved = action.targetUnitInstanceId === undefined ? undefined : findUnitAnywhere(state, action.targetUnitInstanceId);
+    return moved !== undefined && moved.ownerIndex === second.ownerIndex;
+  }
   if (action.destinationBattlefieldId === undefined) return false;
   const at = findUnitOnBattlefield(state, action.secondTargetUnitInstanceId);
   return at !== undefined && state.battlefields[at.battlefieldIndex]!.id === action.destinationBattlefieldId;
@@ -1010,15 +1029,41 @@ export function legalActions(state: GameState): PlayerAction[] {
       ? variantsWithLegend.flatMap((v) => {
           const currentBattlefieldIndex =
             v.targetUnitInstanceId !== undefined ? findUnitOnBattlefield(state, v.targetUnitInstanceId)?.battlefieldIndex : undefined;
-          return state.battlefields
+          const toBattlefields: Partial<PlayCardAction>[] = state.battlefields
             .filter((_bf, index) => index !== currentBattlefieldIndex)
-            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }))
+            .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }));
+          // **BASE is a Location too** (197 / 107.2.b), and 355.7 makes every
+          // Location the unit may be present at a valid Move Destination — the
+          // rules work this exact case at 359.3.e ("Base is a legal move
+          // destination for Ride the Wind"). Only for the cards whose printed
+          // text does not name a battlefield, which `cardMayMoveToBase` decides.
+          //
+          // Offered only when the unit is AT a battlefield: 355.7 excludes the
+          // Unit's current Location, and a unit already in base has no move to
+          // make. `currentBattlefieldIndex` is undefined exactly then.
+          //
+          // **Deliberately NOT gated on Vilemaw's Lair**, and that is 359.3.e
+          // rather than an oversight: its worked example is a Ride the Wind at
+          // the Lair, where the destination is legal and the CHOICE is offered,
+          // and it is the move INSTRUCTION that is ignored on resolution. Gating
+          // the enumerator would make the engine refuse a choice the rules
+          // explicitly allow.
+          const toBase: Partial<PlayCardAction>[] =
+            cardMayMoveToBase(card.defId) && currentBattlefieldIndex !== undefined
+              ? [{ ...v, destinationIsBase: true as const }]
+              : [];
+          return [...toBattlefields, ...toBase]
             .filter((withDest) => secondTargetIsAtDestination(state, targeting, withDest))
             // Temptation's "to a location where there's a unit with the same
             // controller" — the same predicate the validator re-derives, so a
             // destination can never be offered and then refused.
             .filter((withDest) =>
-              moveDestinationAllowed(state, card.defId, withDest.targetUnitInstanceId, withDest.destinationBattlefieldId!),
+              moveDestinationAllowed(
+                state,
+                card.defId,
+                withDest.targetUnitInstanceId,
+                withDest.destinationIsBase === true ? "base" : withDest.destinationBattlefieldId!,
+              ),
             );
         })
       : variantsWithLegend;

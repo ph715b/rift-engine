@@ -112,17 +112,27 @@ describe("Ride The Wind (OGN-173): move a friendly unit and ready it", () => {
 
   it("never offers the battlefield the unit is ALREADY standing at", () => {
     // The filter that was silently inert for a friendly target. Rider is at bf1,
-    // so only bf2 is a real destination — offering bf1 would be a no-op move the
-    // caster paid full price for.
+    // so only bf2 is a real BATTLEFIELD destination — offering bf1 would be a
+    // no-op move the caster paid full price for.
+    //
+    // **Premise updated 2026-08-07**: base became a legal destination (355.7,
+    // and 359.3.e names THIS CARD's base move by example), so the variants are
+    // no longer battlefields alone. The assertion is not weakened — it is made
+    // exact by partitioning the variants and checking both halves, so neither a
+    // lost battlefield filter nor a lost base variant can hide in the other.
     const { state: s, spellId } = state();
     s.players[0]!.baseUnits = [];
     s.battlefields[0]!.units = { p1: [makeUnit({ name: "Rider", instanceId: "rider", exhausted: true })] };
 
-    const destinations = playsOf(s, spellId).map((p) => p.destinationBattlefieldId);
+    const plays = playsOf(s, spellId);
+    const toBattlefields = plays.filter((p) => p.destinationIsBase !== true).map((p) => p.destinationBattlefieldId);
+    const toBase = plays.filter((p) => p.destinationIsBase === true);
 
-    expect(destinations.length, "no play was enumerated — the fixture is wrong, not the filter").toBeGreaterThan(0);
-    expect(destinations).not.toContain("bf1");
-    expect(new Set(destinations)).toEqual(new Set(["bf2"]));
+    expect(plays.length, "no play was enumerated — the fixture is wrong, not the filter").toBeGreaterThan(0);
+    expect(toBattlefields).not.toContain("bf1");
+    expect(new Set(toBattlefields)).toEqual(new Set(["bf2"]));
+    expect(toBase, "base is a legal move destination and was not offered").toHaveLength(1);
+    expect(toBase[0]!.destinationBattlefieldId, "a base variant must not also name a battlefield").toBeUndefined();
   });
 
   it("is reported as implemented by coverage", () => {

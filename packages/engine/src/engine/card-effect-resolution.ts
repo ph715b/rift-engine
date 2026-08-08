@@ -23,6 +23,7 @@ function choicesOf(entry: SpellChainEntry): ResolveEvent {
     ...(entry.additionalCostUnitInstanceId !== undefined ? { additionalCostUnitInstanceId: entry.additionalCostUnitInstanceId } : {}),
     ...(entry.additionalCostUnitInstanceIds !== undefined ? { additionalCostUnitInstanceIds: entry.additionalCostUnitInstanceIds } : {}),
     ...(entry.destinationBattlefieldId !== undefined ? { destinationBattlefieldId: entry.destinationBattlefieldId } : {}),
+    ...(entry.destinationIsBase === true ? { destinationIsBase: true as const } : {}),
     ...(entry.discardCardInstanceId !== undefined ? { discardCardInstanceId: entry.discardCardInstanceId } : {}),
     ...(entry.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: entry.targetPermanentInstanceId } : {}),
   };
@@ -57,6 +58,11 @@ function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
     targetBattlefieldId: _d,
     targetChainCardInstanceId: _e,
     destinationBattlefieldId: _f,
+    // Dropped with its battlefield twin: the two are one choice in two fields,
+    // and carrying the base flag over while replacing the battlefield id would
+    // let a second execution inherit "to base" from the first and then also name
+    // a battlefield — the malformed pair the validator refuses.
+    destinationIsBase: _h,
     targetPermanentInstanceId: _g,
     ...carriedOver
   } = first;
@@ -68,6 +74,7 @@ function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
     ...(second.targetBattlefieldId !== undefined ? { targetBattlefieldId: second.targetBattlefieldId } : {}),
     ...(second.targetChainCardInstanceId !== undefined ? { targetChainCardInstanceId: second.targetChainCardInstanceId } : {}),
     ...(second.destinationBattlefieldId !== undefined ? { destinationBattlefieldId: second.destinationBattlefieldId } : {}),
+    ...(second.destinationIsBase === true ? { destinationIsBase: true as const } : {}),
     ...(second.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: second.targetPermanentInstanceId } : {}),
   };
 }

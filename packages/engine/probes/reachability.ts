@@ -102,7 +102,18 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * It is only comparable at that depth — the table above is the whole reason — so
  * a `GAMES=40` run is expected to sit below it and does not gate.
  */
-const PINNED_UNION = 429;
+/**
+ * **429 → 430 on 2026-08-07**, and the card is worth naming: **SFD-129
+ * Temptation**, whose printed text is "move an enemy unit to a LOCATION where
+ * there's a unit with the same controller".
+ *
+ * It was offered and never taken for as long as this probe has run, because the
+ * only Locations the engine could name were battlefields. Making a BASE a legal
+ * move destination (355.7 / 359.3.e) gave it the destination it prints, and the
+ * AI took it in self-play the same day. A rise here is exactly what a rules fix
+ * to a reachable card should look like, which is why the pin is a floor.
+ */
+const PINNED_UNION = 430;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

@@ -615,6 +615,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           ...(action.destinationBattlefieldId !== undefined
             ? { destinationBattlefieldId: action.destinationBattlefieldId }
             : {}),
+          // The move-to-base half of the same choice. Dropping it here is the
+          // dispatch-hop field loss this repo has shipped five times, and it
+          // would be silent: the spell would resolve with NO destination and
+          // move nothing.
+          ...(action.destinationIsBase === true ? { destinationIsBase: true as const } : {}),
           ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
           ...(action.targetPermanentInstanceId !== undefined
             ? { targetPermanentInstanceId: action.targetPermanentInstanceId }

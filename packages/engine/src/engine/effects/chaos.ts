@@ -17,6 +17,7 @@ import {
   discardThenDraw,
   drawCards,
   forceMoveToBattlefield,
+  forceMoveToDestination,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   holdCardsRecycled,
@@ -139,9 +140,12 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // subject to those, which is what makes the card worth casting.
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, _ctx, event) => {
-      const { targetUnitInstanceId: unitId, destinationBattlefieldId: destination } = event;
-      if (!unitId || !destination) return state;
-      return readyUnit(forceMoveToBattlefield(state, unitId, destination), unitId);
+      const { targetUnitInstanceId: unitId } = event;
+      if (!unitId) return state;
+      // "Move a friendly unit AND READY IT" — the ready happens whichever
+      // Location it went to, including base (359.3.e names this card's base
+      // move by example). Readying after the move, printed order.
+      return readyUnit(forceMoveToDestination(state, unitId, event), unitId);
     },
   },
   "OGN-172": {
@@ -190,12 +194,14 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // closing it changes five existing cards' enumeration.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
     resolve: (state, _ctx, event) => {
-      const { targetUnitInstanceId: unitId, destinationBattlefieldId: destination } = event;
-      if (!unitId || !destination) return state;
-      // Through `forceMoveToBattlefield` like every other move: arriving applies
-      // Contested and can stage a Showdown the caster is not part of, which for
-      // this card is frequently the entire point.
-      return forceMoveToBattlefield(state, unitId, destination);
+      const { targetUnitInstanceId: unitId } = event;
+      if (!unitId) return state;
+      // Through the shared destination helper like every other move: arriving at
+      // a BATTLEFIELD applies Contested and can stage a Showdown the caster is
+      // not part of, which for this card is frequently the entire point. A move
+      // to BASE contests nothing — there is nothing there to contest — which is
+      // why the card's own word is "location" and not "battlefield".
+      return forceMoveToDestination(state, unitId, event);
     },
   },
   "SFD-136": {

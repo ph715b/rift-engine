@@ -113,13 +113,26 @@ describe("Charm (OGN-043): move an enemy unit", () => {
     const plays = legalActions(state).filter((a) => a.type === "PlayCard" && a.card.instanceId === spell.instanceId);
 
     expect(plays.length).toBeGreaterThan(0);
-    // Every candidate names both halves, and never the battlefield it is on.
-    expect(plays.every((a) => a.type === "PlayCard" && a.destinationBattlefieldId !== undefined)).toBe(true);
+    // **Premise updated 2026-08-07**: a base is a Location and so a legal Move
+    // Destination (355.7 / 197 / 107.2.b), which the rules work by name at
+    // 359.3.e. So "every candidate names a battlefield" is no longer the
+    // invariant — "every candidate names EXACTLY ONE destination" is, and it is
+    // the stronger of the two: it also catches a variant carrying both.
+    const named = (a: (typeof plays)[number]) =>
+      (a.type === "PlayCard" && a.destinationBattlefieldId !== undefined ? 1 : 0) +
+      (a.type === "PlayCard" && a.destinationIsBase === true ? 1 : 0);
+    expect(plays.every((a) => named(a) === 1)).toBe(true);
     expect(plays.some((a) => a.type === "PlayCard" && a.destinationBattlefieldId === "bf1")).toBe(false);
+    expect(plays.some((a) => a.type === "PlayCard" && a.destinationIsBase === true), "base was not offered").toBe(true);
     expect(validatePlayCard(state, plays[0]! as never).ok).toBe(true);
 
-    const noDestination = { ...plays[0]!, destinationBattlefieldId: undefined };
+    // Neither field set: still not a legal action, which is the half of this
+    // test that must survive base becoming legal — a move needs a destination.
+    const noDestination = { ...plays[0]!, destinationBattlefieldId: undefined, destinationIsBase: undefined };
     expect(validatePlayCard(state, noDestination as never).ok).toBe(false);
+    // BOTH set is malformed and must also be refused.
+    const bothDestinations = { ...plays[0]!, destinationBattlefieldId: "bf2", destinationIsBase: true };
+    expect(validatePlayCard(state, bothDestinations as never).ok).toBe(false);
   });
 });
 

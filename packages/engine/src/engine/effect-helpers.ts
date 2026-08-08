@@ -797,6 +797,86 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
 }
 
 /**
+ * Moves a unit to BASE because an effect said so — the other half of
+ * `forceMoveToBattlefield`, and the reason a spell's "move a unit" can finally
+ * reach every Location the rules allow.
+ *
+ * **355.7**: "A valid Location for a Move Effect is one other than the Unit's
+ * current Location where they are allowed to be present", and **197/107.2.b**
+ * make each Base a Location. The PDF then works this exact case BY NAME at
+ * **359.3.e**: *"A player plays Ride the Wind choosing to move their unit at
+ * Vilemaw's Lair to base. Base is a legal move destination for Ride the Wind…"*
+ *
+ * **Whose base needs no argument.** 107.2.c — "Permanents and Runes controlled by
+ * a player reside in that player's Base" — so a unit can only ever go to its own
+ * controller's, which is what `ownerIndex` already says.
+ *
+ * # It does NOT exhaust, and that is the same rule `forceMoveToBattlefield` cites
+ *
+ * **144.4** makes exhausting the cost of the STANDARD MOVE ACTION, and 415.1.a
+ * puts Exhaust costs on activated abilities and discretionary actions. A spell's
+ * move is neither, so a unit sent home by Charm arrives READY — exactly as one
+ * sent across the board by Charm already did.
+ *
+ * This deliberately does not reuse `recallUnitToBase`, which force-exhausts. That
+ * helper's own comment files the exhaust as an open question, and
+ * `relocateToBaseUnchanged` (Reaver's Row's "move a friendly unit here to base")
+ * already answers it the other way for a card that says MOVE. Rather than add a
+ * third answer, this takes the one the rules give and leaves the existing three
+ * cards alone — see docs/rules-conformance.md, where that is now a NAMED
+ * follow-up rather than an open question.
+ *
+ * # The Lair still stops it, and the SPELL still resolves
+ *
+ * `mayMoveToBaseFrom` is the one door every way-home comes through, and 359.3.e's
+ * example is precisely a blocked one: the move instruction "will be ignored
+ * because Vilemaw's restriction makes the instruction impossible" — the
+ * instruction, not the spell. Returning the state unchanged is 422's "do as much
+ * as you can", which is what every other blocked move here already does.
+ */
+export function forceMoveToBase(state: GameState, targetInstanceId: string): GameState {
+  const location = findUnitOnBattlefield(state, targetInstanceId);
+  // Not at a battlefield: either it is already in base — 355.7 excludes the
+  // Unit's current Location, so there is no move to make — or it is not on the
+  // board at all.
+  if (!location) return state;
+  const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
+  const bf = state.battlefields[battlefieldIndex]!;
+  if (!mayMoveToBaseFrom(state, bf.id)) return state;
+
+  const battlefields = [...state.battlefields];
+  battlefields[battlefieldIndex] = {
+    ...bf,
+    units: { ...bf.units, [ownerId]: (bf.units[ownerId] ?? []).filter((u) => u.instanceId !== targetInstanceId) },
+  };
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, unit] };
+  return { ...state, battlefields, players };
+}
+
+/**
+ * Where a move-target spell is sending its unit — the ONE function all seven of
+ * them call, so "move" means the same thing on every card that prints it.
+ *
+ * A dispatcher rather than each resolver branching, for the reason this codebase
+ * keeps rediscovering: seven copies of a two-way branch is seven chances to get
+ * the second way wrong, and the second way is the one nobody exercises.
+ */
+export function forceMoveToDestination(
+  state: GameState,
+  targetInstanceId: string,
+  /** The resolve event, read for whichever of the two destination fields it
+   *  carries. Taking the EVENT rather than a pre-read destination is what keeps
+   *  the seven call sites from each having to remember there are two fields —
+   *  and forgetting the second one is the whole failure this change is about. */
+  event: { readonly destinationBattlefieldId?: string; readonly destinationIsBase?: true },
+): GameState {
+  if (event.destinationIsBase === true) return forceMoveToBase(state, targetInstanceId);
+  if (event.destinationBattlefieldId === undefined) return state;
+  return forceMoveToBattlefield(state, targetInstanceId, event.destinationBattlefieldId);
+}
+
+/**
  * Grants a keyword to a unit for the rest of the turn — Udyr's "Give me
  * [Ganking] this turn".
  *

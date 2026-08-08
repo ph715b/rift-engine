@@ -52,6 +52,9 @@ export interface RepeatChoices {
   /** Temptation's "move an enemy unit to a location where..." — the second move
    *  may pick a different destination as well as a different unit. */
   destinationBattlefieldId?: string;
+  /** …and that destination may be a BASE, independently of the first
+   *  execution's. 355.7 / 359.3.e; see `PlayCardAction.destinationIsBase`. */
+  destinationIsBase?: true;
   /** The unit-or-gear a `unitOrGear` or `gear` spec names. Needed the moment a
    *  MODAL repeat could switch into a mode that targets one — Rocket Barrage
    *  going from "deal 4 to a unit in a base" to "kill a gear" has no unit to
@@ -103,6 +106,16 @@ export interface SpellChainEntry {
   /** Where a token-creating Spell deploys what it creates (Recruit the
    *  Vanguard); absent means base — see card-effects.ts's cardPlacesTokens. */
   destinationBattlefieldId?: string;
+  /**
+   * A move-target Spell is sending its unit to BASE — Charm reaching the one
+   * Location `destinationBattlefieldId` cannot name (355.7, worked at 359.3.e).
+   *
+   * On the chain entry because the choice is made when the spell is PLAYED and
+   * resolution must see the choice that was announced, exactly like every target
+   * field beside it. For a token-placing Spell absent still means base; this is
+   * the MOVE destination, which is mandatory and so needs to say so explicitly.
+   */
+  destinationIsBase?: true;
   /** The card from hand this play discards — a MANDATORY part of the effect for
    *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
    *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost

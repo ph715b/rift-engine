@@ -22,6 +22,7 @@ import {
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
+  forceMoveToDestination,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
@@ -311,9 +312,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // controller rather than the caster's.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
-      event.targetUnitInstanceId && event.destinationBattlefieldId
-        ? forceMoveToBattlefield(state, event.targetUnitInstanceId, event.destinationBattlefieldId)
-        : state,
+      event.targetUnitInstanceId ? forceMoveToDestination(state, event.targetUnitInstanceId, event) : state,
   },
   "OGN-053": {
     // Stand United — "[Hidden][Action] Buff a friendly unit. Buffs give an

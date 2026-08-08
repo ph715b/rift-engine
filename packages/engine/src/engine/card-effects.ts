@@ -530,6 +530,10 @@ export interface ResolveEvent {
    *  TARGET: nothing is being targeted, the caster is choosing a deployment
    *  zone. See cardPlacesTokens. */
   destinationBattlefieldId?: string;
+  /** A move-target Spell is sending its unit to BASE instead of a battlefield —
+   *  355.7 makes every Location a valid Move Destination and 359.3.e works the
+   *  case by name. See `PlayCardAction.destinationIsBase`. */
+  destinationIsBase?: true;
   /** The card from hand this play discards — a MANDATORY part of the effect for
    *  Get Excited! ("discard 1, deal its Energy cost as damage"), and an OPTIONAL
    *  additional cost for Brazen Buccaneer ("you may discard 1 ... reduce my cost
@@ -1065,19 +1069,77 @@ export function moveDestinationAllowed(
   state: GameState,
   defId: string,
   movedUnitInstanceId: string | undefined,
-  destinationBattlefieldId: string,
+  /** The battlefield being considered, or `"base"` for the moved unit's own
+   *  base — 107.2.c means there is only ever one base it could go to. */
+  destination: string | "base",
 ): boolean {
   if (!MOVE_DESTINATION_NEEDS_SAME_CONTROLLER.has(defId)) return true;
   if (movedUnitInstanceId === undefined) return false;
   const moved = findUnitAnywhere(state, movedUnitInstanceId);
-  const destination = state.battlefields.find((bf) => bf.id === destinationBattlefieldId);
-  if (!moved || !destination) return false;
+  if (!moved) return false;
   const controllerId = state.players[moved.ownerIndex].id;
-  return (destination.units[controllerId] ?? []).some((u) => u.instanceId !== movedUnitInstanceId);
+  // Temptation at a BASE. "A location where there's a unit with the same
+  // controller" is asked of the moved unit's OWN base, and the answer is the
+  // same shape: some OTHER unit of that controller already standing there. The
+  // moved unit is excluded for the reason the battlefield branch excludes it —
+  // it is not there yet, and counting it would make every base legal always.
+  if (destination === "base") {
+    return state.players[moved.ownerIndex].baseUnits.some((u) => u.instanceId !== movedUnitInstanceId);
+  }
+  const battlefield = state.battlefields.find((bf) => bf.id === destination);
+  if (!battlefield) return false;
+  return (battlefield.units[controllerId] ?? []).some((u) => u.instanceId !== movedUnitInstanceId);
 }
 
 export function cardMovesTarget(defId: string): boolean {
   return MOVE_TARGET_SPELL_DEF_IDS.has(defId);
+}
+
+/**
+ * Move-target spells whose destination may be a BASE.
+ *
+ * 355.7 makes every Location a unit is allowed to be present at a valid Move
+ * Destination, and 197/107.2.b make each Base a Location — so this is the
+ * DEFAULT for a card that just says "move a unit", and the set below is the
+ * exception list read off the printed text.
+ *
+ * **Two of the seven print a destination and so are correctly excluded**, which
+ * is why this is a per-card set and not `cardMovesTarget` itself:
+ *
+ *  - **Showstopper (OGN-270)** — "Buff a friendly unit in your base, then move it
+ *    **to a battlefield**." It names one, and the unit starts in base anyway, so
+ *    355.7's "other than the Unit's current Location" excludes base twice over.
+ *  - **Stormbringer (OGN-250)** — "…to all enemy units **at a battlefield**, then
+ *    move your unit **there**." The destination is doing double duty as the thing
+ *    damaged; a base cannot be it.
+ *
+ * docs/rules-conformance.md listed six affected cards including both of those and
+ * omitting Relentless Pursuit. The real answer is these five.
+ */
+const MOVE_TO_BASE_DEF_IDS = new Set([
+  "OGN-043", // Charm — "Move an enemy unit."
+  // Ride The Wind — "Move a friendly unit and ready it." The card the rules'
+  // own worked example (359.3.e) names: "Base is a legal move destination for
+  // Ride the Wind".
+  "OGN-173",
+  // Dragon's Rage — "Move an enemy unit. Then do this: choose another enemy unit
+  // at its destination." A base is a destination like any other, and the second
+  // target is then "another enemy unit" standing in that base.
+  "OGN-258",
+  // Temptation — "Move an enemy unit to a LOCATION where there's a unit with the
+  // same controller." It prints the rules' own word for the wider set, and
+  // `moveDestinationAllowed` asks the same-controller question of a base exactly
+  // as it does of a battlefield.
+  "SFD-129",
+  // Relentless Pursuit — "Move a friendly unit." Unrestricted, like Charm.
+  "SFD-184",
+]);
+
+/** May this card send its target to base? Asked by the enumerator AND the
+ *  validator, like `moveDestinationAllowed` beside it — one function, so a
+ *  destination cannot be offered by one and refused by the other. */
+export function cardMayMoveToBase(defId: string): boolean {
+  return MOVE_TO_BASE_DEF_IDS.has(defId);
 }
 
 /**

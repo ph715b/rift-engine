@@ -13,6 +13,7 @@ import {
   discardCards,
   drawCards,
   forceMoveToBattlefield,
+  forceMoveToDestination,
   giveMightThisTurn,
   grantTriggerThisTurn,
   giveMightThisTurnToOwnUnit,
@@ -134,9 +135,12 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // unit's controller, which can open a Showdown the caster never joined.
     targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 2, asymmetricSlots: true, secondAtDestination: true },
     resolve: (state, ctx, event) => {
-      const { targetUnitInstanceId: movedId, secondTargetUnitInstanceId: otherId, destinationBattlefieldId } = event;
-      if (!movedId || !otherId || !destinationBattlefieldId) return state;
-      const moved = forceMoveToBattlefield(state, movedId, destinationBattlefieldId);
+      const { targetUnitInstanceId: movedId, secondTargetUnitInstanceId: otherId } = event;
+      if (!movedId || !otherId) return state;
+      // The destination may be a BASE, and then "another enemy unit at its
+      // destination" is another unit standing in that same base — which
+      // `secondTargetIsAtDestination` has already enforced at announce.
+      const moved = forceMoveToDestination(state, movedId, event);
 
       const first = findUnitAnywhere(moved, movedId);
       const second = findUnitAnywhere(moved, otherId);
@@ -797,10 +801,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) => {
       const unitId = event.targetUnitInstanceId;
       if (!unitId) return state;
-      const moved =
-        event.destinationBattlefieldId !== undefined
-          ? forceMoveToBattlefield(state, unitId, event.destinationBattlefieldId)
-          : state;
+      const moved = forceMoveToDestination(state, unitId, event);
       // Attached by the PAIR's controller, not the caster's — "with the same
       // controller" relates the Equipment to the unit, and `attachEquipment`
       // writes into that player's `activeGear`. Angle Shot's note records the

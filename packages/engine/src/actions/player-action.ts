@@ -49,6 +49,27 @@ export interface PlayCardAction {
    *  Mystic Reversal) — by the card's instanceId, since the chain moves between
    *  announcing and resolving and an index would come to mean something else. */
   targetChainCardInstanceId?: string;
+  /**
+   * This move-target spell is sending its unit to BASE rather than to a
+   * battlefield — Charm's "Move an enemy unit" reaching the one Location
+   * `destinationBattlefieldId` cannot name.
+   *
+   * **A separate flag rather than a sentinel in `destinationBattlefieldId`**,
+   * because that field is a battlefield id in eleven other places (token
+   * placement, unit reinforcement, `targetBattlefieldId`'s neighbours) and a
+   * magic `"base"` string would be a valid-looking id everywhere it leaked. The
+   * web board already keeps the same two things apart for the same reason — see
+   * `GameBoard`'s `BASE_ZONE_ID`, whose comment says a sentinel was needed to
+   * tell "resolved to base" from "not yet resolved".
+   *
+   * **Mutually exclusive with `destinationBattlefieldId`**, enforced by
+   * `validate-play-card` rather than by the type, since an action arrives from
+   * outside the engine and a type cannot refuse it.
+   *
+   * 355.7 / 197 / 107.2.b, and 359.3.e works the case by name. Which base needs
+   * no saying: 107.2.c puts a unit only in its own controller's.
+   */
+  destinationIsBase?: true;
   /** The battlefield a "battlefield"-kind targeted effect applies to (e.g.
    *  Firestorm's "all enemy units at a battlefield"). */
   targetBattlefieldId?: string;

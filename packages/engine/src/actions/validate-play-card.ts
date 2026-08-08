@@ -32,6 +32,7 @@ import {
 } from "../engine/cost-modifiers.js";
 import {
   cardModesOf,
+  cardMayMoveToBase,
   cardMovesTarget,
   costExhaustsLegend,
   cardPlacesTokens,
@@ -666,17 +667,50 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // "Move an enemy unit" without saying where is not a legal action — the
   // destination is part of the instruction, not an optional extra like a
   // token-placing spell's (which defaults to base).
-  if (cardMovesTarget(card.defId) && action.destinationBattlefieldId === undefined) {
-    return fail(`${card.name} must name a battlefield to move the unit to`);
+  // The two destination fields are ALTERNATIVES, and an action carrying both is
+  // malformed rather than merely odd — it would have the resolver pick one and
+  // silently drop the other. Checked before either is read.
+  if (action.destinationIsBase === true && action.destinationBattlefieldId !== undefined) {
+    return fail(`${card.name} cannot name both a battlefield and base as its destination`);
+  }
+  if (action.destinationIsBase === true && !cardMayMoveToBase(card.defId)) {
+    // Showstopper and Stormbringer print a battlefield as their destination, so
+    // base is not a Location they may name (355.7 is about Locations the card
+    // allows, and these two name one).
+    return fail(`${card.name} cannot move a unit to base`);
+  }
+  if (cardMovesTarget(card.defId) && action.destinationBattlefieldId === undefined && action.destinationIsBase !== true) {
+    return fail(`${card.name} must name a battlefield or base to move the unit to`);
+  }
+  // A base is only a legal destination for a unit that is AT a battlefield —
+  // 355.7's "other than the Unit's current Location". The enumerator applies the
+  // same rule by only offering the base variant when the unit is on one.
+  if (
+    action.destinationIsBase === true &&
+    action.targetUnitInstanceId !== undefined &&
+    findUnitOnBattlefield(state, action.targetUnitInstanceId) === undefined
+  ) {
+    return fail(`${card.name} cannot move a unit to the base it is already in`);
   }
   // Temptation's restricted destination. Re-derived here from the same predicate
-  // the enumerator filtered with, never trusted from the action.
+  // the enumerator filtered with, never trusted from the action — and asked of a
+  // base destination too, which is why the predicate takes `"base"`.
   if (
     cardMovesTarget(card.defId) &&
-    action.destinationBattlefieldId !== undefined &&
-    !moveDestinationAllowed(state, card.defId, action.targetUnitInstanceId, action.destinationBattlefieldId)
+    (action.destinationBattlefieldId !== undefined || action.destinationIsBase === true) &&
+    !moveDestinationAllowed(
+      state,
+      card.defId,
+      action.targetUnitInstanceId,
+      action.destinationIsBase === true ? "base" : action.destinationBattlefieldId!,
+    )
   ) {
     return fail(`${card.name} can only move a unit to a location where its controller already has one`);
+  }
+  // Dragon's Rage's second target must stand at the destination, base included —
+  // the same shared predicate the enumerator filters with.
+  if (!secondTargetIsAtDestination(state, targeting, action)) {
+    return fail(`${card.name}'s second target must be at the destination`);
   }
 
   const discardChoice = discardChoiceOf(card.defId);
