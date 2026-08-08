@@ -246,7 +246,35 @@ NOT fan out over one shared type or resolver."*
 
 ## Phase 2 — audit the divergence table, then fix the reachable ones
 
-### 2a. The audit (read-only, and a good agent job)
+### 2a. DONE (2026-08-07) — swept as a whole for the first time
+
+Recorded at the top of the Divergent table in `docs/rules-conformance.md`, so it
+is next to the rows rather than here. In short:
+
+- **Three rows were stale, all the same way**: something recorded as BLOCKED had
+  since shipped. Corrected in place with the correction dated.
+  - **Controller vs owner** — the known one. Hostile Takeover (SFD-202) is whole;
+    the "missing subsystem" turned out to be **one optional field**
+    (`returnControlAtEndOfTurnToIndex`), which is the shape every re-read note in
+    this repo has had. The MODEL half of the row is still true and stays.
+  - **Legend triggered abilities on the Chain** — said four hooks were blocked.
+    All but `onBeginningPhase` are held. Two blockers dissolved when `spellCast`
+    and `unitsStunned` became `HeldEventKind`s; **the third was never real**, and
+    `legend-abilities.ts` says so in its own comment while the row and that
+    file's HEADER both still claimed otherwise. Three notes, one truth, two lost.
+  - **"TWELVE event kinds are CONVERTED"** — it is 21 of 22. The load-bearing
+    half ("every kind but one") is still true and the compiler enforces it.
+- **No row had drifted by RENAME.** Every backticked identifier in all 60 rows
+  still exists in `packages/engine/src` — checked mechanically.
+- **The absence claims all HOLD**, including the three Phase 2b targets below, so
+  2b's premises are verified rather than assumed.
+- **One gap left open, deliberately**: the hand-counted card figures ("110 held /
+  3 inline", "39 cards", "23 of 72 gear", "17 cards") have no instrument and
+  nothing recomputes them — the shape `CLAUDE.md` blames for four wrong censuses.
+  The "3 inline" half was re-verified; the rest are undated. **A census
+  instrument is the obvious next piece of work here** and is not built.
+
+### 2a (as originally specified). The audit (read-only, and a good agent job)
 
 60 rows, never swept as a whole, and at least one provably stale. For each row
 ask only: **is this still true of the code?** Three outcomes — still true, now

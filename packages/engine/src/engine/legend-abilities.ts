@@ -853,16 +853,20 @@ export function legendAbilityDefIds(): string[] {
  * said so in three separate source comments. `listeningPermanents` now ends with
  * the Legend; everything here follows from that.
  *
- * **Four of the eight Legend trigger hooks convert, and the other four are
- * blocked by their EVENT rather than by being on a Legend** — each is recorded in
- * docs/rules-conformance.md:
- *   - `onBeginningPhase` (Jinx) — `beginningPhase` must stay inline, because
- *     holding it would resolve Beginning-Phase abilities after `scoreHolds`.
- *   - `onSpellCast` (Lux) — there is no held on-spell-cast event kind yet, and
- *     the moment is a chain POP rather than a play.
- *   - `onUnitsStunned` (Leona) — `unitsStunned` is not a `HeldEventKind` yet.
- *   - `onUnitPlayed` (Volibear) — needs the unit that was played, which
- *     `cardPlayed` deliberately does not carry.
+ * **Every hook this adapter destructures is now HELD.** `onBeginningPhase` is the
+ * only one left inline, and it never comes through here at all —
+ * `dispatchLegendBeginningPhase` dispatches it directly, because holding it would
+ * resolve Beginning-Phase abilities after `scoreHolds`.
+ *
+ * This list used to say four of eight were blocked, and **all three of the other
+ * blockers are gone** — `spellCast` and `unitsStunned` became `HeldEventKind`s,
+ * and Volibear's was never real (see the `onUnitPlayed` clause below, which says
+ * so). The stale version outlived the fixes by days and was corrected only by an
+ * audit, in three places at once: here, and two rows of
+ * docs/rules-conformance.md. **A comment listing what is BLOCKED is a note about
+ * the engine as it was that day** — the shape this repo has now recorded against
+ * `PARTIALLY_IMPLEMENTED`, the Divergent table and the verification loop. If you
+ * unblock something, grep for the note that said it was blocked.
  *
  * `mightBonus` is not a trigger at all — it is a continuous modifier recomputed
  * inside effective-might.ts — so Master Yi is not in this adapter and is not a
