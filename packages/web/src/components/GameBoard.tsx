@@ -35,6 +35,8 @@ import {
   type DeckList,
   type FloatRuneAction,
   type GameState,
+  type GearInstance,
+  type PlayerState,
   type PlayCardAction,
   type PlayerAction,
   type RuneCard,
@@ -1523,8 +1525,27 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    * Returns a props object so a caller spreads it and adds nothing when there is
    * nothing attached.
    */
+
+  /**
+   * The gear that still belongs in the flat gear ROW — i.e. everything NOT
+   * attached to a unit.
+   *
+   * An attached Equipment now renders tucked under its wearer (see
+   * `.attached-stack`), so leaving it in the row as well would show the same
+   * card twice in two places, which is the confusion the paper layout is
+   * fixing rather than a second helpful copy.
+   *
+   * Filtered at the ROW rather than removed from `activeGear`, because the
+   * engine keeps an attached Equipment in that list on purpose — it is still
+   * killable, readyable and countable there, and several cards read it back.
+   * This is a display decision only.
+   */
+  function looseGear(player: PlayerState): GearInstance[] {
+    return player.activeGear.filter((g) => g.attachedToInstanceId == null);
+  }
+
   function attachmentProps(card: CardInstance): {
-    attachedEquipment?: readonly { instanceId: string; name: string }[];
+    attachedEquipment?: readonly { instanceId: string; name: string; defId: string }[];
     attachedMightBonus?: number;
     attachedToUnitName?: string;
     currentMight?: number;
@@ -2327,7 +2348,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             onViewTrash={() => setViewingTrash({ label: "AI Opponent's trash", cards: ai.trash })}
             banishedCount={ai.banished.length}
             runeDeckCount={ai.runeDeck.length}
-            activeGear={ai.activeGear}
+            activeGear={looseGear(ai)}
             isEnemy
           />
 
@@ -2399,7 +2420,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                       it was previously only a count in the side rail, which made
                       the opponent's board state partly invisible. Not clickable:
                       you can never activate an opponent's ability. */}
-                  {ai.activeGear.map((gear) => (
+                  {looseGear(ai).map((gear) => (
                     <CardView key={gear.instanceId} card={gear} isEnemy {...attachmentProps(gear)} />
                   ))}
                   {ai.baseUnits.map((unit) => (
@@ -2509,7 +2530,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
                   {/* Gear renders here rather than in a zone of its own: it lives
                       in your base by the rules, and `.board` is a fixed-height
                       100dvh column where a new row costs something real. */}
-                  {human.activeGear.map((gear) => (
+                  {looseGear(human).map((gear) => (
                     <CardView
                       key={gear.instanceId}
                       card={gear}
@@ -2626,7 +2647,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           onViewTrash={() => setViewingTrash({ label: "Your trash", cards: human.trash })}
           banishedCount={human.banished.length}
           runeDeckCount={human.runeDeck.length}
-          activeGear={human.activeGear}
+          activeGear={looseGear(human)}
           pilesOnBoard
           legendAtBottom
           isChampionSelectable={canAct && Boolean(human.championZone && isCardInteractable(human.championZone.instanceId))}

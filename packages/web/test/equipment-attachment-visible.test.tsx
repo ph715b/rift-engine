@@ -63,7 +63,7 @@ describe("a unit shows what it is wearing", () => {
     draw(
       <CardView
         card={unit()}
-        attachedEquipment={[{ instanceId: "g1", name: sword.name }]}
+        attachedEquipment={[{ instanceId: "g1", name: sword.name, defId: LONG_SWORD }]}
         attachedMightBonus={2}
       />,
     );
@@ -73,7 +73,7 @@ describe("a unit shows what it is wearing", () => {
   });
 
   it("reports the Might those Equipment add, which is the 'why is it bigger' answer", () => {
-    draw(<CardView card={unit()} attachedEquipment={[{ instanceId: "g1", name: "Long Sword" }]} attachedMightBonus={2} />);
+    draw(<CardView card={unit()} attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: "SFD-095" }]} attachedMightBonus={2} />);
     expect(badgeTitled(/Equipped:/)!.getAttribute("title")).toContain("+2 Might");
   });
 
@@ -82,8 +82,8 @@ describe("a unit shows what it is wearing", () => {
       <CardView
         card={unit()}
         attachedEquipment={[
-          { instanceId: "g1", name: "Long Sword" },
-          { instanceId: "g2", name: "Doran's Blade" },
+          { instanceId: "g1", name: "Long Sword", defId: "SFD-095" },
+          { instanceId: "g2", name: "Doran's Blade", defId: "SFD-095" },
         ]}
         attachedMightBonus={3}
       />,
@@ -114,5 +114,83 @@ describe("a gear shows whether it is attached, and to whom", () => {
     // the badge either way would be actively misleading about it.
     draw(<CardView card={gear(DORANS_BLADE, null)} />);
     expect(badgeTitled(/Attached to/)).toBeUndefined();
+  });
+});
+
+/**
+ * The paper layout: an attached Equipment is tucked UNDER its wearer and skewed
+ * so its name line still reads.
+ *
+ * **Reported from playtesting**: "more clear view of what equipment is attached
+ * to what unit... something like what is done in paper where players put the
+ * equipment card under the unit it is attached to, skewed so the text line is
+ * still readable."
+ *
+ * The badges above are not deleted — they still answer "how much Might" and
+ * survive when a gear has no art. What they could not do is show the
+ * RELATIONSHIP: the gear stayed in the flat gear row, so reading it took two
+ * hovers in two places.
+ */
+describe("attached Equipment renders under its wearer, paper-style", () => {
+  it("renders one card per attached Equipment", () => {
+    const { container } = draw(
+      <CardView
+        card={unit()}
+        attachedEquipment={[
+          { instanceId: "g1", name: "Long Sword", defId: LONG_SWORD },
+          { instanceId: "g2", name: "Doran's Blade", defId: "SFD-095" },
+        ]}
+      />,
+    );
+    expect(container.querySelectorAll(".attached-card")).toHaveLength(2);
+  });
+
+  it("fans each one further, so two do not exactly overlap", () => {
+    // The `--fan` index is what separates them. Without it both sit at the same
+    // offset and rotation and the second is invisible behind the first — which
+    // looks exactly like a unit wearing one Equipment.
+    const { container } = draw(
+      <CardView
+        card={unit()}
+        attachedEquipment={[
+          { instanceId: "g1", name: "Long Sword", defId: LONG_SWORD },
+          { instanceId: "g2", name: "Doran's Blade", defId: "SFD-095" },
+        ]}
+      />,
+    );
+    const fans = [...container.querySelectorAll<HTMLElement>(".attached-card")].map((el) =>
+      el.style.getPropertyValue("--fan"),
+    );
+    expect(fans).toEqual(["0", "1"]);
+  });
+
+  it("renders NOTHING for a unit with no Equipment", () => {
+    // The negative control: a stack that always rendered would put an empty
+    // skewed card under every unit on the board.
+    const { container } = draw(<CardView card={unit()} />);
+    expect(container.querySelector(".attached-stack")).toBeNull();
+  });
+
+  it("renders nothing for a GEAR — only a wearer has a stack", () => {
+    // A gear showing its own art tucked under itself is the shape this could
+    // regress into, since `attachedEquipment` is a prop anyone could pass.
+    const { container } = draw(
+      <CardView
+        card={gear(LONG_SWORD, "wearer")}
+        attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: LONG_SWORD }]}
+      />,
+    );
+    expect(container.querySelector(".attached-stack")).toBeNull();
+  });
+
+  it("does not steal clicks from the unit it sits under", () => {
+    // The stack overlays the card's own box, so without `pointer-events: none`
+    // the gear peeking out would swallow clicks meant for the wearer — which
+    // would make an equipped unit untargetable, a far worse bug than the one
+    // being fixed. Asserted on the class the CSS rule keys off.
+    const { container } = draw(
+      <CardView card={unit()} attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: LONG_SWORD }]} />,
+    );
+    expect(container.querySelector(".attached-stack")?.getAttribute("aria-hidden")).toBe("true");
   });
 });

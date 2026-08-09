@@ -90,7 +90,7 @@ interface CardViewProps {
    * presentational and resolves only the card DEFINITION — the attachment is
    * live game state and belongs to the caller that has it.
    */
-  attachedEquipment?: readonly { instanceId: string; name: string }[];
+  attachedEquipment?: readonly { instanceId: string; name: string; defId: string }[];
   /** The Might those Equipment add, for the badge's title. Separate from the
    *  list because it is the engine's sum (`equipmentMightBonusFor`), not
    *  something to re-derive from names here. */
@@ -128,6 +128,19 @@ interface CardViewProps {
  * `defId` via the shared registry. Keeps the engine's runtime type lean;
  * this is purely a presentation concern.
  */
+
+/** One attached Equipment's face: its art if the registry has it, else its name.
+ *  Its own component so the registry lookup is per gear rather than a second
+ *  branch inside CardView's already-long body. */
+function ArtOrName({ defId, name }: { defId: string; name: string }) {
+  const art = defaultCardRegistry().tryGet(defId)?.imageUrl;
+  return art ? (
+    <img className="attached-art" src={art} alt="" draggable={false} loading="lazy" />
+  ) : (
+    <span className="attached-name">{name}</span>
+  );
+}
+
 export function CardView({
   card,
   isEnemy,
@@ -240,6 +253,30 @@ export function CardView({
           : undefined
       }
     >
+      {card.kind === "Unit" && (attachedEquipment?.length ?? 0) > 0 && (
+        // **Attached Equipment, laid out the way paper does it**: the gear card
+        // tucked UNDER its wearer and skewed, so the name line still reads.
+        //
+        // Reported from playtesting — "more clear view of what equipment is
+        // attached to what unit". Before this the only signals were a small
+        // badge on the unit and a badge on the gear naming its wearer, and the
+        // gear itself stayed in the flat gear row: the relationship existed but
+        // took two hovers in two places to read. 43 SFD cards plus UNL's five
+        // turn on it.
+        //
+        // Rendered BEFORE the art in source order so it paints underneath
+        // without needing a negative z-index, which would put it behind the card
+        // background too. Each further piece fans a little more, so two
+        // Equipment on one unit are individually visible rather than exactly
+        // overlapping.
+        <div className="attached-stack" aria-hidden="true">
+          {attachedEquipment!.map((gear, i) => (
+            <div key={gear.instanceId} className="attached-card" style={{ ["--fan" as string]: String(i) }}>
+              <ArtOrName defId={gear.defId} name={gear.name} />
+            </div>
+          ))}
+        </div>
+      )}
       {artUrl ? (
         // The real card art already prints name/cost/might as part of its own
         // design — showing our own text overlay on top of it would just

@@ -2936,3 +2936,61 @@ button:disabled {
 .facedown-card.mine:disabled {
   opacity: 0.85;
 }
+
+/* Attached Equipment, laid out the way paper does it: the gear card tucked UNDER
+   its wearer and skewed so its name line still reads.
+
+   Reported from playtesting — "more clear view of what equipment is attached to
+   what unit... similar to how MTG Arena does equipment". The board previously
+   showed only a badge on the unit and a badge on the gear, with the gear still
+   sitting in the flat gear row: the relationship existed but cost two hovers in
+   two places to read.
+
+   The stack is absolutely positioned against the card and paints first (it is
+   earlier in source order), so it sits under the wearer without a negative
+   z-index — which would put it behind the card's own background too and hide it
+   completely. `pointer-events: none` so the gear peeking out never steals a
+   click meant for the unit; the gear is still clickable in its own row. */
+.attached-stack {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Each piece is offset DOWN and RIGHT and rotated, fanning a little further per
+   item (`--fan`) so two Equipment on one unit are individually visible rather
+   than exactly overlapping. The rotation is small and positive: enough to read
+   as a separate card underneath, not so much that the name line goes diagonal. */
+.attached-card {
+  position: absolute;
+  left: 0;
+  top: calc(11% + (var(--fan) * 7%));
+  width: 100%;
+  height: 100%;
+  transform: rotate(calc(3.5deg + (var(--fan) * 3deg)));
+  transform-origin: 50% 0%;
+  border-radius: 0.4rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+.attached-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The fallback when a gear has no art: its name, sitting where the card's title
+   band would be, so the strip still identifies itself. */
+.attached-name {
+  display: block;
+  padding: 0.1rem 0.25rem;
+  background: #2a2a33;
+  color: #e8e8ef;
+  font-size: 0.5rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
