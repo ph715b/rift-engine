@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { executePlayCard } from "../src/actions/execute-play-card.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
+import { submit } from "../src/engine/game-engine.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { runEnd } from "../src/engine/turn-manager.js";
-import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
+import { optionsFor, pendingDecision, promptFor } from "../src/engine/decisions.js";
 import { triggerKeysOn } from "../src/engine/triggers.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -233,6 +234,102 @@ describe("Relentless Pursuit: the granted 'when I conquer'", () => {
     const nextTurn = runEnd(moved);
     expect(unitAt(nextTurn, 0)!.grantedTriggersThisTurn).toBeUndefined();
     expect(pendingDecision(resolveHeldTriggers(recordConquest(nextTurn, 0, "bf1")))).toBeUndefined();
+  });
+});
+
+/**
+ * The whole card driven the way a player drives it: `submit`, and nothing else.
+ *
+ * Reported from play as *"unit didn't move to base after relentless pursuit"*.
+ * The block above already proved the grant lands, fires and moves the unit — and
+ * it kept proving it while the card was unusable, because it calls `recordConquest`
+ * and `answerDecisions` directly. What it could not see is the two hops a real game
+ * adds: the conquest arriving out of a Cleanup-staged Showdown, and the question
+ * being ANSWERED FROM ITS OPTIONS rather than by id.
+ *
+ * `board()` above puts the unit in p1's base and leaves both battlefields
+ * uncontrolled, so casting to bf1 is a walk-in: Contested, staged Showdown,
+ * uncontested close, Establish Control, Conquer. Six focus passes end to end.
+ */
+describe("Relentless Pursuit: through submit, the way it is played", () => {
+  /** p2 holds bf1 with nobody standing there, so p1 walking in conquers it. */
+  function walkInBoard(): { state: GameState; spellId: string } {
+    const { state, spellId } = board();
+    state.battlefields[0] = { ...state.battlefields[0]!, controllerId: "p2" };
+    return { state, spellId };
+  }
+
+  /** Passes Focus through `submit` until the engine stops to ask something.
+   *  Every refusal is surfaced — a silent `Invalid` here would leave the loop
+   *  spinning on an unchanged state and report "no question was asked". */
+  function passUntilAsked(start: GameState): { state: GameState; sawGrantOnChain: boolean } {
+    let state = start;
+    let sawGrantOnChain = false;
+    for (let guard = 0; guard < 24; guard += 1) {
+      sawGrantOnChain ||= state.spellChain.some((e) => "listenerDefId" in e && e.listenerDefId === GRANT_KEY);
+      if (state.pendingDecisions.length > 0) return { state, sawGrantOnChain };
+      const pass = legalActions(state).find((a) => a.type === "PassFocus");
+      if (!pass) return { state, sawGrantOnChain };
+      const next = submit(state, pass);
+      expect(next.result.type, next.result.type === "Invalid" ? next.result.error : "").toBe("Ok");
+      state = next.state;
+    }
+    throw new Error("passUntilAsked: the game never stopped to ask");
+  }
+
+  it("conquers on the walk-in and asks, with the grant's own key on the chain", () => {
+    const { state, spellId } = walkInBoard();
+    const play = playsOf(state, spellId).find((p) => p.destinationBattlefieldId === "bf1");
+    expect(play, "no play offered").toBeDefined();
+    const cast = submit(state, play!);
+    expect(cast.result.type).toBe("Ok");
+
+    const { state: asked, sawGrantOnChain } = passUntilAsked(cast.state);
+    // The positive control this file was missing: "did not move" reads identically
+    // for "the ability never fired" and "it fired and did nothing".
+    expect(sawGrantOnChain, "the granted ability never reached the chain as a Pending Item").toBe(true);
+    expect(asked.players[0]!.points, "the walk-in did not score, so nothing conquered").toBe(1);
+    expect(pendingDecision(asked)?.kind).toBe("SFD-184-home");
+  });
+
+  it("offers the affirmative answer AS A LABEL — the reported bug", () => {
+    // `DecisionPrompt` renders any option carrying a findable `instanceId` as that
+    // card's ART and DROPS its label, keeping a button only for the options
+    // without one. The `home` option used to carry the moved unit's id, so the
+    // player was asked "move that unit to your base?" over a picture of the unit
+    // and ONE button reading "Stay" — the affirmative answer had no visible text
+    // anywhere on screen. See the decision's own note in effects/signature.ts.
+    const { state, spellId } = walkInBoard();
+    const { state: asked } = passUntilAsked(submit(state, playsOf(state, spellId).find((p) => p.destinationBattlefieldId === "bf1")!).state);
+    const decision = pendingDecision(asked);
+    expect(decision).toBeDefined();
+    const options = optionsFor(asked, decision!);
+    expect(options.map((o) => o.label)).toEqual(["Stay", "Move to base"]);
+    // The unit is identified where the board actually shows it — the prompt is the
+    // overlay's title, and once the option carries no art it is the only text left
+    // that can say WHICH unit. Asserted BEFORE the loop below so both halves of
+    // the fix are separately proved red rather than one masking the other.
+    expect(promptFor(asked, decision!)).toContain("Runner");
+    for (const option of options) {
+      expect(option.instanceId, `"${option.label}" would render as bare card art with its label thrown away`).toBeUndefined();
+    }
+  });
+
+  it("moves the unit home when that answer is submitted", () => {
+    const { state, spellId } = walkInBoard();
+    const { state: asked } = passUntilAsked(submit(state, playsOf(state, spellId).find((p) => p.destinationBattlefieldId === "bf1")!).state);
+    const decision = pendingDecision(asked)!;
+    const home = optionsFor(asked, decision).find((o) => o.label === "Move to base");
+    expect(home, "no affirmative answer was on offer").toBeDefined();
+    const answered = submit(asked, {
+      type: "AnswerDecision",
+      playerIndex: 0,
+      decisionId: decision.id,
+      optionId: home!.id,
+    });
+    expect(answered.result.type).toBe("Ok");
+    expect(answered.state.players[0]!.baseUnits.map((u) => u.instanceId), "it stayed at the battlefield").toContain("runner");
+    expect(unitAt(answered.state, 0), "it is in two places at once").toBeUndefined();
   });
 });
 

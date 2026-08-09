@@ -23,15 +23,15 @@ const STACKED_DECK = "OGN-183";
 const MINDSPLITTER = "OGN-192";
 
 /** A minimal two-player state — only the zones these two questions read. */
-function stateWith(overrides: { deck?: string[]; opponentHand?: string[] }): GameState {
+function stateWith(overrides: { deck?: string[]; opponentHand?: string[]; baseUnits?: string[] }): GameState {
   let counter = 0;
   const instance = (defId: string) => ({ ...structuredClone(registry.get(defId)), instanceId: `i${(counter += 1)}`, defId });
-  const player = (id: string, hand: string[] = [], deck: string[] = []) => ({
+  const player = (id: string, hand: string[] = [], deck: string[] = [], baseUnits: string[] = []) => ({
     id,
     name: id,
     hand: hand.map(instance),
     deck: deck.map(instance),
-    baseUnits: [],
+    baseUnits: baseUnits.map(instance),
     activeGear: [],
     trash: [],
     banished: [],
@@ -41,7 +41,7 @@ function stateWith(overrides: { deck?: string[]; opponentHand?: string[] }): Gam
     xp: 0,
   });
   return {
-    players: [player("p1", [], overrides.deck ?? []), player("p2", overrides.opponentHand ?? [], [])],
+    players: [player("p1", [], overrides.deck ?? [], overrides.baseUnits ?? []), player("p2", overrides.opponentHand ?? [], [])],
     battlefields: [],
   } as unknown as GameState;
 }
@@ -93,6 +93,82 @@ describe("a decision whose options are cards renders them as cards", () => {
     const { container } = renderPrompt(state, decision);
 
     expect(cardImageCount(container)).toBe(0);
+    cleanup();
+  });
+});
+
+/**
+ * ...but rendering the card must not THROW AWAY the label.
+ *
+ * Reported from playtesting: *"unit didn't move to base after relentless
+ * pursuit."* The engine was doing its half correctly the whole time — measured
+ * at 6/6 conquests over 60 self-play games, moving the unit every time the
+ * answer was yes. There was simply no way to say yes.
+ *
+ * The block above splits options into "render as a card" and "render as a
+ * button", and the card branch dropped `option.label`. That is correct for the
+ * family it was written for — `{id: c.instanceId, label: c.name, instanceId:
+ * c.instanceId}`, where the art already says everything the label does. The
+ * engine emits a SECOND family that inverts it: `{id: "buff", label: "Buff me",
+ * instanceId: theUnit.instanceId}`, a yes/no whose affirmative names its
+ * SUBJECT. There the label is the question and the card is what it acts on, so
+ * discarding it leaves an unexplained picture and no way to choose it.
+ *
+ * Seven decisions are the second kind. Only Relentless Pursuit was reported,
+ * because a yes/no where only "no" carries a label does not look broken — it
+ * looks like a choice you already made.
+ *
+ * The rule is about the TEXT, not the family: draw the label unless it is exactly
+ * the card's name. The families are not marked in the data, so any rule that
+ * tried to tell them apart would guess wrong on the next card.
+ */
+describe("a card option keeps the words that make it an answer", () => {
+  const BUHRU_CAPTAIN = "SFD-091";
+
+  /** Buhru Captain asks "draw 1, or buff me?" — three options, and exactly one
+   *  of them carries a card. The mixed shape is the point: two of the three
+   *  answers were labelled and the third was a silent picture. */
+  const captainDecision = (): { state: GameState; decision: PendingDecision } => {
+    const state = stateWith({ baseUnits: [BUHRU_CAPTAIN] });
+    const captain = state.players[0]!.baseUnits[0]!;
+    return { state, decision: { id: "d4", kind: "SFD-091-choose", playerIndex: 0, cardInstanceId: captain.instanceId } as PendingDecision };
+  };
+
+  it("draws the instruction next to the card it acts on", () => {
+    const { state, decision } = captainDecision();
+    // The premise, asserted rather than assumed: this option really does carry
+    // BOTH a label and an instanceId. If the engine ever stops emitting that
+    // shape, this test is about nothing and should say so here.
+    const buff = optionsFor(state, decision).find((o) => o.id === "buff");
+    expect(buff?.instanceId, "premise: the option names a card").toBeTruthy();
+    expect(buff?.label, "premise: the option carries prose").toBe("Buff me");
+
+    const { container } = renderPrompt(state, decision);
+    expect(cardImageCount(container), "the card half regressed").toBe(1);
+    expect(container.textContent, "the label was discarded — the reported bug").toContain("Buff me");
+    cleanup();
+  });
+
+  it("does not repeat a label that is just the card's name", () => {
+    // The other family. Stacked Deck's options are `label: c.name`, so drawing
+    // the caption would print every card's name under its own art — noise on the
+    // decisions that were already working.
+    const state = stateWith({ deck: ["OGN-009", "OGN-022", "OGN-024"] });
+    const decision: PendingDecision = { id: "d5", kind: "OGN-183-keep", playerIndex: 0 };
+    const { container } = renderPrompt(state, decision);
+
+    expect(container.querySelectorAll(".decision-option-label")).toHaveLength(0);
+    cleanup();
+  });
+
+  it("leaves the button options exactly as they were", () => {
+    // The control against over-reach: this change must not move a labelled
+    // answer OUT of the button row, or a plain yes/no loses its controls the
+    // other way round.
+    const { state, decision } = captainDecision();
+    const { container } = renderPrompt(state, decision);
+    const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent);
+    expect(buttons).toEqual(["Decline", "Draw 1"]);
     cleanup();
   });
 });

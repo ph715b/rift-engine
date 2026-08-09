@@ -1110,14 +1110,47 @@ export const decisions: Record<string, DecisionDefinition> = {
    * `targetInstanceId` is the unit, captured when the trigger fired — "me" means
    * the unit that conquered, and by the time the answer arrives "the unit that
    * conquered" is not something the board can be asked for.
+   *
+   * # The affirmative answer must carry its LABEL, not an `instanceId`
+   *
+   * Reported from play as *"unit didn't move to base after relentless pursuit"*.
+   * The engine fires, asks and moves correctly — measured through `submit` and in
+   * self-play — but the board never showed the player a way to say yes.
+   *
+   * `DecisionPrompt` splits a question's options in two: any option carrying an
+   * `instanceId` the board can find is rendered as that CARD's art and its
+   * `label` is DISCARDED; everything else becomes a labelled button. That is
+   * right for a choice BETWEEN cards ("discard 1", "kill one of your units"),
+   * where the prose says nothing the art doesn't. It is exactly wrong for a
+   * yes/no, where the prose IS the answer: with the id attached, the only
+   * labelled control on screen said **"Stay"**, and "Move to base" appeared
+   * nowhere at all.
+   *
+   * So the unit is named in the PROMPT — which is rendered, as the overlay's
+   * title — and the option carries only its label. Nothing is lost: the engine
+   * never read that `instanceId` (`resolve` uses `d.targetInstanceId`), so it was
+   * only ever a hint to the board, and the hint was wrong.
+   *
+   * **Not fixed by suppressing the option when the move is impossible**, which
+   * was the first candidate: Vilemaw's Lair and Minotaur Reckoner both make
+   * `recallUnitToBase` a no-op, and offering "Move to base" there does nothing.
+   * 358.3.a settles it the other way — "if a Game Effect prevents the performance
+   * of a game action, that effect doesn't prevent cards and abilities that
+   * instruct a player to perform that game action from being played or finalized.
+   * On resolution, that game action will be skipped as it is an impossible
+   * instruction" — and 359.3.e.6 works Vilemaw's Lair BY NAME. Withholding the
+   * option would have been the divergence.
    */
   "SFD-184-home": {
-    prompt: () => "Relentless Pursuit: move that unit to your base?",
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId === undefined ? undefined : findUnitAnywhere(state, d.targetInstanceId);
+      return `Relentless Pursuit: move ${unit?.unit.name ?? "that unit"} to your base?`;
+    },
     options: (state, d) =>
       d.targetInstanceId !== undefined && findUnitOnBattlefield(state, d.targetInstanceId) !== undefined
         ? [
             { id: "decline", label: "Stay" },
-            { id: "home", label: "Move to base", instanceId: d.targetInstanceId },
+            { id: "home", label: "Move to base" },
           ]
         : [],
     resolve: (state, d, optionId) =>

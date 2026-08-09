@@ -2647,6 +2647,29 @@ button:disabled {
   --card-w: calc(var(--card-h) * 0.716);
 }
 
+/* A card option and the instruction that goes with it, stacked. The wrapper is
+   a column so the caption sits under the art without changing the row's flex
+   layout — the cards themselves keep their existing size and wrapping. */
+.decision-card-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: var(--card-w);
+}
+
+/* The caption is NOT a click target: the card is, exactly as before this
+   existed. Making the text clickable too would be a second answer path to keep
+   in step with `readOnly`, and there is no version of that which is worth the
+   risk of an unanswerable decision becoming a double-answered one. */
+.decision-option-label {
+  pointer-events: none;
+  font-size: 0.75rem;
+  line-height: 1.25;
+  text-align: center;
+  color: #e8e8ef;
+}
+
 /* A count in the side rail that's also a way in (the trash pile) — reads as
    the surrounding meta text, not as a chunky button competing with Pass. */
 .side-column-link {
