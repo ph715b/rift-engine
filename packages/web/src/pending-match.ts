@@ -63,6 +63,53 @@ export function xAmountOf(pending: PendingXChoice): number | undefined {
   return pending.xAmount;
 }
 
+/** An armed play's chosen mode, for a "Choose one —" card. `undefined` until the
+ *  player has picked, which the two functions below read in opposite directions
+ *  — the same settled/narrowing split as the optional costs at the bottom of
+ *  this file. */
+export interface PendingMode {
+  modeId?: string;
+}
+
+/**
+ * Does this candidate survive the mode chosen SO FAR? (Narrowing.)
+ *
+ * **The concept of a mode did not exist anywhere in `packages/web/src`** —
+ * `modeId` appeared zero times, while every enumerated action for a modal card
+ * carries one. That produced two different failures from one cause:
+ *
+ * Angle Shot STALLED. `targetingForCard` returns `{kind:"none"}` for an
+ * unresolved mode — it cannot guess which of two different specs applies — so
+ * the board asked for no target, and then no candidate matched a pending play
+ * that named none. It armed and could never be submitted. Reported as "no
+ * prompts or anything to choose a unit or gear".
+ *
+ * Rocket Barrage did something WORSE than stall. Its `killGear` candidates carry
+ * no `targetUnitInstanceId` and its `damage` ones do, so a mode-less pending
+ * matched all four gear candidates and neither damage one: the board silently
+ * played "destroy a gear" at an arbitrary gear — sometimes the player's own —
+ * and the damage mode was unreachable. A wrong play, made quietly.
+ *
+ * Unset excludes nothing, for the reason `matchesPendingCostFilter` gives: both
+ * modes stay live until one is picked.
+ */
+export function modeFilterAllows(candidate: PlayCardAction, pending: PendingMode): boolean {
+  if (pending.modeId === undefined) return true;
+  return candidate.modeId === pending.modeId;
+}
+
+/**
+ * Does this candidate carry exactly the mode the player picked? (Settled.)
+ *
+ * Unlike the filter above, an unmade choice matches only a candidate that has no
+ * mode either — a non-modal card, whose actions omit `modeId` entirely. Letting
+ * `undefined` match anything here is what allowed an arbitrary mode to be
+ * submitted, so this is the strict half on purpose.
+ */
+export function sameMode(candidate: PlayCardAction, pending: PendingMode): boolean {
+  return (candidate.modeId ?? null) === (pending.modeId ?? null);
+}
+
 /**
  * The boolean optional-cost variants a play can carry, in one list so the
  * several places that must agree about them cannot drift apart.

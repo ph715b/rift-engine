@@ -5,6 +5,7 @@ import { useBoardCardSize, CARD_ASPECT_RATIO } from "./use-board-card-size.js";
 import {
   beginFirstTurn,
   cardHasOptionalExhaustCost,
+  cardModesOf,
   cardNeedsTarget,
   cardMovesTarget,
   targetingChoosesUnit,
@@ -26,8 +27,7 @@ import {
   pendingDecision,
   modifiedEnergyCost,
   submit,
-  targetingForAnyCard,
-  timingRejection,
+    timingRejection,
   unitTriggerHasVisionChoice,
   victoryScore,
   type CardInstance,
@@ -60,12 +60,15 @@ import { ChainView } from "./ChainView.js";
 import { BattlefieldSelect } from "./BattlefieldSelect.js";
 import { SeriesPanel } from "./SeriesPanel.js";
 import { listTargetHint } from "../target-hint.js";
+import { targetingForPlay } from "../targeting-for-play.js";
 import { autoPayFill } from "../auto-payment.js";
 import { submittedPlay } from "../submitted-play.js";
 import { cardHasDestination } from "../card-destination.js";
 import {
   matchesPendingChoices,
   matchesPendingCostFilter,
+  modeFilterAllows,
+  sameMode,
   sameOptionalCosts,
   OPTIONAL_COST_FLAGS,
   type OptionalCostKey,
@@ -146,6 +149,29 @@ function fanTransform(index: number, count: number): CSSProperties {
  *  never leak into another's submission. */
 interface PendingPlay {
   card: CardInstance;
+  /**
+   * Which mode of a modal card ("Choose one —") is being played.
+   *
+   * **The whole concept was missing from this workspace**: `modeId` appeared
+   * zero times in all of `packages/web/src`, while every enumerated
+   * `PlayCardAction` for a modal card carries one. The consequence was total —
+   * `targetingForCard` answers `{kind:"none"}` for an unresolved mode (it
+   * cannot guess which of two different specs applies), so `pendingStep()` saw
+   * a card needing nothing, `matchesPending` compared a mode-less pending
+   * against candidates that all name targets, and no candidate matched. Angle
+   * Shot armed, showed no prompt, and could never be submitted. Reported from
+   * playtesting as "no prompts or anything to choose a unit or gear".
+   *
+   * Rocket Barrage failed the same way with a worse symptom: its `killGear`
+   * candidates carry no `targetUnitInstanceId`, so a mode-less pending matched
+   * all four of THEM and none of the two `damage` ones — the board silently
+   * played "kill a gear" at an arbitrary gear, sometimes the player's own, and
+   * the damage mode was unreachable. A silent wrong play, not a stall.
+   *
+   * These are the only two modal cards in the pool today; this is the field that
+   * stops the third from arriving broken.
+   */
+  modeId?: string;
   targetUnitInstanceId?: string;
   /** Gentlemen's Duel's second ("unitPair") target — always chosen after
    *  `targetUnitInstanceId`, never before. */
@@ -242,8 +268,20 @@ interface PendingPlay {
  *  `pendingStep()` walks. Every board-click step comes before every modal
  *  (ChoiceOverlay) step, so a modal can never cover a zone the player still
  *  has to click — no card in the current pool combines the two, and this
- *  ordering keeps that safe if one ever does. */
+ *  ordering keeps that safe if one ever does.
+ *
+ *  **`"mode"` is the one exception, and it comes FIRST.** It is a ChoiceOverlay
+ *  step, so by the rule above it would sort last — but the mode is what
+ *  DETERMINES which board clicks are legal. Angle Shot's two modes want
+ *  different units and different gear; asking for a target before the mode is
+ *  asking a question that has no answer yet. The ordering rule exists so a modal
+ *  never covers a zone the player must click; a mode step covers a board the
+ *  player cannot yet be asked to click, which is the same principle, not an
+ *  exception to it. */
 type PendingStep =
+  /** Which half of a "Choose one —" card is being played (Angle Shot, Rocket
+   *  Barrage). Asked before everything, for the reason above. */
+  | "mode"
   | "firstTarget"
   | "secondTarget"
   /** A `unitList` card accumulating its N ordered targets (Falling Star,
@@ -682,6 +720,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  is what keeps the board's step list and the validator agreeing. */
   function cardNeedsChoice(card: CardInstance): boolean {
     return (
+      // The MODE is a choice before any of the others, and `cardNeedsTarget`
+      // cannot see it: it asks the mode-less targeting spec, which for a modal
+      // card is `{kind:"none"}`. So a modal card claimed to need nothing, and
+      // only its nonzero rune cost stopped `immediatePlayAction` from firing
+      // mode #1 on click. Angle Shot and Rocket Barrage both cost runes today;
+      // a free modal card would have played itself, at a mode nobody picked.
+      cardModesOf(card).length > 1 ||
       cardNeedsTarget(card) ||
       (card.kind === "Unit" && unitTriggerHasVisionChoice(state, HUMAN_INDEX, card.defId)) ||
       (card.kind === "Spell" && cardHasOptionalExhaustCost(card.defId))
@@ -758,7 +803,13 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
 
     // Affordable, so the blocker is the effect's own targeting — the card
     // simply has nothing legal to point at yet.
-    const targeting = targetingForAnyCard(card);
+    //
+    // No mode is passed, deliberately: this is only reached when the card has NO
+    // legal candidates at all, so there is no mode the player could have picked
+    // that would work, and naming one of them would explain the wrong half. A
+    // modal card lands in `default:` with the generic "can't be played right
+    // now", which for "neither mode has a target" is the honest answer.
+    const targeting = targetingForPlay(card, undefined);
     switch (targeting.kind) {
       case "unit": {
         const who = targeting.owner === "friendly" ? "friendly " : targeting.owner === "enemy" ? "enemy " : "";
@@ -795,8 +846,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  Without this the player has to guess the enumeration order: clicking the
    *  two units "backwards" matched no candidate, so the UI silently refused
    *  to offer a second target at all. */
-  function pendingSlotsAreSymmetric(card: CardInstance): boolean {
-    const targeting = targetingForAnyCard(card);
+  function pendingSlotsAreSymmetric(card: CardInstance, modeId: string | undefined): boolean {
+    const targeting = targetingForPlay(card, modeId);
     return targeting.kind === "unitSlots" && targeting.slots[0] === targeting.slots[1];
   }
 
@@ -823,8 +874,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function pendingCandidates(): PlayCardAction[] {
     const pending = pendingPlay;
     if (!pending) return [];
-    const symmetric = pendingSlotsAreSymmetric(pending.card);
+    const symmetric = pendingSlotsAreSymmetric(pending.card, pending.modeId);
     return playCardActionsFor(pending.card.instanceId).filter((a) => {
+      // MODE first, and before origin: on a modal card every other field means
+      // something different per mode, so narrowing on a target before narrowing
+      // on the mode compares fields that are not comparable.
+      if (!modeFilterAllows(a, pending)) return false;
       // Origin first. A card can be enumerated both from hand and from facedown
       // at once — different cost, different legal targets (rule 811) — and
       // mixing the two pools would let a target legal from hand be offered for a
@@ -896,7 +951,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   function pendingStep(): PendingStep | null {
     const pending = pendingPlay;
     if (!pending) return null;
-    const targeting = targetingForAnyCard(pending.card);
+    // BEFORE the targeting spec is even read, because on a modal card there is
+    // no spec to read until the mode is known — `targetingForCard` answers
+    // `{kind:"none"}` rather than guessing at one of them, and every branch
+    // below would then decline to ask anything at all.
+    if (pending.modeId === undefined && cardModesOf(pending.card).length > 1) return "mode";
+    const targeting = targetingForPlay(pending.card, pending.modeId);
     // Narrowed by the choices already made, so e.g. a pair's second slot is
     // judged against the first target's own candidates.
     const candidates = pendingCandidates();
@@ -1013,7 +1073,10 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // Symmetric slots compare as an unordered set, and EXACTLY — unlike
     // pendingCandidates' subset test, since by this point targeting is settled
     // and a one-target choice must not resolve to a two-target candidate.
-    if (pendingSlotsAreSymmetric(pending.card)) {
+    // The mode, on both branches below — a modal card whose two modes carry the
+    // same target would otherwise resolve to whichever was enumerated first.
+    if (!sameMode(a, pending)) return false;
+    if (pendingSlotsAreSymmetric(pending.card, pending.modeId)) {
       const chosen = [...targetSetOf(pending)].sort();
       const candidate = [...targetSetOf(a)].sort();
       if (chosen.length !== candidate.length || chosen.some((id, i) => id !== candidate[i])) return false;
@@ -1239,7 +1302,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // in either slot — the deduped fan-out may hold the pair in the opposite
     // order, and requiring a slot-position match would leave the second click
     // unhighlighted (and inert) exactly half the time.
-    if (pendingPlay && slot !== "additionalCostUnitInstanceId" && pendingSlotsAreSymmetric(pendingPlay.card)) {
+    if (pendingPlay && slot !== "additionalCostUnitInstanceId" && pendingSlotsAreSymmetric(pendingPlay.card, pendingPlay.modeId)) {
       const alreadyChosen = targetSetOf(pendingPlay);
       if (alreadyChosen.includes(unit.instanceId)) return false;
       return pendingCandidates().some((a) => targetSetOf(a).includes(unit.instanceId));
@@ -1608,7 +1671,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
    *  which is what makes stopping early legal at all. */
   function pendingMinTargets(): number {
     if (!pendingPlay) return 0;
-    const targeting = targetingForAnyCard(pendingPlay.card);
+    const targeting = targetingForPlay(pendingPlay.card, pendingPlay.modeId);
     if (targeting.kind === "unitSlots" || targeting.kind === "unitList") return targeting.min;
     // Riposte's unit is mandatory (355.8 makes it uncastable without one), so it
     // counts here exactly as a plain single-target card's does.
@@ -2035,7 +2098,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     switch (currentStep) {
       case "firstTarget":
       case "secondTarget": {
-        const targeting = targetingForAnyCard(pendingPlay.card);
+        const targeting = targetingForPlay(pendingPlay.card, pendingPlay.modeId);
         if (targeting.kind !== "unitSlots") return ` — choose a target for ${name}`;
         const slot = currentStep === "firstTarget" ? 0 : 1;
         const role = targeting.slots[slot];
@@ -2053,7 +2116,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       // so Falling Star and its four siblings asked for two-to-six targets in
       // total silence. See target-hint.ts.
       case "listTarget":
-        return listTargetHint(pendingPlay.card, pendingChosenTargetCount());
+        return listTargetHint(pendingPlay.card, pendingChosenTargetCount(), pendingPlay.modeId);
       case "xAmount":
         return ` — how much rainbow Power for ${name}? It deals that much.`;
       case "battlefieldTarget":
@@ -2069,6 +2132,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         return ` — exhaust a ready friendly unit to boost ${name}, or Decline`;
       case "equipment":
         return ` — choose an Equipment to attach, or Decline`;
+      case "mode":
+        return ` — choose one for ${name}`;
       default:
         return null;
     }
@@ -2283,6 +2348,26 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             {viewingTrash.cards.map((card) => (
               <CardView key={card.instanceId} card={card} inPile />
             ))}
+          </div>
+        </ChoiceOverlay>
+      )}
+
+      {currentStep === "mode" && pendingPlay && (
+        // "Choose one —". The buttons read the engine's own `CardMode.label`,
+        // which is documented as "what the board's button says" and had until now
+        // never been shown to anyone. Only modes with a live candidate are
+        // offered: Rocket Barrage's gear mode is uncastable with no gear in play,
+        // and a button that arms a card into a dead end is the same silent stall
+        // this step exists to fix.
+        <ChoiceOverlay title={`${pendingPlay.card.name} — choose one`} onCancel={() => setPendingPlay(null)}>
+          <div className="choice-overlay-actions">
+            {cardModesOf(pendingPlay.card)
+              .filter((mode) => playCardActionsFor(pendingPlay.card.instanceId).some((a) => a.modeId === mode.id))
+              .map((mode) => (
+                <button key={mode.id} onClick={() => setPendingPlay({ ...pendingPlay, modeId: mode.id })}>
+                  {mode.label}
+                </button>
+              ))}
           </div>
         </ChoiceOverlay>
       )}

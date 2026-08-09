@@ -1,4 +1,5 @@
-import { targetingForAnyCard, type CardInstance } from "@rift-engine/engine";
+import type { CardInstance } from "@rift-engine/engine";
+import { targetingForPlay } from "./targeting-for-play.js";
 
 /**
  * What the header tells a player who has armed a card that wants a LIST of
@@ -20,8 +21,12 @@ import { targetingForAnyCard, type CardInstance } from "@rift-engine/engine";
  * without mounting the board — the untested inline switch is what let a missing
  * case go unnoticed.
  */
-export function listTargetHint(card: CardInstance, chosenCount: number): string {
-  const targeting = targetingForAnyCard(card);
+/** `modeId` for a modal card: without it `targetingForAnyCard` answers
+ *  `{kind:"none"}` and this returns the generic hint for every mode. No modal
+ *  card in the pool has a `unitList` mode today, so this is the guard rather
+ *  than the fix — but the parameter exists so the next one is not silent. */
+export function listTargetHint(card: CardInstance, chosenCount: number, modeId?: string): string {
+  const targeting = targetingForPlay(card, modeId);
   if (targeting.kind !== "unitList") return ` — choose targets for ${card.name}`;
 
   // "The same unit may be chosen more than once" is the half the player asked
