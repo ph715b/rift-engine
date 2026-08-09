@@ -331,6 +331,48 @@ describe("Relentless Pursuit: through submit, the way it is played", () => {
     expect(answered.state.players[0]!.baseUnits.map((u) => u.instanceId), "it stayed at the battlefield").toContain("runner");
     expect(unitAt(answered.state, 0), "it is in two places at once").toBeUndefined();
   });
+
+  /**
+   * PINNED DIVERGENCE — this asserts the WRONG answer on purpose.
+   *
+   * The granted ability reads "When I conquer, you may move me to my base." The
+   * "you may" is the FIRST part of its effect, which rule 383.3.a places at
+   * FINALIZATION: "the controller of its source will choose whether or not to
+   * perform the Triggered Ability during finalization." 383.3.a.2 then says that
+   * declining "is removed from the chain and considered to have not triggered" —
+   * so under the rules a declined trigger never sits on the Chain at all.
+   *
+   * This engine asks at RESOLUTION, via `parkDecision`, for every "you may" on a
+   * triggered ability. 383.3.a.3 is the contrast that makes the split real: a
+   * "you may" in ANY LATER part of an effect IS decided on resolution (Ornn,
+   * Blacksmith is the rules' own example), so the engine's behaviour is correct
+   * for one family and wrong for the other, and it does not distinguish them.
+   *
+   * OBSERVABLE, which is why this can be pinned at all: the question arrives
+   * after Focus has passed, meaning the opponent has already seen and been able
+   * to respond to an ability its controller had not yet agreed to perform. Under
+   * 383.3.a they would answer first.
+   *
+   * Recorded in docs/rules-conformance.md. Closing it should flip this test, not
+   * delete it — which is the entire reason it asserts the wrong number.
+   */
+  it("asks at RESOLUTION, not at finalization — divergent from 383.3.a", () => {
+    const { state, spellId } = walkInBoard();
+    let live = submit(state, playsOf(state, spellId).find((p) => p.destinationBattlefieldId === "bf1")!).state;
+
+    let passes = 0;
+    for (let guard = 0; guard < 24 && live.pendingDecisions.length === 0; guard += 1) {
+      const pass = legalActions(live).find((a) => a.type === "PassFocus");
+      if (!pass) break;
+      live = submit(live, pass).state;
+      passes += 1;
+    }
+
+    expect(pendingDecision(live)?.kind, "the fixture never reached the question").toBe("SFD-184-home");
+    // > 0 IS the divergence. Under 383.3.a this is 0: the choice is part of
+    // putting the ability on the Chain, before anyone passes anything.
+    expect(passes, "383.3.a would have asked before any Focus passed").toBeGreaterThan(0);
+  });
 });
 
 describe("Relentless Pursuit: coverage", () => {
