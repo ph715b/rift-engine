@@ -194,3 +194,49 @@ describe("attached Equipment renders under its wearer, paper-style", () => {
     expect(container.querySelector(".attached-stack")?.getAttribute("aria-hidden")).toBe("true");
   });
 });
+
+/**
+ * **The tests above passed while nothing was visible on the board.**
+ *
+ * The first version of the paper layout shipped, was reported unusable — "i
+ * cant see the equipment attached to a unit" — and every test still passed.
+ * They asserted the elements were in the DOM. They were. Two CSS facts made
+ * them unseeable:
+ *
+ *   `.card { overflow: hidden }` clipped away the band meant to stick out below
+ *   the wearer, which is the whole point of the paper layout.
+ *
+ *   `.card-art` is `position: absolute; inset: 0` and paints AFTER the stack,
+ *   so it covered everything the clip had not already removed.
+ *
+ * jsdom does no layout, so no test here can assert "visible" directly. What it
+ * CAN assert is the one thing that decides it — the modifier class the CSS
+ * keys off. That is the honest thing to pin: not a proxy for visibility, but
+ * the specific switch whose absence caused it.
+ */
+describe("the attached stack is not clipped away", () => {
+  it("opens the wearer's overflow, which is what makes the stack visible at all", () => {
+    const { container } = draw(
+      <CardView card={unit()} attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: LONG_SWORD }]} />,
+    );
+    const card = container.querySelector(".card");
+    expect(card?.className, "without `has-attached` the stack is clipped and invisible").toContain("has-attached");
+  });
+
+  it("does NOT open it for a unit wearing nothing", () => {
+    // Every other card must keep clipping — `overflow: hidden` is load-bearing
+    // for the card silhouette, so this is not a blanket change.
+    const { container } = draw(<CardView card={unit()} />);
+    expect(container.querySelector(".card")?.className).not.toContain("has-attached");
+  });
+
+  it("does not open it for a GEAR that was handed the prop", () => {
+    const { container } = draw(
+      <CardView
+        card={gear(LONG_SWORD, "wearer")}
+        attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: LONG_SWORD }]}
+      />,
+    );
+    expect(container.querySelector(".card")?.className).not.toContain("has-attached");
+  });
+});

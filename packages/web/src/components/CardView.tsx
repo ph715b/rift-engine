@@ -188,6 +188,13 @@ export function CardView({
   const showExhausted = Boolean(card.exhausted) && !inPile;
   if (showExhausted) classes.push("exhausted");
   if (onDragEnd) classes.push("draggable");
+  // **The card clips its own overflow**, so an Equipment tucked under the
+  // wearer is invisible without this — which is exactly how the first attempt
+  // shipped: the elements were in the DOM, the tests asserted they were, and
+  // nothing could be seen on the board. Opened up only for a unit that HAS
+  // attachments, so every other card keeps its clipping.
+  const hasAttached = card.kind === "Unit" && (attachedEquipment?.length ?? 0) > 0;
+  if (hasAttached) classes.push("has-attached");
 
   const powerDomainColor = def && "powerDomain" in def && def.powerDomain ? DOMAIN_COLORS[def.powerDomain] : undefined;
 
@@ -253,7 +260,7 @@ export function CardView({
           : undefined
       }
     >
-      {card.kind === "Unit" && (attachedEquipment?.length ?? 0) > 0 && (
+      {hasAttached && (
         // **Attached Equipment, laid out the way paper does it**: the gear card
         // tucked UNDER its wearer and skewed, so the name line still reads.
         //

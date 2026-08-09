@@ -2955,23 +2955,45 @@ button:disabled {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Must not clip either, or the same bug returns one level down. */
+  overflow: visible;
 }
 
 /* Each piece is offset DOWN and RIGHT and rotated, fanning a little further per
    item (`--fan`) so two Equipment on one unit are individually visible rather
    than exactly overlapping. The rotation is small and positive: enough to read
    as a separate card underneath, not so much that the name line goes diagonal. */
+/* **The card normally clips its own overflow**, and that alone made the first
+   version of this completely invisible — the elements were in the DOM, the tests
+   asserted they were there, and nothing could be seen on the board. Opened up
+   only for a unit that HAS attachments; every other card keeps clipping.
+
+   The art still clips its own corners, so the card silhouette is unchanged. */
+.card.has-attached {
+  overflow: visible;
+}
+
+.card.has-attached .card-art {
+  border-radius: inherit;
+}
+
+/* Each piece is pushed DOWN far enough that its lower band sits OUTSIDE the card
+   box — the only region the wearer's art cannot cover, since `.card-art` is
+   `inset: 0` and paints after this. That band is exactly the part a paper player
+   leaves sticking out to read.
+
+   Fanned further per item so two Equipment are individually visible. */
 .attached-card {
   position: absolute;
-  left: 0;
-  top: calc(11% + (var(--fan) * 7%));
-  width: 100%;
+  left: 4%;
+  top: calc(52% + (var(--fan) * 13%));
+  width: 92%;
   height: 100%;
-  transform: rotate(calc(3.5deg + (var(--fan) * 3deg)));
+  transform: rotate(calc(4deg + (var(--fan) * 3.5deg)));
   transform-origin: 50% 0%;
   border-radius: 0.4rem;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 
 .attached-art {
