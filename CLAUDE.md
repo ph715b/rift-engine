@@ -77,6 +77,36 @@ copy in front of the session won over the correct one. Handoffs link here.
 The same rule applies to any list the engine merges from several sources — the
 trigger census was wrong four times, always by hand-copying one of them.
 
+## Citing a rule: use `pdftotext -raw`, NEVER `-layout`
+
+**`-layout` puts the rule numbers in a column that does not line up with their
+text, and every wrong citation in this repo came from reading it anyway.** Three
+were found in a single day: "rule 1678" (a line number), Frostcoat Cub's "707.2"
+(a rule that does not exist, justifying a Might floor that should not exist), and
+"rule 2701" (another line number, which I then passed into an agent brief).
+
+`-raw` emits the document in reading order with each number attached to its own
+text, and it settles these instantly:
+
+```bash
+pdftotext -q -raw "docs/Riftbound Core Rules Updated 2026-07-16.pdf" - | grep -n "the sentence you mean"
+```
+
+Measured against it, citations this repo had been carrying:
+
+| claim | was cited as | actually |
+|---|---|---|
+| a unit "is Mighty" at 5+ Might | 711 *and* 812, in two files | **708** |
+| a unit "becomes Mighty" crossing 5 | 715 | **709** |
+| "you may pay X. If you do…" is not a cost | 204 | **205** |
+| Might below 0 is treated as 0 when referenced | (cited by neighbour) | **143.2.b** |
+
+The current PDF is downloadable from Riot's CDN — the project owner supplied
+`https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/e9ac8e3d33e0f78cef296f5945aba7bc1313b086.pdf`.
+**Cite by neighbour only when `-raw` genuinely cannot resolve it**, which is now
+rare; the scope docs that cite "by neighbour rather than by a number this
+document would get wrong" predate this and can mostly be tightened.
+
 ## Measure before planning
 
 It has changed the plan every single time. Ask the instruments, not the notes:

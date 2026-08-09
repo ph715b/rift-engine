@@ -59,7 +59,13 @@ import { listTargetHint } from "../target-hint.js";
 import { autoPayFill } from "../auto-payment.js";
 import { submittedPlay } from "../submitted-play.js";
 import { cardHasDestination } from "../card-destination.js";
-import { matchesPendingChoices } from "../pending-match.js";
+import {
+  matchesPendingChoices,
+  matchesPendingCostFilter,
+  sameOptionalCosts,
+  OPTIONAL_COST_FLAGS,
+  type OptionalCostKey,
+} from "../pending-match.js";
 
 const HUMAN_INDEX = 0;
 const AI_INDEX = 1;
@@ -199,8 +205,34 @@ interface PendingPlay {
    * comparison never has to guess a default.
    */
   acceleratePaid?: boolean;
+  /**
+   * The other four optional-cost variants a play can carry.
+   *
+   * **All four were missing, and the consequence was that a human could not pay
+   * a `[Repeat]` at all.** `acceleratePaid` above was the only one the UI knew
+   * about, so `matchesPending` treated a repeat-paid candidate and a plain one
+   * as identical and `.find` took whichever came first — the plain, undiscounted
+   * play, every time. Reported from playtesting as "Ezreal's discount does
+   * nothing"; the engine was right and there was no way to reach it from the
+   * board.
+   *
+   * They are separate fields rather than one enum because a card can carry more
+   * than one at once — a printed `[Repeat]` under a Temporal Portal grant is
+   * `repeatPaid` AND `grantedRepeatPaid`, and rule 3509 makes those two separate
+   * instances that are paid separately.
+   *
+   * `targetDiscountAxis` is not a boolean: Ezreal - Prodigy and Irelia - Graceful
+   * share one axis field, and a play that claims an axis buying nothing is
+   * REFUSED by the validator — so it has to match exactly like the rest, or the
+   * board offers an action `submit` will reject.
+   */
+  optionalPowerPaid?: boolean;
+  repeatPaid?: boolean;
+  grantedRepeatPaid?: boolean;
+  targetDiscountAxis?: "energy" | "power";
   payment: RunePayment;
 }
+
 
 /** The one choice `pendingPlay` is currently waiting on, in the fixed order
  *  `pendingStep()` walks. Every board-click step comes before every modal
@@ -833,10 +865,12 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       ) {
         return false;
       }
-      // [Accelerate] is a cost VARIANT, so it narrows the pool the same way a
-      // chosen target does. Set the moment the card is armed, so the payment being
-      // built and the action eventually submitted are always the same variant.
-      if (pending.acceleratePaid !== undefined && (a.acceleratePaid ?? false) !== pending.acceleratePaid) return false;
+      // An optional cost is a VARIANT, so it narrows the pool the same way a
+      // chosen target does. Set the moment the card is armed, so the payment
+      // being built and the action eventually submitted are always the same
+      // variant. Only flags the armed play has actually SETTLED are compared —
+      // an unset flag must not exclude candidates before the player has chosen.
+      if (!matchesPendingCostFilter(a, pending)) return false;
       return true;
     });
   }
@@ -986,7 +1020,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
         (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
         (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
         (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
-        (a.acceleratePaid ?? false) === (pending.acceleratePaid ?? false)
+        sameOptionalCosts(a, pending)
       );
     }
     return (
@@ -1004,7 +1038,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
       (a.additionalCostUnitInstanceId ?? null) === (pending.additionalCostUnitInstanceId ?? null) &&
       (a.destinationBattlefieldId ?? BASE_ZONE_ID) === (pending.destinationBattlefieldId ?? BASE_ZONE_ID) &&
       (a.fromHiddenBattlefieldId ?? null) === (pending.fromHiddenBattlefieldId ?? null) &&
-      (a.acceleratePaid ?? false) === (pending.acceleratePaid ?? false)
+      sameOptionalCosts(a, pending)
     );
   }
 
@@ -1137,20 +1171,34 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   /** The armed card's OTHER cost variant, if [Accelerate] gives it one. Undefined
    *  whenever the card has no accelerated form, which is every card but a handful —
    *  so the toggle below simply doesn't render for them. */
-  function accelerateAlternative(): PlayCardAction | undefined {
+  function costFlagAlternative(key: OptionalCostKey): PlayCardAction | undefined {
     const pending = pendingPlay;
     if (!pending) return undefined;
-    const want = !(pending.acceleratePaid ?? false);
-    return playCardActionsFor(pending.card.instanceId).find((a) => (a.acceleratePaid ?? false) === want);
+    const want = !(pending[key] ?? false);
+    // Every OTHER settled choice must still match, or the "alternative" would be
+    // a different card variant entirely — a repeat-paid candidate aimed at a
+    // different target, say. This is the same pairing `pendingCandidates`
+    // enforces, which is why it is asked of that list rather than of every
+    // action for the card.
+    return pendingCandidates().find(
+      (a) =>
+        (a[key] ?? false) === want &&
+        OPTIONAL_COST_FLAGS.every((f) => f.key === key || (a[f.key] ?? false) === (pending[f.key] ?? false)),
+    );
   }
 
-  /** Switches the armed card between paying [Accelerate] and not. Clears the
-   *  payment: the two variants owe different runes, and carrying a part-paid
-   *  proposal across would leave runes committed against a cost that no longer
-   *  exists. */
-  function toggleAccelerate() {
+  /**
+   * Switches the armed card between paying an optional cost and not.
+   *
+   * Clears the payment: the two variants owe different runes, and carrying a
+   * part-paid proposal across would leave runes committed against a cost that no
+   * longer exists. That was a real bug for `[Accelerate]` — the card armed, asked
+   * for a cost belonging to the other variant, and never completed however many
+   * runes were clicked, which reads as the card being unplayable.
+   */
+  function toggleCostFlag(key: OptionalCostKey) {
     setPendingPlay((prev) =>
-      prev ? { ...prev, acceleratePaid: !(prev.acceleratePaid ?? false), payment: { energyRunes: [], powerRunes: [] } } : prev,
+      prev ? { ...prev, [key]: !(prev[key] ?? false), payment: { energyRunes: [], powerRunes: [] } } : prev,
     );
   }
 
@@ -2598,16 +2646,29 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             {pendingChosenTargetCount() === 0 ? "Choose no targets" : `Done (${pendingChosenTargetCount()})`}
           </button>
         )}
-        {/* [Accelerate] (805) — "you may pay an additional cost to have me enter
-            ready". It is a real choice with a real price, and until now the UI made
-            it silently: two candidates existed and whichever the engine listed
-            first was taken. Only rendered when the armed card actually has both
-            variants available right now. */}
-        {pendingPlay && accelerateAlternative() && (
-          <button onClick={toggleAccelerate}>
-            {pendingPlay.acceleratePaid ? "Don't Accelerate" : "Accelerate (enter ready)"}
-          </button>
-        )}
+        {/* Every optional additional cost the armed card can pay — [Accelerate]
+            (805), [Repeat] (820), a granted [Repeat] (3509), and the single-named
+            optional Power costs. Each is a real choice with a real price, and the
+            UI used to make all of them silently except Accelerate: two candidates
+            existed and whichever the engine listed first was taken.
+
+            **[Repeat] was the worst of them, and it is why this is a loop now.**
+            The board had no concept of it at all, so a human could not pay one —
+            free or otherwise — which is what a playtest report about Ezreal -
+            Prodigy's discount "doing nothing" turned out to be. The engine was
+            right and there was no way to reach it from here.
+
+            Each button renders only when the armed card genuinely has BOTH
+            variants available right now, with every other settled choice held
+            fixed — so a card with no repeat form shows no repeat button. */}
+        {pendingPlay &&
+          OPTIONAL_COST_FLAGS.map(({ key, on, off }) =>
+            costFlagAlternative(key) ? (
+              <button key={key} onClick={() => toggleCostFlag(key)}>
+                {pendingPlay[key] ? off : on}
+              </button>
+            ) : null,
+          )}
         {pendingStillOwesPayment && <button onClick={handleAutoPay}>Auto Pay</button>}
         {/* The explicit way out of an armed card, shown for as long as one IS
             armed. Backing out used to be folklore — click any unit and the
