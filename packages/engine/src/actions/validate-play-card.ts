@@ -856,25 +856,35 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : 0;
   const grantedPower = action.grantedRepeatPaid ? grantedRepeatCost?.power ?? 0 : 0;
 
-  // Every OPTIONAL ADDITIONAL cost this play opted into, summed into one bundle
-  // and then discounted once by Ezreal - Prodigy.
+  // Every OPTIONAL ADDITIONAL cost this play opted into, ONE BUNDLE EACH, each
+  // discounted separately by Ezreal - Prodigy before they are summed.
   //
-  // One bundle rather than four discounted terms, because the "[1] or [rainbow]"
-  // is a single pip that has to come off the additional costs as a whole — with
-  // the reduction spread across four independently-floored terms it would be
-  // taken up to four times, which is neither reading of the card. The bundle also
-  // makes the ORDER explicit (a [rainbow] eats the domained pip before the
-  // rainbow one), which is a choice `discountedOptionalCosts` documents.
+  // A LIST rather than one summed bundle since the project-owner ruling of
+  // 2026-08-08: "[1] or [rainbow] less" is once per qualifying optional
+  // additional cost, so a play that pays two of them gets two pips off. The
+  // previous shape summed first and discounted once, which under-paid the player
+  // by a pip on the only board where it is observable (Temporal Portal's granted
+  // `[Repeat]` alongside a printed one).
   //
-  // The optional cost's ENERGY half is in here too — Sea Monkey pays only Energy
-  // and Blast Corps Cadet pays one of each, so the Power line below is not the
+  // MANDATORY costs are absent by construction and that is the point: the four
+  // entries below are the four flags a player OPTS INTO. Cruel Patron's kill,
+  // Legion Quartermaster's bounce and Stalking Wolf's kill ride
+  // `additionalCostUnitInstanceId`, are `mandatory` in `OPTIONAL_UNIT_COSTS`, and
+  // are paid with a permanent rather than a pip — nothing here to reduce, and no
+  // entry to reduce it in.
+  //
+  // The optional cost's ENERGY half is in its entry too — Sea Monkey pays only
+  // Energy and Blast Corps Cadet pays one of each, so the Power line is not the
   // whole price. Re-derived from the same table the enumerator priced against,
   // which is what keeps the two from disagreeing.
-  const additional = discountedOptionalCosts(state, action.playerIndex, action.targetDiscountAxis, payingOptional, {
-    energy: accelerateEnergy + repeatEnergy + grantedEnergy + (action.optionalPowerPaid ? optionalPower?.energy ?? 0 : 0),
-    power: acceleratePower + repeatPower + grantedPower + (action.optionalPowerPaid ? optionalPower?.count ?? 0 : 0),
-    rainbow: repeatRainbow,
-  });
+  const additional = discountedOptionalCosts(state, action.playerIndex, action.targetDiscountAxis, [
+    ...(action.acceleratePaid ? [{ energy: accelerateEnergy, power: acceleratePower, rainbow: 0 }] : []),
+    ...(action.repeatPaid ? [{ energy: repeatEnergy, power: repeatPower, rainbow: repeatRainbow }] : []),
+    ...(action.grantedRepeatPaid ? [{ energy: grantedEnergy, power: grantedPower, rainbow: 0 }] : []),
+    ...(action.optionalPowerPaid
+      ? [{ energy: optionalPower?.energy ?? 0, power: optionalPower?.count ?? 0, rainbow: 0 }]
+      : []),
+  ]);
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }

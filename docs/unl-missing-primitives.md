@@ -41,14 +41,48 @@ against a mechanism that does not exist reports DONE and does nothing.
   multiple units at the same time" is a state this engine cannot produce.
   `player-action.ts` lines 246-248 already name this card as unmodelled.
 
+## A forward-looking gap found while ruling on Ezreal
+
+**UNL-166 Stalking Wolf's mandatory additional cost is unmodelled — it has no
+entry anywhere in `src/`.** Its text is "As an additional cost to play me, kill a
+Bird, Cat, Dog, or Poro you control", with no "you may", so it is MANDATORY.
+
+That matters beyond the card itself. Ezreal - Prodigy's discount must never reach
+a mandatory cost, and today it does not — but only because the cost does not
+exist, which is the right answer for the wrong reason. When Stalking Wolf is
+implemented it needs `UnitCostSpec.mandatory: true`, and the Ezreal test that
+currently proves exclusion on Cruel Patron (OGN-208) should gain it as a second
+subject.
+
+## The rules call that WAS open — now answered
+
+**UNL-054's "to a single location"** is a **partial no-op**: the choice is legal,
+a chosen unit already standing at the destination simply does not move, and the
+rest do. Project-owner ruling, 2026-08-08, and explicitly flagged by them as
+inference rather than a quoted ruling — they searched the official rules docs,
+the RiftJudge Q&A database, riftboundfaq.com and the errata pages and found
+nothing addressing it word-for-word, and declined to invent a citation.
+
+The reasoning: 355.7 reads as a PER-UNIT check on whether a given unit may move
+to a given destination, not as a rule about whether the location is a usable
+target; and Riftbound's general pattern is that illegality in one sub-part of a
+multi-part effect does not cancel the whole effect. So the constraint belongs in
+the RESOLVER, not the targeting spec — which is the smaller change of the two.
+
+Recorded in `docs/rules-conformance.md`. Worth confirming in the RiftJudge/rules
+Discord before the card is built.
+
 ## One rules call still open
 
-**UNL-054's "to a single location."** Rule 355.7 excludes a unit's *current*
-Location as a move destination. For a GROUP move, is a set containing a unit
-already standing at the chosen location an illegal choice, or a partial no-op for
-that unit? Not worked anywhere in the PDF for a group move, and it decides
-whether the constraint belongs in the targeting spec or in the resolver. Needs a
-ruling before the card is built.
+**A REPEATABLE optional additional cost: one cost paid N times, or N costs?**
+Ezreal - Prodigy's ruling says the discount applies once per qualifying optional
+additional cost and "never twice to the same cost" — which does not decide this.
+
+Moot today and that is why it is only recorded: the two repeatable optional costs
+in the pool (Kraken Hunter, Commander Ledros — "spend ANY NUMBER of buffs") are
+paid with permanents and carry no Energy or Power pip for Ezreal to reduce. It
+becomes live the moment a set prints a repeatable optional additional cost with a
+pip.
 
 ## What this says about the fan-out
 

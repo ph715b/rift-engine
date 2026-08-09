@@ -414,6 +414,14 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     // unit played under a Garen - Commander aura counts. Reading printed Might
     // would quietly disagree with what the board shows.
     //
+    // **Since the higher-of-two combat ruling (2026-08-08) that includes a unit
+    // that is Mighty only INSIDE a combat**, and it is reachable rather than
+    // theoretical: `[Reaction]` units can be played into an open Combat Showdown,
+    // so Shen - Kinkou (3 Might, `[Shield 2]`) played to a battlefield he defends
+    // is 5 and fires this. Played to BASE, the same card fires nothing. Measured
+    // through the real submit path in `test/becomes-mighty-routes.test.ts`. This
+    // is why the check has to go through `isMighty` and not a hand-written `>= 5`.
+    //
     // "You MAY exhaust me" makes this optional and gives it a cost, so it stops
     // to ask. An already-exhausted Volibear cannot pay and is not asked at all —
     // the same "never offer what cannot be paid" rule canPayActivationCost

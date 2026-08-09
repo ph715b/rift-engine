@@ -243,6 +243,16 @@ const IRELIA_GRACEFUL_DISCOUNT = 1;
  * cost: an Accelerate paid under Ezreal is 1 pip cheaper, and the unit's own
  * price is untouched.
  *
+ * **And it lands as the cost is ADDED, before anything that reduces the card's
+ * TOTAL.** That ordering is not a preference here, it is the shape of the two
+ * cost sites: `discountedOptionalCosts` produces a floored term which is then
+ * ADDED to whatever `modifiedEnergyCost` made of the printed cost, and only the
+ * sum is handed to `computeEffectiveCost` for floating Energy/Power to eat. So
+ * every whole-card modifier (Eager Apprentice's minimum of 1, Vex's floor,
+ * Herald's floor) clamps the printed cost alone and can never claw back a pip
+ * Ezreal took off an additional cost, and float — the one thing that does reduce
+ * a TOTAL — is applied strictly afterwards.
+ *
  * Floored per axis at each site, so it can never turn an addition into a refund.
  *
  * **All FOUR optional additional costs, as of the 2026-08-08 playtest report.**
@@ -299,43 +309,55 @@ export interface AdditionalCostBundle {
  * the additional-cost term 356.3 adds BESIDE the printed cost, and the term is
  * three components a single number cannot carry.
  *
- * **Applied once per PLAY, not once per additional cost.** The card's subject is
- * plural ("optional additional costS you pay"), so the distributive reading —
- * one pip off EACH cost — is at least as defensible; this is the conservative
- * one. It is only ever observable on Temporal Portal's granted `[Repeat]` paid
- * alongside a printed one, the single way this pool can pay two optional
- * additional costs on one play (Accelerate is a Unit keyword and every `[Repeat]`
- * card is a Spell, so those two can never meet). NOT yet in
- * docs/rules-conformance.md — the change that adds the row owns that file; a
- * user ruling the other way flips the `raw` bundle into a list.
+ * **Once per QUALIFYING OPTIONAL ADDITIONAL COST, not once per play** —
+ * project-owner ruling, 2026-08-08, which settles the question this function's
+ * previous comment left open in favour of the distributive reading. The
+ * reduction "applies to the optional additional cost itself as soon as that cost
+ * is added, before discounts that apply to the card's total cost", so a play
+ * paying two separate optional additional costs gets two separate pips off. Never
+ * twice against the SAME cost, never against a mandatory one, and never against
+ * the card's own printed cost.
+ *
+ * Hence a LIST rather than one summed bundle: the caller decides what counts as a
+ * cost, because only the caller knows which flags the action set. An entry that
+ * is all zeros is harmless — there is no shared budget for it to consume — which
+ * is why 356.4.d.1's "it doesn't matter how much the player actually paid" needs
+ * no separate `paying` flag any more. The callers gate each entry on its own flag,
+ * which is the same thing said in the place that knows it.
+ *
+ * The MANDATORY exclusion is structural rather than a check here: the only
+ * additional costs with an Energy or Power pip in this pool are
+ * `OPTIONAL_POWER_COSTS`, `[Accelerate]` and the two `[Repeat]` instances, and
+ * every one of them prints "you may". The mandatory ones (Cruel Patron's kill,
+ * Legion Quartermaster's bounce, Stalking Wolf's kill) are paid with a permanent
+ * and carry `UnitCostSpec.mandatory` — nothing this function could reduce, and no
+ * caller passes them.
  *
  * **The `[rainbow]` axis spends on the DOMAINED pip before the rainbow one.**
  * Whose pip it comes off is the player's choice and both save exactly one rune,
  * so the tie is broken in the direction that is never worse: a remaining rainbow
  * pip accepts any rune, a remaining domained pip does not.
- *
- * `paying` is passed rather than inferred from the amounts, because 356.4.d.1 is
- * explicit that "an optional additional cost was paid if the player made the
- * decision to pay it. It doesn't matter how much the player actually paid" — a
- * `[Repeat]` whose Energy half is zero is still a cost that was paid.
  */
 export function discountedOptionalCosts(
   state: GameState,
   playerIndex: 0 | 1,
   axis: "energy" | "power" | undefined,
-  paying: boolean,
-  raw: AdditionalCostBundle,
+  costs: readonly AdditionalCostBundle[],
 ): AdditionalCostBundle {
-  if (!paying) return raw;
   const discount = optionalCostDiscount(state, playerIndex, axis);
-  const power = Math.max(0, raw.power - discount.power);
-  // Whatever of the [rainbow] pip the domained Power did not absorb.
-  const spentOnPower = raw.power - power;
-  return {
-    energy: Math.max(0, raw.energy - discount.energy),
-    power,
-    rainbow: Math.max(0, raw.rainbow - (discount.power - spentOnPower)),
-  };
+  const total = { energy: 0, power: 0, rainbow: 0 };
+  for (const raw of costs) {
+    // Floored per cost and per axis, so a pip can never turn one addition into a
+    // refund that offsets another — which is the whole reason this sums AFTER
+    // discounting rather than discounting a sum.
+    const power = Math.max(0, raw.power - discount.power);
+    // Whatever of the [rainbow] pip the domained Power did not absorb.
+    const spentOnPower = raw.power - power;
+    total.energy += Math.max(0, raw.energy - discount.energy);
+    total.power += power;
+    total.rainbow += Math.max(0, raw.rainbow - (discount.power - spentOnPower));
+  }
+  return total;
 }
 
 export function targetChoiceDiscount(

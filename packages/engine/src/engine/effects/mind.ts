@@ -724,14 +724,32 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // A rune and no Energy, which is Clockwork Keeper's shape exactly.
     //
-    // FLOORED AT 1, like Orb of Regret's reduction: `giveMightThisTurn`'s floor
-    // caps the stored modifier rather than the displayed Might, so a Cub does
-    // not dig a hole a later buff has to climb out of. The card does not print a
-    // floor — 707.2 does, since Might cannot fall below 1.
+    // **NO FLOOR, corrected 2026-08-08 after a rules call.** This entry used to
+    // pass `giveMightThisTurn` a floor of 1 and justify it as "the card does not
+    // print a floor — 707.2 does, since Might cannot fall below 1."
+    //
+    // **There is no such rule.** Grepped the whole PDF: the only "minimum of 1"
+    // anywhere in it is inside a CARD'S PRINTED TEXT in a worked example —
+    // Blastcone Fae's "give a unit -2 [M] this turn, to a minimum of 1 [M]" —
+    // which proves the opposite of what was claimed, since a card that floors
+    // says so and this one does not. That citation was the same defect as the
+    // recorded "rule 1678", a number that does not say what it was cited for.
+    //
+    // What the rules DO say, under the Might property: a unit below 0 "is
+    // treated as 0 **when referenced** by spells and abilities... Although the
+    // unit's Might is treated as 0, it is not 0. **Effects that calculate Might
+    // increases and decreases use the ACTUAL value.**" So the reference is
+    // floored and the stored modifier must not be — `effectiveMight`'s own
+    // `Math.max(0, m)` is the whole of the floor this card needs.
+    //
+    // Frigid Touch (SFD-066), in this same file, always read it this way and
+    // argued the point at length; the two entries contradicted each other until
+    // now. Observable through a later buff: a 1-Might victim at -2 is really -1,
+    // so a +3 leaves 2 rather than 4.
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, _unitId, event) =>
       event.optionalPowerPaid && event.targetUnitInstanceId
-        ? giveMightThisTurn(state, event.targetUnitInstanceId, -FROSTCOAT_DEBUFF, 1)
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, -FROSTCOAT_DEBUFF)
         : state,
   },
   "OGN-110": {

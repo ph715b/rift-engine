@@ -25,6 +25,28 @@ export interface MightContext {
    *  unit being evaluated is in base. Needed for positional auras
    *  (Garen - Commander) and "alone here" checks (Wielder of Water). */
   battlefieldId?: string;
+  /**
+   * Set ONLY by `granted-keywords.isMighty`, and it suppresses exactly the
+   * keyword grants that are themselves conditional on being `[Mighty]` — which in
+   * this pool is Fiora - Victorious's "While I'm [Mighty], I have [Deflect],
+   * [Ganking], and [Shield]".
+   *
+   * **This is rule 476's layer loop, not a recursion guard dressed up as one.**
+   * "Layers are applied in sequence. Each effect in them is applied as soon as
+   * able, and only a single time across all sequences." Fiora's `[Shield]` is
+   * granted in the Ability-Altering layer, which is only re-checked AFTER the
+   * Arithmetic layer has already produced a Might of 5 — so the +1 that `[Shield]`
+   * is worth to a defender can never be part of the arithmetic that decides she is
+   * Mighty. An unbuffed 4-Might Fiora defending stays at 4 with no keywords; the
+   * PDF's own worked example (the Fiora - Victorious pair under 476, immediately
+   * before 477 lists the layer order) walks the BUFFED case 4 -> 5 -> 6.
+   *
+   * That it also breaks the read cycle is a consequence, not the reason. Before
+   * the higher-of-two ruling, `isCombat: false` did that job by never consulting
+   * `effectiveKeywords` at all; a combat-aware Mighty check cannot afford that, so
+   * the rule that was implicit has to be written down.
+   */
+  mightyCheck?: true;
 }
 
 /** Finds where `ownerIndex`'s own copy of `defId` currently sits (there's
@@ -497,7 +519,12 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
     // Granted keywords count: Raging Soul's [Assault] arrives from its own text
     // rather than from the card frame, and combat must not be able to tell the
     // difference.
-    const keywords = effectiveKeywords(state, unit, ownerIndex);
+    //
+    // `ctx.mightyCheck` withholds the Mighty-conditional grants only — see its
+    // doc on MightContext. Every other source (printed, aura, Equipment,
+    // this-turn) is read exactly as normal, so a `[Shield]` granted by Taric -
+    // Protector DOES make a 4-Might defender Mighty while Fiora's own does not.
+    const keywords = effectiveKeywords(state, unit, ownerIndex, ctx.mightyCheck === true);
     if (ctx.combatRole === "outgoing") {
       m += ctx.isAttackingSide ? (keywords.Assault ?? 0) : 0;
     } else if (ctx.combatRole === "remaining") {

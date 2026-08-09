@@ -4,6 +4,7 @@ import { submit } from "../src/engine/game-engine.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { optionalPowerCostOf } from "../src/engine/card-effects.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
+import { giveMightThisTurn } from "../src/engine/effect-helpers.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -130,6 +131,48 @@ describe("Frostcoat Cub (SFD-067): [Mind] to give -2 Might", () => {
     const after = resolveHeldTriggers(submit(state, paid).state);
 
     expect(effectiveMight(after, victim(after)!, 1, { isCombat: false }), "the debuff was the wrong size").toBe(4);
+  });
+
+  it("does NOT floor the stored modifier — a later buff climbs from the real value", () => {
+    // **The rules call, settled by the project owner 2026-08-08 and confirmed
+    // against the PDF here.** The Might property says a unit below 0 "is treated
+    // as 0 WHEN REFERENCED by spells and abilities... Although the unit's Might
+    // is treated as 0, it is not 0. **Effects that calculate Might increases and
+    // decreases use the ACTUAL value.**"
+    //
+    // So `effectiveMight`'s `Math.max(0, m)` is right — that is the reference —
+    // and passing a `floor` to `giveMightThisTurn` was wrong, because that
+    // clamps the STORED modifier and so digs the unit out of a hole it should
+    // still be in.
+    //
+    // The card's own entry cited "707.2, since Might cannot fall below 1". No
+    // such rule exists: the ONLY "minimum of 1" in the whole PDF is inside a
+    // card's printed text in an example — Blastcone Fae's "give a unit -2 Might
+    // this turn, TO A MINIMUM OF 1 MIGHT" — which proves the opposite, since a
+    // card that floors says so and this one does not. Same defect class as the
+    // recorded "rule 1678" line-number citation.
+    //
+    // Observable only through a later buff, because the debuffed value itself
+    // reads as 0 either way. A 1-Might victim at -2 is really -1, so +3 leaves
+    // 2 — not the 4 a floor at 1 would give.
+    const { state, cardId } = board(FROSTCOAT_CUB, runes("Mind", 6));
+    const weak: GameState = {
+      ...state,
+      battlefields: state.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { [state.players[1]!.id]: [makeUnit({ instanceId: "victim", might: 1 })] } } : bf,
+      ),
+    };
+    const paid = playsOf(weak, cardId).find((a) => a.optionalPowerPaid && a.targetUnitInstanceId === "victim")!;
+    const debuffed = resolveHeldTriggers(submit(weak, paid).state);
+
+    // Referenced: treated as 0, never negative.
+    expect(effectiveMight(debuffed, victim(debuffed)!, 1, { isCombat: false })).toBe(0);
+    // Calculated: the actual value is -1, so +3 gives 2.
+    const buffed = giveMightThisTurn(debuffed, "victim", 3);
+    expect(
+      effectiveMight(buffed, victim(buffed)!, 1, { isCombat: false }),
+      "a floored modifier let the victim climb out of a hole it should still be in",
+    ).toBe(2);
   });
 
   it("does nothing when the rune was not paid", () => {

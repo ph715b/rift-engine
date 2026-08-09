@@ -416,8 +416,20 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
   return granted;
 }
 
-/** A grant condition, evaluated fresh on every read. */
-type Grant = { when: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => boolean; keywords: Keyword[] };
+/** A grant condition, evaluated fresh on every read.
+ *
+ *  `dependsOnMight` marks a grant whose condition IS the unit's Mightiness, and it
+ *  is read by exactly one caller: `effectiveMight` withholds these while answering
+ *  "is this unit Mighty" (`MightContext.mightyCheck`), because 476 applies each
+ *  layer effect only once and the Ability-Altering layer is re-checked only after
+ *  the Arithmetic layer has already settled the Might. Without the flag a
+ *  combat-aware `isMighty` would ask Fiora - Victorious's `[Shield]` to help
+ *  decide whether she has `[Shield]`. */
+type Grant = {
+  when: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => boolean;
+  keywords: Keyword[];
+  dependsOnMight?: true;
+};
 
 /** Sivir - Mercenary: "If you've spent at least [rainbow][rainbow] this turn, I
  *  have +2 Might and [Ganking]." A per-turn condition on the PLAYER, like
@@ -453,6 +465,9 @@ const CONDITIONAL_GRANTS: Record<string, Grant> = {
     // keeps this table a statement of what the CARD says rather than of what the
     // engine happens to support.
     keywords: ["Deflect", "Ganking", "Shield"],
+    // The only entry here whose condition is Might, and the only one that has to
+    // be withheld from the Might computation itself — see the field's doc.
+    dependsOnMight: true,
   },
 };
 
@@ -506,30 +521,67 @@ const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
 
 /**
  * Rule 711: "A Unit 'is Mighty' as long as its Might is 5 or greater", evaluated
- * on its CURRENT Might.
+ * on its CURRENT Might. **The one function that answers this question** — every
+ * "while I'm [Mighty]", "each of your [Mighty] units" and "becomes [Mighty]" in
+ * the engine goes through here, including `effect-helpers.withMightTransitions`,
+ * which used to spell the comparison out itself and could therefore disagree.
  *
- * Asked with `isCombat: false` deliberately, and that is what keeps this from
- * being circular: the combat-only terms are exactly [Assault] and [Shield], one
- * of which Fiora is granted BY being Mighty. Excluding combat keeps Mighty a
- * property of the unit rather than of the fight it happens to be in — which is
- * also what 711 describes.
+ * **In combat, the HIGHER of the two roles counts — project-owner ruling,
+ * 2026-08-08.** The PDF's worked example (the Fiora - Victorious pair under 476,
+ * immediately before 477 lists the layer order) ends: "While a buffed Fiora,
+ * Victorious is in combat as a defender, an additional +1 Might will be applied
+ * in the Arithmetic layer, giving her 6 Might and the 3 keywords." So `[Shield]`'s
+ * bonus is part of a defender's current Might and `[Assault]`'s is part of an
+ * attacker's, and a unit can therefore BECOME Mighty by entering combat.
+ *
+ * This engine has no single combat Might — `MightContext.combatRole` splits it
+ * into what a unit deals and what it can absorb, and those are genuinely different
+ * numbers (`[Shield]` lifts only the second, and only while defending). The ruling
+ * is what settles which one 711 is asking about: either.
+ *
+ * `mightyCheck` is what makes that safe to ask, and it is 476's "each effect
+ * applied only a single time" rather than a recursion guard — see its doc on
+ * `MightContext`. Fiora - Victorious cannot bootstrap herself Mighty off the
+ * `[Shield]` she only has while Mighty, but a `[Shield]` from Taric - Protector or
+ * from the card frame does count.
+ *
+ * The out-of-combat read comes first and short-circuits, which is both cheaper and
+ * exact: every combat term ([Assault], [Shield], Wielder of Water, Crimson
+ * Pigeons, Master Yi - Wuju Bladesman) is additive, so a combat role can never be
+ * LOWER than the still reading.
  *
  * **`battlefieldId` was missing until 2026-08-08, and a note in this repo
  * asserted the behaviour it prevented.** `legend-abilities.ts` recorded that
  * Volibear's check works "so that a 4-Might unit under a Garen aura counts as
  * Mighty" — but Garen - Commander's aura is POSITIONAL ("other friendly units
  * have +1 Might **here**"), and a context with no battlefield measures every unit
- * on the board as if it stood in base, so it did not. Same defect as the one
- * `withMightTransitions` had, in the level check rather than the transition;
- * found by fixing that one and asking where else Might is read without a place.
- *
- * No recursion: `isCombat: false` is what stops `effectiveMight` consulting
- * `effectiveKeywords`, and that is the only edge back into this module.
+ * on the board as if it stood in base, so it did not.
  */
 export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): boolean {
   const location = locationOf(state, unit);
   const where = location === undefined || location === "base" ? {} : { battlefieldId: location };
-  return effectiveMight(state, unit, ownerIndex, { isCombat: false, ...where }) >= MIGHTY_THRESHOLD;
+  if (effectiveMight(state, unit, ownerIndex, { isCombat: false, ...where }) >= MIGHTY_THRESHOLD) return true;
+
+  // "In combat" is this unit's own fight, not any fight: a Combat Showdown open
+  // at bf1 says nothing about a [Shield] unit standing at bf2. A NonCombat
+  // Showdown is deliberately excluded — 317.1 says it "does not create a Combat",
+  // so there is no attacker, no defender and no keyword bonus to apply.
+  if (state.showdownKind !== "Combat") return false;
+  if (location === undefined || location === "base" || location !== state.showdownBattlefieldId) return false;
+  // The attacker is `activePlayerIndex`, frozen for the Showdown's lifetime — the
+  // same derivation `execute-pass-focus` hands `resolveShowdown`, rather than a
+  // second reading of who is attacking.
+  const isAttackingSide = ownerIndex === state.activePlayerIndex;
+  return (["outgoing", "remaining"] as const).some(
+    (combatRole) =>
+      effectiveMight(state, unit, ownerIndex, {
+        isCombat: true,
+        isAttackingSide,
+        combatRole,
+        battlefieldId: location,
+        mightyCheck: true,
+      }) >= MIGHTY_THRESHOLD,
+  );
 }
 
 /**
@@ -538,13 +590,21 @@ export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1
  * A granted keyword with no printed value takes 1 — the rules' default when a
  * keyword's X is omitted, and what "[Assault]" with no number means on Raging
  * Soul. A printed value is never lowered by a grant.
+ *
+ * `excludeMightDependentGrants` is passed by exactly one caller — `effectiveMight`
+ * while answering `isMighty` — and withholds the `dependsOnMight` grants for
+ * 476's "each effect applied only a single time". See `MightContext.mightyCheck`.
+ * It is a parameter rather than a separate function because everything else about
+ * the merge is identical and a fork would drift.
  */
 export function effectiveKeywords(
   state: GameState,
   unit: UnitInstance,
   ownerIndex: 0 | 1,
+  excludeMightDependentGrants = false,
 ): Partial<Record<Keyword, number>> {
-  const grant = CONDITIONAL_GRANTS[unit.defId];
+  const declared = CONDITIONAL_GRANTS[unit.defId];
+  const grant = excludeMightDependentGrants && declared?.dependsOnMight === true ? undefined : declared;
   const hasThisTurn = Object.keys(unit.keywordsThisTurn).length > 0;
   const fromAuras = auraGrantedKeywords(state, unit, ownerIndex);
   // Windswept Hillock's `[Ganking]` — the BATTLEFIELD a unit stands at can grant

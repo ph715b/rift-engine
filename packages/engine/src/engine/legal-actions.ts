@@ -1307,11 +1307,9 @@ export function legalActions(state: GameState): PlayerAction[] {
         const pricedOptional = new Set<string>();
         for (const axis of additionalCostAxes) {
           const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-          const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
-            energy: optionalPower.energy ?? 0,
-            power: optionalPower.count ?? 0,
-            rainbow: 0,
-          });
+          const additional = discountedOptionalCosts(state, playerIndex, axis, [
+            { energy: optionalPower.energy ?? 0, power: optionalPower.count ?? 0, rainbow: 0 },
+          ]);
           const energyCost = Math.max(0, effectiveCost.energyCost - own.energy) + additional.energy;
           const powerCost = Math.max(0, effectiveCost.powerCost - own.power) + additional.power;
           const shape = `${energyCost}/${powerCost}`;
@@ -1423,11 +1421,13 @@ export function legalActions(state: GameState): PlayerAction[] {
         const priced = new Set<string>();
         for (const axis of additionalCostAxes) {
           const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-          const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
-            energy: modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
-            power: repeatCost.power ?? 0,
-            rainbow: repeatCost.rainbowPower ?? 0,
-          });
+          const additional = discountedOptionalCosts(state, playerIndex, axis, [
+            {
+              energy: modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
+              power: repeatCost.power ?? 0,
+              rainbow: repeatCost.rainbowPower ?? 0,
+            },
+          ]);
           // **Re-priced through `computeEffectiveCost` from the PRINTED cost, not
           // by adding the Repeat to the already-float-reduced `effectiveCost`.**
           // Floating Energy reduces the TOTAL a play costs, additional costs
@@ -1501,18 +1501,24 @@ export function legalActions(state: GameState): PlayerAction[] {
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
           for (const axis of additionalCostAxes) {
             const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-            // BOTH instances in one bundle, because Ezreal's pip comes off the
-            // additional costs as a whole — see `discountedOptionalCosts` for why
-            // this is once per play rather than once per instance, and for the
-            // one ruling that would change it. This crossed branch is the only
-            // place in the pool where the two readings differ.
-            const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
-              energy:
-                modifiedRepeatEnergy(state, playerIndex, grantedCost.energy) +
-                (alsoPrinted ? modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy) : 0),
-              power: (grantedCost.power ?? 0) + (alsoPrinted ? repeatCost!.power ?? 0 : 0),
-              rainbow: alsoPrinted ? repeatCost!.rainbowPower ?? 0 : 0,
-            });
+            // TWO bundles when both instances are paid, because 3509 makes them
+            // two separately-payable optional additional costs and the
+            // project-owner ruling of 2026-08-08 gives each its own Ezreal pip.
+            // This crossed branch is the only place in the pool where that is
+            // observable — `[Accelerate]` is a Unit keyword and every `[Repeat]`
+            // card is a Spell, so those two can never meet on one play.
+            const additional = discountedOptionalCosts(state, playerIndex, axis, [
+              { energy: modifiedRepeatEnergy(state, playerIndex, grantedCost.energy), power: grantedCost.power ?? 0, rainbow: 0 },
+              ...(alsoPrinted
+                ? [
+                    {
+                      energy: modifiedRepeatEnergy(state, playerIndex, repeatCost!.energy),
+                      power: repeatCost!.power ?? 0,
+                      rainbow: repeatCost!.rainbowPower ?? 0,
+                    },
+                  ]
+                : []),
+            ]);
             const grantedEffective = computeEffectiveCost(
               actor.floatingEnergy,
               actor.floatingPower,
@@ -1580,11 +1586,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       const pricedAccelerated = new Set<string>();
       for (const axis of canAccelerate ? additionalCostAxes : []) {
         const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-        const additional = discountedOptionalCosts(state, playerIndex, axis, true, {
-          energy: ACCELERATE_ENERGY,
-          power: ACCELERATE_POWER,
-          rainbow: 0,
-        });
+        const additional = discountedOptionalCosts(state, playerIndex, axis, [
+          { energy: ACCELERATE_ENERGY, power: ACCELERATE_POWER, rainbow: 0 },
+        ]);
         const energyCost = Math.max(0, effectiveCost.energyCost - own.energy) + additional.energy;
         const powerCost =
           Math.max(0, Math.max(0, effectiveCost.powerCost - repeatableSpend) - own.power) + additional.power;

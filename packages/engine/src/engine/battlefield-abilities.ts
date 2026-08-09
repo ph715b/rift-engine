@@ -17,7 +17,7 @@ import {
 } from "./effect-helpers.js";
 import { placeRecruitToken, placeGoldTokens } from "./token.js";
 import { detachEquipment, isEquipmentGear } from "./equipment.js";
-import { effectiveMight } from "./effective-might.js";
+import { isMighty } from "./granted-keywords.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
@@ -1326,14 +1326,28 @@ export function battlefieldAbilityDefIds(): string[] {
   return Object.keys(BATTLEFIELD_TRIGGERS);
 }
 
-/** How many of this player's units at `battlefieldId` are [Mighty] (5+ Might,
- *  rule 711's threshold). Asked through `effectiveMight` so a unit made Mighty
- *  by a pump or an aura counts, which is what the keyword means. */
+/**
+ * How many of this player's units at `battlefieldId` are [Mighty].
+ *
+ * **Asked through `isMighty`, which is the ONE function that answers this.**
+ * This used to spell the comparison out itself, against a LOCAL duplicate of the
+ * threshold constant and with no `battlefieldId` in the context — so it missed
+ * both of the fixes `isMighty` has since taken: positional auras (a unit was
+ * measured as if it stood in base) and the owner's higher-of-two-roles ruling
+ * for combat.
+ *
+ * That made it a genuine SECOND ANSWER, not a stale copy: measured on one board
+ * during a Combat Showdown, `isMighty` said true and Sunken Temple counted zero.
+ * `recordConquest` runs inside `resolveShowdown` and `execute-pass-focus` nulls
+ * `showdownKind` only after `closeShowdown` returns, so the disagreement was
+ * reachable rather than theoretical.
+ *
+ * Two functions that can disagree about one keyword is the defect; deleting the
+ * duplicate is the fix, not widening it.
+ */
 function mightyUnitsAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string): number {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   if (!bf) return 0;
   const units = bf.units[state.players[playerIndex].id] ?? [];
-  return units.filter((u) => effectiveMight(state, u, playerIndex, { isCombat: false }) >= MIGHTY_THRESHOLD).length;
+  return units.filter((u) => isMighty(state, u, playerIndex)).length;
 }
-
-const MIGHTY_THRESHOLD = 5;
