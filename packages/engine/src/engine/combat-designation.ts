@@ -55,6 +55,35 @@ export function unitsPresentAt(state: GameState, battlefieldId: string): string[
   return state.players.flatMap((p) => (bf.units[p.id] ?? []).map((u) => u.instanceId));
 }
 
+/**
+ * 359.3.f's "HERE", asked at 359.3.f.2's moment: is the ability's SOURCE still
+ * standing at the battlefield the instruction is about?
+ *
+ * **This is not the same question as `isAttackingAt`, and the difference is two
+ * different rules.** 383 fixes THAT an ability triggered, at the moment of the
+ * event — an opponent cannot un-trigger a fired attack trigger by moving its
+ * unit. But "here", "my" and "its" are REFERENTS read from the ability's source
+ * (359.3.f.1), and a referent is "checked on execution of the instruction"
+ * (359.3.f.2); an illegal one returns null and "all instructions related to it
+ * will be ignored" (359.3.f.2.a). So a fired trigger still resolves, and its
+ * "here" instruction simply has nothing to point at.
+ *
+ * The rules' own worked example is Yasuo - Remorseful (OGN-076), verbatim: an
+ * opponent answers his attack trigger with Fight or Flight, "when the attack
+ * trigger resolves, 'here' is no longer the battlefield where combat is ongoing
+ * and the attack trigger mistargets". So MOVED AWAY and DEAD both make the
+ * instruction MOOT — it is dropped, never re-aimed at wherever the source ended
+ * up. `unitsPresentAt` answers all three cases at once: a unit that left, a unit
+ * that went home to base and a unit that died are all simply not there.
+ *
+ * The counterpart is 359.3.f.3 (Lillia - Fae Fawn), where the information comes
+ * from the TRIGGER CONDITION and is fixed when the condition is met. Nothing in
+ * this file's callers is that shape.
+ */
+export function isStillHere(state: GameState, sourceInstanceId: string, battlefieldId: string): boolean {
+  return unitsPresentAt(state, battlefieldId).includes(sourceInstanceId);
+}
+
 /** Shared by both predicates: is this listener a UNIT standing at the
  *  battlefield this combat opened at? A Gear listener ("when a friendly unit
  *  attacks") is deliberately excluded — it is not a combatant, and Mask of

@@ -5,6 +5,7 @@ import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD, isMechDef } from "./constants.js";
 import { battlefieldKeywordsAt } from "./battlefield-continuous.js";
+import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { equipmentDefIds, equipmentKeywordDefIds, equipmentKeywordsFor } from "./equipment.js";
 import { effectiveTagsOf } from "./equipment.js";
 
@@ -58,9 +59,12 @@ const TARIC_PROTECTOR = "OGN-074";
  * (no "here"). And it carries a **per-target condition**: "buffed" is a property
  * of each receiving unit, re-asked as buffs are placed and spent.
  *
- * "If they didn't already" is not a third thing to implement — it is the
- * non-stacking that `Math.max` below already gives, and it is what stops the
- * grant LOWERING a printed `[Deflect 2]` to 1.
+ * "If they didn't already" is a THIRD thing to implement, and it used to be free:
+ * while every source merged with `Math.max` the clause was indistinguishable from
+ * the default. 809.2 sums granted `[Deflect]` values, so under the real rule this
+ * card would take Volibear - Furious from `[Deflect 2]` to `[Deflect 3]` — the
+ * opposite of what it prints. `onlyIfAbsent` below is the clause, and it is the
+ * only entry in the table that carries it.
  */
 const SPIRITS_REFUGE = "OGN-063";
 /**
@@ -171,6 +175,17 @@ interface KeywordAura {
    * printed on the definition, so it CAN be asked at entry.
    */
   appliesToDef?: (def: { id: string; tags?: readonly string[] }) => boolean;
+  /**
+   * Spirit's Refuge's "**if they didn't already**" — the grant is skipped
+   * entirely when the recipient already has the keyword from any other source,
+   * rather than folded in.
+   *
+   * One card in the pool prints this, and it is a printed exception to 809.2's
+   * summing rather than a general property of auras: without it a Refuge on the
+   * board would RAISE a printed `[Deflect 2]` to 3, which is the direction the
+   * sentence exists to forbid.
+   */
+  onlyIfAbsent?: true;
   keywords: Keyword[];
 }
 
@@ -210,6 +225,8 @@ const KEYWORD_AURAS: Record<string, KeywordAura> = {
     scope: "anywhere",
     excludesSelf: false,
     appliesTo: (unit) => unit.buffed,
+    // "...have [Deflect] IF THEY DIDN'T ALREADY."
+    onlyIfAbsent: true,
     keywords: ["Deflect"],
   },
 
@@ -338,12 +355,19 @@ function ownUnitAnywhereExcept(state: GameState, ownerIndex: 0 | 1, defId: strin
   return state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some(matches));
 }
 
+/** One keyword an aura is granting, paired with whether its source card prints
+ *  Spirit's Refuge's "if they didn't already". A bare `Keyword[]` could not carry
+ *  that, and the clause only becomes observable once granted values SUM. */
+type AuraGrant = { keyword: Keyword; onlyIfAbsent: boolean };
+
 /** Every keyword an aura is currently granting `unit`. Empty for the overwhelming
  *  majority of reads, and it costs a board lookup only when a source is actually
  *  in play — `effectiveKeywords` runs per unit per damage step in combat. */
-function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): Keyword[] {
+function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): AuraGrant[] {
   const owner = state.players[ownerIndex];
-  const granted: Keyword[] = [];
+  const granted: AuraGrant[] = [];
+  const grantsOf = (aura: KeywordAura): AuraGrant[] =>
+    aura.keywords.map((keyword) => ({ keyword, onlyIfAbsent: aura.onlyIfAbsent === true }));
   let location: string | "base" | undefined;
   let located = false;
 
@@ -387,7 +411,7 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
       }
       if (location === undefined || location === "base") continue;
       if (location !== state.battlefields[wearer.zone.battlefieldIndex]?.id) continue;
-      granted.push(...aura.keywords);
+      granted.push(...grantsOf(aura));
       continue;
     }
     if (aura.source === "legend") {
@@ -411,7 +435,7 @@ function auraGrantedKeywords(state: GameState, unit: UnitInstance, ownerIndex: 0
     } else if (!ownUnitAnywhereExcept(state, ownerIndex, sourceDefId, except)) {
       continue; // an unpositioned aura still needs its source in play
     }
-    granted.push(...aura.keywords);
+    granted.push(...grantsOf(aura));
   }
   return granted;
 }
@@ -485,8 +509,8 @@ const CONDITIONAL_GRANTS: Record<string, Grant> = {
  *
  * Re-asked on every read, so it tracks the board as units arrive and die
  * mid-combat — which is the point of the card and the reason it is not a stored
- * value. A 0 is folded in as a 0 rather than skipped, and `Math.max` in
- * `effectiveKeywords` then leaves a printed value alone.
+ * value. A 0 is folded in as a 0 rather than skipped, which keeps the key present
+ * (`hasKeyword` asks `in`) without adding anything.
  *
  * **No recursion risk, and that is a real constraint rather than an
  * observation.** This is consulted from `effectiveKeywords`, which
@@ -631,44 +655,56 @@ export function effectiveKeywords(
     return unit.keywords;
   }
 
+  // **Every fold below goes through `mergeGrantedKeyword`, and each one of them
+  // is an "additional source" in 807.2/809.2/814.2/823.2's sense** — so
+  // [Assault], [Deflect], [Shield] and [Hunt] SUM here and everything else stays
+  // redundant. That module's doc carries the rules and the false 817.1.a citation
+  // this used to rest on; nothing about which-keyword-does-what is decided here,
+  // because it was decided in 28 places before and drifted.
   const out: Partial<Record<Keyword, number>> = { ...unit.keywords };
-  // Higher wins, matching how every other source here merges: two Equipment
-  // granting `[Shield 2]` do not add up to `[Shield 4]`.
   for (const [keyword, value] of Object.entries(fromEquipment)) {
-    const key = keyword as Keyword;
-    out[key] = Math.max(out[key] ?? 0, value);
+    mergeGrantedKeyword(out, keyword as Keyword, value);
   }
   // A this-turn grant (Udyr's "[Ganking] this turn") is a fact that happened and
   // holds for the turn; a conditional grant is re-asked every time. Both end up
   // in the same answer, because every reader wants "does it have this NOW".
+  //
+  // This is the fold that reproduces 807.2's worked example: Petty Officer prints
+  // `[Assault 1]`, Cleave writes `[Assault 3]` here, and the unit reads 4.
   for (const [kw, n] of Object.entries(unit.keywordsThisTurn)) {
-    out[kw as Keyword] = Math.max(out[kw as Keyword] ?? 0, n ?? 1);
+    mergeGrantedKeyword(out, kw as Keyword, n ?? 1);
   }
   if (grant && grant.when(state, unit, ownerIndex)) {
-    for (const kw of grant.keywords) out[kw] = Math.max(out[kw] ?? 0, 1);
+    for (const kw of grant.keywords) mergeGrantedKeyword(out, kw, 1);
   }
   // Another permanent's aura, folded in on the same terms as the card's own
   // grants — every reader wants "does it have this NOW", and nothing downstream
-  // should be able to tell where a keyword came from. `Math.max` is what makes
-  // Spirit's Refuge's "if they didn't already" true: a printed `[Deflect 2]` is
-  // never lowered to the granted 1.
+  // should be able to tell where a keyword came from.
   //
-  // **Multiple instances of the same keyword collapse to one**, because this map
-  // holds a VALUE per keyword and not a COUNT. That is right for the valued
-  // keywords ([Assault], [Shield], [Deflect]) — two sources granting [Shield] is
-  // still [Shield 1], and the rules' redundancy rule (817.1.a) says so. It is a
-  // real divergence for [Vision], whose rules text says "multiple instances of
-  // Vision trigger separately"; see docs/rules-conformance.md.
-  for (const kw of fromAuras) out[kw] = Math.max(out[kw] ?? 0, 1);
+  // **Multiple instances of an UNVALUED keyword still collapse to one**, because
+  // this map holds a VALUE per keyword and not a COUNT. That is right for the
+  // seven keywords whose own rules make them redundant, and it remains a real
+  // divergence for [Vision], whose 817.2 says "multiple instances of Vision
+  // trigger separately"; see docs/rules-conformance.md.
+  for (const { keyword, onlyIfAbsent } of fromAuras) {
+    // Spirit's Refuge alone — "friendly buffed units have [Deflect] IF THEY
+    // DIDN'T ALREADY". Order-dependent by nature, and this is the last-but-two
+    // fold, so "already" means printed, equipped, this-turn or self-granted.
+    if (onlyIfAbsent && (out[keyword] ?? 0) > 0) continue;
+    mergeGrantedKeyword(out, keyword, 1);
+  }
   // Folded in on the same terms — a keyword a battlefield grants must behave
   // exactly like a printed one, and nothing downstream should be able to tell
   // where it came from.
-  for (const kw of fromBattlefield) out[kw] = Math.max(out[kw] ?? 0, 1);
-  // A computed value, merged on the same `Math.max` terms as everything above:
-  // a card that also PRINTED [Assault 1] keeps the higher of the two, and a
-  // count of 0 never lowers anything.
+  for (const kw of fromBattlefield) mergeGrantedKeyword(out, kw, 1);
+  // Ancient Warmonger's computed [Assault], and it is an additional source like
+  // any other: standing next to a Captain Farron, "[Assault] equal to the number
+  // of enemy units here" and Farron's grant sum. Its own printed `[Assault]` is
+  // suppressed by card-loader's GRANTED_ONLY_KEYWORDS — the bracket in "I have
+  // [Assault] equal to..." is the card describing this very grant, not a second
+  // instance of it — so nothing double-counts here.
   if (dynamic) {
-    out[dynamic.keyword] = Math.max(out[dynamic.keyword] ?? 0, dynamic.value(state, unit, ownerIndex));
+    mergeGrantedKeyword(out, dynamic.keyword, dynamic.value(state, unit, ownerIndex));
   }
   return out;
 }

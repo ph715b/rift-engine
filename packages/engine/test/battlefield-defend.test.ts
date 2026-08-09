@@ -99,15 +99,18 @@ describe("Fortified Position (OGN-279): a unit gains [Shield 2] this combat", ()
     expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p2"]![0]!, 1)["Shield"]).toBe(2);
   });
 
-  it("never lowers a bigger printed Shield", () => {
-    // 817.1.a makes duplicate instances redundant rather than cumulative, and
-    // taking the larger is what "redundant" means for a number.
+  it("ADDS to a printed Shield — 814.2 sums granted Shield Values", () => {
+    // The premise here used to be `Math.max`, on a citation of "817.1.a", which
+    // is Vision's "It is present on Permanents" and states no redundancy rule.
+    // 814.2 is explicit and carries its own worked example ("Stalwart Poro ...
+    // has Shield 4"): the battlefield is an additional source, so a printed
+    // [Shield 3] plus this [Shield 2] is [Shield 5]. See keyword-stacking.ts.
     const tanky = makeUnit({ name: "Tanky", keywords: { Shield: 3 } });
     const settled = answerDecisions(
       beginCombatAt(contestedAt(FORTIFIED_POSITION, [tanky], [makeUnit()]), "bf1", 1),
       (options) => options.find((o) => o.instanceId === tanky.instanceId)!.id,
     );
-    expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p1"]![0]!, 0)["Shield"]).toBe(3);
+    expect(effectiveKeywords(settled, settled.battlefields[0]!.units["p1"]![0]!, 0)["Shield"]).toBe(5);
   });
 });
 

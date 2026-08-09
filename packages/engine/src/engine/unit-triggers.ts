@@ -26,7 +26,7 @@ import { defaultCardRegistry } from "../cards/card-registry.js";
 import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
-import { attackerIndexAt, isAttackingAt } from "./combat-designation.js";
+import { attackerIndexAt, isAttackingAt, isStillHere } from "./combat-designation.js";
 import type { EventTriggerDefinition } from "./triggers.js";
 import { holdWeaponmasterOffer } from "./equipment.js";
 
@@ -602,6 +602,11 @@ export function resolveHeldOnPlayTrigger(state: GameState, entry: TriggerChainEn
   return trigger.resolve(state, contextFor(entry.playerIndex), entry.listenerInstanceId, entry.event as UnitTriggerEvent);
 }
 
+/** What an attack trigger's body is handed: the board, its controller, itself,
+ *  and the battlefield the COMBAT is at — which is not necessarily where the
+ *  unit is standing by the time this runs (see `isStillHere`). */
+type AttackTriggerBody = (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState;
+
 /**
  * Attack Triggers — "when I attack", for the units that print it.
  *
@@ -625,8 +630,17 @@ export function resolveHeldOnPlayTrigger(state: GameState, entry: TriggerChainEn
  * precedent as card-effects.ts's Back to Back/Singularity entries (the Java
  * oracle's own OriginEffects.java admits doing the same for at least one card:
  * "Full 'choose 2' targeting arrives with the Part 2 UI").
+ *
+ * **EVERY BODY IN THIS TABLE IS WHOLLY ABOUT "HERE", and the adapter drops it
+ * when "here" is moot.** Each of the six prints exactly one instruction and that
+ * instruction names "here", so a source that is no longer standing at the combat
+ * makes the whole body ignorable (359.3.f.2.a) and `attackEventTriggers` never
+ * calls it. The two attack triggers whose text ALSO says something that is not
+ * about "here" — Ava Achiever and Twisted Fate - Gambler — are in
+ * `ATTACK_TRIGGERS_PARTLY_HERE` below and are handed the answer instead of being
+ * gated on it.
  */
-const ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string) => GameState> = {
+const ATTACK_TRIGGERS: Record<string, AttackTriggerBody> = {
   // Volibear - Furious — "[Deflect 2] When I attack, deal 5 damage SPLIT among any
   // number of enemy units here."
   //
@@ -740,7 +754,29 @@ const ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, uni
       .map((u) => u.instanceId);
     return damagedEnemyIds.reduce((next, id) => destroyUnit(next, id, ctx.casterIndex), state);
   },
-  "OGN-107": (state, ctx, _unit, battlefieldId) =>
+};
+
+/**
+ * The attack triggers whose printed text says something BESIDES its "here"
+ * instruction — so a moot "here" must drop that instruction and leave the rest
+ * standing (359.3.f.2.a ignores "all instructions related to it", not the whole
+ * ability).
+ *
+ * They take the same shape as `ATTACK_TRIGGERS` plus `hereIsLive`, the answer
+ * `isStillHere` gave, rather than being gated on it by the adapter. Two entries,
+ * and they use it differently:
+ *
+ *  - Twisted Fate - Gambler reveals and recycles a rune before any branch, and
+ *    two of his three branches ([Mind] draw, [Order] stun an enemy unit —
+ *    location-less by print) name no "here" at all. A wholesale drop would have
+ *    cost him the rune rotation and the draw as well as the damage.
+ *  - Ava Achiever is here to be left ALONE, deliberately; see her entry.
+ */
+const ATTACK_TRIGGERS_PARTLY_HERE: Record<
+  string,
+  (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string, hereIsLive: boolean) => GameState
+> = {
+  "OGN-107": (state, ctx, _unit, battlefieldId, _hereIsLive) =>
     // Ava Achiever — "When I attack, you may pay [Mind] to play a card with
     // [Hidden] from your hand, ignoring its cost. If it's a unit, play it here."
     //
@@ -750,8 +786,23 @@ const ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, uni
     // the move action that triggered it. `battlefieldId` rides on the decision
     // because "here" means where she attacked, not wherever she stands when the
     // answer arrives.
+    //
+    // **`hereIsLive` is deliberately IGNORED, and this is the one attack trigger
+    // that the 359.3.f pass did not settle.** Her "here" is real, but it is the
+    // second of two instructions (135.2.b): "you may pay [Mind] to play a card
+    // with [Hidden] ... ignoring its cost" names no referent and must survive an
+    // Ava who has walked out, while "if it's a unit, play it HERE" does. What a
+    // null referent does to a unit that has already been played — base, or no
+    // play at all — the rules do not say here, and guessing it would change where
+    // a card lands on a board. That is Teemo - Strategist's shape exactly
+    // (OGN-121, whose "choose an enemy unit here" must drop while the reveal and
+    // recycle still happen), and it is filed with him, unruled.
+    //
+    // So this entry keeps the pre-359.3.f behaviour verbatim — the captured
+    // battlefield, whatever Ava has done since — rather than picking a reading.
+    // Pinned in test/attack-trigger-here-referent.test.ts.
     parkDecision(state, { kind: "OGN-107-play", playerIndex: ctx.casterIndex, battlefieldId }),
-  "OGN-200": (state, ctx, unit, battlefieldId) => {
+  "OGN-200": (state, ctx, unit, battlefieldId, hereIsLive) => {
     // Twisted Fate - Gambler — "When I attack, reveal the top rune of your rune
     // deck, then recycle it. Do one of the following based on its domain:
     // [Fury] Deal 2 to an enemy unit here and 1 to all other enemy units here.
@@ -779,6 +830,11 @@ const ATTACK_TRIGGERS: Record<string, (state: GameState, ctx: EffectContext, uni
         // so this is 2 to the first and 1 to each of the rest, not 3 to one. The
         // list is snapshotted before any damage lands, so a unit killed by the 2
         // cannot shorten the loop (dealDamage no-ops on an id already gone).
+        //
+        // **The ONLY branch with a "here", so the only one a moot referent
+        // silences** (359.3.f.2.a). The rune is already revealed and recycled
+        // above — that instruction names nothing and happens either way.
+        if (!hereIsLive) return recycled;
         const enemyIds = enemiesAt(recycled, ctx.casterIndex, battlefieldId, unit.instanceId);
         return enemyIds.reduce((next, id, index) => dealDamage(next, ctx.casterIndex, id, index === 0 ? 2 : 1), recycled);
       }
@@ -838,12 +894,28 @@ function enemiesAnywhere(state: GameState, casterIndex: 0 | 1): string[] {
  * attacker-side test, and eight copies of it is eight chances to leave one out.
  * Here there is one, in `applies`, and a card cannot be registered without it.
  *
- * **`applies`, not a re-check inside the body.** 383 fixes triggering at the
- * moment of the event: asking "am I attacking" again at resolution would let an
- * opponent cancel a fired trigger by moving its unit, and would open a response
- * window at every combat for abilities that resolve to nothing. The bodies do
- * re-read the BOARD (who is standing here now, what damage they carry), which is
- * the part that is genuinely a resolution-time question.
+ * **`applies` decides whether it TRIGGERED, and nothing re-asks that.** 383 fixes
+ * triggering at the moment of the event: asking "am I attacking" again at
+ * resolution would let an opponent cancel a fired trigger by moving its unit, and
+ * would open a response window at every combat for abilities that resolve to
+ * nothing.
+ *
+ * **"HERE" is a separate question, and it IS re-asked — `isStillHere`.** This
+ * used to cite 383 for both, which is the wrong rule for the second: "here" is a
+ * REFERENT read from the ability's source (359.3.f.1), checked on EXECUTION of
+ * the instruction (359.3.f.2), and an illegal one returns null so that "all
+ * instructions related to it will be ignored" (359.3.f.2.a). The rules' own
+ * worked example is one of these eight cards' sibling — Yasuo - Remorseful,
+ * answered with Fight or Flight, whose attack trigger "mistargets" because "here"
+ * is no longer where the combat is. So all eight still TRIGGER, still cost both
+ * players a PassFocus, and the six wholly-"here" bodies then resolve to nothing.
+ * Moved away and dead are the same case, and neither re-aims at wherever the unit
+ * ended up. Lucian - Gunslinger, Sinister Poro, Recurve Bow, Ezreal - Dashing and
+ * Icevale Archer already read their own "here" this way; this is the rest of the
+ * family joining them.
+ *
+ * The bodies still re-read the BOARD (who is standing here now, what damage they
+ * carry), which is the part that was always a resolution-time question.
  *
  * The listener is the attacking unit itself, so `contextFor(listener.ownerIndex)`
  * and the event's battlefield are the whole of the old dispatcher's payload —
@@ -852,7 +924,13 @@ function enemiesAnywhere(state: GameState, casterIndex: 0 | 1): string[] {
  */
 export function attackEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> } {
   const entries: Record<string, EventTriggerDefinition> = {};
-  for (const [defId, effect] of Object.entries(ATTACK_TRIGGERS)) {
+
+  /** ONE registration path for both tables, so the attacker-side filter and the
+   *  referent check cannot come apart between them. */
+  const register = (
+    defId: string,
+    body: (state: GameState, ctx: EffectContext, unit: UnitInstance, battlefieldId: string, hereIsLive: boolean) => GameState,
+  ) => {
     entries[defId] = {
       on: "combatBegan",
       applies: isAttackingAt,
@@ -862,10 +940,24 @@ export function attackEventTriggers(): { name: string; entries: Record<string, E
         // narrowed event or a UnitInstance.
         if (event.kind !== "combatBegan") return state;
         if (listener.card.kind !== "Unit") return state;
-        return effect(state, contextFor(listener.ownerIndex), listener.card, event.battlefieldId);
+        return body(
+          state,
+          contextFor(listener.ownerIndex),
+          listener.card,
+          event.battlefieldId,
+          isStillHere(state, listener.card.instanceId, event.battlefieldId),
+        );
       },
     };
+  };
+
+  for (const [defId, effect] of Object.entries(ATTACK_TRIGGERS)) {
+    register(defId, (state, ctx, unit, battlefieldId, hereIsLive) =>
+      hereIsLive ? effect(state, ctx, unit, battlefieldId) : state,
+    );
   }
+  for (const [defId, effect] of Object.entries(ATTACK_TRIGGERS_PARTLY_HERE)) register(defId, effect);
+
   return { name: "engine/unit-triggers.ts (attack triggers)", entries };
 }
 

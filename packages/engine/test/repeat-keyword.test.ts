@@ -362,17 +362,32 @@ describe("[Repeat] executes the instructions one additional time (820.1.d)", () 
   });
 
   /**
-   * A KEYWORD does not stack, and this is the negative that proves the engine
-   * knows the difference. 817.1.a makes multiple instances of a keyword
-   * redundant, so repeating Blood Rush is a legal way to waste 1 Energy — the
-   * unit ends on [Assault 2], NOT [Assault 4].
+   * **A VALUED keyword stacks across the two executions.** This asserted 2 —
+   * "repeating Blood Rush is a legal way to waste 1 Energy" — on a citation of
+   * "817.1.a makes multiple instances of a keyword redundant". 817.1.a is
+   * Vision's "It is present on Permanents"; there is no general redundancy rule,
+   * and 807.2 says the Assault Values of all granted instances are SUMMED.
+   * 820.1.d makes the additional execution a second performance of the same
+   * instruction, so it is a second grant — [Assault 4].
    *
-   * If a future change makes `grantKeywordThisTurn` accumulate instead of taking
-   * a max, this is what fails.
+   * The negative that gives this its meaning is not here but in
+   * keyword-stacking.test.ts, where the same merge leaves [Ganking] and [Tank] at
+   * 1 under their own redundancy rules (810.2, 815.2).
    */
-  it("a KEYWORD does not stack — 817.1.a makes the second instance redundant", () => {
+  it("a VALUED keyword stacks across the two executions — 807.2 sums", () => {
     const { state, spellId } = caster(BLOOD_RUSH, "Fury", 8, 1);
     const play = playsOf(state, spellId).find((a) => a.repeatPaid && a.targetUnitInstanceId === "ally0")!;
+    const after = resolveChain(accept(state, play));
+
+    const ally = after.players[0]!.baseUnits.find((u) => u.instanceId === "ally0")!;
+    expect(ally.keywordsThisTurn.Assault, "the repeat's [Assault 2] was swallowed").toBe(4);
+  });
+
+  /** And the declined play is 2, not 4 — the control that keeps the 4 above from
+   *  being a property of Blood Rush rather than of the repeat. */
+  it("and the declined play is [Assault 2] once", () => {
+    const { state, spellId } = caster(BLOOD_RUSH, "Fury", 8, 1);
+    const play = playsOf(state, spellId).find((a) => !a.repeatPaid && a.targetUnitInstanceId === "ally0")!;
     const after = resolveChain(accept(state, play));
 
     const ally = after.players[0]!.baseUnits.find((u) => u.instanceId === "ally0")!;

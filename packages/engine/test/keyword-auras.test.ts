@@ -278,10 +278,14 @@ describe("Spirit's Refuge (OGN-063): a GEAR-source aura with a per-target condit
     expect(hasKeyword(buffed, buffed.players[0]!.baseUnits[0]!, 0, "Deflect")).toBe(true);
   });
 
-  it("does not LOWER a printed [Deflect 2] — 'if they didn't already'", () => {
-    // The non-stacking half of the sentence, and the direction that would be
-    // invisible: a grant that overwrote would quietly halve Volibear - Furious's
-    // tax whenever a Refuge was on the board.
+  it("does not CHANGE a printed [Deflect 2] — 'if they didn't already'", () => {
+    // **This is now the pin on a printed EXCEPTION, not on a merge default.**
+    // While every keyword source merged with `Math.max` the clause was free, and
+    // the only direction worth guarding was downward: a grant that overwrote
+    // would quietly halve Volibear - Furious's tax. 809.2 sums granted [Deflect]
+    // Values, so the live danger is now the other way — without the aura's
+    // `onlyIfAbsent` flag a Refuge on the board would RAISE this to 3, which is
+    // the opposite of what the card prints.
     const tough = makeUnit({ instanceId: "tough", might: 3, buffed: true, keywords: { Deflect: 2 } });
     const state = withRefuge([tough]);
 

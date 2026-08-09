@@ -290,14 +290,17 @@ describe("Lucian - Gunslinger (SFD-028): when I attack, deal my [Assault] to an 
     expect(unitAt(after, "victim")!.damage, "the attack trigger never fired").toBe(1);
   });
 
-  it("READS the keyword — a granted [Assault 3] makes it a 3", () => {
-    // The whole reason this is not a hardcoded 1. Cleave grants exactly this.
+  it("READS the keyword — a granted [Assault 3] on top of his printed 1 makes it a 4", () => {
+    // The whole reason this is not a hardcoded 1. Cleave grants exactly this, and
+    // 807.2 sums it with his own printed [Assault]: this is the rules' Petty
+    // Officer example landing on a card that then SHOOTS the total. It asserted 3
+    // while every keyword merge took a `Math.max` — see keyword-stacking.ts.
     const buffed = realUnitInstance(LUCIAN_GUNSLINGER);
     buffed.keywordsThisTurn = { Assault: 3 };
     const { state } = attacking(buffed);
 
     const after = beginCombatAt(state, "bf1", 0);
-    expect(unitAt(after, "victim")!.damage).toBe(3);
+    expect(unitAt(after, "victim")!.damage).toBe(4);
   });
 
   it("does NOT fire when he is the DEFENDER", () => {

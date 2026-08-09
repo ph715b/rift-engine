@@ -10,6 +10,7 @@ import { payEnergyFromPool, payPowerFromChanneled, withMightTransitions } from "
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { parkDecision, type DecisionDefinition } from "./decisions.js";
 import type { Keyword } from "../model/keyword.js";
+import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { holdEventTrigger, type Listener } from "./triggers.js";
 
 /**
@@ -380,9 +381,17 @@ export function returnLapsedGearControl(state: GameState): GameState {
  * A faithful copy has to reach every defId-keyed table — measured at 23 of them
  * over 256 units. Three groups:
  *
- *  - **FREE.** A doubled KEYWORD is redundant under 817.1.a, and an ON-PLAY
- *    trigger cannot re-fire because the attach happens after the play. Together
- *    those are 99 of the units in the pool and nothing is owed for them.
+ *  - **FREE, but for a narrower reason than this used to claim.** An ON-PLAY
+ *    trigger cannot re-fire, because the attach happens after the play. A doubled
+ *    KEYWORD was written off as "redundant under 817.1.a", which is a citation to
+ *    Vision's "It is present on Permanents" and says nothing of the kind — and
+ *    for the four SUMMED keywords (807.2/809.2/814.2/823.2) it is the wrong
+ *    answer: a copied `[Assault 2]` is a second source and is worth another 2.
+ *    That half is now a DIVERGENCE, not free. The unvalued keywords genuinely are
+ *    free, each by its own redundancy rule (805.4, 810.2, 811.4, 815.2, 816.2,
+ *    822.2, 826.5). The gear copies its wearer's TEXT and this engine has no
+ *    phantom keyword source to hang the copy on — the same missing concept the
+ *    Might-aura and cost-modifier rows below record.
  *  - **DONE.** Event triggers (77 cards), their decision continuations (50),
  *    `[Deathknell]`s (13) and activated abilities (10).
  *  - **NOT DONE, and recorded as a divergence** in docs/rules-conformance.md:
@@ -413,8 +422,10 @@ export function copiedTextSourceFor(
  * abilities are worth.
  *
  * A count rather than a flag because two of them are two copies of the text, and
- * nothing in 817.1.a makes a copied ABILITY redundant the way it makes a keyword
- * redundant.
+ * no rule makes a copied ABILITY redundant — the per-keyword redundancy rules
+ * (805.4, 810.2, 811.4, 815.2, 816.2, 822.2, 826.5) are each about their own
+ * keyword and reach no further. Two Deathknells fire twice; 808.2 says so
+ * outright.
  *
  * **Takes the WORN LIST rather than a unit id**, which is what its one caller
  * needs: a `[Deathknell]` is held after `killUnit` has already detached
@@ -796,17 +807,18 @@ const EQUIP_GRANTED_KEYWORDS: Record<string, Partial<Record<Keyword, number>>> =
  * the attachment exactly as the Might badge does — detaching Doran's Shield
  * takes `[Tank]` with it in the same instant.
  *
- * A unit wearing two Equipment that grant the same keyword takes the HIGHER
- * value, matching how `effectiveKeywords` already merges every other source: a
- * second `[Shield 2]` is not `[Shield 4]`.
+ * Two Equipment are two SOURCES, so `mergeGrantedKeyword` decides what that
+ * means per keyword: two Cloth Armors are `[Shield 4]` (814.2 sums granted Shield
+ * Values) and two Doran's Shields are still `[Tank]` (815.2 makes Tank redundant).
+ * This used to take the higher of the two for everything, on a citation of
+ * 817.1.a that says no such thing — see keyword-stacking.ts.
  */
 export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): Partial<Record<Keyword, number>> {
   const out: Partial<Record<Keyword, number>> = {};
   const worn = equipmentAttachedTo(state, unitInstanceId);
   for (const gear of worn) {
     for (const [keyword, value] of Object.entries(EQUIP_GRANTED_KEYWORDS[gear.defId] ?? {})) {
-      const key = keyword as Keyword;
-      out[key] = Math.max(out[key] ?? 0, value);
+      mergeGrantedKeyword(out, keyword as Keyword, value);
     }
   }
   // Lucian - Purifier — "YOUR Equipment each give [Assault]."
@@ -820,14 +832,21 @@ export function equipmentKeywordsFor(state: GameState, unitInstanceId: string): 
   // attached to always share one, since `attachEquipment` only ever attaches to
   // "a unit you control".
   //
-  // `Math.max`, like every other source here: Serrated Dirk's [Assault 2] under
-  // Lucian is still [Assault 2], not 3. 817.1.a makes duplicate keyword
-  // instances redundant, and taking the larger is what redundant means for a
-  // numbered one.
+  // **"EACH give", once per worn Equipment, and every one of them SUMS** — 807.2:
+  // "the Assault Value of all granted Assault keywords is summed". So Serrated
+  // Dirk's own [Assault 2] under Lucian is [Assault 3], and a unit wearing the
+  // Dirk and a Boots of Swiftness is [Assault 4] (2 from the Dirk, 1 from Lucian
+  // for each of the two).
+  //
+  // This site used to read `worn.length > 0` and `Math.max`, and its comment
+  // asserted the opposite answer — "still [Assault 2], not 3" — citing 817.1.a,
+  // which is Vision's "It is present on Permanents" and says nothing about
+  // redundancy. The two errors were independent and each hid the other: with a
+  // max merge, per-gear and per-wearer are indistinguishable.
   if (worn.length > 0) {
     const wearer = findUnitAnywhere(state, unitInstanceId);
     if (wearer && state.players[wearer.ownerIndex]?.legend.defId === LUCIAN_PURIFIER) {
-      out.Assault = Math.max(out.Assault ?? 0, LUCIAN_ASSAULT);
+      for (const _gear of worn) mergeGrantedKeyword(out, "Assault", LUCIAN_ASSAULT);
     }
   }
   return out;

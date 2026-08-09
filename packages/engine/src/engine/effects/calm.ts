@@ -8,7 +8,7 @@ import type {
   Listener,
   SelfTriggerDefinition,
 } from "../triggers.js";
-import { isAttackingAt } from "../combat-designation.js";
+import { isAttackingAt, isStillHere } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
@@ -1047,8 +1047,22 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // and defender alike, and the card asks for either.
     //
     // "ALL enemy units HERE" is measured from the WEARER's controller and at the
-    // battlefield the combat is at — not the wearer's own recorded location,
-    // which a gear listener does not have.
+    // battlefield the combat is at.
+    //
+    // **And "here" is RE-CHECKED against where the wearer is standing at
+    // resolution** — Recurve Bow's rule, applied to its direct sibling. "Here" is
+    // a referent read from the ability's source (359.3.f.1), checked on EXECUTION
+    // of the instruction (359.3.f.2), and the rules' worked example is an
+    // opponent answering Yasuo - Remorseful's attack trigger with Fight or
+    // Flight: "'here' is no longer the battlefield where combat is ongoing and
+    // the attack trigger mistargets". A wearer sent home — or killed, dropping
+    // the Cape — burns nobody, and the burn is never re-aimed at whatever
+    // battlefield he reached.
+    //
+    // `isStillHere` reads the BOARD rather than comparing `wearer.battlefieldId`,
+    // and the difference is the dead case: `wearerListener` is `undefined` once
+    // the wearer is gone, so that branch is already covered, but a check written
+    // against a captured location would be answering with the combat's own id.
     on: "combatBegan",
     applies: (state, listener, event) => {
       if (event.kind !== "combatBegan") return false;
@@ -1059,6 +1073,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (event.kind !== "combatBegan") return state;
       const wearer = wearerListener(state, listener);
       if (wearer === undefined) return state;
+      if (!isStillHere(state, wearer.card.instanceId, event.battlefieldId)) return state;
       return dealDamageToEnemyUnitsAtBattlefield(state, wearer.ownerIndex, event.battlefieldId, FORGEFIRE_DAMAGE);
     },
   },
@@ -1322,13 +1337,31 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // gives that unit the Attacker designation too, so Yasuo holding a
     // battlefield that his own reinforcement contests really does attack.
     on: "combatBegan",
-    // The designation is fixed when the combat opens (383), so it is asked here
-    // and NOT re-asked below — moving him away during the response window must
-    // not cancel an ability that has already triggered.
+    // The DESIGNATION is fixed when the combat opens (383), so it is asked here
+    // and never re-asked — moving him away during the response window must not
+    // cancel an ability that has already triggered. "HERE" is a different
+    // question and is re-asked in `resolve`; see below.
     applies: isAttackingAt,
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
       if (listener.card.kind !== "Unit") return state;
+      // **THIS CARD IS THE RULES' OWN WORKED EXAMPLE FOR 359.3.f.2**, verbatim:
+      // "A player moves Yasuo, Remorseful to an occupied enemy battlefield and
+      // initiates combat there. In reaction to the Yasuo, Remorseful attack
+      // trigger, their opponent plays Fight or Flight from hidden targeting
+      // Yasuo, moving him back to base. When the attack trigger resolves, 'here'
+      // is no longer the battlefield where combat is ongoing and the attack
+      // trigger MISTARGETS." So the referent is checked HERE, at execution:
+      // "here" is read from the ability's source (359.3.f.1), and an illegal one
+      // returns null with "all instructions related to it ignored" (359.3.f.2.a).
+      //
+      // Until 2026-08-08 this comment claimed 383 settled it and shot into the
+      // combat from wherever he had ended up — the exact behaviour the example
+      // names as wrong. The whole "when I attack ... here" family now shares
+      // `isStillHere`; his one printed instruction is the "here" one, so a Yasuo
+      // sent home, moved on, or killed deals nothing at all rather than
+      // re-aiming.
+      if (!isStillHere(state, listener.card.instanceId, event.battlefieldId)) return state;
       const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
       if (!bf) return state;
       // "An enemy unit HERE" — the first one at this battlefield, in board order.

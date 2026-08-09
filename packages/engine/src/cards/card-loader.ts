@@ -420,6 +420,23 @@ function parseDomains(raw: string[]): Domain[] {
   });
 }
 
+/**
+ * **`Math.max` here is deliberate and is NOT the merge rule the engine uses at
+ * runtime.** `engine/keyword-stacking.ts` sums [Assault], [Deflect], [Shield] and
+ * [Hunt] across sources, per 807.2/809.2/814.2/823.2. One card's printed text is
+ * ONE source, and a second bracket in it is the card talking about the same
+ * instance — so summing here would be wrong, and measurably so:
+ *
+ *   Taric - Protector prints `[Shield]` and then "other friendly units here have
+ *   [Shield]" — two brackets, one printed keyword. Lucian - Gunslinger prints
+ *   `[Assault]` and then "deal my [Assault]". Five UNL units print `[Deflect]`
+ *   plus a reminder mention.
+ *
+ * Master Yi - Unstoppable is the one this loses information on, and it is a
+ * different problem: he prints `[Level 3]`, `[Level 6]`, `[Level 11]` and
+ * `[Level 16]`, four separate dependent clauses (824), and this keeps only 16.
+ * `[Level]` is in UNIMPLEMENTED_KEYWORDS, so nothing reads the number yet.
+ */
 function parseKeywords(text: string): Partial<Record<Keyword, number>> {
   const result: Partial<Record<Keyword, number>> = {};
   for (const match of text.matchAll(KW_PATTERN)) {

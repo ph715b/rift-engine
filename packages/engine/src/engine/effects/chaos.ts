@@ -1698,10 +1698,15 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Flight has sent him home, "mistargets" because "here" is no longer the
     // battlefield where combat is ongoing. So a Poro who has left cannot still
     // reach into the fight, and the question is dropped as moot rather than
-    // answered. The alternative — reading `event.battlefieldId` alone, which is
-    // what Ahri - Inquisitive and Recurve Bow do for their own "here" — was
-    // rejected on that worked example; those two are the looser reading and are
-    // filed Unverified where they live.
+    // answered. The alternative — reading `event.battlefieldId` alone — was
+    // rejected on that worked example.
+    //
+    // This entry used to record Ahri - Inquisitive and Recurve Bow as holding the
+    // looser reading. They no longer do, and neither does anyone else: as of
+    // 2026-08-08 the whole "when I attack/defend ... here" family re-checks,
+    // through `isStillHere` or its own inline copy of the same lookup. Yasuo -
+    // Remorseful, the card the worked example is ABOUT, was the last one to shoot
+    // from wherever he ended up.
     on: "combatBegan",
     applies: (state, listener, event) =>
       isAttackingAt(state, listener, event) &&

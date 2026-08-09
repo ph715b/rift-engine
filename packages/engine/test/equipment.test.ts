@@ -675,16 +675,23 @@ describe("an attached Equipment grants its wearer keywords", () => {
     expect(effectiveKeywords(state, unit, 0).Tank).toBeUndefined();
   });
 
-  it("stacks two different Equipment, and does not ADD two of the same keyword", () => {
+  it("stacks two different Equipment, and SUMS two instances of a valued keyword", () => {
     const both = wearing(SERRATED_DIRK, BOOTS);
     const kw = keywordsOf(both.state, both.unitId);
     expect(kw.Assault).toBe(2);
     expect(kw.Ganking).toBe(1);
 
-    // Two Cloth Armors are [Shield 2], not [Shield 4] — higher wins, which is how
-    // every other source in effectiveKeywords already merges.
+    // Two Cloth Armors are [Shield 4]. This asserted 2 until 2026-08-08, on the
+    // "higher wins" reading every merge in the engine shared and the 817.1.a
+    // citation it rested on — which is Vision's "It is present on Permanents".
+    // 814.2 sums granted Shield Values; two Equipment are two sources.
     const twoCloth = wearing(CLOTH_ARMOR, CLOTH_ARMOR);
-    expect(keywordsOf(twoCloth.state, twoCloth.unitId).Shield, "two Shields were added together").toBe(2);
+    expect(keywordsOf(twoCloth.state, twoCloth.unitId).Shield, "two Shields did not sum").toBe(4);
+
+    // The negative control that keeps the line above from being a blanket sum:
+    // 815.2 makes Tank redundant, and it goes through this same merge.
+    const twoDorans = wearing(DORANS_SHIELD, DORANS_SHIELD);
+    expect(keywordsOf(twoDorans.state, twoDorans.unitId).Tank, "[Tank] accumulated").toBe(1);
   });
 
   it("reaches COMBAT — Doran's Shield really makes its wearer a Tank", () => {

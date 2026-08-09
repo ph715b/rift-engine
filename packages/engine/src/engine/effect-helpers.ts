@@ -25,6 +25,7 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 // binding is only read inside withMightTransitions, long after both modules have
 // initialised.
 import { isMighty } from "./granted-keywords.js";
+import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
 import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
@@ -512,7 +513,9 @@ export function giveMightThisTurn(
  *
  * One helper over both because the card makes one choice across both kinds, and
  * the caller should not have to know which it got. Multiple instances are
- * redundant (817.1.a), so re-granting is a harmless no-op.
+ * redundant — **816.2, the keyword's own rule**, not the "817.1.a" this used to
+ * cite; that is Vision's "It is present on Permanents" and no general redundancy
+ * rule exists. So re-granting is a harmless no-op.
  *
  * No-ops when the id names nothing in play — the usual "target vanished"
  * convention.
@@ -910,10 +913,13 @@ export function forceMoveToDestination(
  * exactly where a printed one is; `triggers.triggerKeysOn` is what makes the
  * listener walk find it, and `runEnd` sweeps it.
  *
- * Idempotent, on 817.1.a's reasoning applied one level out: granting the same
- * ability twice would place it on the chain twice for one moment, which no card
- * in this pool asks for and the second Relentless Pursuit on one unit would
- * silently do.
+ * Idempotent, and that is a HOUSE READING rather than a cited rule. It used to
+ * claim "817.1.a's reasoning applied one level out"; 817.1.a says nothing about
+ * redundancy, and what the rules do say about duplicated abilities points the
+ * other way (808.2: each instance of Deathknell triggers separately). The
+ * justification is only that granting the same ability twice would place it on
+ * the chain twice for one moment, which no card in this pool asks for and the
+ * second Relentless Pursuit on one unit would silently do.
  *
  * A unit that has left the board is a silent no-op — the target-vanished
  * convention every helper here follows.
@@ -936,16 +942,19 @@ export function grantKeywordThisTurn(
    * (`[Ganking]`, `[Tank]`) and was the hardcoded behaviour before a numbered
    * grant existed.
    *
-   * `Math.max` against what is already there, so a smaller grant never downgrades
-   * a bigger one — 817.1.a makes duplicate instances redundant rather than
-   * cumulative, and taking the larger is what "redundant" means for a number.
+   * Merged against what is already there by `mergeGrantedKeyword`, which is where
+   * the per-keyword rule lives: a second `[Assault 3]` this turn is a second
+   * SOURCE and sums to 6 (807.2), while a second `[Ganking]` is redundant
+   * (810.2). This used to be a flat `Math.max` justified by "817.1.a", which is
+   * Vision's "It is present on Permanents" and states no such rule.
    */
   value = 1,
 ): GameState {
-  return updateUnitAnywhere(state, targetInstanceId, (u) => ({
-    ...u,
-    keywordsThisTurn: { ...u.keywordsThisTurn, [keyword]: Math.max(u.keywordsThisTurn[keyword] ?? 0, value) },
-  }));
+  return updateUnitAnywhere(state, targetInstanceId, (u) => {
+    const keywordsThisTurn = { ...u.keywordsThisTurn };
+    mergeGrantedKeyword(keywordsThisTurn, keyword, value);
+    return { ...u, keywordsThisTurn };
+  });
 }
 
 /**

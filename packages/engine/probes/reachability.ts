@@ -161,7 +161,7 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * self-play. The 5 that are not are the expected tail — cards needing a board
  * state 250 games did not produce.
  */
-const PINNED_UNION = 466;
+const PINNED_UNION = 473;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

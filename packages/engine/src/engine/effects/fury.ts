@@ -176,14 +176,16 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // an enemy is a legal misplay rather than a shape the targeting should
     // forbid.
     //
-    // **Repeating this does nothing, and that is the correct outcome** — 817.1.a
-    // makes multiple instances of a keyword redundant rather than cumulative, so
-    // a second [Assault 2] is still [Assault 2] and NOT [Assault 4].
-    // `grantKeywordThisTurn` takes a `Math.max` against what is already there,
-    // which is exactly what "redundant" means for a numbered keyword. Paying this
-    // card's Repeat cost is therefore a legal way to waste 1 Energy; the engine
-    // offers it because the rules do, and repeat-keyword.test.ts asserts the
-    // no-op so a future "fix" that makes it stack fails.
+    // **Repeating this DOES stack: the unit ends on [Assault 4].** 807.2 — "the
+    // Assault Value of all granted Assault keywords is summed" — and 820.1.d
+    // makes the additional execution a second performance of the instruction, so
+    // it is a second grant and therefore an additional source.
+    //
+    // This carried the opposite claim until 2026-08-08 ("a second [Assault 2] is
+    // still [Assault 2]"), citing 817.1.a, which is Vision's "It is present on
+    // Permanents" and states no redundancy rule at all. `grantKeywordThisTurn`
+    // now merges through keyword-stacking.ts; repeat-keyword.test.ts asserts the
+    // 4.
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
       event.targetUnitInstanceId

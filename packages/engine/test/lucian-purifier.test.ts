@@ -18,8 +18,8 @@ import { makePlayer, makeState, makeUnit } from "./fixtures.js";
 
 const registry = defaultCardRegistry();
 const LUCIAN = "SFD-183";
-/** Serrated Dirk prints [Assault 2] itself — the card that proves the merge
- *  takes the HIGHER value rather than stacking. */
+/** Serrated Dirk prints [Assault 2] itself — the card that proves Lucian's grant
+ *  SUMS with an Equipment's own printed one (807.2). */
 const SERRATED_DIRK = "SFD-009";
 
 type GearDef = Extract<CardDefinition, { type: "Gear" }>;
@@ -98,13 +98,36 @@ describe("Lucian - Purifier gives [Assault] through your Equipment", () => {
   });
 
   /**
-   * 817.1.a makes duplicate keyword instances redundant, so Serrated Dirk's
-   * printed [Assault 2] under Lucian is still 2 — not 3. Taking the larger is
-   * what "redundant" means for a numbered keyword, and it is how every other
-   * source in `equipmentKeywordsFor` already merges.
+   * **This asserted 2, and 2 is wrong.** 807.2: "the Assault Value of all granted
+   * Assault keywords is summed" — so Serrated Dirk's own `[Assault 2]` plus
+   * Lucian's is `[Assault 3]`. The old premise cited "817.1.a's redundancy rule",
+   * which is Vision's "It is present on Permanents" and says nothing of the kind;
+   * see keyword-stacking.ts for the full list of what sums and what does not.
    */
-  it("does not stack with an Equipment's own printed [Assault]", () => {
+  it("ADDS to an Equipment's own printed [Assault] — 807.2 sums", () => {
     const { state } = board(LUCIAN, SERRATED_DIRK);
-    expect(assaultOn(state, "wearer"), "Lucian stacked on top of [Assault 2]").toBe(2);
+    expect(assaultOn(state, "wearer"), "Lucian's [Assault] was swallowed by the Dirk's").toBe(3);
+  });
+
+  /**
+   * "Your Equipment **each** give [Assault]" — per GEAR, so two worn Equipment
+   * are two sources and 807.2 sums them.
+   *
+   * This was unobservable before the merge summed: under `Math.max` a per-gear
+   * grant and a per-wearer grant give identical answers for every board, which is
+   * how `worn.length > 0` sat here reading like the whole sentence.
+   */
+  it("gives one [Assault] per worn Equipment, not one per wearer", () => {
+    const { state: one } = board(LUCIAN);
+    expect(assaultOn(one, "wearer")).toBe(1);
+
+    const second = gear(PLAIN_EQUIPMENT.id);
+    const withSecond: GameState = {
+      ...one,
+      players: [{ ...one.players[0]!, activeGear: [...one.players[0]!.activeGear, second] }, one.players[1]!],
+    };
+    const bothWorn = attachEquipment(withSecond, 0, second.instanceId, "wearer");
+
+    expect(assaultOn(bothWorn, "wearer"), "the second Equipment gave nothing").toBe(2);
   });
 });

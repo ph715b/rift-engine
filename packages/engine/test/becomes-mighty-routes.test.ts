@@ -491,10 +491,14 @@ describe("a keyword a unit has ONLY by being Mighty cannot make it Mighty (476)"
    *
    * That is 476's loop run out: Ability-Altering pass 1 gives her Taric's
    * `[Shield]` (his condition is a location, not her Might); Arithmetic makes her
-   * 5; the layer is re-checked and now grants her own three; Arithmetic runs again
-   * and adds nothing, because `[Shield]` has already been applied once and does
-   * not stack. A blanket "ignore all keywords while asking" would have left her at
-   * 4 with nothing.
+   * 5; the layer is re-checked and now grants her own three. A blanket "ignore
+   * all keywords while asking" would have left her at 4 with nothing.
+   *
+   * Her defending toughness then reads 6, not 5. 476's "each effect applied only
+   * a single time" is about each EFFECT, and there are two here — Taric's and her
+   * own — so 814.2 sums their Shield Values. This test asserted 5 while every
+   * keyword merge in the engine took a `Math.max` on a citation of "817.1.a",
+   * which is Vision's "It is present on Permanents". See keyword-stacking.ts.
    */
   it("a [Shield] from ANOTHER card does make Fiora - Victorious Mighty in combat", () => {
     const fiora = realUnitInstance(FIORA_VICTORIOUS); // 4 Might, unbuffed
@@ -507,11 +511,11 @@ describe("a keyword a unit has ONLY by being Mighty cannot make it Mighty (476)"
 
     expect(isMighty(combat, her, 0), "Taric's [Shield] was suppressed along with her own").toBe(true);
     expect(Object.keys(effectiveKeywords(combat, her, 0)).sort()).toEqual(["Deflect", "Ganking", "Shield"]);
-    // 4 + Taric's [Shield 1]. Her own granted [Shield] does not stack on top —
-    // `effectiveKeywords` merges by Math.max, which is 817.1.a's redundancy rule.
+    // 4 + Taric's [Shield 1] + her own [Shield 1], summed under 814.2.
+    expect(effectiveKeywords(combat, her, 0).Shield, "the two [Shield] sources did not sum").toBe(2);
     expect(
       effectiveMight(combat, her, 0, { isCombat: true, isAttackingSide: false, combatRole: "remaining", battlefieldId: "bf1" }),
-    ).toBe(5);
+    ).toBe(6);
   });
 });
 
