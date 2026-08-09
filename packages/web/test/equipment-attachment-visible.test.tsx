@@ -240,3 +240,33 @@ describe("the attached stack is not clipped away", () => {
     expect(container.querySelector(".card")?.className).not.toContain("has-attached");
   });
 });
+
+describe("the protruding band identifies the Equipment", () => {
+  /**
+   * The band that sticks out below the wearer shows the MIDDLE of the gear's
+   * artwork, which does not say which gear it is. The first version rendered the
+   * name only as a no-art fallback, so every gear that HAS art — almost all of
+   * them — protruded as an anonymous strip of picture. The ask was "skewed so
+   * that the text line is still readable"; without this the text line is not
+   * there at all.
+   */
+  it("names the gear even when the registry HAS art for it", () => {
+    const { container } = draw(
+      <CardView
+        card={unit()}
+        attachedEquipment={[{ instanceId: "g1", name: "Long Sword", defId: LONG_SWORD }]}
+      />,
+    );
+    expect(defaultCardRegistry().tryGet(LONG_SWORD)?.imageUrl, "premise: this gear has art").toBeTruthy();
+    expect(container.querySelector(".attached-card .attached-art"), "art still drawn").not.toBeNull();
+    expect(container.querySelector(".attached-card .attached-name")?.textContent).toBe("Long Sword");
+  });
+
+  it("still names it when there is no art at all", () => {
+    const { container } = draw(
+      <CardView card={unit()} attachedEquipment={[{ instanceId: "g1", name: "Ghost Gear", defId: "NO-SUCH-CARD" }]} />,
+    );
+    expect(container.querySelector(".attached-card .attached-art")).toBeNull();
+    expect(container.querySelector(".attached-card .attached-name")?.textContent).toBe("Ghost Gear");
+  });
+});

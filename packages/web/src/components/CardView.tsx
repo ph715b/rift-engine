@@ -129,15 +129,24 @@ interface CardViewProps {
  * this is purely a presentation concern.
  */
 
-/** One attached Equipment's face: its art if the registry has it, else its name.
- *  Its own component so the registry lookup is per gear rather than a second
- *  branch inside CardView's already-long body. */
-function ArtOrName({ defId, name }: { defId: string; name: string }) {
+/**
+ * One attached Equipment's face: its art, and ALWAYS its name.
+ *
+ * The name is not a no-art fallback. Only the bottom edge of this card sticks
+ * out from under its wearer, so the band the player can actually read shows the
+ * MIDDLE of the artwork — which does not say which Equipment it is. The name
+ * strip is pinned to that protruding edge and drawn over the art.
+ *
+ * Its own component so the registry lookup is per gear rather than a second
+ * branch inside CardView's already-long body.
+ */
+function AttachedFace({ defId, name }: { defId: string; name: string }) {
   const art = defaultCardRegistry().tryGet(defId)?.imageUrl;
-  return art ? (
-    <img className="attached-art" src={art} alt="" draggable={false} loading="lazy" />
-  ) : (
-    <span className="attached-name">{name}</span>
+  return (
+    <>
+      {art && <img className="attached-art" src={art} alt="" draggable={false} loading="lazy" />}
+      <span className="attached-name">{name}</span>
+    </>
   );
 }
 
@@ -279,7 +288,7 @@ export function CardView({
         <div className="attached-stack" aria-hidden="true">
           {attachedEquipment!.map((gear, i) => (
             <div key={gear.instanceId} className="attached-card" style={{ ["--fan" as string]: String(i) }}>
-              <ArtOrName defId={gear.defId} name={gear.name} />
+              <AttachedFace defId={gear.defId} name={gear.name} />
             </div>
           ))}
         </div>

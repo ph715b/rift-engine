@@ -2959,10 +2959,6 @@ button:disabled {
   overflow: visible;
 }
 
-/* Each piece is offset DOWN and RIGHT and rotated, fanning a little further per
-   item (`--fan`) so two Equipment on one unit are individually visible rather
-   than exactly overlapping. The rotation is small and positive: enough to read
-   as a separate card underneath, not so much that the name line goes diagonal. */
 /* **The card normally clips its own overflow**, and that alone made the first
    version of this completely invisible — the elements were in the DOM, the tests
    asserted they were there, and nothing could be seen on the board. Opened up
@@ -2977,38 +2973,54 @@ button:disabled {
   border-radius: inherit;
 }
 
-/* Each piece is pushed DOWN far enough that its lower band sits OUTSIDE the card
+/* Each piece is pushed DOWN so that its bottom edge sits OUTSIDE the wearer's
    box — the only region the wearer's art cannot cover, since `.card-art` is
-   `inset: 0` and paints after this. That band is exactly the part a paper player
-   leaves sticking out to read.
+   `inset: 0` and paints after this. That protruding band is exactly the part a
+   paper player leaves sticking out.
 
-   Fanned further per item so two Equipment are individually visible. */
+   The numbers: `top: 62%` + `height: 58%` puts the bottom edge at 120%, so ~20%
+   of a card height protrudes, growing 14% further per item so a second Equipment
+   protrudes past the first. Both are individually readable rather than a single
+   thickened edge. */
 .attached-card {
   position: absolute;
   left: 4%;
-  top: calc(52% + (var(--fan) * 13%));
+  top: calc(62% + (var(--fan) * 14%));
   width: 92%;
-  height: 100%;
+  height: 58%;
   transform: rotate(calc(4deg + (var(--fan) * 3.5deg)));
   transform-origin: 50% 0%;
   border-radius: 0.4rem;
   overflow: hidden;
+  background: #2a2a33;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 
 .attached-art {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-/* The fallback when a gear has no art: its name, sitting where the card's title
-   band would be, so the strip still identifies itself. */
+/* **The name is pinned to the BOTTOM, not the top.** The card is tucked UNDER
+   its wearer, so the only part anyone can read is its bottom edge — a title band
+   in its natural place at the top would be behind the unit and invisible, which
+   is what the first version did. The ask was "skewed so that the text line is
+   still readable"; this is the line, in the one place it can be read.
+
+   Drawn over the art rather than instead of it: a strip of art alone does not
+   say which Equipment it is, and the artwork band is not where a gear's own
+   printed name sits. */
 .attached-name {
-  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   padding: 0.1rem 0.25rem;
-  background: #2a2a33;
+  background: rgba(20, 20, 26, 0.92);
   color: #e8e8ef;
   font-size: 0.5rem;
   line-height: 1.2;
