@@ -99,6 +99,12 @@ interface CardViewProps {
    *  question — gear sits in a flat row with no visual link to its wearer, so
    *  without this an attached Equipment and a loose one look identical. */
   attachedToUnitName?: string;
+  /** This unit's CURRENT Might — printed plus buffs, this-turn pumps, auras and
+   *  attached Equipment. Supplied by `GameBoard.attachmentProps`, the one place
+   *  that derives per-unit display facts, so the board cannot come to a
+   *  different number than the engine. Absent for a card with no board context
+   *  (hand, champion zone), where the printed Might IS the answer. */
+  currentMight?: number;
 }
 
 /**
@@ -133,6 +139,7 @@ export function CardView({
   attachedEquipment,
   attachedMightBonus,
   attachedToUnitName,
+  currentMight,
   onClick,
   onUnavailableClick,
   unavailableNote,
@@ -253,9 +260,34 @@ export function CardView({
                   {card.powerCost}
                 </span>
               )}
-              {card.kind === "Unit" && <span className="stat-badge stat-might">{card.might}</span>}
+              {card.kind === "Unit" && <span className="stat-badge stat-might">{currentMight ?? card.might}</span>}
             </div>
           )}
+        </div>
+      )}
+      {card.kind === "Unit" && currentMight !== undefined && currentMight !== card.might && (
+        // **The current Might, drawn OVER the card art.**
+        //
+        // The stat block above renders only in the art-less FALLBACK — the real
+        // art already prints name, cost and Might, so duplicating them was
+        // pointless. But that means when a modifier moves a unit's Might, the
+        // only number on screen is the printed one on the art, and it is wrong.
+        // That is the reported complaint exactly: "a number over the actual
+        // number on the card showing how much might it is at".
+        //
+        // So this renders ONLY when the two differ. A card sitting at its
+        // printed Might shows nothing extra and the art speaks for itself, which
+        // is why this is not simply the stat block moved out.
+        //
+        // The printed value rides along, struck through: a bare changed number
+        // cannot be told from a card the player misremembered.
+        <div
+          className="might-overlay"
+          title={`Might ${currentMight} — printed ${card.might}`}
+          aria-label={`Current Might ${currentMight}, printed ${card.might}`}
+        >
+          <span className="stat-might-printed">{card.might}</span>
+          <span className="stat-might-current">{currentMight}</span>
         </div>
       )}
       {card.kind === "Gear" && attachedToUnitName !== undefined && (

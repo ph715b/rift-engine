@@ -1300,6 +1300,45 @@ button:disabled {
   background: #a23b3b;
 }
 
+/* The current-Might overlay, drawn ON the card art.
+
+   It sits bottom-RIGHT, opposite `.card-status-badges` (bottom-left), so the
+   corrected Might and the status badges never collide on a unit that has both —
+   which is the common case, since a this-turn pump produces both at once.
+
+   Only rendered when the current Might differs from the printed one, so this is
+   deliberately loud: it exists to contradict the number printed on the art
+   underneath it, and a subtle version would lose that argument. */
+.might-overlay {
+  position: absolute;
+  bottom: 0.3rem;
+  right: 0.3rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.15em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.65rem;
+  background: #d4632f;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6);
+  font-weight: 700;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+/* The printed value, kept beside the current one rather than replaced. A bare
+   changed number cannot be told from a card you misremembered — which is the
+   complaint this whole thing is fixing — so both are shown and the original is
+   struck through. */
+.stat-might-printed {
+  opacity: 0.7;
+  font-size: 0.75em;
+  text-decoration: line-through;
+}
+
+.stat-might-current {
+  font-size: 0.95em;
+}
+
 .card-status-badges {
   position: absolute;
   bottom: 0.3rem;

@@ -9,6 +9,8 @@ import {
   cardMovesTarget,
   targetingChoosesUnit,
   equipmentAttachedTo,
+  effectiveMight,
+  findUnitAnywhere,
   equipmentMightBonusFor,
   wearerOf,
   cardPlacesTokens,
@@ -1525,11 +1527,45 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     attachedEquipment?: readonly { instanceId: string; name: string }[];
     attachedMightBonus?: number;
     attachedToUnitName?: string;
+    currentMight?: number;
   } {
     if (card.kind === "Unit") {
+      // **CURRENT Might, which the board never showed.** Reported from
+      // playtesting: "need to have UI accurately represent a unit's current
+      // might". It was worse than a missing badge — `effectiveMight` was not
+      // called ANYWHERE in this package, so the card face showed its PRINTED
+      // Might and only three of the many modifiers had a badge of their own
+      // (marked damage, a this-turn pump, a Buff). A unit wearing a +4 Blade of
+      // the Ruined King, or standing under a Garen aura, showed its printed
+      // number with nothing to indicate otherwise.
+      //
+      // Computed HERE for the same reason the attachment answer is: one
+      // derivation, spread by the caller, so the board cannot come to a
+      // different number than the engine. Asked out of combat — a unit in a
+      // combat has two Mights (outgoing and remaining) and a card face has room
+      // for one, so the neutral reading is the honest one to print.
+      // `findUnitAnywhere` supplies both the owner and the LOCATION. The
+      // location is not optional detail: positional auras (Garen - Commander's
+      // "other friendly units here") are counted only when `battlefieldId` is
+      // passed, and omitting it is the exact defect that made the engine's own
+      // `isMighty` under-report until it was fixed earlier today.
+      const found = findUnitAnywhere(state, card.instanceId);
+      const currentMight = found
+        ? effectiveMight(state, found.unit, found.ownerIndex, {
+            isCombat: false,
+            // `UnitZone` carries an INDEX, and `effectiveMight` wants the id.
+            ...(found.zone === "base"
+              ? {}
+              : { battlefieldId: state.battlefields[found.zone.battlefieldIndex]!.id }),
+          })
+        : undefined;
       const worn = equipmentAttachedTo(state, card.instanceId);
-      if (worn.length === 0) return {};
-      return { attachedEquipment: worn, attachedMightBonus: equipmentMightBonusFor(state, card.instanceId) };
+      if (worn.length === 0) return currentMight === undefined ? {} : { currentMight };
+      return {
+        currentMight,
+        attachedEquipment: worn,
+        attachedMightBonus: equipmentMightBonusFor(state, card.instanceId),
+      };
     }
     if (card.kind === "Gear" && card.attachedToInstanceId !== null) {
       const wearer = wearerOf(state, card);
