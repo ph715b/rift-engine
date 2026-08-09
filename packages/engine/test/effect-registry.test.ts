@@ -18,7 +18,16 @@ const registry = defaultCardRegistry();
 describe("effect file ownership is machine-checked, not a convention", () => {
   for (const source of EFFECT_SOURCES) {
     const label = source.domain ?? "signature (dual-domain)";
-    const defIds = [...Object.keys(source.module.cardEffects), ...Object.keys(source.module.unitTriggers)];
+    // `activatedAbilities` is here for the same reason the other two are: it is a
+    // per-domain registry, so the ownership rule has to reach it or the newest
+    // seam is the one place a Fury card can be filed under Calm. Listing the
+    // registries by hand is the known failure mode this repo has hit four times
+    // — the guard below counts them, so a fourth registry cannot be forgotten.
+    const defIds = [
+      ...Object.keys(source.module.cardEffects),
+      ...Object.keys(source.module.unitTriggers),
+      ...Object.keys(source.module.activatedAbilities),
+    ];
 
     it(`every card in ${label} belongs there`, () => {
       for (const defId of defIds) {

@@ -1,4 +1,5 @@
 import type { EffectDefinition } from "../card-effects.js";
+import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
@@ -2287,3 +2288,19 @@ function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: strin
   };
   return { ...state, players };
 }
+
+/**
+ * Activated abilities contributed by this domain file.
+ *
+ * **Empty on purpose, and it is the seam that matters, not the contents.**
+ * `ACTIVATED_ABILITIES` was module-private in `activated-abilities.ts`, so a
+ * domain file could not register an activated ability AT ALL — the wave-1 agents
+ * refused UNL-026 and UNL-093 on exactly that, and every future card with a
+ * printed "[cost]: do something" would have hit the same wall or been written
+ * into the shared file that the fan-out rule keeps agents out of.
+ *
+ * Merged lazily by `activated-abilities.ts`, through the same `mergeRegistries`
+ * that throws on a duplicate defId — so a card registered both here and in the
+ * built-in table is a named error at import, not a silent last-write-wins.
+ */
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};

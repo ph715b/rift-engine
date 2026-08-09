@@ -2,6 +2,7 @@ import type { EffectDefinition } from "../card-effects.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
+import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
 import * as chaos from "./chaos.js";
@@ -105,6 +106,21 @@ export function domainSelfTriggers(): { name: string; entries: Record<string, Se
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.selfTriggers,
+  }));
+}
+
+/**
+ * Activated abilities contributed by the per-domain files.
+ *
+ * Lazy, like the trigger sources above: `activated-abilities.ts` is imported by
+ * much of the engine, and composing at module scope would put it in the same
+ * initialisation-order trap its own `"undefined" in ACTIVATED_ABILITIES` guard
+ * exists to catch.
+ */
+export function domainActivatedAbilities(): { name: string; entries: Record<string, ActivatedAbilityDefinition> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.activatedAbilities,
   }));
 }
 

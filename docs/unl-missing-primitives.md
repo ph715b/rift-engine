@@ -6,6 +6,47 @@ more useful half: each names a missing mechanism, and they cluster hard.
 
 **Do not copy the verification loop into this file.** It is in `CLAUDE.md`.
 
+## RE-MEASURED 2026-08-08 — six of the eighteen are already done, and the headline count was wrong
+
+**Do not plan from the table below without re-running the measurement.** Checked
+card by card with `isCardImplemented`: **UNL-026, UNL-093, UNL-077, UNL-076,
+UNL-154 and UNL-008 are implemented.** They were written straight into the shared
+files after this file was authored, which is how a bottleneck stays invisible —
+the refusals stopped being visible without the underlying wall moving.
+
+That includes BOTH cards listed under primitive 3, so read literally, the row said
+that primitive now unblocks nothing.
+
+**It said the wrong thing.** The "cards" column counts cards refused IN WAVE 1,
+not cards in the pool — a wave-sized number presented as a pool-sized one. Swept
+over all 187 unimplemented UNL cards:
+
+| primitive | cards wave 1 refused | cards actually in the pool |
+|---|---|---|
+| 3 — activated abilities registrable per domain | 2 (both now written) | **34** |
+| 4 — energy actually spent | 2 (+"4 more") | ~10, after discarding the "Spend N XP" matches, which are a cost and not this |
+
+Primitive 3 was the cheapest on the list and looked the most finished. It is the
+one that actually gates the fan-out, because all 34 of those cards would have to
+be written into `activated-abilities.ts` — the single shared file the fan-out rule
+exists to keep parallel agents out of.
+
+**BUILT 2026-08-08.** Each domain file now exports `activatedAbilities`, merged
+lazily by `activated-abilities.ts` through the same `mergeRegistries` that throws
+on a duplicate defId. All 15 readers of the private table were routed through the
+merge — routing some and not others is how a seam ends up existing without
+working, and `test/activated-ability-seam.test.ts` proves each of the three public
+readers separately, by mutation.
+
+**A latent trap found while testing it, unrelated to the seam and pre-existing:**
+`effects/index.ts` composes `domainCardEffects` EAGERLY at module scope, so any
+module graph reaching a domain file before `index.ts` has finished dies with
+"Cannot convert undefined or null to object" from `Object.entries(undefined)`.
+Confirmed on a clean tree with a two-line test importing only `effects/fury.js`.
+Real code always enters through `index.ts` so nothing has tripped it — but a test
+that imports a domain file directly will, and the error names neither the cycle
+nor the file. Import `effects/index.js` first.
+
 ## Why refusals were the instruction
 
 Every agent was told to refuse rather than guess, and never to add a shared

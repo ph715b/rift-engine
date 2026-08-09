@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { domainActivatedAbilities, mergeRegistries } from "./effects/index.js";
 import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
@@ -1860,12 +1861,39 @@ if ("undefined" in ACTIVATED_ABILITIES) {
   );
 }
 
+/**
+ * The built-in table PLUS whatever the per-domain files registered.
+ *
+ * **`ACTIVATED_ABILITIES` used to be module-private, and that was a wall.** No
+ * domain file could register an activated ability at all, so a card printing
+ * "[cost]: do something" either had to be written into this shared file — which
+ * is precisely what the fan-out rule keeps parallel agents out of — or refused.
+ * Wave 1 refused UNL-026 and UNL-093 on it.
+ *
+ * Composed lazily and memoised, matching `triggers.ts`'s four composed
+ * registries. Eager composition would import `effects/index.js` at module scope,
+ * and this module is imported by much of the engine — the initialisation-order
+ * trap the `"undefined" in ACTIVATED_ABILITIES` guard below already records.
+ *
+ * `mergeRegistries` throws on a duplicate defId, so a card registered both here
+ * and in a domain file is a named error at first use rather than an arbitrary
+ * winner and a loser that looks like it was never written.
+ */
+let composedAbilities: Record<string, ActivatedAbilityDefinition> | undefined;
+function allActivatedAbilities(): Record<string, ActivatedAbilityDefinition> {
+  composedAbilities ??= mergeRegistries<ActivatedAbilityDefinition>("activated ability", [
+    { name: "engine/activated-abilities.ts", entries: ACTIVATED_ABILITIES },
+    ...domainActivatedAbilities(),
+  ]);
+  return composedAbilities;
+}
+
 export function activatedAbilityFor(defId: string): ActivatedAbilityDefinition | undefined {
-  return ACTIVATED_ABILITIES[defId];
+  return allActivatedAbilities()[defId];
 }
 
 export function hasActivatableAbility(defId: string): boolean {
-  return defId in ACTIVATED_ABILITIES;
+  return defId in allActivatedAbilities();
 }
 
 /**
@@ -1879,7 +1907,7 @@ export function hasActivatableAbility(defId: string): boolean {
  * exactly that answer anyway.
  */
 export function activationCostOf(defId: string, modeId?: string): ActivationCost {
-  const ability = ACTIVATED_ABILITIES[defId];
+  const ability = allActivatedAbilities()[defId];
   if (modeId !== undefined) {
     const mode = modesOf(defId).find((m) => m.id === modeId);
     if (mode?.cost) return mode.cost;
@@ -1928,7 +1956,7 @@ export function canPayActivationCost(
    *  Jax. Omitted everywhere else, where there is one price to ask about. */
   modeId?: string,
 ): boolean {
-  const ability = ACTIVATED_ABILITIES[abilityDefId];
+  const ability = allActivatedAbilities()[abilityDefId];
   // A printed restriction on USING the ability, asked before any cost — see
   // `availableWhile`. Checked here so the enumerator and the validator, which
   // both come through this function, cannot disagree about whether it is legal.
@@ -2176,18 +2204,18 @@ function payActivationEnergy(
 /** Does this ability only bank a resource? See `banksResource` — the AI skips
  *  these because a board-state evaluator cannot price them. */
 export function abilityBanksResource(defId: string): boolean {
-  return ACTIVATED_ABILITIES[defId]?.banksResource === true;
+  return allActivatedAbilities()[defId]?.banksResource === true;
 }
 
 /** Targeting for an activated ability, defaulting to "none" — same shape and
  *  default as targetingForCard, so callers can treat the two alike. */
 export function activatedAbilityTargeting(defId: string): TargetingSpec {
-  return ACTIVATED_ABILITIES[defId]?.targeting ?? { kind: "none" };
+  return allActivatedAbilities()[defId]?.targeting ?? { kind: "none" };
 }
 
 /** Every defId with an activated ability, for coverage.ts. */
 export function activatedAbilityDefIds(): string[] {
-  return Object.keys(ACTIVATED_ABILITIES);
+  return Object.keys(allActivatedAbilities());
 }
 
 /** A permanent `playerIndex` controls that could be activated right now, found by
@@ -2212,7 +2240,7 @@ export function findActivatable(
   ];
   const card = candidates.find((c) => c.instanceId === instanceId);
   if (!card) return undefined;
-  const definition = ACTIVATED_ABILITIES[card.defId];
+  const definition = allActivatedAbilities()[card.defId];
   return definition ? { card, definition } : undefined;
 }
 
@@ -2280,8 +2308,8 @@ export function abilitiesAvailableTo(
     ];
     // Deduplicated: two copies of the same gear grant one ability, not two
     // identical entries the board would render twice.
-    const defIds = [...new Set(friendly.map((c) => c.defId).filter((defId) => defId in ACTIVATED_ABILITIES))];
-    return defIds.map((abilityDefId) => ({ abilityDefId, definition: ACTIVATED_ABILITIES[abilityDefId]! }));
+    const defIds = [...new Set(friendly.map((c) => c.defId).filter((defId) => defId in allActivatedAbilities()))];
+    return defIds.map((abilityDefId) => ({ abilityDefId, definition: allActivatedAbilities()[abilityDefId]! }));
   }
   // Svellsongur's copied text — "copy that unit's text to this Equipment's effect
   // text". An activated ability IS text, so the gear offers its wearer's.
@@ -2294,10 +2322,10 @@ export function abilitiesAvailableTo(
   const copiedFrom = copiedTextSourceFor(state, source);
   const copied: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [];
   if (copiedFrom !== undefined) {
-    const wearerAbility = ACTIVATED_ABILITIES[copiedFrom.unit.defId];
+    const wearerAbility = allActivatedAbilities()[copiedFrom.unit.defId];
     if (wearerAbility) copied.push({ abilityDefId: copiedFrom.unit.defId, definition: wearerAbility });
   }
-  const own = ACTIVATED_ABILITIES[source.defId];
+  const own = allActivatedAbilities()[source.defId];
   const granted: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [...copied];
   // Forge of the Fluft — "while you control this battlefield, friendly LEGENDS
   // have ...". Offered here rather than by a new registry for the reason
@@ -2305,7 +2333,7 @@ export function abilitiesAvailableTo(
   // activate", and the enumerator, the validator and the executor all come
   // through it. A parallel path would be a fourth place to keep in step.
   if (source.defId === state.players[playerIndex].legend.defId && controlsForgeOfTheFluft(state, playerIndex)) {
-    granted.push({ abilityDefId: FORGE_OF_THE_FLUFT, definition: ACTIVATED_ABILITIES[FORGE_OF_THE_FLUFT]! });
+    granted.push({ abilityDefId: FORGE_OF_THE_FLUFT, definition: allActivatedAbilities()[FORGE_OF_THE_FLUFT]! });
   }
   return own ? [{ abilityDefId: source.defId, definition: own }, ...granted] : granted;
 }
@@ -2373,7 +2401,7 @@ const SOLE_MODE = "";
  * branch, and three places is how a mechanic ends up working in two of them.
  */
 export function modesOf(abilityDefId: string): readonly AbilityMode[] {
-  const definition = ACTIVATED_ABILITIES[abilityDefId];
+  const definition = allActivatedAbilities()[abilityDefId];
   if (!definition) return [];
   if (definition.modes) return definition.modes;
   if (!definition.resolve) return [];
@@ -2399,7 +2427,7 @@ export function availableModes(
   source: { abilityModesUsedThisTurn?: string[] } | object,
 ): readonly AbilityMode[] {
   const modes = modesOf(abilityDefId);
-  if (!ACTIVATED_ABILITIES[abilityDefId]?.modesOncePerTurn) return modes;
+  if (!allActivatedAbilities()[abilityDefId]?.modesOncePerTurn) return modes;
   const used = new Set("abilityModesUsedThisTurn" in source ? (source.abilityModesUsedThisTurn ?? []) : []);
   return modes.filter((m) => !used.has(m.id));
 }
@@ -2416,7 +2444,7 @@ export function resolveMode(
 
 /** Does this ability track its modes per turn? */
 export function tracksModeUse(abilityDefId: string): boolean {
-  return ACTIVATED_ABILITIES[abilityDefId]?.modesOncePerTurn === true;
+  return allActivatedAbilities()[abilityDefId]?.modesOncePerTurn === true;
 }
 
 /** Records that `modeId` has been used, so "you've not chosen this turn" holds.
