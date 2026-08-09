@@ -19,7 +19,7 @@ per-domain file, nothing shared:
 | card | why it is free now |
 |---|---|
 | **OGN-242 Baited Hook** | The blocker was activation Energy+Power, which was BUILT for this card on 2026-08-02 — `activated-abilities.ts` names it in a comment. Everything else is Spectral Matron's shape. |
-| **OGN-121 Teemo - Strategist** | "When I defend" needs no new event: Yasuo - Remorseful established `combatBegan` + `bf.contestedByIndex` (465's own definition of the Attacker) as the precedent. |
+| **OGN-121 Teemo - Strategist** | "When I defend" needs no new event: Yasuo - Remorseful established `combatBegan` + `bf.contestedByIndex` (464.2.c's own definition of the Attacker) as the precedent. |
 | **OGN-198 The Harrowing** | Byte-identical to Soulgorger's trash→`playUnitToBase` decision, in the same file, minus the "you may". |
 
 Two more are one shared-file edit with no new concept: **OGN-181 Pack of Wonders**

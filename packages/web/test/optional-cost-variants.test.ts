@@ -63,7 +63,7 @@ describe("every optional-cost flag is compared, not just [Accelerate]", () => {
   });
 
   it("distinguishes a printed [Repeat] from a granted one, and from both", () => {
-    // 3509 makes these two separate instances paid separately, so a card under a
+    // 820.1.c.2 makes these two separate instances paid separately, so a card under a
     // Temporal Portal has three live variants beyond the plain play. Folding
     // them into one flag would make two of the three unreachable.
     const printed = action({ repeatPaid: true });

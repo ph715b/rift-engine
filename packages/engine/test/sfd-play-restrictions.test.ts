@@ -104,7 +104,7 @@ describe("Perched Grimwyrm (SFD-015): only to a battlefield you conquered this t
 });
 
 describe("Rengar - Pouncing (SFD-025): may be played to a battlefield you're ATTACKING", () => {
-  /** `contestedByIndex` IS the Attacker designation (465 Step 1). */
+  /** `contestedByIndex` IS the Attacker designation (464.2.c Step 1). */
   function attacking(state: GameState, index: 0 | 1 | null): GameState {
     state.battlefields[0]!.contestedByIndex = index;
     return state;

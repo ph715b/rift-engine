@@ -31,7 +31,7 @@ import { holdEventTrigger } from "./triggers.js";
  *  keyword math AND any continuous aura (Garen - Commander, etc.) — this is
  *  "outgoing," not "remaining," so damage is never subtracted here. */
 function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId: string, isAttackingSide: boolean): number {
-  // Rule 422: "A Stunned Unit does not contribute its might to damage in the
+  // Rule 423: "A Stunned Unit does not contribute its might to damage in the
   // combat damage step." Only here — `remainingMight` below is deliberately
   // untouched, because the same rule says a stunned unit "must still have damage
   // applied to it equal to, or greater than, its full might value to be killed".
@@ -264,10 +264,10 @@ function processDefeated(
 
 /**
  * Closes the open Showdown — the single exit point for "all players passed in
- * sequence" (349), dispatching on which kind of Showdown it was.
+ * sequence" (348), dispatching on which kind of Showdown it was.
  *
- * A Showdown is a window, not a fight. Rule 351.1: "If it is a Combat Showdown,
- * proceed with the remaining steps of Combat to resolve the phase." Rule 352.1:
+ * A Showdown is a window, not a fight. Rule 348.1: "If it is a Combat Showdown,
+ * proceed with the remaining steps of Combat to resolve the phase." Rule 348.2.a:
  * "If it is a Non-Combat Showdown... If only one player's Units remain at the
  * Battlefield, and if that player does not already Control the Battlefield, that
  * player establishes Control over the Battlefield" — which "results in a Conquer
@@ -278,7 +278,7 @@ function processDefeated(
  * Conquer bookkeeping (recordConquest, including the final-point rule) is
  * literally the same code as before.
  *
- * Contested clears here rather than when the window merely ends, because 190.6.a
+ * Contested clears here rather than when the window merely ends, because 190.3.b
  * ties it to Control being "established or re-established".
  */
 export function closeShowdown(state: GameState): GameState {
@@ -293,11 +293,11 @@ export function closeShowdown(state: GameState): GameState {
   return clearContested(resolved, battlefieldId);
 }
 
-/** Rule 352.1 — the Non-Combat Showdown's only outcome. "Only one player's
+/** Rule 348.2.a — the Non-Combat Showdown's only outcome. "Only one player's
  *  Units remain" is the whole test: nobody there leaves control alone (the
  *  cleanup's own lapse step handles an emptied battlefield), and both players
  *  there can't happen, since that would have been promoted to a Combat Showdown
- *  in a Cleanup (317.2) before it could close. */
+ *  in a Cleanup (316.8.b.1.a) before it could close. */
 function resolveNonCombatShowdown(state: GameState, battlefieldId: string): GameState {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   if (!bf) return state;
@@ -307,10 +307,10 @@ function resolveNonCombatShowdown(state: GameState, battlefieldId: string): Game
 }
 
 /**
- * Rule 466.5.a's winner: the only player with units remaining here, or
+ * Rule 466.3.a's winner: the only player with units remaining here, or
  * undefined when that is nobody or both.
  *
- * The two undefined cases are 466.5.d's **No Result**, not an oversight — both
+ * The two undefined cases are 466.3.d's **No Result**, not an oversight — both
  * sides standing (which is exactly when step 3d recalls the attackers) and
  * neither side standing. So a mutual wipe wins nothing, and a failed attack is
  * not a defender's victory.
@@ -330,7 +330,7 @@ function combatWinner(
   return undefined;
 }
 
-/** Holds the 466.5.a win, if there was one. A no-op on a No Result, so callers
+/** Holds the 466.3.a win, if there was one. A no-op on a No Result, so callers
  *  do not each repeat the check. */
 function holdCombatWon(
   state: GameState,
@@ -367,11 +367,11 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // "Move up to 2 friendly units to base") left the other player standing alone
   // at the battlefield and NOT credited with taking it.
   //
-  //   - 466.5.a: a player has WON the combat if they "are the only Player that
+  //   - 466.3.a: a player has WON the combat if they "are the only Player that
   //     has units remaining at this battlefield during this step".
-  //   - 466.5.d: "No Result" is only for units recalled in step 3d, BOTH players
+  //   - 466.3.d: "No Result" is only for units recalled in step 3d, BOTH players
   //     present, or NEITHER present. One side leaving is none of those.
-  //   - 466.7 / 466.7.c: the player with units remaining Establishes Control,
+  //   - 466.5 / 466.5.d: the player with units remaining Establishes Control,
   //     and that is a Conquer if they have not yet scored it this turn.
   //
   // Step 2 (the Combat Damage Step) is the only part that is conditional — it
@@ -382,9 +382,9 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // would be recalled or would trigger the recall is the side that left.
   //
   // `establishControlAfterCombat` also covers the empty-empty case on its own
-  // terms: nobody present makes the battlefield Uncontrolled (466.7.b).
+  // terms: nobody present makes the battlefield Uncontrolled (466.5.b).
   if (attackerUnits.length === 0 || defenderUnits.length === 0) {
-    // 466.5.a applies here too, and this is the shape that produces most of
+    // 466.3.a applies here too, and this is the shape that produces most of
     // them: the `walkout` probe counts 191 of these in 200 games. Whoever is
     // still standing has WON, which is the same reading the comment above
     // already took for establishing control.
@@ -438,14 +438,14 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // 3c. "Heal all Units" — GLOBAL, not just the units that fought here: a
   // unit softened by a Spell at another battlefield, or standing in base,
   // heals too. Only reached after a real exchange; the uncontested
-  // early-return above performs no cleanup and so heals nothing (352).
+  // early-return above performs no cleanup and so heals nothing (348.2).
   next = healAllUnits(next);
 
   // 3d. "Recall Attackers present at the Battlefield if Defenders are still
   // present." Failing to clear a defended battlefield sends your attackers
   // home — without this they sat there contesting it forever, since a
   // showdown only resolves once per move. Ordered after 3c, so they arrive
-  // healed. A Recall is not a Move (454): no move triggers fire, which is why
+  // healed. A Recall is not a Move (456): no move triggers fire, which is why
   // this calls relocateToBaseUnchanged and NOT dispatchOnMove — Traveling
   // Merchant must not discard/draw and Noxian Drummer must not make a token.
   const defendersRemain = survivingDefenders.length > 0;
@@ -453,7 +453,7 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     // Symbol of the Solari — "If a combat where you are the attacker ends in a
     // tie, recall ALL units instead."
     //
-    // **A "tie" IS rule 466.5.d's No Result**, and this is the branch that
+    // **A "tie" IS rule 466.3.d's No Result**, and this is the branch that
     // produces it: both sides still standing after the damage step, which is
     // exactly when 3d recalls the attackers. The survey filed the card as needing
     // a concept the engine lacked; it does not — the branch was already here, and
@@ -471,18 +471,18 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     for (const unit of recalled) next = relocateToBaseUnchanged(next, unit.instanceId);
   }
 
-  // Rule 466.5.d ("if No Result and both players have units remaining, stage a
+  // Rule 466.3.d ("if No Result and both players have units remaining, stage a
   // Showdown and a Combat here") is unreachable in a 2-player game: 3d removes
   // the attackers exactly when defenders remain, so both sides can never still
   // be present afterward. It exists for multiplayer, where a third player's
   // units can be at the battlefield. Deliberately not implemented.
 
-  // 466.5.a, after the exchange. Held BEFORE control is established so the
+  // 466.3.a, after the exchange. Held BEFORE control is established so the
   // win resolves ahead of any conquer trigger the same combat produces —
   // winning is what caused the conquest, not the other way round.
   next = holdCombatWon(next, battlefieldId, combatWinner(survivingAttackers, survivingDefenders, attackerIndex, defenderIndex));
 
-  // ── Establish control, rule 466.7 ──────────────────────────────────────
+  // ── Establish control, rule 466.5 ──────────────────────────────────────
   // The rules ask one question, not three: whoever still has units here takes
   // control if they didn't already, and if nobody does the battlefield becomes
   // Uncontrolled. Establishing control is a Conquer when that battlefield
@@ -490,7 +490,7 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   return establishControlAfterCombat(next, bfIndex);
 }
 
-/** Rule 466.7: the player with units remaining here Establishes Control if
+/** Rule 466.5: the player with units remaining here Establishes Control if
  *  they didn't already have it; with no units left from anyone, the
  *  battlefield becomes Uncontrolled. Replaces a three-way branch on who
  *  survived, which had no answer for "both survived" — that case is now

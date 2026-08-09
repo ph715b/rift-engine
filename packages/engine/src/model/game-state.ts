@@ -53,7 +53,7 @@ export interface RepeatChoices {
    *  may pick a different destination as well as a different unit. */
   destinationBattlefieldId?: string;
   /** …and that destination may be a BASE, independently of the first
-   *  execution's. 355.7 / 359.3.e; see `PlayCardAction.destinationIsBase`. */
+   *  execution's. 355.4.a / 359.3.e; see `PlayCardAction.destinationIsBase`. */
   destinationIsBase?: true;
   /** The unit-or-gear a `unitOrGear` or `gear` spec names. Needed the moment a
    *  MODAL repeat could switch into a mode that targets one — Rocket Barrage
@@ -108,7 +108,7 @@ export interface SpellChainEntry {
   destinationBattlefieldId?: string;
   /**
    * A move-target Spell is sending its unit to BASE — Charm reaching the one
-   * Location `destinationBattlefieldId` cannot name (355.7, worked at 359.3.e).
+   * Location `destinationBattlefieldId` cannot name (355.4.a, worked at 359.3.e).
    *
    * On the chain entry because the choice is made when the spell is PLAYED and
    * resolution must see the choice that was announced, exactly like every target
@@ -143,7 +143,7 @@ export interface SpellChainEntry {
 }
 
 /**
- * A triggered ability waiting on the chain — rule 809.1.b.3 / 323 step 3a's
+ * A triggered ability waiting on the chain — rule 808.1.d.3 / 323 step 3a's
  * **Pending Item**.
  *
  * The rules put a trigger on the Chain so the opponent may respond before it
@@ -160,7 +160,7 @@ export interface SpellChainEntry {
  * engine's behaviour is unchanged by its existence.
  *
  * `listenerInstanceId` rather than the listener object: by the time the entry
- * resolves the board may have moved on, and rule 809.1.b.3 is explicit that the
+ * resolves the board may have moved on, and rule 808.1.d.3 is explicit that the
  * dying permanent's ATTRIBUTES are captured up front while its identity is
  * re-looked-up — the same split `triggers.DeathContext` already makes.
  */
@@ -179,7 +179,7 @@ export interface TriggerChainEntry {
    *  Carried rather than looked up because the chain viewer has to name the item
    *  while it waits, and by then the source may be in a trash — a [Deathknell] is
    *  the common case, and it is precisely the one where a board lookup returns
-   *  nothing. Same reasoning as `event` above: 809.1.b.3's "note its attributes
+   *  nothing. Same reasoning as `event` above: 808.1.d.3's "note its attributes
    *  before the card is moved to the Trash", applied to the one attribute the UI
    *  needs. */
   listenerName: string;
@@ -193,9 +193,9 @@ export interface TriggerChainEntry {
    * A Finalized Chain Item RESOLVES even if its source has left the board: 359.3
    * says a check on something no longer available returns "null" and calculations
    * based on it are ignored — the item is not removed. The only rules that remove
-   * one are a replaced death (809.1.b), declining to perform it, and declining to
+   * one are a replaced death (808.1.d.1), declining to perform it, and declining to
    * pay for it. So resolution needs a listener even when the board no longer has
-   * one, and this is it: 809.1.b.3's "note its attributes" applied to the listener
+   * one, and this is it: 808.1.d.3's "note its attributes" applied to the listener
    * rather than only to the event.
    *
    * The LIVE board copy is preferred at resolution when it is still there, so an
@@ -203,13 +203,13 @@ export interface TriggerChainEntry {
    * Typed loosely for the same reason `event` is.
    */
   listenerCard?: unknown;
-  /** The event as it was when it fired, captured rather than recomputed — 809.1.b.3's
+  /** The event as it was when it fired, captured rather than recomputed — 808.1.d.3's
    *  "noted before it moves to the Trash" applied generally. Typed loosely here
    *  to keep model/ free of an import from engine/; triggers.ts narrows it. */
   event: unknown;
   /**
    * Whatever the ability had to note about the BOARD when it triggered, as
-   * opposed to about the event — the trigger's own half of 809.1.b.3's "note its
+   * opposed to about the event — the trigger's own half of 808.1.d.3's "note its
    * attributes before the card is moved".
    *
    * The event says what happened; it cannot say which of several units the
@@ -398,7 +398,7 @@ export interface PlayerState {
    */
   /** Battlefields this player has SCORED this turn, by either method — Hold
    *  (Beginning Phase) or Conquer. The rules cap it at one score per
-   *  battlefield per turn (rule 471.1.b), and the final-point rule asks
+   *  battlefield per turn (rule 470), and the final-point rule asks
    *  whether every battlefield has been SCORED, not merely conquered
    *  (rule 474) — so holds must land in this list too. Cleared by runAwaken.
    *  Was `conqueredBattlefieldsThisTurn`, which tracked only half of it. */
@@ -462,7 +462,7 @@ export interface PlayerState {
    * will have — Temporal Portal's "give the next spell you play this turn
    * [Repeat] equal to its cost".
    *
-   * A count rather than a flag because 3509 and 3525 are explicit: "if a spell
+   * A count rather than a flag because 820.1.c.2 and 820.3 are explicit: "if a spell
    * or ability has more than one instance of Repeat, each Cost may be paid or
    * not paid individually", and each paid instance adds one execution. Two
    * Portals armed before one spell therefore grant two instances.
@@ -475,7 +475,7 @@ export interface PlayerState {
    * `grantedRepeatPaid`, so a spell that is both printed-[Repeat] and granted
    * can execute three times, which is the deepest the card pool can go — but a
    * second Portal's instance cannot be paid. What that needs is per-instance
-   * CHOICES (3521), which is a list where every layer here has a field.
+   * CHOICES (820.2), which is a list where every layer here has a field.
    */
   nextSpellRepeatGrants: number;
   /**
@@ -601,7 +601,7 @@ export interface PlayerState {
    * PLAY site for the rest of the turn.
    *
    * A COUNT rather than a boolean: two Rallies in a turn buff a unit twice, and
-   * 708 makes the second buff a no-op only because the unit is already buffed —
+   * 702.3.a makes the second buff a no-op only because the unit is already buffed —
    * which is a fact about the unit, not about how many Rallies were cast.
    */
   buffUnitsPlayedThisTurn: number;
@@ -611,7 +611,7 @@ export interface PlayerState {
    *
    * **Deliberately NOT `scoredBattlefieldsThisTurn`**, which is the neighbouring
    * field and a different fact. That one records the once-per-turn SCORING
-   * lockout (471.1.b) and is written even when the point is withheld — and it is
+   * lockout (470) and is written even when the point is withheld — and it is
    * also written by HOLDING, which is not conquering. Grimwyrm asks about the
    * act of taking a battlefield, so it is recorded where conquests happen.
    *
@@ -695,16 +695,16 @@ export interface PlayerState {
 export interface BattlefieldState {
   /**
    * Units that have already gained an Attacker or Defender designation during the
-   * combat currently running here (465 Step 1), so a later arrival can be told
+   * combat currently running here (464.2.c Step 1), so a later arrival can be told
    * apart from one that was designated at the opening.
    *
-   * 383.4.f fires an Attack Trigger when its unit gains the designation "for the
+   * 383.4.e fires an Attack Trigger when its unit gains the designation "for the
    * FIRST time during a combat", and 465 designates a unit that becomes present
    * later "during the Cleanup phase following the action that caused it to become
    * present" — so the engine has to remember who has already been designated, or
    * every unit already there would fire again each time a reinforcement walked in.
    *
-   * Cleared by `clearContested`, which runs when the Showdown closes (190.6.a):
+   * Cleared by `clearContested`, which runs when the Showdown closes (190.3.b):
    * the record belongs to one combat, not to the battlefield.
    */
   designatedInstanceIds?: readonly string[];
@@ -728,16 +728,16 @@ export interface BattlefieldState {
   units: Record<string, UnitInstance[]>;
   /**
    * Who applied Contested status here, or null if the battlefield isn't
-   * Contested. Rule 458: "The Destination becomes Contested if it is an
+   * Contested. Rule 450: "The Destination becomes Contested if it is an
    * Uncontested Battlefield not controlled by the controller of the Unit or
    * Units that moved" — so entering a battlefield you already control applies
    * nothing, and an already-Contested one isn't re-applied.
    *
    * This exists as real state because the rules separate the two halves in
    * time: a Move applies Contested, and the Showdown is only *staged* in the
-   * following Cleanup (316.9 / 341), by which point the applier must still be
+   * following Cleanup (323.8 / 341), by which point the applier must still be
    * known — they gain Focus as the Showdown begins (345). Cleared once Control
-   * is established or re-established (190.6.a), which is what ends the
+   * is established or re-established (190.3.b), which is what ends the
    * Contested status rather than the Showdown merely closing.
    */
   contestedByIndex: 0 | 1 | null;
@@ -779,7 +779,7 @@ export interface HiddenCard {
  * submitted, fanned out as candidates by legal-actions.ts. That only works when
  * there is an action to hang the choice on, which a trigger does not have —
  * hence this. While one of these is pending the game is genuinely paused: no
- * Cleanup runs (323.2.b, "while Chain Items are Resolving, a Cleanup cannot
+ * Cleanup runs (321, "while Chain Items are Resolving, a Cleanup cannot
  * occur") and no other action is legal.
  *
  * `kind` is a registry key, and that is the whole trick: the CONTINUATION IS
@@ -846,7 +846,7 @@ export interface PendingDecision {
  * death, unlike Highlander's ward which is armed in advance
  * (`deathWardedUnitInstanceIds`). By the time the question can be asked the unit
  * has already been removed from wherever it was, and it must NOT be in the trash
- * — rule 809.1.b.1 makes a replaced death not a death at all, so its Deathknell
+ * — rule 808.1.d.1 makes a replaced death not a death at all, so its Deathknell
  * must never fire. It therefore exists nowhere the board can see, and a decision
  * carrying only its instanceId would have nothing to look it up in.
  *
@@ -885,17 +885,17 @@ export interface GameState {
   activePlayerIndex: 0 | 1;
   /**
    * Who took the very first turn of this game — fixed for its whole lifetime.
-   * Rule 117.x determines turn order by "any fair random method", so this is
+   * Rule 115 determines turn order by "any fair random method", so this is
    * genuinely either player and is NOT derivable from `activePlayerIndex`
    * (which rotates) or from the seat a player occupies.
    *
    * Two steps depend on it, and both were previously written against the
    * literal indices on the assumption that player 0 always started:
-   *   - the going-second Channel bonus (rules 486.1 / 487.4) must land on
+   *   - the going-second Channel bonus (rules 485.7 / 486.7) must land on
    *     `active !== firstPlayerIndex`, or the compensation for going first
    *     goes to the player who went first;
    *   - `turnNumber` advances when play wraps back to the First Player
-   *     (rule 118's looping queue "starting with the First Player"), not when
+   *     (rule 115.1.c's looping queue "starting with the First Player"), not when
    *     it reaches index 0.
    *
    * Equivalent to TurnManager.java's `startingPlayerIndex` instance field,
@@ -929,14 +929,14 @@ export interface GameState {
    * a Combat:
    *   - `"Combat"` — opened with units of different players present, so it
    *     "will be opened as the first step of Combat" (341). Closing it runs the
-   *     remaining steps of Combat (351.1 / 463).
+   *     remaining steps of Combat (348.1 / 463).
    *   - `"NonCombat"` — opened by moving onto a battlefield you don't control
    *     that has no opposing units. A stand-alone phase that "does not create a
-   *     Combat" (317.1). Closing it just establishes Control (352.1).
+   *     Combat" (316.8.b.1). Closing it just establishes Control (348.2.a).
    *
    * Stored rather than derived from the board, because it is a status that
    * *transitions*: a NonCombat Showdown becomes a Combat Showdown in the
-   * following Cleanup if another player's units arrive (317.2). Board shape
+   * following Cleanup if another player's units arrive (316.8.b.1.a). Board shape
    * can't stand in for it either — Combat step 3d recalls the attackers, so
    * "units of different players present" is false by the time a Combat
    * Showdown finishes.
@@ -979,7 +979,7 @@ export interface GameState {
   spellChain: ChainEntry[];
   /**
    * Whether the currently-open chain was opened by a triggered ability rather
-   * than by a played card — rule 347's exception to 346's Focus pass.
+   * than by a played card — rule 346.1's exception to 346's Focus pass.
    *
    * 347: "Focus will not pass in this way if the chain opened as a result of a
    * triggered ability being added to the chain, nor if it opened as a result of an
@@ -1004,7 +1004,7 @@ export interface GameState {
    *
    * The rules put a trigger on the Chain the instant it fires, in any state: 383
    * says "Triggered Abilities can be put on the Chain during Closed States or Open
-   * States on any player's turn", and 323.3 allows it even mid-Cleanup ("New
+   * States on any player's turn", and 320.1 allows it even mid-Cleanup ("New
    * Pending Items can be added, but Finalized Items cannot be executed and Priority
    * and Focus are not passed or awarded"). What a Pending Item is NOT is
    * respondable: 345 grants priority to "the controller of the newest item on the
@@ -1166,7 +1166,7 @@ export interface GameState {
    *
    * Empty in every settled state — a non-empty queue means a resolution is
    * halfway through, which is why `submit` suppresses the Cleanup while it is
-   * (323.2.b) and `legalActions` offers nothing but answers to its head.
+   * (321) and `legalActions` offers nothing but answers to its head.
    *
    * A queue rather than a single slot because one effect can ask more than one
    * question: Cull the Weak asks both players, and "discard 2" asks twice.

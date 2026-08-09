@@ -128,7 +128,7 @@ describe("Back-Alley Bar (OGN-277): a unit moving FROM here gets +1 Might this t
     expect(find(settled, unit.instanceId)!.mightThisTurn, "the Bar paid nothing for the departure").toBe(1);
   });
 
-  it("does NOT fire for a Recall — 454 says a Recall is not a Move", () => {
+  it("does NOT fire for a Recall — 456 says a Recall is not a Move", () => {
     // The same line `movesThisTurn` and the `unitMoved` event already draw, and
     // the Bar rides that site precisely so the three cannot disagree.
     const { state, unit } = mover();

@@ -61,18 +61,18 @@ import {
  * `battlefieldConquered`) and are held by the same call that holds the
  * permanents' triggers; the rest are placed at their own site. A battlefield's
  * ability is placed LAST at every moment, which under the chain's LIFO
- * resolution (343) makes it resolve FIRST — the same choice, for the same
+ * resolution (340.1) makes it resolve FIRST — the same choice, for the same
  * reason, as the Legend's position in `listeningPermanents`.
  */
 
 /** What just happened at a battlefield, as its printed abilities read it. */
 export type BattlefieldMoment =
-  /** 471.1.a — `playerIndex` maintained Control here in their Beginning Phase
+  /** 469.2 — `playerIndex` maintained Control here in their Beginning Phase
    *  and SCORED it. Fired by `scoring.scoreHolds`, once per battlefield held. */
   | "hold"
-  /** 471.1 — `playerIndex` gained Control here. Fired by `scoring.recordConquest`. */
+  /** 469.1 — `playerIndex` gained Control here. Fired by `scoring.recordConquest`. */
   | "conquer"
-  /** 465 Step 1 — a Combat opened here and `playerIndex` is the Defender.
+  /** 464.2.c Step 1 — a Combat opened here and `playerIndex` is the Defender.
    *  Fired by `cleanup.beginCombatAt`, once per combat, never for an arrival. */
   | "defend"
   /** A unit completed a Standard Move OUT of here. `playerIndex` is the mover's
@@ -208,7 +208,7 @@ const RAVENBLOOM_REVEAL_DECISION = `${RAVENBLOOM_CONSERVATORY}-reveal`;
 function ravenbloomReveal(state: GameState, playerIndex: 0 | 1): GameState {
   const player = state.players[playerIndex];
   const [top, ...rest] = player.deck;
-  // An empty deck reveals nothing — 422's do-as-much-as-you-can, not a guard
+  // An empty deck reveals nothing — 055's do-as-much-as-you-can, not a guard
   // against a crash.
   if (!top) return state;
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -875,7 +875,7 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
         instanceId: u.instanceId,
       }));
     },
-    // `addBuff` is the funnel, not a field write: rule 708 makes a second buff on
+    // `addBuff` is the funnel, not a field write: rule 702.3.a makes a second buff on
     // an already-buffed unit a no-op, and the `unitBuffed` event Mistfall watches
     // is fired from there.
     resolve: (state, _d, optionId) => addBuff(state, optionId),
@@ -1011,7 +1011,7 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
     },
     resolve: (state, d, optionId) => {
       if (optionId === "decline") return state;
-      // Pay FIRST: `spendBuff` returns undefined when the spend is illegal (705),
+      // Pay FIRST: `spendBuff` returns undefined when the spend is illegal (702.2.b.1),
       // and handing over the draw for a cost that could not be paid is the shape
       // this codebase already records for Solari Shrine's exhaust.
       const paid = spendBuff(state, d.playerIndex, optionId);
@@ -1107,7 +1107,7 @@ export const battlefieldDecisions: Record<string, DecisionDefinition> = {
    * Reaver's Row — "you may move a friendly unit here to base."
    *
    * MOVE, not Recall, so it goes through `relocateToBaseUnchanged` and the unit
-   * does not exhaust: 454 says a Recall leaves statuses untouched and this
+   * does not exhaust: 458.1 says a Recall leaves statuses untouched and this
    * engine's `recallUnitToBase` force-exhausts for the player-initiated retreat.
    * Nothing else about it is a move either — `movesThisTurn` is untouched and no
    * `unitMoved` event fires, for the reason that helper's own note gives.
@@ -1172,7 +1172,7 @@ export function runBattlefieldBeginningPhase(state: GameState, playerIndex: 0 | 
  * Its own three lines rather than a shared helper, because the only existing one
  * (`channelRunesExhausted`) bakes the exhaust in for the card that asks for it,
  * and a parameter would be a flag on a function whose whole name is the answer.
- * Same "as many as possible if fewer remain" behaviour as `runChannel` (315.4.b).
+ * Same "as many as possible if fewer remain" behaviour as `runChannel` (315.3.b.1).
  */
 function channelRunes(state: GameState, playerIndex: 0 | 1, count: number): GameState {
   return updatePlayer(state, playerIndex, (p) => {
@@ -1256,7 +1256,7 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
  * most hand-built test states name none).
  *
  * **Called AFTER the permanents' triggers for the same moment**, so the
- * battlefield is placed last and resolves first under LIFO (343). Same choice,
+ * battlefield is placed last and resolves first under LIFO (340.1). Same choice,
  * and same reason, as the Legend's position in `listeningPermanents`: the
  * battlefield's printed effect is the frame the moment happens inside.
  */

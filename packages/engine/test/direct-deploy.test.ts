@@ -217,7 +217,7 @@ describe("PlayCard: direct-to-battlefield Unit deploy (reinforce)", () => {
 
     expect(validatePlayCard(state, action)).toEqual({ ok: true });
 
-    // Through submit: playing the unit applies Contested (190.4's "Moves or
+    // Through submit: playing the unit applies Contested (190.3.a's "Moves or
     // otherwise becomes present"), and the following Cleanup stages the window.
     state = submit(state, action).state;
 

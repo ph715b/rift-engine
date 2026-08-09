@@ -72,7 +72,7 @@ function accept(state: GameState, action: PlayerAction | undefined, what: string
 /** Plays a Spell and passes Focus until it RESOLVES — a Spell takes effect on the
  *  chain, so asserting straight after `submit` reads an unresolved chain as a
  *  broken card. Stops at a question, since `submit` refuses a PassFocus while one
- *  is pending (323.2.a). */
+ *  is pending (320.1). */
 function castAndResolve(state: GameState, action: PlayerAction | undefined, what: string): GameState {
   let current = accept(state, action, what);
   for (let guard = 0; guard < 8 && current.spellChain.length > 0; guard += 1) {
@@ -495,7 +495,7 @@ describe("Deathgrip (SFD-163): kill a friendly unit, pass its Might on, draw 1",
 
   it("reads the victim's EFFECTIVE Might, not its printed one", () => {
     const { state, spellId, units } = gripState([6, 2]);
-    // A buff (+1, rule 710) and a pump: 6 printed becomes 9.
+    // A buff (+1, rule 703) and a pump: 6 printed becomes 9.
     state.players[0]!.baseUnits[0] = { ...units[0]!, buffed: true, mightThisTurn: 2 };
     const play = castsOf(state, spellId).find(
       (a) =>

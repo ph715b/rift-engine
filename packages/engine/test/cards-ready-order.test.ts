@@ -52,7 +52,7 @@ function castsOf(state: GameState, instanceId: string) {
  * A Spell takes effect on the chain, not when it is played, so asserting
  * straight after `submit` reads an unresolved chain as a broken card. Stops if a
  * question is raised, since `submit` refuses a PassFocus while one is pending
- * (323.2.a) — that pause is the point for four of the five cards here.
+ * (320.1) — that pause is the point for four of the five cards here.
  */
 function castAndResolve(state: GameState, action: PlayerAction | undefined): GameState {
   expect(action, "the card was never enumerated as playable").toBeDefined();
@@ -321,7 +321,7 @@ describe("Albus Ferros (OGN-230): spend any number of buffs, channel one rune ea
     expect(channeledFromDeck(after)).toHaveLength(0);
   });
 
-  it("never offers the OPPONENT's buffs — 705.1 restricts spending to your own", () => {
+  it("never offers the OPPONENT's buffs — 702.2.b.2 restricts spending to your own", () => {
     const { state, albusId } = albusState(["Mine"], 3);
     state.players[1]!.baseUnits = [makeUnit({ name: "Theirs", buffed: true })];
 

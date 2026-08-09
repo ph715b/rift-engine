@@ -192,7 +192,7 @@ describe("OGN-121: recycling the revealed cards (416/425)", () => {
     expect(deckIds(after, 0)).toEqual([before[5], before[6], ...before.slice(0, 5)]);
   });
 
-  it("a deck shorter than 5 reveals what it has (422) and keeps every card", () => {
+  it("a deck shorter than 5 reveals what it has (055) and keeps every card", () => {
     const short = [HIDDEN_DEF_IDS[0]!, PLAIN_DEF_IDS[0]!, HIDDEN_DEF_IDS[1]!];
     const { state, attacker } = defendingBoard(short);
     const before = deckIds(state, 0);
@@ -212,7 +212,7 @@ describe("OGN-121: recycling the revealed cards (416/425)", () => {
   });
 });
 
-describe("OGN-121: 718.5 — no [Hidden] revealed means NO deal action at all", () => {
+describe("OGN-121: 715.4 — no [Hidden] revealed means NO deal action at all", () => {
   /** The same defending board with Annie - Fiery ("your spells and abilities deal
    *  1 Bonus Damage") standing in Teemo's controller's base. */
   function withAnnie(deckDefIds: string[]) {
@@ -240,7 +240,7 @@ describe("OGN-121: 718.5 — no [Hidden] revealed means NO deal action at all", 
 describe("OGN-121: 'when I DEFEND' — the negative controls", () => {
   it("does NOT fire when Teemo is the ATTACKER", () => {
     // Same fight, mirrored: Teemo walks into an enemy-held battlefield, so
-    // `contestedByIndex` (465's own definition of the Attacker) names his own
+    // `contestedByIndex` (464.2.c's own definition of the Attacker) names his own
     // controller and the trigger must stay silent.
     const teemo = realUnitInstance(TEEMO_STRATEGIST);
     const enemy = makeUnit({ might: 9, name: "Holder" });

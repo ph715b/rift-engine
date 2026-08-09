@@ -108,7 +108,7 @@ function resolveChain(state: GameState): GameState {
 }
 
 /** Player 0 in their Beginning Phase holding bf1 with `units` — what fires
- *  `battlefieldHeld` (471.1.a: control maintained, not yet scored this turn). */
+ *  `battlefieldHeld` (469.2: control maintained, not yet scored this turn). */
 function holdingBf1(units: UnitInstance[]): GameState {
   const state = makeState({ phase: "Beginning", activePlayerIndex: 0 });
   state.battlefields[0]!.units = { p1: units };
@@ -152,7 +152,7 @@ describe("Emperor's Divide (SFD-043): move any number of friendly units at a bat
     expect(names(resolved.players[0]!.baseUnits).sort()).toEqual(["A", "B"]);
     expect(
       resolved.players[0]!.baseUnits.every((u) => u.exhausted),
-      "a MOVE to base exhausts (415.1.b) — relocateToBaseUnchanged was used instead",
+      "a MOVE to base exhausts (414.3.a) — relocateToBaseUnchanged was used instead",
     ).toBe(true);
   });
 
@@ -230,7 +230,7 @@ describe("Disarming Rake (SFD-032): when you play me, you may kill a gear", () =
     expect(answerDecisions(played).players[1]!.activeGear, "declining killed it anyway").toHaveLength(1);
   });
 
-  it("asks NOTHING with no gear anywhere (422)", () => {
+  it("asks NOTHING with no gear anywhere (055)", () => {
     const played = playUnit(rakeState([]), DISARMING_RAKE);
     expect(played.pendingDecisions, "a question with no answers was parked").toHaveLength(0);
   });
@@ -439,7 +439,7 @@ describe("Guardian of the Passage (SFD-035): when I hold, return a unit or gear 
     expect(offered).toContain(gear.instanceId);
   });
 
-  it("asks nothing with a trash holding only spells (422)", () => {
+  it("asks nothing with a trash holding only spells (055)", () => {
     const guardian = realUnitInstance(GUARDIAN_OF_THE_PASSAGE);
     const state = holdingBf1([guardian]);
     state.players[0]!.trash = [spellInstance(EMPERORS_DIVIDE)];
@@ -573,10 +573,10 @@ describe("Simian Ancestor (SFD-047): when you buff me, ready me", () => {
     expect(unitAnywhere(settled, ancestor.instanceId)!.exhausted, "he readied off someone else's buff").toBe(true);
   });
 
-  it("does not fire a SECOND time for a re-buff (708 makes it a no-op)", () => {
+  it("does not fire a SECOND time for a re-buff (702.3.a makes it a no-op)", () => {
     const { state, ancestor } = ancestorState();
     const once = resolveHeldTriggers(addBuff(state, ancestor.instanceId));
-    // Exhaust him again and re-buff: 708 says nothing happens, so no ready.
+    // Exhaust him again and re-buff: 702.3.a says nothing happens, so no ready.
     const reExhausted = {
       ...once,
       battlefields: once.battlefields.map((bf, i) =>

@@ -52,7 +52,7 @@ function runesFor(defId: string, count = 24): RuneCard[] {
 }
 
 /** A rune deck to channel FROM — Black Rose Dignitary's Deathknell draws on it,
- *  and an empty one channels nothing at all (315.4.b), which would read exactly
+ *  and an empty one channels nothing at all (315.3.b.1), which would read exactly
  *  like the Deathknell never firing. */
 function runeDeck(prefix: string, count = 4): RuneCard[] {
   return Array.from({ length: count }, (_, i) => ({ id: `${prefix}-deck-${i}`, domain: "Order" as const, state: "Ready" as const }));
@@ -73,7 +73,7 @@ function castsOf(state: GameState, instanceId: string): PlayCardAction[] {
  * A Spell takes effect on the chain and a Unit's on-play ability is a Chain
  * Pending Item, so asserting straight after `submit` reads an unresolved chain
  * as a dead card. Stops on a pending question, since `submit` refuses a
- * PassFocus while one is outstanding (323.2.a).
+ * PassFocus while one is outstanding (320.1).
  */
 function castAndResolve(state: GameState, action: PlayerAction | undefined): GameState {
   expect(action, "the card was never enumerated as playable").toBeDefined();

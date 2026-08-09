@@ -63,7 +63,7 @@ inference rather than a quoted ruling — they searched the official rules docs,
 the RiftJudge Q&A database, riftboundfaq.com and the errata pages and found
 nothing addressing it word-for-word, and declined to invent a citation.
 
-The reasoning: 355.7 reads as a PER-UNIT check on whether a given unit may move
+The reasoning: 355.4.a reads as a PER-UNIT check on whether a given unit may move
 to a given destination, not as a rule about whether the location is a usable
 target; and Riftbound's general pattern is that illegality in one sub-part of a
 multi-part effect does not cancel the whole effect. So the constraint belongs in

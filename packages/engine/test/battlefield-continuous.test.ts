@@ -201,7 +201,7 @@ describe("Aspirant's Climb (OGN-276): the points needed to win go up by 1", () =
     expect(winner(state)).toBe(0);
   });
 
-  it("moves 474's Final Point rule with it", () => {
+  it("moves 471.1.b's Final Point rule with it", () => {
     // At 7 points and an incomplete sweep the ordinary board withholds the point
     // and draws instead; with the Climb in play 7 is two short, so the point is
     // simply awarded.

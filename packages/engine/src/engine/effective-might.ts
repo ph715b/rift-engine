@@ -437,7 +437,7 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
     bonus += 1;
   }
 
-  // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 710),
+  // "An ADDITIONAL +1" on top of the +1 the Buff itself is worth (rule 703),
   // so a buffed Wizened Elder is +2 over its printed Might, not +1. Lives here
   // rather than in the buff helper because it's a continuous property of one
   // card, recomputed on read — nothing to write into state or reset.
@@ -493,14 +493,14 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
  * [Shield]) only apply when `ctx.isCombat`; continuous auras always apply.
  */
 export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ctx: MightContext): number {
-  // A Buff is worth +1 Might (rule 710) and is a separate game object from
+  // A Buff is worth +1 Might (rule 703) and is a separate game object from
   // mightThisTurn: it survives end of turn, caps at one per unit, and can be
   // spent. Both land here so no caller has to remember either.
   //
   // Its VALUE can be raised for a turn (Stand United), which is why this reads
   // a per-player modifier rather than the literal 1 — and why the modifier
   // belongs to the unit's OWNER, not to whoever is asking.
-  // Each buff is worth 1 (710), plus whatever Stand United has made a buff worth
+  // Each buff is worth 1 (703), plus whatever Stand United has made a buff worth
   // this turn. `extraBuffs` is the count BEYOND the first — Lee Sin - Ascetic is
   // the only card that can raise it, and every other unit leaves it undefined.
   const buffCount = unit.buffed ? 1 + (unit.extraBuffs ?? 0) : 0;

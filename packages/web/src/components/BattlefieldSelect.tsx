@@ -2,7 +2,7 @@ interface BattlefieldSelectProps {
   /** The human's own three battlefields, straight off their DeckList. */
   names: string[];
   /** Names already presented in a decided game this match — struck out and
-   *  unclickable (rule 487.3). */
+   *  unclickable (rule 486.5). */
   used: string[];
   /** "Game 2 of 3 — you lead 1–0", or similar. */
   seriesNote: string;
@@ -11,12 +11,12 @@ interface BattlefieldSelectProps {
 
 /**
  * Best of 3's per-game battlefield choice. 1v1 (Match) setup has each player
- * "select one (1) of their three (3) Battlefields" (rule 487.2) rather than roll
+ * "select one (1) of their three (3) Battlefields" (rule 486.5) rather than roll
  * for it the way 1v1 (Duel) does (485.5) — so this screen exists only in Best of
  * 3, and it runs before EVERY game including the first, because 487 puts the
  * selection in Setup rather than between games.
  *
- * Rule 487.3 then removes a decided game's battlefields from the rest of the
+ * Rule 486.5 then removes a decided game's battlefields from the rest of the
  * match: "the Battlefields that were used are to be removed and not selected
  * again for this Match. One of the remaining Battlefields that were set aside
  * must be chosen instead." Used ones are shown rather than hidden so the choice

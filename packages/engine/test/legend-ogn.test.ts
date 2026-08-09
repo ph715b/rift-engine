@@ -221,7 +221,7 @@ describe("Yasuo - Unforgiven (OGN-259): 2 Energy, exhaust — move a friendly un
     expect(after.players[0]!.baseUnits).toHaveLength(0);
   });
 
-  it("the moved unit arrives READY — the exhaust is on the Standard Move action (415.1.b)", () => {
+  it("the moved unit arrives READY — the exhaust is on the Standard Move action (414.3.a)", () => {
     const { state, atHome } = yasuoState();
     const action = legendActions(state).find(
       (a) => a.type === "ActivateAbility" && a.modeId === "fromBase" && a.targetUnitInstanceId === atHome.instanceId,
@@ -262,7 +262,7 @@ describe("Ahri - Nine-Tailed Fox (OGN-255): an enemy attacking a battlefield you
    * p1 controls bf1 and has Ahri and a defender there; p2 is about to attack it.
    *
    * **The defender is not decoration.** "Attacks" means gaining the Attacker
-   * designation (383.4.f), and 465 hands those out only when Combat opens — which
+   * designation (383.4.f), and 464.2.c hands those out only when Combat opens — which
    * needs units of both players present (341). Walking into a battlefield you
    * control but do not occupy opens a NON-Combat Showdown, where nobody attacks
    * and nobody defends. These tests used to call `dispatchOnAttack` with a unit
@@ -302,10 +302,10 @@ describe("Ahri - Nine-Tailed Fox (OGN-255): an enemy attacking a battlefield you
   });
 
   it("floors at 1 Might across repeated combats", () => {
-    // 383.4.f checks an attack trigger's condition "once per combat", so the ten
+    // 383.4.e checks an attack trigger's condition "once per combat", so the ten
     // firings this needs are ten separate combats rather than ten dispatches into
     // one. Between them the battlefield is returned to an uncontested Neutral
-    // state, which is what closing a Showdown does (190.6.a).
+    // state, which is what closing a Showdown does (190.3.b).
     const { state } = ahriState(true);
     let after = state;
     for (let i = 0; i < 10; i += 1) {
@@ -375,13 +375,13 @@ describe("Volibear - Relentless Storm (OGN-249): playing a [Mighty] unit may exh
     expect(after.players[0]!.legend.exhausted).toBe(false);
   });
 
-  it("does not ask for a 4-Might unit — [Mighty] is 5+ (rule 711)", () => {
+  it("does not ask for a 4-Might unit — [Mighty] is 5+ (rule 708)", () => {
     expect(play(voliState(), 4).pendingDecisions).toHaveLength(0);
   });
 
   it("counts Might the unit actually HAS, not its printed value", () => {
     // A 4-Might unit standing with Garen - Commander is a 5-Might unit, and
-    // rule 711 asks about current Might. Reading `unit.might` would disagree
+    // rule 710 asks about current Might. Reading `unit.might` would disagree
     // with what the board shows.
     const state = voliState();
     const garen = realUnitInstance("OGS-013"); // Garen - Commander, "+1 Might here"
@@ -473,7 +473,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
   });
 
   /**
-   * Rule 194.4 declares a win IN A CLEANUP, and 323.2.b forbids a Cleanup while a
+   * Rule 194.2 declares a win IN A CLEANUP, and 321 forbids a Cleanup while a
    * resolution is suspended. So points crossing the Victory Score while a question
    * is outstanding is not yet a win, and the answer must still be accepted.
    *
@@ -484,7 +484,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
    * resolution, leaving the unit in `unitsAwaitingDeathReplacement` forever, in
    * neither play nor a trash. Measured at 5 stranded units per 300 self-play games.
    */
-  it("still accepts the answer when the same action crossed the Victory Score (194.4)", () => {
+  it("still accepts the answer when the same action crossed the Victory Score (194.2)", () => {
     const { state, victim } = settState();
     // The state an action leaves behind when it parks the offer and then scores:
     // question outstanding, unit held, points already over the threshold.
@@ -542,7 +542,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
     expect(after.unitsAwaitingDeathReplacement).toHaveLength(0);
   });
 
-  it("a SAVED unit fires no [Deathknell] — 809.1.b.1, a replaced death is not a death", () => {
+  it("a SAVED unit fires no [Deathknell] — 808.1.d.1, a replaced death is not a death", () => {
     // Soaring Scout's Deathknell channels a rune. Saving it must channel nothing.
     const scout = realUnitInstance("OGN-216");
     let state = withLegend(SETT);
@@ -579,7 +579,7 @@ describe("Sett - The Boss (OGN-269): a buffed unit that would die may be saved i
     expect(after.players[0]!.legend.exhausted).toBe(false); // declining costs nothing
   });
 
-  it("strips the buff from a declined unit before it reaches the trash (709)", () => {
+  it("strips the buff from a declined unit before it reaches the trash (705)", () => {
     const { state, victim } = settState();
     const after = answerDecisions(destroyUnit(state, victim.instanceId, 1), (o) => o.find((x) => x.id === "die")!.id);
 

@@ -21,8 +21,8 @@ function isHeldBy(bf: BattlefieldState, playerId: string): boolean {
 
 /**
  * Beginning-Phase Hold scoring: "The Turn Player Holds all Battlefields they
- * Control" (rule 315.2.b.3), where Hold means "maintains Control of a
- * Battlefield they did not yet Score this turn" (rule 471.1.a).
+ * Control" (rule 315.2.b.2), where Hold means "maintains Control of a
+ * Battlefield they did not yet Score this turn" (rule 469.2).
  *
  * Records each scored battlefield, which it previously did not — the
  * final-point rule asks whether every battlefield has been SCORED this turn
@@ -31,7 +31,7 @@ function isHeldBy(bf: BattlefieldState, playerId: string): boolean {
  * the winning point was wrongly withheld.
  *
  * Hold points always apply, including as a winning point — the sweep
- * requirement in rule 473 is specific to gaining a point through a CONQUER.
+ * requirement in rule 471.1.b is specific to gaining a point through a CONQUER.
  * Mirrors ScoringSystem.scoreHolds (engine/ScoringSystem.java:38-77), minus
  * every named-card scoring-block (Tianna Crownguard, Forgotten Monument).
  * Hold triggers are no longer among the omissions — see the `battlefieldHeld`
@@ -42,19 +42,19 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   const held = state.battlefields
     .filter((bf) => isHeldBy(bf, player.id))
     // "did not yet Score this turn" — one score per battlefield per turn from
-    // either method (rule 471.1.b).
+    // either method (rule 470).
     .filter((bf) => !player.scoredBattlefieldsThisTurn.includes(bf.id))
     // Forgotten Monument's "players can't score here until their third turn".
     // Filtered OUT rather than scored-for-nothing, which is the opposite of
     // Tianna Crownguard's treatment two lines down and deliberately so: she
     // blocks the POINT while the scoring happens, this blocks the SCORING, so
-    // 471.1.b's lockout never fires and the battlefield is still scoreable later.
+    // 470's lockout never fires and the battlefield is still scoreable later.
     .filter((bf) => mayScoreAt(state, bf.id))
     .map((bf) => bf.id);
   if (held.length === 0) return state;
   // **Recording the scoring and AWARDING the points are two steps now**, and
   // they are deliberately separable: Tianna Crownguard blocks the second while
-  // the first still happens, so 471.1.b's once-per-battlefield-per-turn lockout
+  // the first still happens, so 470's once-per-battlefield-per-turn lockout
   // fires either way and the opponent cannot retry the battlefield this turn.
   // That is the project-owner ruling of 2026-08-06, and this is the site that
   // makes the difference visible.
@@ -107,7 +107,7 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
 /**
  * A battlefield changing to this player's control. It SCORES only if they
  * haven't already scored that battlefield this turn — "Conquer: A player gains
- * Control of a Battlefield they did not yet Score this turn" (rule 471.1), and
+ * Control of a Battlefield they did not yet Score this turn" (rule 469.1), and
  * "A player may only Score, from either method, once per Battlefield per turn"
  * (rule 471.1.b). Taking a battlefield back after losing it in the same turn
  * therefore gains no second point; it used to.
@@ -167,7 +167,7 @@ export function recordConquest(
   // before the withheld-point branch for the same reason: "when you conquer" is
   // about taking the battlefield, not about the point.
   //
-  // HELD, not dispatched (383 / 809.1.b.3): a triggered ability goes on the Chain
+  // HELD, not dispatched (383 / 808.1.d.3): a triggered ability goes on the Chain
   // as a Pending Item the instant it fires and becomes respondable when the
   // Cleanup finalizes it, so the opponent gets a window before Kai'Sa's draw or
   // Qiyana's choice resolves. See cleanup.finalizePendingTriggers.
@@ -175,7 +175,7 @@ export function recordConquest(
   // Two consequences of holding here, both of which are the rules working rather
   // than a regression:
   //  - **The POINT below is now awarded BEFORE these resolve.** Inline, a conquer
-  //    trigger ran before the final-point check at 474; held, it runs after. No
+  //    trigger ran before the final-point check at 471.1.b; held, it runs after. No
   //    listener in this pool awards points, so nothing observable changes today —
   //    and 383's "on the chain the instant it fires, resolved later" is what makes
   //    the new order the correct one rather than merely a different one.
@@ -202,7 +202,7 @@ export function recordConquest(
   if (alreadyScored) return next;
 
   const player = next.players[playerIndex];
-  // 474's Final Point rule, measured against THIS game's Victory Score rather
+  // 471.1.b's Final Point rule, measured against THIS game's Victory Score rather
   // than the printed 8 — Aspirant's Climb moves the point at which it bites.
   if (player.points === victoryScore(next) - 1) {
     const allBattlefieldIds = next.battlefields.map((bf) => bf.id);

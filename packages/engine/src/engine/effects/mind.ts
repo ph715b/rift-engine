@@ -47,7 +47,7 @@ import {
   voidHatchlingOptions,
 } from "../top-of-deck.js";
 import { effectiveMight } from "../effective-might.js";
-import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { wearerListener } from "../equipment.js";
@@ -283,7 +283,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // A BLINK: the unit leaves play and comes back fresh. That is the card, and
     // it is why it goes through the banish-and-play path rather than
-    // `relocateToBaseUnchanged` — leaving play strips the Buff (709), clears
+    // `relocateToBaseUnchanged` — leaving play strips the Buff (705), clears
     // damage and this-turn Might, and makes the return a genuine PLAY, so its
     // on-play trigger fires again and Cithria sees another unit arrive.
     //
@@ -303,7 +303,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       if (!event.targetUnitInstanceId) return state;
       const found = findUnitAnywhere(state, event.targetUnitInstanceId);
       if (!found) return state;
-      // A fresh copy: 709 removes Buffs on leaving play, and damage/this-turn
+      // A fresh copy: 705 removes Buffs on leaving play, and damage/this-turn
       // Might are properties of the body that left. Rebuilt here rather than in
       // `playUnitToBase`, which is also used for cards that were never in play.
       const returning = { ...found.unit, damage: 0, mightThisTurn: 0, buffed: false, stunned: false, movesThisTurn: 0 };
@@ -389,8 +389,8 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // giveMightThisTurn, NOT a Buff. This expires in the Expiration Step ("all
     // 'this turn' effects expire simultaneously", rule 317), which
     // turn-manager.ts's runEnd gets for free by zeroing every unit's
-    // mightThisTurn; a Buff (rule 710) is a persistent game object that would
-    // survive the turn and only come off when the unit leaves play (rule 709).
+    // mightThisTurn; a Buff (rule 705) is a persistent game object that would
+    // survive the turn and only come off when the unit leaves play (rule 705).
     // A negative Buff isn't a thing in the first place.
     //
     // [Reaction] is rule 813 and is NOT implemented here — engine/timing.ts
@@ -523,7 +523,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //    instruction about the target, while "play a Gold gear token" refers to
     //    nothing that could become illegal.
     //
-    // Damage FIRST, then the token — 359.3.e.5, "top to bottom of the rules text".
+    // Damage FIRST, then the token — 359.3.d, "top to bottom of the rules text".
     // Observable rather than cosmetic: a lethal 3 kills mid-resolution and can run
     // a [Deathknell] before the gear exists for anything to count.
     //
@@ -832,7 +832,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // the base; that is not a special case, it is what `UnitPlayDestination`
     // means. Nothing is chosen, so targeting stays "none".
     //
-    // placeToken applies Contested for a battlefield destination (190.4), which
+    // placeToken applies Contested for a battlefield destination (190.3.a), which
     // matters: she can only be played to a battlefield she reinforces or one you
     // control, but a Showdown already staged there is promoted by the token
     // becoming present just as it would be by any other arrival.
@@ -858,7 +858,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // discovered.
     //
     // MANDATORY: no "you may" anywhere in the text, so there is no decline option.
-    // A trash with no gear in it asks nothing at all (422's do-as-much-as-you-can),
+    // A trash with no gear in it asks nothing at all (055's do-as-much-as-you-can),
     // and a trash with exactly one gear is not a question — `advanceDecisions`
     // takes the single option without ever prompting.
     targeting: { kind: "none" },
@@ -1017,7 +1017,7 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // taken by `advanceDecisions` without ever prompting.
   //
   // MANDATORY — no "you may" is printed, so the decision offers no decline. An
-  // empty enemy board asks nothing at all (422's do-as-much-as-you-can) rather
+  // empty enemy board asks nothing at all (055's do-as-much-as-you-can) rather
   // than parking a question with no options, which `advanceDecisions` would drop
   // silently.
   "UNL-067": {
@@ -1055,7 +1055,7 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
     // anyway — but the exclusion states the card's word at the place it applies
     // rather than resting on that ordering, which is not this file's to hold still.
     //
-    // Both conditions are facts about the DEATH (809.1.b.3 captured them before
+    // Both conditions are facts about the DEATH (808.1.d.3 captured them before
     // the card reached the trash), so both settle whether the ability TRIGGERED
     // and neither is re-asked at resolution.
     applies: (_state, listener, death) =>
@@ -1285,7 +1285,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // makes most of the pool available.
     //
     // "You MAY", so it parks a question rather than firing. Nothing is asked when
-    // no spell in the trash qualifies — 422's do-as-much-as-you-can, and the same
+    // no spell in the trash qualifies — 055's do-as-much-as-you-can, and the same
     // shape Adaptatron's gear check uses.
     on: "battlefieldConquered",
     applies: (_state, listener, event) =>
@@ -1321,7 +1321,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // so is an instruction about the target. Near-unreachable in play, since
     // defending means enemy units are standing here; it costs one branch.
     //
-    // *718.5 (Bonus Damage)* is why zero `[Hidden]` cards skips `dealDamage`
+    // *715.4 (Bonus Damage)* is why zero `[Hidden]` cards skips `dealDamage`
     // rather than calling it with 0: "If no damage was Dealt, then Bonus Damage
     // will not apply" — worked on Teemo himself carrying Rabadon's Deathcrown,
     // "no deal action is performed for the Bonus Damage to apply to." This
@@ -1338,7 +1338,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // "Recycle" is 416/425 — the bottom of the corresponding deck, in revealed
     // order. A deck shorter than 5 reveals what it has: this is an EFFECT, so
-    // 422's do-as-much-as-you-can applies rather than `recycleFromTrash`'s
+    // 055's do-as-much-as-you-can applies rather than `recycleFromTrash`'s
     // all-or-nothing cost rule, the same distinction Dr. Mundo - Expert draws
     // below.
     on: "combatBegan",
@@ -1388,10 +1388,27 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // resolution-time board read and stays below — auto-selected from the enemies
     // there, same precedent as the other combat triggers, filed Unverified. The
     // floor is her own printed clause.
+    //
+    // **"HERE" is RE-CHECKED against where she is standing at resolution**, which
+    // is a different question from whether she triggered and is settled by a
+    // different rule. 359.3.f.1 names "here" as a referent read from the ability's
+    // SOURCE, and 359.3.f.2 says a referent is checked on EXECUTION of the
+    // instruction — with the rules' own worked example being this exact case:
+    // Fight or Flight sends Yasuo - Remorseful home in reaction to his attack
+    // trigger, and "when the attack trigger resolves, 'here' is no longer the
+    // battlefield where combat is ongoing and the attack trigger mistargets".
+    // 359.3.f.2.a then drops every instruction related to that referent.
+    //
+    // Sinister Poro (UNL-137, effects/chaos.ts) is the shape this matches, down to
+    // a source that DIED being moot as well — a unit off the board has no location
+    // for "here" to read. Ezreal - Dashing below already treats "MY Might" that
+    // way for the same reason.
     on: "combatBegan",
     applies: isFightingAt,
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
+      const here = findUnitOnBattlefield(state, listener.card.instanceId);
+      if (!here || state.battlefields[here.battlefieldIndex]!.id !== event.battlefieldId) return state;
       const bf = state.battlefields.find((b) => b.id === event.battlefieldId);
       const ownerId = state.players[listener.ownerIndex].id;
       const enemy = Object.entries(bf?.units ?? {})
@@ -1411,7 +1428,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // Which is why it does not use `recycleFromTrash`: that helper is a COST and
     // returns undefined unless it can move all 3 (416.3). Here recycling is an
-    // EFFECT, so "do as much as you can" applies (422) — a 2-card trash recycles
+    // EFFECT, so "do as much as you can" applies (055) — a 2-card trash recycles
     // both. Same distinction Salvage's "up to one gear" makes.
     on: "beginningPhase",
     resolve: (state, listener, event) => {
@@ -1533,7 +1550,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // usual pair, and the same reading Smoke Screen and Frigid Touch already got.
     //
     // **No floor, and that is the rules text rather than an omission.** The card
-    // prints no minimum, and the Might property (143.3.b) is explicit that none is
+    // prints no minimum, and the Might property (143.2.b) is explicit that none is
     // implied, quoted verbatim: "If a unit's Might is ever less than 0, it is
     // treated as 0 when referenced by spells and abilities, and when summing Might
     // to be assigned as damage in the Combat Damage Step. ... Although the unit's
@@ -1566,10 +1583,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (payEnergyFromPool(state, listener.ownerIndex, ICEVALE_ENERGY_COST) === undefined) return state;
       // "HERE" is the battlefield this combat opened at, captured now: by the time
       // an answer arrives nothing on the board says which fight raised the
-      // question. `isAttackingAt` has already established she is standing there.
+      // question. SHE rides along with it, because "here" is read from HER at
+      // execution rather than from the event — see the decision's own note.
       return parkDecision(state, {
         kind: "UNL-065-chill",
         playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
         battlefieldId: event.battlefieldId,
       });
     },
@@ -1671,6 +1690,15 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // fixed — that file belongs to another owner.
       const self = findUnitAnywhere(state, listener.card.instanceId);
       if (!self) return state; // off the board: null Might, so the deal is ignored
+      // And the SAME argument reaches "here", which the paragraph above stops one
+      // sentence short of: it is a referent too (359.3.f.1), checked on execution
+      // (359.3.f.2), and the rules' worked example for it is Fight or Flight
+      // sending Yasuo home in reaction to this very sentence — "'here' is no
+      // longer the battlefield where combat is ongoing and the attack trigger
+      // mistargets". His own `[Action]` to move himself to base is the likeliest
+      // way this happens, and it makes the shot moot rather than free. Sinister
+      // Poro (UNL-137, effects/chaos.ts) is the convention; Ahri above matches it.
+      if (self.zone === "base" || state.battlefields[self.zone.battlefieldIndex]!.id !== event.battlefieldId) return state;
       // `isCombat: false` for the reason Yasuo's entry records: `[Assault]` and
       // `[Shield]` are terms of the COMBAT damage step, and counting them in a
       // damage INSTRUCTION would pay them twice in one fight. Buffs, this-turn
@@ -1688,7 +1716,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         .filter(([id]) => id !== ownerId)
         .flatMap(([, units]) => units.map((u) => u.instanceId))[0];
       if (enemyId === undefined) return state;
-      // 718.5 — "If no damage was Dealt, then Bonus Damage will not apply." A
+      // 715.4 — "If no damage was Dealt, then Bonus Damage will not apply." A
       // 0-Might Ezreal (Smoke Screen has a floor, Thousand-Tailed Watcher does
       // not reach him, but a future -Might card will) must skip `dealDamage`
       // rather than call it with 0, or Annie - Fiery's +1 in damage-modifiers.ts
@@ -1765,7 +1793,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    * there. "Stop" is always present, which is what lets `advanceDecisions` retire
    * the question once the last unit has arrived.
    *
-   * `forceMoveToBattlefield`, not the Move ACTION: 415.1.b makes the exhaust part
+   * `forceMoveToBattlefield`, not the Move ACTION: 414.3.a makes the exhaust part
    * of a Standard Move's cost rather than of moving, and this is a Game Effect
    * moving them (316.7.c) - so they arrive as they were. It applies Contested for
    * their controller (458), which on an OPEN battlefield means the caster simply
@@ -2019,7 +2047,7 @@ export const decisions: Record<string, DecisionDefinition> = {
         trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
       };
       const played = playCardIgnoringCost({ ...state, players }, d.playerIndex, chosen);
-      // "Then RECYCLE it" — bottom of the Main Deck (1924), taken back out of the
+      // "Then RECYCLE it" — bottom of the Main Deck (416.1), taken back out of the
       // trash that `playCardIgnoringCost` just put it in.
       const after = [...played.players] as [PlayerState, PlayerState];
       after[d.playerIndex] = {
@@ -2198,11 +2226,22 @@ export const decisions: Record<string, DecisionDefinition> = {
    * because "here" is about the combat that caused it and by the time an answer
    * arrives nothing on the board says which that was.
    */
+  // "HERE" is re-checked against where the ARCHER is standing when this is
+  // answered — a referent read from the ability's source (359.3.f.1), checked on
+  // execution of the instruction (359.3.f.2), and the rules' worked example is
+  // Fight or Flight sending Yasuo - Remorseful home in reaction to his attack
+  // trigger so that "here" is no longer the battlefield the combat is at and the
+  // trigger mistargets. An Archer who has left makes the whole question moot —
+  // no options at all, so `advanceDecisions` drops it rather than showing a lone
+  // Decline. Sinister Poro (UNL-137, effects/chaos.ts) checks its own "here" in
+  // exactly this place, and that is the convention.
   "UNL-065-chill": {
     prompt: () => "Icevale Archer: pay [1] to give a unit here -1 Might this turn?",
     options: (state, d) => {
+      if (d.battlefieldId === undefined || d.cardInstanceId === undefined) return [];
+      const here = findUnitOnBattlefield(state, d.cardInstanceId);
+      if (!here || state.battlefields[here.battlefieldIndex]!.id !== d.battlefieldId) return [];
       const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
-      if (d.battlefieldId === undefined) return options;
       if (payEnergyFromPool(state, d.playerIndex, ICEVALE_ENERGY_COST) === undefined) return options;
       for (const unit of unitsAtBattlefield(state, d.battlefieldId)) {
         options.push({ id: unit.instanceId, label: `Pay [1]: ${unit.name} gets -1 Might`, instanceId: unit.instanceId });

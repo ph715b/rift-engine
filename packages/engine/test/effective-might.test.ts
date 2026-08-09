@@ -186,7 +186,7 @@ describe("effectiveMight: Sett - Kingpin (OGN-240) counts buffed neighbours", ()
     const sett = makeUnit({ defId: SETT_KINGPIN, might: 4, buffed: true });
     const state = atBattlefield(sett, []);
 
-    // 4 printed, +1 for the Buff itself (710), +1 for counting himself.
+    // 4 printed, +1 for the Buff itself (703), +1 for counting himself.
     expect(effectiveMight(state, sett, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(6);
   });
 

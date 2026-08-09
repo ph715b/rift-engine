@@ -18,7 +18,7 @@ import { runCleanup } from "../src/engine/cleanup.js";
  * controller, so the non-turn player can be the Attacker on the turn player's own
  * turn.
  *
- * Placement order is the opposite of resolution order (343, LIFO), so
+ * Placement order is the opposite of resolution order (340.1, LIFO), so
  * attacker-places-first means **the DEFENDER's combat triggers resolve first**.
  *
  * **Step 1 designates per UNIT.** Ahri - Nine-Tailed Fox's "when an enemy unit
@@ -62,7 +62,7 @@ describe("465 Step 4: at a combat, the ATTACKER places first — so the defender
   });
 });
 
-describe("465 Step 1: every attacking unit gains the designation, so Ahri triggers once EACH", () => {
+describe("464.2.c Step 1: every attacking unit gains the designation, so Ahri triggers once EACH", () => {
   function ahriState(attackers: number): GameState {
     const state = makeState({ phase: "Action" });
     state.players[0]!.legend = createCardInstance(registry.get(AHRI_LEGEND)) as LegendInstance;

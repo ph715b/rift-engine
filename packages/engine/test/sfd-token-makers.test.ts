@@ -62,7 +62,7 @@ describe("Vanguard Armory (SFD-168): three Recruits, each to a location you pick
     for (const bfId of controlled) {
       const bf = state.battlefields.find((b) => b.id === bfId)!;
       bf.controllerId = state.players[0]!.id;
-      // A garrison, because control LAPSES. 323.11: a player with no units at a
+      // A garrison, because control LAPSES. 323.6: a player with no units at a
       // battlefield loses control of it in the following Cleanup, and the
       // activation runs one — a fixture that only sets `controllerId` reads as
       // uncontrolled by the time the question is asked.

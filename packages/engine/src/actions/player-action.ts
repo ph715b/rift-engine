@@ -66,8 +66,8 @@ export interface PlayCardAction {
    * `validate-play-card` rather than by the type, since an action arrives from
    * outside the engine and a type cannot refuse it.
    *
-   * 355.7 / 197 / 107.2.b, and 359.3.e works the case by name. Which base needs
-   * no saying: 107.2.c puts a unit only in its own controller's.
+   * 355.4.a / 198.1 / 107.1.b, and 359.3.e works the case by name. Which base needs
+   * no saying: 107.1.c puts a unit only in its own controller's.
    */
   destinationIsBase?: true;
   /** The battlefield a "battlefield"-kind targeted effect applies to (e.g.
@@ -189,7 +189,7 @@ export interface PlayCardAction {
    * The GRANTED `[Repeat]` instance was paid — Temporal Portal's "give the next
    * spell you play this turn [Repeat] equal to its cost".
    *
-   * Its own field rather than a second `repeatPaid`, because 3509 makes the two
+   * Its own field rather than a second `repeatPaid`, because 820.1.c.2 makes the two
    * instances independently payable: a Rocket Barrage under a Portal can pay its
    * printed Repeat, the granted one, both, or neither, and those are four
    * different prices and three different execution counts.

@@ -8,7 +8,7 @@ import { fail, ok, type ValidationResult } from "./validation-result.js";
  *
  * Notably absent: any check of phase, turn, Focus, priority or chain state. A
  * pending decision sits INSIDE a resolution, and while one is open the game is
- * not in a state where those questions have answers — rule 323.2.b makes the
+ * not in a state where those questions have answers — rule 321 makes the
  * point from the other direction ("while Chain Items are Resolving, a Cleanup
  * cannot occur"). The gate in game-engine.submit is what stops anything else
  * from happening; this only checks that the answer itself makes sense.

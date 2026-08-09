@@ -169,7 +169,7 @@ describe("Bard - Mercurial: the move", () => {
     // The second half of 170.11.c, and the one a version checking occupancy alone
     // would miss. Asserted against the predicate rather than end to end, because
     // a battlefield that is controlled and EMPTY cannot survive to the question:
-    // 323.11 lapses that control in the very Cleanup the play runs. The
+    // 323.6 lapses that control in the very Cleanup the play runs. The
     // predicate is what the decision consults, so this is the reachable half.
     const { state } = board();
     state.battlefields[0]!.controllerId = state.players[0]!.id;

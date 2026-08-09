@@ -78,7 +78,7 @@ export interface Listener {
  * order is what makes their tests meaningful rather than incidental.
  *
  * **The Legend is last, and that is a choice about resolution order.** The chain
- * resolves LIFO (343), so placing it last makes it resolve FIRST among its
+ * resolves LIFO (340.1), so placing it last makes it resolve FIRST among its
  * controller's simultaneous triggers — which is exactly where the inline Legend
  * dispatches used to sit (`scoring.recordConquest` fired the Legend, then held
  * the permanents). Putting it anywhere else would have silently reordered every
@@ -165,7 +165,7 @@ const TRASH_LISTENER_DEF_IDS = new Set([
 ]);
 
 /**
- * Where a unit was when it died. Rule 809.1.b.3 is explicit that this has to be
+ * Where a unit was when it died. Rule 808.1.d.3 is explicit that this has to be
  * captured BEFORE the card moves to the trash: "Before the card is moved to the
  * Trash, note its location, its attributes, and any other details related to the
  * effect of its triggered ability." Kog'Maw - Caustic ("deal 4 to all units at my
@@ -210,7 +210,7 @@ export interface DeathContext {
    * On the death because it cannot be asked afterwards: `killUnit` detaches
    * FIRST, before any ward or replacement, so by the time this event fires every
    * attachment is gone and a gear asking "was I worn by the unit that died?"
-   * would always get no. The same 809.1.b.3 reasoning as `unit` itself — the
+   * would always get no. The same 808.1.d.3 reasoning as `unit` itself — the
    * fact is captured at the moment of the death, not re-derived at resolution.
    */
   wornEquipment?: readonly GearInstance[];
@@ -288,7 +288,7 @@ export interface DeathWatchDefinition {
    * Reads only the death and the listener — "friendly", "buffed", "your kill",
    * "stunned" are all facts about the death, and the response window cannot
    * change them because `DeathContext` captured them before the card reached the
-   * trash (809.1.b.3). Anything about the BOARD at resolution stays in `resolve`.
+   * trash (808.1.d.3). Anything about the BOARD at resolution stays in `resolve`.
    */
   applies?: (state: GameState, listener: Listener, death: DeathContext) => boolean;
   resolve: DeathWatchEffect;
@@ -407,7 +407,7 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
    * **The unit is banished FROM THE TRASH**, which is where `completeDeath` has
    * already filed it — a death-watch resolves after the death funnel, on purpose,
    * "so a listener sees a board the unit has already left". So this is not a
-   * replacement of the death (809.1.b.1) and the unit's own `[Deathknell]` has
+   * replacement of the death (808.1.d.1) and the unit's own `[Deathknell]` has
    * already fired, which is what "Deathknell — banish me" says: the banish is one
    * more death trigger, not an alternative to dying.
    *
@@ -439,7 +439,7 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
    *    for. Without it the Shrine would fire when its own controller's units
    *    were cleaned up by the opponent, which is the opposite of the card.
    *  - **stunned** — read off the unit AS IT DIED (`death.unit`), which rule
-   *    809.1.b.3 requires be captured before the card reaches the trash. Asking
+   *    808.1.d.3 requires be captured before the card reaches the trash. Asking
    *    the board instead would find nothing: it is already in a trash.
    *  - **enemy** — relative to the SHRINE's controller, which is why a
    *    death-watch is handed the listener as well as the death.
@@ -451,7 +451,7 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
    */
   "OGN-072": {
     // All three printed conditions are facts about the DEATH, captured before the
-    // card reached the trash (809.1.b.3), so all three decide whether the Shrine
+    // card reached the trash (808.1.d.3), so all three decide whether the Shrine
     // triggered rather than being re-asked later.
     applies: (_state, listener, death) =>
       death.killerIndex === listener.ownerIndex && // YOUR kill
@@ -479,16 +479,16 @@ const DEATH_WATCH: Record<string, DeathWatchDefinition> = {
  * (rule 808), then every death-watch listener in turn order.
  *
  * **Divergence, deliberate:** the rules put these on the Chain as Pending Items
- * (809.1.b.3, and 323 step 3a for lethal-damage deaths), so an opponent could
+ * (808.1.d.3, and 323 step 3a for lethal-damage deaths), so an opponent could
  * respond before a Deathknell resolves. Here they resolve immediately. That is
  * the same divergence this engine already makes for on-play unit triggers and
  * for the four event tables in unit-triggers.ts, and it is recorded in
  * docs/rules-conformance.md rather than papered over. Making it faithful means
  * building Pending Items on the chain, which is its own piece of work.
  *
- * The ONE part of 809.1.b that is honoured: a unit whose death was replaced (by
+ * The ONE part of 808.1.d.1 that is honoured: a unit whose death was replaced (by
  * Highlander's ward or Zhonya's Hourglass) never reaches this function at all,
- * so its trigger is never added — which is exactly what 809.1.b.1 requires.
+ * so its trigger is never added — which is exactly what 808.1.d.1 requires.
  */
 /** Karthus - Eternal — "Your [Deathknell] effects trigger an additional time."
  *
@@ -533,7 +533,7 @@ function karthusCount(state: GameState, ownerIndex: 0 | 1): number {
  * kills things could remove a listener before it fired. 383 determines the whole
  * set of triggered abilities at the moment of the event, together — so a listener
  * the Deathknell later kills has still triggered, and 809.1.b makes its ability
- * resolve anyway. (2) The Deathknell is placed LAST so that under LIFO (343) it
+ * resolve anyway. (2) The Deathknell is placed LAST so that under LIFO (340.1) it
  * still resolves FIRST, which is where it sat inline.
  */
 export function holdUnitDied(state: GameState, death: DeathContext): GameState {
@@ -745,7 +745,7 @@ export type GameEvent =
    * **Fires only for a unit that was actually exhausted.** 415 again: "A Unit
    * that is already Ready cannot be Readied again. If a Unit is instructed to be
    * Readied while it is already Ready, nothing additional happens." Same shape as
-   * `addBuff`'s 708 guard and `stunUnits`' 422 one — a no-op is not an event.
+   * `addBuff`'s 702.3.a guard and `stunUnits`' 423 one — a no-op is not an event.
    *
    * `ownerIndex` is whose unit it is, which is what "a FRIENDLY unit" is measured
    * against. There is deliberately no readier index: "you ready" and "a friendly
@@ -762,7 +762,7 @@ export type GameEvent =
    * `holderIndex` HELD `battlefieldId` in their Beginning Phase — Ahri -
    * Alluring's "when I hold, you score 1 point".
    *
-   * Held, in rule 471.1.a's sense: "maintains Control of a Battlefield they did
+   * Held, in rule 469.2's sense: "maintains Control of a Battlefield they did
    * not yet Score this turn". So this is the SCORING event, not merely "still
    * has units there" — a battlefield already scored this turn by a Conquer is not
    * held again (471.1.b), and fires nothing.
@@ -787,7 +787,7 @@ export type GameEvent =
   /** A Buff was PLACED on a unit (Mistfall). `ownerIndex` is whose unit it is,
    *  which is what "a FRIENDLY unit" is measured against — not who caused it, so
    *  buffing an enemy unit does not offer their gear its trigger. Fired only when
-   *  a buff was really placed: rule 708 makes a second one on an already-buffed
+   *  a buff was really placed: rule 702.3.a makes a second one on an already-buffed
    *  unit a no-op, and a no-op is not a buffing. */
   | { kind: "unitBuffed"; ownerIndex: 0 | 1; unitInstanceId: string }
   /**
@@ -803,7 +803,7 @@ export type GameEvent =
    * runs the unit has already been removed from where it was.
    *
    * Does NOT fire for a spell-driven relocation (`forceMoveToBattlefield`) or a
-   * Recall (454 says a Recall is not a Move) — the same line
+   * Recall (456 says a Recall is not a Move) — the same line
    * `movesThisTurn` draws, so the counter and the event never disagree.
    */
   | {
@@ -826,7 +826,7 @@ export type GameEvent =
    * for "one or more".
    *
    * **`ownerIndex` is whose DECK received the cards, not who performed the
-   * recycle.** The rules leave "when YOU recycle" genuinely ambiguous — 1928
+   * recycle.** The rules leave "when YOU recycle" genuinely ambiguous — 416.1.c
    * makes the two come apart, and this engine has a site that recycles the
    * opponent's trash at a caster's instruction — and the card's own wording
    * settles it as far as anything can: "to YOUR Main Deck". Recorded Unverified.
@@ -847,7 +847,7 @@ export type GameEvent =
    */
   | { kind: "runesRecycled"; ownerIndex: 0 | 1; count: number }
   /**
-   * A Buff was SPENT (704.1) — Fae Dragon's "when you spend a buff, play a Gold
+   * A Buff was SPENT (702.2.b) — Fae Dragon's "when you spend a buff, play a Gold
    * gear token exhausted".
    *
    * The mirror of `unitBuffed`, which `addBuff` has always held, and it arrives
@@ -856,7 +856,7 @@ export type GameEvent =
    * illegal, so a caller cannot take the payoff without paying — which makes it
    * the only site where a spend is known to have HAPPENED.
    *
-   * `spenderIndex`, not the unit's owner: 705.1 already restricts spending to
+   * `spenderIndex`, not the unit's owner: 702.2.b.2 already restricts spending to
    * units you control, so the two agree today — but the card says "when YOU
    * spend", and naming the spender is what keeps it true if a card ever spends
    * from a unit it does not own.
@@ -886,13 +886,13 @@ export type GameEvent =
    */
   | { kind: "equipmentAttached"; ownerIndex: 0 | 1; gearInstanceId: string; unitInstanceId: string }
   /**
-   * A Combat Showdown has just opened at `battlefieldId` — 465's Combat Step 1,
+   * A Combat Showdown has just opened at `battlefieldId` — 464.2.c's Combat Step 1,
    * the moment units there gain the Attacker and Defender designations. Fired for
-   * a freshly staged Combat and for a Non-Combat one promoted by 317.2, since
+   * a freshly staged Combat and for a Non-Combat one promoted by 316.8.b.1.a, since
    * both are a combat beginning as far as a card that says "when a unit attacks
    * or defends" is concerned.
    *
-   * **This is the moment ATTACK TRIGGERS fire** (383.4.f, "when a Unit or Player
+   * **This is the moment ATTACK TRIGGERS fire** (383.4.e, "when a Unit or Player
    * gains the Attacker designation for the first time during a combat"), which is
    * why unit-triggers.ts's `ATTACK_TRIGGERS` register against this event rather
    * than being dispatched by the move that started the fight.
@@ -900,7 +900,7 @@ export type GameEvent =
    * Carries only the battlefield, deliberately: one event serves every listener
    * there, on BOTH sides, and which of them attacked is a question about the
    * board — `combat-designation.ts` answers it from `contestedByIndex`, which is
-   * 465's own definition of the Attacker. A carried attacker index would be a
+   * 464.2.c's own definition of the Attacker. A carried attacker index would be a
    * second copy of that fact, free to disagree with the field the Showdown
    * actually runs on.
    */
@@ -910,7 +910,7 @@ export type GameEvent =
       /**
        * The units gaining an Attacker or Defender designation AT THIS MOMENT —
        * everyone present when the combat opened, or just the arrivals at a later
-       * Cleanup (465 Step 1).
+       * Cleanup (464.2.c Step 1).
        *
        * Carried rather than re-derived from the battlefield, because "everyone
        * standing here" and "everyone gaining the designation now" are the same
@@ -921,7 +921,7 @@ export type GameEvent =
       designated: readonly string[];
     }
   /**
-   * A combat WAS WON at `battlefieldId`, by `winnerIndex` — rule 466.5.a: a
+   * A combat WAS WON at `battlefieldId`, by `winnerIndex` — rule 466.3.a: a
    * player has won when they "are the only Player that has units remaining at
    * this battlefield during this step".
    *
@@ -932,7 +932,7 @@ export type GameEvent =
    * establishes no new control and so conquers nothing. Three SFD cards read
    * "when I win a combat" and neither of those substitutes is that.
    *
-   * **Only fired when exactly one side is left.** 466.5.d makes the other two
+   * **Only fired when exactly one side is left.** 466.3.d makes the other two
    * shapes a No Result rather than a win: both sides still standing after the
    * damage step (which is precisely when 466 step 3d recalls the attackers),
    * and neither side standing. So a mutual wipe wins nothing for anybody, and
@@ -950,7 +950,7 @@ export type GameEvent =
       winnerIndex: 0 | 1;
     }
   /**
-   * `stunnerIndex` just stunned these units (rule 422) — ONE event per
+   * `stunnerIndex` just stunned these units (rule 423) — ONE event per
    * instruction, carrying every unit that actually became stunned.
    *
    * The batch shape is the card text's doing, not tidiness: Leona - Radiant Dawn
@@ -1019,10 +1019,10 @@ export type GameEvent =
    * `DeathContext` because every one of its conditions is about the unit as it
    * died rather than about the board now.
    *
-   * 809.1.b.3 is the reason the payload is this shape: "before the card is moved
+   * 808.1.d.3 is the reason the payload is this shape: "before the card is moved
    * to the Trash, note its location, its attributes, and any other details
    * related to the effect of its triggered ability". By the time a held trigger
-   * resolves the unit is in a trash with its Buff already stripped (709), so
+   * resolves the unit is in a trash with its Buff already stripped (705), so
    * "was it buffed", "was it stunned" and "where was it" have no other source.
    *
    * A `[Deathknell]` does NOT ride this event: its listener is the dying card
@@ -1068,7 +1068,7 @@ export type GameEvent =
 
 /**
  * The event kinds that have been CONVERTED to Chain Pending Items (383 /
- * 809.1.b.3) — held in `state.pendingTriggers` and finalized onto the chain by
+ * 808.1.d.3) — held in `state.pendingTriggers` and finalized onto the chain by
  * `cleanup.finalizePendingTriggers` rather than resolved inline at their source.
  *
  * This exists so the compiler owns the conversion instead of a reviewer. Adding
@@ -1193,7 +1193,7 @@ export interface EventTriggerDefinition {
    *
    * For an ability whose printed subject is singular while the event that fires
    * it is plural. Ahri - Nine-Tailed Fox reads "when an ENEMY UNIT attacks a
-   * battlefield you control", and 465 Step 1 designates every unit of the
+   * battlefield you control", and 464.2.c Step 1 designates every unit of the
    * attacking side at once — so three attackers is three triggered abilities,
    * each of which an opponent may respond to separately. One entry covering all
    * three would collapse three response windows into one, which is a smaller
@@ -1429,12 +1429,12 @@ export function eventTriggerFor(defId: string): EventTriggerDefinition | undefin
 
 /**
  * Resolves a triggered ability that was waiting on the chain as a Pending Item
- * (809.1.b.3) — the deferred counterpart to `dispatchEvent` below.
+ * (808.1.d.3) — the deferred counterpart to `dispatchEvent` below.
  *
  * The listener is re-looked-up by instance id rather than carried as an object,
  * because between the trigger firing and this resolving the opponent has had a
  * window to respond and the permanent may be gone. A listener that has left play
- * resolves to nothing, which is 422's "do as much as you can" and the same
+ * resolves to nothing, which is 055's "do as much as you can" and the same
  * safe-no-op convention every dispatch here already follows.
  *
  * **SCOPE — this reaches the EventTrigger registry and nothing else.** The engine
@@ -1474,7 +1474,7 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
   // information is no longer available, that check returns 'null' and all
   // calculations based on it are ignored" — the item still resolves, and the
   // parts that referred to something gone are what drop out. The only rules that
-  // REMOVE a triggered ability from the chain are a replaced death (809.1.b), the
+  // REMOVE a triggered ability from the chain are a replaced death (808.1.d.1), the
   // controller declining to perform it, and declining to pay its cost. Bailing
   // silently discarded abilities the rules would have resolved, which was most
   // visible on a death-watch listener killed by the very Deathknell it triggered
@@ -1504,7 +1504,7 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
  * stale list would fire a trigger for a permanent no longer in play.
  *
  * Same deliberate divergence as every other trigger here — resolved immediately
- * rather than added to the Chain as a Pending Item (809.1.b.3). See
+ * rather than added to the Chain as a Pending Item (808.1.d.3). See
  * dispatchOnUnitDied. `holdEventTrigger` is the converted counterpart.
  */
 /**
@@ -1517,12 +1517,12 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
  * resolution because an earlier trigger can remove a later one. That difference is
  * required rather than incidental: 383 says the set of abilities that triggered is
  * determined at the moment of the event, all together, and a permanent leaving play
- * afterwards does not un-trigger it — 809.1.b.3 exists precisely so a dead
+ * afterwards does not un-trigger it — 808.1.d.3 exists precisely so a dead
  * permanent's trigger still resolves. `resolvePendingTrigger` re-looks-up the
  * listener and no-ops if it has gone, which is where "it left play" is handled.
  *
  * Pushed in walk order — turn player first — which under the chain's LIFO
- * resolution (343) makes the NON-turn player's triggers resolve first. That is what
+ * resolution (340.1) makes the NON-turn player's triggers resolve first. That is what
  * 383 and 343 together require; see allListeningPermanents for why placement order
  * and resolution order are opposites.
  */
@@ -1587,7 +1587,7 @@ export function holdEventTrigger(
    *
    * 465 Step 4 gives a combat its own: "The Attacking player, who has Focus,
    * places Triggered Abilities on the Chain first ... followed by the Defending
-   * Player." Placement is the opposite of resolution (343, LIFO), so
+   * Player." Placement is the opposite of resolution (340.1, LIFO), so
    * attacker-first means the DEFENDER's combat triggers resolve first. The two
    * rules agree whenever the attacker IS the turn player, which is every combat a
    * Move starts; Charm is what pulls them apart, by contesting a battlefield for
@@ -1740,7 +1740,7 @@ export function selfTriggerDefIds(): string[] {
  * `allListeningPermanents` cannot find it and `resolvePendingTrigger` could not
  * re-look it up". That is the right diagnosis of the wrong mechanism — the
  * unit-sourced entries had already stopped re-looking anything up. Carrying the
- * card is 809.1.b.3's "note its attributes before the card is moved to the
+ * card is 808.1.d.3's "note its attributes before the card is moved to the
  * Trash" applied to all of them.
  *
  * Returns the state unchanged when the card has no trigger for this moment, so
@@ -1797,7 +1797,7 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
     ...owner,
     activeGear: owner.activeGear.filter((g) => g.instanceId !== gear.instanceId),
     // A GEAR token (the Gold tokens) ceases to exist rather than resting in a
-    // trash — rules 714/715, same as a unit token. See fileIntoNonBoardZone.
+    // trash — rule 186.1, same as a unit token. See fileIntoNonBoardZone.
     trash: fileIntoNonBoardZone(owner.trash, gear),
   };
   // Trash first, then trigger — the trigger has to see a board the gear has

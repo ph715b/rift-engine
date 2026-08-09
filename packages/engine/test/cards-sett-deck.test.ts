@@ -331,7 +331,7 @@ describe("Call to Glory (OGN-207): spend a buff to ignore the cost", () => {
     const units = after.players[0]!.baseUnits;
     // The cost was really paid...
     expect(units.find((u) => u.instanceId === "buffed")!.buffed).toBe(false);
-    // ...and the payoff is a THIS-TURN pump (317), not a persistent Buff (710).
+    // ...and the payoff is a THIS-TURN pump (317), not a persistent Buff (705).
     const target = units.find((u) => u.instanceId === "plain")!;
     expect(target.mightThisTurn).toBe(3);
     expect(target.buffed).toBe(false);
@@ -390,7 +390,7 @@ describe("Rebuke (OGN-172): bounce a unit at a battlefield", () => {
     expect(castAndResolve(state, action).players[0]!.hand.some((c) => c.name === "Mine")).toBe(true);
   });
 
-  it("strips a Buff on the way out (709)", () => {
+  it("strips a Buff on the way out (705)", () => {
     const { state, spell } = rebukeState();
     state.battlefields[0]!.units = { p1: [makeUnit({ name: "Buffed", instanceId: "buffed", buffed: true })] };
 

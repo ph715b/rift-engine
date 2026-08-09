@@ -1,11 +1,11 @@
 /**
  * POSITIVE CONTROL: a Combat Showdown that one side LEAVES must still award the
- * battlefield (466.5.a / 466.7).
+ * battlefield (466.3.a / 466.5).
  *
  * `resolveShowdown` used to early-return the state untouched whenever one side had
- * no units — "nothing to fight". The rules disagree: 466.5.a makes the only player
- * with units remaining the WINNER, 466.5.d reserves "No Result" for step-3d
- * recalls / both present / neither present, and 466.7.c makes Establishing Control
+ * no units — "nothing to fight". The rules disagree: 466.3.a makes the only player
+ * with units remaining the WINNER, 466.3.d reserves "No Result" for step-3d
+ * recalls / both present / neither present, and 466.5.d makes Establishing Control
  * a Conquer. So an opponent who Flashed a unit out of a Showdown left the other
  * player standing alone and uncredited.
  *

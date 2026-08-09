@@ -12,7 +12,7 @@ import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures
 /**
  * Fires a HELD event and drives it to resolution.
  *
- * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `cardPlayed` is a Chain Pending Item now (383 / 808.1.d.3), so it is placed by
  * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
  * chain and both players pass. Calling the old inline dispatcher here would not
  * merely be stale — it would bypass every `applies` predicate, which is where the
@@ -200,7 +200,7 @@ describe("Wraith of Echoes (OGN-118): the FIRST friendly death each turn", () =>
   });
 
   it("does not fire for the Wraith's own death being warded away", () => {
-    // A replaced death is not a death (rule 809.1.b.1), so nothing watching a
+    // A replaced death is not a death (rule 808.1.d.1), so nothing watching a
     // death should see one either.
     const { state, ally } = wraithState();
     const warded: GameState = { ...state, deathWardedUnitInstanceIds: [ally.instanceId] };

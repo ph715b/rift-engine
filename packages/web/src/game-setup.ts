@@ -13,13 +13,13 @@ import {
 /**
  * Which of the two sanctioned 1v1 modes this match is played under. They differ
  * in more than game count:
- *   - `bo1` — 1v1 (Duel), rules 485.3-486.1. One game decides the match, and
+ *   - `bo1` — 1v1 (Duel), rule 485. One game decides the match, and
  *     each player's battlefield is picked at RANDOM from their three (485.5).
- *   - `bo3` — 1v1 (Match), rules 486.3-487.4. First to two game wins; each
- *     player SELECTS their battlefield (487.2), and the ones used in a decided
- *     game are removed for the rest of the match (487.3).
+ *   - `bo3` — 1v1 (Match), rule 486. First to two game wins; each
+ *     player SELECTS their battlefield (486.5), and the ones used in a decided
+ *     game are removed for the rest of the match (486.5).
  * Both share the same First Turn Process (the player going second channels an
- * extra rune — 486.1 / 487.4), which lives in the engine's runChannel.
+ * extra rune — 485.7 / 486.7), which lives in the engine's runChannel.
  */
 export type MatchFormat = "bo1" | "bo3";
 
@@ -87,7 +87,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     ? battlefieldPair(battlefields.humanName, battlefields.aiName)
     : chooseMatchBattlefields(config.humanDeck, config.aiDeck, mulberry32(seed + 2));
 
-  // Rule 117.x: "Determine Turn Order using any fair random method agreed on by
+  // Rule 115: "Determine Turn Order using any fair random method agreed on by
   // all players." This used to be hardcoded to 0, so the human always went
   // first and always ate the going-first disadvantage — see the engine's
   // firstPlayerIndex for the two turn steps that depend on this being real.
@@ -135,7 +135,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
 }
 
 /** The AI's battlefield for a Match-mode game: rolled from whatever it hasn't
- *  presented yet (rule 487.3). Only the human gets a chooser — the AI has no
+ *  presented yet (rule 486.5). Only the human gets a chooser — the AI has no
  *  basis on which to prefer one of its own battlefields, the same reasoning that
  *  keeps it from mulliganing. */
 export function rollAiBattlefield(config: MatchConfig, seed: number, used: string[]): string {

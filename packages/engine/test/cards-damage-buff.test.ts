@@ -6,6 +6,7 @@ import { executeActivateAbility } from "../src/actions/execute-activate-ability.
 import { legalActions } from "../src/engine/legal-actions.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { dispatchEvent, holdEventTrigger } from "../src/engine/triggers.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { addBuff, destroyUnit } from "../src/engine/effect-helpers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { hasKeyword } from "../src/engine/granted-keywords.js";
@@ -28,7 +29,7 @@ import {
 /**
  * Fires a HELD event and drives it to resolution.
  *
- * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `cardPlayed` is a Chain Pending Item now (383 / 808.1.d.3), so it is placed by
  * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
  * chain and both players pass. Calling the old inline dispatcher here would not
  * merely be stale — it would bypass every `applies` predicate, which is where the
@@ -299,6 +300,77 @@ describe("Might modification", () => {
     expect(atBf(after, "p2")[0]!.mightThisTurn).toBe(-2);
   });
 
+  // "HERE" is a referent (359.3.f.1) and a referent is checked on EXECUTION of the
+  // instruction (359.3.f.2) — the rules' own worked example being Fight or Flight
+  // sending Yasuo - Remorseful home in reaction to his attack trigger, after which
+  // "'here' is no longer the battlefield where combat is ongoing and the attack
+  // trigger mistargets".
+  //
+  // These two need the response window OPEN, which is why they stage the combat
+  // with `runCleanup` and settle it separately instead of using `beginCombatAt` —
+  // that fixture does both halves in one call and there is nowhere to move her.
+  /** The defIds waiting on the chain — the only evidence the ability TRIGGERED
+   *  rather than merely having done nothing. `runCleanup` finalizes a held
+   *  trigger straight onto `spellChain`, so `pendingTriggers` is already empty. */
+  const heldTriggerDefIds = (state: GameState): string[] =>
+    state.spellChain.filter((e) => "kind" in e && e.kind === "trigger").map((e) => (e as { listenerDefId: string }).listenerDefId);
+
+  const stagedCombat = (state: GameState, bfId: string, attackerIndex: 0 | 1 = 0): GameState =>
+    runCleanup({
+      ...state,
+      battlefields: state.battlefields.map((bf) => (bf.id === bfId ? { ...bf, contestedByIndex: attackerIndex } : bf)),
+    });
+
+  it("Ahri - Inquisitive drops the shrink when she is sent home in the response window", () => {
+    const ahri = realUnitInstance(AHRI_INQUISITIVE);
+    const enemy = makeUnit({ name: "Enemy", might: 5 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [ahri], p2: [enemy] };
+
+    const staged = stagedCombat(state, "bf1");
+    // The positive control: she DID trigger, and is waiting. Without this the test
+    // passes just as happily against a card that never fires at all.
+    expect(heldTriggerDefIds(staged)).toContain(AHRI_INQUISITIVE);
+    expect(atBf(staged, "p2")[0]!.mightThisTurn, "it resolved inside the Cleanup").toBe(0);
+
+    // Fight or Flight's move, done to the board directly: she leaves the fight
+    // while her trigger is still on the chain.
+    const sentHome: GameState = {
+      ...staged,
+      players: [{ ...staged.players[0]!, baseUnits: [...staged.players[0]!.baseUnits, ahri] }, staged.players[1]!],
+      battlefields: staged.battlefields.map((bf, i) => (i === 0 ? { ...bf, units: { ...bf.units, p1: [] } } : bf)),
+    };
+
+    const settled = resolveHeldTriggers(sentHome);
+    expect(atBf(settled, "p2")[0]!.mightThisTurn, "'here' was read off the event instead of off Ahri").toBe(0);
+  });
+
+  it("Ahri - Inquisitive does not follow 'here' to a battlefield she was moved TO", () => {
+    // The other half of the ruling, and the half a naive "read her live location"
+    // fix would get wrong: moved away is MOOT, not re-aimed. Nothing is shrunk at
+    // either battlefield.
+    const ahri = realUnitInstance(AHRI_INQUISITIVE);
+    const enemy = makeUnit({ name: "Enemy", might: 5 });
+    const elsewhere = makeUnit({ name: "Elsewhere", might: 5 });
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: [ahri], p2: [enemy] };
+    state.battlefields[1]!.units = { p2: [elsewhere] };
+
+    const staged = stagedCombat(state, "bf1");
+    expect(heldTriggerDefIds(staged)).toContain(AHRI_INQUISITIVE);
+
+    const walked: GameState = {
+      ...staged,
+      battlefields: staged.battlefields.map((bf, i) =>
+        i === 0 ? { ...bf, units: { ...bf.units, p1: [] } } : { ...bf, units: { ...bf.units, p1: [ahri] } },
+      ),
+    };
+
+    const settled = resolveHeldTriggers(walked);
+    expect(atBf(settled, "p2")[0]!.mightThisTurn, "the fight she left was still shrunk").toBe(0);
+    expect(atBf(settled, "p2", 1)[0]!.mightThisTurn, "she re-aimed at where she ended up").toBe(0);
+  });
+
   it("Ahri - Inquisitive ignores combat somewhere else", () => {
     const ahri = realUnitInstance(AHRI_INQUISITIVE);
     const enemy = makeUnit({ name: "Enemy", might: 5 });
@@ -389,7 +461,7 @@ describe("buff cards", () => {
     const played = playUnit(SETT_BRAWLER, state, {}, { battlefieldId: "bf1" }).state;
     expect(atBf(played, "p1")[0]!.buffed).toBe(true);
 
-    // Conquering his own battlefield buffs him again (a no-op while buffed, 708).
+    // Conquering his own battlefield buffs him again (a no-op while buffed, 702.3.a).
     const conquered = recordConquest(played, 0, "bf1");
     expect(atBf(conquered, "p1")[0]!.buffed).toBe(true);
 

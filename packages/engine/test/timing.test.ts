@@ -212,7 +212,7 @@ describe("Focus and the chain inside a Showdown (346 / 349)", () => {
     return state;
   }
 
-  it("casting during a Showdown resets the all-passed sequence (349)", () => {
+  it("casting during a Showdown resets the all-passed sequence (348)", () => {
     let state = windowWithGust();
     // One pass banked: without the reset, the next pass would close the window.
     state = submit(state, { type: "PassFocus", playerIndex: 0 }).state;
@@ -302,7 +302,7 @@ describe("Focus and the chain inside a Showdown (346 / 349)", () => {
     }).state;
 
     expect(state.spellChain).toHaveLength(2);
-    // Rule 343: the newest resolves first, so priority sits with its controller.
+    // Rule 340.1: the newest resolves first, so priority sits with its controller.
     expect(state.spellChain[1]!.playerIndex).toBe(1);
     expect(state.chainPriority).toBe(1);
   });

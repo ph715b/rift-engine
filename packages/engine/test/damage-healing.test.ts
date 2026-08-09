@@ -8,7 +8,7 @@ import { makeState, makeUnit } from "./fixtures.js";
  * Damage healing, per the official rules:
  *
  *  - Units heal at the end of every COMBAT showdown (combat cleanup, rule
- *    461.1.a) and at the end of a player's turn.
+ *    466.1.a.1) and at the end of a player's turn.
  *  - Both are GLOBAL: cleanup "clears all marked damage from every unit on
  *    the board, including units that were not involved in the combat"
  *    (RiftJudge FAQ 7750/8993). A unit softened at another battlefield, or
@@ -124,13 +124,13 @@ describe("combat cleanup heals GLOBALLY, not just the units that fought", () => 
     expect(state.battlefields[0]!.units["p2"] ?? []).toHaveLength(0);
   });
 
-  it("a one-sided COMBAT showdown still runs the Combat Cleanup, so it heals (351.1 / 466 step 3c)", () => {
+  it("a one-sided COMBAT showdown still runs the Combat Cleanup, so it heals (348.1 / 466 step 3c)", () => {
     // This asserted the opposite — "no combat, no cleanup", and a `result ===
     // state` no-op. Both were wrong, and they were the same wrong reading that
     // cost a player their conquest when the opponent Flashed a unit out of a
     // Showdown (see combat.test.ts).
     //
-    // 351.1: "If it is a Combat Showdown, proceed with the remaining steps of
+    // 348.1: "If it is a Combat Showdown, proceed with the remaining steps of
     // Combat to resolve the phase." Only Step 2 is conditional ("If both
     // Attacking and Defending units remain at this battlefield"), so the damage
     // exchange is skipped while Step 3, the Resolution Step, still performs a
@@ -150,7 +150,7 @@ describe("combat cleanup heals GLOBALLY, not just the units that fought", () => 
     const result = resolveShowdown(state, "bf1", 0);
 
     expect(result.battlefields[1]!.units["p2"]![0]!.damage).toBe(0);
-    // And the player left standing takes the battlefield (466.5.a / 466.7).
+    // And the player left standing takes the battlefield (466.3.a / 466.5).
     expect(result.battlefields[0]!.controllerId).toBe("p1");
   });
 });

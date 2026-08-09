@@ -55,7 +55,7 @@ describe("Possession (OGN-203): take control of an enemy unit", () => {
   });
 
   it("keeps its buff and its damage — it changes hands, it is not reprinted", () => {
-    // 709 removes buffs on LEAVING PLAY, and this never does.
+    // 705 removes buffs on LEAVING PLAY, and this never does.
     const state = possessionState();
     const settled = resolveChain(accept(state, playsFor(state, POSSESSION)[0]!));
     const taken = settled.players[0]!.baseUnits.find((u) => u.instanceId === "prize")!;
@@ -79,7 +79,7 @@ describe("Possession (OGN-203): take control of an enemy unit", () => {
 
 describe("Symbol of the Solari (OGN-227): a tie recalls ALL units", () => {
   /**
-   * A stalemate: both sides survive the exchange, which is rule 466.5.d's No
+   * A stalemate: both sides survive the exchange, which is rule 466.3.d's No
    * Result and the branch where 3d recalls the attackers.
    *
    * **Plain units cannot tie**, which took a failed run to see. Outgoing Might

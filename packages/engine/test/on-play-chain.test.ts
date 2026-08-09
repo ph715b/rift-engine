@@ -10,7 +10,7 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
 
 /**
  * A unit's "when you play me" ability is a Chain **Pending Item** (383 /
- * 809.1.b.3), not something that happens as the unit lands.
+ * 808.1.d.3), not something that happens as the unit lands.
  *
  * This is the file that asserts the TIMING. Every other test that plays a unit
  * settles the chain through a helper, deliberately — they are about what a card

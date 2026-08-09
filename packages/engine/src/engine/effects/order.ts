@@ -148,7 +148,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // enemy unit is a bad play, not an illegal one.
     //
     // giveMightThisTurn rather than a Buff — "this turn" expires in the
-    // Expiration Step (317) instead of persisting (710). That matters doubly on
+    // Expiration Step (317) instead of persisting (705). That matters doubly on
     // this card, since the buff it SPENDS is the persistent kind: it converts a
     // standing +1 into a bigger, temporary +3.
     // The buff is SPENT here rather than by a generic cost step, because there
@@ -219,7 +219,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
           JUDGMENT_CATEGORIES.reduce(
             (afterCategory, category) =>
               // Nothing to ask when the player is already at or under the keep
-              // count — 422's do-as-much-as-you-can, and a question with nothing
+              // count — 055's do-as-much-as-you-can, and a question with nothing
               // to cut is not a question.
               judgmentPool(afterCategory, playerIndex, category).length > JUDGMENT_KEEP
                 ? parkDecision(afterCategory, { kind: `OGN-244-cut-${category}`, playerIndex })
@@ -241,7 +241,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // destroyUnit, not dealDamage: "kill" is a Kill Instruction, so Might and
     // marked damage are irrelevant and it goes through the same funnel that
-    // fires [Deathknell] (808) and honours a death ward (809.1.b.1).
+    // fires [Deathknell] (808) and honours a death ward (808.1.d.1).
     targeting: { kind: "unit" },
     resolve: (state, ctx, event) => {
       if (!event.targetUnitInstanceId) return state;
@@ -262,7 +262,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // showdown at one battlefield.
     //
     // targeting: none. The units are programmatically selected from their
-    // characteristics rather than chosen, which rule 355.11 makes the
+    // characteristics rather than chosen, which rule 355.10.d makes the
     // difference between targeting and merely affecting ("Kill all units at
     // battlefields doesn't target anything"). So there is no choice for
     // legal-actions.ts to fan out and nothing an enemy "can't be chosen"
@@ -270,7 +270,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // giveMightThisTurnToAllFriendlies, NOT buffing: this expires in the
     // Expiration Step (rule 317) via turn-manager.ts's runEnd zeroing every
-    // unit's mightThisTurn, whereas a Buff (rule 710) persists, caps at one per
+    // unit's mightThisTurn, whereas a Buff (rule 705) persists, caps at one per
     // unit and is only worth +1.
     //
     // [Action] is the default play timing (own turn or a showdown) and is
@@ -443,7 +443,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // just below, this deliberately does NOT re-ask the board. The past tense
       // is forced by the ordering (the unit is in a trash by the time the clause
       // is read), and a card that meant to gate on the death says "if you do".
-      // Consequence, stated: a victim saved by a death ward (809.1.b.1) still
+      // Consequence, stated: a victim saved by a death ward (808.1.d.1) still
       // pays out. Hidden Blade takes the same shape — its "its controller draws
       // 2" also survives a replaced kill.
       return placeGoldTokens(killed, ctx.casterIndex, wasFriendly ? 2 : 1);
@@ -492,7 +492,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
 
       const killed = destroyUnit(state, victimId, ctx.casterIndex);
       // "IF YOU DO" — a death ward or Zhonya's Hourglass REPLACES the death
-      // (809.1.b.1), so the unit is still in play and the pump must not happen.
+      // (808.1.d.1), so the unit is still in play and the pump must not happen.
       // Asking the board is what distinguishes the two; a `killed !== state`
       // comparison would not, since a replacement changes the state too.
       if (findUnitAnywhere(killed, victimId)) return draw(killed);
@@ -539,7 +539,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The Ruination — "Kill all units." Nine Energy and three Power for every
     // body on the table, both sides, and it is the whole card.
     //
-    // `targeting: none`, and that is 355.11 rather than a shortcut: the units are
+    // `targeting: none`, and that is 355.10.d rather than a shortcut: the units are
     // "programmatically selected based on their characteristics rather than
     // chosen", whose worked example in the PDF is literally "Kill all units at
     // battlefields doesn't target anything". So there is nothing for
@@ -618,7 +618,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // me. When you play me, if you paid the additional cost, kill a gear."
     //
     // **A cost and an effect that look identical and are not.** The first kill
-    // is a COST, paid with a gear the caster names on the action (rule 355.11 —
+    // is a COST, paid with a gear the caster names on the action (rule 355.10.c —
     // a cost is not a target), and the second is the payoff: "kill A GEAR",
     // unqualified, so it reaches EITHER side. That asymmetry is the card — you
     // trade one of yours for any one of theirs.
@@ -650,7 +650,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // The card has no other text: the kill IS the whole entry, and it is a COST,
     // not an effect. That distinction is why it rides on
-    // `additionalCostUnitInstanceId` (rule 355.11 — a cost is not a target) and
+    // `additionalCostUnitInstanceId` (rule 355.10.c — a cost is not a target) and
     // why `targeting` is "none". Enumeration offers no decline variant for it,
     // so a Cruel Patron with nothing of yours to kill is never playable.
     //
@@ -659,7 +659,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // destroyUnit, not a bespoke removal: paying a cost with a unit is still a
     // death, so [Deathknell] fires (808) and a death ward can replace it
-    // (809.1.b.1). Being a cost does not make it a quieter kill.
+    // (808.1.d.1). Being a cost does not make it a quieter kill.
     targeting: { kind: "none" },
     // No killerIndex: paying a cost with your own unit is not you "killing" it
     // in the sense Solari Shrine asks about, and naming the caster here would
@@ -675,7 +675,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // destroyUnit, not damage: a Kill Instruction ignores Might and marked
     // damage, and routes through the funnel that fires [Deathknell] (808) and
-    // honours a death ward (809.1.b.1). The caster is the killer.
+    // honours a death ward (808.1.d.1). The caster is the killer.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
     resolve: (state, ctx, _unitId, event) =>
       event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
@@ -690,7 +690,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // would work too, but the destination is what the play actually decided.
     //
     // "ALL OTHER" — every friendly unit at that battlefield except him, and
-    // addBuff's 708 no-op handles the already-buffed ones without a filter.
+    // addBuff's 702.3.a no-op handles the already-buffed ones without a filter.
     targeting: { kind: "none" },
     resolve: (state, ctx, unitId, event) => {
       const buffedSelf = addBuff(state, unitId);
@@ -709,7 +709,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // `countingSelf: true` (see legionActive): an on-play trigger already counts
     // the card that caused it.
     //
-    // addBuff on its own instanceId, so 708's "not placed instead" applies — a
+    // addBuff on its own instanceId, so 702.3.a's "not placed instead" applies — a
     // Gloryseeker that somehow arrives buffed gains nothing, which is the rule
     // rather than a case to special-case.
     targeting: { kind: "none" },
@@ -886,7 +886,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // distinction and is printed the same way.
     //
     // The this-turn form rather than a Buff — it expires in the Expiration Step
-    // (317) instead of persisting (710), and +2 is not a thing a Buff can be.
+    // (317) instead of persisting (705), and +2 is not a thing a Buff can be.
     targeting: { kind: "none" },
     resolve: (state, ctx, unitId) =>
       ownUnitsEverywhere(state, ctx.casterIndex)
@@ -1076,7 +1076,7 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // evaluate a unit in a non-Board zone at its PRINTED Might ("A unit in the
   // trash is Mighty if its printed Might is 5 or greater"), so asking about the
   // copy in the trash would make this text unreachable. It is asked of
-  // `death.unit` — the unit as it died, which 809.1.b.3 requires be captured
+  // `death.unit` — the unit as it died, which 808.1.d.3 requires be captured
   // before the card moves — so the buff and the pumps that got him to 5 count.
   //
   // `isMighty` rather than a hand-written `>= 5`: the threshold is a rule, not a
@@ -1123,10 +1123,10 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
     // Vanguard Helm — "When a buffed friendly unit dies, buff another friendly
     // unit."
     //
-    // "BUFFED" is read off the unit AS IT DIED (`death.unit`), which 809.1.b.3
+    // "BUFFED" is read off the unit AS IT DIED (`death.unit`), which 808.1.d.3
     // requires be captured before the card reaches the trash — by now it is in
     // one, and killUnit has already stripped the buff off the trashed copy
-    // (rule 709). Asking the board would find nothing.
+    // (rule 705). Asking the board would find nothing.
     //
     // "ANOTHER" excludes the unit that died, which is free here since it is no
     // longer in play; what it really excludes is nothing else, so any surviving
@@ -1236,7 +1236,7 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
       // multiplayer clauses.
       const opponents = ([0, 1] as const).filter((i) => i !== listener.ownerIndex);
       return opponents.reduce(
-        // Nothing to kill is nothing to do (422), and a question with no answers
+        // Nothing to kill is nothing to do (055), and a question with no answers
         // would be dropped by advanceDecisions anyway — guarded here so it is not
         // even asked, which is Vanguard Helm's shape one line up.
         (next, opponentIndex) =>
@@ -1330,7 +1330,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // "to YOUR Main Deck" — the deck that RECEIVED the cards, which is the
       // reading the event carries; see its own note for why it is Unverified.
       event.ownerIndex === listener.ownerIndex &&
-      // Nothing to buff is nothing to do (422), and a held trigger with no
+      // Nothing to buff is nothing to do (055), and a held trigger with no
       // effect is a response window opened for nothing.
       ownUnits(state, listener.ownerIndex).length > 0,
     resolve: (state, listener, event) =>
@@ -1347,7 +1347,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // merely one his controller held somewhere. The event carries a battlefield
     // for exactly that reason, and `listener.battlefieldId` is where he stands.
     //
-    // A hold is the SCORING moment (471.1.a — "maintains Control of a Battlefield
+    // A hold is the SCORING moment (469.2 — "maintains Control of a Battlefield
     // they did not yet Score this turn"), so a battlefield already conquered this
     // turn fires nothing (471.1.b) and pays no Gold. That is the event's own
     // contract; nothing here has to check it.
@@ -1375,8 +1375,8 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Registered as a `combatBegan` listener rather than added to
     // unit-triggers.ts's ATTACK_TRIGGERS table — that table is a shared file, and
     // `isAttackingAt` is exported precisely so a per-domain file can take the same
-    // shape without editing it (383.4.f: the trigger is gaining the Attacker
-    // designation, which 465's Combat Step 1 hands out).
+    // shape without editing it (383.4.e: the trigger is gaining the Attacker
+    // designation, which 464.2.c's Combat Step 1 hands out).
     //
     // Guarded on there being a deck to look at, so an empty one places no Pending
     // Item at all rather than one whose only answer is "decline".
@@ -1433,7 +1433,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // the choice costs nothing but the file it lives in.
     //
     // It fires only for a STANDARD move (execute-move-unit), which is what the
-    // card says: a Recall is not a Move (454), and a spell-driven relocation
+    // card says: a Recall is not a Move (456), and a spell-driven relocation
     // (`forceMoveToBattlefield`) is deliberately outside the event too — so
     // Corina dragged somewhere by an opponent's card makes nothing.
     //
@@ -1557,7 +1557,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // Vanguard Helm's "buff another friendly unit", raised by its death-watch.
   //
   // WHICH unit is a real choice with no action to hang it on — the trigger fires
-  // inside a death, mid-resolution. Already-buffed units stay on offer: 708
+  // inside a death, mid-resolution. Already-buffed units stay on offer: 702.3.a
   // makes a second buff a no-op rather than an illegal choice, and filtering
   // them would quietly change "another friendly unit" into "another UNBUFFED
   // friendly unit", which matters when everything you control is already buffed.
@@ -1584,7 +1584,7 @@ export const decisions: Record<string, DecisionDefinition> = {
     // eligible as one at a battlefield — 355.9.b, the bare noun "unit" means
     // objects on the Board, and Bases are Public.
     //
-    // No options at all when the player has no units: rule 422's "do as much as
+    // No options at all when the player has no units: rule 055's "do as much as
     // you can" shape, and advanceDecisions drops a question with no answers
     // rather than deadlocking on it. Exactly one unit is likewise not a choice,
     // and is killed without a prompt.
@@ -1811,7 +1811,7 @@ export const decisions: Record<string, DecisionDefinition> = {
     resolve: (state, d, optionId) => {
       if (optionId === "stop") return state;
       // spendBuff returns undefined rather than an unchanged state when the spend
-      // is illegal (705), so an unpayable answer must not channel — the payoff
+      // is illegal (702.2.b.1), so an unpayable answer must not channel — the payoff
       // would otherwise be free.
       const spent = spendBuff(state, d.playerIndex, optionId);
       if (!spent) return state;
@@ -1889,7 +1889,7 @@ export const decisions: Record<string, DecisionDefinition> = {
     // "which end": the card offers them as a single choice, and two questions
     // would let a player commit a card and then discover the end they wanted was
     // the same either way. An empty hand offers nothing and the question is
-    // dropped as moot (422).
+    // dropped as moot (055).
     options: (state, d) =>
       state.players[d.playerIndex].hand.flatMap((c) => [
         { id: `top:${c.instanceId}`, label: `${c.name} — top of deck`, instanceId: c.instanceId },
@@ -1989,10 +1989,10 @@ export const decisions: Record<string, DecisionDefinition> = {
     },
     resolve: (state, d, optionId) => {
       if (optionId === "stop" || d.battlefieldId === undefined) return state;
-      // `forceMoveToBattlefield`, not the Move ACTION: 415.1.b makes the exhaust
+      // `forceMoveToBattlefield`, not the Move ACTION: 414.3.a makes the exhaust
       // part of a Standard Move's cost rather than of moving, and this is a
-      // Game Effect moving them (316.7.c) — so the tokens arrive as they were.
-      // It applies Contested for their controller (458), which is what makes
+      // Game Effect moving them (316.7.b) — so the tokens arrive as they were.
+      // It applies Contested for their controller (450), which is what makes
       // walking reinforcements into someone else's battlefield an attack.
       const moved = forceMoveToBattlefield(state, optionId, d.battlefieldId);
       // Onto the FRONT: this is a continuation of the question being answered,
@@ -2099,7 +2099,7 @@ function ownUnits(state: GameState, playerIndex: 0 | 1) {
   return [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
 }
 
-/** The buffed units a player controls — Albus Ferros' spendable buffs. Rule 705.1
+/** The buffed units a player controls — Albus Ferros' spendable buffs. Rule 702.2.b.2
  *  restricts spending to units you control, so this never walks the opponent's. */
 function buffedOwnUnits(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
   return ownUnitsEverywhere(state, playerIndex).filter((u) => u.buffed);

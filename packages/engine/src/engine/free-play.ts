@@ -60,7 +60,7 @@ function destinationsFor(
     //
     // Control is NOT the test, and that was tried first: control lapses in the
     // Cleanup that runs between submitting the activation and answering its
-    // question (`lapseUnoccupiedControl`, 323.11), so by the time the free play
+    // question (`lapseUnoccupiedControl`, 323.6), so by the time the free play
     // happens the player controls nothing there either. Only something CARRIED
     // from before the kill can survive that gap.
     //
@@ -141,7 +141,7 @@ export const freePlayDecisions: Record<string, DecisionDefinition> = {
       // Contested is applied here rather than inside `playUnitToBattlefield` for
       // the reason that function's own note gives: arriving at a battlefield can
       // make it Contested and can be an attack, and only the caller knows which.
-      // A unit appearing from a card's text is a unit becoming present (190.4),
+      // A unit appearing from a card's text is a unit becoming present (190.3.a),
       // so it contests exactly as a walk-in does.
       const deployed = playUnitToBattlefield(released, held.playerIndex, held.unit, optionId);
       return applyContested(deployed, optionId, held.playerIndex);

@@ -20,7 +20,7 @@ import { playCardIgnoringCost } from "./play-free.js";
 import { placeGoldTokens } from "./token.js";
 import { pendingDeathFor, releasePendingDeath } from "./death-ward.js";
 import { RAINBOW } from "./hidden.js";
-// Rule 711's "Might 5 or greater", already defined once for Fiora - Victorious.
+// Rule 708's "Might 5 or greater", already defined once for Fiora - Victorious.
 // Imported rather than restated so Volibear and Fiora can never disagree about
 // what Mighty means — the threshold is a rule, not a per-card number.
 import { isMighty } from "./granted-keywords.js";
@@ -115,7 +115,7 @@ export interface LegendAbilityDefinition {
    */
   conquerCondition?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => boolean;
   /**
-   * "When you win a combat..." — rule 466.5.a, the moment `combatWon` names.
+   * "When you win a combat..." — rule 466.3.a, the moment `combatWon` names.
    *
    * A Legend needs its own hook for this rather than riding the event trigger
    * registry, for the reason every hook here exists: a Legend is not on the
@@ -233,7 +233,7 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     // exhaust me to channel 1 rune exhausted."
     //
     // The event is the whole difficulty and it is not hers: "becomes" is a
-    // TRANSITION across 5 Might (711), on a value this engine recomputes on every
+    // TRANSITION across 5 Might (709), on a value this engine recomputes on every
     // read. See `withMightTransitions`, which brackets the raise helpers, and the
     // recorded partial that comes with it.
     //
@@ -321,7 +321,7 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     // On a conquer hook he would draw for fights that never happened and miss
     // fights he won.
     //
-    // 466.5.d's No Result shapes deliberately pay nothing — a mutual wipe is
+    // 466.3.d's No Result shapes deliberately pay nothing — a mutual wipe is
     // not a win — and that is handled once, in `combat.combatWinner`, rather
     // than restated here.
     onCombatWon: (state, ownerIndex) => drawCards(state, ownerIndex, 1),
@@ -375,7 +375,7 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     //
     // WHICH friendly unit is a real choice with no action to hang it on (the
     // trigger fires inside a resolution), so it stops and asks. Routed through
-    // addBuff, where rule 708's "not placed instead" lives: buffing an already
+    // addBuff, where rule 702.3.a's "not placed instead" lives: buffing an already
     // buffed unit is a no-op, which is what the card's own reminder text
     // describes.
     onUnitsStunned: (state, ownerIndex, event) => {
@@ -409,7 +409,7 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     // Volibear - Relentless Storm — "When you play a [Mighty] unit, you may
     // exhaust me to channel 1 rune exhausted."
     //
-    // [Mighty] is "while it has 5+ Might" (rule 812), so it is asked of the unit
+    // [Mighty] is "while it has 5+ Might" (rule 708), so it is asked of the unit
     // as it stands on the board right now — through effectiveMight, so a 4-Might
     // unit played under a Garen - Commander aura counts. Reading printed Might
     // would quietly disagree with what the board shows.
@@ -479,7 +479,7 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
  * asking — offering a replacement nobody can pay would stall a death on a
  * prompt whose only real answer is "no":
  *
- *  - **a buffed unit** — the buff is spent as part of the price (704.1).
+ *  - **a buffed unit** — the buff is spent as part of the price (702.2.b).
  *  - **you control** — his controller's own units, not anyone's.
  *  - **exhaust me** — so an exhausted Sett has already been used this turn.
  *    (His other clause, "when you conquer, ready me", is what buys a second.)
@@ -529,7 +529,7 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
     prompt: () => "Leona - Radiant Dawn: buff a friendly unit",
     // "A friendly unit" names no battlefield, so a unit in base is as eligible
     // as one at a battlefield (355.9.b). Already-buffed units are still offered:
-    // 708 makes a second buff a no-op rather than an illegal choice, and
+    // 702.3.a makes a second buff a no-op rather than an illegal choice, and
     // filtering them here would silently change "buff a friendly unit" into
     // "buff an unbuffed friendly unit" — which matters when everything you
     // control is already buffed and the answer really is "nothing happens".
@@ -788,7 +788,7 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
    * the price can be paid.
    *
    * The two branches are genuinely different events, not two spellings of one:
-   *  - **Save** replaces the death, so 809.1.b.1 applies and the unit's
+   *  - **Save** replaces the death, so 808.1.d.1 applies and the unit's
    *    [Deathknell] never fires and no death-watch sees it. It simply never died.
    *  - **Let it die** resumes the ordinary death at `completeDeath` — trash,
    *    then triggers — rather than re-entering `killUnit`, which would offer the
@@ -823,7 +823,7 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
       const owner = paid.players[d.playerIndex];
       const players = [...paid.players] as [PlayerState, PlayerState];
       // "heal it, exhaust it" — and spend its buff, which is part of the cost
-      // rather than rule 709's leave-play cleanup: the unit never leaves play.
+      // rather than rule 705's leave-play cleanup: the unit never leaves play.
       const saved: UnitInstance = { ...held.unit, damage: 0, exhausted: true, buffed: false };
       players[d.playerIndex] = {
         ...owner,
@@ -1170,12 +1170,12 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       add(defId, {
         on: "combatBegan",
         // "When an ENEMY unit attacks a battlefield YOU CONTROL" — both halves
-        // are requirements besides attacking, so 383.4.f settles them when the
+        // are requirements besides attacking, so 383.4.e settles them when the
         // designation is handed out, not when the ability resolves. Without this
         // the Legend would place a Pending Item at every combat on the board.
         applies: (state, listener, event) => attackersAgainst(state, listener.ownerIndex, event).length > 0,
         // ONE Pending Item PER attacking unit. Her text is singular — "when an
-        // ENEMY UNIT attacks" — and 465 Step 1 designates every unit of the
+        // ENEMY UNIT attacks" — and 464.2.c Step 1 designates every unit of the
         // attacking side at the same moment, so this is N triggered abilities
         // that an opponent may answer one at a time, not one that debuffs N.
         //
@@ -1255,7 +1255,7 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
  * A contested battlefield with no controller gives nothing, which is what makes
  * Ahri a defensive Legend rather than a general attack tax.
  */
-/** Is the unit with this instance id [Mighty] (5+ Might, rule 812) as it stands
+/** Is the unit with this instance id [Mighty] (5+ Might, rule 708) as it stands
  *  on the board right now? Read through `effectiveMight`, so an aura counts —
  *  which is why the id is looked up rather than trusting a captured instance. */
 function isMightyById(state: GameState, instanceId: string): boolean {

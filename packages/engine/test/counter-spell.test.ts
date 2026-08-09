@@ -17,7 +17,7 @@ import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
  *
  * Every card here is a `[Reaction]`, which is the whole reason the archetype
  * works: a Reaction can be cast onto an already-closed chain, and the chain
- * resolves LIFO (343), so the counter goes on top and pops FIRST.
+ * resolves LIFO (340.1), so the counter goes on top and pops FIRST.
  *
  * The half that is invisible in play, and therefore the half tested hardest: a
  * countered card **was never played**. The rules say so outright, and this engine

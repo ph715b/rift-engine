@@ -46,7 +46,7 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
 
   const poppedEntry = state.spellChain[state.spellChain.length - 1]!;
 
-  // A triggered ability waiting as a Pending Item (809.1.b.3) resolves like any
+  // A triggered ability waiting as a Pending Item (808.1.d.3) resolves like any
   // other chain item, but it is not a Spell: it has no cost to total and no
   // on-spell-cast listeners to notify, so it takes its own short path and never
   // reaches the Spell handling below (which reads `poppedEntry.card`).
@@ -125,11 +125,11 @@ function finishChainPop(resolved: GameState, spellChain: GameState["spellChain"]
     // passes to the next Player in Turn Order", so casting is a turn-taking move
     // inside the window rather than a free action.
     //
-    // The pass count resets because the all-passed sequence (349) was broken by
+    // The pass count resets because the all-passed sequence (348) was broken by
     // someone actually doing something; without that, one earlier pass plus this
     // cast would let the very next pass close the window.
     //
-    // 347's exception, now a real branch: "Focus will not pass in this way if the
+    // 346.1's exception, now a real branch: "Focus will not pass in this way if the
     // chain opened as a result of a triggered ability being added to the chain, nor
     // if it opened as a result of an Add ability." Its printed example is the
     // Combat Chain, which opens exactly that way.
@@ -164,10 +164,10 @@ function finishChainPop(resolved: GameState, spellChain: GameState["spellChain"]
  * a single pass just flips Focus to the opponent and increments the
  * consecutive-pass counter; two consecutive passes close the window.
  *
- * Rule 349: "If all Players have passed once in sequence, the Showdown ends."
+ * Rule 348: "If all Players have passed once in sequence, the Showdown ends."
  * What happens then depends on which kind of Showdown it was, which is
  * `closeShowdown`'s job — a Combat Showdown runs the remaining steps of Combat
- * (351.1), a Non-Combat one just establishes Control (352.1). This used to call
+ * (348.1), a Non-Combat one just establishes Control (348.2.a). This used to call
  * `resolveShowdown` directly, on the assumption that every Showdown was a fight.
  */
 function resolveShowdownFocusPass(state: GameState, action: PassFocusAction): GameState {

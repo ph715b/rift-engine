@@ -54,7 +54,7 @@ export function battlefieldPair(humanName: string, aiName: string): [Battlefield
 /**
  * One random battlefield name out of `names`, skipping anything in `exclude`.
  *
- * `exclude` exists for 1v1 (Match): rule 487.3 removes the battlefields used
+ * `exclude` exists for 1v1 (Match): rule 486.5 removes the battlefields used
  * in a decided game from the rest of that match ("the Battlefields that were
  * used are to be removed and not selected again for this Match. One of the
  * remaining Battlefields that were set aside must be chosen instead"). With 3
@@ -75,7 +75,7 @@ export function pickBattlefield(names: string[], exclude: string[], rng: Rng): s
  * the AI's own side takes in 1v1 (Match), since only the human gets a chooser.
  *
  * `exclude` is threaded through to `pickBattlefield` so a Match-mode caller can
- * honour 487.3's elimination for whichever side is being picked randomly.
+ * honour 486.5's elimination for whichever side is being picked randomly.
  */
 export function chooseMatchBattlefields(
   humanDeck: DeckList,

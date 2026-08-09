@@ -77,7 +77,7 @@ function resolveChain(state: GameState): GameState {
  * behind has drained.
  *
  * The second half is not padding. Closing a Showdown can CONQUER, and
- * `battlefieldConquered` is a Chain Pending Item now (383 / 809.1.b.3): the
+ * `battlefieldConquered` is a Chain Pending Item now (383 / 808.1.d.3): the
  * conquer trigger lands in `state.pendingTriggers`, the Cleanup finalizes it onto
  * the chain and closes it, and it takes two more passes to resolve. A driver that
  * stopped at `turnState !== "Showdown"` — as this one did — would return a board
@@ -129,14 +129,14 @@ describe("Last Stand (OGN-069): double a friendly unit's Might this turn, give i
     expect(pumped.mightThisTurn).toBe(4);
     expect(effectiveMight(after, pumped, 0, { isCombat: false, battlefieldId: "bf1" })).toBe(8);
     expect(pumped.keywords.Temporary).toBe(1);
-    // "This turn", not a Buff (710) — the two are not interchangeable.
+    // "This turn", not a Buff (705) — the two are not interchangeable.
     expect(pumped.buffed).toBe(false);
     expect(pumped.might).toBe(4); // printed Might untouched
   });
 
   it("doubles EFFECTIVE Might, not printed — a buffed unit is doubled from its real value", () => {
     // The whole printed-vs-effective call, made falsifiable: printed 3, buffed
-    // (+1 by rule 710) is 4 now, so doubling adds 4 and not 3.
+    // (+1 by rule 703) is 4 now, so doubling adds 4 and not 3.
     const ally = makeUnit({ might: 3, buffed: true });
     const { state, spell } = lastStandState(ally);
 
@@ -240,7 +240,7 @@ describe("Yasuo - Remorseful (OGN-076): when I attack, deal my Might to an enemy
 
   it("does NOT fire when he is DEFENDING — 'when I ATTACK'", () => {
     // Same board the other way round: Yasuo holds bf1, the opponent walks in.
-    // `contestedByIndex` is the rules' own definition of the Attacker (465), and
+    // `contestedByIndex` is the rules' own definition of the Attacker (464.2.c), and
     // it names player 1 here.
     const yasuo = realUnitInstance(YASUO_REMORSEFUL);
     const attacker = makeUnit({ might: 9 });
@@ -303,7 +303,7 @@ describe("Adaptatron (OGN-056): when I conquer, you may kill a gear; if you do, 
   }
 
   /** Walks the Adaptatron into an open bf1 and closes the Non-Combat Showdown,
-   *  which is what makes the walk-in a Conquer (466.7 / 471.1). */
+   *  which is what makes the walk-in a Conquer (466.5 / 469.1). */
   function conquer(state: GameState, adaptatron: UnitInstance): GameState {
     const moved = accept(
       state,
@@ -453,8 +453,8 @@ describe("Kadregrin the Infernal (OGN-038): draw 1 for each of your [Mighty] uni
     expect(after.players[0]!.hand).toHaveLength(3);
   });
 
-  it("asks rule 711's CURRENT Might, not the printed number", () => {
-    // A printed 3 sitting at 5 through a this-turn pump IS Mighty (711), and a
+  it("asks rule 710's CURRENT Might, not the printed number", () => {
+    // A printed 3 sitting at 5 through a this-turn pump IS Mighty (708), and a
     // hardcoded `unit.might >= 5` would miss it. This is the assertion that
     // distinguishes `isMighty` from a hand-written comparison.
     const { state, kadregrin } = kadregrinState([makeUnit({ might: 3, mightThisTurn: 2 })]);

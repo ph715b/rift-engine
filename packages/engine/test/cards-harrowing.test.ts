@@ -194,7 +194,7 @@ describe("The Harrowing (OGN-198): play a unit from your trash for its Power onl
   it("fizzles rather than stranding a decision when the trash holds nothing playable", () => {
     // THE case worth writing this file for. A mandatory instruction with zero
     // options must not park an unanswerable question — `advanceDecisions` drops
-    // it (422, do as much as you can). Three trash states reach it: empty, a
+    // it (055, do as much as you can). Three trash states reach it: empty, a
     // Spell only, and a unit whose Power this pool cannot pay.
     //
     // The fourth case is a POSITIVE CONTROL and it is not decoration: measured
@@ -222,7 +222,7 @@ describe("The Harrowing (OGN-198): play a unit from your trash for its Power onl
       // Not stranded: the game is still playable, and an action is still
       // ACCEPTED. A dropped question and a deadlocked one look identical from
       // `pendingDecisions` alone if the caller never tries to act again — and
-      // `submit` refuses every action while a decision is outstanding (323.2.a),
+      // `submit` refuses every action while a decision is outstanding (320.1),
       // so this is what tells the two apart.
       const offered = legalActions(after);
       expect(offered.length, `${name}: the game is still playable`).toBeGreaterThan(0);

@@ -319,7 +319,7 @@ describe("Spirit's Refuge (OGN-063): buff a friendly unit when it is played", ()
   });
 
   it("plays fine with no friendly unit, and parks no unanswerable question", () => {
-    // Rule 422's "do as much as you can": nothing to buff is not a reason the
+    // Rule 055's "do as much as you can": nothing to buff is not a reason the
     // Gear cannot be played, and a decision with no options must never be parked.
     const after = playRefuge(refugeState([]));
     expect(after.pendingDecisions).toHaveLength(0);

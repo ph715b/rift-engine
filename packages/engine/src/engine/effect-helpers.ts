@@ -98,14 +98,14 @@ export function removeUnitAnywhere(state: GameState, targetInstanceId: string): 
  * its ability just never happens).
  *
  * `unit` must ALREADY be removed from wherever it was; `death` carries the
- * location and attributes it had at that moment, which rule 809.1.b.3 requires
+ * location and attributes it had at that moment, which rule 808.1.d.3 requires
  * be captured before the card reaches the trash.
  *
  * Order, and why:
  *  1. Death ward first. A warded death is *replaced*, not a death — so the
- *     Deathknell must not fire, which rule 809.1.b.1 states outright. Returning
+ *     Deathknell must not fire, which rule 808.1.d.1 states outright. Returning
  *     early here is that rule, not an optimisation.
- *  2. The Buff comes off (rule 709, "if a Unit leaves play, remove all Buffs
+ *  2. The Buff comes off (rule 705, "if a Unit leaves play, remove all Buffs
  *     from it") before the card lands in the trash, so a returned-from-trash copy
  *     can't smuggle a buff back into play.
  *  3. Trash, then triggers — the trigger has to see a board where the unit is
@@ -176,7 +176,7 @@ export function killUnit(
   };
 
   // A replacement that has to be OFFERED, not one armed in advance. Asked before
-  // the trash step for the same reason the ward is checked before it: 809.1.b.1
+  // the trash step for the same reason the ward is checked before it: 808.1.d.1
   // makes a replaced death not a death, so the card must not reach the trash and
   // the Deathknell must not fire while the answer is outstanding.
   // Unlicensed Armory's armed ward, asked BEFORE Sett's: it is the one the
@@ -329,7 +329,7 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   if (isLethal) {
     const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
     // The damaged copy, not `unit` — a Deathknell reading "my" attributes
-    // (rule 809.1.b.3) must see the state the unit died in.
+    // (rule 808.1.d.3) must see the state the unit died in.
     return killUnit(
       stateAfterRemoval,
       damagedUnit,
@@ -371,7 +371,7 @@ export function destroyUnit(state: GameState, targetInstanceId: string, killerIn
  * every battlefield.
  *
  * The rules heal at TWO moments and both are global: combat cleanup
- * (rule 461.1.a, "immediately after the combat damage has been dealt") and
+ * (rule 466.1.a.1, "immediately after the combat damage has been dealt") and
  * the end of a player's turn. Crucially, combat cleanup "clears all marked
  * damage from every unit on the board, including units that were not involved
  * in the combat" (RiftJudge FAQ 7750/8993) — so a unit softened by a Spell at
@@ -441,7 +441,7 @@ export function giveMightThisTurnToAllFriendlies(state: GameState, casterIndex: 
  */
 /**
  * Fires `unitBecameMighty` for every named unit that was NOT `[Mighty]` in
- * `before` and IS in `after` (rule 711: 5+ Might).
+ * `before` and IS in `after` (rule 708: 5+ Might).
  *
  * A before/after COMPARISON rather than a hook on a write, because Might has no
  * stored total — `effectiveMight` derives it from printed Might, buffs,
@@ -476,7 +476,7 @@ export function withMightTransitions(
     // that consolidation is the point: this file used to run its own
     // `effectiveMight(...) >= MIGHTY_THRESHOLD`, so the "becomes Mighty" event and
     // every "while I'm Mighty" conditional could answer differently about the same
-    // unit — which they did, twice. `isMighty` carries the location lookup (715's
+    // unit — which they did, twice. `isMighty` carries the location lookup (709's
     // positional auras) and the combat higher-of-two ruling, and both belong to
     // BOTH questions.
     //
@@ -542,7 +542,7 @@ export function grantTemporary(state: GameState, permanentInstanceId: string): G
   return touched ? { ...state, players } : state;
 }
 
-/** Does this unit carry a Buff? The read half of rule 707's one-buff-at-a-time
+/** Does this unit carry a Buff? The read half of rule 702.3's one-buff-at-a-time
  *  rule, and what "While I'm buffed" / "Other buffed friendly units" ask. */
 export function isBuffed(unit: UnitInstance): boolean {
   return unit.buffed;
@@ -713,16 +713,16 @@ export function payPowerFromChanneled(
 }
 
 /**
- * Buffs a unit — rule 702.3.a, "a player chooses a Unit and then places a buff
+ * Buffs a unit — rule 702.2.a, "a player chooses a Unit and then places a buff
  * on it".
  *
- * Rule 708 makes this idempotent rather than cumulative: "If a Buff is added, or
+ * Rule 702.3.a makes this idempotent rather than cumulative: "If a Buff is added, or
  * instructed to be added, on a Unit that already has a Buff, it is not placed
  * instead." That is exactly why several cards read "buff me. (If I don't have a
  * buff, I get a +1 Might buff.)" — the reminder text is describing the no-op.
  * Returns the state unchanged when the unit is already buffed or isn't in play.
  */
-/** Units whose printed text overrides rule 708's one-buff cap. Lee Sin - Ascetic
+/** Units whose printed text overrides rule 702.3.a's one-buff cap. Lee Sin - Ascetic
  *  is the pool's only one, and naming him here keeps `addBuff`'s contract
  *  unchanged for every other caller. */
 const STACKING_BUFF_DEF_IDS = new Set(["OGN-078"]); // Lee Sin - Ascetic
@@ -730,11 +730,11 @@ const STACKING_BUFF_DEF_IDS = new Set(["OGN-078"]); // Lee Sin - Ascetic
 export function addBuff(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   // "When you BUFF a friendly unit" (Mistfall) is about a buff actually being
-  // placed. 708 makes a second one on an already-buffed unit a no-op, and the
+  // placed. 702.3.a makes a second one on an already-buffed unit a no-op, and the
   // event has to agree — otherwise re-buffing a buffed unit would offer the
   // ready-me trigger over and over for nothing. Checked before the update, since
   // updateUnitAnywhere rebuilds the state either way.
-  // 708 makes a second buff on an already-buffed unit a no-op — EXCEPT for a unit
+  // 702.3.a makes a second buff on an already-buffed unit a no-op — EXCEPT for a unit
   // whose own text says otherwise. Lee Sin - Ascetic's "I can have any number of
   // buffs" is the only such card, so the exception is a named set rather than a
   // flag every caller has to pass.
@@ -749,18 +749,18 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
   if (!location || location.unit.buffed) return updateUnitAnywhere(state, targetInstanceId, (u) => u);
 
   const placed = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, buffed: true }));
-  // A Buff is worth +1 Might (710), so placing one can cross 5 — Fiora's
+  // A Buff is worth +1 Might (703), so placing one can cross 5 — Fiora's
   // trigger has to see it, and the buff's own `unitBuffed` event below is a
   // different question.
   const buffed = withMightTransitions(state, placed, [targetInstanceId]);
   // HELD as a Chain Pending Item rather than resolved here — the first of the 14
-  // dispatch sites to be converted (809.1.b.3: a trigger goes on the Chain so the
+  // dispatch sites to be converted (808.1.d.3: a trigger goes on the Chain so the
   // opponent may respond before it resolves). The buff itself is applied
   // immediately; only the "when you buff a friendly unit" TRIGGER waits.
   //
   // This site went first because it is the least entangled: one listener in the
   // whole pool (Mistfall), tail position so no caller reads state after it, it
-  // already fires only when a buff was really placed (708, the guard above), and
+  // already fires only when a buff was really placed (702.3.a, the guard above), and
   // Mistfall's resolution parks a question rather than moving the board — so the
   // observable change is WHEN the question is asked, not what the board looks like.
   return holdEventTrigger(buffed, {
@@ -775,15 +775,15 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
  * enemy unit."
  *
  * Deliberately not `executeMoveUnit`, and the difference is a rule rather than
- * convenience. **415.1.b**: "a unit's Standard Move exhausts the unit **as a
+ * convenience. **414.3.a**: "a unit's Standard Move exhausts the unit **as a
  * cost**" — the exhaust belongs to the Standard Move action, not to the act of
- * moving, and **316.7.c** lists a move as possibly "the result of a Standard Move
+ * moving, and **316.7.b** lists a move as possibly "the result of a Standard Move
  * Intrinsic Ability, a **Spell**, or other Game Effect". So a unit charmed across
  * the board arrives READY. Reusing the move executor would have exhausted it,
  * silently making Charm a removal-and-tap rather than a reposition.
  *
  * Contested still applies, and applies for the MOVED unit's controller —
- * **458**: "the Destination becomes Contested if it is an Uncontested Battlefield
+ * **450**: "the Destination becomes Contested if it is an Uncontested Battlefield
  * not controlled by the controller of the Unit or Units that moved". Charming an
  * enemy onto neutral ground therefore contests it for THEM, which is the card's
  * real use and not something a caster-indexed call would have got right.
@@ -819,19 +819,19 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
  * `forceMoveToBattlefield`, and the reason a spell's "move a unit" can finally
  * reach every Location the rules allow.
  *
- * **355.7**: "A valid Location for a Move Effect is one other than the Unit's
- * current Location where they are allowed to be present", and **197/107.2.b**
+ * **355.4.a**: "A valid Location for a Move Effect is one other than the Unit's
+ * current Location where they are allowed to be present", and **198.1/107.1.b**
  * make each Base a Location. The PDF then works this exact case BY NAME at
  * **359.3.e**: *"A player plays Ride the Wind choosing to move their unit at
  * Vilemaw's Lair to base. Base is a legal move destination for Ride the Wind…"*
  *
- * **Whose base needs no argument.** 107.2.c — "Permanents and Runes controlled by
+ * **Whose base needs no argument.** 107.1.c — "Permanents and Runes controlled by
  * a player reside in that player's Base" — so a unit can only ever go to its own
  * controller's, which is what `ownerIndex` already says.
  *
  * # It does NOT exhaust, and that is the same rule `forceMoveToBattlefield` cites
  *
- * **144.4** makes exhausting the cost of the STANDARD MOVE ACTION, and 415.1.a
+ * **144.2** makes exhausting the cost of the STANDARD MOVE ACTION, and 414.3.a
  * puts Exhaust costs on activated abilities and discretionary actions. A spell's
  * move is neither, so a unit sent home by Charm arrives READY — exactly as one
  * sent across the board by Charm already did.
@@ -849,12 +849,12 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
  * `mayMoveToBaseFrom` is the one door every way-home comes through, and 359.3.e's
  * example is precisely a blocked one: the move instruction "will be ignored
  * because Vilemaw's restriction makes the instruction impossible" — the
- * instruction, not the spell. Returning the state unchanged is 422's "do as much
+ * instruction, not the spell. Returning the state unchanged is 055's "do as much
  * as you can", which is what every other blocked move here already does.
  */
 export function forceMoveToBase(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitOnBattlefield(state, targetInstanceId);
-  // Not at a battlefield: either it is already in base — 355.7 excludes the
+  // Not at a battlefield: either it is already in base — 355.4.a excludes the
   // Unit's current Location, so there is no move to make — or it is not on the
   // board at all.
   if (!location) return state;
@@ -978,7 +978,7 @@ export function ownUnitsEverywhere(state: GameState, playerIndex: 0 | 1): UnitIn
 }
 
 /**
- * Stuns a unit — rule 422's Stun section. The PRIMITIVE: it changes the flag and
+ * Stuns a unit — rule 423's Stun section. The PRIMITIVE: it changes the flag and
  * fires nothing.
  *
  * A no-op on an already-stunned unit, because "a Stunned Unit can not be Stunned
@@ -1009,7 +1009,7 @@ export function stunUnit(state: GameState, targetInstanceId: string): GameState 
  * each. A per-unit event would silently make Leona fire twice for Facebreaker;
  * a batch payload lets each listener read it its own way.
  *
- * Only units that ACTUALLY became stunned are reported. Rule 422's "a Stunned
+ * Only units that ACTUALLY became stunned are reported. Rule 423's "a Stunned
  * Unit can not be Stunned again" means re-stunning is not a stunning, so it must
  * not offer Eclipse Herald its ready-me trigger over and over for nothing —
  * exactly the reasoning `addBuff` uses for `unitBuffed` under rule 708. A stun
@@ -1039,12 +1039,12 @@ export function stunUnits(state: GameState, stunnerIndex: 0 | 1, targetInstanceI
 }
 
 /**
- * Spends a unit's Buff — rule 704.1, "Spending a Buff removes a single Buff
+ * Spends a unit's Buff — rule 702.2.b, "Spending a Buff removes a single Buff
  * counter from a Unit".
  *
  * Returns undefined rather than an unchanged state when the spend is illegal, so
- * callers can't silently get the effect without paying: rule 705 forbids spending
- * from an unbuffed unit and 705.1 restricts it to units you control, and both are
+ * callers can't silently get the effect without paying: rule 702.2.b.1 forbids spending
+ * from an unbuffed unit and 702.2.b.2 restricts it to units you control, and both are
  * costs for cards that give you something in return (Wildclaw Shaman, Udyr -
  * Wildman). A no-op state would hand over the payoff for free.
  */
@@ -1090,7 +1090,7 @@ export function spendBuff(state: GameState, playerIndex: 0 | 1, targetInstanceId
  * discarding player the choice in both cases, and the engine simply had no way
  * to ask until pending decisions existed. Discarding fewer than `count` when the
  * hand is short is correct, not a shortcut — "discard 2" with one card in hand
- * discards that one (422), and a hand no bigger than `count` is not a choice at
+ * discards that one (055), and a hand no bigger than `count` is not a choice at
  * all, so it goes without a prompt.
  */
 export function discardCards(
@@ -1538,7 +1538,7 @@ export function readyRunes(state: GameState, ownerIndex: 0 | 1, max: number): Ga
  *
  * **Blocking a point does NOT unrecord the scoring.** Project-owner ruling,
  * 2026-08-06: the scoring EVENT still happened, it just paid nothing, so
- * 471.1.b's once-per-battlefield-per-turn lockout still fires and the opponent
+ * 470's once-per-battlefield-per-turn lockout still fires and the opponent
  * cannot retry that battlefield this turn. Which is why this function awards
  * points and nothing else — `scoredBattlefieldsThisTurn` is written by
  * `recordConquest` and `scoreHolds` regardless of what this returns.
@@ -1611,7 +1611,7 @@ export function payEnergyFromPool(state: GameState, playerIndex: 0 | 1, amount: 
  * the card does not distinguish them either: "another friendly gear, unit, or
  * facedown card" is one choice over three zones.
  *
- * A unit routes through `returnUnitToHand`, which strips its Buff (709) and
+ * A unit routes through `returnUnitToHand`, which strips its Buff (705) and
  * resets damage — leaving play is leaving play. A gear and a facedown card carry
  * no such state, so they simply move.
  */
@@ -1645,7 +1645,7 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
 
 /** Removes a unit from its battlefield and adds it to its OWNER's hand
  *  (not necessarily the caster's) — resets damage/this-turn Might/exhausted
- *  and removes any Buff (rule 709, "if a Unit leaves play, remove all Buffs
+ *  and removes any Buff (rule 705, "if a Unit leaves play, remove all Buffs
  *  from it") since
  *  it's leaving play entirely and may be replayed fresh, unlike
  *  recallUnitToBase (which keeps a unit "in play," just relocated). */
@@ -1663,13 +1663,13 @@ export function returnUnitToHand(state: GameState, targetInstanceId: string): Ga
  * A true Recall in the rules' sense: relocate a unit to its owner's base
  * WITHOUT touching its state. "A Recall is when a Permanent is relocated from
  * anywhere to its Base without it being a Move... Damage and statuses of a
- * permanent will all remain unaffected by a Recall" (rule 454).
+ * permanent will all remain unaffected by a Recall" (rule 458.1).
  *
  * Two things this deliberately does NOT do, both load-bearing:
  *   - It does not exhaust. Highlander reads "heal it, exhaust it, and recall
  *     it" precisely because a bare recall leaves readiness alone; the exhaust
  *     comes from the card, not from the recall.
- *   - It fires no move triggers. Recalls are explicitly not Moves (454), so
+ *   - It fires no move triggers. Recalls are explicitly not Moves (456), so
  *     Traveling Merchant's "when I move, discard 1, then draw 1" and Noxian
  *     Drummer's token must not fire. Do not add a dispatchOnMove call here.
  *
@@ -1751,7 +1751,7 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
  * The opposite half of `takeControlOfUnit` below, which recalls to base, and the
  * two must stay apart: the recall is what makes Possession safe, and the
  * PARENTHETICAL here is the whole card. A unit that changes hands at a
- * battlefield "otherwise becomes present" for its new controller (190.4), so
+ * battlefield "otherwise becomes present" for its new controller (190.3.a), so
  * Contested is applied for them — which starts a combat when enemies are still
  * standing there and takes the battlefield when they are not.
  *
@@ -1776,12 +1776,12 @@ export function borrowUnitInPlace(state: GameState, targetInstanceId: string, ne
       ...bf.units,
       [ownerId]: (bf.units[ownerId] ?? []).filter((u) => u.instanceId !== targetInstanceId),
       // Buffs and damage survive, exactly as they do in `takeControlOfUnit`: the
-      // unit changes hands, it is not reprinted (709 removes a Buff only on
+      // unit changes hands, it is not reprinted (705 removes a Buff only on
       // LEAVING PLAY, and this never does).
       [takerId]: [...(bf.units[takerId] ?? []), { ...unit, returnControlAtEndOfTurnToIndex: ownerIndex }],
     },
   };
-  // 190.4's "Moves **or otherwise becomes present**". Changing hands is the
+  // 190.3.a's "Moves **or otherwise becomes present**". Changing hands is the
   // second, which is the same reading `placeToken` takes for a token appearing at
   // a battlefield its controller does not control.
   return applyContested({ ...state, battlefields }, bf.id, newControllerIndex);
@@ -1819,7 +1819,7 @@ export function takeControlOfUnit(state: GameState, targetInstanceId: string, ne
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location || location.ownerIndex === newControllerIndex) return state;
   const removed = removeUnitAnywhere(state, targetInstanceId);
-  // Buffs survive (709 removes them only on LEAVING PLAY, and this never does),
+  // Buffs survive (705 removes them only on LEAVING PLAY, and this never does),
   // and so does damage — the unit changes hands, it is not reprinted.
   return updatePlayer(removed, newControllerIndex, (p) => ({ ...p, baseUnits: [...p.baseUnits, location.unit] }));
 }
@@ -1833,7 +1833,7 @@ export function takeControlOfUnit(state: GameState, targetInstanceId: string, ne
  *  necessarily the caster's own.
  *
  *  NOTE: whether those two card effects should exhaust at all is an open
- *  question — rule 454 says a Recall leaves statuses untouched, and both cards
+ *  question — rule 458.1 says a Recall leaves statuses untouched, and both cards
  *  say "move"/"to its base" without mentioning exhaustion. Filed as Unverified
  *  in docs/rules-conformance.md rather than changed on a guess. */
 export function recallUnitToBase(state: GameState, targetInstanceId: string): GameState {
@@ -1845,7 +1845,7 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
   // Vilemaw's Lair — "units can't move from here to base". Both cards that reach
   // this helper say MOVE (Flash: "move up to 2 friendly units to base"; Maddened
   // Marauder: "move a unit from a battlefield to its base"), which is exactly
-  // what the Lair forbids. Doing as much as it can and no more is 422; the spell
+  // what the Lair forbids. Doing as much as it can and no more is 055; the spell
   // still resolves. Combat's own step-3d recall goes through
   // `relocateToBaseUnchanged` and is deliberately NOT blocked — that is a step of
   // the Combat Cleanup rather than a move a player makes.
@@ -1872,7 +1872,7 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
  * cannot be Readied again. If a Unit is instructed to be Readied while it is
  * already Ready, nothing additional happens." It is what makes the `unitReadied`
  * event below honest — Pirate's Haven must not pay out for a ready that the rules
- * say never happened, the same guard `addBuff` (708) and `stunUnits` (422) carry.
+ * say never happened, the same guard `addBuff` (702.3.a) and `stunUnits` (423) carry.
  */
 export function readyUnit(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);

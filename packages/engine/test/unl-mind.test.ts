@@ -7,6 +7,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { computeEffectiveCost } from "../src/engine/rune-payment.js";
 import { recordConquest } from "../src/engine/scoring.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -228,7 +229,7 @@ describe("Ruined Rex (UNL-067): [Deathknell] deal 4 to an enemy unit", () => {
     expect(optionsFor(asked, pendingDecision(asked)!).map((o) => o.instanceId)).not.toContain(ally.instanceId);
   });
 
-  it("asks nothing at all when the opponent has no units (422)", () => {
+  it("asks nothing at all when the opponent has no units (055)", () => {
     const { state, rex } = rexState();
     state.players[1]!.baseUnits = [];
     state.battlefields[0]!.units = { p1: [rex] };
@@ -361,6 +362,44 @@ describe("Icevale Archer (UNL-065): when I attack, pay [1] for -1 Might here", (
 
     expect(unitOnBoard(after, enemy.instanceId)?.mightThisTurn).toBe(0);
     expect(readyRunes(after, 0), "declining still spent the Energy").toBe(readyRunes(asked, 0));
+  });
+
+  it("drops the question when she has left the fight — 'here' is where she stands", () => {
+    // "Here" is a referent read from the ability's source (359.3.f.1) and checked
+    // on EXECUTION of the instruction (359.3.f.2). The rules' worked example is an
+    // opponent answering Yasuo - Remorseful's attack trigger with Fight or Flight:
+    // "'here' is no longer the battlefield where combat is ongoing and the attack
+    // trigger mistargets". So an Archer moved out asks nothing at all, rather than
+    // reaching back into the fight she left.
+    //
+    // The response window has to be OPEN, which `beginCombatAt` closes in the same
+    // call — hence the raw Cleanup here, and the chain assertion, without which "no
+    // question" reads the same whether she mistargeted or never triggered.
+    const { state, archer, enemy } = archerState();
+    const held = runCleanup({
+      ...state,
+      battlefields: state.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, contestedByIndex: 0 as const } : bf)),
+    });
+    expect(
+      held.spellChain.flatMap((e) => (e.kind === "trigger" ? [e.listenerDefId] : [])),
+      "the trigger was never placed",
+    ).toContain(ICEVALE_ARCHER);
+
+    const walked = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p1: [] } }
+          : bf.id === "bf2"
+            ? { ...bf, units: { p1: [archer], p2: [makeUnit({ name: "Bystander", might: 4 })] } }
+            : bf,
+      ),
+    };
+
+    const after = resolveHeldTriggers(walked);
+
+    expect(pendingDecision(after), "she still asked, from a battlefield she had left").toBeUndefined();
+    expect(unitOnBoard(after, enemy.instanceId)?.mightThisTurn, "the fight she left was still chilled").toBe(0);
   });
 
   it("does NOT fire when she DEFENDS — 'when I attack', not 'attack or defend'", () => {

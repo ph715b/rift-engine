@@ -17,7 +17,7 @@ import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures
  * re-look it up". That is the right diagnosis of the wrong mechanism — the
  * on-play conversion had already answered it, by NOT re-looking anything up.
  * `source: "selfTrigger"` carries the card on the entry and resolves from it,
- * which is 809.1.b.3's "note its attributes before the card is moved to the
+ * which is 808.1.d.3's "note its attributes before the card is moved to the
  * Trash" applied to the whole card.
  *
  * Scrapheap is the card that makes all three moments observable at once, and two
@@ -26,7 +26,7 @@ import { makePlayer, makeState, makeUnit, resolveHeldTriggers } from "./fixtures
  *
  * **Placement order is chosen to preserve the old resolution order.** A self
  * trigger used to resolve INLINE, i.e. before the `cardPlayed` and on-play
- * triggers held alongside it. The chain is LIFO (343), so it is placed LAST at
+ * triggers held alongside it. The chain is LIFO (340.1), so it is placed LAST at
  * every site and therefore still resolves first.
  */
 

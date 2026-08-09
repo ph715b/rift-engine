@@ -35,12 +35,12 @@ export interface ChainTargetDescription {
 }
 
 interface ChainItemDescriptionBase {
-  /** The caster, or the controller of the triggered ability. Rule 343's resolution
+  /** The caster, or the controller of the triggered ability. Rule 340.1's resolution
    *  order is by position, not by owner, so this is display information only. */
   playerIndex: 0 | 1;
   /** The Spell's name, or the name of the permanent whose ability is waiting. */
   cardName: string;
-  /** Distance from the top of the chain. 0 resolves next (rule 343: the newest
+  /** Distance from the top of the chain. 0 resolves next (rule 340.1: the newest
    *  finalized item resolves first). */
   depthFromTop: number;
   /** Stable identity for this row, for a UI keying a list on it. Distinct per kind
@@ -75,7 +75,7 @@ export type ChainItemDescription = SpellChainItemDescription | TriggerChainItemD
 
 /**
  * `state.spellChain` projected NEWEST-FIRST — i.e. in the order the entries
- * will actually resolve (rule 343).
+ * will actually resolve (rule 340.1).
  *
  * Note the ordering, because it differs from the Java oracle's: our
  * `spellChain` is a plain array pushed and popped at the END (see

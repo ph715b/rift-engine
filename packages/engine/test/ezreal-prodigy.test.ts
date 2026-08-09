@@ -146,7 +146,7 @@ describe("Ezreal - Prodigy discounts a [Repeat] cost (820: Repeat IS an optional
   });
 
   /** The discount is bought by PAYING an optional additional cost, so a play that
-   *  pays none of them may not claim the axis (356.4.d.1's "was paid if the player
+   *  pays none of them may not claim the axis (356.4.f.1's "was paid if the player
    *  made the decision to pay it"). */
   it("refuses the axis on a play that pays no optional additional cost", () => {
     const { state, spellId } = caster(CALLED_SHOT, "Chaos", 2, true);
@@ -174,14 +174,14 @@ describe("Ezreal - Prodigy discounts a [Repeat] cost (820: Repeat IS an optional
 
 /**
  * The other three optional additional costs the engine prices. The report named
- * `[Repeat]`; the card says "optional additional costs", and 805/3233 and 3509
+ * `[Repeat]`; the card says "optional additional costs", and 805/805.2 and 820.1.c.2
  * put `[Accelerate]` and Temporal Portal's granted instance under the same
  * heading. All four were unreachable in a real game for the same two reasons, so
  * all four get a positive control that counts the new path being taken.
  */
 describe("Ezreal - Prodigy reaches the other optional additional costs too", () => {
   /**
-   * Legion Rearguard is [2] with `[Accelerate]` [1][Fury] — 356.3's own worked
+   * Legion Rearguard is [2] with `[Accelerate]` [1][Fury] — 356.1.b.3's own worked
    * example of an additional cost surviving a cost-ignoring effect, and the
    * cheapest accelerable body in the pool.
    *
@@ -214,7 +214,7 @@ describe("Ezreal - Prodigy reaches the other optional additional costs too", () 
 
   /** Clockwork Keeper's "you may pay [Calm] as an additional cost ... draw 1" —
    *  the OPTIONAL_POWER_COSTS shape. On a pool with no Calm rune at all the paid
-   *  variant is impossible; Ezreal's [rainbow] axis erases the pip, and 356.4.d.1
+   *  variant is impossible; Ezreal's [rainbow] axis erases the pip, and 356.4.f.1
    *  is explicit that the cost still counts as PAID, so the draw still happens. */
   it("makes an optional Power cost payable with no rune of its domain", () => {
     const keeperPlays = (withEzreal: boolean) => {
@@ -287,7 +287,7 @@ describe("everything the enumerator offers under Ezreal, the validator accepts",
  * defect.
  *
  * Draven - Vanquisher reads "When I attack or defend, you may pay [Fury]. If you
- * do, give me +2 [Might] this turn." Rule 204's own worked example is that exact
+ * do, give me +2 [Might] this turn." Rule 205's own worked example is that exact
  * sentence — *"When I attack, you may pay [4][C]. If you do, kill a unit here."*
  * — and rules that it "is not a cost of the ability, base or otherwise, but a
  * game action being performed by a player". Not a cost at all, so not an OPTIONAL
@@ -297,7 +297,7 @@ describe("everything the enumerator offers under Ezreal, the validator accepts",
  * from "the discount never ran" unless something asserts the price is meant to
  * stand.
  */
-describe("Draven - Vanquisher's [Fury] is NOT an additional cost, so Ezreal leaves it alone (204)", () => {
+describe("Draven - Vanquisher's [Fury] is NOT an additional cost, so Ezreal leaves it alone (205)", () => {
   function fighting(furyRunes: number, withEzreal: boolean) {
     const draven = realUnitInstance(DRAVEN_VANQUISHER);
     const state = makeState({ phase: "Action" });
@@ -455,7 +455,7 @@ describe("Ezreal's pip lands once per qualifying optional additional cost (rulin
       ...settled.players[0]!.baseUnits,
       ...settled.battlefields.flatMap((bf) => bf.units[settled.players[0]!.id] ?? []),
     ].filter((u) => u.instanceId !== "ezreal");
-    // 3525: each paid instance adds an execution, so both paid is three Sand
+    // 820.3: each paid instance adds an execution, so both paid is three Sand
     // Soldiers — bought here two pips under the old price.
     expect(soldiers, "the twice-discounted play did not execute three times").toHaveLength(3);
   });

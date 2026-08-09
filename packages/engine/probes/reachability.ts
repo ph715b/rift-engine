@@ -109,7 +109,7 @@ const GAMES = Number(process.env.GAMES ?? 250);
  *
  * It was offered and never taken for as long as this probe has run, because the
  * only Locations the engine could name were battlefields. Making a BASE a legal
- * move destination (355.7 / 359.3.e) gave it the destination it prints, and the
+ * move destination (355.4.a / 359.3.e) gave it the destination it prints, and the
  * AI took it in self-play the same day. A rise here is exactly what a rules fix
  * to a reachable card should look like, which is why the pin is a floor.
  */

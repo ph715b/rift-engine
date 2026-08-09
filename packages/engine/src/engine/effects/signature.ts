@@ -365,9 +365,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // between (killed on the chain, moved) leaves nothing to move to, and the
     // stun still happens: the move is the optional half.
     //
-    // forceMoveToBattlefield, not the MoveUnit executor: 415.1.b puts the
+    // forceMoveToBattlefield, not the MoveUnit executor: 414.3.a puts the
     // exhaust on the Standard Move ACTION, so a unit sent by a spell arrives
-    // ready, and 458 contests the destination for the MOVED unit's controller.
+    // ready, and 450 contests the destination for the MOVED unit's controller.
     // Here that is the caster's own unit walking into the enemy's battlefield,
     // which is the whole point of the card.
     targeting: {
@@ -606,7 +606,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // genuinely stays there, which is why `banishCard` is called for it and not for
     // the unit. Time Warp is the only other real writer of that zone.
     //
-    // A fresh copy, exactly as Portal Rescue rebuilds one: 709 strips the Buff on
+    // A fresh copy, exactly as Portal Rescue rebuilds one: 705 strips the Buff on
     // leaving play, and damage / this-turn Might / stun are properties of the body
     // that left.
     //
@@ -730,11 +730,11 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // the taker's BASE, which is what makes Possession's permanent theft safe, and
     // this card's whole parenthetical is about the unit staying where it stands.
     // `borrowUnitInPlace` is that half — it leaves the unit at the battlefield and
-    // applies Contested for its new controller (190.4's "or otherwise becomes
+    // applies Contested for its new controller (190.3.a's "or otherwise becomes
     // present"), which is what "start a combat if other enemies are there,
     // otherwise conquer" describes. Both outcomes fall out of Contested rather
     // than being branched on here: the Cleanup opens a Combat Showdown when both
-    // players have units present and a Non-Combat one when they do not, and 352.1
+    // players have units present and a Non-Combat one when they do not, and 348.2.a
     // is what turns the second into a conquest.
     //
     // The REVERSAL genuinely did not exist, exactly as the handoff said. In this

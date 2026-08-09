@@ -413,7 +413,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Spark's bare "Deal 8 to a unit" (OGS-022, which opts into
     // `scope: "anywhere"` precisely because it names no battlefield).
     //
-    // Damage first, THEN the draw — rule 359.3.e.5, "execute the game effect of
+    // Damage first, THEN the draw — rule 359.3.d, "execute the game effect of
     // the spell, from top to bottom of the rules text of the card." The order is
     // observable rather than cosmetic: a lethal 4 kills mid-resolution and can
     // fire the dying unit's [Deathknell] (rule 808), and this pool has a
@@ -503,7 +503,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // since each instance is its own damage event that [Shield] and the damage
     // modifiers price separately.
     //
-    // "Attacking" is 465 Step 1's Attacker designation, asked through
+    // "Attacking" is 464.2.c Step 1's Attacker designation, asked through
     // `attackerIndexAt`: the Attacker is the player who applied Contested, and
     // every unit of theirs standing at that battlefield is attacking. The
     // battlefield's `designatedInstanceIds` was the rejected alternative — it is
@@ -511,7 +511,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // written by a Cleanup, so a unit that walked in and started the fight this
     // very action would read as NOT attacking and take 2 where the card says 4.
     // Answering off `contestedByIndex` cannot go stale that way; it survives for
-    // as long as the Showdown does (190.6.a).
+    // as long as the Showdown does (190.3.b).
     //
     // The card is an [Action], so it is castable inside a Showdown — which is the
     // only place the 4 is reachable, and is what makes the clause worth having.
@@ -711,7 +711,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // same front-of-hand answer, as Traveling Merchant's on-move discard;
     // recorded in docs/rules-conformance.md rather than invented here.
     //
-    // An empty hand discards nothing and is not an error — rule 422 discards as
+    // An empty hand discards nothing and is not an error — rule 055 discards as
     // many cards as possible and ignores the rest of the instruction, which is
     // discardCards' own no-op-on-empty behaviour, so no guard is needed.
     targeting: { kind: "none" },
@@ -722,7 +722,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // [Mighty] units."
     //
     // `isMighty` rather than a hand-written `>= 5`, and that is not tidiness:
-    // rule 711 asks about a unit's CURRENT Might, so a 3-Might body standing
+    // rule 710 asks about a unit's CURRENT Might, so a 3-Might body standing
     // under Garen - Commander with a buff is Mighty and a hardcoded comparison
     // against `unit.might` would miss it. That helper is also asked with
     // `isCombat: false` on purpose (see its doc comment) — Mighty is a property
@@ -878,6 +878,14 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       const wearer = wearerListener(state, listener);
       return wearer !== undefined && isFightingAt(state, wearer, event);
     },
+    //
+    // **"HERE" is the battlefield the COMBAT is at, and it is re-checked against
+    // where the wearer is standing when the question is answered** — see the
+    // `SFD-016-shot` entry below, which is the one and only place that check
+    // lives. It is not repeated here: `parkDecision` builds the options
+    // immediately, so a wearer who has already left makes the question moot at
+    // this instant too, and a second copy of the test would be unfalsifiable
+    // (measured — mutating it out failed nothing).
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
       const wearer = wearerListener(state, listener);
@@ -888,12 +896,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // trigger — the choice happens at resolution rather than at finalization
       // (402) — instead of adding auto-selection as a second one. A lone
       // candidate auto-resolves without prompting.
-      return enemiesAt(state, wearer.ownerIndex, wearer.battlefieldId).length === 0
+      //
+      // The WEARER rides along so the question can re-ask "here" when it is
+      // answered: the id is the unit that fought, fixed now, so a Bow re-attached
+      // to somebody else in the meantime does not change whose location is read.
+      return enemiesAt(state, wearer.ownerIndex, event.battlefieldId).length === 0
         ? state
         : parkDecision(state, {
             kind: "SFD-016-shot",
             playerIndex: wearer.ownerIndex,
-            battlefieldId: wearer.battlefieldId,
+            cardInstanceId: wearer.card.instanceId,
+            battlefieldId: event.battlefieldId,
           });
     },
   },
@@ -913,7 +926,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //    `combat.excessAssigned`, where all three candidate readings coincide.
     //
     // The point is a plain `points + 1`, deliberately NOT routed through
-    // `recordConquest`: rule 474's Final Point restriction applies to a point
+    // `recordConquest`: rule 471.1.b's Final Point restriction applies to a point
     // gained by CONQUERING, and this is a separate payout that happens to be
     // triggered by one. Same call, and the same reasoning, as Yasuo - Windrider.
     on: "battlefieldConquered",
@@ -1077,18 +1090,30 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // an instance of damage, and would fire the damage-triggered abilities in
     // this pool. Unreachable today (his 1 is printed) and cheap to be right about.
     //
-    // "HERE" is `event.battlefieldId`, not wherever he stands at resolution — 383
-    // fixes the moment, and the response window a held trigger opens is exactly
-    // when an opponent would move him. The TARGET is auto-selected in board
-    // order, the same simplification every other attack trigger in this pool
-    // makes and for the same structural reason: nothing carries a choice made
-    // inside a Cleanup. Recorded Unverified in docs/rules-conformance.md with the
-    // rest of that family.
+    // **"HERE" is RE-CHECKED against where he is standing at resolution**, and the
+    // battlefield the combat is at is only the value it is compared to. That is a
+    // different question from whether he triggered, and a different rule settles
+    // it: 383 fixes the trigger at the moment of the event, but "here" is a
+    // REFERENT read from the ability's source (359.3.f.1) and a referent is
+    // checked on EXECUTION of the instruction (359.3.f.2) — whose worked example
+    // is precisely this window, an opponent playing Fight or Flight on Yasuo -
+    // Remorseful's attack trigger so that "'here' is no longer the battlefield
+    // where combat is ongoing and the attack trigger mistargets". So a Lucian
+    // moved away (or killed) shoots nothing; the Pending Item was still placed and
+    // still cost both players a PassFocus. Sinister Poro (UNL-137,
+    // effects/chaos.ts) is the convention, and Recurve Bow above matches it.
+    //
+    // The TARGET is auto-selected in board order, the same simplification every
+    // other attack trigger in this pool makes and for the same structural reason:
+    // nothing carries a choice made inside a Cleanup. Recorded Unverified in
+    // docs/rules-conformance.md with the rest of that family.
     on: "combatBegan",
     applies: isAttackingAt,
     resolve: (state, listener, event) => {
       if (event.kind !== "combatBegan") return state;
       if (listener.card.kind !== "Unit") return state;
+      const here = findUnitOnBattlefield(state, listener.card.instanceId);
+      if (!here || state.battlefields[here.battlefieldIndex]!.id !== event.battlefieldId) return state;
       const assault = effectiveKeywords(state, listener.card, listener.ownerIndex).Assault ?? 0;
       if (assault <= 0) return state;
       const targetId = firstEnemyAt(state, listener.ownerIndex, event.battlefieldId, listener.card.instanceId);
@@ -1102,7 +1127,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // **WHOLE as of 2026-08-05.** The first clause — "When I win a combat, play
     // a Gold gear token exhausted" — was blocked on THREE things, and each was
     // closed separately: gear tokens (`placeGoldTokens`), a combat-WON event
-    // (466.5.a, fired by combat.ts at both resolution shapes), and
+    // (466.3.a, fired by combat.ts at both resolution shapes), and
     // `EventTriggerDefinition.on` accepting a list, since this registry is keyed
     // by defId and he already had a `combatBegan` trigger.
     //
@@ -1157,7 +1182,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // "When **I** hold" is positional, the same reading Ahri - Alluring and
     // Blitzcrank - Impassive take: the battlefield scored has to be the one he is
-    // standing at. A hold is 471.1.a's SCORING moment rather than mere presence,
+    // standing at. A hold is 469.2's SCORING moment rather than mere presence,
     // so a battlefield already conquered this turn fires nothing (471.1.b).
     //
     // Both conditions settle in `applies` because the event is held, and the
@@ -1416,7 +1441,7 @@ function rumbleTrades(state: GameState, playerIndex: 0 | 1, rumbleInstanceId: st
   return trades;
 }
 
-/** A unit's Might as this cost question asks it — rule 711's CURRENT Might, so an
+/** A unit's Might as this cost question asks it — rule 710's CURRENT Might, so an
  *  aura or a this-turn pump counts and a printed number would be wrong the moment
  *  the card is doing its job. `isCombat: false` for the reason `isMighty`'s doc
  *  gives: Might is a property of the unit, not of a fight, so [Assault] never
@@ -1579,7 +1604,7 @@ export const decisions: Record<string, DecisionDefinition> = {
 
       // "Attach it to ME." Rell may have died in the response window between the
       // trigger and this answer, in which case the Equipment is simply played and
-      // stays unattached — 422's do-as-much-as-you-can, and `attachEquipment` is
+      // stays unattached — 055's do-as-much-as-you-can, and `attachEquipment` is
       // a no-op on a missing wearer anyway.
       return d.cardInstanceId === undefined
         ? played
@@ -1588,21 +1613,42 @@ export const decisions: Record<string, DecisionDefinition> = {
   },
   /**
    * Recurve Bow's "deal 2 to an enemy unit here", raised by its WEARER attacking
-   * or defending. `battlefieldId` is captured when the question is raised, so it
-   * means where the combat happened rather than wherever the wearer has ended up
-   * by the time the answer arrives — the same reason Blitzcrank - Impassive's
-   * decision carries one.
+   * or defending. `battlefieldId` is captured when the question is raised, because
+   * by the time an answer arrives nothing on the board says which fight asked —
+   * the same reason Blitzcrank - Impassive's decision carries one.
+   *
+   * **But "here" is then re-checked against the WEARER's live location**, so the
+   * captured id says which fight, and is not a licence to shoot into it from
+   * elsewhere. A wearer moved away — or killed — makes the question MOOT, no
+   * options, and `advanceDecisions` drops it. "Here" is a referent read from the
+   * ability's source (359.3.f.1) and a referent is checked on EXECUTION of the
+   * instruction (359.3.f.2), whose own worked example is Fight or Flight sending
+   * Yasuo - Remorseful home in reaction to his attack trigger: "'here' is no
+   * longer the battlefield where combat is ongoing and the attack trigger
+   * mistargets". Sinister Poro (UNL-137, effects/chaos.ts) checks its own "here"
+   * in exactly this place, and that is the convention.
+   *
+   * **The check is HERE and not in `resolve` above, and that is measured rather
+   * than stylistic.** `parkDecision` builds the options immediately, so this runs
+   * at the moment the trigger resolves as well as at any later answer — a copy in
+   * `resolve` changed no outcome and no test could make it fail. And a LATER
+   * answer turns out not to be reachable today anyway: a pending question blocks
+   * the chain, so no other item can resolve and move the wearer while this one
+   * waits (pinned in test/equipment-wearer-moments.test.ts, which asserts the
+   * Bow's trigger is still ON the chain while another card's question is open).
    */
   "SFD-016-shot": {
     prompt: () => "Recurve Bow: deal 2 to which enemy unit here?",
-    options: (state, d) =>
-      d.battlefieldId === undefined
-        ? []
-        : enemiesAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
-            id: u.instanceId,
-            label: u.name,
-            instanceId: u.instanceId,
-          })),
+    options: (state, d) => {
+      if (d.battlefieldId === undefined || d.cardInstanceId === undefined) return [];
+      const here = findUnitOnBattlefield(state, d.cardInstanceId);
+      if (!here || state.battlefields[here.battlefieldIndex]!.id !== d.battlefieldId) return [];
+      return enemiesAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      }));
+    },
     resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, 2),
   },
   // Immortal Phoenix's "you may pay [1 Energy][1 Fury] to play me from your
@@ -1619,7 +1665,7 @@ export const decisions: Record<string, DecisionDefinition> = {
    *
    * Raised by `offerPaidDeathWard`, which has already checked the Fury can be
    * paid. The two branches differ exactly as Sett's do: saving REPLACES the
-   * death (809.1.b.1), so no [Deathknell] fires and no death-watch sees it;
+   * death (808.1.d.1), so no [Deathknell] fires and no death-watch sees it;
    * declining resumes the ordinary death at `completeDeath` rather than
    * re-entering killUnit, which would offer the same save forever.
    *

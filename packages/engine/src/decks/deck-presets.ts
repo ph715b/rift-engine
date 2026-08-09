@@ -29,7 +29,7 @@ export interface PresetDeck {
    * from" (registry/CustomDeckRegistry.java:16-18). The Origins starter decks DO
    * specify theirs, and it matters now that battlefield choice is a real
    * mechanic: Best-of-3 has you present one per game and eliminates it
-   * afterwards (rule 487.2/487.3), so a deck presenting the wrong trio plays
+   * afterwards (rule 486.5/486.5), so a deck presenting the wrong trio plays
    * differently.
    */
   battlefieldNames?: string[];

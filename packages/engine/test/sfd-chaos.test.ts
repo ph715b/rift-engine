@@ -270,7 +270,7 @@ describe("Fae Porter (SFD-125): pay a Chaos rune to pull a unit in behind him", 
     expect(after.players[0]!.baseUnits, "the ally did not leave base").toHaveLength(0);
     // 416: paying Power RECYCLES the rune to the bottom of the rune deck.
     expect(after.players[0]!.channeled, "the Chaos rune was never spent").toHaveLength(0);
-    // An effect-driven move does not exhaust (415.1.b puts that on the ACTION).
+    // An effect-driven move does not exhaust (414.3.a puts that on the ACTION).
     expect(at(after, "bf1", "p1").find((u) => u.name === "Ally")!.exhausted).toBe(false);
   });
 
@@ -326,7 +326,7 @@ describe("Loyal Pup (SFD-126): when YOU defend at a battlefield, he may join", (
     const state = makeState({ phase: "Action" });
     state.battlefields[0]!.units = { p1: pupAt === "bf1" ? [makeUnit({ name: "Guard" }), pup] : [makeUnit({ name: "Guard" })], p2: [makeUnit({ name: "Raider" })] };
     if (pupAt === "base") state.players[0]!.baseUnits = [pup];
-    // 465: the Attacker is whoever applied Contested, so p1 (index 1) attacking
+    // 464.2.c: the Attacker is whoever applied Contested, so p1 (index 1) attacking
     // makes p0 the Defender.
     state.battlefields[0]!.contestedByIndex = 1;
     return { state, pup };
@@ -375,7 +375,7 @@ describe("Loyal Pup (SFD-126): when YOU defend at a battlefield, he may join", (
   it("does not fire when the defender has no units there at all", () => {
     // **What this actually pins is the ENGINE, not the Pup's own guard.** A
     // battlefield contested with only one player's units present stages a
-    // NON-COMBAT Showdown (341 / 317.1), and `beginCombatAt` — and therefore
+    // NON-COMBAT Showdown (341 / 316.8.b.1), and `beginCombatAt` — and therefore
     // `combatBegan` — is never reached, so no listener hears anything. The
     // presence check inside `pupJoins` is unreachable through this path and only
     // bites on `designateArrivals`, which fires `combatBegan` for a reinforcement
@@ -559,7 +559,7 @@ describe("Treasure Hunter (SFD-130): a Gold token every time I move", () => {
     expect(goldOf(once, 0), "the first move already failed").toHaveLength(1);
 
     const moved = findAnywhere(once, hunter.instanceId)!;
-    // The Standard Move exhausted him (415.1.b); ready him so the second is legal.
+    // The Standard Move exhausted him (414.3.a); ready him so the second is legal.
     const readied = {
       ...once,
       battlefields: once.battlefields.map((bf) =>
@@ -771,7 +771,7 @@ describe("Downwell (SFD-147): return ALL units and gear to their owners' hands",
     expect(after.players[1]!.hand.map((c) => c.name).sort()).toEqual(["TheirFront", "TheirGear", "TheirHome"]);
   });
 
-  it("strips a Buff on the way out — rule 709", () => {
+  it("strips a Buff on the way out — rule 705", () => {
     const card = spellInstance(DOWNWELL);
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [card];
@@ -819,7 +819,7 @@ describe("Draven - Audacious (SFD-148): the first combat he wins each turn score
 
   /**
    * Opens the Showdown through the real Cleanup and then CLOSES it the way a game
-   * does — two consecutive PassFocus, which is `closeShowdown`'s only entry (349)
+   * does — two consecutive PassFocus, which is `closeShowdown`'s only entry (348)
    * and therefore the only path `resolveShowdown` and its `combatWon` hold are
    * ever reached by.
    *
@@ -855,7 +855,7 @@ describe("Draven - Audacious (SFD-148): the first combat he wins each turn score
     // **This control is WEAK by construction, and measured to be so** — the same
     // hole combat-won.test.ts's mutual-wipe test documents. Deleting the
     // `winnerIndex === listener.ownerIndex` condition from `applies` leaves this
-    // PASSING, because a losing Draven is a dead Draven: 466.5.a makes the winner
+    // PASSING, because a losing Draven is a dead Draven: 466.3.a makes the winner
     // "the only player that has units remaining", so a unit alive at the
     // battlefield where a combat was won is on the winning side by definition and
     // one on the losing side is not a listener at all. The condition is therefore
@@ -989,7 +989,7 @@ describe("coverage sees each of them", () => {
   it("Corrupt Enforcer is WHOLE now — both clauses, and no partial note", () => {
     // He was registered for his move clause only, and reported DONE on the
     // strength of it; "when I win a combat, draw 1" needed a combat-WON event
-    // (466.5.a) that GameEvent did not carry. It does now, so his
+    // (466.3.a) that GameEvent did not carry. It does now, so his
     // PARTIALLY_IMPLEMENTED entry was DELETED rather than reworded.
     expect(registry.get(CORRUPT_ENFORCER).text).toContain("When I win a combat");
     expect(isCardImplemented(registry.get(CORRUPT_ENFORCER))).toBe(true);

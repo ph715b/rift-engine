@@ -46,7 +46,7 @@ describe("while a question is pending, nothing else is legal", () => {
   });
 
   it("refuses every other action, including Pass and PassFocus", () => {
-    // Rule 323.2.a — while resolution is suspended, Priority and Focus "are not
+    // Rule 320.1 — while resolution is suspended, Priority and Focus "are not
     // passed or awarded". Passing Focus out of a half-resolved effect would be
     // exactly that.
     const asked = discardCards(asker(3), 0, 1);
@@ -105,7 +105,7 @@ describe("a question with nothing to decide is never asked", () => {
   });
 
   it("drops a question with no options at all", () => {
-    // Cull the Weak against a player with no units: 422's "do as much as you
+    // Cull the Weak against a player with no units: 055's "do as much as you
     // can". Deadlocking on an unanswerable question is the alternative.
     const state = parkDecision(asker(0), { kind: "OGN-209-kill", playerIndex: 0 });
     expect(state.pendingDecisions).toHaveLength(0);
@@ -120,9 +120,9 @@ describe("a question with nothing to decide is never asked", () => {
   // "a decision kind nothing registers" at the foot of this file.
 });
 
-describe("the Cleanup waits for the answer (323.2.b)", () => {
+describe("the Cleanup waits for the answer (321)", () => {
   /** A battlefield this player controls but has no units at — the Cleanup lapses
-   *  control of exactly this (323.11), so it is a visible marker of whether one ran. */
+   *  control of exactly this (323.6), so it is a visible marker of whether one ran. */
   function withLapsableBattlefield(state: GameState): GameState {
     const next = { ...state, battlefields: state.battlefields.map((bf) => ({ ...bf })) };
     next.battlefields[0]!.controllerId = "p1";
@@ -133,7 +133,7 @@ describe("the Cleanup waits for the answer (323.2.b)", () => {
     // "While Chain Items are Resolving, a Cleanup cannot occur." The sharp case
     // is a half-answered effect: "discard 2" answered once is still mid-
     // resolution, so submitting that answer must not trigger the Cleanup that
-    // would lapse control of this empty battlefield (323.11).
+    // would lapse control of this empty battlefield (323.6).
     const asked = discardCards(withLapsableBattlefield(asker(4)), 0, 2);
     expect(asked.pendingDecisions).toHaveLength(1);
 
@@ -143,7 +143,7 @@ describe("the Cleanup waits for the answer (323.2.b)", () => {
     expect(halfway.battlefields[0]!.controllerId).toBe("p1"); // still held, un-lapsed
   });
 
-  it("runs once the queue empties (323.4)", () => {
+  it("runs once the queue empties (322)", () => {
     // Nothing is lost by deferring: a Cleanup repeats until the state stops
     // changing, so the one at the end does the work of the ones skipped.
     const state = withLapsableBattlefield(asker(3));

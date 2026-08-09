@@ -82,7 +82,7 @@ export function xAmountOf(pending: PendingXChoice): number | undefined {
  *
  * They are separate flags rather than one enum because a card can carry more
  * than one at once: a printed `[Repeat]` under a Temporal Portal grant is
- * `repeatPaid` AND `grantedRepeatPaid`, which 3509 makes two instances paid
+ * `repeatPaid` AND `grantedRepeatPaid`, which 820.1.c.2 makes two instances paid
  * separately.
  */
 export const OPTIONAL_COST_FLAGS = [

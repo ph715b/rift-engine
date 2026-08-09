@@ -35,7 +35,7 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
   const mode = resolveMode(found.abilityDefId, found.card, action.modeId);
   if (!mode) throw new Error(`${found.card.name} has no such mode available`);
 
-  // The cost belongs to the ABILITY, the exhaust to the SOURCE (416.1) — which
+  // The cost belongs to the ABILITY, the exhaust to the SOURCE (414.5) — which
   // are the same card for everything except a borrowed ability.
   const paid = payActivationCost(
     state,

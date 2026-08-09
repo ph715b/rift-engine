@@ -387,7 +387,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
 });
 
 /**
- * `battlefieldConquered` is a Chain Pending Item now (383 / 809.1.b.3), so a
+ * `battlefieldConquered` is a Chain Pending Item now (383 / 808.1.d.3), so a
  * conquer trigger no longer resolves inside `recordConquest` — it lands in
  * `state.pendingTriggers`, is finalized onto the chain by the Cleanup, and
  * resolves when both players have passed on it.

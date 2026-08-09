@@ -11,7 +11,7 @@ import { makePlayer, makeState, makeUnit } from "./fixtures.js";
  * Fiora - Grand Duelist (SFD-205) — "When one of your units becomes [Mighty],
  * you may exhaust me to channel 1 rune exhausted."
  *
- * The hard part is not hers: **"becomes" is a TRANSITION across 5 Might (711) on
+ * The hard part is not hers: **"becomes" is a TRANSITION across 5 Might (709) on
  * a value this engine recomputes on every read.** There is no stored total whose
  * write could be the moment, so `withMightTransitions` brackets the raise helpers
  * and compares before with after.
@@ -61,7 +61,7 @@ describe("Fiora fires when a unit CROSSES into [Mighty]", () => {
     expect(pendingDecision(after)?.kind, "no offer on crossing into Mighty").toBe("SFD-205-channel");
   });
 
-  it("a BUFF can cross the line too — a buff is +1 Might (710)", () => {
+  it("a BUFF can cross the line too — a buff is +1 Might (703)", () => {
     const after = settle(addBuff(board(4), "duelist"));
     expect(pendingDecision(after)?.kind).toBe("SFD-205-channel");
   });

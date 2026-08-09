@@ -38,7 +38,7 @@ const runes = (domain: Domain, count: number) =>
  *
  * Both loops are needed together and interleaved: Overt Operation parks its
  * questions DURING chain resolution, and `submit` refuses a PassFocus while one
- * is outstanding (323.2.a), so a helper that drained the chain first and the
+ * is outstanding (320.1), so a helper that drained the chain first and the
  * questions afterwards would deadlock on exactly the card it is here for.
  */
 function playThrough(
@@ -177,7 +177,7 @@ describe("Wallop (OGN-146): ready a unit", () => {
       playOf(state, spell.instanceId, (a) => a.type === "PlayCard" && a.targetUnitInstanceId === "tired"),
     );
 
-    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "buffed")!.buffed).toBe(false); // 704.1
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "buffed")!.buffed).toBe(false); // 702.2.b
     expect(after.players[0]!.baseUnits.find((u) => u.instanceId === "tired")!.exhausted).toBe(false);
     expect(after.players[0]!.channeled).toEqual([]); // nothing was there to spend, and nothing was needed
     expect(after.players[0]!.trash.map((c) => c.defId)).toEqual([WALLOP]); // it really resolved
@@ -256,13 +256,13 @@ describe("Overt Operation (OGN-153): spend buffs to ready, then buff everything"
 
     expect(asked, "the 'you may' was never put to the player").toBe(1);
     expect(byId(after, "a").exhausted).toBe(true);
-    expect(byId(after, "a").buffed).toBe(true); // 708 makes the mass buff a no-op here
+    expect(byId(after, "a").buffed).toBe(true); // 702.3.a makes the mass buff a no-op here
   });
 
   it("offers exactly one question per BUFFED friendly unit and none for the rest", () => {
-    // The count is the assertion. An unbuffed unit has no payable side (705), so
+    // The count is the assertion. An unbuffed unit has no payable side (702.2.b.1), so
     // asking about it would be a fake choice; an enemy buffed unit is not
-    // "friendly" and must not be asked about at all (705.1).
+    // "friendly" and must not be asked about at all (702.2.b.2).
     const state0 = overtState([
       makeUnit({ instanceId: "a", buffed: true }),
       makeUnit({ instanceId: "b", buffed: true }),

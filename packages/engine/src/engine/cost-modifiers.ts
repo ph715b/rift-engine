@@ -306,7 +306,7 @@ export interface AdditionalCostBundle {
  *
  * Its own entry point beside `modifiedRepeatEnergy` rather than a branch inside
  * `modifiedEnergyCost`, for the reason that pair already records: this reduces
- * the additional-cost term 356.3 adds BESIDE the printed cost, and the term is
+ * the additional-cost term 356.2 adds BESIDE the printed cost, and the term is
  * three components a single number cannot carry.
  *
  * **Once per QUALIFYING OPTIONAL ADDITIONAL COST, not once per play** —
@@ -321,7 +321,7 @@ export interface AdditionalCostBundle {
  * Hence a LIST rather than one summed bundle: the caller decides what counts as a
  * cost, because only the caller knows which flags the action set. An entry that
  * is all zeros is harmless — there is no shared budget for it to consume — which
- * is why 356.4.d.1's "it doesn't matter how much the player actually paid" needs
+ * is why 356.4.f.1's "it doesn't matter how much the player actually paid" needs
  * no separate `paying` flag any more. The callers gate each entry on its own flag,
  * which is the same thing said in the place that knows it.
  *
@@ -681,7 +681,7 @@ export function modifiedEnergyCost(
 
   if (defId === JAULL_FISH) {
     // "I cost [2] less for each of your [Mighty] units." Read through
-    // `effectiveMight` against 711's threshold, so a unit made Mighty by an aura
+    // `effectiveMight` against 708's threshold, so a unit made Mighty by an aura
     // or a this-turn pump counts — the same non-combat reading Sky Splitter's
     // highest-Might question takes one branch up.
     const mighty = ownUnitsWithLocation(state, playerIndex).filter(

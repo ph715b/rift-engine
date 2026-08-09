@@ -204,11 +204,11 @@ describe("combat resolution (resolveShowdown)", () => {
     expect(state.battlefields[0]!.units["p2"]![0]!.damage).toBe(0); // healed after combat
   });
 
-  it("one side alone exchanges no damage but still TAKES the battlefield (466.5.a / 466.7)", () => {
+  it("one side alone exchanges no damage but still TAKES the battlefield (466.3.a / 466.5)", () => {
     // This used to assert `result === state` — a genuine no-op. That premise was
-    // the bug: with nobody to fight there is no damage, but 466.5.a still makes
-    // the only player with units remaining the winner, and 466.7 has them
-    // establish Control (a Conquer under 466.7.c). Asserting the no-op was
+    // the bug: with nobody to fight there is no damage, but 466.3.a still makes
+    // the only player with units remaining the winner, and 466.5 has them
+    // establish Control (a Conquer under 466.5.d). Asserting the no-op was
     // asserting that a player who is handed a battlefield gets nothing for it.
     const attacker = makeUnit({ might: 5 });
     let state = makeState();
@@ -226,7 +226,7 @@ describe("combat resolution (resolveShowdown)", () => {
 
 describe("MoveUnit: Contested, and which kind of Showdown it stages", () => {
   /** Moves through the real pipeline. `submit` is what runs the Cleanup, and the
-   *  Cleanup is what stages the Showdown (316.9 / 341) — calling
+   *  Cleanup is what stages the Showdown (323.8 / 341) — calling
    *  `executeMoveUnit` bare only ever applies Contested, which is the point of
    *  the split. */
   function move(state: GameState, unitIds: string[], destinationBattlefieldId: string) {
@@ -250,7 +250,7 @@ describe("MoveUnit: Contested, and which kind of Showdown it stages", () => {
     expect(moved.showdownKind).toBeNull();
   });
 
-  it("walking onto an EMPTY battlefield opens a Non-Combat Showdown and scores nothing yet (458 / 317.1)", () => {
+  it("walking onto an EMPTY battlefield opens a Non-Combat Showdown and scores nothing yet (458 / 316.8.b.1)", () => {
     // The behaviour this whole change is about: it used to claim control and
     // score a point on the spot, skipping the window entirely.
     const unit = makeUnit();
@@ -270,12 +270,12 @@ describe("MoveUnit: Contested, and which kind of Showdown it stages", () => {
     expect(state.showdownKind).toBe("NonCombat");
     expect(state.showdownBattlefieldId).toBe("bf1");
     expect(state.focusHolder).toBe(0); // whoever applied Contested (345)
-    // Control and the Conquer wait for the window to close (352.1).
+    // Control and the Conquer wait for the window to close (348.2.a).
     expect(state.battlefields[0]!.controllerId).toBeNull();
     expect(state.players[0]!.points).toBe(0);
   });
 
-  it("...and closing that window is what establishes control and scores (352.1)", () => {
+  it("...and closing that window is what establishes control and scores (348.2.a)", () => {
     const unit = makeUnit();
     let state = makeState();
     state.players[0]!.baseUnits = [unit];
@@ -288,13 +288,13 @@ describe("MoveUnit: Contested, and which kind of Showdown it stages", () => {
     expect(state.showdownKind).toBeNull();
     expect(state.battlefields[0]!.controllerId).toBe("p1");
     expect(state.players[0]!.points).toBe(1);
-    // Contested ends when Control is established (190.6.a), not merely when the
+    // Contested ends when Control is established (190.3.b), not merely when the
     // window ends — otherwise the next Cleanup would restage a Showdown here.
     expect(state.battlefields[0]!.contestedByIndex).toBeNull();
   });
 
-  it("moving onto a battlefield you ALREADY control applies no Contested at all (458)", () => {
-    // Reinforcing shouldn't open a window; 458 only contests a destination "not
+  it("moving onto a battlefield you ALREADY control applies no Contested at all (450)", () => {
+    // Reinforcing shouldn't open a window; 450 only contests a destination "not
     // controlled by the controller of the Unit or Units that moved".
     const held = makeUnit();
     const reinforcement = makeUnit();
@@ -673,16 +673,16 @@ describe("Focus/Showdown priority window", () => {
     const secondPass = submit(firstPass.state, { type: "PassFocus", playerIndex: 1 });
     expect(secondPass.result).toEqual({ type: "GameOver", winnerId: "p1" });
   });
-  it("a defender who LEAVES the Combat Showdown hands the attacker the battlefield (466.5.a / 466.7)", () => {
+  it("a defender who LEAVES the Combat Showdown hands the attacker the battlefield (466.3.a / 466.5)", () => {
     // The reported bug: the AI casts Flash (OGS-011, "Move up to 2 friendly
     // units to base") to pull its unit out of a Showdown, and the human — left
     // standing alone at the battlefield — was not credited with scoring.
     //
-    // Rule 466.5.a: a player has WON the combat if they "are the only Player
-    // that has units remaining at this battlefield during this step". 466.5.d
+    // Rule 466.3.a: a player has WON the combat if they "are the only Player
+    // that has units remaining at this battlefield during this step". 466.3.d
     // reserves "No Result" for units recalled in step 3d, BOTH players present,
-    // or NEITHER present — not for this. 466.7 then has the player with units
-    // remaining establish Control, and 466.7.c makes that a Conquer.
+    // or NEITHER present — not for this. 466.5 then has the player with units
+    // remaining establish Control, and 466.5.d makes that a Conquer.
     const attacker = makeUnit({ might: 3 });
     const defender = makeUnit({ might: 3 });
     let state = makeState();
@@ -712,7 +712,7 @@ describe("Focus/Showdown priority window", () => {
   });
 
   it("an ATTACKER who leaves hands the battlefield back to the defender, symmetrically", () => {
-    // Same rule read from the other side — 466.5.a names "either the attacker or
+    // Same rule read from the other side — 466.3.a names "either the attacker or
     // defender designation", so the early return was costing both players, not
     // just the human. Here the defender did not already control it, so this is a
     // Conquer for them too.
@@ -739,7 +739,7 @@ describe("Focus/Showdown priority window", () => {
     expect(state.players[1]!.points).toBe(1);
   });
 
-  it("BOTH sides leaving is No Result and leaves the battlefield Uncontrolled (466.5.d / 466.7.b)", () => {
+  it("BOTH sides leaving is No Result and leaves the battlefield Uncontrolled (466.3.d / 466.5.b)", () => {
     const attacker = makeUnit({ might: 3 });
     const defender = makeUnit({ might: 3 });
     let state = makeState();

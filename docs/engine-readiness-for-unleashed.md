@@ -293,7 +293,7 @@ Each is recorded in `docs/rules-conformance.md` in the same change, and each is
 pinned by a test. **The rules PDF was read for every one of them**, and it
 corrected the plan or the row in all three cases:
 
-1. **A BASE as a spell's move destination — CLOSED.** The row cited "rule 1442";
+1. **A BASE as a spell's move destination — CLOSED.** The row cited "rule 359.3.e.6";
    the worked example is **359.3.e**. It also said "all six move-target spells";
    it is **five** — Showstopper and Stormbringer print "to a battlefield" and
    correctly cannot reach base, and Relentless Pursuit, which the row omitted,
@@ -303,7 +303,7 @@ corrected the plan or the row in all three cases:
    reachability 429 → 430, and the card that moved is Temptation**, which prints
    "move an enemy unit to a LOCATION".
 2. **Tideturner — CLOSED.** `TargetingSpec.optionalChoice`, read by the
-   enumerator AND the validator, with 402.2 as the rule. A census test asserts it
+   enumerator AND the validator, with 402.1 as the rule. A census test asserts it
    is still the only card carrying the flag.
 3. **`[Deathknell]` reading the board it died on — HALF closed, honestly.** The
    `applies`/`capture` pair exists now and fixes the **Kill Instruction** path
@@ -323,7 +323,7 @@ simultaneity too), which is why it was not done blind.
 
 1. **A BASE as a spell's move destination.** The strongest case left: **six cards
    are weaker than printed** — Charm, Showstopper, Ride The Wind, Stormbringer,
-   Dragon's Rage, Temptation — and rule 1442 works Ride the Wind's case *by name*
+   Dragon's Rage, Temptation — and rule 359.3.e.6 works Ride the Wind's case *by name*
    ("Base is a legal move destination"). The fix is a destination field that can
    say "base", the shape `TokenDestination` already has, plus the
    enumerator/validator pair. **One session, no agents** — it is precisely the
@@ -355,7 +355,7 @@ What is already there, measured today:
 - **`[Backline]` is IMPLEMENTED** — `combat.ASSIGNED_LAST_DEF_IDS` is a third
   tier in `assignmentOrder`, built for Caitlyn - Patrolling, who prints it as
   plain prose. One of the four is done before the set arrives.
-- **Prevent (rule 438) is NOT modelled**, and the PDF works it by name on an SFD
+- **Prevent (rule 437) is NOT modelled**, and the PDF works it by name on an SFD
   card (Counter Strike, SFD-194) — so this is an existing gap, not a UNL one, and
   it is recorded as a divergence rather than a partial.
 - **XP / rule 728 has nothing.** This is the real subsystem, and it is the one

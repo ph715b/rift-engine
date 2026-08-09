@@ -135,7 +135,7 @@ export function freeDeathReplacement(
  * baseUnits. A recall, not a move (454), so no vacancy or contest checks.
  *
  * Shared so the three cannot drift on what "recall" resets. It deliberately does
- * NOT clear the Buff: the unit never left play, and 709 only strips buffs on
+ * NOT clear the Buff: the unit never left play, and 705 only strips buffs on
  * leaving.
  */
 export function reviveToBase(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): GameState {

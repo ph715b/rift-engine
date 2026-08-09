@@ -204,7 +204,7 @@ engine — and in every one of them, the obvious cause was disproved first.
 
 - **Baited Hook (OGN-242)** — done at `b6365e2`. "The unit off the top should be
   playable to the battlefield the bait died on." Control was tried FIRST and does
-  not work: control lapses in `lapseUnoccupiedControl` (323.11) and a Cleanup runs
+  not work: control lapses in `lapseUnoccupiedControl` (323.6) and a Cleanup runs
   between submitting the activation and answering its question, so by then the
   player controls nothing there either. Implemented instead as 359.3's linked
   instructions — the victim's battlefield captured on the parked decision and

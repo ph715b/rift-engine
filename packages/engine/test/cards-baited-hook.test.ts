@@ -201,7 +201,7 @@ describe("Baited Hook (OGN-242): the first Energy+Power activation", () => {
  *
  * `bf-0` is CONTROLLED by the player in these tests, which is the whole point:
  * control is awarded when the battlefield is held and lapses only in a later
- * Cleanup (`lapseUnoccupiedControl`, 323.11). So between the kill and the free
+ * Cleanup (`lapseUnoccupiedControl`, 323.6). So between the kill and the free
  * play there is a real window where "a battlefield you control" and "a battlefield
  * where you have units" disagree, and this is it.
  *

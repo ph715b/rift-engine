@@ -10,7 +10,7 @@ import { winThreshold } from "./battlefield-continuous.js";
 export const WIN_THRESHOLD_1V1 = 8;
 
 /**
- * `[Mighty]` is "while it has 5+ Might" (rule 711).
+ * `[Mighty]` is "while it has 5+ Might" (rule 708).
  *
  * Here rather than beside `isMighty` in granted-keywords.ts because TWO modules
  * need it and they cannot import each other: `effect-helpers` fires the
@@ -61,7 +61,7 @@ export const isMechDef = (def: { tags?: readonly string[] }): boolean => def.tag
  * learned to read as "here is a hook that does not exist".
  *
  * Both readers must ask it: `win-condition.winner` and `scoring.recordConquest`'s
- * final-point rule (474). One of them using the bare constant is how a game ends
+ * final-point rule (471.1.b). One of them using the bare constant is how a game ends
  * a point early.
  */
 export function victoryScore(state: GameState): number {

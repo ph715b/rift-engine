@@ -9,6 +9,7 @@ import { resolveShowdown } from "../src/engine/combat.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
@@ -214,7 +215,7 @@ describe("Sudden Storm (SFD-017): 2, or 4 to an attacker", () => {
     const victim = makeUnit({ instanceId: "attacker", might: 20 });
     const state = makeState();
     state.battlefields[0]!.units = { p2: [victim], p1: [makeUnit()] };
-    state.battlefields[0]!.contestedByIndex = 1; // p2 is the Attacker (465 Step 1)
+    state.battlefields[0]!.contestedByIndex = 1; // p2 is the Attacker (464.2.c Step 1)
 
     const after = resolveSpell(SUDDEN_STORM, 0, state, { targetUnitInstanceId: victim.instanceId });
     expect(unitAt(after, "attacker")!.damage).toBe(4);
@@ -274,7 +275,7 @@ describe("Ferrous Forerunner (SFD-021): [Deathknell] — two 3-Might Mech tokens
 
 describe("Lucian - Gunslinger (SFD-028): when I attack, deal my [Assault] to an enemy here", () => {
   /** Lucian attacking bf1 against one enemy body, driven through the real
-   *  Cleanup so the Attacker designation is handed out by 465 Step 1 rather than
+   *  Cleanup so the Attacker designation is handed out by 464.2.c Step 1 rather than
    *  asserted by the fixture. */
   function attacking(lucian = realUnitInstance(LUCIAN_GUNSLINGER)) {
     const victim = makeUnit({ instanceId: "victim", might: 20 });
@@ -303,6 +304,47 @@ describe("Lucian - Gunslinger (SFD-028): when I attack, deal my [Assault] to an 
     const { state } = attacking();
     const after = beginCombatAt(state, "bf1", 1); // p2 applied Contested
     expect(unitAt(after, "victim")!.damage).toBe(0);
+  });
+
+  it("does not shoot into a fight he has WALKED OUT OF — 'here' is where he stands", () => {
+    // "Here" is a referent read from the ability's source (359.3.f.1), and a
+    // referent is checked on EXECUTION of the instruction (359.3.f.2) — the rules'
+    // worked example being an opponent answering Yasuo - Remorseful's attack
+    // trigger with Fight or Flight: "'here' is no longer the battlefield where
+    // combat is ongoing and the attack trigger mistargets".
+    //
+    // The window has to be OPEN for this, so the combat is staged with the real
+    // Cleanup and settled separately — `beginCombatAt` does both halves in one
+    // call and leaves nowhere to move him. The chain assertion is not decoration:
+    // 0 damage from a trigger that never fired reads exactly like 0 damage from
+    // one that fired and correctly mistargeted.
+    const { state, lucian } = attacking();
+    const held = runCleanup({
+      ...state,
+      battlefields: state.battlefields.map((bf) => (bf.id === "bf1" ? { ...bf, contestedByIndex: 0 as const } : bf)),
+    });
+    expect(
+      held.spellChain.flatMap((e) => (e.kind === "trigger" ? [e.listenerDefId] : [])),
+      "the trigger was never placed",
+    ).toContain(LUCIAN_GUNSLINGER);
+
+    // To ANOTHER battlefield, with a legal victim beside him, so this cannot pass
+    // on a "he is off the board" branch.
+    const walked = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p1: [] } }
+          : bf.id === "bf2"
+            ? { ...bf, units: { p1: [lucian], p2: [makeUnit({ instanceId: "bystander", might: 20 })] } }
+            : bf,
+      ),
+    };
+
+    const after = resolveHeldTriggers(walked);
+
+    expect(unitAt(after, "victim")!.damage, "he shot into the fight from another battlefield").toBe(0);
+    expect(unitAt(after, "bystander")!.damage, "he re-aimed 'here' at wherever he ended up").toBe(0);
   });
 
   it("hits nobody when he attacks into an empty battlefield", () => {

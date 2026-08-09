@@ -32,7 +32,7 @@ interface ChoiceOverlayProps {
  * **Omit `onCancel` when it isn't.** A pending decision (engine/decisions.ts) is
  * the case this comment used to describe as Java's problem and ours to avoid:
  * the action HAS been submitted, the engine is halfway through resolving an
- * effect, and rule 323.2.b means nothing else can happen until an answer comes
+ * effect, and rule 321 means nothing else can happen until an answer comes
  * back. There is no state to return to, so offering a Cancel button would either
  * lie or strand the game. Without `onCancel` the panel renders no dismissal at
  * all and the only way out is to answer.

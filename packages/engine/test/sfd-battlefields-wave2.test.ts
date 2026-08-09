@@ -16,7 +16,7 @@ import { answerDecisions, beginCombatAt, makeState, makeUnit, resolveHeldTrigger
  * The interesting one is **Forgotten Monument**, which is the first card in this
  * engine to block SCORING rather than to block GAINING A POINT. Tianna Crownguard
  * is the contrast and the ruling is the opposite: hers lets the scoring happen
- * and pays nothing, so 471.1.b's lockout fires; this one stops the scoring
+ * and pays nothing, so 470's lockout fires; this one stops the scoring
  * outright, so nothing is recorded and the battlefield is still there to take
  * later. Both halves are asserted below.
  */
@@ -105,7 +105,7 @@ describe("Ravenbloom Conservatory (SFD-215): when you defend here, reveal the to
     expect(settled.players[0]!.deck.at(-1)!.instanceId).toBe("top-unit");
   });
 
-  it("does nothing on an empty deck (422)", () => {
+  it("does nothing on an empty deck (055)", () => {
     const state = at(RAVENBLOOM, { attackers: 1 });
     state.players[0]!.deck = [];
     expect(defendAt(state).players[0]!.hand).toHaveLength(0);
@@ -169,7 +169,7 @@ describe("Forgotten Monument (SFD-209): players can't score here until their thi
 
   it("does NOT record the battlefield as scored — the opposite of Tianna's ruling", () => {
     // The half that separates "can't score" from "can't gain points". Tianna
-    // lets the scoring happen and pays nothing, so 471.1.b's lockout fires and
+    // lets the scoring happen and pays nothing, so 470's lockout fires and
     // the battlefield is spent for the turn. This stops the scoring itself, so
     // nothing is recorded and the battlefield is still there to be taken later.
     const blocked = scoreHolds(at(FORGOTTEN_MONUMENT, { turnNumber: 2 }), 0);

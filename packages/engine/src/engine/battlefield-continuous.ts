@@ -139,7 +139,7 @@ const BATTLEFIELD_CONTINUOUS: Record<string, ContinuousBattlefield> = {
  *
  * **Distinct from `mayGainPoints`, and the difference is the whole ruling.**
  * Tianna Crownguard blocks GAINING A POINT while the scoring still happens, so
- * 471.1.b's once-per-battlefield-per-turn lockout fires and the opponent cannot
+ * 470's once-per-battlefield-per-turn lockout fires and the opponent cannot
  * retry. Forgotten Monument blocks SCORING ITSELF — the event does not happen —
  * so nothing is recorded and the battlefield is still there to be scored on the
  * third turn. A card that says "can't score" and a card that says "can't gain
@@ -338,7 +338,7 @@ const HIDDEN_CARDS_PER_BATTLEFIELD = 1;
  * points needed to win the game" is a property of the game, so it applies to
  * both players and is read wherever the threshold is. It is deliberately a
  * function of state rather than a constant for exactly that reason — `winner`
- * and `recordConquest`'s final-point rule (474) both compare against it, and a
+ * and `recordConquest`'s final-point rule (471.1.b) both compare against it, and a
  * constant that is right in one of them and stale in the other is how a game
  * ends a point early.
  */

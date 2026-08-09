@@ -16,7 +16,7 @@ import { makeState, makeUnit, spellInstance } from "./fixtures.js";
  * you play this turn [Repeat] equal to its cost."
  *
  * **The first card that grants a keyword to a card not yet played**, and the
- * first place two instances of `[Repeat]` can meet. 3509 and 3525 are what make
+ * first place two instances of `[Repeat]` can meet. 820.1.c.2 and 820.3 are what make
  * that interesting rather than redundant: "if a spell or ability has more than
  * one instance of Repeat, each Cost may be paid or not paid individually", and
  * each paid instance adds one execution. A printed-[Repeat] spell under a Portal
@@ -190,7 +190,7 @@ describe("paying the granted [Repeat]", () => {
     expect(validatePlayCard(state, underpaid).ok, "the second execution was sold at the first's price").toBe(false);
   });
 
-  /** The payoff: the spell's instructions run TWICE (3525). */
+  /** The payoff: the spell's instructions run TWICE (820.3). */
   it("executes the spell twice", () => {
     const { state, spellId } = withSpell(arm(board()));
     const plainPlay = playsOf(state, spellId).find((a) => !a.grantedRepeatPaid)!;
@@ -203,7 +203,7 @@ describe("paying the granted [Repeat]", () => {
   });
 
   /**
-   * **Two instances, and 3525 says each paid one adds an execution.** Desert's
+   * **Two instances, and 820.3 says each paid one adds an execution.** Desert's
    * Call is 820.1.d's own worked example ("Play a 2 Might Sand Soldier unit
    * token", [Repeat] [2]), so under a Portal it can play ONE, TWO or THREE Sand
    * Soldiers depending on which of its two [Repeat] costs are paid — which is the

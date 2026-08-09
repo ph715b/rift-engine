@@ -131,7 +131,7 @@ describe("Acceptable Losses (OGN-179): each player kills one of their gear", () 
     return { state, losses };
   }
 
-  it("asks each player about their OWN gear, turn player first (894)", () => {
+  it("asks each player about their OWN gear, turn player first (303.2.a)", () => {
     const { state, losses } = withGear(["A1", "A2"], ["B1", "B2"]);
 
     const asked = play(state, losses);
@@ -193,7 +193,7 @@ describe("Whirlwind (OGN-187): starting with the next player, each may bounce a 
     return { state, whirlwind, mine, theirs };
   }
 
-  it("asks the NON-turn player first — the card's explicit override of 894", () => {
+  it("asks the NON-turn player first — the card's explicit override of 303.2.a", () => {
     // This is the assertion the whole card turns on. APNAP (the default every
     // other "each player" card here uses) would give [0, 1].
     const { state, whirlwind } = whirlwindTable();
@@ -428,7 +428,7 @@ describe("Kog'Maw - Caustic (OGN-190): [Deathknell] deal 4 to all units at my ba
     //
     // The turn player casts it at their OWN Kog'Maw, which is not a contrivance
     // to dodge timing: in a Neutral state only the turn player may act at all
-    // (rule 919), and "deal 2 to a unit" names no owner.
+    // (rule 316.5.b), and "deal 2 to a unit" names no owner.
     const { state, ally, enemy } = kogmawAt();
     const kogmawOnBoard = state.battlefields[0]!.units["p1"]![0]!;
     const incinerate = spell(INCINERATE);

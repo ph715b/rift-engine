@@ -89,7 +89,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // **"EQUIPPED" is a condition the targeting spec cannot express**, so it is
     // checked in the resolver. The consequence is honest rather than hidden: an
     // unequipped friendly CAN be named and the spell then does nothing, which is
-    // 422's do-as-much-as-you-can rather than an illegal play. Recorded in
+    // 055's do-as-much-as-you-can rather than an illegal play. Recorded in
     // docs/rules-conformance.md; narrowing the enumeration would need a
     // per-slot predicate the spec has no field for.
     //
@@ -154,7 +154,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // No owner, no battlefield, no floor: scope "anywhere" and the number as
     // printed. giveMightThisTurn rather than a Buff — this expires in the
-    // Expiration Step (317) rather than persisting (710).
+    // Expiration Step (317) rather than persisting (705).
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
       event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 7) : state,
@@ -189,7 +189,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // The consolation is measured off what ACTUALLY happened, not off the rune
     // deck's size beforehand: channelRunesExhausted takes as many as it can
-    // (315.4.b), so comparing the channeled pool before and after is the only
+    // (315.3.b.1), so comparing the channeled pool before and after is the only
     // reading that stays right if that helper's own short-deck behaviour ever
     // changes. "Couldn't channel 2" is fewer than 2, so a deck with exactly one
     // rune left both channels it AND draws.
@@ -322,13 +322,13 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // about when the choice is made anyway.
     //
     // One question per BUFFED friendly unit. Unbuffed ones are skipped rather
-    // than asked-and-declined: rule 705 forbids spending a buff that isn't there,
+    // than asked-and-declined: rule 702.2.b.1 forbids spending a buff that isn't there,
     // so their "you may" has no payable side and advanceDecisions would drop the
     // one-option question on sight.
     //
     // READY buffed units ARE still asked, even though readying a ready unit does
     // nothing. The spend is not wasted — "then buff all friendly units" hands the
-    // buff straight back (708 makes it a no-op only for units that kept theirs),
+    // buff straight back (702.3.a makes it a no-op only for units that kept theirs),
     // so the answer is at worst neutral and at best fires `unitBuffed` again for
     // Mistfall. Filtering them out would take a legal, occasionally useful answer
     // away; the precedent for pruning (Mistfall's own exhausted-only offer) is
@@ -363,7 +363,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // (355.9.b), so a body sitting in either player's BASE is a legal target;
     // there is no floor because none is printed; and it is `giveMightThisTurn`
     // rather than a Buff, so it expires in the Expiration Step (317) instead of
-    // persisting (710).
+    // persisting (705).
     //
     // `[Action]` is a timing keyword, parsed from the card and enforced by
     // timing.ts — nothing about it belongs in the resolver.
@@ -376,7 +376,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // Kadregrin the Infernal's sentence exactly (OGN-038, effects/fury.ts), so it
     // takes his reading whole: `isMighty` rather than a hand-written `>= 5`,
-    // because rule 711 asks about a unit's CURRENT Might and a 3-Might body under
+    // because rule 710 asks about a unit's CURRENT Might and a 3-Might body under
     // Garen - Commander with a buff IS Mighty. That helper deliberately asks with
     // `isCombat: false`, so `[Assault]` never pushes one over the line.
     //
@@ -400,7 +400,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // Targeting is "none" and both choices are DECISIONS, because neither can be
     // decided when the spell is announced: the card played is chosen from a hand
-    // that this spell's own resolution may have changed, and 355.11 makes a
+    // that this spell's own resolution may have changed, and 355.10.d makes a
     // target something the effect ACTS on — a card in hand being played is not.
     // Void Rush (SFD-188, effects/signature.ts) prices and plays a card the same
     // way, and this borrows its payment shape wholesale (see `hereToHelpPayment`).
@@ -557,10 +557,10 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "OGN-136": {
     // Pit Rookie — "When you play me, buff another friendly unit."
     //
-    // The first card to place a real Buff. Rule 702.3.a: "To Buff a Unit, a
+    // The first card to place a real Buff. Rule 702.2.a: "To Buff a Unit, a
     // player chooses a Unit and then places a buff on it." Worth +1 Might
-    // (rule 710) and, unlike a "+1 Might this turn" effect, it stays there —
-    // rule 709 removes it only when the unit leaves play.
+    // (rule 705) and, unlike a "+1 Might this turn" effect, it stays there —
+    // rule 705 removes it only when the unit leaves play.
     //
     // "Another" excludes Pit Rookie itself, which comes for free: legal-actions
     // enumerates targets while this card is still in hand, so its own
@@ -578,15 +578,15 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // Spend first, payoff second, and only if the spend actually happened: the
     // buff is a COST, not a target. spendBuff returns `undefined` rather than an
     // unchanged state precisely so that can't be fudged — rule 705 forbids
-    // spending from an unbuffed unit and rule 705.1 restricts it to units you
+    // spending from an unbuffed unit and rule 702.2.b.2 restricts it to units you
     // control, and either failure has to cancel the buff-and-ready, not hand it
-    // over free. Rule 704.1 is the removal itself.
+    // over free. Rule 702.2.b is the removal itself.
     //
-    // The parenthetical is reminder text for rules 708/710, not a second mode:
-    // a Buff is worth +1 Might (710) and adding one to an already-buffed unit
-    // does nothing (708, "it is not placed instead"), which addBuff implements.
+    // The parenthetical is reminder text for rules 702.3.a/703, not a second mode:
+    // a Buff is worth +1 Might (703) and adding one to an already-buffed unit
+    // does nothing (702.3.a, "it is not placed instead"), which addBuff implements.
     // The Shaman has just entered play and so is never already buffed here, but
-    // going through addBuff keeps the one-buff-at-a-time rule (707) in one place.
+    // going through addBuff keeps the one-buff-at-a-time rule (702.3) in one place.
     //
     // "YOU MAY" rides on `additionalCostUnitInstanceId`, the field a Spell's
     // optional cost already used (Meditation) — NOT on the ordinary target
@@ -597,14 +597,14 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // "you must" in exactly that case.
     //
     // Targeting is "none": this card chooses nothing to act ON. The unit whose
-    // buff is spent is a cost, and rule 355.11's "included only as part of a
+    // buff is spent is a cost, and rule 355.10.c's "included only as part of a
     // cost" clause says a cost is not a target.
     targeting: { kind: "none" },
     resolve: (state, ctx, unitInstanceId, event) => {
       const donor = event.additionalCostUnitInstanceId;
       if (donor === undefined) return state; // declined — "you may"
       const paid = spendBuff(state, ctx.casterIndex, donor);
-      if (paid === undefined) return state; // cost unpayable (rule 705/705.1) — no payoff
+      if (paid === undefined) return state; // cost unpayable (rule 702.2.b.1/702.2.b.2) — no payoff
       return readyUnit(addBuff(paid, unitInstanceId), unitInstanceId);
     },
   },
@@ -639,7 +639,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // Targeting is "none" and the choice is a DECISION, not a fanned-out action
     // variant, because nothing here is a target: both modes act on the caster or
-    // on the Captain himself, and 355.11 only makes a chosen thing a target.
+    // on the Captain himself, and 355.10.d only makes a chosen thing a target.
     // Blitzcrank - Impassive (OGN-067, calm.ts) parks from an on-play trigger the
     // same way.
     //
@@ -805,7 +805,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener) => {
       const enemyIndex = listener.ownerIndex === 0 ? 1 : 0;
       const inBase = state.players[enemyIndex].baseUnits;
-      // Nothing at home is nothing to hit — 422's do-as-much-as-you-can, and no
+      // Nothing at home is nothing to hit — 055's do-as-much-as-you-can, and no
       // question is asked because the card names no choice this engine can offer
       // mid-resolution. WHICH enemy is a real choice with several at home; the
       // first is taken, and that is a recorded simplification rather than a
@@ -875,7 +875,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Fae Dragon's second sentence — "When you spend a buff, play a Gold gear
     // token exhausted."
     //
-    // "When YOU spend" is the spender, not the buffed unit's owner — 705.1 makes
+    // "When YOU spend" is the spender, not the buffed unit's owner — 702.2.b.2 makes
     // those the same today, and the event names the spender so they can diverge.
     //
     // Fires once per Buff SPENT, not per spending card: Overt Operation spends
@@ -927,7 +927,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // Through `gainPoints`, the choke point every point-gain goes through so
     // Tianna Crownguard's "opponents can't gain points" reaches it. It does NOT
     // record a battlefield as scored: this is a point awarded BY the hold, not a
-    // second scoring of the battlefield, so 471.1.b's lockout is untouched.
+    // second scoring of the battlefield, so 470's lockout is untouched.
     on: "battlefieldHeld",
     applies: (state, listener, event) => {
       const wearer = wearerListener(state, listener);
@@ -990,7 +990,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // unit goes straight to play rather than through `PlayerState.banished`, the
     // same call Baited Hook and Portal Rescue make.
     //
-    // "RECYCLE the rest" is the bottom of the Main Deck (1924), not the trash, and
+    // "RECYCLE the rest" is the bottom of the Main Deck (416.1), not the trash, and
     // it covers every card revealed on the way including the ones before the unit.
     //
     // The reveal is `dazzlingAuroraReveal`, extracted so Void Hatchling's "look
@@ -1119,7 +1119,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // The LOCATION check is here and NOT re-checked in `resolve`, deliberately.
     // 383 fixes what triggered at the moment of the event; between then and the
     // resolution there is a real window in which Sett can be moved, killed or
-    // bounced, and 809.1.b.3 exists precisely so a permanent that has left still
+    // bounced, and 808.1.d.3 exists precisely so a permanent that has left still
     // resolves its trigger. Re-asking at resolution would let the opponent cancel
     // a fired trigger by pushing him one battlefield sideways.
     applies: (_state, listener, event) =>
@@ -1267,7 +1267,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (event.kind !== "unitMoved") return state;
       if (event.unitInstanceId !== listener.card.instanceId) return state;
       // "ANOTHER friendly unit" with no battlefield named, so base counts
-      // (355.9.b) and Kato himself does not. Nothing to give it to is 422's
+      // (355.9.b) and Kato himself does not. Nothing to give it to is 055's
       // do-as-much-as-you-can and asks nothing — the same place Miss Fortune -
       // Captain puts her "is anything exhausted" check, and for the same reason:
       // whether a recipient EXISTS is a question about the board at resolution,
@@ -1431,7 +1431,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) => {
       if (event.kind !== "unitMoved") return state;
       const enemyIndex: 0 | 1 = listener.ownerIndex === 0 ? 1 : 0;
-      // Nothing to drag is 422's do-as-much-as-you-can and asks nothing — Kato's
+      // Nothing to drag is 055's do-as-much-as-you-can and asks nothing — Kato's
       // reading of the same shape: whether a subject EXISTS is a question about
       // the board at resolution, not a requirement that decides whether the
       // ability triggered, so it lives here and not in `applies`.
@@ -1452,7 +1452,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // comment for why this is not `ON_MOVE_TRIGGERS`).
     //
     // **"When I move" with no destination printed, and it still cannot mean a
-    // Recall.** 454 says a Recall is not a Move, and `unitMoved` only fires for a
+    // Recall.** 456 says a Recall is not a Move, and `unitMoved` only fires for a
     // Standard Move to a battlefield — so the wider-sounding text and the Faefolk's
     // narrower one reach exactly the same set of moments in this engine. Named
     // rather than left to be discovered, because the two cards' texts differ and
@@ -1548,7 +1548,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   //
   // BOTH are offered unconditionally, even when the corresponding pile is empty,
   // and that is deliberate on each side. An empty rune deck channels nothing
-  // (315.4.b, channelRunesExhausted's own "as many as it can"), and an empty
+  // (315.3.b.1, channelRunesExhausted's own "as many as it can"), and an empty
   // DECK is not a non-choice either — drawing from one is what triggers Burn Out
   // (431), a real and sometimes correct outcome. Suppressing an option here
   // would take a legal decision away from the player, and `advanceDecisions`
@@ -1567,7 +1567,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // Chooser is the caster; the hand and the deck it goes to the bottom of are
   // the opponent's. Filtering to non-units HERE rather than in the resolver is
   // what makes an all-units hand offer nothing at all, which is the card doing
-  // as much as it can (422) rather than the player being asked a fake question.
+  // as much as it can (055) rather than the player being asked a fake question.
   "OGN-156-recycle": {
     prompt: () => "Sabotage: choose a non-unit card to recycle",
     options: (state, d) => {
@@ -1638,7 +1638,7 @@ export const decisions: Record<string, DecisionDefinition> = {
       // the same ordering Mistfall and Miss Fortune - Captain use.
       const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
       const found = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
-      // Ownership is re-checked as well as the buff: 705.1 restricts spending to
+      // Ownership is re-checked as well as the buff: 702.2.b.2 restricts spending to
       // units you control, and control can move (Hostile Takeover) between the
       // question being raised and answered.
       if (found && found.ownerIndex === d.playerIndex && found.unit.buffed) {
@@ -1649,7 +1649,7 @@ export const decisions: Record<string, DecisionDefinition> = {
     resolve: (state, d, optionId) => {
       if (optionId !== "spend") return state;
       const paid = spendBuff(state, d.playerIndex, d.targetInstanceId!);
-      if (!paid) return state; // cost unpayable (705/705.1) — no ready
+      if (!paid) return state; // cost unpayable (702.2.b.1/702.2.b.2) — no ready
       return readyUnit(paid, d.targetInstanceId!);
     },
   },
@@ -1784,7 +1784,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // this one (Mistfall's, which each buff can raise) cannot land between two of
   // her four. Four separate parks would have interleaved them.
   //
-  // OPTIONS ARE UNBUFFED FRIENDLIES ONLY. Rule 708 makes a second buff on an
+  // OPTIONS ARE UNBUFFED FRIENDLIES ONLY. Rule 702.3.a makes a second buff on an
   // already-buffed unit a no-op and `addBuff` implements that by doing nothing at
   // all — not even firing `unitBuffed` — so offering one would be an answer that
   // visibly does nothing, the same asymmetry Buhru Captain's buff option draws.
@@ -1982,7 +1982,7 @@ export const decisions: Record<string, DecisionDefinition> = {
 };
 
 /**
- * Rule 745's "one on one", spelled out in the PDF's Special Terms in two steps:
+ * Rule 740.2.b's "one on one", spelled out in the PDF's Special Terms in two steps:
  * "A unit is ALONE when there are no other friendly units at the same location",
  * and "A unit is ONE ON ONE when it and the enemy unit at the same location are
  * both alone."

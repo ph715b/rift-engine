@@ -233,7 +233,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The clean driver for the whole counter spine: no filter, no condition, and
     // the only reason it works at all is `[Reaction]` timing, which lets it be
     // cast onto an already-closed chain. It resolves BEFORE its target because
-    // the chain is LIFO (343) — the counter goes on top and pops first.
+    // the chain is LIFO (340.1) — the counter goes on top and pops first.
     //
     // Uncastable with an empty chain rather than castable-and-inert. For a Spell
     // the targeting IS the effect, so "no legal target" really does mean "cannot
@@ -313,8 +313,8 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // The move itself is `forceMoveToBattlefield`, not the MoveUnit executor, and
     // that is a rules distinction rather than plumbing — see its doc comment:
-    // 415.1.b makes the exhaust a cost of the Standard MOVE ACTION, so a charmed
-    // unit arrives ready, and 458 contests the destination for the moved unit's
+    // 414.3.a makes the exhaust a cost of the Standard MOVE ACTION, so a charmed
+    // unit arrives ready, and 450 contests the destination for the moved unit's
     // controller rather than the caster's.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
@@ -360,9 +360,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // giveMightThisTurn, NOT addBuff. The two are not interchangeable: this
     // expires in the Expiration Step ("all 'this turn' effects expire
     // simultaneously", rule 317), which turn-manager.ts's runEnd gets for free
-    // by zeroing every unit's mightThisTurn, whereas a Buff (rule 710) is a
+    // by zeroing every unit's mightThisTurn, whereas a Buff (rule 705) is a
     // persistent game object that would survive the turn and only come off when
-    // the unit leaves play (rule 709).
+    // the unit leaves play (rule 705).
     //
     // [Reaction] is rule 813 and is NOT implemented here — engine/timing.ts owns
     // when this may be played, including onto an already-closed chain. The
@@ -462,7 +462,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // `isCombat: false`, so `[Assault]`/`[Shield]` do not count. Those are
     // "while I'm attacking/defending" bonuses (817), i.e. properties of a fight
     // rather than of the unit, and this spell can be cast outside one — the same
-    // reason rule 711's `isMighty` is asked with isCombat false.
+    // reason rule 708's `isMighty` is asked with isCombat false.
     //
     // Doubling is a SNAPSHOT: `+M this turn` on a unit currently at M. A later
     // buff therefore lands on top rather than being doubled too, which is what
@@ -504,7 +504,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // `recallUnitToBase`, NOT `relocateToBaseUnchanged`, and the two are not
     // interchangeable: the card says MOVE, so the unit arrives exhausted and
     // Vilemaw's Lair's "units can't move from here to base" stops it. That is
-    // rule 454's distinction — a Recall is not a Move — and Fight or Flight's
+    // rule 456's distinction — a Recall is not a Move — and Fight or Flight's
     // identical "move a unit from a battlefield to its base" already makes the
     // same call. Picking the other helper would silently make this better than
     // printed.
@@ -515,7 +515,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unitList", min: 0, owner: "friendly", sameBattlefield: true },
     resolve: (state, _ctx, event) =>
       // Per chosen id, in the order chosen. A unit that has left play in the
-      // meantime is skipped by the helper rather than throwing (422).
+      // meantime is skipped by the helper rather than throwing (055).
       (event.targetUnitInstanceIds ?? []).reduce((next, id) => recallUnitToBase(next, id), state),
   },
 };
@@ -543,7 +543,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     //
     // He has no other text: the return IS the whole entry, and it is a COST
     // rather than an effect, which is why `targeting` is "none" and the gear
-    // rides `additionalCostPermanentInstanceId` (355.11 — a cost is not a
+    // rides `additionalCostPermanentInstanceId` (355.10.c — a cost is not a
     // target).
     //
     // "To its OWNER's hand" — and the cost is a FRIENDLY gear, so the owner is
@@ -667,7 +667,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // "You MAY", so it parks a question rather than taking a target: a target on
     // the action would make the kill compulsory whenever any gear existed.
     //
-    // Nothing is asked with no gear anywhere — 422's do-as-much-as-you-can, and
+    // Nothing is asked with no gear anywhere — 055's do-as-much-as-you-can, and
     // a question with no answers must not be parked.
     targeting: { kind: "none" },
     resolve: (state, ctx) =>
@@ -818,7 +818,7 @@ function ornnLook(state: GameState, playerIndex: 0 | 1): GameState {
   return parkDecision(offerTopOfDeckBanish(state, playerIndex, looked), { kind: "SFD-058-gear", playerIndex });
 }
 
-/** "Recycle the top card" — the bottom of the Main Deck (416/1924), never the
+/** "Recycle the top card" — the bottom of the Main Deck (416/416.1), never the
  *  trash. Held through `holdCardsRecycled` so Karma - Channeler sees it, which
  *  is the whole reason this is not written as a bare deck rotation. */
 function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
@@ -950,7 +950,7 @@ function aloneAt(state: GameState, listener: Listener, event: GameEvent): string
   const mine = bf?.units[state.players[listener.ownerIndex].id] ?? [];
   if (mine.length !== 1) return undefined;
   // And the one unit must be gaining its designation NOW. A reinforcement
-  // arriving mid-combat designates only itself (465 Step 1), and by then its
+  // arriving mid-combat designates only itself (464.2.c Step 1), and by then its
   // controller has two units there — so this is already false. The check matters
   // for the mirror case: an ARRIVAL that makes its controller's presence exactly
   // one, which happens when everything else there has died.
@@ -1042,7 +1042,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // wearing it and every existing predicate applies unchanged.
     //
     // "ATTACK OR DEFEND" is both designations, which is why the check is bare
-    // membership in `event.designated` rather than a side comparison: 465 Step 1
+    // membership in `event.designated` rather than a side comparison: 464.2.c Step 1
     // hands the designation to every unit at the contested battlefield, attacker
     // and defender alike, and the card asks for either.
     //
@@ -1113,7 +1113,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // text is "the battlefield I am standing on is worth two".
     //
     // **A plain `points + 1`, deliberately NOT routed through `recordConquest`**,
-    // for the reason Yasuo - Windrider's entry sets out: rule 474's Final Point
+    // for the reason Yasuo - Windrider's entry sets out: rule 471.1.b's Final Point
     // restriction applies only to a point gained "through a Conquer", and sending
     // this down that path would silently withhold a winning point unless every
     // battlefield had been scored that turn.
@@ -1146,7 +1146,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // above: the battlefield held has to be the one he is standing at.
     //
     // `returnUnitToHand` rather than a recall: "to my owner's HAND" is leaving
-    // play (709 strips the buff, damage and this-turn Might reset), which is what
+    // play (705 strips the buff, damage and this-turn Might reset), which is what
     // makes replaying him a fresh on-play trigger rather than a repositioning.
     on: "battlefieldHeld",
     applies: (_state, listener, event) =>
@@ -1204,7 +1204,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // THAT unit, and by the time it resolves the response window may have brought
     // a second unit in or killed the one it fired for. Re-deriving "my only unit
     // here" at resolution buffs a reinforcement the card never triggered for; the
-    // instance id is noted instead, which is 809.1.b.3's "note its attributes"
+    // instance id is noted instead, which is 808.1.d.3's "note its attributes"
     // applied to the one attribute this ability is about.
     //
     // A Gear listener, so it has no `battlefieldId` of its own — hence reading
@@ -1215,7 +1215,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event, captured) => {
       if (event.kind !== "combatBegan" || typeof captured !== "string") return state;
       // No presence re-check: it left play, or it did not, and `giveMightThisTurn`
-      // already answers for a unit it cannot find (422's do as much as you can).
+      // already answers for a unit it cannot find (055's do as much as you can).
       return giveMightThisTurn(state, captured, 1);
     },
   },
@@ -1224,7 +1224,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // +1 Might this turn."
     //
     // The rules use this card as their own worked example for why stunning an
-    // already-stunned unit is not a stunning (422), so the guard it needs is not
+    // already-stunned unit is not a stunning (423), so the guard it needs is not
     // written here at all: `stunUnits` drops those before the event exists.
     //
     // "AN enemy unit", singular — so this pays out once per qualifying unit in
@@ -1285,7 +1285,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldConquered") return state;
       if (event.conquerorIndex !== listener.ownerIndex) return state;
-      // "You MAY" — but a question with no answers must not be parked (422's do
+      // "You MAY" — but a question with no answers must not be parked (055's do
       // as much as you can). With no gear anywhere the buff is unreachable, so
       // nothing is asked and nothing happens.
       if (state.players[0].activeGear.length + state.players[1].activeGear.length === 0) return state;
@@ -1306,7 +1306,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // **An Attack Trigger fires when the unit GAINS THE ATTACKER DESIGNATION**,
     // which rule 383.4's Attack Triggers section states outright ("trigger when a
     // Unit or Player gains the Attacker designation for the first time during a
-    // combat"), and rule 465's Combat Step 1 is where that happens: "The Attacker
+    // combat"), and rule 464.2.c's Combat Step 1 is where that happens: "The Attacker
     // is the player whose unit(s) applied the Contested status... Units at the
     // Contested Battlefield controlled by the Attacker or Defender gain the
     // Attacker or Defender designation now." So the moment is the COMBAT
@@ -1375,7 +1375,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => {
       if (event.kind !== "battlefieldHeld") return state;
-      // "You MAY" — but a question with no answers must not be parked (422).
+      // "You MAY" — but a question with no answers must not be parked (055).
       if (trashUnitsAndGear(state, listener.ownerIndex).length === 0) return state;
       return parkDecision(state, { kind: "SFD-035-return", playerIndex: listener.ownerIndex });
     },
@@ -1431,7 +1431,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // not be; this card only draws once it has already seen a gear on top, so
     // an empty deck never reaches the draw at all.
     //
-    // "RECYCLE it" is the bottom of the Main Deck (1924), which is what makes
+    // "RECYCLE it" is the bottom of the Main Deck (416.1), which is what makes
     // the Smith a repeatable filter rather than self-mill: the same card comes
     // back around eventually.
     //
@@ -1458,9 +1458,9 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     //
     // A 5-Energy 5-Might body that can attack and then be untapped by any of the
     // pool's buffs, which is why it reads on the BUFF rather than on the pump: a
-    // Buff is a persistent game object (710) and this fires as one is PLACED.
+    // Buff is a persistent game object (705) and this fires as one is PLACED.
     //
-    // Fires only for a buff that was really placed. 708 makes a second Buff on an
+    // Fires only for a buff that was really placed. 702.3.a makes a second Buff on an
     // already-buffed unit a no-op, and `addBuff` already drops the event in that
     // case — so a second Stand United does not ready him again. That is the rule
     // rather than an optimisation here, and it is the reason this card is not a
@@ -1591,7 +1591,7 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
     // reported as partial until the keyword lands.
     on: ["played"],
     resolve: (state, event) =>
-      // "Do as much as you can" (422): with no friendly unit anywhere there is
+      // "Do as much as you can" (055): with no friendly unit anywhere there is
       // nothing to buff, and a question with no answers must not be parked.
       ownUnitsEverywhere(state, event.ownerIndex).length === 0
         ? state
@@ -1653,7 +1653,7 @@ export const decisions: Record<string, DecisionDefinition> = {
       // window another Equipment can land and spend the very mode being named.
       if (!apheliosModesLeft(state, d.playerIndex, d.cardInstanceId).some((m) => m.id === optionId)) return state;
       // Recorded BEFORE the effect, so a mode is spent even when its effect does
-      // nothing — an empty rune deck channels nothing (315.4.b) and the choice
+      // nothing — an empty rune deck channels nothing (315.3.b.1) and the choice
       // was still made. The same reading `execute-activate-ability` takes, whose
       // own comment names "a mode whose effect ends up doing nothing".
       const spent = recordModeUsed(state, d.playerIndex, d.cardInstanceId, optionId);
@@ -1676,7 +1676,7 @@ export const decisions: Record<string, DecisionDefinition> = {
         label: `Buff ${u.name}`,
         instanceId: u.instanceId,
       })),
-    // Already-buffed units stay on offer: 708 makes a second buff a no-op rather
+    // Already-buffed units stay on offer: 702.3.a makes a second buff a no-op rather
     // than an illegal choice, and filtering them would quietly rewrite "a
     // friendly unit" as "an UNBUFFED friendly unit".
     resolve: (state, _d, optionId) => addBuff(state, optionId),
@@ -1774,7 +1774,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   //
   // "A friendly unit" carries no location word, so base and battlefield are both
   // eligible — 355.9.b's bare-noun reading, the same one Vanguard Helm's
-  // equivalent question takes. Already-buffed units stay on offer: 708 makes a
+  // equivalent question takes. Already-buffed units stay on offer: 702.3.a makes a
   // second buff a no-op rather than an illegal choice, and filtering them would
   // quietly rewrite the card as "an UNBUFFED friendly unit".
   "OGN-063-buff": {

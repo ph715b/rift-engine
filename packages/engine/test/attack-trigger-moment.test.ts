@@ -10,7 +10,7 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
 /**
  * WHEN an Attack Trigger fires, and what it means to be attacking.
  *
- * Rule 383.4.f: Attack Triggers "trigger when a Unit or Player gains the
+ * Rule 383.4.e: Attack Triggers "trigger when a Unit or Player gains the
  * Attacker designation for the first time during a combat", and rule 465's
  * Combat Step 1 is where that designation is handed out — "Units at the
  * Contested Battlefield controlled by the Attacker or Defender gain the Attacker
@@ -23,7 +23,7 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
  *  1. The trigger is a Chain Pending Item at the combat, so the move that started
  *     the fight resolves with the ability still waiting and respondable.
  *  2. A unit that never moved gains the Attacker designation too, so a Non-Combat
- *     Showdown promoted to a Combat one by 317.2 fires the triggers of everyone
+ *     Showdown promoted to a Combat one by 316.8.b.1.a fires the triggers of everyone
  *     already standing there.
  *  3. A Non-Combat Showdown has no Attacker designation to gain, so walking into
  *     an EMPTY enemy battlefield is not attacking and fires nothing.
@@ -72,7 +72,7 @@ function attackState(attacker: UnitInstance, defenders: UnitInstance[]): GameSta
   return state;
 }
 
-describe("an Attack Trigger is a Pending Item at the combat, not an effect of the move (383.4.f)", () => {
+describe("an Attack Trigger is a Pending Item at the combat, not an effect of the move (383.4.e)", () => {
   it("does not resolve during the move that contests the battlefield", () => {
     const anivia = realUnitInstance(ANIVIA);
     const state = attackState(anivia, [makeUnit({ name: "Defender", might: 9 })]);
@@ -119,7 +119,7 @@ describe("an Attack Trigger is a Pending Item at the combat, not an effect of th
 });
 
 describe("every unit on the attacking side gains the designation, not only the one that moved (465)", () => {
-  it("fires for a unit already standing there when 317.2 promotes the Showdown to a Combat", () => {
+  it("fires for a unit already standing there when 316.8.b.1.a promotes the Showdown to a Combat", () => {
     // The case the old move-time dispatch could not reach at all: Anivia
     // contested an EMPTY battlefield, so a Non-Combat Showdown opened with
     // nobody to fight. An opponent holding Focus then puts a unit there, and the
@@ -211,7 +211,7 @@ describe("Mask of Foresight (OGN-060) is held too, and remembers who was alone",
     // lookup fails this and only this.
     // TWO replacements, not one, and that is what makes the test unconfounded.
     // A single newcomer arriving at a running combat gains its own designation
-    // (465 Step 1) and is then its controller's only unit there — so it triggers
+    // (464.2.c Step 1) and is then its controller's only unit there — so it triggers
     // the gear legitimately and ends on +1 whether the original entry captured or
     // re-derived. With two, "alone" is false for both, so the only thing that
     // could buff either is the ORIGINAL entry re-deriving `mine[0]`.

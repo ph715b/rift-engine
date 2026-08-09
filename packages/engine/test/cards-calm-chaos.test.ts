@@ -52,7 +52,7 @@ describe("Discipline: give a unit +2 Might this turn, draw 1", () => {
     const pumped = result.battlefields[0]!.units.p1![0]!;
     expect(pumped.mightThisTurn).toBe(2);
     // The distinction the card's wording turns on: "this turn" is NOT a Buff
-    // (rule 710), which would outlive the turn.
+    // (rule 705), which would outlive the turn.
     expect(pumped.buffed).toBe(false);
     expect(pumped.might).toBe(3); // printed Might untouched
     expect(result.players[0]!.hand.map((c) => c.instanceId)).toEqual([topOfDeck.instanceId]);
@@ -124,7 +124,7 @@ describe("Cemetery Attendant: on play, return a unit from your trash to your han
     expect(returned.instanceId).toBe(corpse.instanceId);
     expect(returned.kind === "Unit" && returned.damage).toBe(0);
     expect(returned.kind === "Unit" && returned.mightThisTurn).toBe(0);
-    // Rule 709 already took the Buff off when it left play; it must not ride
+    // Rule 705 already took the Buff off when it left play; it must not ride
     // back into hand and get replayed for free.
     expect(returned.kind === "Unit" && returned.buffed).toBe(false);
     expect(returned.exhausted).toBe(false);

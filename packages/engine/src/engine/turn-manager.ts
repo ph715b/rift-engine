@@ -16,7 +16,7 @@ import { withoutAttachFreshness } from "./equipment.js";
  * from `turnNumber` and `GameState.firstPlayerIndex` (see runChannel below).
  *
  * `firstPlayerIndex` is what Java's `startingPlayerIndex` is for, and it is
- * load-bearing rather than bookkeeping: rule 117.x determines turn order by
+ * load-bearing rather than bookkeeping: rule 115 determines turn order by
  * "any fair random method", so either player can go first, and BOTH steps that
  * care (the going-second Channel bonus and the turn counter) used to test
  * against the literal indices 1 and 0 on the assumption that the game always
@@ -170,7 +170,7 @@ export function runBeginning(state: GameState): GameState {
  * the second-acting player's very first turn. That extra rune is the First
  * Turn Process both sanctioned 1v1 modes share — "the player going second
  * channels an extra Rune from their Rune Deck during their first Channel Phase
- * of the game" (rules 486.1 for 1v1 Duel, 487.4 for 1v1 Match). Mirrors
+ * of the game" (rules 485.7 for 1v1 Duel, 486.7 for 1v1 Match). Mirrors
  * TurnManager.runChannel (engine/TurnManager.java:182-201).
  *
  * "Going second" is `active !== state.firstPlayerIndex`, NOT `active === 1`.
@@ -181,7 +181,7 @@ export function runBeginning(state: GameState): GameState {
  * `turnNumber === 1` regardless of which seat they occupy.
  *
  * Note this is deliberately NOT the FFA3 First Turn Process, which also makes
- * the player going FIRST skip their first draw (rule 488.1). That adjustment
+ * the player going FIRST skip their first draw (rule 487.7). That adjustment
  * belongs to a 3-player mode; neither 1v1 mode has it.
  */
 export function runChannel(state: GameState): GameState {
@@ -232,7 +232,7 @@ export function runStartOfTurn(state: GameState): GameState {
  * Ends the active player's turn: clears turn-scoped bonuses, empties floating
  * Energy/Power, resets cardsPlayedThisTurn, and rotates to the next player
  * (incrementing turnNumber when play wraps back to the FIRST player — rule
- * 118's turn order is "a looping queue of turns, starting with the First
+ * 115.1.c's turn order is "a looping queue of turns, starting with the First
  * Player", so a round is complete when it returns to them, whichever seat that
  * is; testing against the literal index 0 was only right while setup hardcoded
  * player 0 to start). Mirrors the
@@ -310,11 +310,11 @@ export function runEnd(state: GameState): GameState {
   // and nothing to order against 383's simultaneous triggers.
   const afterBorrows = returnBorrowedUnits(afterTriggers);
 
-  // This-turn Might expires; Buffs deliberately do NOT. Rule 709 removes a Buff
+  // This-turn Might expires; Buffs deliberately do NOT. Rule 705 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
   // +1 Might that carries into later turns — which is what makes the eight
   // cards reading "while I'm buffed" worth anything.
-  // Stun expires with it — rule 422: "Stunned Units lose the Stunned status
+  // Stun expires with it — rule 423: "Stunned Units lose the Stunned status
   // during step 3d of the end of turn cleanup." Same sweep, since both are
   // this-turn states on every unit in play, on both sides.
   const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number; stunned?: boolean }>(u: T): T => ({

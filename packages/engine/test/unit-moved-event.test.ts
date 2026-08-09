@@ -71,7 +71,7 @@ describe("Yasuo - Windrider (OGN-205): the THIRD move in a turn scores a point",
     const state = makeState({ phase: "Action" });
     state.players[0]!.baseUnits = [yasuo];
     // Both battlefields pre-marked as already SCORED this turn, so the walk-ins
-    // conquer nothing (471.1.b: one score per battlefield per turn). Without this
+    // conquer nothing (470: one score per battlefield per turn). Without this
     // the test measures conquest points — closing a Non-Combat Showdown
     // establishes control, which IS a Conquer — and reads 3 points after four
     // moves whether or not Yasuo's trigger exists at all. Any point that appears

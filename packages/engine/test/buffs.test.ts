@@ -29,14 +29,14 @@ function withBaseUnit(unit: UnitInstance): GameState {
   return state;
 }
 
-describe("a Buff is a game object (rules 702.3-710)", () => {
-  it("is worth +1 Might (710)", () => {
+describe("a Buff is a game object (rules 701-705)", () => {
+  it("is worth +1 Might (703)", () => {
     const unit = makeUnit({ might: 3 });
     const state = addBuff(withBaseUnit(unit), unit.instanceId);
     expect(mightOf(state, state.players[0]!.baseUnits[0]!)).toBe(4);
   });
 
-  it("caps at one per unit — a second buff is not placed (707/708)", () => {
+  it("caps at one per unit — a second buff is not placed (702.3/702.3.a)", () => {
     const unit = makeUnit({ might: 3 });
     let state = addBuff(withBaseUnit(unit), unit.instanceId);
     state = addBuff(state, unit.instanceId);
@@ -58,7 +58,7 @@ describe("a Buff is a game object (rules 702.3-710)", () => {
     state = runEnd(state);
 
     // Same Might before the turn ended, different after: the Buff is still
-    // there (rule 709 removes it only when the unit leaves play), the this-turn
+    // there (rule 705 removes it only when the unit leaves play), the this-turn
     // modifier is gone.
     expect(state.players[0]!.baseUnits.map((u) => mightOf(state, u))).toEqual([4, 3]);
     expect(state.players[0]!.baseUnits[0]!.buffed).toBe(true);
@@ -73,7 +73,7 @@ describe("a Buff is a game object (rules 702.3-710)", () => {
     expect(mightOf(state, state.players[0]!.baseUnits[0]!)).toBe(7);
   });
 
-  it("is removed when the unit leaves play (709)", () => {
+  it("is removed when the unit leaves play (705)", () => {
     const unit = makeUnit({ might: 3 });
     let state = addBuff(withBaseUnit(unit), unit.instanceId);
     state = returnUnitToHand(state, unit.instanceId);
@@ -102,7 +102,7 @@ describe("a Buff is a game object (rules 702.3-710)", () => {
   });
 });
 
-describe("spending a Buff (rules 704.1 / 705 / 705.1)", () => {
+describe("spending a Buff (rules 702.2.b / 702.2.b.1 / 702.2.b.2)", () => {
   it("removes the buff, dropping the unit's Might back", () => {
     const unit = makeUnit({ might: 3 });
     const buffed = addBuff(withBaseUnit(unit), unit.instanceId);
@@ -112,7 +112,7 @@ describe("spending a Buff (rules 704.1 / 705 / 705.1)", () => {
     expect(isBuffed(spent!.players[0]!.baseUnits[0]!)).toBe(false);
   });
 
-  it("refuses an unbuffed unit (705) rather than silently succeeding", () => {
+  it("refuses an unbuffed unit (702.2.b.1) rather than silently succeeding", () => {
     // This has to be a refusal, not a no-op: spending a buff is a COST on cards
     // that pay out ("spend a buff to buff me and ready me"). A no-op state would
     // hand over the payoff for free.
@@ -120,7 +120,7 @@ describe("spending a Buff (rules 704.1 / 705 / 705.1)", () => {
     expect(spendBuff(withBaseUnit(unit), 0, unit.instanceId)).toBeUndefined();
   });
 
-  it("refuses a unit another player controls (705.1)", () => {
+  it("refuses a unit another player controls (702.2.b.2)", () => {
     const theirs = makeUnit({ might: 3 });
     let state = makeState();
     state.players[1]!.baseUnits = [theirs];
@@ -204,7 +204,7 @@ describe("the first two cards that use Buffs", () => {
 
     state = addBuff(state, elder.instanceId);
 
-    // +1 for the Buff (710) and +1 more for its own text — reading the card as
+    // +1 for the Buff (703) and +1 more for its own text — reading the card as
     // "+1 total" would make its printed ability do nothing.
     expect(mightOf(state, state.players[0]!.baseUnits[0]!)).toBe(printed + 2);
   });

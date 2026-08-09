@@ -20,7 +20,7 @@ import { mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./
  */
 export function actingPlayerIndex(state: GameState): 0 | 1 {
   // A pending decision outranks all three. It sits INSIDE a resolution, where
-  // 323.2.a says Priority and Focus "are not passed or awarded" — so whoever
+  // 320.1 says Priority and Focus "are not passed or awarded" — so whoever
   // holds either of them is not the person the game is waiting on. Cull the Weak
   // asks the non-turn player a question on the turn player's turn, and without
   // this line the board and the AI would both look at the wrong player.
@@ -46,7 +46,7 @@ export function actingPlayerIndex(state: GameState): 0 | 1 {
  *     (159.2.a.1), which rule 806 spells out as "This can be played during
  *     showdowns on **any player's turn**".
  *   - `Reaction` — "Grants all cases and rules of Action. In addition to all
- *     prior cases, may also be played during all forms of Closed State" (161),
+ *     prior cases, may also be played during all forms of Closed State" (159.2.b.2),
  *     i.e. rule 813's "played during Closed States on any player's turn".
  */
 export type TimingTier = "Default" | "Action" | "Reaction";

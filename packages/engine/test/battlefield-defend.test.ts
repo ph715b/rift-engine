@@ -8,7 +8,7 @@ import { answerDecisions, beginCombatAt, makeState, makeUnit, resolveHeldTrigger
 /**
  * The two "when you defend here" battlefields.
  *
- * The moment is 465's Combat Step 1 — `cleanup.beginCombatAt`, the same instant
+ * The moment is 464.2.c's Combat Step 1 — `cleanup.beginCombatAt`, the same instant
  * every Attack Trigger fires — and the `beginCombatAt` fixture drives it through
  * the real Cleanup rather than hand-building a `combatBegan`, so a card that
  * fires for the wrong SIDE fails here.

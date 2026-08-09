@@ -140,10 +140,10 @@ export function placeToken(
   const bf = state.battlefields[bfIndex]!;
   const battlefields = [...state.battlefields];
   battlefields[bfIndex] = { ...bf, units: { ...bf.units, [casterId]: [...(bf.units[casterId] ?? []), token] } };
-  // Rule 190.4 applies Contested when a unit "Moves **or otherwise becomes
+  // Rule 190.3.a applies Contested when a unit "Moves **or otherwise becomes
   // present**" at a battlefield its controller doesn't control — a created token
   // becoming present counts, and this path previously opened no Showdown at all.
-  // It's also how a Non-Combat Showdown gets promoted to a Combat one (317.2):
+  // It's also how a Non-Combat Showdown gets promoted to a Combat one (316.8.b.1.a):
   // token-making Spells are exactly what an opponent holding Focus can cast into
   // someone else's window now that Action speed exists.
   return applyContested({ ...state, battlefields }, destination.battlefieldId, casterIndex);

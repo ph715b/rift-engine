@@ -218,7 +218,7 @@ interface PendingPlay {
    *
    * They are separate fields rather than one enum because a card can carry more
    * than one at once — a printed `[Repeat]` under a Temporal Portal grant is
-   * `repeatPaid` AND `grantedRepeatPaid`, and rule 3509 makes those two separate
+   * `repeatPaid` AND `grantedRepeatPaid`, and rule 820.1.c.2 makes those two separate
    * instances that are paid separately.
    *
    * `targetDiscountAxis` is not a boolean: Ezreal - Prodigy and Irelia - Graceful
@@ -271,7 +271,7 @@ function dropZoneAt(point: DragPoint): string | null {
 }
 
 /** Where the pregame currently is. `selectBattlefield` only ever occurs in a
- *  Best of 3 (rule 487.2's per-game selection); a Best of 1 rolls instead
+ *  Best of 3 (rule 486.5's per-game selection); a Best of 1 rolls instead
  *  (485.5) and so starts at `mulligan`, exactly as before this existed. */
 type PregameStep = "selectBattlefield" | "mulligan" | "playing";
 
@@ -283,7 +283,7 @@ interface SeriesState {
   /** 1-based, for "Game 2 of 3". */
   gameNumber: number;
   /** Battlefields each side has already presented in a DECIDED game — removed
-   *  from selection for the rest of the match (rule 487.3). Tracked per side
+   *  from selection for the rest of the match (rule 486.5). Tracked per side
    *  because each player's pool is their own. */
   humanUsedBattlefields: string[];
   aiUsedBattlefields: string[];
@@ -307,14 +307,14 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const spectate = config.spectate === true;
   // Match-level state, above any single game. A Best of 1 leaves it at zeroes
   // and never reads it; a Best of 3 needs all of it — the score to know when
-  // the MATCH is over (rule 487.4's two game wins) and the used-battlefield
-  // lists to honour 487.3's elimination on the next game's selection.
+  // the MATCH is over (rule 486.6's two game wins) and the used-battlefield
+  // lists to honour 486.5's elimination on the next game's selection.
   const [series, setSeries] = useState<SeriesState>(() => freshSeries());
   // Which pregame step is showing, or "playing" once the board is live. Best
-  // of 3 adds a battlefield selection ahead of the mulligan — rule 487.2 puts
+  // of 3 adds a battlefield selection ahead of the mulligan — rule 486.5 puts
   // that selection in Setup, so it runs before EVERY game, not only between
   // them.
-  // Spectate skips the battlefield step even in a Best of 3: 487.2's selection is
+  // Spectate skips the battlefield step even in a Best of 3: 486.5's selection is
   // a PLAYER's choice, and with nobody at the seat the honest stand-in is the
   // roll `createNewGame` already makes for both sides — the same thing 1v1 Duel
   // does. Recorded as a deliberate narrowing rather than an oversight: a
@@ -419,7 +419,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   const isChainPending = !state.chainOpen;
   const showPassFocus = isShowdownOpen || isChainPending;
 
-  // The chain, newest first — i.e. in resolution order (rule 343). Rendered by
+  // The chain, newest first — i.e. in resolution order (rule 340.1). Rendered by
   // ChainView; before this existed, `state.spellChain` reached the UI nowhere
   // at all.
   const chainItems = useMemo(() => describeChain(state), [state]);
@@ -1912,7 +1912,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     startNewMatch({ ...config, humanDeck: deck });
   }
 
-  /** Rule 487.2: the human presents one of their three battlefields, and the
+  /** Rule 486.5: the human presents one of their three battlefields, and the
    *  AI presents one of its own at the same time (rolled — see
    *  rollAiBattlefield). Rebuilds this game's state with both choices in place,
    *  replacing the throwaway rolled-battlefield state the chooser sat in front
@@ -1935,8 +1935,8 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     setPregame("playing");
   }
 
-  /** Rule 487.4's between-games reset: bank the game win, retire the
-   *  battlefields that were just played (487.3), and set up the next game.
+  /** Rule 486.6's between-games reset: bank the game win, retire the
+   *  battlefields that were just played (486.5), and set up the next game.
    *  Reads the battlefields off the state that just ended rather than
    *  remembering what was chosen, so it can't drift from what was actually in
    *  play. */
@@ -2158,7 +2158,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           {isShowdownOpen
             ? // A Showdown is a window, not necessarily a fight — naming which
               // kind is the difference between "you're about to lose units" and
-              // "someone is walking onto an empty battlefield" (317.1).
+              // "someone is walking onto an empty battlefield" (316.8.b.1).
               `${state.showdownKind === "Combat" ? "Combat" : "Non-Combat"} Showdown at ${showdownBattlefield?.name ?? "?"}${
                 isChainPending
                   ? ` · spell pending — ${isHumanTurn ? "your" : "AI's"} priority`
@@ -2647,7 +2647,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
           </button>
         )}
         {/* Every optional additional cost the armed card can pay — [Accelerate]
-            (805), [Repeat] (820), a granted [Repeat] (3509), and the single-named
+            (805), [Repeat] (820), a granted [Repeat] (820.1.c.2), and the single-named
             optional Power costs. Each is a real choice with a real price, and the
             UI used to make all of them silently except Accelerate: two candidates
             existed and whichever the engine listed first was taken.

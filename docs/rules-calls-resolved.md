@@ -100,7 +100,7 @@ target. That is a spec, not a design problem.
 **Asked:** what is "a tie"? The survey said the engine has no such concept and
 listed three candidates.
 
-**Answered: a tie IS rule 466.5.d's "No Result", and the engine already has it.**
+**Answered: a tie IS rule 466.3.d's "No Result", and the engine already has it.**
 
 > *"There is 'No Result' if units were recalled during step 3d of the Combat
 > Cleanup, if both Players have units present during this task, or if neither
@@ -108,7 +108,7 @@ listed three candidates.
 
 The card's own reminder text confirms the timing — *"Ties are calculated after
 combat damage is dealt."* The walkout fix of 2026-08-02 established exactly this
-branch in `resolveShowdown` (466.5.a for a sole survivor, 466.5.d for No Result),
+branch in `resolveShowdown` (466.3.a for a sole survivor, 466.3.d for No Result),
 so the concept exists and is tested; the card needs to hook it, not invent it.
 
 Note the neighbouring rule, which matters for the card's "recall ALL units
@@ -137,7 +137,7 @@ deck)? Does a unit "recycled" go to the main deck bottom?
 
 **Answered, both halves:**
 
-- **Recycle is defined per zone-of-origin** (1924-1925): *"Recycling cards is the
+- **Recycle is defined per zone-of-origin** (416.1-1925): *"Recycling cards is the
   action in which a player takes one or more cards from a specific zone and then
   puts it on the bottom of the CORRESPONDING deck."* So a unit goes to the bottom
   of the Main Deck and a rune to the bottom of the Rune Deck — one verb, two
@@ -231,7 +231,7 @@ Judgement calls rather than lookups:
   Unverified. **415 also supplies the guard:** *"A Unit that is already Ready cannot
   be Readied again. If a Unit is instructed to be Readied while it is already Ready,
   nothing additional happens"* — so the event fires only for units that were
-  actually exhausted, the same shape as `addBuff`'s 708 guard.
+  actually exhausted, the same shape as `addBuff`'s 702.3.a guard.
 
 ## Found by the re-survey, not in the original seven
 
@@ -257,7 +257,7 @@ would change the card materially, so none should be guessed:
   change; reading it as all zone changes freezes the card in place; reading it as a
   `Revealed` status means the card is inert by design in this pool.
 - **OGN-235 Karma — "when YOU recycle"**: the player performing the action, or the
-  player whose deck receives the cards? Rule 1928 makes these come apart, and the
+  player whose deck receives the cards? Rule 416.1.c makes these come apart, and the
   engine has a site that recycles the OPPONENT's trash at the caster's instruction.
 - **OGN-244 Divine Judgment — "2 runes"**: the channeled pool only, or channeled +
   rune deck? Reading (b) makes the card self-referential.

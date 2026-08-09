@@ -105,7 +105,7 @@ export function attachEquipment(
   // Reported from playtesting against Fiora - Grand Duelist and Fiora - Worthy,
   // both of which read "when a unit becomes [Mighty]". The badge is part of the
   // wearer's CURRENT Might — `effectiveMight` adds `equipmentMightBonusFor` at
-  // the gate — so 715's "its Might changes from being less than 5 to being 5 or
+  // the gate — so 709's "its Might changes from being less than 5 to being 5 or
   // greater" is satisfied by the attach itself. Blade of the Ruined King is +4
   // and B.F. Sword +3; this is not a corner case, it is the set's main way of
   // getting there.
@@ -115,7 +115,7 @@ export function attachEquipment(
   // construction. The OLD wearer needs no check — a move can only LOWER its
   // Might, and `withMightTransitions` fires on an upward crossing only.
   //
-  // Placed after `equipmentAttached`, so under the chain's LIFO resolution (343)
+  // Placed after `equipmentAttached`, so under the chain's LIFO resolution (340.1)
   // the Mighty trigger is answered first. Both events come from one game action
   // and 383 would have their controller order them; this engine does not offer
   // that choice, and neither ordering is more correct than the other.

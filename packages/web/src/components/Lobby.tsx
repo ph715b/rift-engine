@@ -140,7 +140,7 @@ export function Lobby({ onStartMatch, onBack, onOpenDeckBuilder, onImportDecklis
         />
       </div>
 
-      {/* The two sanctioned 1v1 modes (rules 485.3-487.4). Labelled by game
+      {/* The two sanctioned 1v1 modes (rules 485 and 486). Labelled by game
           count first, since that's what a player is actually choosing, with the
           rules' own mode name and the consequences underneath — the battlefield
           rule genuinely differs between them, so it isn't just match length. */}

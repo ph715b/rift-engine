@@ -25,7 +25,7 @@ import { makePlayer, makeState, makeUnit } from "./fixtures.js";
  * So the tests here are about the GRANT, not about attaching (Jax's file covers
  * that):
  *  - it reaches the LEGEND, not the battlefield, and the Legend pays the exhaust
- *    (416.1: "Exhaust me" belongs to whoever HAS the ability);
+ *    (414.5: "Exhaust me" belongs to whoever HAS the ability);
  *  - it is gated on CONTROL and disappears when control does;
  *  - it does not reach the opponent's Legend;
  *  - it composes with the Legend's OWN ability rather than replacing it.
@@ -78,7 +78,7 @@ describe("the grant", () => {
     expect(new Set(offered.map((a) => a.targetPermanentInstanceId))).toEqual(new Set([bladeOf(state).instanceId]));
   });
 
-  /** The LEGEND pays, not the battlefield — 416.1's "Exhaust me". */
+  /** The LEGEND pays, not the battlefield — 414.5's "Exhaust me". */
   it("attaches, and exhausts the LEGEND", () => {
     const state = board(0);
     const use = legendActions(state).find((a) => a.targetUnitInstanceId === "wearer")!;

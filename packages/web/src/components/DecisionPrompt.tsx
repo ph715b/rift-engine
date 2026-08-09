@@ -27,7 +27,7 @@ interface DecisionPromptProps {
  * ChoiceOverlay. The others are local proposals the player can back out of
  * because nothing has been submitted yet; this one exists because an action
  * already went in and the engine cannot finish resolving it without an answer
- * (323.2.b — no Cleanup, no other action, nothing at all until it comes back).
+ * (321 — no Cleanup, no other action, nothing at all until it comes back).
  * A Cancel button here would have nothing to cancel.
  *
  * Options carrying an `instanceId` are rendered as the actual CARD wherever the

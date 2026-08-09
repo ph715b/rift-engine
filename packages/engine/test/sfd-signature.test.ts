@@ -60,7 +60,7 @@ const playsFor = (state: GameState, defId: string) =>
 /**
  * Passes the chain down and answers nothing — stops the moment a question is
  * outstanding, so a test that cares WHICH answer is given keeps control of it.
- * `submit` refuses a PassFocus while a decision is pending (323.2.a), so this
+ * `submit` refuses a PassFocus while a decision is pending (320.1), so this
  * would otherwise spin.
  */
 function settleChain(state: GameState): GameState {
@@ -213,7 +213,7 @@ describe("Shurelya's Requiem (SFD-192): a GEAR whose on-play clause readies your
   });
 
   it("HOLDS the clause on the chain rather than resolving it inline", () => {
-    // 383 / 809.1.b.3: a self-trigger is a Chain Pending Item, finalized by the
+    // 383 / 808.1.d.3: a self-trigger is a Chain Pending Item, finalized by the
     // Cleanup and resolved by a pass. So the board immediately after the play is
     // still asleep, and that is the respondable window. A version that readied
     // inside `executePlayCard` would pass the test above and fail this one.
@@ -261,7 +261,7 @@ describe("Arcane Shift (SFD-200): blink a friendly, deal 3, banish this", () => 
     );
 
   it("takes the unit off the board and puts a FRESH copy back into play", () => {
-    // The blink is the card: 709 strips the Buff on leaving play, and damage and
+    // The blink is the card: 705 strips the Buff on leaving play, and damage and
     // this-turn Might are properties of the body that left. A relocation would have
     // kept all three and looked identical on the board.
     const state = shiftState();

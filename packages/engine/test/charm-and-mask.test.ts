@@ -45,9 +45,9 @@ describe("Charm (OGN-043): move an enemy unit", () => {
     expect(after.battlefields[1]!.units["p2"]!.map((u) => u.name)).toEqual(["Enemy"]);
   });
 
-  it("does NOT exhaust it — the exhaust is the Standard Move's cost (415.1.b)", () => {
-    // The distinction that stopped this reusing executeMoveUnit. 415.1.b: "a
-    // unit's Standard Move exhausts the unit AS A COST", and 316.7.c lists a move
+  it("does NOT exhaust it — the exhaust is the Standard Move's cost (414.3.a)", () => {
+    // The distinction that stopped this reusing executeMoveUnit. 414.3.a: "a
+    // unit's Standard Move exhausts the unit AS A COST", and 316.7.b lists a move
     // as possibly the result of a Spell. Exhausting here would quietly turn a
     // reposition into a reposition-and-tap the card never offers.
     const { state, enemy } = charmState();
@@ -57,7 +57,7 @@ describe("Charm (OGN-043): move an enemy unit", () => {
     expect(after.battlefields[1]!.units["p2"]![0]!.exhausted).toBe(false);
   });
 
-  it("contests the destination for the MOVED unit's controller (458)", () => {
+  it("contests the destination for the MOVED unit's controller (450)", () => {
     // "not controlled by the controller of the Unit or Units that moved" — so
     // charming an enemy onto neutral ground contests it for THEM, not for me.
     // A caster-indexed call would have got this backwards and handed the caster
@@ -114,7 +114,7 @@ describe("Charm (OGN-043): move an enemy unit", () => {
 
     expect(plays.length).toBeGreaterThan(0);
     // **Premise updated 2026-08-07**: a base is a Location and so a legal Move
-    // Destination (355.7 / 197 / 107.2.b), which the rules work by name at
+    // Destination (355.4.a / 198.1 / 107.1.b), which the rules work by name at
     // 359.3.e. So "every candidate names a battlefield" is no longer the
     // invariant — "every candidate names EXACTLY ONE destination" is, and it is
     // the stronger of the two: it also catches a variant carrying both.

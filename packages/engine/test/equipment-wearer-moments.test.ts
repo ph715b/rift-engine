@@ -8,7 +8,17 @@ import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { GOLD_TOKEN_DEF_ID } from "../src/engine/token.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makePlayer, makeState, makeUnit, realGearInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
+import {
+  answerDecisions,
+  makePlayer,
+  makeState,
+  makeUnit,
+  pickCard,
+  realGearInstance,
+  realUnitInstance,
+  resolveHeldTriggers,
+  spellInstance,
+} from "./fixtures.js";
 
 /**
  * The wearer's moments — eight Equipment whose ability fires on the moment of
@@ -49,6 +59,9 @@ const BONESHIVER = "SFD-118"; // when I conquer, channel 1 rune exhausted
 const DORANS_RING = "SFD-124"; // when I conquer, discard 1, then draw 1
 const CULL = "SFD-134"; // when I conquer, play a Gold gear token exhausted
 const EYE_OF_THE_HERALD = "SFD-153"; // when I move, play a 1 Might Recruit token here
+/** Not a wearer's-moment card — borrowed below as the other question raised by the
+ *  same `combatBegan`, whose answer can move the Bow's wearer. */
+const OVERZEALOUS_FAN = "SFD-128";
 
 const WEARERS_MOMENTS = [RECURVE_BOW, WORLD_ATLAS, WARMOGS, TRINITY_FORCE, BONESHIVER, DORANS_RING, CULL, EYE_OF_THE_HERALD];
 /**
@@ -231,6 +244,97 @@ describe("the two per-unit-moment Equipment", () => {
     expect(optionsFor(after, question!).map((o) => o.instanceId)).toEqual(["enemy-a", "enemy-b"]);
   });
 
+  /**
+   * "HERE" is a referent (359.3.f.1) and a referent is checked on EXECUTION of the
+   * instruction (359.3.f.2). The rules' worked example is this case: Fight or
+   * Flight sends Yasuo - Remorseful home in reaction to his attack trigger, and
+   * "'here' is no longer the battlefield where combat is ongoing and the attack
+   * trigger mistargets". So a Bow whose wearer has left the fight is moot — the
+   * convention Sinister Poro (UNL-137) already follows.
+   *
+   * Both halves of the window are covered, because the Bow has two of them: the
+   * held trigger resolving, and its question being answered.
+   */
+  const damageOf = (state: GameState, instanceId: string) =>
+    state.battlefields.flatMap((b) => Object.values(b.units).flat()).find((u) => u.instanceId === instanceId)?.damage;
+
+  /** The triggered abilities still WAITING on the chain — the only way to tell
+   *  "it resolved and did nothing" from "it never resolved at all". */
+  const chainTriggerDefIds = (state: GameState): string[] =>
+    state.spellChain.filter((e) => "kind" in e && e.kind === "trigger").map((e) => (e as { listenerDefId: string }).listenerDefId);
+
+  it("Recurve Bow does not shoot into a fight its wearer walked out of", () => {
+    const state = worn(RECURVE_BOW);
+    const wearer = state.battlefields.find((b) => b.id === "bf1")!.units["p1"]![0]!;
+    const bf1 = state.battlefields.find((b) => b.id === "bf1")!;
+    bf1.units = { ...bf1.units, p2: [makeUnit({ instanceId: "enemy-a" })] };
+    bf1.contestedByIndex = 0;
+    state.battlefields.find((b) => b.id === "bf2")!.units = { p2: [makeUnit({ instanceId: "enemy-b" })] };
+
+    const held = holdEventTrigger(state, { kind: "combatBegan", battlefieldId: "bf1", designated: ["wearer"] });
+    // The positive control: it DID trigger. "Nothing happened" is true of every
+    // board immediately after a hold, so without this the assertions below pass
+    // against a Bow that never fires at all.
+    expect(held.pendingTriggers.map((t) => t.listenerDefId), "the bow never fired").toContain(RECURVE_BOW);
+
+    // The response window: the wearer redeploys to bf2, where an enemy stands.
+    const walked: GameState = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p1: [] } }
+          : bf.id === "bf2"
+            ? { ...bf, units: { ...bf.units, p1: [wearer] } }
+            : bf,
+      ),
+    };
+
+    const settled = resolveHeldTriggers(walked);
+    expect(pendingDecision(settled), "it still asked, from a battlefield it had left").toBeUndefined();
+    expect(damageOf(settled, "enemy-b"), "it re-aimed at where the wearer ended up").toBe(0);
+    expect(damageOf(settled, "enemy-a"), "it shot into the fight from elsewhere").toBe(0);
+  });
+
+  it("Recurve Bow asks nothing when an earlier answer has sent its wearer home", () => {
+    // The same rule reached the other way, through two real cards and no board
+    // surgery: Overzealous Fan's "when I defend, you may kill me to move an
+    // attacking unit to its base" is another question raised by the same
+    // `combatBegan`, and its answer takes the Bow's wearer out of the fight.
+    //
+    // **This one does NOT discriminate the change** — a wearer in base was already
+    // moot at the Bow's `resolve` — and it is kept for what it MEASURES instead:
+    // that a pending question BLOCKS the chain, so the Bow's trigger is still
+    // waiting when the Fan's answer lands. That is why the "here" re-check bites
+    // at park time and why there is no second, later window to check in; the two
+    // assertions on the chain below are the evidence for that claim, which was
+    // asserted wrongly in this file's first draft.
+    const state = worn(RECURVE_BOW);
+    const fan = realUnitInstance(OVERZEALOUS_FAN);
+    const bf1 = state.battlefields.find((b) => b.id === "bf1")!;
+    // TWO plain enemies besides the Fan, so the Bow's question is a real choice
+    // and waits rather than auto-resolving the instant it is parked.
+    bf1.units = { ...bf1.units, p2: [fan, makeUnit({ instanceId: "enemy-a" }), makeUnit({ instanceId: "enemy-b" })] };
+    bf1.contestedByIndex = 0;
+
+    const settled = resolveHeldTriggers(
+      holdEventTrigger(state, { kind: "combatBegan", battlefieldId: "bf1", designated: ["wearer", fan.instanceId] }),
+    );
+    const question = pendingDecision(settled);
+    expect(question?.kind, "the Fan's question is the one that should be at the front").toBe("SFD-128-sacrifice");
+    expect(chainTriggerDefIds(settled), "the bow's trigger had already resolved past the question").toContain(RECURVE_BOW);
+
+    // Kill the Fan, send the wearer home, then let the chain finish — answering a
+    // question does not resume it. `pickCard` falls through to the first option
+    // for any other question, so a Bow that still asked would shoot.
+    const answered = resolveHeldTriggers(answerDecisions(settled, pickCard("wearer")));
+
+    expect(answered.players[0]!.baseUnits.map((u) => u.instanceId), "the Fan's answer did not send the wearer home").toContain("wearer");
+    expect(chainTriggerDefIds(answered), "the bow's trigger never resolved, so this measured nothing").not.toContain(RECURVE_BOW);
+    expect(pendingDecision(answered), "the bow still had a question to ask").toBeUndefined();
+    expect(damageOf(answered, "enemy-a"), "the bow fired from base").toBe(0);
+    expect(damageOf(answered, "enemy-b")).toBe(0);
+  });
+
   it("Recurve Bow does nothing when its wearer is not in the fight", () => {
     // Not designated, so `isFightingAt` says no — the same predicate a unit uses.
     const state = worn(RECURVE_BOW);
@@ -337,7 +441,7 @@ describe("coverage now tells the truth about art-only Equipment", () => {
  * The blocker was never the trigger: it was that `killUnit` DETACHES FIRST,
  * before any ward or replacement, so by the time the death fires nothing can say
  * what the unit was wearing. `PendingDeath.wornEquipment` captures it at the
- * moment of death, the same 809.1.b.3 reasoning that captures the unit itself.
+ * moment of death, the same 808.1.d.3 reasoning that captures the unit itself.
  */
 describe("Sacred Shears draws when its WEARER dies", () => {
   /** Resolves whatever the death put on the chain. */

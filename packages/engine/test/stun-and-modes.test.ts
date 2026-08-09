@@ -14,7 +14,7 @@ import type { GameState } from "../src/model/game-state.js";
 import { makePlayer, makeState, makeUnit } from "./fixtures.js";
 
 /**
- * Stun (rule 422's Stun section) and Udyr - Wildman, the modal ability it exists
+ * Stun (rule 423's Stun section) and Udyr - Wildman, the modal ability it exists
  * for.
  *
  * Stun's two halves pull in opposite directions and are tested separately on
@@ -43,7 +43,7 @@ function fight(attackerMight: number, defenderMight: number): { state: GameState
 
 const survivorsAt = (state: GameState, playerId: string) => state.battlefields[0]!.units[playerId] ?? [];
 
-describe("Stun (rule 422)", () => {
+describe("Stun (rule 423)", () => {
   it("stops the unit contributing its Might to combat damage", () => {
     // A 5-Might attacker would kill a 4-Might defender outright; stunned, it
     // deals nothing and the defender walks away.
@@ -130,7 +130,7 @@ describe("Udyr - Wildman: spend my buff, choose one you've not chosen this turn"
     expect(modesOffered(state)).toEqual(new Set(["damage", "stun", "ready", "ganking"]));
   });
 
-  it("offers nothing at all unbuffed — the cost is the buff (705)", () => {
+  it("offers nothing at all unbuffed — the cost is the buff (702.2.b.1)", () => {
     const { state } = udyrState(0);
     expect(udyrActions(state)).toHaveLength(0);
   });
@@ -204,7 +204,7 @@ describe("Udyr - Wildman: spend my buff, choose one you've not chosen this turn"
   });
 
   it("spends the choice even when the mode's own effect does nothing", () => {
-    // Stunning an already-stunned unit is a no-op (422), but the choice was
+    // Stunning an already-stunned unit is a no-op (423), but the choice was
     // still made — so it cannot be chosen again this turn.
     const { state } = udyrState(1);
     const enemyId = state.battlefields[0]!.units["p2"]![0]!.instanceId;

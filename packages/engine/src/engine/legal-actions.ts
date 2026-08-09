@@ -110,7 +110,7 @@ export function secondTargetIsAtDestination(
   if (action.secondTargetUnitInstanceId === undefined) return true; // nothing chosen yet
   // The destination is a BASE — Dragon's Rage sending an enemy home and then
   // naming "another enemy unit at its destination", which is another unit
-  // standing in that same base. `baseUnits` is per player and 107.2.c puts a
+  // standing in that same base. `baseUnits` is per player and 107.1.c puts a
   // unit only in its controller's, so "the destination" is the base of whoever
   // owns the second target: they are at the same base exactly when they share a
   // controller.
@@ -947,7 +947,7 @@ export function legalActions(state: GameState): PlayerAction[] {
     // even when there IS something to choose". Folding them would make every
     // Unit's on-play trigger optional, which is wrong for the 47 that are not.
     //
-    // 402.2 puts the decision at the Make Relevant Choices step — "if the first
+    // 402.1 puts the decision at the Make Relevant Choices step — "if the first
     // part of a Triggered Ability's effect is 'you may', its controller decides
     // whether or not to perform the Triggered Ability NOW" — which is why it is
     // an enumerated variant rather than a branch inside the resolver.
@@ -1069,13 +1069,13 @@ export function legalActions(state: GameState): PlayerAction[] {
           const toBattlefields: Partial<PlayCardAction>[] = state.battlefields
             .filter((_bf, index) => index !== currentBattlefieldIndex)
             .map((bf) => ({ ...v, destinationBattlefieldId: bf.id }));
-          // **BASE is a Location too** (197 / 107.2.b), and 355.7 makes every
+          // **BASE is a Location too** (198.1 / 107.1.b), and 355.4.a makes every
           // Location the unit may be present at a valid Move Destination — the
           // rules work this exact case at 359.3.e ("Base is a legal move
           // destination for Ride the Wind"). Only for the cards whose printed
           // text does not name a battlefield, which `cardMayMoveToBase` decides.
           //
-          // Offered only when the unit is AT a battlefield: 355.7 excludes the
+          // Offered only when the unit is AT a battlefield: 355.4.a excludes the
           // Unit's current Location, and a unit already in base has no move to
           // make. `currentBattlefieldIndex` is undefined exactly then.
           //
@@ -1492,7 +1492,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // note about.
       //
       // Enumerated as its own variant AND crossed with the printed instance when
-      // the card has one, because 3509 makes them independently payable: pay
+      // the card has one, because 820.1.c.2 makes them independently payable: pay
       // neither, either, or both, at four different prices for three different
       // execution counts.
       const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
@@ -1501,7 +1501,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
           for (const axis of additionalCostAxes) {
             const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-            // TWO bundles when both instances are paid, because 3509 makes them
+            // TWO bundles when both instances are paid, because 820.1.c.2 makes them
             // two separately-payable optional additional costs and the
             // project-owner ruling of 2026-08-08 gives each its own Ezreal pip.
             // This crossed branch is the only place in the pool where that is
@@ -1576,7 +1576,7 @@ export function legalActions(state: GameState): PlayerAction[] {
           }
         }
       }
-      // `[Accelerate]` is an Optional Additional Cost by name (805/3233), so it
+      // `[Accelerate]` is an Optional Additional Cost by name (805/805.2), so it
       // fans out over Ezreal - Prodigy's axis like the two `[Repeat]` branches
       // above. `additionalCostAxes` is the single-element `[undefined]` when he
       // is not on the board, and this then prices exactly the one candidate it

@@ -92,7 +92,7 @@ describe("a Deathknell fires however the unit died (808)", () => {
     expect(after.players[0]!.channeled).toHaveLength(state.players[0]!.channeled.length + 1);
   });
 
-  it("does NOT fire when the death was replaced by a ward (809.1.b.1)", () => {
+  it("does NOT fire when the death was replaced by a ward (808.1.d.1)", () => {
     // "If the Permanent with the effect is not sent to the Trash, for example
     // because its 'killed' event was replaced with a recall, the triggered
     // ability will be removed from the chain." Here the ward makes the death not
@@ -158,7 +158,7 @@ describe("Undercover Agent's Deathknell (OGN-178)", () => {
 });
 
 describe("killUnit, the one funnel", () => {
-  it("strips the Buff before the card reaches the trash (709)", () => {
+  it("strips the Buff before the card reaches the trash (705)", () => {
     const unit = makeUnit({ might: 3 });
     let state = makeState();
     state.battlefields[0]!.units = { p1: [unit] };
@@ -206,7 +206,7 @@ describe("the shared listener walk", () => {
     // belonging to a card the walk could not reach would have resolved to
     // nothing, silently.
     //
-    // **The order is asserted, not incidental.** The chain resolves LIFO (343),
+    // **The order is asserted, not incidental.** The chain resolves LIFO (340.1),
     // so the last listener placed resolves first: the Legend is last here
     // precisely so it still resolves before its controller's permanents, which
     // is where the old inline Legend dispatches sat.

@@ -11,7 +11,7 @@ import { makeState, makeUnit, spellInstance } from "./fixtures.js";
 /**
  * **A BASE is a legal destination for a spell that says "move a unit".**
  *
- * 197 and 107.2.b make each Base a Location; 355.7 makes "a valid Location for a
+ * 198.1 and 107.1.b make each Base a Location; 355.4.a makes "a valid Location for a
  * Move Effect … one other than the Unit's current Location where they are
  * allowed to be present". The PDF then works this exact case BY NAME at
  * **359.3.e**: *"A player plays Ride the Wind choosing to move their unit at
@@ -70,7 +70,7 @@ function rideTheWindState(): { state: GameState; spellId: string } {
   return { state: s, spellId: spell.instanceId };
 }
 
-describe("a base as a spell's move destination (355.7 / 359.3.e)", () => {
+describe("a base as a spell's move destination (355.4.a / 359.3.e)", () => {
   it("Ride The Wind offers base for a unit at a battlefield — the rules' own example", () => {
     const { state, spellId } = rideTheWindState();
     const toBase = playsOf(state, spellId).filter((p) => p.destinationIsBase === true);
@@ -79,7 +79,7 @@ describe("a base as a spell's move destination (355.7 / 359.3.e)", () => {
   });
 
   it("moves the unit home, and it arrives READY rather than exhausted", () => {
-    // 144.4 makes exhausting the cost of the STANDARD MOVE ACTION, so a spell's
+    // 144.2 makes exhausting the cost of the STANDARD MOVE ACTION, so a spell's
     // move does not exhaust — the same rule `forceMoveToBattlefield` already
     // cites for a unit charmed across the board. Ride The Wind readies on top.
     const { state, spellId } = rideTheWindState();
@@ -92,7 +92,7 @@ describe("a base as a spell's move destination (355.7 / 359.3.e)", () => {
     expect(after.players[0]!.baseUnits[0]!.exhausted, "a spell's move must not exhaust").toBe(false);
   });
 
-  it("does NOT offer base to a unit already in base — 355.7's 'other than its current Location'", () => {
+  it("does NOT offer base to a unit already in base — 355.4.a's 'other than its current Location'", () => {
     const { state, spellId } = rideTheWindState();
     state.battlefields[0]!.units = {};
     state.players[0]!.baseUnits = [makeUnit({ name: "Rider", instanceId: "rider" })];
@@ -100,7 +100,7 @@ describe("a base as a spell's move destination (355.7 / 359.3.e)", () => {
     expect(playsOf(state, spellId).filter((p) => p.destinationIsBase === true)).toHaveLength(0);
   });
 
-  it("Charm sends an ENEMY unit to ITS OWN base, not the caster's (107.2.c)", () => {
+  it("Charm sends an ENEMY unit to ITS OWN base, not the caster's (107.1.c)", () => {
     const spell = spellInstance(CHARM);
     const s = makeState({ phase: "Action" });
     s.players[0]!.hand = [spell];
@@ -118,7 +118,7 @@ describe("a base as a spell's move destination (355.7 / 359.3.e)", () => {
   it("Showstopper and Stormbringer never offer base — they print a battlefield", () => {
     // The two the doc counted as affected and which, read against their printed
     // text, are not. Showstopper's target is in base to begin with, so this is
-    // also 355.7 excluding the current Location.
+    // also 355.4.a excluding the current Location.
     const spell = spellInstance(SHOWSTOPPER);
     const s = makeState({ phase: "Action" });
     s.players[0]!.hand = [spell];

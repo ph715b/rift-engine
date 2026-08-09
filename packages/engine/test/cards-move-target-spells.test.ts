@@ -115,7 +115,7 @@ describe("Ride The Wind (OGN-173): move a friendly unit and ready it", () => {
     // so only bf2 is a real BATTLEFIELD destination — offering bf1 would be a
     // no-op move the caster paid full price for.
     //
-    // **Premise updated 2026-08-07**: base became a legal destination (355.7,
+    // **Premise updated 2026-08-07**: base became a legal destination (355.4.a,
     // and 359.3.e names THIS CARD's base move by example), so the variants are
     // no longer battlefields alone. The assertion is not weakened — it is made
     // exact by partitioning the variants and checking both halves, so neither a

@@ -50,8 +50,8 @@ describe("Lee Sin - Ascetic (OGN-078): any number of buffs", () => {
     return { state, id: lee.instanceId };
   }
 
-  it("STACKS past rule 708's one-buff cap, and each is worth a point of Might", () => {
-    // The second sentence is the whole card. Without it, 708 makes the second
+  it("STACKS past rule 702.3.a's one-buff cap, and each is worth a point of Might", () => {
+    // The second sentence is the whole card. Without it, 702.3.a makes the second
     // activation an exhaust for nothing — and it would look like the ability
     // simply working, since the unit is still buffed.
     const { state, id } = ascetic();

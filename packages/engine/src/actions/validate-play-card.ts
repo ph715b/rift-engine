@@ -461,7 +461,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // otherwise a caster could dodge a mandatory trigger by omitting the field.
   // A Spell's targeting is its whole effect, so this never applies there.
   // **…or because the card's own text says "you MAY".** Tideturner (OGN-199):
-  // declining is one of the choices 402.2 puts at the Make Relevant Choices
+  // declining is one of the choices 402.1 puts at the Make Relevant Choices
   // step, so omitting the target is legal even when the board offers one. The
   // enumerator pushes exactly this variant off the same `optionalChoice` flag —
   // one condition, two readers, which is the only thing that stops a decline
@@ -543,7 +543,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Units as well as Spells — see card-effects.ts's OPTIONAL_UNIT_COSTS for why
   // the `card.kind === "Spell"` gate that used to be here was wrong.
   const optionalCost = optionalUnitCostOf(card.defId);
-  // A MANDATORY additional cost has to be named. Rule 355.11 keeps it a cost
+  // A MANDATORY additional cost has to be named. Rule 355.10.c keeps it a cost
   // rather than a target, but unlike an optional one there is no declining it —
   // Cruel Patron with nothing of yours to kill is simply unplayable.
   // A GEAR-valued cost rides its own field, so "was it paid" is a different
@@ -589,7 +589,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const atBattlefield = inBase ? undefined : findUnitOnBattlefield(state, id);
     const owned = inBase !== undefined || (atBattlefield !== undefined && atBattlefield.ownerIndex === action.playerIndex);
     const unit = inBase ?? atBattlefield?.unit;
-    // Ownership is common to both cost shapes — rule 705.1 for spending a buff,
+    // Ownership is common to both cost shapes — rule 702.2.b.2 for spending a buff,
     // and you can't exhaust someone else's unit either.
     if (!unit || !owned) {
       return fail(`${card.name}'s additional cost requires a friendly unit you control`);
@@ -684,7 +684,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   }
   if (action.destinationIsBase === true && !cardMayMoveToBase(card.defId)) {
     // Showstopper and Stormbringer print a battlefield as their destination, so
-    // base is not a Location they may name (355.7 is about Locations the card
+    // base is not a Location they may name (355.4.a is about Locations the card
     // allows, and these two name one).
     return fail(`${card.name} cannot move a unit to base`);
   }
@@ -692,7 +692,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     return fail(`${card.name} must name a battlefield or base to move the unit to`);
   }
   // A base is only a legal destination for a unit that is AT a battlefield —
-  // 355.7's "other than the Unit's current Location". The enumerator applies the
+  // 355.4.a's "other than the Unit's current Location". The enumerator applies the
   // same rule by only offering the base variant when the unit is on one.
   if (
     action.destinationIsBase === true &&
@@ -747,7 +747,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   //
   // All FOUR of them, which is the 2026-08-08 playtest fix: `[Repeat]` and
   // Temporal Portal's granted instance are Optional Additional Costs by name
-  // (820, and 3509 for the granted one), and listing only the other two here is
+  // (820, and 820.1.c.2 for the granted one), and listing only the other two here is
   // what made a repeated Called Shot cost full price.
   const payingOptional =
     action.optionalPowerPaid === true ||
@@ -848,7 +848,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   const repeatPower = action.repeatPaid ? repeatCost?.power ?? 0 : 0;
   const repeatRainbow = action.repeatPaid ? repeatCost?.rainbowPower ?? 0 : 0;
   // The granted instance is a SECOND additional cost and adds on top of the
-  // printed one — 3509 makes them independently payable, so a spell can owe
+  // printed one — 820.1.c.2 makes them independently payable, so a spell can owe
   // both. `modifiedRepeatEnergy` applies to it too: Marai Spire's discount is
   // about [Repeat] costs, and a granted instance is one.
   const grantedEnergy = action.grantedRepeatPaid

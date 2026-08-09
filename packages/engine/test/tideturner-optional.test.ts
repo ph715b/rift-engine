@@ -20,7 +20,7 @@ import { makeState, makeUnit } from "./fixtures.js";
  * to decline — with any friendly unit elsewhere, every enumerated variant named
  * one and the swap was forced.
  *
- * **402.2** puts the decision at the Make Relevant Choices step: "if the first
+ * **402.1** puts the decision at the Make Relevant Choices step: "if the first
  * part of a Triggered Ability's effect is 'you may', its controller decides
  * whether or not to perform the Triggered Ability NOW". So the decline has to be
  * an enumerable variant, not a branch inside the resolver — a resolver that
@@ -56,7 +56,7 @@ function stateWithATarget(): { state: GameState; instanceId: string } {
 const playsOf = (state: GameState, instanceId: string): PlayCardAction[] =>
   legalActions(state).filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === instanceId);
 
-describe("Tideturner's 'you may' is declinable (402.2)", () => {
+describe("Tideturner's 'you may' is declinable (402.1)", () => {
   it("offers BOTH the swap and the decline while a legal target exists", () => {
     const { state, instanceId } = stateWithATarget();
     const plays = playsOf(state, instanceId);

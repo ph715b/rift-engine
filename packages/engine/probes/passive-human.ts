@@ -10,7 +10,7 @@
  *
  * The stall report is the useful half. A bare count says a game hung; the dump
  * says WHICH battlefield, held by whom, with how many units — which is what turned
- * that livelock into a one-line rule (323.11) rather than a hunt.
+ * that livelock into a one-line rule (323.6) rather than a hunt.
  */
 import { chooseAction, legalActions, submit } from "@rift-engine/engine";
 import type { GameState, PlayerAction } from "@rift-engine/engine";

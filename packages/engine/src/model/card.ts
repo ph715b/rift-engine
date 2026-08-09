@@ -64,11 +64,11 @@ export interface UnitInstance extends CardInstanceBase {
   mightThisTurn: number;
   /**
    * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
-   * (rule 710), which persists across turns until it is spent or the unit
-   * leaves play (rule 709).
+   * (rule 705), which persists across turns until it is spent or the unit
+   * leaves play (rule 705).
    *
-   * A boolean rather than a count because rule 707 is explicit: "There can only
-   * be one Buff on a Unit at a time", and 708 says a second one "is not placed
+   * A boolean rather than a count because rule 702.3 is explicit: "There can only
+   * be one Buff on a Unit at a time", and 702.3.a says a second one "is not placed
    * instead". Eight cards in the pool read the buffed state back ("While I'm
    * buffed…", "spend a buff…", "Other buffed friendly units…"), which is why it
    * has to be real state rather than folded into mightThisTurn.
@@ -78,18 +78,18 @@ export interface UnitInstance extends CardInstanceBase {
    * Buffs BEYOND the first — Lee Sin - Ascetic's "I can have any number of buffs".
    *
    * A separate count rather than turning `buffed` into a number, and that is what
-   * keeps the change contained: rule 708 makes a second buff on an ordinary unit a
+   * keeps the change contained: rule 702.3.a makes a second buff on an ordinary unit a
    * no-op, so every other card in the pool is a boolean question ("is it buffed")
    * and every reader of `buffed` — Sett - Kingpin's count, Lee Sin - Centered's
    * aura, Wildclaw Shaman's cost, `spendBuff` — keeps working untouched. Only
    * `effectiveMight` adds this, and only the one card ever raises it.
    *
-   * Spending a buff (705) takes the extras first and clears `buffed` only when the
+   * Spending a buff (702.2.b) takes the extras first and clears `buffed` only when the
    * last one goes, which is what "any number of buffs" means when one is spent.
    */
   extraBuffs?: number;
   /**
-   * Stunned — rule 422's Stun section.
+   * Stunned — rule 423's Stun section.
    *
    * A binary state, deliberately, because the rules say so outright: "Stunned is
    * a binary state. A Unit is Stunned or it isn't", and "a Stunned Unit can not

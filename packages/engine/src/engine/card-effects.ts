@@ -58,7 +58,7 @@ export type TargetingSpec =
    *  of this spec, so a ready unit is never offered and then refused. */
   /**
    * `attackingOnly` is Thwonk!'s "stun an ATTACKING unit" — a restriction on the
-   * target's combat DESIGNATION (465 Step 1) rather than on its owner, its Might
+   * target's combat DESIGNATION (464.2.c Step 1) rather than on its owner, its Might
    * or its zone, and the first of its kind here.
    *
    * A property of the SPEC rather than a check inside the resolver, for the
@@ -92,8 +92,8 @@ export type TargetingSpec =
        *
        * A property of the SPEC rather than of the resolver, the same reason
        * `attackingOnly` above gives: by the time a resolver runs, the choice has
-       * been made and paid for. **355.7's Make Relevant Choices step is where a
-       * "you may" is decided** — 402.2 says it in as many words for a triggered
+       * been made and paid for. **355's Make Relevant Choices step is where a
+       * "you may" is decided** — 402.1 says it in as many words for a triggered
        * ability ("if the first part of a Triggered Ability's effect is 'you may',
        * its controller decides whether or not to perform it NOW") — so the
        * decline has to exist as an enumerable choice, not as a resolver branch.
@@ -288,7 +288,7 @@ export type TargetingSpec =
    * The first targeting kind that names a chain item rather than a permanent, and
    * it is what makes `[Reaction]` mean anything: every card here is a Reaction,
    * cast onto a chain that is already closed, and resolves BEFORE its target
-   * because the chain is LIFO (343).
+   * because the chain is LIFO (340.1).
    *
    * **A spell cannot target itself** — the rules say so outright, and here it is
    * true by construction rather than by a check: `legal-actions` enumerates before
@@ -554,7 +554,7 @@ export interface ResolveEvent {
    *  zone. See cardPlacesTokens. */
   destinationBattlefieldId?: string;
   /** A move-target Spell is sending its unit to BASE instead of a battlefield —
-   *  355.7 makes every Location a valid Move Destination and 359.3.e works the
+   *  355.4.a makes every Location a valid Move Destination and 359.3.e works the
    *  case by name. See `PlayCardAction.destinationIsBase`. */
   destinationIsBase?: true;
   /** The card from hand this play discards — a MANDATORY part of the effect for
@@ -937,7 +937,7 @@ const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
  * — "[Repeat] equal to its cost", so the card's whole printed cost, Energy pip
  * and Power pip both.
  *
- * PRINTED, not effective: 874's Defy example is the rules being explicit that a
+ * PRINTED, not effective: 206's Defy example is the rules being explicit that a
  * card's cost for reference purposes is what it prints, and every discount in
  * this engine reduces what a play COSTS rather than what the card is. A version
  * reading the discounted figure would make a Marai Spire cheapen the grant too,
@@ -1093,7 +1093,7 @@ export function moveDestinationAllowed(
   defId: string,
   movedUnitInstanceId: string | undefined,
   /** The battlefield being considered, or `"base"` for the moved unit's own
-   *  base — 107.2.c means there is only ever one base it could go to. */
+   *  base — 107.1.c means there is only ever one base it could go to. */
   destination: string | "base",
 ): boolean {
   if (!MOVE_DESTINATION_NEEDS_SAME_CONTROLLER.has(defId)) return true;
@@ -1121,8 +1121,8 @@ export function cardMovesTarget(defId: string): boolean {
 /**
  * Move-target spells whose destination may be a BASE.
  *
- * 355.7 makes every Location a unit is allowed to be present at a valid Move
- * Destination, and 197/107.2.b make each Base a Location — so this is the
+ * 355.4.a makes every Location a unit is allowed to be present at a valid Move
+ * Destination, and 198.1/107.1.b make each Base a Location — so this is the
  * DEFAULT for a card that just says "move a unit", and the set below is the
  * exception list read off the printed text.
  *
@@ -1131,7 +1131,7 @@ export function cardMovesTarget(defId: string): boolean {
  *
  *  - **Showstopper (OGN-270)** — "Buff a friendly unit in your base, then move it
  *    **to a battlefield**." It names one, and the unit starts in base anyway, so
- *    355.7's "other than the Unit's current Location" excludes base twice over.
+ *    355.4.a's "other than the Unit's current Location" excludes base twice over.
  *  - **Stormbringer (OGN-250)** — "…to all enemy units **at a battlefield**, then
  *    move your unit **there**." The destination is doing double duty as the thing
  *    damaged; a base cannot be it.

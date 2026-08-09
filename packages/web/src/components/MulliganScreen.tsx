@@ -5,10 +5,10 @@ import { CardView } from "./CardView.js";
 interface MulliganScreenProps {
   hand: CardInstance[];
   /** Does the human take the first turn? Turn order is rolled per game (rule
-   *  117.x), so this is genuinely unknown until now — and it belongs on THIS
+   *  115), so this is genuinely unknown until now — and it belongs on THIS
    *  screen rather than only in the board header, because it's information the
    *  mulligan decision depends on: the player going second channels an extra
-   *  rune on their first turn (486.1), so going second can afford a slightly
+   *  rune on their first turn (485.7), so going second can afford a slightly
    *  greedier hand. */
   humanGoesFirst: boolean;
   /** Match context ("Game 2 of 3 — you lead 1–0"), shown only in a Best of 3;

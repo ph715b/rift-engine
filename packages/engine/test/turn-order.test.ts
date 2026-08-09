@@ -25,12 +25,12 @@ function channelState(firstPlayerIndex: 0 | 1, activePlayerIndex: 0 | 1, turnNum
 }
 
 /**
- * Rule 117.x picks the First Player by "any fair random method", so either
+ * Rule 115 picks the First Player by "any fair random method", so either
  * player can start — and two steps used to assume it was always player 0. These
  * cover both seatings; the firstPlayerIndex-0 cases are regression pins that
  * hold today's numbers in place.
  */
-describe("going-second Channel bonus follows the First Player, not the seat (rules 486.1 / 487.4)", () => {
+describe("going-second Channel bonus follows the First Player, not the seat (rules 485.7 / 486.7)", () => {
   it("gives the extra rune to player 0 when player 1 went first", () => {
     // The case the old `active === 1` test got exactly backwards.
     const next = runChannel(channelState(1, 0));
@@ -123,7 +123,7 @@ describe("battlefield selection", () => {
     ]);
   });
 
-  it("pickBattlefield never returns an excluded name (rule 487.3)", () => {
+  it("pickBattlefield never returns an excluded name (rule 486.5)", () => {
     const names = ["A", "B", "C"];
     // Sweep the whole rng range rather than trusting one draw.
     for (let i = 0; i < 100; i++) {

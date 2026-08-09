@@ -294,9 +294,9 @@ the wave produced.
 | primitive | owns it | blocks |
 |---|---|---|
 | gear token + Gold's ability | `token.ts`, `activated-abilities.ts` | 11 cards, 2 battlefields |
-| a combat-WON event (466.5.a) | `triggers.ts`, `combat.ts` | Corrupt Enforcer, Draven - Vanquisher, Draven - Audacious |
+| a combat-WON event (466.3.a) | `triggers.ts`, `combat.ts` | Corrupt Enforcer, Draven - Vanquisher, Draven - Audacious |
 | `unitChosen` event (Targeting Effects) | `triggers.ts`, `execute-play-card.ts` | Irelia - Fervent, Jae Medarda, Spirit Wheel |
-| rule 438 Prevent | 4 shared files | Counter Strike |
+| rule 437 Prevent | 4 shared files | Counter Strike |
 | controller vs owner | `model/game-state.ts`, `turn-manager.ts` | Hostile Takeover |
 | gear-shaped targeting and costs | `card-effects.ts` + enumerator/validator | Detonate, Factory Recall, Legion Quartermaster, Zaun Punk |
 | optional ENERGY additional cost | `card-effects.ts` + enumerator/validator | Sea Monkey, Blast Corps Cadet |

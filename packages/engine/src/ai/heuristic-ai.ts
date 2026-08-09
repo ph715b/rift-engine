@@ -53,7 +53,7 @@ import { actingPlayerIndex } from "../engine/timing.js";
  *
  * The `runCleanup` wrapper is load-bearing, not tidiness: `submit` runs a Cleanup
  * after every action (rule 323), and the Cleanup is what STAGES a Showdown at a
- * Contested battlefield (341) and what lapses control of an emptied one (323.11).
+ * Contested battlefield (344.1) and what lapses control of an emptied one (323.6).
  * Calling the executors bare would let the lookahead score a state the real game
  * never passes through — in particular a Move onto an empty battlefield would
  * look like "my unit is somewhere else, no points", because the Non-Combat
@@ -61,7 +61,7 @@ import { actingPlayerIndex } from "../engine/timing.js";
  */
 function applyAction(state: GameState, action: PlayerAction): GameState {
   const applied = applyBare(state, action);
-  // Same suppression `submit` applies, and for the same rule (323.2.b): if the
+  // Same suppression `submit` applies, and for the same rule (321): if the
   // action stopped to ask a question, the resolution is not finished and a
   // Cleanup must not run inside it. Skipping it here keeps the lookahead scoring
   // states the real game actually passes through.
@@ -309,7 +309,7 @@ function settleDeferredResolution(
       let bestValue = -Infinity;
       // `applyAction`, not `applyBare`: `submit` runs a Cleanup after an
       // AnswerDecision like it does after every other action (game-engine.ts:113),
-      // and `applyAction` carries the same 323.2.b suppression at :68 for the case
+      // and `applyAction` carries the same 321 suppression at :68 for the case
       // where answering one question raises another. Scoring bare states here made
       // the lookahead judge answers on a board the real game never passes through —
       // an answer that empties a battlefield would not have lapsed control, and one
@@ -348,7 +348,7 @@ function settleDeferredResolution(
     // executePassFocus's own dispatch order (it checks `chainOpen` first).
     if (!settled.chainOpen) {
       // Cleanup after each pass, same as `submit` — a chain closing inside a
-      // Showdown can restage or promote one (317.2), which the next iteration
+      // Showdown can restage or promote one (316.8.b.1.a), which the next iteration
       // must see.
       settled = runCleanup(executePassFocus(settled, { type: "PassFocus", playerIndex: settled.chainPriority }));
       continue;

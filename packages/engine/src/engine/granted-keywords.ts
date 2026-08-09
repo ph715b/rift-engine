@@ -36,7 +36,7 @@ const RAGING_SOUL = "OGN-019";
  *  unit itself, so it comes and goes as the buff is placed and spent. */
 const BILGEWATER_BULLY = "OGN-125";
 /** Fiora - Victorious: "While I'm [Mighty], I have [Deflect], [Ganking], and
- *  [Shield]." Mighty is rule 711 — Might 5 or greater, evaluated on the unit's
+ *  [Shield]." Mighty is rule 708 — Might 5 or greater, evaluated on the unit's
  *  CURRENT Might. */
 const FIORA_VICTORIOUS = "OGN-232";
 
@@ -520,7 +520,7 @@ const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
 };
 
 /**
- * Rule 711: "A Unit 'is Mighty' as long as its Might is 5 or greater", evaluated
+ * Rule 708: "A Unit 'is Mighty' as long as its Might is 5 or greater", evaluated
  * on its CURRENT Might. **The one function that answers this question** — every
  * "while I'm [Mighty]", "each of your [Mighty] units" and "becomes [Mighty]" in
  * the engine goes through here, including `effect-helpers.withMightTransitions`,
@@ -537,7 +537,7 @@ const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
  * This engine has no single combat Might — `MightContext.combatRole` splits it
  * into what a unit deals and what it can absorb, and those are genuinely different
  * numbers (`[Shield]` lifts only the second, and only while defending). The ruling
- * is what settles which one 711 is asking about: either.
+ * is what settles which one 708 is asking about: either.
  *
  * `mightyCheck` is what makes that safe to ask, and it is 476's "each effect
  * applied only a single time" rather than a recursion guard — see its doc on
@@ -564,7 +564,7 @@ export function isMighty(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1
 
   // "In combat" is this unit's own fight, not any fight: a Combat Showdown open
   // at bf1 says nothing about a [Shield] unit standing at bf2. A NonCombat
-  // Showdown is deliberately excluded — 317.1 says it "does not create a Combat",
+  // Showdown is deliberately excluded — 316.8.b.1 says it "does not create a Combat",
   // so there is no attacker, no defender and no keyword bonus to apply.
   if (state.showdownKind !== "Combat") return false;
   if (location === undefined || location === "base" || location !== state.showdownBattlefieldId) return false;

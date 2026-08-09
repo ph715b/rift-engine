@@ -41,22 +41,22 @@ export function dealOpeningHands(state: GameState): GameState {
  * Every resolved action ends the same way: run the Cleanup, then check whether
  * anyone has won. That order is the rules' own — rule 323's Cleanup performs its
  * state-based actions (including control lapsing, step 4) and the victory check
- * is a cleanup-time question (194.4 / 198.1). Cleanup can't create or destroy
+ * is a cleanup-time question (194.2 / 198.1). Cleanup can't create or destroy
  * points, so it can't change who wins this instant; running it first is about
  * never leaving a caller holding a state the rules wouldn't allow.
  */
 function withCleanupAndWinnerCheck(state: GameState): { state: GameState; result: SubmitResult } {
   // ...unless the action stopped halfway through to ask someone a question.
   //
-  // Rule 323.2.b: "while Chain Items are Resolving, a Cleanup cannot occur", and
-  // 323.2.c makes a Cleanup that becomes due during a resolution an Outstanding
+  // Rule 321: "while Chain Items are Resolving, a Cleanup cannot occur", and
+  // 321.1 makes a Cleanup that becomes due during a resolution an Outstanding
   // Task instead. A pending decision IS a resolution in progress, so running the
   // Cleanup here would apply state-based actions to a half-finished effect —
   // lapsing control of a battlefield whose units are about to arrive, or killing
   // a unit the rest of the effect was going to heal.
   //
   // Nothing is lost by deferring: the Cleanup runs when the last answer comes
-  // in, and 323.4 says a Cleanup repeats until the state stops changing, so one
+  // in, and 322 says a Cleanup repeats until the state stops changing, so one
   // at the end does the work of the ones skipped. Skipping the winner check with
   // it is the same reasoning — a game cannot be over in the middle of an effect.
   if (state.pendingDecisions.length > 0) return { state, result: { type: "Ok" } };
@@ -93,9 +93,9 @@ export function startGame(state: GameState): { state: GameState; result: SubmitR
  * passes Focus within an open Showdown, not the whole turn.
  */
 export function submit(state: GameState, action: PlayerAction): { state: GameState; result: SubmitResult } {
-  // A win is declared IN A CLEANUP (rule 194.4: "A player wins the game if, in a
+  // A win is declared IN A CLEANUP (rule 194.2: "A player wins the game if, in a
   // cleanup, they have points greater than or equal to the Victory Score..."), and
-  // 323.2.b says a Cleanup cannot occur while a resolution is suspended. So while
+  // 321 says a Cleanup cannot occur while a resolution is suspended. So while
   // a question is pending, points being over the threshold is NOT yet a win — the
   // Cleanup that would declare it has not run and cannot run.
   //
@@ -117,7 +117,7 @@ export function submit(state: GameState, action: PlayerAction): { state: GameSta
   // One central gate rather than the same guard bolted onto eight validators.
   // While the engine is waiting on an answer the game is paused mid-resolution,
   // so nothing else is legal for either player — not a play, not a Pass, not
-  // even passing Focus, since 323.2.a says Priority and Focus "are not passed or
+  // even passing Focus, since 320.1 says Priority and Focus "are not passed or
   // awarded" while resolution is suspended.
   if (state.pendingDecisions.length > 0 && action.type !== "AnswerDecision") {
     return { state, result: { type: "Invalid", error: "A decision is pending — answer it first" } };

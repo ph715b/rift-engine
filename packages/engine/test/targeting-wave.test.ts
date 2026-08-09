@@ -50,7 +50,7 @@ describe("Volibear - Furious (OGN-041): 5 damage split among enemies here", () =
     return state;
   }
 
-  // Volibear attacks when the Combat Showdown opens (383.4.f), so the way to make
+  // Volibear attacks when the Combat Showdown opens (383.4.e), so the way to make
   // him attack is to contest the battlefield for his controller and let the
   // Cleanup stage it — there is no on-attack dispatcher to call any more.
   const attack = (state: GameState) => beginCombatAt(state, "bf1", 0);

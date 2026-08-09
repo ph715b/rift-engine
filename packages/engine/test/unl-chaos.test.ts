@@ -352,7 +352,7 @@ describe("Angler Beast (UNL-132): return ALL units with 2 Might or less", () => 
     expect(at(after, "bf1", "p1").map((u) => u.name), "the pumped 1-Might unit was swept").toEqual(["Pumped"]);
   });
 
-  it("strips a Buff on the way out — rule 709", () => {
+  it("strips a Buff on the way out — rule 705", () => {
     const beast = realUnitInstance(ANGLER_BEAST);
     const state = casterState();
     state.players[0]!.hand = [beast];

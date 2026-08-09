@@ -40,7 +40,7 @@ function board(): { state: GameState; token: ReturnType<typeof createToken> } {
   return { state, token };
 }
 
-describe("a token that leaves the board ceases to exist (rules 714/715)", () => {
+describe("a token that leaves the board ceases to exist (rule 186.1)", () => {
   it("does NOT rest in the trash when it dies", () => {
     const { state, token } = board();
     const after = destroyUnit(state, token.instanceId, 0);
@@ -87,7 +87,7 @@ describe("a token that leaves the board ceases to exist (rules 714/715)", () => 
 
   it("does NOT rest in banishment", () => {
     const { state, token } = board();
-    // 2353 says the same thing for banishment specifically: a replaced token
+    // 438.6 says the same thing for banishment specifically: a replaced token
     // "will stop existing once it begins its occupancy in Banishment".
     const withToken: GameState = {
       ...state,

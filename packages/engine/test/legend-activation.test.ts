@@ -108,7 +108,7 @@ describe("a Legend can be activated at all", () => {
     const after = executeActivateAbility(state, action as never);
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
-    // Mistfall heard it — but as a Chain Pending Item now (809.1.b.3), so the
+    // Mistfall heard it — but as a Chain Pending Item now (808.1.d.3), so the
     // question comes after the response window rather than inside the activation.
     expect(after.pendingTriggers.map((t) => t.listenerDefId)).toEqual(["OGN-152"]);
     expect(resolveHeldTriggers(after).pendingDecisions[0]?.kind).toBe("OGN-152-ready");
@@ -127,7 +127,7 @@ describe("a Legend can be activated at all", () => {
   });
 });
 
-describe("Heimerdinger - Inventor borrows every friendly exhaust ability (416.1)", () => {
+describe("Heimerdinger - Inventor borrows every friendly exhaust ability (414.5)", () => {
   /** Heimerdinger in base, with `others` also in play. */
   function heimerState(withOrb: boolean, legendDefId = VIKTOR): GameState {
     const state = withLegend(legendDefId, 4);
@@ -151,7 +151,7 @@ describe("Heimerdinger - Inventor borrows every friendly exhaust ability (416.1)
   });
 
   it("exhausts HIM, not the card he borrowed from", () => {
-    // 416.1: the exhaust symbol means "exhaust me". He has the ability, so it is
+    // 414.5: the exhaust symbol means "exhaust me". He has the ability, so it is
     // his exhaust — which is the whole reason he can use it at all.
     const state = heimerState(true);
     const viaLegend = heimerActions(state).find((a) => a.type === "ActivateAbility" && a.viaAbilityDefId === VIKTOR)!;

@@ -167,7 +167,7 @@ describe("Miss Fortune - Captain (OGN-162): the FIRST time I move each turn", ()
     // ("no question was asked") cannot tell those two apart.
     //
     // Driven at the hold rather than through a second `MoveUnit`, because a
-    // Standard Move exhausts as a cost (415.1.b): a second real move needs her
+    // Standard Move exhausts as a cost (414.3.a): a second real move needs her
     // readied first, which drags an unrelated mechanism into a test about one
     // predicate. `holdMoveTrigger` is the engine's own entry point.
     const { state, captain } = captainState();

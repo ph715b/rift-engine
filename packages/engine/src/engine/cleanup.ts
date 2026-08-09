@@ -23,7 +23,7 @@ import { returnLapsedGearControl } from "./equipment.js";
  * the battlefield (458) — a battlefield whose control just lapsed is
  * Uncontrolled, and staging reads that.
  *
- * This is also a deliberate single pass, not rule 318's repeat-until-nothing-
+ * This is also a deliberate single pass, not rule 322's repeat-until-nothing-
  * notable loop — a known structural divergence tracked in
  * docs/rules-conformance.md.
  */
@@ -64,13 +64,13 @@ export function runCleanup(state: GameState): GameState {
  * step 6 refuses to stage while the chain is closed.
  *
  * A pending DECISION never reaches here — `withCleanupAndWinnerCheck` returns before
- * `runCleanup` while the queue is non-empty (323.2.b, a Cleanup cannot occur inside
+ * `runCleanup` while the queue is non-empty (321, a Cleanup cannot occur inside
  * a resolution), so a mid-resolution question defers finalization with everything else.
  *
  * **Order.** The pen is appended to in listener-walk order, which is turn order
  * (383: "starting with the Turn Player and proceeding in Turn Order, each player
  * orders their Triggered Abilities on the Chain"), and the chain resolves LIFO
- * (343). Pushing in pen order therefore resolves the NON-turn player's triggers
+ * (340.1). Pushing in pen order therefore resolves the NON-turn player's triggers
  * first, which is what those two rules together require — see allListeningPermanents.
  */
 function finalizePendingTriggers(state: GameState): GameState {
@@ -86,7 +86,7 @@ function finalizePendingTriggers(state: GameState): GameState {
     chainPasses: 0,
     // 345: the controller of the newest item gains priority for a fresh round.
     chainPriority: newTop.playerIndex,
-    // 347's exception is about how the chain OPENED, so it is only set when this
+    // 346.1's exception is about how the chain OPENED, so it is only set when this
     // finalize is what closed it. A trigger finalized onto a chain a Spell already
     // opened leaves that answer alone.
     chainOpenedByTrigger: state.chainOpen ? true : state.chainOpenedByTrigger,
@@ -97,9 +97,9 @@ function finalizePendingTriggers(state: GameState): GameState {
  * Applies Contested status at `battlefieldId` on behalf of `playerIndex`, if the
  * rules call for it.
  *
- * Rule 458: "The Destination becomes Contested if it is an Uncontested
+ * Rule 450: "The Destination becomes Contested if it is an Uncontested
  * Battlefield not controlled by the controller of the Unit or Units that moved."
- * Rule 190.4 says the same from the status side — Contested applies when a unit
+ * Rule 190.3.a says the same from the status side — Contested applies when a unit
  * of a player who "does not currently Control that Battlefield Moves or
  * otherwise becomes present there", and only "if that battlefield is not already
  * Contested".
@@ -116,7 +116,7 @@ function finalizePendingTriggers(state: GameState): GameState {
  * which previously opened no Showdown at all.
  *
  * The Showdown itself is NOT opened here. That happens in the next Cleanup
- * (316.9 / 341), which is what `stageShowdowns` below does.
+ * (323.8 / 341), which is what `stageShowdowns` below does.
  */
 export function applyContested(state: GameState, battlefieldId: string, playerIndex: 0 | 1): GameState {
   const bfIndex = state.battlefields.findIndex((bf) => bf.id === battlefieldId);
@@ -130,7 +130,7 @@ export function applyContested(state: GameState, battlefieldId: string, playerIn
   return { ...state, battlefields };
 }
 
-/** Contested ends when Control is established or re-established (190.6.a) —
+/** Contested ends when Control is established or re-established (190.3.b) —
  *  i.e. when a Showdown closes, not merely when the window ends. Called by the
  *  close paths in combat.ts. */
 export function clearContested(state: GameState, battlefieldId: string): GameState {
@@ -147,15 +147,15 @@ export function clearContested(state: GameState, battlefieldId: string): GameSta
 }
 
 /** Do units belonging to both players stand here? The rules' test for whether a
- *  Contested battlefield produces a Combat (341) rather than a stand-alone
- *  Non-Combat Showdown (317.1). */
+ *  Contested battlefield produces a Combat (344.1) rather than a stand-alone
+ *  Non-Combat Showdown (316.8.b.1). */
 function unitsOfBothPlayers(state: GameState, bf: BattlefieldState): boolean {
   return ([0, 1] as const).every((index) => (bf.units[state.players[index].id]?.length ?? 0) > 0);
 }
 
 /**
  * Cleanup step 6 (rule 323, "Mark a Showdown as Staged at each Battlefield that
- * Contested was applied to"), plus rule 317.2's mid-window promotion.
+ * Contested was applied to"), plus rule 316.8.b.1.a's mid-window promotion.
  *
  * Rule 341 is where the conditions come from: "A Showdown begins when Control of
  * a Battlefield is Contested during a Cleanup and the turn is in a Neutral Open
@@ -164,11 +164,11 @@ function unitsOfBothPlayers(state: GameState, bf: BattlefieldState): boolean {
  * state, so a Showdown can't open while another is running or while a Spell is
  * on the chain.
  *
- * Which kind, per 341: "If Control of a Battlefield is Contested between two
+ * Which kind, per 344.1: "If Control of a Battlefield is Contested between two
  * players, then a Showdown will be opened as the first step of Combat", versus
  * "If Control of a Battlefield is Contested, there aren't units controlled by
  * different players there... a Showdown is opened during the next Cleanup" —
- * the Non-Combat case (317.1), which is the one entering an empty battlefield
+ * the Non-Combat case (316.8.b.1), which is the one entering an empty battlefield
  * produces and which this engine previously skipped entirely by claiming
  * control on the spot.
  *
@@ -177,7 +177,7 @@ function unitsOfBothPlayers(state: GameState, bf: BattlefieldState): boolean {
  * why `contestedByIndex` records them rather than assuming the Turn Player.
  */
 function stageShowdowns(state: GameState): GameState {
-  // 317.2: a Non-Combat Showdown "will cause the Showdown to become a Combat
+  // 316.8.b.1.a: a Non-Combat Showdown "will cause the Showdown to become a Combat
   // Showdown in the following cleanup" once another player's units arrive —
   // reachable now that an opponent holding Focus can cast a token-making Spell
   // at Action speed into the window.
@@ -209,15 +209,15 @@ function stageShowdowns(state: GameState): GameState {
   // Only a COMBAT Showdown has attackers and defenders — a Non-Combat one is a
   // window with nobody to fight, so "attacks or defends alone" is not true of
   // anyone in it, and nobody gains the Attacker designation an Attack Trigger
-  // waits on. It fires later if 317.2 promotes it.
+  // waits on. It fires later if 316.8.b.1.a promotes it.
   return isCombat ? beginCombatAt(staged, contested.id) : staged;
 }
 
 /**
- * Combat Step 1 (465): the units at `battlefieldId` gain their Attacker and
+ * Combat Step 1 (464.2.c): the units at `battlefieldId` gain their Attacker and
  * Defender designations, and everything that watches for that moment fires.
  *
- * ONE mechanism, since 2026-08-03: `combatBegan` is HELD (383 / 809.1.b.3), so
+ * ONE mechanism, since 2026-08-03: `combatBegan` is HELD (383 / 808.1.d.3), so
  * every "when I attack", "when I defend" and "when a friendly unit attacks alone"
  * becomes a Chain Pending Item and is respondable. `runCleanup` finalizes the pen
  * immediately after `stageShowdowns` for exactly this reason.
@@ -270,13 +270,13 @@ function designate(state: GameState, battlefieldId: string, designated: readonly
     ),
   };
   // 465 Step 4: the ATTACKING player places first here, not the turn player.
-  // Placement is the opposite of resolution (343), so this makes the defender's
+  // Placement is the opposite of resolution (340.1), so this makes the defender's
   // combat triggers resolve first.
   return holdEventTrigger(withRecord, { kind: "combatBegan", battlefieldId, designated }, attackerIndex);
 }
 
 /**
- * 465 Step 1, second sentence: a unit that becomes present at a battlefield where
+ * 464.2.c Step 1, second sentence: a unit that becomes present at a battlefield where
  * a combat is running "will gain the Attacker or Defender designation during the
  * Cleanup phase following the action that caused it to become present".
  *
@@ -296,9 +296,9 @@ function designateArrivals(state: GameState): GameState {
 }
 
 /**
- * Cleanup step 4 (rule 323.11): "Players lose control of any controlled
+ * Cleanup step 4 (rule 323.6): "Players lose control of any controlled
  * Battlefields without their Units occupying them if the turn is in an Open
- * State and there is no Showdown or Combat ongoing there." Rule 190.6 states the
+ * State and there is no Showdown or Combat ongoing there." Rule 190.4.c states the
  * same thing from the Control side: "If a player has no Units at a Battlefield
  * and the turn is in an Open state, they lose Control of that Battlefield in the
  * following cleanup unless there is a Combat or Showdown ongoing there."
@@ -333,10 +333,10 @@ function lapseUnoccupiedControl(state: GameState): GameState {
   let changed = false;
   const battlefields = state.battlefields.map((bf) => {
     if (bf.controllerId === null) return bf; // already Uncontrolled
-    // Rule 190.6 again: "While a Combat or Showdown is ongoing at a Battlefield,
+    // Rule 190.4.b again: "While a Combat or Showdown is ongoing at a Battlefield,
     // Control of that Battlefield cannot change until instructed by steps of the
     // Combat or Showdown." Combat's own steps establish control when it ends
-    // (466.7, see combat.establishControlAfterCombat).
+    // (466.5, see combat.establishControlAfterCombat).
     if (state.turnState === "Showdown" && state.showdownBattlefieldId === bf.id) return bf;
     if ((bf.units[bf.controllerId] ?? []).length > 0) return bf;
     changed = true;

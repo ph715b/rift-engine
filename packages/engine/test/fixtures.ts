@@ -176,7 +176,7 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
  * Stops at a pending question rather than answering it, so callers keep control of
  * the answer — compose with `answerDecisions` for the full sequence. This mirrors
  * `submit`, which likewise refuses a PassFocus while a decision is outstanding
- * (323.2.a).
+ * (320.1).
  *
  * Returns unchanged states unchanged, so it is safe to wrap any call.
  */
@@ -198,7 +198,7 @@ export function resolveHeldTriggers(state: GameState): GameState {
  * Contesting the battlefield is the whole setup: rule 465 makes the Attacker
  * "the player whose Unit(s) applied the Contested status", the Cleanup stages the
  * Showdown from that (323 step 6), and staging it is what hands out the Attacker
- * and Defender designations an Attack Trigger waits on (383.4.f).
+ * and Defender designations an Attack Trigger waits on (383.4.e).
  *
  * **Deliberately not a shortcut past `applies`.** A test that hand-built a
  * `combatBegan` event and pushed it through `dispatchEvent` would bypass every

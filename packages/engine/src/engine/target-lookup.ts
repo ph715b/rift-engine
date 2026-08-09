@@ -115,7 +115,7 @@ export function shareABattlefield(state: GameState, firstInstanceId: string, sec
  * Does this unit satisfy an `attackingOnly` restriction (Thwonk!'s "stun an
  * ATTACKING unit")?
  *
- * The Attacker designation is 465 Step 1's: the units standing at a Contested
+ * The Attacker designation is 464.2.c Step 1's: the units standing at a Contested
  * battlefield that belong to the player who contested it. Asked through
  * `attackerIndexAt`, which is the one function in this engine that answers "who
  * is attacking here" — the same one `isAttackingAt` uses for the "when I attack"

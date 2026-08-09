@@ -16,7 +16,7 @@ import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTrig
  * "broken". `BattlefieldState.defId` is the key that made the table possible.
  *
  * Every test here drives the REAL moment — `runBeginning`, which calls
- * `scoring.scoreHolds`, which is what fires 471.1.a's hold — and then settles the
+ * `scoring.scoreHolds`, which is what fires 469.2's hold — and then settles the
  * chain, because a battlefield's ability is a Chain Pending Item like every other
  * trigger in this engine. A test that called the resolver directly would prove the
  * effect works and nothing about whether the hold reaches it.

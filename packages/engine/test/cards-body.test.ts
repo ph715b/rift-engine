@@ -136,8 +136,8 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
 
     const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
 
-    expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false); // rule 704.1: the buff is spent
-    expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // rule 702.3.a: and placed here
+    expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false); // rule 702.2.b: the buff is spent
+    expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // rule 702.2.a: and placed here
     expect(after.players[0]!.baseUnits[1]!.exhausted).toBe(false); // ...and ready
   });
 
@@ -154,7 +154,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(true);
     expect(after.players[0]!.baseUnits[0]!.exhausted).toBe(false);
     // Targeting is "none" and the donor rides on the optional-COST field, not on
-    // a target. Rule 355.11's "included only as part of a cost" clause is the
+    // a target. Rule 355.10.c's "included only as part of a cost" clause is the
     // reason: a cost is not a target. Routing it through the target field is
     // what used to make "you may" collapse into "you must" whenever every
     // friendly unit was already buffed, since the enumeration then had no
@@ -162,7 +162,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     expect(targetingForUnitTrigger("OGN-147")).toEqual({ kind: "none" });
   });
 
-  it("gives NOTHING when the named unit has no buff to spend (rule 705)", () => {
+  it("gives NOTHING when the named unit has no buff to spend (rule 702.2.b.1)", () => {
     // The spend is a cost. An unpayable cost must not hand over the payoff —
     // this is why spendBuff returns undefined instead of an unchanged state.
     const unbuffed = makeUnit({ might: 2 });
@@ -181,7 +181,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     expect(after.players[0]!.baseUnits[0]!.buffed, "the unpayable cost was taken anyway").toBe(false);
   });
 
-  it("cannot spend an ENEMY unit's buff (rule 705.1)", () => {
+  it("cannot spend an ENEMY unit's buff (rule 702.2.b.2)", () => {
     const enemyBuffed = makeUnit({ might: 2, buffed: true });
     const shaman = shamanInPlay();
     const state = makeState();
@@ -207,9 +207,9 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     expect(after.players[0]!.baseUnits[0]!.buffed, "it buffed itself with nothing named").toBe(false);
   });
 
-  it("still readies itself when it somehow already carries a buff (rule 708 makes the buff a no-op)", () => {
+  it("still readies itself when it somehow already carries a buff (rule 702.3.a makes the buff a no-op)", () => {
     // The reminder text describes the no-op, it isn't a second mode: adding a
-    // buff to an already-buffed unit places nothing (708), but the rest of the
+    // buff to an already-buffed unit places nothing (702.3.a), but the rest of the
     // ability still happens, so the ready is not lost with it.
     const donor = makeUnit({ might: 2, buffed: true });
     const shaman = { ...shamanInPlay(), buffed: true };
@@ -219,7 +219,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
     const after = playUnitTrigger(state, shaman, 0, "base", { additionalCostUnitInstanceId: donor.instanceId });
 
     expect(after.players[0]!.baseUnits[0]!.buffed).toBe(false); // donor paid
-    expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // still exactly one buff (707)
+    expect(after.players[0]!.baseUnits[1]!.buffed).toBe(true); // still exactly one buff (702.3)
     expect(after.players[0]!.baseUnits[1]!.exhausted).toBe(false);
   });
 });
@@ -234,7 +234,7 @@ describe("Wildclaw Shaman (OGN-147): spend a buff to buff me and ready me", () =
  * enumerated, and a card that says "you may" forces the spend. These tests are
  * the ones that fail against that version.
  */
-describe("Wildclaw Shaman's 'you may' survives enumeration (rule 355.11: a cost is not a target)", () => {
+describe("Wildclaw Shaman's 'you may' survives enumeration (rule 355.10.c: a cost is not a target)", () => {
   const registry = defaultCardRegistry();
 
   /** A caster holding the Shaman with enough Body runes to pay for it. */
@@ -279,7 +279,7 @@ describe("Wildclaw Shaman's 'you may' survives enumeration (rule 355.11: a cost 
     expect([...new Set(costs)]).toEqual([undefined]);
   });
 
-  it("validation rejects naming an unbuffed unit as the cost (rule 705)", () => {
+  it("validation rejects naming an unbuffed unit as the cost (rule 702.2.b.1)", () => {
     const { state, shaman, donor } = shamanInHand(false);
     const play = shamanPlays(state, shaman)[0]!;
     expect(play.type).toBe("PlayCard");

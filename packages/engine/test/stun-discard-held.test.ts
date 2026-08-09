@@ -18,7 +18,7 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
  * **What each event's SHAPE is for, and why holding does not change it:**
  * `unitsStunned` is one event per instruction carrying every unit that actually
  * became stunned, because Leona pays out once for "one or more" while Eclipse
- * Herald triggers per unit (422 drops an already-stunned unit before the event
+ * Herald triggers per unit (423 drops an already-stunned unit before the event
  * exists). `cardsDiscarded` is one per instruction with no count, and the discard
  * DECISION suppresses it until the last card so a "discard 2" answered one card
  * at a time still pays out once. Holding preserves both, because the event is

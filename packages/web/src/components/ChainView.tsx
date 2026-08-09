@@ -26,7 +26,7 @@ interface ChainViewProps {
 
 /**
  * The chain, as an ordered column with the newest item on top — which is the
- * order it resolves in (rule 343: the newest finalized item resolves first).
+ * order it resolves in (rule 340.1: the newest finalized item resolves first).
  * Before this, `state.spellChain` was rendered nowhere at all: a cast spell
  * was one line of header text ("Spell pending resolution"), so the player had
  * no way to know what the AI had just cast or what it pointed at, and pressed

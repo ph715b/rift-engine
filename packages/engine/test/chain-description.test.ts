@@ -68,7 +68,7 @@ describe("describeChain", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("orders NEWEST FIRST — depthFromTop 0 is the last-pushed entry (rule 343)", () => {
+  it("orders NEWEST FIRST — depthFromTop 0 is the last-pushed entry (rule 340.1)", () => {
     // White-box: a chain deeper than one entry is unreachable through any
     // public action until reaction-speed casting lands (nothing can be cast
     // onto an already-closed chain), so this hand-builds one — same reasoning

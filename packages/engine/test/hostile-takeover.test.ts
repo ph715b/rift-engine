@@ -105,7 +105,7 @@ describe("Hostile Takeover: what becoming present does", () => {
   it("CONQUERS when no other enemy is there", () => {
     // "(Otherwise, conquer.)" The battlefield is applied Contested for the
     // caster, and with no opposing unit left standing the Cleanup's Non-Combat
-    // Showdown is what establishes control (352.1). The card's own instruction is
+    // Showdown is what establishes control (348.2.a). The card's own instruction is
     // the Contested, so that is what this pins.
     const { state, spellId } = board(1);
     const after = cast(state, spellId);

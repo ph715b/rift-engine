@@ -142,7 +142,7 @@ export interface ActivationCost {
    * `ActivateUnit(unit, target, RunePayment payment, String viaAbility)`.
    */
   energy?: number;
-  /** Spend a Buff on the source (rule 704.1) — Udyr's whole cost. Like Vi's
+  /** Spend a Buff on the source (rule 702.2.b) — Udyr's whole cost. Like Vi's
    *  Recycle, this is a cost with no exhaust, so the ability repeats as long as
    *  buffs keep arriving. */
   spendBuff?: true;
@@ -483,7 +483,7 @@ function retrieveTeemo(state: GameState, playerIndex: 0 | 1): GameState {
     return { ...state, players };
   }
   const fromTrash = actor.trash.find((c) => isTeemoUnit(c));
-  if (!fromTrash) return state; // nothing to fetch — 422's do as much as you can
+  if (!fromTrash) return state; // nothing to fetch — 055's do as much as you can
   players[playerIndex] = {
     ...actor,
     trash: actor.trash.filter((c) => c.instanceId !== fromTrash.instanceId),
@@ -610,7 +610,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // the executor needed nothing new — all three resolve an activation through
     // `resolveActivation`, which was already a (source, abilityDefId) pair.
     //
-    // 416.1 decides whose exhaust pays: "the Exhaust symbol represents the cost
+    // 414.5 decides whose exhaust pays: "the Exhaust symbol represents the cost
     // 'Exhaust this' or 'Exhaust me'", and the LEGEND is who has the ability. So
     // the Legend exhausts and the battlefield does not — the same reading
     // Heimerdinger's own comment records.
@@ -641,7 +641,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     //
     // "Move ME", so there is nothing to target: the source IS the subject, which
     // arrives as `resolve`'s 4th argument. `recallUnitToBase` rather than the
-    // MoveUnit executor, exactly as Yasuo - Unforgiven's own move does — 415.1.b
+    // MoveUnit executor, exactly as Yasuo - Unforgiven's own move does — 414.3.a
     // puts the exhaust on the Standard Move ACTION, and this is not one.
     //
     // `[Action]` needs nothing: `validate-activate-ability` applies no timing
@@ -656,9 +656,9 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // play this turn [Repeat] equal to its cost."
     //
     // The first card that GRANTS a keyword to a card not yet played, and the
-    // grant is a count rather than a flag: 3509 says "if a spell or ability has
+    // grant is a count rather than a flag: 820.1.c.2 says "if a spell or ability has
     // more than one instance of Repeat, each Cost may be paid or not paid
-    // individually", and 3525 adds one execution per instance paid. So two
+    // individually", and 820.3 adds one execution per instance paid. So two
     // Portals arm two instances.
     //
     // The rainbow pip needed no new cost machinery — `payPowerFromChanneled` has
@@ -939,7 +939,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   "OGN-078": {
     // Lee Sin - Ascetic — "Exhaust: Buff me. I can have any number of buffs."
     //
-    // The second sentence is the card: rule 708 makes a second buff on an
+    // The second sentence is the card: rule 702.3.a makes a second buff on an
     // already-buffed unit a no-op, so without it this would be an exhaust for
     // nothing after the first use. `addBuff` names him in its own
     // `STACKING_BUFF_DEF_IDS` exception, and the stack lives in `extraBuffs`
@@ -949,7 +949,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     //
     // He readies at every Awaken, so this is +1 Might a turn, permanently. Each
     // buff is also a real Buff for every card that cares about one, and spending
-    // one (705) takes an extra first and leaves him buffed.
+    // one (702.2.b) takes an extra first and leaves him buffed.
     kind: "Unit",
     targeting: { kind: "none" },
     resolve: (state, _ctx, _event, sourceInstanceId) => addBuff(state, sourceInstanceId),
@@ -1103,7 +1103,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // enumeration so a ready unit is never offered, rather than checked in this
     // resolver where the exhaust would already have been paid for nothing.
     //
-    // addBuff, so 708 applies: buffing an already-buffed unit spends the exhaust
+    // addBuff, so 702.3.a applies: buffing an already-buffed unit spends the exhaust
     // and does nothing, which is the rule rather than a case to dodge.
     kind: "Gear",
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere", exhaustedOnly: true },
@@ -1187,7 +1187,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
           if (event.targetUnitInstanceId === undefined) return state;
           const swapped = swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId);
           // Absent means the player declined — "you MAY" — so the swap stands
-          // alone. 422's do-as-much-as-you-can, not a guard.
+          // alone. 055's do-as-much-as-you-can, not a guard.
           if (event.targetPermanentInstanceId === undefined) return swapped;
           return attachEquipment(swapped, ctx.casterIndex, event.targetPermanentInstanceId, sourceInstanceId);
         },
@@ -1393,7 +1393,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   [LEE_SIN_BLIND_MONK]: {
     // Lee Sin - Blind Monk — "1 Energy, exhaust: Buff a friendly unit."
     //
-    // Routed through addBuff, which is where 708's "not placed instead" lives —
+    // Routed through addBuff, which is where 702.3.a's "not placed instead" lives —
     // so buffing an already-buffed unit spends the Energy and the exhaust for
     // nothing, which is what the rules say and not a case to special-case away.
     // It also means this and Mistfall compose with no knowledge of each other:
@@ -1538,7 +1538,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // at once, so tracking spent modes would be bookkeeping with nothing to stop.
     //
     // Both moves are `forceMoveToBattlefield`/`recallUnitToBase`, not the
-    // MoveUnit executor — 415.1.b puts the exhaust on the Standard Move ACTION,
+    // MoveUnit executor — 414.3.a puts the exhaust on the Standard Move ACTION,
     // so a unit Yasuo moves does not pay it again.
     kind: "Legend",
     cost: { energy: 2, exhaust: true },
@@ -1577,7 +1577,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // opponent's first, since that is the only reason to cast it at an opponent
     // and the caster's own trash is theirs to keep otherwise.
     //
-    // "UP TO 4", so a short trash recycles what is there (422).
+    // "UP TO 4", so a short trash recycles what is there (055).
     kind: "Gear",
     cost: { killSelf: true },
     targeting: { kind: "none" },
@@ -1952,7 +1952,7 @@ export function canPayActivationCost(
   // the Power line above follows.
   if (cost.xRainbowPower && payPowerFromChanneled(state, playerIndex, null, 1) === undefined) return false;
   if (cost.xEnergy && payEnergyFromPool(state, playerIndex, 1) === undefined) return false;
-  // rule 705: only a buffed unit can spend one, so an unbuffed Udyr is simply
+  // rule 702.2.b.1: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
   // The two costs that carry a CHOICE. Affordability is "is there anything to
@@ -2257,7 +2257,7 @@ const HEIMERDINGER_INVENTOR = "OGN-111";
  * and the reason this is a list rather than a lookup: he offers every activated
  * ability any friendly permanent has, with himself as the source.
  *
- * Rule 416.1 decides whose exhaust pays: "In abilities, the Exhaust symbol
+ * Rule 414.5 decides whose exhaust pays: "In abilities, the Exhaust symbol
  * represents the cost 'Exhaust this' or **'Exhaust me'**." He HAS the ability, so
  * the exhaust is his — which also means the card he borrowed it from can be
  * exhausted already and it makes no difference.

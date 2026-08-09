@@ -59,7 +59,7 @@ const PIRATES_HAVEN = "OGN-143";
  *  Attack Trigger family and a `combatBegan` listener on each side. */
 const LEE_SIN_LEGEND = "OGN-257";
 /** The six cards the `combat` scenario forces in, and what each one controls for.
- *  Four Attack Triggers (383.4.f, registered as `combatBegan` listeners through
+ *  Four Attack Triggers (383.4.e, registered as `combatBegan` listeners through
  *  unit-triggers.ts's adapter), plus the two Calm cards that listen to the same
  *  event without being Attack Triggers at all — Mask of Foresight is a GEAR, so
  *  it is also the one listener here that the designation predicates deliberately
@@ -136,7 +136,7 @@ interface Counters {
    * same reason `byListener` is. `maxHeldAtOnce` above samples `pendingTriggers`
    * after `submit`, and `runCleanup` drains the pen at the end of every submit —
    * so it is non-zero only when a decision was pending and the Cleanup was
-   * skipped (323.2.b). It reported a flat `1` for an Awaken that really was
+   * skipped (321). It reported a flat `1` for an Awaken that really was
    * holding several triggers together, which is the third time this exact
    * pen-vs-chain confusion has produced a plausible wrong number here. Kept in
    * the payload rather than deleted, because "the pen coincided with a question
@@ -197,7 +197,7 @@ function playOut(label: string, list: DeckList, seedBase: number): Counters {
       // `byListener` used to be sampled from `next.pendingTriggers`, which was a
       // near-useless measure and quietly so: `runCleanup` drains the pen at the end
       // of every `submit`, so the pen is non-empty afterwards ONLY when a decision
-      // was pending and the Cleanup was skipped (323.2.b). It was therefore
+      // was pending and the Cleanup was skipped (321). It was therefore
       // counting coincidences with a parked question rather than holdings, and it
       // reported a plausible per-card breakdown while doing it — when
       // `battlefieldConquered` was converted, Mistfall's count fell 6 → 0 and read

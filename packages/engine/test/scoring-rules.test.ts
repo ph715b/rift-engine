@@ -7,9 +7,9 @@ import { makeState, makeUnit } from "./fixtures.js";
  * Scoring, verified against the Core Rules (docs/, ignored — cite numbers):
  *
  *  - A player Scores two ways: HOLD ("maintains Control of a Battlefield they
- *    did not yet Score this turn, during their Beginning Phase", 471.1.a) and
+ *    did not yet Score this turn, during their Beginning Phase", 469.2) and
  *    CONQUER ("gains Control of a Battlefield they did not yet Score this
- *    turn", 471.1).
+ *    turn", 469.1).
  *  - "A player may only Score, from either method, once per Battlefield per
  *    turn." (471.1.b)
  *  - Final point: gaining a point through a Conquer while 1 short of the
@@ -73,7 +73,7 @@ describe("the final point counts SCORED battlefields, holds included", () => {
   });
 });
 
-describe("one score per battlefield per turn (rule 471.1.b)", () => {
+describe("one score per battlefield per turn (rule 470)", () => {
   it("re-conquering a battlefield already scored this turn gains no second point", () => {
     // Take it, lose it, take it again in one turn — the second capture is a
     // real conquest (triggers fire) but scores nothing.

@@ -108,7 +108,7 @@ describe("Divine Judgment (OGN-244): each player keeps 2 of each", () => {
     expect(settled.players[1]!.baseUnits.map((u) => u.instanceId)).toEqual(["b-u0", "b-u1"]);
   });
 
-  it("asks NOTHING of a category already at or under 2 (422)", () => {
+  it("asks NOTHING of a category already at or under 2 (055)", () => {
     const state = judgmentState();
     state.players[0]!.activeGear = [gear(ENERGY_CONDUIT, "a-g0")];
     state.players[1]!.activeGear = [];
@@ -195,7 +195,7 @@ describe("Ava Achiever (OGN-107): a [Hidden] card out of hand when she attacks",
     return state;
   }
 
-  // Ava attacks when the Combat Showdown opens (383.4.f); `beginCombatAt` stops
+  // Ava attacks when the Combat Showdown opens (383.4.e); `beginCombatAt` stops
   // at the question her trigger parks, which is where each test below picks up.
   const attack = (state: GameState) => beginCombatAt(state, "bf1", 0);
 

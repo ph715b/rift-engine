@@ -79,7 +79,7 @@ describe("Yone - Blademaster (SFD-116): conquering a battlefield that WAS uncont
   });
 
   /** "An enemy unit IN A BASE" — an enemy with nothing at home takes nothing,
-   *  which is 422's do-as-much-as-you-can rather than a failure. */
+   *  which is 055's do-as-much-as-you-can rather than a failure. */
   it("does nothing with no enemy at home", () => {
     const state = board();
     state.players[1]!.baseUnits = [];

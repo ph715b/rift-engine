@@ -66,7 +66,7 @@ const takeAny = (options: DecisionOption[]) => options.find((o) => o.id !== "dec
  * **A walk-in onto an empty battlefield does NOT conquer on the spot**, which is
  * the thing this helper exists to get right: the move CONTESTS the battlefield,
  * the Cleanup stages a Non-Combat Showdown (323 step 6), and only when both
- * players pass on it does 352.1 establish control and record the Conquer. A test
+ * players pass on it does 348.2.a establish control and record the Conquer. A test
  * that stopped at `resolveHeldTriggers` would leave the Showdown open, conquer
  * nothing, and report a conquer trigger as not firing — which is exactly what
  * this file's first draft measured.
@@ -162,7 +162,7 @@ describe("Show of Strength (SFD-106): draw 1 per Mighty unit", () => {
   };
 
   it("draws nothing when nothing is Mighty — the negative control", () => {
-    // 4 is one short of rule 711's threshold, and the enemy's 9 is not "yours".
+    // 4 is one short of rule 708's threshold, and the enemy's 9 is not "yours".
     expect(handAfter([4, 4])).toBe(0);
   });
 
@@ -171,7 +171,7 @@ describe("Show of Strength (SFD-106): draw 1 per Mighty unit", () => {
   });
 
   it("counts a unit made Mighty by a BUFF, not just printed Might", () => {
-    // Rule 711 asks about CURRENT Might, which is why this goes through
+    // Rule 710 asks about CURRENT Might, which is why this goes through
     // `isMighty` rather than a `>= 5` on the printed value. A 4-Might body with a
     // buff is Mighty (710) and a printed comparison would miss it.
     const card = spellInstance(SHOW_OF_STRENGTH);
@@ -225,7 +225,7 @@ describe("Buhru Captain (SFD-091): you may draw 1 or buff me", () => {
     const before = state.players[0]!.hand.length - 1;
     const after = play(state, captain, choose("buff"));
     expect(captainIn(after).buffed).toBe(true);
-    expect(effectiveMight(after, captainIn(after), 0, { isCombat: false })).toBe(4); // 3 printed + the buff (710)
+    expect(effectiveMight(after, captainIn(after), 0, { isCombat: false })).toBe(4); // 3 printed + the buff (703)
     expect(after.players[0]!.hand.length - before).toBe(0);
   });
 
@@ -372,7 +372,7 @@ describe("Kato the Arm (SFD-112): hand over my keywords and my Might", () => {
   });
 
   it("asks nothing at all when he moves alone", () => {
-    // 422's do-as-much-as-you-can: no recipient, no question — rather than a
+    // 055's do-as-much-as-you-can: no recipient, no question — rather than a
     // question with no answers, which `advanceDecisions` would have to drop.
     const state = katoState();
     state.battlefields[1]!.units = {};
@@ -488,7 +488,7 @@ describe("Fae Dragon (SFD-101): buff up to four friendly units", () => {
   });
 
   it("buffs everything and stops when fewer than four are on the board", () => {
-    // 422's do-as-much-as-you-can. Two friends plus the Dragon is three, and the
+    // 055's do-as-much-as-you-can. Two friends plus the Dragon is three, and the
     // fourth question offers only "decline" — which `advanceDecisions` retires
     // without prompting.
     const { dragon, state } = dragonState(2);
@@ -504,7 +504,7 @@ describe("Fae Dragon (SFD-101): buff up to four friendly units", () => {
     expect(optionIds(asked)).toEqual(["decline", "friend-0", dragon.instanceId]);
   });
 
-  it("does not offer a unit that is ALREADY buffed — rule 708 makes it a no-op", () => {
+  it("does not offer a unit that is ALREADY buffed — rule 702.3.a makes it a no-op", () => {
     const { dragon, state } = dragonState(2);
     const withBuff = addBuff(state, "friend-0");
     const asked = resolveHeldTriggers(executePlayCard(withBuff, playsOf(withBuff, dragon)[0]! as never));
@@ -576,7 +576,7 @@ describe("Fae Dragon pays for a spent buff", () => {
   });
 
   /** An ILLEGAL spend is not a spend. `spendBuff` refuses an unbuffed unit
-   *  (705), and a refusal must not pay. */
+   *  (702.2.b.1), and a refusal must not pay. */
   it("does NOT pay when the spend was refused", () => {
     const state = inPlay();
     // The Dragon herself carries no buff, so this spend is illegal.
@@ -649,7 +649,7 @@ describe("Lucian - Merciless (SFD-113): the first time I conquer each turn, read
   it("readies him after his first conquest", () => {
     // A Standard Move exhausts unconditionally (execute-move-unit), so `exhausted:
     // false` here is the ability and nothing else — and walking into an empty,
-    // uncontrolled battlefield IS a conquest (466.7 / 471.1).
+    // uncontrolled battlefield IS a conquest (466.5 / 469.1).
     const after = walkTo(lucianState(), "bf1");
     expect(after.battlefields[0]!.controllerId).toBe("p1"); // the conquest happened
     expect(lucianAt(after, 0).exhausted).toBe(false);
@@ -702,7 +702,7 @@ describe("Here to Help (SFD-111): play a unit from hand for 3 less Energy", () =
   /** The spell in hand alongside `costs.length` units, with bf1 controlled unless
    *  `controlled` says otherwise.
    *
-   *  The GARRISON is not decoration: `lapseUnoccupiedControl` (323.11) drops
+   *  The GARRISON is not decoration: `lapseUnoccupiedControl` (323.6) drops
    *  control of an empty battlefield in the very next Cleanup, so a `controllerId`
    *  set with nobody standing there is gone before the spell resolves. That cost
    *  an hour, and it is also why "a battlefield you control" is never an empty one

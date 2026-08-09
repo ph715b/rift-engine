@@ -23,7 +23,7 @@ import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
  *
  * **Blocking a point does NOT unrecord the scoring** (project-owner call,
  * 2026-08-06). The scoring event still happened and simply paid nothing, so
- * 471.1.b's once-per-battlefield-per-turn lockout still fires and the opponent
+ * 470's once-per-battlefield-per-turn lockout still fires and the opponent
  * cannot retry that battlefield this turn. That is the half a naive "return
  * early before scoring" implementation would get wrong, and it is what the
  * lockout test below exists for.
@@ -78,7 +78,7 @@ describe("Tianna Crownguard blocks her opponents' points", () => {
 
   it("STILL RECORDS the battlefield as scored — the ruling's other half", () => {
     // The half a "return before scoring" implementation gets wrong. The scoring
-    // event happened and paid nothing, so 471.1.b's lockout fires and the
+    // event happened and paid nothing, so 470's lockout fires and the
     // opponent cannot come back for it this turn once she leaves.
     const blocked = scoreHolds(board("battlefield"), 1);
     expect(blocked.players[1]!.points).toBe(0);

@@ -46,14 +46,14 @@ function addToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: s
  * The destination becomes **Contested** if the mover doesn't already control it
  * (rule 458) — whether or not an opponent is standing there. That is the only
  * thing this does about Showdowns: the window itself is staged by the following
- * Cleanup (316.9 / 341, see cleanup.stageShowdowns), which also decides whether
+ * Cleanup (323.8 / 341, see cleanup.stageShowdowns), which also decides whether
  * it's a Combat Showdown (opposing units present) or a Non-Combat one.
  *
  * This replaced two different inline behaviours, and the second is the reason
  * for the change: a contested destination used to open a Showdown here, while an
  * UNCONTESTED one claimed control on the spot and scored instantly — skipping
- * the window entirely. Rules 458/317.1 give the empty-battlefield case its own
- * Showdown too, and 352.1 is where its control (and Conquer) is established, at
+ * the window entirely. Rules 458/316.8.b.1 give the empty-battlefield case its own
+ * Showdown too, and 348.2.a is where its control (and Conquer) is established, at
  * the point the window closes.
  */
 export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameState {
@@ -115,7 +115,7 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   }
 
   // **No attack dispatch here.** Landing on a battlefield the opponent holds is
-  // how a fight STARTS, but it is not the moment anyone attacks: 383.4.f fires an
+  // how a fight STARTS, but it is not the moment anyone attacks: 383.4.e fires an
   // Attack Trigger when a unit "gains the Attacker designation", and 465's Combat
   // Step 1 hands that out as the Combat Showdown opens — one Cleanup later, from
   // cleanup.beginCombatAt. Dispatching here ran the triggers before

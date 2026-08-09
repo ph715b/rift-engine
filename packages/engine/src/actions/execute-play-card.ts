@@ -70,14 +70,14 @@ import { mayPlayFromTrash } from "../engine/timing.js";
  *     validate-play-card.ts's presence rule): added to that battlefield's
  *     units instead of base, exhaustion rule unchanged (destination-agnostic
  *     per ActionExecutor.java:376-384). Landing anywhere the player doesn't
- *     already control applies Contested (rule 458) via the identical mechanism
+ *     already control applies Contested (rule 450) via the identical mechanism
  *     MoveUnit's does, and the following Cleanup stages the Showdown — a
  *     confirmed real mechanic, not inferred (GameEngine.java:201-263's own
  *     "playtesting fix" comment: a unit played directly to a battlefield
  *     never opened a real Showdown even when landing on enemy-occupied
  *     territory). Landing with no opposing units is a Non-Combat Showdown
- *     rather than an instant claim (317.1); control is established when that
- *     window closes (352.1).
+ *     rather than an instant claim (316.8.b.1); control is established when that
+ *     window closes (348.2.a).
  *   - Spell: hand.remove(card); trash.add(card) IMMEDIATELY — before it ever
  *     resolves, mirroring ActionExecutor.payAndQueueSpell's trash-add at
  *     cast time (:566-567), not after resolution; pushes a ChainEntry onto
@@ -115,7 +115,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
   // itself (Scrapheap's "when this is played"), which a listener walk would also
   // reach but only by accident of it happening to be in play — a Spell wouldn't be.
   //
-  // BOTH are HELD as Chain Pending Items (383 / 809.1.b.3). The self-trigger used
+  // BOTH are HELD as Chain Pending Items (383 / 808.1.d.3). The self-trigger used
   // to resolve inline, on the grounds that `allListeningPermanents` cannot find a
   // card that has left play — true, and answered by `source: "selfTrigger"`, which
   // carries the card on the entry and never looks it up.
@@ -137,7 +137,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     // a hidden play as the play it is.
     ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
   });
-  // Placed LAST so that under the chain's LIFO resolution (343) it resolves
+  // Placed LAST so that under the chain's LIFO resolution (340.1) it resolves
   // FIRST — which is exactly where it sat while it was dispatched inline. Any
   // other position would silently reorder every card that watches its own play
   // against the permanents watching the same moment.
@@ -500,12 +500,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
 
     // **No attack dispatch here**, same as MoveUnit's contested case and for the
     // same reason: a Unit played onto an opponent-held battlefield gains the
-    // Attacker designation when the Combat Showdown opens (383.4.f / 465), not
+    // Attacker designation when the Combat Showdown opens (383.4.e / 465), not
     // when it lands. cleanup.beginCombatAt fires it a Cleanup later, and finds
     // this unit by walking the battlefield rather than being handed it.
     //
     // Contested now, Showdown staged by the following Cleanup — identical
-    // treatment to a Move (rule 190.4's "Moves or otherwise becomes present"),
+    // treatment to a Move (rule 190.3.a's "Moves or otherwise becomes present"),
     // which is the point of routing both through applyContested.
     return applyContested(next, action.destinationBattlefieldId, action.playerIndex);
   }
@@ -521,7 +521,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // spell". 355 makes each chosen unit a target as the Spell is ANNOUNCED, so
     // the moment is here rather than at resolution: a unit moved or killed while
     // the Spell waits on the chain was still chosen. Placed after the Spell, so
-    // under LIFO (343) the Tree's draw resolves BEFORE the Spell it watched.
+    // under LIFO (340.1) the Tree's draw resolves BEFORE the Spell it watched.
     // `[Repeat]`'s second execution chooses its units HERE too, not at
     // resolution: 820.1.d puts those choices "at the usual time during the Make
     // Relevant Choices step of Playing a Card", which is this moment. So a unit
@@ -552,7 +552,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       chainOpen: false,
       chainPriority: action.playerIndex,
       chainPasses: 0,
-      // A played Spell opened this chain, so 347's exception does not apply and
+      // A played Spell opened this chain, so 346.1's exception does not apply and
       // Focus passes normally when it empties (346). Stated rather than inherited:
       // this is the OTHER producer of a closed chain besides the trigger flush, and
       // letting it carry a stale `true` through a spread would silently withhold a

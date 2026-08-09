@@ -7,11 +7,11 @@ import type { GameEvent, Listener } from "./triggers.js";
  * that answers it, for every card whose text says "when I attack" or "when I
  * defend".
  *
- * Rule 465's Combat Step 1 defines both sides in a single sentence: "The
+ * Rule 464.2.c's Combat Step 1 defines both sides in a single sentence: "The
  * Attacker is the player whose Unit(s) applied the Contested status to the
  * Battlefield... Units at the Contested Battlefield controlled by the Attacker
  * or Defender gain the Attacker or Defender designation now." So the Attacker is
- * `contestedByIndex` — literally the field 458 sets — and everyone else standing
+ * `contestedByIndex` — literally the field 450 sets — and everyone else standing
  * there is defending.
  *
  * **The designation is handed out per UNIT PRESENT, not per unit that moved.**
@@ -21,7 +21,7 @@ import type { GameEvent, Listener } from "./triggers.js";
  * and the old move-time dispatch could not see it.
  *
  * `contestedByIndex` is still set at this moment: `cleanup.clearContested` runs
- * only when the Showdown CLOSES (190.6.a), so it survives the whole window these
+ * only when the Showdown CLOSES (190.3.b), so it survives the whole window these
  * predicates are asked in.
  *
  * Shared by each listener's `applies` and its `resolve` so the two cannot drift.
@@ -31,7 +31,7 @@ import type { GameEvent, Listener } from "./triggers.js";
  * the battlefield it was attacking.
  */
 
-/** 465's Attacker: the player whose units applied Contested here. `null` when
+/** 464.2.c's Attacker: the player whose units applied Contested here. `null` when
  *  the battlefield is unknown or not contested, which is not a combat at all. */
 export function attackerIndexAt(state: GameState, battlefieldId: string): 0 | 1 | null {
   return state.battlefields.find((b) => b.id === battlefieldId)?.contestedByIndex ?? null;
@@ -47,7 +47,7 @@ export function attackingUnitsAt(state: GameState, battlefieldId: string): UnitI
   return [...(bf?.units[state.players[attackerIndex].id] ?? [])];
 }
 
-/** Every unit of EITHER side standing at `battlefieldId` — the set 465 Step 1
+/** Every unit of EITHER side standing at `battlefieldId` — the set 464.2.c Step 1
  *  designates when a combat opens. */
 export function unitsPresentAt(state: GameState, battlefieldId: string): string[] {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);

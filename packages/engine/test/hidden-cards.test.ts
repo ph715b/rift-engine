@@ -42,7 +42,7 @@ describe("Consult the Past (OGN-083): draw 2", () => {
 
 describe("Fight or Flight (OGN-168): move a unit from a battlefield to its base", () => {
   it("sends an ENEMY unit home, exhausted — it's a Move, not a Recall", () => {
-    // rule 454: a Recall is not a Move. This card says "move", so the unit
+    // rule 456: a Recall is not a Move. This card says "move", so the unit
     // arrives exhausted; picking relocateToBaseUnchanged instead would silently
     // make the card better than printed.
     const enemy = makeUnit({ name: "Enemy", might: 4, exhausted: false });

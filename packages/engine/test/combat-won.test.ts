@@ -8,7 +8,7 @@ import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTrig
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 
 /**
- * `combatWon` — rule 466.5.a, the event three SFD cards read and nothing in this
+ * `combatWon` — rule 466.3.a, the event three SFD cards read and nothing in this
  * engine produced.
  *
  * It is NOT a conquest, which is why it had to be its own event rather than the
@@ -17,7 +17,7 @@ import { destroyUnit } from "../src/engine/effect-helpers.js";
  * battlefield the winner already controlled, which establishes no new control
  * and conquers nothing. Paying out on a conquest would do both wrong.
  *
- * **Only one side left is a win.** 466.5.d makes the other two shapes a No
+ * **Only one side left is a win.** 466.3.d makes the other two shapes a No
  * Result: both sides still standing after the damage step (precisely when 466
  * step 3d recalls the attackers) and neither side standing. Those two are the
  * negative controls below, and they are the whole reason the event is not simply
@@ -36,7 +36,7 @@ function fightAt(state: GameState): GameState {
   return answerDecisions(resolveHeldTriggers(resolveShowdown(state, "bf1", 0)));
 }
 
-describe("a combat is WON when exactly one side is left (466.5.a)", () => {
+describe("a combat is WON when exactly one side is left (466.3.a)", () => {
   it("pays the winner when the loser's units are wiped", () => {
     const draven = realUnitInstance(DRAVEN_VANQUISHER);
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
@@ -50,7 +50,7 @@ describe("a combat is WON when exactly one side is left (466.5.a)", () => {
     expect(goldOf(after, 0)[0]!.exhausted).toBe(true);
   });
 
-  it("pays NOBODY on a mutual wipe — 466.5.d's No Result", () => {
+  it("pays NOBODY on a mutual wipe — 466.3.d's No Result", () => {
     // A combat plainly happened and was won by nobody.
     //
     // **This control is WEAK by construction, and measured to be so.** Widening
@@ -74,7 +74,7 @@ describe("a combat is WON when exactly one side is left (466.5.a)", () => {
   });
 
   it("plain units cannot reach the both-sides-survive No Result, and here is why", () => {
-    // 466.5.d has TWO No Result shapes. The mutual wipe above is reachable; the
+    // 466.3.d has TWO No Result shapes. The mutual wipe above is reachable; the
     // other one — both sides still standing, which is when step 3d recalls the
     // attackers — **is not reachable in this pool**, and that is arithmetic
     // rather than an accident of the fixtures.
@@ -130,7 +130,7 @@ describe("a combat is WON when exactly one side is left (466.5.a)", () => {
 
   it("pays a WALKOUT winner too — the shape the probe counts 191 of", () => {
     // One side simply is not there. `resolveShowdown` returns early without a
-    // damage step, and 466.5.a still applies — the comment on that early return
+    // damage step, and 466.3.a still applies — the comment on that early return
     // already read it that way for establishing control.
     const draven = realUnitInstance(DRAVEN_VANQUISHER);
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
@@ -285,7 +285,7 @@ describe("Ezreal - Dashing deals no combat damage", () => {
  * nothing while still taking his full Might to kill — and that is precisely the
  * "next card that adds damage absorption" the old comment predicted.
  */
-describe("466.5.d's other No Result is reachable now", () => {
+describe("466.3.d's other No Result is reachable now", () => {
   it("nobody wins when Ezreal survives a fight he cannot win", () => {
     const ezreal = realUnitInstance("SFD-082");
     const draven = realUnitInstance(DRAVEN_VANQUISHER);

@@ -846,7 +846,7 @@ describe("Hard Bargain ransoms a spell once per execution", () => {
 /**
  * Thwonk! (SFD-040) — "[Action] [Repeat] [2] Stun an attacking unit."
  *
- * The first card that targets by combat DESIGNATION (465 Step 1) rather than by
+ * The first card that targets by combat DESIGNATION (464.2.c Step 1) rather than by
  * owner, Might or zone. The restriction lives in the SPEC, so a board with
  * nobody attacking makes the card UNCASTABLE rather than castable-and-inert —
  * and that negative is the assertion worth having, because a resolver-level

@@ -287,7 +287,7 @@ describe("Karma - Channeler (OGN-235): a buff for every recycle", () => {
     expect(recycled.pendingDecisions).toHaveLength(0);
   });
 
-  it("asks nothing when she has no friendly unit to buff (422)", () => {
+  it("asks nothing when she has no friendly unit to buff (055)", () => {
     const state = karmaState();
     // Karma herself is a friendly unit, so she has to go too for this to be the
     // no-targets case — killed rather than removed, through the real funnel.

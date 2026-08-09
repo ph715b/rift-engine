@@ -102,7 +102,7 @@ describe("Jaull-Fish (SFD-103): [2] less per [Mighty] unit", () => {
     expect(priceOf(board(5, 6), JAULL_FISH)).toBe(printed(JAULL_FISH) - 4);
   });
 
-  /** 711's threshold is 5, so a 4-Might unit is not Mighty — the off-by-one
+  /** 708's threshold is 5, so a 4-Might unit is not Mighty — the off-by-one
    *  that a `>` for a `>=` would introduce. */
   it("counts 5 and not 4", () => {
     expect(priceOf(board(4), JAULL_FISH)).toBe(printed(JAULL_FISH));

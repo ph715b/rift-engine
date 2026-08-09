@@ -75,7 +75,7 @@ describe("Portal Rescue (OGN-102): a blink", () => {
   }
 
   it("takes the unit off the board and puts a FRESH copy in base", () => {
-    // Leaving play is the point of the card: 709 strips the Buff, and damage and
+    // Leaving play is the point of the card: 705 strips the Buff, and damage and
     // this-turn Might are properties of the body that left. A relocation would
     // have kept all three, and looked identical on the board.
     const settled = castAndResolve(rescueState(), PORTAL_RESCUE);

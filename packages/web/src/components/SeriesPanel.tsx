@@ -10,7 +10,7 @@ interface SeriesPanelProps {
 
 /**
  * Shown between games of a Best of 3, when a GAME has been decided but the
- * MATCH hasn't. Rule 487.4: "The winner of that game earns One Game Win.
+ * MATCH hasn't. Rule 486.6: "The winner of that game earns One Game Win.
  * Players then reset the game state, remove the Battlefields in play from the
  * game, choose new Battlefields from those set aside, and play again."
  *

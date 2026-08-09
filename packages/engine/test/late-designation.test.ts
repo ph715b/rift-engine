@@ -6,12 +6,12 @@ import type { UnitInstance } from "../src/model/card.js";
 import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fixtures.js";
 
 /**
- * 465 Step 1's second sentence: "If a Unit controlled by the Attacker or Defender
+ * 464.2.c Step 1's second sentence: "If a Unit controlled by the Attacker or Defender
  * becomes present at this Battlefield AFTER this moment, it will gain the
  * Attacker or Defender designation during the Cleanup phase following the action
  * that caused it to become present."
  *
- * With 383.4.f — an Attack Trigger fires when its unit gains the designation "for
+ * With 383.4.e — an Attack Trigger fires when its unit gains the designation "for
  * the first time during a combat" — that makes a reinforcement's attack trigger
  * fire a Cleanup after it arrives, and makes "for the first time" a real
  * constraint rather than a turn of phrase: the units already designated must not

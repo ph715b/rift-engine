@@ -2448,7 +2448,7 @@ button:disabled {
 }
 
 /* Already presented in a decided game, so out for the rest of the match (rule
-   487.3). Shown struck out rather than hidden, so the pool narrowing over the
+   486.5). Shown struck out rather than hidden, so the pool narrowing over the
    match reads as the rule doing its job — by game 3 there may be only one
    choice left, which should not look like a broken screen. */
 .battlefield-select-option.used {

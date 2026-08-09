@@ -30,7 +30,7 @@ import { beginCombatAt, makePlayer, makeState, makeUnit, realGearInstance, realU
  *  - SFD-180 Fiora - Worthy (unit) — "when a unit you control becomes [Mighty],
  *    you may pay [Order] to ready it".
  *
- * Rule 715 (the "Mighty" section): "A Unit 'becomes Mighty' at the moment its
+ * Rule 709 (the "Mighty" section): "A Unit 'becomes Mighty' at the moment its
  * Might changes from being less than 5 to being 5 or greater", and "Units on the
  * board are evaluated according to their CURRENT Might" — current, so auras,
  * Equipment badges and this-turn pumps all count towards the crossing.
@@ -87,7 +87,7 @@ function board(): GameState {
  * Read off the chain after `runCleanup` drains the pen — deliberately NOT after
  * resolving down to a `pendingDecision`, which is what the first draft of this
  * file did and which measured the wrong thing: both Fioras place items, the
- * chain resolves LIFO (343), so the legend's question is already parked and its
+ * chain resolves LIFO (340.1), so the legend's question is already parked and its
  * chain entry gone by the time the unit's is at the front. That reads as "only
  * one fired" for a board where both did.
  */
@@ -216,7 +216,7 @@ describe("routes to [Mighty] that were MISSED (playtest report, 2026-08-08)", ()
    * **The reported bug.** An Equipment's "+N Might" badge is part of the wearer's
    * current Might (`effectiveMight` reads `equipmentMightBonusFor`), so attaching
    * a +3 B.F. Sword to a 3-Might unit takes it from 3 to 6 and it becomes Mighty
-   * by 715's definition. `attachEquipment` is the single writer of
+   * by 709's definition. `attachEquipment` is the single writer of
    * `attachedToInstanceId` and holds its own `equipmentAttached` event — but it
    * was not bracketed by `withMightTransitions`, so the crossing was invisible.
    *
@@ -289,7 +289,7 @@ describe("routes to [Mighty] that were MISSED (playtest report, 2026-08-08)", ()
   /**
    * The same omission in the other direction, and it is the worse half: a unit
    * that is ALREADY Mighty because of the aura reads as un-Mighty, so pumping it
-   * fires a trigger that rule 715 says must not fire ("A Unit with Might 5 that
+   * fires a trigger that rule 709 says must not fire ("A Unit with Might 5 that
    * gets +1 does not become Mighty, because it was already Mighty").
    */
   it("does NOT fire for a unit the aura had already made Mighty", () => {
@@ -697,7 +697,7 @@ describe("what still does NOT fire — one correct, two open", () => {
    * **The recorded partial that remains open.** A unit that crosses 5 because an
    * AURA SOURCE arrived beside it never changed, and no operation on that unit
    * brackets the moment — closing it needs the layer re-evaluation this engine
-   * does not have (rule 2701's "the layers are re-checked"). Attaching the
+   * does not have (rule 476.2's "the layers are re-checked"). Attaching the
    * Equipment below is done to a DIFFERENT unit, so nothing about the grunt is
    * written and nothing compares its before with its after.
    *
@@ -754,7 +754,7 @@ describe("what still does NOT fire — one correct, two open", () => {
   /**
    * **OPEN, and the route the higher-of-two ruling CREATED (2026-08-08).** A
    * 4-Might `[Shield 1]` unit is Mighty the instant a Combat Showdown opens over
-   * its head, and by 715 that is a unit whose Might "changes from being less than
+   * its head, and by 709 that is a unit whose Might "changes from being less than
    * 5 to being 5 or greater" — a becoming.
    *
    * Nothing fires, and it is not an oversight that can be patched at one call
@@ -768,7 +768,7 @@ describe("what still does NOT fire — one correct, two open", () => {
    *
    * Deliberately NOT patched onto the Showdown-staging step. That step is one of
    * several ways the context changes — a Non-Combat Showdown being PROMOTED to a
-   * Combat one (317.2) is a second, a unit arriving at an open combat is a third,
+   * Combat one (316.8.b.1.a) is a second, a unit arriving at an open combat is a third,
    * and the combat CLOSING is the downward mirror — so bracketing the one that is
    * easy to reach would make the trigger fire for some combats and not others,
    * which is worse than the uniform silence.

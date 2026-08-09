@@ -8,9 +8,9 @@ import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
  *  - Step 3c: "Heal all Units" — global (covered in damage-healing.test.ts).
  *  - Step 3d: "Recall Attackers present at the Battlefield if Defenders are
  *    still present." Ordered AFTER 3c, so recalled attackers arrive healed.
- *  - Rule 454: a Recall is not a Move and leaves statuses untouched — no move
+ *  - Rule 458.1: a Recall is not a Move and leaves statuses untouched — no move
  *    triggers, no exhaust.
- *  - Rule 466.7: whoever still has units here Establishes Control if they
+ *  - Rule 466.5: whoever still has units here Establishes Control if they
  *    didn't already; nobody left → Uncontrolled; establishing control is a
  *    Conquer if that battlefield wasn't already scored this turn.
  */
@@ -90,7 +90,7 @@ describe("step 3d: attackers go home if defenders survive", () => {
   });
 });
 
-describe("rule 466.7: control follows whoever remains", () => {
+describe("rule 466.5: control follows whoever remains", () => {
   it("attacker alone takes control, scoring a conquest", () => {
     const attacker = makeUnit({ might: 9 });
     const chaff = makeUnit({ might: 1 });
@@ -147,7 +147,7 @@ describe("rule 466.7: control follows whoever remains", () => {
   });
 
   it("a defender who did NOT already control it establishes control", () => {
-    // Rule 466.7's "if they didn't already control this Battlefield", and
+    // Rule 466.5's "if they didn't already control this Battlefield", and
     // "This does not have to be the player that applied Contested."
     const attacker = makeUnit({ might: 1 });
     const defender = makeUnit({ might: 9 });

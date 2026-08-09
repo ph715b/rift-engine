@@ -13,7 +13,7 @@ import { answerDecisions, makeState, makeUnit, pickCard, realUnitInstance, resol
  *
  * Its own doc comment used to end "minus ... hold-trigger dispatch (no cards with
  * onHold effects exist yet)", which was true and is the reason both cards below
- * were dead. A hold is rule 471.1.a's "maintains Control of a Battlefield they did
+ * were dead. A hold is rule 469.2's "maintains Control of a Battlefield they did
  * not yet Score this turn", so the event is the SCORING moment rather than mere
  * presence — a battlefield already scored this turn by a Conquer is not held again
  * (471.1.b) and fires nothing.

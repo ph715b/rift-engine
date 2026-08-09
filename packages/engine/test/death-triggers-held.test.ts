@@ -12,7 +12,7 @@ import { makePlayer, makeState, makeUnit, realUnitInstance, resolveHeldTriggers 
  *
  *  - a **[Deathknell]** is keyed by the DYING card, which is in a trash by the
  *    time anything could resolve it. `source: "deathknell"` carries the whole
- *    `DeathContext` — 809.1.b.3's "before the card is moved to the Trash, note
+ *    `DeathContext` — 808.1.d.3's "before the card is moved to the Trash, note
  *    its location, its attributes, and any other details related to the effect of
  *    its triggered ability", which is the rule this family exists to satisfy.
  *  - a **death-watch** listener is an ordinary permanent watching someone else
@@ -24,7 +24,7 @@ import { makePlayer, makeState, makeUnit, realUnitInstance, resolveHeldTriggers 
  * were even walked, and the walk happened AFTER it so a Deathknell that killed
  * things could remove a listener before it fired. 383 determines the whole set of
  * triggered abilities at the moment of the event, together — so a listener the
- * Deathknell later kills has still triggered, and 809.1.b.3 is explicit that its
+ * Deathknell later kills has still triggered, and 808.1.d.3 is explicit that its
  * ability resolves anyway.
  */
 
@@ -84,7 +84,7 @@ describe("[Deathknell] is a Pending Item, resolved from the trash", () => {
   });
 
   it("keeps the battlefield it died at — Kog'Maw hits 'MY battlefield' from the trash", () => {
-    // The clause 809.1.b.3 names location for. By resolution Kog'Maw is in a
+    // The clause 808.1.d.3 names location for. By resolution Kog'Maw is in a
     // trash and stands nowhere; the entry carries where he was.
     const kogmaw = card(KOGMAW_CAUSTIC);
     const bystander = makeUnit({ name: "Bystander", might: 9 });
@@ -169,7 +169,7 @@ describe("death-watch is a Pending Item too, and is decided at the same moment",
     // changed such that that information is no longer available" returns null and
     // "all calculations based on it are ignored". The ITEM still resolves; only
     // the parts referring to something gone drop out. The three rules that remove
-    // a triggered ability from the chain are a replaced death (809.1.b), the
+    // a triggered ability from the chain are a replaced death (808.1.d.1), the
     // controller declining to perform it, and declining to pay its cost — a dead
     // listener is none of them.
     const kogmaw = card(KOGMAW_CAUSTIC);

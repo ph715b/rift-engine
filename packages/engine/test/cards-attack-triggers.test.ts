@@ -15,7 +15,7 @@ import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers } from "./fi
  *
  * **Driven through `submit(MoveUnit)` and then settled.** The move is what starts
  * the fight, but it is not when either of them attacks: an Attack Trigger fires
- * when its unit gains the Attacker designation (383.4.f), which the following
+ * when its unit gains the Attacker designation (383.4.e), which the following
  * Cleanup hands out as the Combat Showdown opens, and it is a Chain Pending Item
  * from that moment — so the effect lands a chain-pop later. `attackWith` below is
  * the whole of that sequence; `test/attack-trigger-moment.test.ts` is where the

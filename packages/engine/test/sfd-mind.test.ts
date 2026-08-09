@@ -212,7 +212,7 @@ describe("Aspiring Engineer (SFD-061): return a gear from your trash to your han
     expect(after.players[0]!.hand.map((c) => c.instanceId)).toContain(grabber.instanceId);
   });
 
-  it("asks nothing and moves nothing when the trash holds no gear (422)", () => {
+  it("asks nothing and moves nothing when the trash holds no gear (055)", () => {
     const spellInTrash = card(FALLING_COMET);
     const { state, engineer } = engineerState([spellInTrash]);
 
@@ -744,6 +744,41 @@ describe("Ezreal - Dashing (SFD-082): damage equal to my Might when I fight — 
     const after = resolveHeldTriggers(gone);
 
     expect(victimDamage(after)).toBe(0);
+  });
+
+  it("does not shoot into a fight he has WALKED OUT OF — 'here' is where he stands", () => {
+    // "Here" is a referent read from the ability's source (359.3.f.1) and a
+    // referent is checked on EXECUTION of the instruction (359.3.f.2). The rules
+    // work this exact sentence: an opponent answers Yasuo - Remorseful's attack
+    // trigger with Fight or Flight, and "when the attack trigger resolves, 'here'
+    // is no longer the battlefield where combat is ongoing and the attack trigger
+    // mistargets".
+    //
+    // Ezreal is the card where this bites hardest, because his own third clause
+    // ("[Mind]: [Action] — Move me to your base") is the likeliest mover and it is
+    // implemented. Leaving before the trigger resolves now costs the shot;
+    // resolving it first and leaving after does not.
+    //
+    // Moved to ANOTHER battlefield rather than to base, so this cannot pass on the
+    // "no Might, off the board" branch above — he is on the board, with a legal
+    // victim beside him, and the answer is still nothing.
+    const { held, ezreal } = staged();
+    const walked = {
+      ...held,
+      battlefields: held.battlefields.map((bf) =>
+        bf.id === "bf1"
+          ? { ...bf, units: { ...bf.units, p1: [] } }
+          : bf.id === "bf2"
+            ? { ...bf, units: { p1: [ezreal], p2: [makeUnit({ instanceId: "bystander", name: "Bystander", might: 20 })] } }
+            : bf,
+      ),
+    };
+
+    const after = resolveHeldTriggers(walked);
+
+    expect(victimDamage(after), "he shot into the fight from another battlefield").toBe(0);
+    const bystander = after.battlefields.flatMap((bf) => Object.values(bf.units).flat()).find((u) => u.instanceId === "bystander");
+    expect(bystander?.damage, "he re-aimed 'here' at wherever he ended up").toBe(0);
   });
 
   it("hits nobody when there is no enemy unit here", () => {

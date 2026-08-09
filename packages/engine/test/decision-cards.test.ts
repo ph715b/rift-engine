@@ -152,7 +152,7 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
     return { state, mistfall, ally };
   }
 
-  it("waits on the chain as a Pending Item before it asks (809.1.b.3)", () => {
+  it("waits on the chain as a Pending Item before it asks (808.1.d.3)", () => {
     // The buff lands immediately; the TRIGGER does not. It is held, finalized onto
     // the chain by the Cleanup, and only resolves once both players have passed —
     // which is the response window this conversion exists to create.
@@ -204,7 +204,7 @@ describe("Mistfall (OGN-152): when you buff a friendly unit, you may pay [Body] 
     expect(after.players[0]!.channeled).toHaveLength(2);
   });
 
-  it("does NOT fire on re-buffing an already-buffed unit (708)", () => {
+  it("does NOT fire on re-buffing an already-buffed unit (702.3.a)", () => {
     // "If a Buff is added on a Unit that already has a Buff, it is not placed
     // instead" — so nothing was buffed, and there is nothing to trigger on.
     // Without this, a buff-heavy board would offer the same question forever.

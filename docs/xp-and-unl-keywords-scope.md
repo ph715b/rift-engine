@@ -207,7 +207,7 @@ Rule **727** is the general machinery: a **Dependent Keyword** makes its ability
 **Inactive until the Condition is met**, when it becomes **Active**. It does NOT
 spend XP — it is a gate, not a cost. Three consequences the rules state outright:
 
-- **730.2**: "Triggered Abilities of Dependent Keywords must be Active for their
+- **727.1.c.1**: "Triggered Abilities of Dependent Keywords must be Active for their
   trigger to be evaluated." That maps onto the `applies` hooks that already exist
   on `EventTriggerDefinition`, `DeathWatchDefinition` and now
   `DeathknellDefinition` — a `[Level]`ed trigger is one whose `applies` also asks

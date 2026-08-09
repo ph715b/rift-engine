@@ -82,7 +82,7 @@ function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellI
   const effect = cardModeOf(card, undefined);
   // No targets: the choices a spell needs are made when it is ANNOUNCED, and
   // nothing announced this one. A targeted spell played this way therefore does
-  // as much as it can and no more, which is 422's convention and the same answer
+  // as much as it can and no more, which is 055's convention and the same answer
   // every resolver here already gives an absent target.
   const resolved = effect ? effect.resolve(played, contextFor(playerIndex, card.instanceId), {}) : played;
   const players = [...resolved.players] as [PlayerState, PlayerState];

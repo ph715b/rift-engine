@@ -21,7 +21,7 @@ function withBattlefields(
 }
 
 /**
- * Cleanup step 4 — rule 323.11: "Players lose control of any controlled
+ * Cleanup step 4 — rule 323.6: "Players lose control of any controlled
  * Battlefields without their Units occupying them if the turn is in an Open State
  * and there is no Showdown or Combat ongoing there." Same statement from the
  * Control side in rule 190.6.
@@ -31,7 +31,7 @@ function withBattlefields(
  * battlefield — an illegal state, and a scoring dead end that froze games (see
  * the integration test at the bottom).
  */
-describe("cleanup: unoccupied control lapses (rule 323.11 step 4 / 190.6)", () => {
+describe("cleanup: unoccupied control lapses (rule 323.6 step 4 / 190.4.c)", () => {
   it("lapses control when the controller has no units there", () => {
     const state = withBattlefields([{ id: "bf-0", controllerId: "p1" }]);
     expect(runCleanup(state).battlefields[0]!.controllerId).toBeNull();
@@ -55,7 +55,7 @@ describe("cleanup: unoccupied control lapses (rule 323.11 step 4 / 190.6)", () =
   });
 
   it("does NOT lapse at a battlefield with an ongoing Showdown", () => {
-    // Rule 190.6: "While a Combat or Showdown is ongoing at a Battlefield,
+    // Rule 190.4.b: "While a Combat or Showdown is ongoing at a Battlefield,
     // Control of that Battlefield cannot change until instructed by steps of the
     // Combat or Showdown."
     const state = withBattlefields([{ id: "bf-0", controllerId: "p1" }], {
@@ -85,14 +85,14 @@ describe("cleanup: unoccupied control lapses (rule 323.11 step 4 / 190.6)", () =
     // p1 controls bf-0 but only p2 has units there (a contested leftover). p1 has
     // no units there, so p1's control lapses — the battlefield becomes
     // Uncontrolled rather than silently flipping to p2, since establishing
-    // control is combat's job (rule 466.7), not the cleanup's.
+    // control is combat's job (rule 466.5), not the cleanup's.
     const state = withBattlefields([{ id: "bf-0", controllerId: "p1", units: { p2: [makeUnit()] } }]);
     expect(runCleanup(state).battlefields[0]!.controllerId).toBeNull();
   });
 });
 
-describe("cleanup step 6: staging Showdowns at Contested battlefields (323 / 341)", () => {
-  it("opens a Non-Combat Showdown when only one player's units are there (317.1)", () => {
+describe("cleanup step 6: staging Showdowns at Contested battlefields (323 / 344.1)", () => {
+  it("opens a Non-Combat Showdown when only one player's units are there (316.8.b.1)", () => {
     const state = withBattlefields([{ id: "bf-0", controllerId: null, units: { p1: [makeUnit()] } }]);
     const contested: GameState = {
       ...state,
@@ -126,7 +126,7 @@ describe("cleanup step 6: staging Showdowns at Contested battlefields (323 / 341
     expect(runCleanup(during).battlefields[0]!.contestedByIndex).toBe(0);
   });
 
-  it("promotes a Non-Combat Showdown to Combat once another player's units arrive (317.2)", () => {
+  it("promotes a Non-Combat Showdown to Combat once another player's units arrive (316.8.b.1.a)", () => {
     // Reachable now that an opponent holding Focus can cast a token-making Spell
     // into someone else's window at Action speed.
     const state = withBattlefields([{ id: "bf-0", controllerId: null, units: { p1: [makeUnit()], p2: [makeUnit()] } }]);
@@ -164,7 +164,7 @@ describe("cleanup runs after every action, so the frozen-board state can't happe
   }
 
   /** Walks in, then closes the Non-Combat Showdown the walk-in now opens — since
-   *  rule 352.1 moved control establishment to the window's close, "did walking
+   *  rule 348.2.a moved control establishment to the window's close, "did walking
    *  back in reclaim it" can only be asked after the passes. */
   function walkInAndSettle(controllerId: string | null) {
     let { state } = walkIntoBf0(controllerId);
@@ -176,7 +176,7 @@ describe("cleanup runs after every action, so the frozen-board state can't happe
   it("re-occupying a battlefield whose control has lapsed is a Conquer worth a point", () => {
     // The state the cleanup guarantees after you vacate: Uncontrolled. So walking
     // back in is a genuine control change — established when the Non-Combat
-    // Showdown closes (352.1) rather than on the spot.
+    // Showdown closes (348.2.a) rather than on the spot.
     const state = walkInAndSettle(null);
     expect(state.battlefields[0]!.controllerId).toBe("p1");
     expect(state.players[0]!.points).toBe(1);
@@ -189,7 +189,7 @@ describe("cleanup runs after every action, so the frozen-board state can't happe
     // Phase and the board only reaches this shape once the units have left. Two
     // battlefields stuck like this with empty rune decks is the freeze.
     //
-    // It also opens no window at all: 458 only contests a destination you don't
+    // It also opens no window at all: 450 only contests a destination you don't
     // already control, so there are no passes to make here.
     const { state } = walkIntoBf0("p1");
     expect(state.turnState).toBe("Neutral");

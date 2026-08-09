@@ -16,7 +16,7 @@ import { makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTrig
 /**
  * Fires a HELD event and drives it to resolution.
  *
- * `cardPlayed` is a Chain Pending Item now (383 / 809.1.b.3), so it is placed by
+ * `cardPlayed` is a Chain Pending Item now (383 / 808.1.d.3), so it is placed by
  * `holdEventTrigger` and only resolves once the Cleanup finalizes it onto the
  * chain and both players pass. Calling the old inline dispatcher here would not
  * merely be stale — it would bypass every `applies` predicate, which is where the
@@ -163,7 +163,7 @@ describe("Zhonya's Hourglass (OGN-077): a MANDATORY death replacement", () => {
   });
 
   it("is a REPLACEMENT, so the unit never died — no Deathknell, no death tally", () => {
-    // 809.1.b.1: a replaced death is not a death. Spoils of War prices itself off
+    // 808.1.d.1: a replaced death is not a death. Spoils of War prices itself off
     // units that actually died, so the tally must not move either.
     const { state, doomed } = glassState();
     const after = destroyUnit(state, doomed.instanceId, 1);

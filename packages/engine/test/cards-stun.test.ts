@@ -182,7 +182,7 @@ describe("Eclipse Herald (OGN-059): when you stun an enemy unit, ready me and gi
     expect(herald.mightThisTurn).toBe(1);
   });
 
-  it("does NOT fire when the unit was already stunned — 422's own worked example", () => {
+  it("does NOT fire when the unit was already stunned — 423's own worked example", () => {
     // "A Stunned Unit can not be Stunned again", and the rules cite this card as
     // the reason it matters. The guard is in stunUnits, not in the Herald.
     const { state, enemy } = heraldState();
@@ -276,7 +276,7 @@ describe("Leona - Radiant Dawn (OGN-261): when you stun one or more enemy units,
   });
 
   it("pays out ONCE for a batch of two — 'one or more', not 'each'", () => {
-    // A buff is capped at one per unit (708), so counting buffs would not show a
+    // A buff is capped at one per unit (702.3.a), so counting buffs would not show a
     // double trigger. Counting the QUESTIONS does: two triggers would queue two.
     const { state, enemies } = leonaState();
     const second = makeUnit({ name: "Second friendly" });
@@ -496,7 +496,7 @@ describe("Zenith Blade (OGN-262): stun an enemy, then you may move a friendly to
     expect(firstAt(after, "p1").name).toBe("Friendly");
   });
 
-  it("the moved unit arrives READY — a spell's move is not a Standard Move (415.1.b)", () => {
+  it("the moved unit arrives READY — a spell's move is not a Standard Move (414.3.a)", () => {
     const { state, enemy, friendly } = bladeState();
     const after = resolveSpell(ZENITH_BLADE, 0, state, {
       targetUnitInstanceId: enemy.instanceId,
