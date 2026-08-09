@@ -104,8 +104,21 @@ Measured against it, citations this repo had been carrying:
 The current PDF is downloadable from Riot's CDN — the project owner supplied
 `https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/e9ac8e3d33e0f78cef296f5945aba7bc1313b086.pdf`.
 **Cite by neighbour only when `-raw` genuinely cannot resolve it**, which is now
-rare; the scope docs that cite "by neighbour rather than by a number this
-document would get wrong" predate this and can mostly be tightened.
+rare. The one scope doc that hedged this way was tightened on 2026-08-09 and
+`-raw` resolved every claim in it exactly (XP **728–733**, `[Hunt]` **823**,
+`[Level]` **824**) — so treat a surviving "cited by neighbour" as a to-do, not as
+a limit of the tooling.
+
+**And the swapped-subrule failure is the one `-raw` does NOT catch.** Found
+2026-08-09 by a wave-2 agent: **72 comments in `src/` cite `355.9.b` for "a bare
+noun includes units in base".** That is the wrong half. `355.9.a.1` is the
+WIDENING — "'Unit,' 'gear,' and 'rune' refer to objects on the Board unless
+specified otherwise" — while `355.9.b` is the NARROWING, "It meets all targeting
+restrictions", which is what makes a printed "at a battlefield" load-bearing.
+Both sub-rules are real and both matter, which is exactly why this survived: the
+citation resolves to a genuine sentence, just not the one being relied on. When
+checking a number, read the sentence it lands on and confirm it says the thing
+the comment claims — a number that resolves is not yet a number that is right.
 
 ## Measure before planning
 

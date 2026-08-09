@@ -88,10 +88,38 @@ last item of the readiness gate in `engine-readiness-for-unleashed.md`.
 
 The plan called XP "the real subsystem, and the one thing worth scoping properly".
 Measured against the rules, **the resource itself is a per-player counter and
-nothing more**. The XP section (between 727 Dependent Keywords and 735 Additional
-Turns — the numbers in the left column of a `pdftotext -layout` dump are offset
-from their text, so it is cited by neighbour rather than by a number this document
-would get wrong) says, in full:
+nothing more**.
+
+**Cited by NUMBER as of 2026-08-09 — the hedge this paragraph used to carry is
+gone.** It said the section had to be "cited by neighbour rather than by a number
+this document would get wrong", because `pdftotext -layout` puts rule numbers in a
+column that does not line up with their text. That was a true problem and the
+wrong remedy: the fix is `-raw`, which emits the document in reading order with
+each number attached to its own text. Two wave-2 agents independently pointed out
+that the hedge was no longer needed. **XP is 728–733**, and every claim below
+resolves exactly:
+
+```bash
+pdftotext -q -raw "docs/Riftbound Core Rules Updated 2026-07-16.pdf" - | sed -n '4216,4229p'
+```
+
+| claim | rule |
+|---|---|
+| a resource accrued, spent or otherwise modified through play | **729** |
+| its amount is Public Information | **729.2** |
+| Gained (increase) and Spent (decrease) | **730.1** / **730.2** |
+| not a Game Object — "cannot be targeted, readied, or exhausted" | **731** / **731.1** |
+| not shared between Allies | **732** |
+| no cap | **733** |
+
+The neighbouring keyword sections resolve too, and are worth having here because
+the rest of this document leans on them: **`[Hunt]` is 823** (823.1.b — "both a
+Conquer and a Hold effect"), and **`[Level]` is 824** (824.1.b.1 — "functionally
+short for 'While you have [N] or more XP, this card gains [Text]'", with 824.1.d
+making the ability Inactive again the moment XP drops below N, which is why a
+one-shot pump is not an acceptable approximation for a `[Level]` Might bonus).
+
+In full, the XP section says:
 
 - XP is a resource accrued, spent, or otherwise modified by players.
 - Its amount is **Public Information**.
