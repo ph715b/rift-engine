@@ -396,10 +396,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   //   implemented — as an `EQUIP_GRANTED_KEYWORDS` entry, which is the same
   //   mechanism Doran's Shield's `[Tank]` uses. Nothing about it is missing.
   //
-  //   UNL-158 Shepherd's Heirloom already reports unimplemented on its own,
-  //   because its `[Equip] — Spend 1 XP` cost is the one `ActivationCost` cannot
-  //   price. A note would be redundant, and this map must not carry redundant
-  //   ones: every entry here is a card that would otherwise look finished.
+  //   UNL-158 Shepherd's Heirloom is FULLY WRITTEN as of 2026-08-09 and needs no
+  //   entry. **This paragraph used to say the opposite** — that it "already
+  //   reports unimplemented on its own, because its `[Equip] — Spend 1 XP` cost
+  //   is the one `ActivationCost` cannot price". That was true when written and
+  //   is not now: a wave-2 agent wrote both clauses, taking the XP through
+  //   `availableWhile: canSpendXp` + `spendXp` in `resolve` rather than through
+  //   `ActivationCost`, which still has no `xp` field. The cost is real and paid;
+  //   only its PLACEMENT diverges (204.1.b makes it a base cost), and that is
+  //   unobservable while activations resolve inline. Recorded in
+  //   docs/rules-conformance.md rather than here, because this map is for cards
+  //   that would otherwise look finished — and this one now IS finished.
   [
     "UNL-019",
     "art-only: its end-of-turn unattach-and-deal-4 is unwritten (only the [Equip] cost and +4 badge work)",
@@ -408,9 +415,25 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-039",
     "art-only: its [Level 3] additional +1 Might is unwritten (only the [Equip] cost and +1 badge work)",
   ],
+  [
+    "UNL-188",
+    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
+  ],
+  // **Two cards written by HALVES in wave 2, 2026-08-09.** Both report finished
+  // without these, which is this map's whole reason to exist. Neither agent could
+  // add its own entry — coverage.ts is shared and six of them were writing at
+  // once — so both named the missing clause in their report and I placed it here.
+  //
+  // Their refusals were CORRECT: each declined to write the second clause against
+  // a mechanism that does not exist, rather than registering something that would
+  // report DONE and never fire.
   [
-    "UNL-188",
-    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
+    "UNL-095",
+    "half written: the +3 Might works; 'when it wins a combat this turn, gain 2 XP' is unwritten — a resolved Spell sits in its caster's trash and reaches no listener walk",
+  ],
+  [
+    "UNL-133",
+    "half written: the move works; 'when you move an enemy unit, you may exhaust this to [Stun] it' cannot fire — no effect-driven move emits an event, and unitMoved carries the moved unit's controller rather than the mover",
   ],
   // **UNL-023 Katarina - Reckless is HALF written**, and she is the first card in
   // this pool to make the decision-key over-report REAL rather than theoretical.

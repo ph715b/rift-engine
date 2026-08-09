@@ -5,6 +5,7 @@ import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
+  canSpendXp,
   channelRunesExhausted,
   destroyUnit,
   drawCards,
@@ -22,11 +23,12 @@ import {
   recycleUnitFromPlayToDeck,
   returnCardFromTrash,
   spendBuff,
+  spendXp,
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
-import { findUnitAnywhere } from "../target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
@@ -36,7 +38,7 @@ import { isMighty } from "../granted-keywords.js";
 import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
-import { wearerListener } from "../equipment.js";
+import { attachEquipment, wearerListener } from "../equipment.js";
 import { mayPlayUnitAt } from "../battlefield-continuous.js";
 // From the LEAF constants module, not from `activated-abilities.js` where the
 // ability lives: that import closed a cycle through token.js and registered the
@@ -60,6 +62,46 @@ function vanguardTokenOrdinal(d: { count?: number }): string {
  * type is data, not a function.
  */
 const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
+
+/**
+ * Unleashed's Bird — "a 1 [Might] Bird unit token with [Deflect]", made by
+ * Carrion Dredger's `[Deathknell]` and by Ultrasoft Poro's exhaust ability.
+ *
+ * A spec shared between the two rather than written twice, the same call
+ * `SAND_SOLDIER_TOKEN` and `MECH_TOKEN` record: a stat line copied into two
+ * entries is two places for the Might or the keyword to drift, and a Bird minted
+ * without `Deflect` would be indistinguishable in play from one whose surcharge
+ * simply was not charged.
+ *
+ * **It is LOCAL and it OWES A MOVE to `token.ts`.** Six printed cards make this
+ * token and they are spread across four domains — UNL-044 Flurry of Feathers and
+ * UNL-054 Frisky Hunter (Calm), UNL-088 Gutter Palace (Mind), UNL-130 Walking
+ * Roost (Chaos), these two (Order) — plus the UNL-217 Trapping Grounds
+ * battlefield. So the stat line will exist as a private copy in several domain
+ * files until it is consolidated, which is precisely the drift
+ * `SAND_SOLDIER_TOKEN`'s own note in `token.ts` records having already happened
+ * once. It is here only because this change owns one file; `token.ts` is shared.
+ *
+ * No `entersReady`: 143.4.a's default stands and neither card overrides it.
+ *
+ * `[Deflect]` is a real keyword here (`deflectSurchargeForTargets` reads
+ * `effectiveKeywords`, which reads a unit's own `keywords` map whether it came
+ * from a printed card or from `createToken`), so the tokens genuinely tax the
+ * opponent — pinned by a test, because a keyword that parses and is read by
+ * nothing is exactly how `[Deflect]` shipped inert the first time.
+ */
+const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
+
+/** Ultrasoft Poro makes TWO of them; Carrion Dredger one. */
+const ULTRASOFT_PORO_BIRDS = 2;
+/** Heroic Charge's pump, beside the stun it is joined to. */
+const HEROIC_CHARGE_MIGHT = 1;
+/** Divining Shells' pump. */
+const DIVINING_SHELLS_MIGHT = 2;
+/** Shepherd's Heirloom gains this on play and spends it to attach. */
+const HEIRLOOM_XP = 1;
+/** Enthralling Protector's buff price. */
+const ENTHRALLING_PROTECTOR_XP = 2;
 
 /** Divine Judgment's four categories, in the order the card names them. */
 const JUDGMENT_CATEGORIES = ["units", "gear", "runes", "hand"] as const;
@@ -590,6 +632,45 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
   },
+  "UNL-155": {
+    // Heroic Charge — "[Action] Give a friendly unit +1 [Might] this turn and
+    // [Stun] an enemy unit at its location."
+    //
+    // Facebreaker's spec (OGN-220) exactly, and for the same three reasons: the
+    // two halves are ONE instruction joined by "and", so `min: 2` makes the card
+    // uncastable without a friendly and an enemy standing together; the relation
+    // between the targets lives on the SPEC, where the enumerator and the
+    // validator both enforce it, rather than in this resolver, which runs after
+    // the spell is paid for; and the default `scope` is right because "at its
+    // location" can only ever be a battlefield — no enemy unit is ever in your
+    // base, so a friendly at home has no legal partner.
+    //
+    // **`sameBattlefield` is the printed "at its location", not an approximation
+    // of it.** The rules' Special Terms give Location as a Base or a Battlefield
+    // Zone, so the two readings differ only in the base case, which is
+    // unreachable here for the reason above.
+    //
+    // ONE `stunUnits` call for the one enemy, matching Facebreaker's note: the
+    // batch event (`unitsStunned`) is per INSTRUCTION, so Leona - Radiant Dawn
+    // pays out once.
+    //
+    // Slot order is the printed order — friendly first, enemy second — and
+    // `asymmetricSlots` is NOT needed, because the two slots take DIFFERENT
+    // roles and legal-actions only prunes the mirrored pairing when both slots
+    // share a role.
+    //
+    // [Action] is timing (engine/timing.ts), not this card's business.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, sameBattlefield: true },
+    resolve: (state, ctx, event) => {
+      const { targetUnitInstanceId: friendly, secondTargetUnitInstanceId: enemy } = event;
+      // Each half independently guarded rather than bailing on the pair: the
+      // spell is announced with both chosen, but either can leave play while it
+      // sits on the chain, and 055's "do as much as you can" applies to what is
+      // left. `giveMightThisTurn` and `stunUnits` both no-op on a vanished id.
+      const pumped = friendly ? giveMightThisTurn(state, friendly, HEROIC_CHARGE_MIGHT) : state;
+      return enemy ? stunUnits(pumped, ctx.casterIndex, [enemy]) : pumped;
+    },
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -1109,6 +1190,49 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // pays no Energy until the next Awaken. `ctx.casterIndex` is the dying unit's
   // controller, which is what an unqualified "channel" means for a Deathknell.
   "UNL-152": { resolve: (state, ctx) => channelRunesExhausted(state, ctx.casterIndex, 1) },
+  "UNL-153": {
+    // Carrion Dredger — "[Deathknell][>] Play a 1 [Might] Bird unit token with
+    // [Deflect] to your base."
+    //
+    // "TO YOUR BASE" is printed, so nothing is chosen and nothing depends on
+    // where the Dredger died — the same reading Machine Evangel's "into your
+    // base" gets two entries up, and the opposite of Vanguard Captain's "here".
+    // `ctx.casterIndex` is the dying unit's controller, which is what "your"
+    // means for a Deathknell.
+    //
+    // No `capture`: the destination is a fixed zone and the token's stat line is
+    // printed, so there is no fact here that stops being true between the death
+    // and the chain pop. `DeathknellDefinition.capture`'s own rule — capture only
+    // what has MOVED — is why this is stated rather than added defensively.
+    //
+    // The Dredger's own `[Deathknell]` and `[Deflect]` keywords are printed and
+    // handled by the keyword machinery; only the granted effect is written here.
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", BIRD_TOKEN),
+  },
+  "UNL-156": {
+    // Loyal Poro — "[Deathknell][>] If I didn't die alone, draw 1. (I wasn't
+    // alone if there were other friendly units here.)"
+    //
+    // **The exact inverse of Lonely Poro** (SFD-036 / UNL-221, in effects/calm.ts),
+    // and it takes that card's shape rather than a fresh one because the two
+    // stand or fall on the same question. The predicate is duplicated here rather
+    // than shared: the one-file-one-owner rule puts it in the owning domain's
+    // file, and the alternative is a helper in the shared `effect-helpers.ts`
+    // this wave must not touch. See `otherFriendlyUnitsDiedWith` below for the
+    // wording it is written from.
+    //
+    // `capture`, NOT a re-derivation in `resolve`, and this is the whole reason
+    // the hook exists. 383 / Cleanup step 3a note a dying card's location and
+    // "other relevant information" as the ability is ADDED TO THE CHAIN, and
+    // `combat.processDefeated` kills a losing side one unit at a time — so a Poro
+    // that died beside an ally reads as ALONE by the time its Deathknell pops.
+    // For Lonely Poro that mistake draws a card it should not; here it points the
+    // other way and SKIPS a draw the card is owed, which is the harder failure to
+    // notice because a card that quietly does nothing looks exactly like one
+    // whose condition was not met.
+    capture: (state, death) => otherFriendlyUnitsDiedWith(state, death.ownerIndex, death.battlefieldId),
+    resolve: (state, ctx, _death, captured) => (captured === true ? drawCards(state, ctx.casterIndex, 1) : state),
+  },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -1471,6 +1595,59 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
     // else on the board — unlike Faithful Manufactor's "here".
     on: ["played"],
     resolve: (state, event) => placeRecruitToken(state, event.ownerIndex, "base"),
+  },
+  "UNL-158": {
+    // Shepherd's Heirloom, first clause — "When you play this, gain 1 XP."
+    //
+    // A SELF-trigger for the reason Forge of the Future's is: a Gear does not
+    // push a chain entry when it is played (`execute-play-card`'s Spell branch is
+    // the only one that does), so a `cardEffects` entry for this card would be
+    // registered, enumerated, paid for and NEVER RUN. Measured before writing it
+    // — the else-branch that files a Gear into `activeGear` never touches
+    // `spellChain`.
+    //
+    // Its `[Equip] — Spend 1 XP` half is in `activatedAbilities` below.
+    on: ["played"],
+    resolve: (state, event) => gainXp(state, event.ownerIndex, HEIRLOOM_XP),
+  },
+  "UNL-161": {
+    // Divining Shells, first clause — "[Vision] (When you play this, look at the
+    // top card of your Main Deck. You may recycle it.)"
+    //
+    // **`[Vision]` does not fire for a Gear**, and that is the reason this entry
+    // exists rather than the keyword machinery covering it. `applyVision` is
+    // called from exactly one place, `dispatchOnPlayUnit`, and both the
+    // enumerator and the validator gate the `visionRecycle` choice on
+    // `card.kind === "Unit"`. So a Gear printing the keyword predicts nothing:
+    // measured by reading all four call sites, not inferred from the keyword
+    // being absent from `UNIMPLEMENTED_KEYWORDS`.
+    //
+    // **817.1.a settles that this is a gap rather than a reading**: "Vision …
+    // is present on PERMANENTS", and a Gear is one. 817.1.b and 817.1.c give the
+    // rest — "functionally short for 'When this is played, predict'", with "the
+    // trigger [being] the permanent entering the Board".
+    //
+    // Asked as a QUESTION rather than fanned onto the action, which is the only
+    // shape available here — `PlayCardAction.visionRecycle` is not enumerated for
+    // a Gear — and it is also the more conformant one. 817.1.a makes Vision a
+    // TRIGGERED ability, and 402.1 puts a triggered ability's "you may" at
+    // RESOLUTION: "If the first part of a Triggered Ability's effect is 'you
+    // may,' … its controller decides whether or not to perform it" then. The
+    // Unit path decides it at announce instead, which is the pre-existing
+    // divergence; this one does not inherit it.
+    //
+    // **Deliberately NOT firing `holdCardsRecycled`**, and not raising
+    // `offerTopOfDeckBanish` either — `applyVision` does neither, and a Gear's
+    // Vision behaving differently from a Unit's would be a worse answer than
+    // both sharing one gap. Recorded rather than quietly fixed here.
+    on: ["played"],
+    resolve: (state, event) =>
+      // An empty deck has nothing to look at, so there is no question to ask —
+      // 055's "do as much as you can", and it keeps a one-option prompt off the
+      // board rather than relying on `advanceDecisions` to retire it.
+      state.players[event.ownerIndex].deck.length === 0
+        ? state
+        : parkDecision(state, { kind: "UNL-161-predict", playerIndex: event.ownerIndex }),
   },
 };
 
@@ -2030,6 +2207,81 @@ export const decisions: Record<string, DecisionDefinition> = {
       },
     ]),
   ),
+  /**
+   * Ultrasoft Poro's placement, asked once per Bird with `count` counting down.
+   *
+   * **Why a question rather than a fan-out**, which is Vanguard Armory's
+   * (`SFD-168-place`) reasoning and applies here even more sharply: `legal-actions`
+   * has NO axis on which to fan a destination out for a target-less activated
+   * ability. Its activation enumerator pushes a `{ kind: "none" }` mode with no
+   * extra fields at all, and `destinationBattlefieldId` is only ever added on the
+   * `movesTarget` branch, which needs a chosen unit. So an ability that places
+   * tokens somewhere the player picks can only ask.
+   *
+   * The destinations are the ones a unit may be PLAYED to — 355.2.a: "By default,
+   * Valid locations include the controller's Base or a Battlefield the controller
+   * controls" — asked through the same `mayPlayUnitAt` gate Vanguard Armory uses,
+   * so Rockfall Path bars a destination here too.
+   *
+   * "You may play them to different locations" is not printed on this card, but
+   * asking per token is what 355.2 requires anyway: each Bird is its own play
+   * with its own location choice.
+   *
+   * With no controlled battlefield the list is one option long and
+   * `advanceDecisions` executes it without ever showing it, so the ordinary case
+   * costs the player nothing. Terminates on the count, not on the board: every
+   * answer places a Bird and decrements, and nothing an answer does can add to it.
+   */
+  "UNL-160-place": {
+    prompt: (state, d) =>
+      `Ultrasoft Poro: where does Bird ${ULTRASOFT_PORO_BIRDS - (d.count ?? 1) + 1} of ${ULTRASOFT_PORO_BIRDS} go?`,
+    options: (state, d) => [
+      { id: "base", label: "Your base" },
+      ...state.battlefields
+        .filter((bf) => bf.controllerId === state.players[d.playerIndex].id && mayPlayUnitAt(state, bf.id))
+        .map((bf) => ({ id: bf.id, label: bf.name })),
+    ],
+    resolve: (state, d, optionId) => {
+      const destination: TokenDestination = optionId === "base" ? "base" : { battlefieldId: optionId };
+      const placed = placeToken(state, d.playerIndex, destination, BIRD_TOKEN);
+      const remaining = (d.count ?? 1) - 1;
+      // Onto the FRONT, so the two placements stay one instruction — anything
+      // else queued was raised later. `repeatDecision`'s own note.
+      return remaining > 0 ? repeatDecision(placed, { ...d, count: remaining }) : placed;
+    },
+  },
+  /**
+   * Divining Shells' `[Vision]` — "look at the top card of your Main Deck. You
+   * may recycle it."
+   *
+   * The recycle is `applyVision`'s, reproduced rather than called because that
+   * function is module-private to `unit-triggers.ts`: the top card goes to the
+   * BOTTOM of the deck, and declining changes nothing at all.
+   *
+   * Both options always exist while the deck is non-empty, so this is a real
+   * question and `advanceDecisions` never auto-answers it. The self-trigger that
+   * raises it already refuses an empty deck.
+   *
+   * The card is NAMED in the label. The whole point of a look is that the player
+   * sees what they are deciding about, and a prompt reading "recycle it?" with no
+   * "it" is the one thing that makes this question unanswerable.
+   */
+  "UNL-161-predict": {
+    prompt: (state, d) => `Divining Shells: ${state.players[d.playerIndex].deck[0]?.name ?? "your top card"} — recycle it?`,
+    options: (state, d) => [
+      { id: "keep", label: `Keep ${state.players[d.playerIndex].deck[0]?.name ?? "it"} on top` },
+      { id: "recycle", label: `Recycle ${state.players[d.playerIndex].deck[0]?.name ?? "it"}` },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "recycle") return state;
+      const actor = state.players[d.playerIndex];
+      if (actor.deck.length === 0) return state;
+      const [top, ...rest] = actor.deck;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...actor, deck: [...rest, top!] };
+      return { ...state, players };
+    },
+  },
 };
 
 /** What one category holds for one player, as { instanceId, name } — a rune has
@@ -2100,6 +2352,30 @@ function ownUnits(state: GameState, playerIndex: 0 | 1) {
   return [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
 }
 
+/**
+ * "Were there OTHER friendly units here?" — Loyal Poro's reminder text, and the
+ * rules' Special Terms definition read the other way round: *"A unit is alone
+ * when there are no other friendly units at the same location."*
+ *
+ * LOCATION, not battlefield, so a death in base asks about the base — 355.9.b's
+ * bare-noun reading, and a Base is a place on the Board like any other. A Poro
+ * that dies at home surrounded by its friends did not die alone, so it draws.
+ *
+ * "OTHER friendly" needs no self-exclusion: `completeDeath` files the corpse in
+ * the trash BEFORE the `[Deathknell]` is held, so the dying unit is already gone
+ * from whatever this counts.
+ *
+ * A deliberate duplicate of `noOtherFriendlyUnitsAt` in effects/calm.ts — see
+ * the UNL-156 entry for why it is not shared. The two are inverses, and they are
+ * pinned together by the fact that both cards' tests assert the mutual-wipe case
+ * that only `capture` gets right.
+ */
+function otherFriendlyUnitsDiedWith(state: GameState, ownerIndex: 0 | 1, battlefieldId: string | undefined): boolean {
+  if (battlefieldId === undefined) return state.players[ownerIndex].baseUnits.length > 0;
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return (bf?.units[state.players[ownerIndex].id] ?? []).length > 0;
+}
+
 /** The buffed units a player controls — Albus Ferros' spendable buffs. Rule 702.2.b.2
  *  restricts spending to units you control, so this never walks the opponent's. */
 function buffedOwnUnits(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
@@ -2163,15 +2439,176 @@ function movableTokensFor(state: GameState, playerIndex: 0 | 1, battlefieldId: s
 /**
  * Activated abilities contributed by this domain file.
  *
- * **Empty on purpose, and it is the seam that matters, not the contents.**
- * `ACTIVATED_ABILITIES` was module-private in `activated-abilities.ts`, so a
- * domain file could not register an activated ability AT ALL — the wave-1 agents
- * refused UNL-026 and UNL-093 on exactly that, and every future card with a
- * printed "[cost]: do something" would have hit the same wall or been written
- * into the shared file that the fan-out rule keeps agents out of.
+ * **The seam matters as much as the contents.** `ACTIVATED_ABILITIES` was
+ * module-private in `activated-abilities.ts`, so a domain file could not register
+ * an activated ability AT ALL — the wave-1 agents refused UNL-026 and UNL-093 on
+ * exactly that, and every future card with a printed "[cost]: do something"
+ * would have hit the same wall or been written into the shared file that the
+ * fan-out rule keeps agents out of.
  *
  * Merged lazily by `activated-abilities.ts`, through the same `mergeRegistries`
  * that throws on a duplicate defId — so a card registered both here and in the
- * built-in table is a named error at import, not a silent last-write-wins.
+ * built-in table is a named error at import, not a silent last-write-wins. That
+ * throw is load-bearing for `UNL-158` below, which is an Equipment: had
+ * `parseEquipCost` matched its printed cost, `equipAbilities()` would already
+ * hold that key and this file would fail to import rather than shadow it.
+ *
+ * ---- XP AS AN ACTIVATION COST, and why it is paid in `resolve` here ----
+ *
+ * `ActivationCost` has no `xp` field, and two cards in this wave print one
+ * (`UNL-158`'s `[Equip] — Spend 1 XP`, `UNL-162`'s `Spend 2 XP:`).
+ * `docs/xp-and-unl-keywords-scope.md` plans that field, and it is the right
+ * eventual home — but it lives in `activated-abilities.ts`, which this wave does
+ * not own, and its readers (`canPayActivationCost`, `payActivationCost`) are
+ * there too.
+ *
+ * So the price is taken through the two hooks that ARE available to a domain
+ * file, and the split is exact rather than approximate:
+ *
+ *   - `availableWhile` asks `canSpendXp`. Both the enumerator and the validator
+ *     reach it through `canPayActivationCost`, so the ability is never offered
+ *     to a player who cannot pay — which is the whole job of a cost's
+ *     affordability check, and is what `canSpendXp`'s own doc comment says it
+ *     exists for ("the question the play enumerator and the activation offer
+ *     both have to ask BEFORE offering the option").
+ *   - `resolve` calls `spendXp`, whose `undefined` return is treated as a
+ *     refusal rather than a free effect.
+ *
+ * **The one thing that would make this wrong is a gap between announcing and
+ * resolving, and there is none**: `execute-activate-ability` pays the cost and
+ * calls `mode.resolve` in the same synchronous action — its own comment says so
+ * ("An ability's effect runs inline rather than on the chain"). Nothing can
+ * change a player's XP in between. Measured by reading that executor, not
+ * assumed.
+ *
+ * What it is NOT: a cost that `payActivationCost` can price. When the shared
+ * field lands, both entries below should move onto it and lose their
+ * `availableWhile`.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-158": {
+    // Shepherd's Heirloom, second clause — "[Equip] — Spend 1 XP. (Pay the cost:
+    // Attach this to a unit you control.)"
+    //
+    // **The one Equipment of the pool's 36 that does not self-wire**, which is
+    // why it needs an entry at all: `parseEquipCost` requires a `:rb_rune_*:` in
+    // the printed cost, this card prints XP instead, so `def.equipCost` is
+    // undefined and `equipAbilities()` generates nothing for it. Its +2 Might
+    // badge is already in `card-loader`'s EQUIP_MIGHT_BONUS and needs nothing
+    // here.
+    //
+    // **818.1.c.3 is what makes an XP price legal rather than a data oddity**:
+    // "Equip costs may include both resource costs and NON-RESOURCE costs." And
+    // 818.1.c.2 gives the shape this entry is: "Equip is functionally short for
+    // '[Cost]: Attach this gear to a unit you control.'" — an activated ability,
+    // which is exactly the table it is written into.
+    //
+    // Everything else is `equipAbilities()`'s generated shape, copied
+    // deliberately so the two cannot behave differently: the same targeting, the
+    // same `attachEquipment(state, casterIndex, sourceInstanceId, target)`, and
+    // the same absence of an exhaust — the printed reminder is "Pay the cost:
+    // Attach this to a unit you control", and an exhaust nobody printed would
+    // make every Equipment a once-per-turn attach. Re-equipping is legal, and
+    // here it costs another XP each time, which is what makes it terminate.
+    kind: "Gear",
+    cost: {},
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, HEIRLOOM_XP),
+    resolve: (state, ctx, event, sourceInstanceId) => {
+      if (event.targetUnitInstanceId === undefined) return state;
+      const paid = spendXp(state, ctx.casterIndex, HEIRLOOM_XP);
+      // `availableWhile` already refused an unaffordable activation, so this is
+      // unreachable — and it is written out rather than asserted because a silent
+      // free attach is the failure mode a cost helper's `undefined` exists to
+      // prevent.
+      if (paid === undefined) return state;
+      return attachEquipment(paid, ctx.casterIndex, sourceInstanceId, event.targetUnitInstanceId);
+    },
+  },
+  "UNL-160": {
+    // Ultrasoft Poro — "[Exhaust]: Play two 1 [Might] Bird unit tokens with
+    // [Deflect]. Use this ability only while I'm at a battlefield."
+    //
+    // "USE ONLY WHILE" is a restriction on ACTIVATING, so it is `availableWhile`
+    // and not a guard in the resolver — a resolver that refused would already
+    // have taken the exhaust and the player would have paid for nothing. The same
+    // predicate Xerath - Freed (UNL-026) uses, and it asks `ownerIndex` as well as
+    // presence so a unit the opponent somehow controls at a battlefield is not
+    // this player's to activate.
+    //
+    // **The destination is a QUESTION, not part of the ability.** The card names
+    // no location, so 355.2 applies — "For Units, choose a valid Location where
+    // that Unit will enter upon being Played", with 355.2.a's default of the
+    // controller's Base or a Battlefield they control. `legal-actions` cannot
+    // fan that out for a target-less activation (see `UNL-160-place`), so it is
+    // asked once per Bird.
+    //
+    // The tokens do NOT go automatically to the Poro's battlefield. That reading
+    // is tempting because the ability is gated on being there, but "here" is not
+    // printed, and Carrion Dredger — the other Bird-maker in this file — shows
+    // this set does print a destination when it means one ("to your base").
+    kind: "Unit",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      findUnitOnBattlefield(state, sourceInstanceId)?.ownerIndex === playerIndex,
+    resolve: (state, ctx) =>
+      parkDecision(state, { kind: "UNL-160-place", playerIndex: ctx.casterIndex, count: ULTRASOFT_PORO_BIRDS }),
+  },
+  "UNL-161": {
+    // Divining Shells, second clause — "[Action][>] Kill this, [Exhaust]: Give a
+    // unit +2 [Might] this turn." (Its `[Vision]` is in `selfTriggers` above.)
+    //
+    // BOTH halves of the cost are declared. `killSelf` is what makes it once and
+    // only once, and `exhaust` is not redundant on top of it: `canPayActivationCost`
+    // refuses an exhausted source, so a Divining Shells that has already been
+    // exhausted by something else cannot be cashed in. `payActivationCost` runs
+    // the kill first and the exhaust last, and `exhaustActivated` is a map over
+    // the zones — so exhausting a gear that is already in the trash is a no-op
+    // rather than a throw. Checked, not assumed.
+    //
+    // `killSelf` routes through `killGear`, so being spent as a cost is still
+    // being killed — the gear reaches the trash and its own "when I am killed"
+    // self-trigger (it has none) would fire.
+    //
+    // "A UNIT", not "a unit at a battlefield", so `scope: "anywhere"` on 355.9.b's
+    // bare noun, and no `owner` — pumping an enemy is a bad play, not an illegal
+    // one. Same reading Smoke Screen and Orb of Regret already get.
+    //
+    // `[Action]` needs nothing: `validate-activate-ability` applies no timing
+    // check to any activation, a standing permissiveness recorded in that file.
+    kind: "Gear",
+    cost: { killSelf: true, exhaust: true },
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, DIVINING_SHELLS_MIGHT) : state,
+  },
+  "UNL-162": {
+    // Enthralling Protector, second clause — "Spend 2 XP: [Buff] me." (Its
+    // `[Hunt]` is the keyword's generic listener in triggers.ts, which is where
+    // the XP to spend comes from.)
+    //
+    // **No exhaust**, because none is printed — the same call `equipAbilities`
+    // makes for an `[Equip]` cost and Ezreal - Dashing's for his Power one. What
+    // bounds it is the XP: every activation spends 2 and nothing here makes any,
+    // so it terminates on the resource rather than on a cost this engine added.
+    //
+    // `[Buff] me` is `addBuff` on the source, and 702.3.a already makes a second
+    // buff on a buffed unit a no-op — which is the card's own reminder text ("if
+    // I don't have one"). The XP is still spent for that no-op, and that is
+    // correct: 416 pays a cost when the ability is used, not when its effect
+    // turns out to matter.
+    //
+    // See this table's doc comment for why the 2 XP is taken in `resolve` behind
+    // an `availableWhile` rather than as an `ActivationCost`.
+    kind: "Unit",
+    cost: {},
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, ENTHRALLING_PROTECTOR_XP),
+    resolve: (state, ctx, _event, sourceInstanceId) => {
+      const paid = spendXp(state, ctx.casterIndex, ENTHRALLING_PROTECTOR_XP);
+      if (paid === undefined) return state;
+      return addBuff(paid, sourceInstanceId);
+    },
+  },
+};

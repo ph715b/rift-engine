@@ -11,7 +11,7 @@ import type {
   RecallUnitAction,
   RunePayment,
 } from "../actions/player-action.js";
-import { computeAutoPayment, computeEffectiveCost, restrictedPowerFor } from "./rune-payment.js";
+import { computeAutoPayment, computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "./rune-payment.js";
 import { counterFilter, counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
@@ -302,7 +302,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // Regret), so their actions carried no `payment` at all — a version that
         // only extended an existing one would have left exactly those untaxed.
         const owed = deflectSurchargeForTargets(state, playerIndex, chosenUnitsOfActivation(variant));
-        const taxed = owed > 0 ? withActivationSurcharge(state, playerIndex, variant, owed) : variant;
+        const taxed = owed > 0 ? withActivationSurcharge(state, playerIndex, variant, owed, abilityDefId) : variant;
         // An unpayable surcharge is not an offer. Same rule as the Spell path,
         // and the same reason: never enumerate what the validator will refuse.
         if (taxed === undefined) continue;
@@ -329,9 +329,47 @@ function withActivationSurcharge(
   playerIndex: 0 | 1,
   action: ActivateAbilityAction,
   owed: number,
+  /** The ability being taxed, so its own Power cost can be RESERVED below. */
+  abilityDefId: string,
 ): ActivateAbilityAction | undefined {
   const spent = new Set(action.payment?.energyRunes ?? []);
-  const rainbow = state.players[playerIndex].channeled.filter((r) => !spent.has(r.id)).slice(0, owed);
+
+  // **Reserve the runes the ability's own Power cost will take.**
+  //
+  // This used to exclude only `energyRunes`, and its comment said so accurately —
+  // the gap is that an activated ability's POWER runes are named NOWHERE in the
+  // action. `payActivationCost` pays that cost by calling `payPowerFromChanneled`,
+  // which picks from state itself, and it runs BEFORE the surcharge. So the tax
+  // could name the very rune the Power cost was about to spend; the Power step
+  // took it, `recycleRunesForSurcharge` then could not find it, and
+  // `executeActivateAbility` THREW — a hard crash, not a refusal, because
+  // `canPayActivationCost` never looks at the surcharge and had already said yes.
+  //
+  // Found 2026-08-09 by the `hunt-xp` probe, which died on "Xerath - Freed's
+  // activation cost cannot be paid" while holding FOUR ready Fury runes. It was
+  // reachable only once something taxable was on the board: wave 2 added Bird
+  // tokens carrying `[Deflect]`, and the collision needs a `[Deflect]` target AND
+  // an ability with a domain Power cost. The engine tests never caught it because
+  // no fixture put those two together — which is the case for keeping a probe
+  // that plays whole games alongside them.
+  //
+  // Reserved in the SAME order `payPowerFromChanneled` spends (channeled order,
+  // domain-matching first), so this predicts exactly what it will take rather
+  // than approximating. Floating Power is deliberately not modelled: it pays
+  // BEFORE any rune there, so ignoring it only ever over-reserves, which costs a
+  // surcharge option rather than crashing.
+  const powerCost = activationCostOf(abilityDefId, action.modeId).power;
+  const reserved = new Set(
+    powerCost === undefined
+      ? []
+      : state.players[playerIndex].channeled
+          .filter((r) => matchesPowerDomain(r, powerCost.domain))
+          .slice(0, powerCost.count)
+          .map((r) => r.id),
+  );
+  const rainbow = state.players[playerIndex].channeled
+    .filter((r) => !spent.has(r.id) && !reserved.has(r.id))
+    .slice(0, owed);
   if (rainbow.length < owed) return undefined;
   return {
     ...action,

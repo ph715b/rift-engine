@@ -5,6 +5,7 @@ import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
+  canSpendXp,
   channelRunesExhausted,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
@@ -23,6 +24,7 @@ import {
   readyUnit,
   recycleCardFromHand,
   spendBuff,
+  spendXp,
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBattlefield } from "../deploy.js";
@@ -444,6 +446,148 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, scope: "anywhere" },
     resolve: (state, ctx, event) =>
       unitsDuel(state, ctx.casterIndex, event.targetUnitInstanceId!, event.secondTargetUnitInstanceId!),
+  },
+  "UNL-091": {
+    // Concentrate — "Draw 2. [Level 6][>] This costs [2] less. [Level 11][>] This
+    // costs [4] less instead."
+    //
+    // **ONLY THE DRAW IS HERE, and the two discounts are NOT written.** 824.1.b.1
+    // makes `[Level N][>] <text>` functionally "while you have N or more XP, this
+    // card gains <text>", and what it gains here is a COST reduction — which lives
+    // in cost-modifiers.ts's `modifiedEnergyCost`, a file this one does not own.
+    // Spoils of War (OGN-144, above) already takes exactly this split for its own
+    // conditional discount, so the shape is the established one rather than a
+    // shortcut: the resolver is the whole of the card's EFFECT either way.
+    //
+    // The gap does not need a hand-written coverage entry — `[Level]` is in
+    // `UNIMPLEMENTED_KEYWORDS`, so `partialImplementationNote` derives it from the
+    // printed text and this card reports partial on its own. Verified rather than
+    // assumed: the test below asserts the note is non-empty.
+    //
+    // "INSTEAD" on the second threshold is what makes the two non-cumulative — at
+    // 11+ XP the card is 4 cheaper, not 6 — and it is recorded here because that
+    // is the one thing whoever writes the cost half must not get wrong.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, CONCENTRATE_DRAW),
+  },
+  "UNL-095": {
+    // Grim Resolve — "[Action] Give a friendly unit +3 Might this turn. When it
+    // wins a combat this turn, gain 2 XP."
+    //
+    // **HALF THE CARD.** The pump is here; the delayed XP trigger is NOT, and it
+    // is not writable from this file — see the note at `GRIM_RESOLVE_MIGHT`.
+    //
+    // "A FRIENDLY unit" with no battlefield printed, so `scope: "anywhere"`
+    // (355.9.b) — a body sitting at home is a legal subject, which matters because
+    // the pump is most often cast on a unit about to walk out.
+    //
+    // `giveMightThisTurnToOwnUnit` rather than the bare `giveMightThisTurn`, for
+    // Riposte's reason: it re-checks ownership at RESOLUTION, so a unit that
+    // changed hands in the response window is not pumped by its new owner's
+    // opponent. `[Action]` is a timing keyword and timing.ts enforces it.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : giveMightThisTurnToOwnUnit(state, ctx.casterIndex, event.targetUnitInstanceId, GRIM_RESOLVE_MIGHT),
+  },
+  "UNL-101": {
+    // Call to Battle — "Move a unit you control to a battlefield you control.
+    // Then, choose an opponent. They move a unit they control to the same
+    // battlefield."
+    //
+    // # Three choices, made by two different players, in a fixed order
+    //
+    // The unit is a TARGET and is announced (355.7 — "when a card Chooses one or
+    // more specific Game Objects to affect, it is Targeted"), so the spec names
+    // it and 355.8 makes the card uncastable with no friendly unit on the board.
+    //
+    // The DESTINATION and the OPPONENT'S unit are parked questions instead, and
+    // the two have different reasons:
+    //
+    //  - The opponent's unit CANNOT be announced. "They move a unit they control"
+    //    is their choice, made as this resolves, and nothing on a PlayCardAction
+    //    can carry another player's answer. This is the shape Cull the Weak and
+    //    Conscription (UNL-174, order.ts) already use — a decision whose
+    //    `playerIndex` is the other seat.
+    //  - The destination is a DIVERGENCE and is named rather than hidden. Every
+    //    other move-target spell announces it (`MOVE_TARGET_SPELL_DEF_IDS` in
+    //    card-effects.ts, which this file does not own), so an opponent responding
+    //    to Charm knows where the unit is going and an opponent responding to this
+    //    does not. It is chosen at resolution here because the destination has to
+    //    be known BEFORE the opponent's question can name "the same battlefield",
+    //    and a question cannot be asked from an enumeration.
+    //
+    // # "A battlefield you CONTROL"
+    //
+    // Control (`controllerId`), not presence — the same distinction Here to Help
+    // draws, and it is what stops this being a way to drop a body into an enemy
+    // battlefield and then drag a defender in after it. With no controlled
+    // battlefield the first instruction is unperformable, the question is dropped
+    // with no options, and the second instruction has no "same battlefield" to
+    // name either: 359.3.e.11's "instructions that can be partially followed are
+    // followed as much as possible" leaves nothing to follow.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : parkDecision(state, {
+            kind: "UNL-101-where",
+            playerIndex: ctx.casterIndex,
+            targetInstanceId: event.targetUnitInstanceId,
+          }),
+  },
+  "UNL-103": {
+    // Disposal Order — "[Reaction] Choose one — Choose up to 3 cards from
+    // opponents' trashes. Their owners recycle them. [or] Draw 1."
+    //
+    // Rocket Barrage's `modes` shape (card-effects.ts's `CardMode`): two options
+    // that target differently, so there is no single spec that describes the card
+    // and the mode carries its own.
+    //
+    // # The recycle is a parked question, and that is a recorded divergence
+    //
+    // 355.9.a names "Recycle a unit from your trash" as a TARGET of a card in a
+    // trash, so the three cards should be announced. No TargetingSpec reaches
+    // another player's trash — `ownTrashCard` is one card and is the caster's own
+    // — and adding one is a change to card-effects.ts, legal-actions.ts and
+    // validate-play-card.ts, none of which this file owns. So the choice is made
+    // at resolution, which is Fae Dragon's divergence exactly (see `SFD-101-buff`)
+    // and is named for the same reason.
+    //
+    // # "THEIR OWNERS recycle them" is why the event is not the caster's
+    //
+    // 416.1.c: "each player Recycles cards to their own Main Deck and Rune Deck,
+    // regardless of which player is instructed to perform the Recycle action." The
+    // cards go to the BOTTOM OF THE OPPONENT'S deck (416.1), so Karma - Channeler's
+    // "when you recycle" fires for THEM, not for the caster.
+    //
+    // # And it fires ONCE
+    //
+    // "Their owners recycle them" is one instruction however many cards it takes,
+    // so `holdCardsRecycled` is called once with the total at the end of the
+    // sequence rather than once per answer — the same suppression the generic
+    // `discard` handler uses, and for the same reason: a per-item event on a batch
+    // instruction pays Karma three times for one recycle.
+    modes: [
+      {
+        id: "recycle",
+        label: "Recycle up to 3 cards from opponents' trashes",
+        targeting: { kind: "none" },
+        resolve: (state, ctx) =>
+          parkDecision(state, {
+            kind: "UNL-103-recycle",
+            playerIndex: ctx.casterIndex,
+            count: DISPOSAL_ORDER_CARDS,
+          }),
+      },
+      {
+        id: "draw",
+        label: "Draw 1",
+        targeting: { kind: "none" },
+        resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+      },
+    ],
   },
 };
 
@@ -1980,6 +2124,119 @@ export const decisions: Record<string, DecisionDefinition> = {
     resolve: (state, d, optionId) =>
       d.targetInstanceId === undefined ? state : forceMoveToBattlefield(state, d.targetInstanceId, optionId),
   },
+  // Call to Battle's WHERE — "to a battlefield you control", asked of the CASTER.
+  //
+  // The battlefield the unit is already standing at is excluded, and that is a
+  // rule rather than tidiness: **355.4.a** — "a valid Location for a Move Effect
+  // is one other than the Units' current Location where they are allowed to be
+  // present." Offering it would be an answer that visibly does nothing (and
+  // `forceMoveToBattlefield` returns the state untouched for it), which is the
+  // same asymmetry Fae Dragon's already-buffed units are pruned by.
+  //
+  // No decline is listed: the instruction is mandatory, so once the card resolves
+  // the unit is going somewhere it can go. An empty list — no controlled
+  // battlefield, or the only one is where it already stands — drops the question,
+  // and with it the "same battlefield" the opponent's half would have named.
+  "UNL-101-where": {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      return `Call to Battle: move ${unit?.unit.name ?? "your unit"} to a battlefield you control`;
+    },
+    options: (state, d) => {
+      // 359.3 — the unit was chosen when the card was announced and may have died
+      // in the response window; with nothing to move there is nothing to ask.
+      const unit = d.targetInstanceId === undefined ? undefined : findUnitAnywhere(state, d.targetInstanceId);
+      if (unit === undefined) return [];
+      const standingAt = unit.zone === "base" ? undefined : state.battlefields[unit.zone.battlefieldIndex]!.id;
+      return controlledBattlefields(state, d.playerIndex)
+        .filter((bf) => bf.id !== standingAt)
+        .map((bf) => ({ id: bf.id, label: bf.name }));
+    },
+    resolve: (state, d, optionId) => {
+      if (d.targetInstanceId === undefined) return state;
+      const moved = forceMoveToBattlefield(state, d.targetInstanceId, optionId);
+      const opponentIndex: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      // "THEY move a unit they control" — nothing to move is 359.3.e.11's
+      // do-as-much-as-you-can, and asking a question with no answers would only
+      // be dropped one line later anyway.
+      //
+      // Asked of `moved`, not of `state`: the caster's move is the "then" this
+      // clause follows, so the opponent's pool is read after it. The two answers
+      // coincide today (a move cannot relocate the OTHER player's units), which
+      // is exactly the kind of fact that stops being true without anyone noticing.
+      if (unitsNotAt(moved, opponentIndex, optionId).length === 0) return moved;
+      // `repeatDecision`, not `parkDecision`: the opponent's move is the second
+      // half of THIS instruction, so it belongs at the FRONT of the queue. Sent to
+      // the back it could be answered after something else had moved the very
+      // unit — Imposing Challenger's two halves are split for the same reason.
+      return repeatDecision(moved, { kind: "UNL-101-answer", playerIndex: opponentIndex, battlefieldId: optionId });
+    },
+  },
+  // Call to Battle's second half — "they move a unit they control to the same
+  // battlefield", answered by the OPPONENT.
+  //
+  // `d.playerIndex` is deliberately the other seat: this is the pool's ordinary
+  // way of asking an opponent something (Cull the Weak, Conscription), and it is
+  // the only way this clause can work at all — a PlayCardAction cannot carry an
+  // answer its caster is not entitled to make.
+  //
+  // NOT a "you may": the card says "they move", so there is no decline. Which
+  // unit is theirs alone, and a unit already standing at that battlefield is not
+  // on offer (355.4.a again) — so a player whose whole board is already there is
+  // asked nothing rather than being made to perform a move that is not one.
+  //
+  // "THE SAME battlefield" rides on `battlefieldId`, captured when the question
+  // was raised rather than re-derived from where the caster's unit stands now:
+  // Blitzcrank - Impassive's reason, and here it is not hypothetical, since the
+  // caster's move may have opened a Showdown that kills its own unit.
+  "UNL-101-answer": {
+    prompt: () => "Call to Battle: move a unit you control to that battlefield",
+    options: (state, d) =>
+      d.battlefieldId === undefined
+        ? []
+        : unitsNotAt(state, d.playerIndex, d.battlefieldId).map((u) => ({
+            id: u.instanceId,
+            label: `Move ${u.name} there`,
+            instanceId: u.instanceId,
+          })),
+    resolve: (state, d, optionId) =>
+      d.battlefieldId === undefined ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId),
+  },
+  // Disposal Order's first mode — "choose up to 3 cards from opponents' trashes.
+  // Their owners recycle them."
+  //
+  // Repeated one lower per card taken, `SFD-101-buff`'s shape, and declining ENDS
+  // the sequence rather than skipping a slot: the three are interchangeable, so
+  // "decline this one and take the next" cannot differ from "stop".
+  //
+  // **The `cardsRecycled` event is held ONCE, at the end, with the total.** The
+  // instruction is "their owners recycle THEM" — one recycle of up to three cards
+  // — and firing per answer would pay Karma - Channeler three times for it. The
+  // running total is derivable without a second field: `count` is what is still
+  // on offer, so `DISPOSAL_ORDER_CARDS - count` is what has already gone.
+  //
+  // Options are rebuilt live, so a card that left the trash between two answers
+  // is simply no longer offered.
+  "UNL-103-recycle": {
+    prompt: (_state, d) => `Disposal Order: recycle a card from an opponent's trash (up to ${d.count ?? 1} more)`,
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex === 0 ? 1 : 0].trash.map((c) => ({
+        id: c.instanceId,
+        label: `Recycle ${c.name}`,
+        instanceId: c.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      const opponentIndex: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      const offered = d.count ?? 1;
+      if (optionId === "decline") return holdCardsRecycled(state, opponentIndex, DISPOSAL_ORDER_CARDS - offered);
+      const recycled = recycleOneFromTrash(state, opponentIndex, optionId);
+      return offered > 1
+        ? repeatDecision(recycled, { ...d, count: offered - 1 })
+        : holdCardsRecycled(recycled, opponentIndex, DISPOSAL_ORDER_CARDS);
+    },
+  },
 };
 
 /**
@@ -2279,6 +2536,87 @@ function shovableEnemies(
   });
 }
 
+/** Concentrate's draw, as printed. */
+const CONCENTRATE_DRAW = 2;
+
+/**
+ * Grim Resolve's pump — and the marker for the half of that card that is NOT
+ * written.
+ *
+ * **"When it wins a combat this turn, gain 2 XP" is unimplemented**, and it is a
+ * refusal rather than an oversight. `combatWon` (466.3.a) is a real event and
+ * this file may register listeners for it, but a listener has to BE somewhere the
+ * walk reaches: `allListeningPermanents` visits permanents in play plus the two
+ * cards named in `TRASH_LISTENER_DEF_IDS`, and a resolved Spell is in its
+ * caster's trash and in neither list. Registering an `eventTriggers["UNL-095"]`
+ * would compile, report the card DONE, and never fire once.
+ *
+ * Nor can the trigger ride on the UNIT: `eventTriggers` is keyed by the LISTENING
+ * card's defId, and the unit pumped by this spell can be any card in the pool.
+ *
+ * So the delayed half needs one of two things, both in files this one does not
+ * own: `"UNL-095"` added to `TRASH_LISTENER_DEF_IDS` in engine/triggers.ts (plus
+ * a per-unit "this turn" mark, for which `abilityModesUsedThisTurn` is the
+ * existing precedent — see `LUCIAN_CONQUERED_MARK`), or a delayed-effect field on
+ * `PlayerState` in model/game-state.ts, which is the shape Rally the Troops'
+ * delayed clause already uses.
+ */
+const GRIM_RESOLVE_MIGHT = 3;
+
+/** Crowd Favorite's activation price, in XP. */
+const CROWD_FAVORITE_XP = 2;
+
+/** Disposal Order's "up to 3 cards", as the count its repeated question starts
+ *  from — and, by subtraction, how many have already gone (see the handler). */
+const DISPOSAL_ORDER_CARDS = 3;
+
+/**
+ * Every unit `playerIndex` controls that is NOT already at `battlefieldId` —
+ * Call to Battle's move pool, on both sides of the card.
+ *
+ * **355.4.a**: "A valid Location for a Move Effect is one other than the Units'
+ * current Location where they are allowed to be present." So a unit already
+ * standing there cannot be moved there, and offering it would be an answer that
+ * does nothing. Asked of both halves through one function, because "the same
+ * battlefield" means the same thing to the caster and to the opponent and two
+ * copies of that filter is how one of them loses the exclusion.
+ */
+function unitsNotAt(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const here = state.battlefields.find((bf) => bf.id === battlefieldId);
+  const present = new Set((here?.units[state.players[playerIndex].id] ?? []).map((u) => u.instanceId));
+  return ownUnitsEverywhere(state, playerIndex).filter((u) => !present.has(u.instanceId));
+}
+
+/**
+ * Puts ONE named card from a player's trash on the bottom of their Main Deck —
+ * 416.1, applied to a card somebody ELSE chose.
+ *
+ * Deliberately fires no `cardsRecycled` event, unlike every other recycle helper
+ * in effect-helpers.ts. Disposal Order recycles up to three cards as ONE
+ * instruction and answers them one at a time, so the event is held once at the
+ * end with the total — see the `UNL-103-recycle` handler. A helper that fired per
+ * card would make that impossible to get right from the outside.
+ *
+ * Not folded into `recycleCardFromHand` (a different zone) or `recycleFromTrash`
+ * (a COST, which takes the front of the trash and refuses a partial payment):
+ * this is an effect on a named card, so a card that has since left the trash is
+ * simply a no-op.
+ */
+function recycleOneFromTrash(state: GameState, ownerIndex: 0 | 1, cardInstanceId: string): GameState {
+  const owner = state.players[ownerIndex];
+  const card = owner.trash.find((c) => c.instanceId === cardInstanceId);
+  if (!card) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[ownerIndex] = {
+    ...owner,
+    trash: owner.trash.filter((c) => c.instanceId !== cardInstanceId),
+    // 416.1.c — "each player Recycles cards to their OWN Main Deck ... regardless
+    // of which player is instructed to perform the Recycle action."
+    deck: [...owner.deck, card],
+  };
+  return { ...state, players };
+}
+
 /** Exhausts a gear its controller owns — Mistfall pays with itself. */
 function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: string): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];
@@ -2303,4 +2641,64 @@ function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: strin
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-102": {
+    // Crowd Favorite — "[Hunt] (When I conquer or hold, gain 1 XP.) Spend 2 XP:
+    // [Buff] me."
+    //
+    // His `[Hunt]` is the keyword's, served for all 12 Hunt cards by one entry in
+    // triggers.ts; only the activated ability is here. **This is the first real
+    // card through the new domain-file activated-ability seam** (the seam itself
+    // was proved on a synthetic defId in test/activated-ability-seam.test.ts).
+    //
+    // # NO EXHAUST, because none is printed
+    //
+    // `cost` defaults to `{ exhaust: true }` when omitted, so the empty object is
+    // load-bearing rather than noise: the card prints "Spend 2 XP:" and nothing
+    // else before the colon, and 204.1.b makes exactly that the Base Cost. An
+    // exhaust this engine added would make the ability once per turn and turn a
+    // repeatable XP sink into a one-shot. Ezreal - Dashing's `[Mind]:` and Vi -
+    // Destructive's Recycle are the existing exhaust-less precedents.
+    //
+    // # The XP is spent in `resolve`, and that needs saying
+    //
+    // `ActivationCost` has no `xp` field — the one gap `docs/xp-and-unl-keywords-
+    // scope.md` names, and the reason UNL-158 Shepherd's Heirloom is the single
+    // Equipment that does not self-wire. Adding one is a change to
+    // activated-abilities.ts, which this file does not own.
+    //
+    // So affordability is asked in `availableWhile` — which both the enumerator
+    // and the validator reach through `canPayActivationCost`, so the ability is
+    // never offered without the 2 XP and never offered-then-refused — and the
+    // decrement happens at the top of `resolve`. **In this engine those are the
+    // same instant**: `executeActivateAbility` pays, HOLDS the `abilityActivated`
+    // event (it does not resolve it), and calls `resolve` immediately — an
+    // activation's effect runs inline rather than waiting on the chain, which is
+    // an already-recorded divergence and not one this card introduces. So nothing
+    // can change a player's XP between the two points, and 203.3's "if the game
+    // action associated with a Cost is impossible ... they cannot pay the Cost and
+    // they will not execute the linked Effect" is honoured by the `spendXp`
+    // guard rather than merely assumed.
+    //
+    // Through `spendXp` rather than `xp - 2` inline: it is the one funnel (730.2),
+    // and it returns `undefined` rather than flooring at zero, which is what makes
+    // the guard below a real refusal instead of a free buff.
+    //
+    // # "[Buff] ME"
+    //
+    // The source, which arrives as `resolve`'s fourth argument. `addBuff` is the
+    // one-buff-at-a-time funnel (702.3.a), so activating again while he is already
+    // buffed spends the XP and places nothing — that is the printed reminder text
+    // ("give me a +1 Might buff if I don't have one") working, not a gap. He is
+    // not in `STACKING_BUFF_DEF_IDS`; only Lee Sin - Ascetic is.
+    kind: "Unit",
+    cost: {},
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, CROWD_FAVORITE_XP),
+    resolve: (state, ctx, _event, sourceInstanceId) => {
+      const paid = spendXp(state, ctx.casterIndex, CROWD_FAVORITE_XP);
+      if (paid === undefined) return state; // 203.3 — the cost was not paid, so no effect
+      return addBuff(paid, sourceInstanceId);
+    },
+  },
+};

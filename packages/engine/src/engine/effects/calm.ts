@@ -58,7 +58,7 @@ import {
 } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
-import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
+import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "../token.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -93,6 +93,71 @@ const FERAL_STRENGTH_MIGHT = 2;
  *  whose magnitude is 1 — two different numbers on one card is exactly where a
  *  bare literal gets read as the other one. */
 const HERALD_OF_SPRING_XP = 2;
+
+/**
+ * `[Level N]` — rule 824, a Dependent Keyword (727).
+ *
+ * 824.1.b.1 gives the whole of it: the clause "is functionally short for 'While
+ * you have [N] or more XP, this card gains `[Text]`'", and 824.1.c/824.1.d make
+ * the dependent ability Active exactly while the CONTROLLER has that much and
+ * Inactive "as soon as the controlling player has less than [N] XP".
+ *
+ * Written inline per card rather than as a general dependent-ability layer, and
+ * that is the recommendation `docs/xp-and-unl-keywords-scope.md` reached rather
+ * than a shortcut taken here: `[Legion]` is the same family and is already nine
+ * inline checks, each threshold grants a DIFFERENT effect, and one card
+ * (Master Yi - Unstoppable) prints four thresholds at once — so a table keyed by
+ * the keyword's magnitude cannot express what the ability is. Extracting a layer
+ * from working call sites is possible later; guessing one from none is not.
+ *
+ * The threshold is a hand-written constant per card rather than read back off
+ * `def.keywords.Level`, for the reason `card-loader`'s own note gives:
+ * `parseKeywords` keeps ONE value per keyword, so a four-threshold card parses as
+ * 16 and every other clause on it would silently read the wrong number.
+ *
+ * **A card's controller, which for all three cards here is the caster.** 824.1.c.1
+ * says a change of controller re-evaluates the condition against the NEW
+ * controller's XP; nothing in this pool takes control of a unit, and the two
+ * spells are gone by then.
+ */
+function atLevel(state: GameState, playerIndex: 0 | 1, threshold: number): boolean {
+  return state.players[playerIndex].xp >= threshold;
+}
+
+/** Combat Experience's two amounts. "Give it +3 ... INSTEAD", so the levelled
+ *  number REPLACES the printed one rather than adding to it. */
+const COMBAT_EXPERIENCE_MIGHT = 1;
+const COMBAT_EXPERIENCE_LEVELLED_MIGHT = 3;
+/** Its `[Level 6]` threshold, and Wuju Apprentice's — the same number on two
+ *  cards, named separately so raising one card's band cannot silently move the
+ *  other's. */
+const COMBAT_EXPERIENCE_LEVEL = 6;
+const WUJU_APPRENTICE_LEVEL = 6;
+
+/** Double Trouble looks at three. */
+const DOUBLE_TROUBLE_LOOK = 3;
+
+/**
+ * The 1-Might `[Deflect]` Bird — Frisky Hunter's token.
+ *
+ * **A LOCAL spec, and it owes a move to `token.ts`.** Five other printed cards
+ * make the same token (UNL-044 Flurry of Feathers, also Calm; UNL-088 Gutter
+ * Palace, Mind; UNL-130 Walking Roost, Chaos; UNL-153 Carrion Dredger and
+ * UNL-160 Ultrasoft Poro, Order; and the UNL-217 Trapping Grounds battlefield),
+ * so this stat line is going to exist in four domain files and
+ * `battlefield-abilities.ts` unless it is consolidated — which is exactly the
+ * drift `SAND_SOLDIER_TOKEN`'s own comment in token.ts records having already
+ * happened once, to a spec that had two owners and two copies.
+ *
+ * It is here rather than there only because this change owns one file. Same
+ * shape as `effects/mind.ts`'s `SPRITE_TOKEN`, which is a local spec for the
+ * same reason and has the same second owner problem.
+ *
+ * `[Deflect]` is real and implemented (`granted-keywords.deflectSurcharge`), so
+ * the token genuinely taxes an opponent who chooses it — 1 rainbow Power, since
+ * a magnitude-less bracket is 1.
+ */
+const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-031": {
@@ -519,7 +584,118 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // meantime is skipped by the helper rather than throwing (055).
       (event.targetUnitInstanceIds ?? []).reduce((next, id) => recallUnitToBase(next, id), state),
   },
+  "UNL-031": {
+    // Combat Experience — "[Reaction] Give a unit +1 Might this turn.
+    // [Level 6][>] Give it +3 Might this turn instead."
+    //
+    // Discipline's spec exactly: "a unit", not "a unit at a battlefield", so
+    // 355.9.b's bare noun puts a unit in either base on the target list, and no
+    // owner clause means an enemy is a legal (if odd) choice.
+    //
+    // **"INSTEAD" is the whole of the second sentence's arithmetic.** The
+    // levelled amount REPLACES the printed one, so a caster at 6 XP gives +3 and
+    // not +4. Writing it as a second `giveMightThisTurn` would be the natural
+    // shape and would be wrong by 1 — the same off-by-a-keyword the Herald of
+    // Spring's own test pins from the other direction.
+    //
+    // The threshold is asked at RESOLUTION rather than when the card was
+    // announced, which is what "while you have 6+ XP" means for an instruction:
+    // 824.1.b.1 makes the clause a continuous condition on the card's text, so
+    // the amount is whatever the condition says when the instruction executes.
+    // Nothing here comes apart between the two moments anyway — XP is spent only
+    // as a cost, which 820.1.c.1's timing pays at announce.
+    //
+    // giveMightThisTurn, NOT addBuff: this expires in the Expiration Step (317),
+    // which is what "this turn" means, where a Buff (705) would survive the turn.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(
+            state,
+            event.targetUnitInstanceId,
+            atLevel(state, ctx.casterIndex, COMBAT_EXPERIENCE_LEVEL)
+              ? COMBAT_EXPERIENCE_LEVELLED_MIGHT
+              : COMBAT_EXPERIENCE_MIGHT,
+          )
+        : state,
+  },
+  "UNL-032": {
+    // Double Trouble — "[Repeat] [2] Look at the top 3 cards of your Main Deck.
+    // You may reveal a unit from among them and draw it. Recycle the rest."
+    //
+    // Ornn - Blacksmith's ability with two words changed (three cards instead of
+    // four, a UNIT instead of a gear), so it is written the same way and the
+    // divergences it inherits are his — see `ornnLook` and `SFD-058-gear`.
+    //
+    // **The `[Repeat]` half is NOT reachable today, and that is not this entry's
+    // doing.** `[Repeat]`'s cost table is `card-effects.REPEAT_COSTS`, and
+    // UNL-032 is one of the six UNL cards named as unpriced by
+    // test/repeat-keyword.test.ts — with no row there the enumerator never offers
+    // the repeat variant, so `entry.repeatPaid` is never set and the second
+    // execution never happens. This resolver is nonetheless repeat-SAFE by
+    // construction: `card-effect-resolution` simply calls it twice, and the
+    // second call re-slices the top 3 the first one left behind, which is what
+    // 820.1.d's "execute the instructions one additional time" means for a look.
+    // Two questions then queue FIFO and each rebuilds its own options from live
+    // state, so the second look cannot offer a card the first one drew.
+    //
+    // **A REVEAL that this engine treats as a LOOK — a divergence inherited from
+    // Ornn, stated rather than repeated silently.** `top-of-deck.revealedFromDeck`
+    // is the funnel Undertitan's "as I'm revealed from your deck, [Add] [2]"
+    // hangs off, and Undertitan is a UNIT, so unlike Ornn's gear-only version
+    // this card really can reveal one. It is not called: `offerTopOfDeckBanish`
+    // has already asked Nocturne's "as you look at me" for all three, and
+    // `revealedFromDeck` asks it AGAIN for whatever is chosen — so wiring the
+    // reveal here would double-offer Nocturne's banish on the one card that is
+    // both looked at and revealed. That is the per-item double-pay shape this
+    // codebase keeps recording, and closing it properly means the reveal funnel
+    // learning that a card already looked at is not looked at twice.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => doubleTroubleLook(state, ctx.casterIndex),
+  },
+  "UNL-042": {
+    // Back Off — "[Hidden][Action] Stun a unit. If you played this from your
+    // hand, draw 1."
+    //
+    // **ONLY the first sentence is implemented.** The second is refused rather
+    // than guessed, and the reason is structural: nothing a resolver can see
+    // records where the card was played FROM. `PlayCardAction` carries
+    // `fromHiddenBattlefieldId`, `execute-play-card` reads it to build the
+    // `cardPlayed` event's `fromHidden` flag — and neither `SpellChainEntry` nor
+    // `ResolveEvent` carries it, so by the time this runs the card is in the
+    // trash and the hidden zone it may have come from has already been emptied.
+    // The primitive is one field on each of those two types plus one line in
+    // `choicesOf`; all three are shared files. Pinned by a test that asserts the
+    // draw does NOT happen, so closing the gap fails loudly.
+    //
+    // Rune Prison's spec: "a unit", not "a unit at a battlefield" (355.9.b), and
+    // no owner clause — stunning your own is a bad play, not an illegal one.
+    //
+    // [Hidden] and [Action] are timing (engine/timing.ts). The irony of the
+    // missing half is the card's own: played from Hidden it is the cheap answer
+    // and draws nothing, played from hand at full price it replaces itself.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
+  },
 };
+
+/**
+ * Double Trouble's look, written beside `ornnLook` because it IS `ornnLook` with
+ * a different count and a different card kind.
+ *
+ * Nocturne's offer is parked FIRST for the FIFO reason that function records:
+ * "as you look at me from the top of your deck" is answered before "which of
+ * these do you take", which is the order the two texts read in.
+ *
+ * An empty deck asks nothing at all rather than parking a question whose only
+ * answer is "decline" (422).
+ */
+function doubleTroubleLook(state: GameState, playerIndex: 0 | 1): GameState {
+  const looked = state.players[playerIndex].deck.slice(0, DOUBLE_TROUBLE_LOOK);
+  if (looked.length === 0) return state;
+  return parkDecision(offerTopOfDeckBanish(state, playerIndex, looked), { kind: "UNL-032-unit", playerIndex });
+}
 
 /** The `MightContext` for a unit `findUnitAnywhere` just located — the
  *  base-vs-battlefield branch three callers in this repo already write out by
@@ -766,6 +942,64 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // trigger in this file measures from the same seat.
     targeting: { kind: "none" },
     resolve: (state, ctx) => gainXp(state, ctx.casterIndex, HERALD_OF_SPRING_XP),
+  },
+  "UNL-033": {
+    // Frisky Hunter — "[Deflect] When you play me, play a 1 Might Bird unit token
+    // with [Deflect] here."
+    //
+    // Only the sentence is here; his own `[Deflect]` is the keyword machinery's
+    // (`granted-keywords.deflectSurcharge`), and re-granting it would be the
+    // double-pay shape 809.2's summing makes observable — a printed `[Deflect 1]`
+    // re-granted is `[Deflect 2]`, i.e. twice the tax the card prints.
+    //
+    // **"HERE" is where he landed**, so this reads `event.destination` rather
+    // than looking him up — the same field, and the same reason, as Blitzcrank -
+    // Impassive's "to here" and Janna - Savior's "your units here". Played to
+    // BASE the token lands in base: a Base is a Location like any other (355.9.b,
+    // and 107.1.b makes it one), so "here" is a real answer there too rather than
+    // a case the card declines to work in. That is deliberately NOT Blitzcrank's
+    // "when you play me TO A BATTLEFIELD", which prints the restriction this card
+    // does not.
+    //
+    // `placeToken`, not a hand-rolled push, because a token becoming present at a
+    // battlefield its controller does not control applies Contested (190.3.a) and
+    // can promote a Non-Combat Showdown to a Combat one — walking a 4-Energy body
+    // into a contested battlefield and adding a second blocker is the play, and
+    // it has to open the fight the rules say it opens.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => placeToken(state, ctx.casterIndex, event.destination, BIRD_TOKEN),
+  },
+  "UNL-040": {
+    // Wuju Apprentice — "[Hunt] (When I conquer or hold, gain 1 XP.)
+    // [Level 6][>] When you play me, draw 1."
+    //
+    // ONLY the second clause. `[Hunt]` is registered ONCE for the whole pool
+    // under `triggers.HUNT_TRIGGER_KEY`, keyed off the keyword rather than the
+    // card, so re-implementing it here would pay his conquer/hold XP twice —
+    // the same reasoning Herald of Spring's entry above sets out at length.
+    //
+    // **The `[Level 6]` gate is checked at RESOLUTION, and that is a recorded
+    // divergence rather than the rule.** 727.1.c.1 is explicit: "Triggered
+    // Abilities of Dependent Keywords must be Active for their trigger to be
+    // EVALUATED" — so the question belongs at the moment the play triggers,
+    // before the ability becomes a Chain Pending Item, and 727.1.c.3.a's
+    // companion rule (a chain item is unaffected by the condition lapsing
+    // afterwards) says it must not then be re-asked. On-play unit triggers are
+    // held (383), and `UnitTriggerDefinition` has no `applies` hook for a
+    // fire-time condition — that is the ONE field this needs, and it lives in the
+    // shared `engine/unit-triggers.ts` beside the `holdUnitTrigger` call that
+    // would consult it. `EventTriggerDefinition`, `DeathWatchDefinition` and
+    // `DeathknellDefinition` all already have one; this family does not.
+    //
+    // The window is the response window his own play opens, and it is reachable
+    // in both directions: XP crossing 6 during it wrongly switches the draw ON,
+    // and XP spent during it wrongly switches it OFF.
+    //
+    // `ctx.casterIndex` for both the threshold and the draw — 824.1.c makes the
+    // condition the CONTROLLER's XP, and "draw 1" is his too.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      atLevel(state, ctx.casterIndex, WUJU_APPRENTICE_LEVEL) ? drawCards(state, ctx.casterIndex, 1) : state,
   },
   "SFD-058": {
     // Ornn - Blacksmith's FIRST moment — "When you play me or when I hold, look
@@ -2070,6 +2304,44 @@ export const decisions: Record<string, DecisionDefinition> = {
       return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
     },
   },
+
+  // Double Trouble's "you may reveal a unit from among them and draw it. Recycle
+  // the rest."
+  //
+  // Ornn - Blacksmith's question above with the kind filter changed, and the
+  // three readings it makes are his: only UNITS among the top 3 are offered (the
+  // card names the kind, so a gear on top is never a choice); "recycle the rest"
+  // happens either way, which is why the decline branch is not a no-op; and the
+  // top 3 are re-sliced at ANSWER time rather than trusted from a stored list, so
+  // a deck that has moved on — under `[Repeat]`'s second execution, or under any
+  // question queued ahead of this one — cannot smuggle a card from deeper in.
+  //
+  // With no unit among the three this is a single option and `advanceDecisions`
+  // executes it unprompted, which is right: the recycle is mandatory and there
+  // was nothing to decide.
+  "UNL-032-unit": {
+    prompt: () => "Double Trouble: reveal a unit from the top 3 and draw it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].deck
+        .slice(0, DOUBLE_TROUBLE_LOOK)
+        .filter((c) => c.kind === "Unit")
+        .map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "decline") return takeOneFromTopAndRecycleRest(state, d.playerIndex, DOUBLE_TROUBLE_LOOK, optionId);
+      const looked = state.players[d.playerIndex].deck.slice(0, DOUBLE_TROUBLE_LOOK);
+      if (looked.length === 0) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [...players[d.playerIndex].deck.slice(looked.length), ...looked],
+      };
+      // Karma - Channeler watches every recycle in this engine, including the
+      // ones written inline like this one.
+      return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
+    },
+  },
 };
 
 /** The chain entry a stolen spell is sitting in, if it is still there — a
@@ -2118,4 +2390,22 @@ function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  // **Still empty after the Unleashed Calm pass, and NOT because the seam went
+  // unused — because the one Calm card that prints an activated ability already
+  // has one.**
+  //
+  // UNL-039 Soul Sword prints `[Equip] [Calm]` and nothing else, and
+  // `activated-abilities.equipAbilities()` GENERATES an entry for every Gear
+  // whose printed `[Equip]` cost `card-loader.parseEquipCost` can read. Soul
+  // Sword's is a bare one-rune cost, so it parses and the ability exists. Adding
+  // a hand-written entry here would not shadow it — `mergeRegistries` throws on a
+  // duplicate defId — so this is the one case where using the new seam breaks the
+  // engine at import rather than doing nothing.
+  //
+  // What Soul Sword is still missing is its ART-ONLY band, `[Level 3][>] I have
+  // an additional +1 Might` (docs/unl-equipment-abilities.md), which is a
+  // continuous Might modifier on the WEARER and belongs with the other Equipment
+  // Might in `card-loader.EQUIP_MIGHT_BONUS` / `effective-might`. Not an
+  // activated ability, and not reachable from this file.
+};

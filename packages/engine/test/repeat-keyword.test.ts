@@ -173,14 +173,26 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
       .filter((id) => !granters.includes(id))
       .sort();
 
-    // **Scoped to hard-gated sets, because UNL is under construction.** The
-    // unscoped version was correct exactly while the pool was finished, and
-    // asserting it over a set being built would demand six card implementations
-    // as the price of loading the set's JSON. A card missing from the table
-    // silently offers no repeat variant, so the UNL six are NAMED in the next
-    // test rather than left to be noticed.
+    // **Two directions, not one equality — and the equality is what broke.**
+    // It read "the finished sets' Repeat cards ARE the table", which held only
+    // while no card outside a finished set was priced. On 2026-08-09 four UNL
+    // cards were, and the assertion failed for a reason that was pure good news.
+    //
+    // Split into the two things actually meant, so pricing a card in a set under
+    // construction is progress rather than a failure:
+    //
+    //   COMPLETENESS, over hard-gated sets only — a finished set may not have an
+    //   unpriced Repeat card. This is the half with teeth for OGN/OGS/SFD, and
+    //   scoping it is what stops a set's JSON landing from demanding six card
+    //   implementations as the price of admission.
+    //
+    //   SOUNDNESS, over every set — a table row must name a real card that
+    //   actually prints the keyword. That catches the typo'd or stale defId the
+    //   old equality also caught, and it keeps catching it for UNL.
     const gated = printed.filter((id) => COMPLETE_SETS.includes(id.split("-")[0]!));
-    expect(gated).toEqual(repeatCostDefIds().sort());
+    const table = repeatCostDefIds().sort();
+    expect(gated.filter((id) => !table.includes(id)), "a FINISHED set has an unpriced [Repeat] card").toEqual([]);
+    expect(table.filter((id) => !printed.includes(id)), "the table prices a card that prints no [Repeat]").toEqual([]);
   });
 
   it("names the [Repeat] cards a set under construction has not priced yet", () => {
@@ -208,7 +220,14 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
       .filter((id) => id !== "UNL-146") // grants it; prints no cost of its own
       .filter((id) => !repeatCostDefIds().includes(id))
       .sort();
-    expect(unpriced).toEqual(["UNL-009", "UNL-017", "UNL-032", "UNL-061", "UNL-134", "UNL-182"]);
+    // **Four dropped off this list on 2026-08-09**, when their effects were written
+    // and `REPEAT_COSTS` gained a row each. What remains is the two the table
+    // genuinely CANNOT express, which is the honest residue rather than a to-do:
+    // UNL-017 Square Up pays "Discard 1" (a non-resource cost `RepeatCostSpec` has
+    // no field for) and UNL-182 Curtain Call prints three alternative costs
+    // (820.1.c.2's multi-instance case, which the one-instance `repeatPaid`
+    // boolean cannot carry).
+    expect(unpriced).toEqual(["UNL-017", "UNL-182"]);
   });
 });
 
@@ -1454,4 +1473,63 @@ describe("the second execution makes its OWN choices (820.1.d)", () => {
     expect(effectiveMight(after, ally0, 0, { isCombat: false })).toBe(7);
     expect(effectiveMight(after, ally1, 0, { isCombat: false })).toBe(3); // untouched
   });
+});
+
+/**
+ * The four Unleashed cards priced on 2026-08-09.
+ *
+ * Their effects were written by four separate wave-2 agents, in four domain
+ * files, none of which could add a `REPEAT_COSTS` row (shared file). Each agent
+ * independently reported the same consequence: with no row, the enumerator never
+ * offers a repeat-paid variant, so the `[Repeat]` is inert — while coverage
+ * reports the card fully implemented, because the keyword no longer greys a card.
+ *
+ * **That is a coverage LIE, and worse than a refusal**, which at least shows up
+ * as unfinished. Adding the rows fixes it, but it also turns ON behaviour none of
+ * those agents could test, so the variant is verified here rather than assumed to
+ * follow from the row.
+ */
+describe("the Unleashed [Repeat] cards actually offer their repeat", () => {
+  const UNL_REPEATS = [
+    { defId: "UNL-009", domain: "Fury" as const, name: "Upstage Comedy" },
+    { defId: "UNL-032", domain: "Calm" as const, name: "Double Trouble" },
+    { defId: "UNL-061", domain: "Mind" as const, name: "Downstage Dramatics" },
+    { defId: "UNL-134", domain: "Chaos" as const, name: "Existential Dread" },
+  ];
+
+  for (const { defId, domain, name } of UNL_REPEATS) {
+    it(`${name} offers a repeat-paid variant, at printed + 2`, () => {
+      // Plenty of runes and a couple of friendly bodies, so nothing here fails for
+      // want of a legal target rather than for want of the repeat variant.
+      const { state, spellId } = caster(defId, domain, 10, 2);
+      // ...and a CONTESTED battlefield, because Existential Dread targets by
+      // combat designation (`attackingOnly`, Thwonk!'s spec) and is UNCASTABLE
+      // with nobody attacking. My first fixture had no showdown and enumerated
+      // zero plays; the positive control below is what said so, instead of the
+      // three cost assertions all passing vacuously on an empty list.
+      state.battlefields[0] = {
+        ...state.battlefields[0]!,
+        contestedByIndex: 1,
+        units: {
+          [state.players[0]!.id]: [makeUnit({ name: "Defender", instanceId: "def1", might: 3 })],
+          [state.players[1]!.id]: [makeUnit({ name: "Attacker", instanceId: "atk1", might: 3 })],
+        },
+      };
+      const plays = playsOf(state, spellId);
+
+      // The positive control FIRST: an empty candidate list would make every
+      // assertion below vacuously true, and a card with no legal target enumerates
+      // exactly that.
+      expect(plays.length, `${name} enumerated no plays at all — the fixture is wrong, not the card`).toBeGreaterThan(0);
+
+      const plain = plays.find((a) => !a.repeatPaid);
+      const repeated = plays.find((a) => a.repeatPaid);
+      expect(plain, `${name} offers no plain variant — 820.1 makes the repeat OPTIONAL`).toBeDefined();
+      expect(repeated, `${name}'s [Repeat] is inert — no repeat-paid variant enumerated`).toBeDefined();
+
+      // The printed cost plus exactly the table's 2, which is what makes this a
+      // check on the PRICING rather than on the flag being set somewhere.
+      expect(repeated!.payment.energyRunes.length - plain!.payment.energyRunes.length).toBe(2);
+    });
+  }
 });

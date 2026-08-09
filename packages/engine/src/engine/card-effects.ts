@@ -929,6 +929,21 @@ const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
   "SFD-136": { energy: 2 }, // Hard Bargain — [Repeat] [2]
   "SFD-151": { energy: 2 }, // Bonds of Strength — [Repeat] [2]
   "SFD-182": { energy: 1, rainbowPower: 1 }, // Danger Zone — [Repeat] [1][rainbow]
+  // **Unleashed, priced 2026-08-09.** All four print a plain `[Repeat] [2]`, the
+  // same shape as the six SFD rows above. Their effects were written by four
+  // separate wave-2 agents, and each independently reported the SAME consequence
+  // of the missing row: the card reports fully implemented and its `[Repeat]` is
+  // inert, because the keyword no longer greys a card in coverage. Six cards were
+  // in that state — a coverage LIE, which is worse than a refusal, since a
+  // refusal is visible and this looks finished.
+  //
+  // Adding a row makes the enumerator offer a repeat-paid variant, which is
+  // behaviour none of those agents could test — so each is verified in
+  // `test/repeat-keyword.test.ts` to offer the variant AND to charge printed + 2.
+  "UNL-009": { energy: 2 }, // Upstage Comedy — [Repeat] [2]
+  "UNL-032": { energy: 2 }, // Double Trouble — [Repeat] [2]
+  "UNL-061": { energy: 2 }, // Downstage Dramatics — [Repeat] [2]
+  "UNL-134": { energy: 2 }, // Existential Dread — [Repeat] [2]
 };
 
 /** What this card's `[Repeat]` costs, or undefined if it has none. */

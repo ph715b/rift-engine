@@ -11,6 +11,7 @@ import type {
 } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
+  canSpendXp,
   channelRunesExhausted,
   dealDamage,
   destroyUnit,
@@ -22,6 +23,7 @@ import {
   gainXp,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
+  grantKeywordThisTurn,
   holdCardsRecycled,
   grantTemporary,
   ownUnitsEverywhere,
@@ -33,6 +35,8 @@ import {
   returnCardFromTrash,
   returnPermanentToHand,
   returnUnitToHand,
+  spendXp,
+  stunUnits,
   swapUnitLocations,
   takeOneFromTopAndRecycleRest,
   takeControlOfUnit,
@@ -44,9 +48,10 @@ import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
-import { placeGoldTokens } from "../token.js";
+import { placeGoldTokens, placeToken, type TokenSpec } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
+import { mayMoveToBaseFrom } from "../battlefield-continuous.js";
 import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
@@ -572,6 +577,129 @@ export const cardEffects: Record<string, EffectDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => discardThenDraw(state, ctx.casterIndex, 1, 2),
   },
+  "UNL-128": {
+    // Star-Crossed — "[Reaction] Return a friendly unit and an enemy unit to
+    // their owners' hands."
+    //
+    // Two ordered slots with `min: 2`, so 355's "valid choices must be made for
+    // all targets" makes the card uncastable unless BOTH halves exist — a board
+    // with only enemy units cannot pay for half a Star-Crossed. That is the same
+    // reading Gentlemen's Duel and Facebreaker take of the same "a friendly X and
+    // an enemy X" sentence.
+    //
+    // `scope: "anywhere"`: neither noun carries a location word, and **355.9.a.1**
+    // is the rule that makes a bare "unit" mean any unit on the Board — "'Unit,'
+    // 'gear,' and 'rune' refer to objects on the Board unless specified
+    // otherwise". A unit in either base is therefore a legal choice, which for a
+    // `[Reaction]` is most of the card: bouncing your own about-to-die attacker is
+    // the line, and so is stripping a reinforcement out of the enemy base.
+    //
+    // "To their OWNERS' hands" — plural, and `returnUnitToHand` already resolves
+    // the owner per unit rather than assuming the caster's, so nothing here has to
+    // say it twice.
+    //
+    // The two slots are always DISTINCT under `unitSlots`, and the roles differ,
+    // so neither `asymmetricSlots` (the roles are not interchangeable to begin
+    // with) nor an explicit "another" check is needed.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const { targetUnitInstanceId: friendlyId, secondTargetUnitInstanceId: enemyId } = event;
+      // 359.3 — either target may have left play while this sat on the chain, and
+      // the other half still happens (055's do as much as you can).
+      const first = friendlyId ? returnUnitToHand(state, friendlyId) : state;
+      return enemyId ? returnUnitToHand(first, enemyId) : first;
+    },
+  },
+  "UNL-131": {
+    // Abandon — "[Reaction] Counter a spell. Return it to its owner's hand
+    // instead of putting it in their trash. [Predict]."
+    //
+    // # The "instead" is a REDIRECT of 425.1.a.1, and this engine gets there backwards
+    //
+    // 425.1.a.1: "Cards that are cleared from the chain in this way are placed in
+    // the trash." Abandon replaces that destination. But this engine trashes a
+    // Spell when it is CAST rather than when it resolves (execute-play-card's
+    // chain push; `counterSpell`'s own comment says so in as many words), so by
+    // the time any counter resolves the card is ALREADY in the trash. The
+    // redirect is therefore written as "take it back out again" — same end state,
+    // reached from the other side.
+    //
+    // That is observable in exactly one way and it is worth naming: a card that
+    // was in the trash for the intervening moment could in principle have been
+    // seen by a trash-watching effect. Nothing in the four-set pool watches a
+    // trash continuously, measured — every trash reader in this engine is asked
+    // at its own resolution — so today the two orders are indistinguishable.
+    //
+    // # "Its OWNER's" is looked up rather than taken from the chain entry
+    //
+    // `SpellChainEntry.playerIndex` is the CONTROLLER, and Mystic Reversal makes
+    // those come apart: a stolen spell's entry names the thief while the card
+    // itself is still sitting in the original caster's trash. So the card is found
+    // by searching both trashes, which answers "whose card is this" by where it
+    // physically is.
+    //
+    // # Countering something already gone
+    //
+    // `spellsOnChain` is checked FIRST and nothing at all happens when the target
+    // has left — two Abandons aimed at one spell must not put it in hand twice,
+    // and the second one has nothing to counter (359.3, and the case
+    // `counterSpell` already documents for itself).
+    //
+    // # `[Predict]` is a second, unconditional instruction
+    //
+    // It sits after the counter with its own full stop, so it happens whether or
+    // not the counter found anything — and it is the caster's own deck. Parked as
+    // a question because "you MAY recycle it" is a later part of the effect
+    // (383.3.a.3 decides those on resolution) and because the top of a deck is not
+    // public: fanning it onto the action would hand the AI its own deck order, the
+    // same reason Stacked Deck and Called Shot park theirs.
+    targeting: { kind: "chainSpell" },
+    resolve: (state, ctx, event) => {
+      const spellId = event.targetChainCardInstanceId;
+      const target = spellId ? spellsOnChain(state).find((s) => s.entry.card.instanceId === spellId) : undefined;
+      let next = state;
+      if (spellId && target) {
+        const ownerIndex = trashHolderOf(state, spellId);
+        const countered = counterSpell(state, spellId);
+        next = ownerIndex === undefined ? countered : returnCardFromTrash(countered, ownerIndex, spellId);
+      }
+      return predict(next, ctx.casterIndex, "UNL-131-predict");
+    },
+  },
+  "UNL-134": {
+    // Existential Dread — "[Action] [Repeat] [2] [Stun] an attacking enemy unit.
+    // If it's already stunned, return it to its owner's hand instead."
+    //
+    // Thwonk!'s targeting with an owner clause Thwonk! does not print: "an
+    // attacking ENEMY unit", so stunning your own attacker — which Thwonk!'s entry
+    // explicitly allows as a legal misplay — is not on offer here. Both filters
+    // live in the SPEC rather than in the resolver, because for a Spell the
+    // targeting IS the effect: with nobody attacking, this is UNCASTABLE rather
+    // than castable and wasted.
+    //
+    // **"If it's ALREADY stunned" is read at RESOLUTION, not at announcement**, and
+    // the difference is reachable: this is an `[Action]`, the chain is LIFO, and a
+    // Thwonk! or a first Existential Dread underneath it can land the stun in
+    // between. 423.1.a.1 ("A Stunned Unit can not be Stunned again") is what makes
+    // the second half worth printing at all — a plain re-stun would do nothing.
+    //
+    // `stunUnits` rather than a flag write, so `unitsStunned` is held once for the
+    // instruction and a Zed - Shadow across the table pays out exactly once.
+    //
+    // **The `[Repeat] [2]` half is NOT implemented**, and it is invisible rather
+    // than broken: `REPEAT_COSTS` in card-effects.ts is the only place a repeat
+    // cost can be declared, the enumerator simply offers no repeat variant without
+    // an entry, and this file may not add one. `repeat-keyword.test.ts` names
+    // UNL-134 in its unpriced list, which is what keeps the gap visible.
+    targeting: { kind: "unit", owner: "enemy", attackingOnly: true },
+    resolve: (state, ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (!unitId) return state;
+      const target = findUnitAnywhere(state, unitId);
+      if (!target) return state; // 359.3 — it left play while this waited
+      return target.unit.stunned ? returnUnitToHand(state, unitId) : stunUnits(state, ctx.casterIndex, [unitId]);
+    },
+  },
 };
 
 /**
@@ -597,6 +725,78 @@ function swappableMight(unit: UnitInstance): number {
  */
 function askInTurnOrder(state: GameState, kind: string, first: 0 | 1): GameState {
   return [first, (1 - first) as 0 | 1].reduce((next, playerIndex) => parkDecision(next, { kind, playerIndex }), state);
+}
+
+/**
+ * Which player's trash currently holds `cardInstanceId` — Abandon's "its OWNER's
+ * hand".
+ *
+ * Asked of the BOARD rather than taken from the chain entry, because
+ * `SpellChainEntry.playerIndex` is the spell's CONTROLLER and Mystic Reversal
+ * makes the two come apart: a stolen spell's entry names the thief while the card
+ * is still in the original caster's trash, where `execute-play-card` filed it as
+ * the spell was cast.
+ *
+ * `undefined` when nothing holds it, which is a real case rather than padding —
+ * `playCardIgnoringCost` resolves a spell without ever putting it on the chain,
+ * and a hand-built state can name a card in neither trash.
+ */
+function trashHolderOf(state: GameState, cardInstanceId: string): 0 | 1 | undefined {
+  for (const playerIndex of [0, 1] as const) {
+    if (state.players[playerIndex].trash.some((c) => c.instanceId === cardInstanceId)) return playerIndex;
+  }
+  return undefined;
+}
+
+/**
+ * `[Predict]` — "Look at the top card of your Main Deck. You may recycle it."
+ *
+ * Parked as a question rather than fanned onto the action for two separate
+ * reasons, and either one alone would be enough. The top of a deck is not public
+ * state, so enumerating the choice would hand the AI its own deck order (Stacked
+ * Deck's and Called Shot's reason); and "you MAY recycle it" is a later part of
+ * the effect, which **383.3.a.3** decides on resolution rather than at
+ * finalization.
+ *
+ * Nocturne - Horrifying's "as you LOOK AT me" is offered first, because the queue
+ * is FIFO and that is the order the two sentences read in — `offerTopOfDeckBanish`
+ * documents the convention for the six existing look sites.
+ *
+ * An empty deck asks nothing at all rather than parking a question whose only
+ * answer is "decline" (422's do as much as you can).
+ *
+ * Takes the decision `kind` as a parameter so a second Chaos card printing
+ * `[Predict]` reuses the mechanism and keeps its own prompt — the keyword is one
+ * ability printed on five cards, and only its bare form is built (its valued
+ * `[Predict 2]` is a subset choice plus an ordering, which is not).
+ */
+function predict(state: GameState, playerIndex: 0 | 1, kind: string): GameState {
+  const top = state.players[playerIndex].deck[0];
+  if (!top) return state;
+  return parkDecision(offerTopOfDeckBanish(state, playerIndex, [top]), { kind, playerIndex });
+}
+
+/**
+ * "Recycle the top card" — to the BOTTOM of the Main Deck (416/416.1), never the
+ * trash.
+ *
+ * Held through `holdCardsRecycled` so Karma - Channeler's "when you recycle one
+ * or more cards to your Main Deck" sees it, which is the whole reason this is not
+ * written as a bare deck rotation.
+ *
+ * A private copy of the one in effects/calm.ts, and deliberately: the shared home
+ * for it would be effect-helpers.ts, and the one-file-one-owner rule these domain
+ * files exist for keeps a card implementation out of the shared file. Both copies
+ * are four lines around one funnel call, so the thing that could drift — what
+ * "recycle" fires — is the funnel and not the copy.
+ */
+function recycleTopCard(state: GameState, playerIndex: 0 | 1): GameState {
+  const owner = state.players[playerIndex];
+  const top = owner.deck[0];
+  if (!top) return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = { ...owner, deck: [...owner.deck.slice(1), top] };
+  return holdCardsRecycled({ ...state, players }, playerIndex, 1);
 }
 
 /** Fizz - Trickster's ceiling — "a spell from your trash with Energy cost no
@@ -947,10 +1147,87 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return doomed.reduce((next, id) => returnUnitToHand(next, id), state);
     },
   },
+  "UNL-130": {
+    // Walking Roost — "[Deflect] When you play me, choose an opponent. They play
+    // a 1 [Might] Bird unit token with [Deflect]."
+    //
+    // The keyword is the engine's (`deflectSurcharge`); this entry is only the
+    // second sentence — a 6-Might body for 5 whose cost is handing the table's
+    // other seat a cheap blocker that they, too, must be paid to touch.
+    //
+    // "CHOOSE AN OPPONENT" reduces to one seat in a two-player game, so it is not
+    // offered as a decision — the same call Mindsplitter's entry makes above and
+    // for the same reason. Bewitching Spirit is the contrast: "choose a PLAYER"
+    // includes yourself and really is a question.
+    //
+    // "THEY play" — the token is the opponent's, so `placeToken` is called with
+    // THEIR index. That is not cosmetic: it decides whose board it stands on,
+    // whose `tokensEnterReady` applies to it, and which side `[Deflect]` taxes.
+    //
+    // **To their BASE**, because the card names no destination. Every "play a
+    // token" in this pool that lands somewhere else prints where ("here",
+    // "battlefields you control"), and 143.4.a's default entry is exhausted, which
+    // `createToken` already does. A destination CHOICE for the opponent would be a
+    // second decision the printed text does not ask for.
+    //
+    // The spec is local rather than added to token.ts: it has one owner, unlike
+    // the Recruit/Sand Soldier/Mech specs, which were hoisted there only once two
+    // files minted them. The `Bird` tag is carried because it is printed; nothing
+    // in the four-set pool reads it, measured, so it is flavour today and the
+    // thing that would silently miss a Bird tomorrow if it were dropped.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.opponentIndex, "base", BIRD_TOKEN),
+  },
+  "UNL-135": {
+    // Insightful Investigator — "When you play me, choose an opponent. They reveal
+    // their hand. You may pay 2 XP to choose a card from their hand. If you do,
+    // they discard that card and draw 1."
+    //
+    // # The rules work this card BY NAME, twice, and both passages say resolution
+    //
+    // **204.3.b**: "As the ability resolves, its controller may pay 2 XP as a
+    // cost, and chooses a card from that player's hand as the effect."
+    // **383.3.b**: "The 'pay 2 XP' is a cost within instructions, but because it
+    // does not appear in the first part of the effect, it is not taken as the base
+    // cost of the triggered ability. Paying 2 XP is performed on resolution."
+    //
+    // So a parked decision is not a compromise here — it is the printed timing.
+    // The XP is NOT paid to put the trigger on the chain, and the trigger is
+    // finalized whether or not the controller can afford it.
+    //
+    // # What is asked, and what is not
+    //
+    // "Choose an opponent" reduces to one seat (Mindsplitter's call). "They reveal
+    // their hand" has no state of its own in this engine — there is no
+    // `revealedHand` field and no hidden-information model to lift — and the
+    // reveal's whole purpose is served by the option list, which shows the
+    // opponent's hand to the chooser. Its only unmodelled consequence is that the
+    // knowledge does not persist past the question.
+    //
+    // The DECISION is Mindsplitter's, plus a price and a draw. The price is
+    // charged at ANSWER time and only on a real choice, so declining costs
+    // nothing; `canSpendXp` gates the options so a card is never offered and then
+    // refused for XP the player does not have (416.3).
+    //
+    // "They discard that card AND DRAW 1" — the draw is the victim's, and it is
+    // what makes this a tempo card rather than a hand-size one. Routed through
+    // `discardCards` so the discarded card still fires its own on-discard trigger
+    // and still sets `discardedThisTurn`, exactly as Mindsplitter's does.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "UNL-135-take", playerIndex: ctx.casterIndex }),
+  },
 };
 
 /** Angler Beast's net — "all units with 2 [Might] or less". */
 const ANGLER_BEAST_MAX_MIGHT = 2;
+
+/** Walking Roost's gift to the other seat — "a 1 [Might] Bird unit token with
+ *  [Deflect]". Local rather than in token.ts: one owner, unlike the three specs
+ *  hoisted there once two files each minted them. */
+const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
+
+/** Insightful Investigator's price — "you may pay 2 XP". */
+const INVESTIGATOR_XP = 2;
 
 /** [Deathknell] effects — rule 808, "When I die, [Effect]". Keyed by the DYING
  *  card's defId. Same one-file-one-owner rule as the registries above. */
@@ -1724,11 +2001,51 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "UNL-127": {
+    // Mister Root — "[Accelerate] When I move to a battlefield, gain 2 XP."
+    //
+    // `[Accelerate]` is the cost engine's (805's optional additional cost, read
+    // off the printed text by card-loader into the play action); this entry is the
+    // second sentence alone. The pairing is the card: 2 Energy for a 1-Might body
+    // that can be bought in READY and walk somewhere the same turn, which is the
+    // only way this trigger fires on the turn he lands.
+    //
+    // "I MOVE" — his own instanceId, not a friendly unit's, which is what
+    // separates him from Stealthy Pursuer's "a friendly unit moves from my
+    // location" further up this registry.
+    //
+    // **"TO A BATTLEFIELD" needs no guard, and the absent guard is the honest
+    // shape.** `unitMoved` has exactly one emitter — `executeMoveUnit` — and
+    // `MoveUnitAction.destinationBattlefieldId` is a required battlefield id, so
+    // `event.to` is never "base". A `to !== "base"` check would look like a
+    // condition and be unreachable, which this codebase has already deleted once
+    // after a mutation run proved it could not fail (see `huntMomentIsMine`).
+    // Two neighbours in effects/calm.ts still carry that check; they are not wrong,
+    // just untestable.
+    //
+    // # The divergence he inherits, stated rather than assumed
+    //
+    // **446.1**: "A Permanent changing its position from any space on the Board to
+    // another space on the Board is a Move", and **449**: "Spells, Abilities, or
+    // other effects may cause a Move to occur." So a Root relocated by Charm, by a
+    // Fae Porter or by his own side's Ride The Wind HAS moved, and should gain 2
+    // XP. He does not: `forceMoveToBattlefield` rewrites the zones and holds no
+    // `unitMoved` at all, so nothing in this engine can see an effect-driven move.
+    // That is engine-wide and predates this card (every "when I move" listener in
+    // the four files shares it); closing it is a change to effect-helpers.ts.
+    // Under-fires rather than over-fires, which is the direction to err.
+    on: "unitMoved",
+    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener) => gainXp(state, listener.ownerIndex, MISTER_ROOT_XP),
+  },
 };
 
 /** Sinister Poro's price — the printed `[1]` Energy, paid to move one enemy unit
  *  home. */
 const SINISTER_PORO_COST = 1;
+
+/** Mister Root's payout — "gain 2 XP" on arriving at a battlefield. */
+const MISTER_ROOT_XP = 2;
 
 /**
  * Draven - Audacious's once-a-turn allowance, spent as it pays out.
@@ -1869,6 +2186,62 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
   "OGN-182": {
     on: ["played", "discarded", "killed"],
     resolve: (state, event) => drawCards(state, event.ownerIndex, 1),
+  },
+  "UNL-133": {
+    // Blast Cone, FIRST clause — "When you play this, you may move an enemy unit."
+    //
+    // # Its SECOND clause is NOT implemented, and it cannot fire at all today
+    //
+    // "When you move an enemy unit, you may exhaust this to [Stun] it." A Standard
+    // Move only ever moves your OWN units (`executeMoveUnit` removes from
+    // `action.playerIndex`), so "YOU move an ENEMY unit" can only ever be an
+    // effect-driven move — Charm's, Temptation's, this very gear's first clause.
+    // And `unitMoved` has exactly one emitter, `executeMoveUnit`:
+    // `forceMoveToBattlefield` and `forceMoveToBase` rewrite the zones and hold no
+    // event at all. So there is no moment for the second clause to listen to, and
+    // an `on: "unitMoved"` listener for it would register, typecheck, report the
+    // card DONE and never once fire.
+    //
+    // It needs `forceMoveToBattlefield`/`forceMoveToBase` in effect-helpers.ts to
+    // hold a move event carrying WHO caused the move (today's `unitMoved.moverIndex`
+    // is the moved unit's controller, which is the wrong index for "you move an
+    // enemy unit"). That is a shared-file change and is deliberately not made here.
+    // See the divergence note on UNL-127 Mister Root, which is the same gap seen
+    // from the under-firing side.
+    //
+    // # The clause that IS here
+    //
+    // A `selfTriggers` entry rather than a `cardEffects` one: a Gear's "when you
+    // play this" is the moment `holdSelfTrigger` exists for (Scrapheap's, above),
+    // and a Gear has no on-play resolution hook in `cardEffects` at all.
+    //
+    // **A parked decision rather than a target on the action.** A move needs both a
+    // unit and a DESTINATION, and a destination is only fanned out for cards named
+    // in card-effects.ts's `MOVE_TARGET_SPELL_DEF_IDS` — a shared table this file
+    // may not add to. So the pair is asked at resolution, one option per (unit,
+    // destination), the way Blitzcrank - Impassive already asks his half of the
+    // same sentence.
+    //
+    // **That IS a divergence and it is worth naming.** 355 makes targets chosen as
+    // the ability is put on the chain, and 383.3.a puts the "you may" of a first
+    // clause at FINALIZATION rather than at resolution — so printed, an opponent
+    // could respond to the pairing. Here they cannot. It is narrower than printed
+    // (the choice is later, never wider), and it is the same trade every parked
+    // "you may move" in these files already makes.
+    on: ["played"],
+    resolve: (state, event) => {
+      const enemyIndex: 0 | 1 = event.ownerIndex === 0 ? 1 : 0;
+      // Nothing to move: 422's do-as-much-as-you-can, and the same silence
+      // Blitzcrank keeps rather than parking a question whose only answer is no.
+      if (ownUnitsEverywhere(state, enemyIndex).length === 0) return state;
+      // **The gear's own instanceId is deliberately NOT carried.** 383 separates
+      // an ability from its source once it has triggered, and nothing in the
+      // first clause refers back to the Cone — so a question that recorded it
+      // would be a field the handler never reads, which in this file reads as a
+      // check that exists. (The SECOND clause is the one that would need it, and
+      // that clause is refused; see the card's entry.)
+      return parkDecision(state, { kind: "UNL-133-move", playerIndex: event.ownerIndex });
+    },
   },
 };
 
@@ -2413,6 +2786,143 @@ export const decisions: Record<string, DecisionDefinition> = {
       return recallUnitToBase(paid, optionId);
     },
   },
+
+  // Abandon's `[Predict]` — "Look at the top card of your Main Deck. You may
+  // recycle it."
+  //
+  // The decline leads, so a mis-click and the AI's tie-break both land on leaving
+  // the deck alone, which is the answer that changes nothing.
+  //
+  // The card is named in the label: the player has LOOKED at it, so hiding it
+  // behind "the top card" would be a worse question than the card asks. The
+  // option's `instanceId` lets the board show the face.
+  //
+  // `options` reads LIVE state rather than a snapshot, which is what makes it
+  // correct behind a Nocturne - Horrifying banish queued in front of it: if he
+  // took the card being looked at, this asks about whatever is on top now.
+  "UNL-131-predict": {
+    prompt: () => "Abandon: recycle the top card of your Main Deck?",
+    options: (state, d): DecisionOption[] => {
+      const top = state.players[d.playerIndex].deck[0];
+      if (!top) return []; // the deck emptied while this waited — 422
+      return [
+        { id: "keep", label: `Keep ${top.name} on top`, instanceId: top.instanceId },
+        { id: "recycle", label: `Recycle ${top.name}`, instanceId: top.instanceId },
+      ];
+    },
+    resolve: (state, d, optionId) => (optionId === "recycle" ? recycleTopCard(state, d.playerIndex) : state),
+  },
+
+  // Blast Cone's "you may move an enemy unit", raised by its on-play self-trigger.
+  //
+  // ONE question over both choices — which unit AND where — because a move is one
+  // instruction and answering half of it is not an answer. That is why the option
+  // id is a pair (`<unitInstanceId>:<destination>`), the same encoding
+  // `battlefield-abilities.ts` and two other decision handlers here already use
+  // for a two-part answer.
+  //
+  // "AN ENEMY UNIT" carries no location word, so 355.9.a.1's board-wide reading
+  // applies and a unit sitting in the opponent's base is a legal choice — pulling
+  // a reinforcement onto a battlefield you already hold is the line, and it is the
+  // same reading Blitzcrank - Impassive's grab takes of the identical phrase.
+  //
+  // **BASE is a destination**, not just battlefields: 355.4.a makes any Location
+  // the unit is allowed to be present at a valid Move Destination, 198.1/107.1.b
+  // make each Base a Location, and 359.3.e works the case by name for Ride the
+  // Wind. Vilemaw's Lair can forbid it, and `mayMoveToBaseFrom` is asked HERE so
+  // the option is never offered and then silently refused — the same door
+  // `forceMoveToBase` itself goes through, and the same one `legal-actions` asks
+  // before offering a Recall.
+  //
+  // The unit's CURRENT location is excluded on both axes (355.4.a's "other than
+  // the Unit's current Location"): a base unit is not offered "to base", and a
+  // unit at bf1 is not offered bf1. Offering a move that cannot happen is the
+  // offered-then-refused shape this file keeps out.
+  //
+  // Not an exhaust and not a Standard Move, so `[Ganking]` is irrelevant to it —
+  // 415.1.b/144.2 put the exhaust and the battlefield-to-battlefield restriction
+  // on the Standard Move ACTION, and Charm's entry makes the same call.
+  "UNL-133-move": {
+    prompt: () => "Blast Cone: move an enemy unit?",
+    options: (state, d): DecisionOption[] => [
+      { id: "decline", label: "Decline" },
+      ...ownUnitsEverywhere(state, d.playerIndex === 0 ? 1 : 0).flatMap((unit) => {
+        const at = findUnitAnywhere(state, unit.instanceId);
+        if (!at) return [];
+        const fromId = at.zone === "base" ? undefined : state.battlefields[at.zone.battlefieldIndex]!.id;
+        const options: DecisionOption[] = state.battlefields
+          .filter((bf) => bf.id !== fromId)
+          .map((bf) => ({ id: `${unit.instanceId}:${bf.id}`, label: `Move ${unit.name} to ${bf.name}`, instanceId: unit.instanceId }));
+        if (fromId !== undefined && mayMoveToBaseFrom(state, fromId)) {
+          options.push({ id: `${unit.instanceId}:base`, label: `Move ${unit.name} to its base`, instanceId: unit.instanceId });
+        }
+        return options;
+      }),
+    ],
+    resolve: (state, _d, optionId) => {
+      if (optionId === "decline") return state;
+      const [unitId, destination] = optionId.split(":");
+      if (!unitId || !destination) return state;
+      // Through the shared destination helper like every other move in this file,
+      // so an arrival at a battlefield applies Contested and can stage a Showdown
+      // — which for a gear that then wants to stun the arrival is the point.
+      return forceMoveToDestination(
+        state,
+        unitId,
+        destination === "base" ? { destinationIsBase: true } : { destinationBattlefieldId: destination },
+      );
+    },
+  },
+
+  // Insightful Investigator's "you may pay 2 XP to choose a card from their hand.
+  // If you do, they discard that card and draw 1."
+  //
+  // Mindsplitter's question with a price on it. The chooser is the CASTER
+  // (`d.playerIndex`) while the cards, the discard and the draw are all the
+  // opponent's, which is why the options read one player's hand and the resolver
+  // acts on the other.
+  //
+  // **The XP is charged here, at resolution, and the rules say so twice by name**
+  // — 204.3.b ("As the ability resolves, its controller may pay 2 XP as a cost")
+  // and 383.3.b ("Paying 2 XP is performed on resolution"). Both passages quote
+  // this very card.
+  //
+  // The decline leads and is ALWAYS present: 2 XP is real money early, and a hand
+  // worth nothing is a hand not worth 2 XP. With too little XP the decline is the
+  // ONLY option, so `advanceDecisions` executes it without interrupting anybody —
+  // which is also what stops the offer from being made and then refused (416.3).
+  //
+  // Priced when the options are built AND again when one is taken, the same split
+  // Fae Porter and Sinister Poro make: the question can sit behind others, and XP
+  // banked when it was raised can have been spent by a card ahead of it.
+  "UNL-135-take": {
+    prompt: () => "Insightful Investigator: pay 2 XP to take a card from the revealed hand?",
+    options: (state, d): DecisionOption[] => {
+      const decline: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!canSpendXp(state, d.playerIndex, INVESTIGATOR_XP)) return decline;
+      const opponent = state.players[d.playerIndex === 0 ? 1 : 0];
+      return [
+        ...decline,
+        ...opponent.hand.map((c) => ({
+          id: c.instanceId,
+          label: `Pay 2 XP: they discard ${c.name} and draw 1`,
+          instanceId: c.instanceId,
+        })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const paid = spendXp(state, d.playerIndex, INVESTIGATOR_XP);
+      if (paid === undefined) return state; // spent since the options were built
+      const opponentIndex: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      // `discardCards` with the card NAMED, so the chosen card goes rather than
+      // the front of hand — and so the discard still fires its own on-discard
+      // trigger and still sets `discardedThisTurn`, which a hand-rolled move
+      // would skip. Discard THEN draw, printed order: the drawn card must not be
+      // one this instruction could have taken.
+      return drawCards(discardCards(paid, opponentIndex, 1, [optionId]), opponentIndex, 1);
+    },
+  },
 };
 
 /** Windsinger's cap — "a unit at a battlefield with 3 [Might] or less". */
@@ -2557,6 +3067,31 @@ function pursuerFollows(state: GameState, listener: Listener, event: GameEvent):
   return listener.battlefieldId === event.from && event.to !== event.from;
 }
 
+/** Megatusk's price — "Spend 3 XP:". */
+const MEGATUSK_XP = 3;
+
+/**
+ * "Your units HERE" — every unit `playerIndex` controls at the LOCATION the
+ * source is standing at, the source included.
+ *
+ * A Location, not a battlefield: **828** makes the Bases Locations alongside the
+ * Battlefields, and Megatusk prints no "while I'm at a battlefield" restriction
+ * (contrast Caitlyn - Patrolling, who does). So a Megatusk sitting at home grants
+ * to his base, which is legal and useless — `[Ganking]` only ever widens a
+ * battlefield-to-battlefield move. Reading it that way rather than silently
+ * requiring a battlefield keeps the ability's availability the card's, not this
+ * file's.
+ *
+ * Empty when the source is not on the board at all, which `resolveActivation`
+ * makes unreachable through the real path and a direct caller could still reach.
+ */
+function ownUnitsAtLocationOf(state: GameState, playerIndex: 0 | 1, sourceInstanceId: string): UnitInstance[] {
+  const at = findUnitAnywhere(state, sourceInstanceId);
+  if (!at) return [];
+  if (at.zone === "base") return [...state.players[playerIndex].baseUnits];
+  return unitsAt(state, playerIndex, state.battlefields[at.zone.battlefieldIndex]!.id);
+}
+
 /**
  * Activated abilities contributed by this domain file.
  *
@@ -2571,4 +3106,73 @@ function pursuerFollows(state: GameState, listener: Listener, event: GameEvent):
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-126": {
+    // Megatusk — "[Ganking] Spend 3 XP: Give your units here [Ganking] this turn."
+    //
+    // The pool's first ability whose whole price is XP, and the first entry in
+    // this registry at all.
+    //
+    // # The cost is NOT expressed as an `ActivationCost`, and that is deliberate
+    //
+    // `ActivationCost` has no XP field — coverage.ts already records that as the
+    // reason UNL-158 Shepherd's Heirloom reports unimplemented ("its `[Equip] —
+    // Spend 1 XP` cost is the one `ActivationCost` cannot price"). Adding one is a
+    // change to the shared activated-abilities.ts, which the fan-out rule keeps
+    // this file out of. So the price is split the only way that cannot be
+    // offered-and-then-refused:
+    //
+    //   `availableWhile` asks whether 3 XP is there. It is consulted by
+    //   `canPayActivationCost`, which BOTH the enumerator and the validator go
+    //   through — so a Megatusk with 2 XP is never offered the ability at all,
+    //   rather than offered it and refused.
+    //
+    //   `resolve` then SPENDS it, through `spendXp`, which returns undefined
+    //   rather than underpaying. The `undefined` branch is unreachable via the
+    //   real path (nothing resolves between the validator's check and this) and is
+    //   still written, because the alternative is granting the keyword free.
+    //
+    // **204.1.b** makes "the resource or instruction written before the ':'" the
+    // ability's BASE cost, which is paid at finalization rather than at
+    // resolution. This engine resolves an activated ability INLINE — there is no
+    // chain item for one, which counter-spell.ts already records as its own
+    // divergence — so finalization and resolution are the same instant and the
+    // split above is unobservable. It becomes observable the day abilities go on
+    // the chain, and at that point this wants a real `ActivationCost.xp`.
+    //
+    // # `cost: {}`, not the default
+    //
+    // The default is `{ exhaust: true }` and Megatusk prints NO exhaust symbol —
+    // his cost is the XP and nothing else. So the ability repeats while the XP
+    // lasts, which is the same shape Vi - Destructive's Recycle has and is bounded
+    // by the price: three activations cost 9 XP. Taking the default would have
+    // made him a once-per-turn grant nobody printed.
+    //
+    // # "Your units HERE"
+    //
+    // Every unit he controls at his own Location, himself included ("your units"
+    // names no exception) — see `ownUnitsAtLocationOf` for why base counts.
+    //
+    // `grantKeywordThisTurn` lands it in `keywordsThisTurn`, which `runEnd`
+    // sweeps, and `hasKeyword` is what `legal-actions` and `validate-move-unit`
+    // both ask before offering a battlefield-to-battlefield move — so the grant is
+    // live in the same turn it is bought. **810.2** makes a second `[Ganking]`
+    // redundant rather than cumulative, which `mergeGrantedKeyword` already
+    // enforces, so re-activating on a unit that has it wastes the XP honestly.
+    //
+    // NOT `banksResource`: this changes the board's legal moves, which is
+    // something an evaluator can price, unlike Lux - Crownguard's stored Energy.
+    kind: "Unit",
+    cost: {},
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, MEGATUSK_XP),
+    resolve: (state, ctx, _event, sourceInstanceId) => {
+      const paid = spendXp(state, ctx.casterIndex, MEGATUSK_XP);
+      if (paid === undefined) return state;
+      return ownUnitsAtLocationOf(paid, ctx.casterIndex, sourceInstanceId).reduce(
+        (next, unit) => grantKeywordThisTurn(next, unit.instanceId, "Ganking"),
+        paid,
+      );
+    },
+  },
+};

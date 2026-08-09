@@ -160,8 +160,18 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * can actually reach them in a game, and 25 of the 30 are now observed acting in
  * self-play. The 5 that are not are the expected tail — cards needing a board
  * state 250 games did not produce.
+ *
+ * **473 → 499 on 2026-08-09, wave 2** — another six agents over the same six
+ * domain files, ~36 cards. UNL went 43/225 to **68/225** (19% to 30%); the three
+ * hard-gated sets did not move, which is what the union rising by exactly UNL's
+ * gain says and is the check that no finished set regressed to pay for it.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 187/198, UNL 68/225.
+ * (SFD 186 → 187 is not a wave-2 card: it is the `[Deflect]`-surcharge fix in
+ * `legal-actions.ts`, which stopped an activation crashing the run and so let a
+ * card that had been dying mid-game finish being observed.)
  */
-const PINNED_UNION = 473;
+const PINNED_UNION = 499;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

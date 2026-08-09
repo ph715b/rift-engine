@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
-import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { UnitPlayDestination, UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
   DeathknellDefinition,
   DeathWatchDefinition,
@@ -25,6 +25,7 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   giveMightThisTurnToAllEnemies,
+  grantKeywordThisTurn,
   grantTemporary,
   holdCardsRecycled,
   ownUnitsEverywhere,
@@ -35,6 +36,7 @@ import {
   removeUnitAnywhere,
   returnCardFromTrash,
   returnUnitToHand,
+  takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -88,6 +90,26 @@ const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", enter
 const FRIGID_TOUCH_MIGHT = 2;
 const BELLOWS_BREATH_DAMAGE = 1;
 const ROCKET_BARRAGE_DAMAGE = 4;
+
+/** Eclipse's and Moonlight Affliction's debuffs, as POSITIVE numbers — the sign
+ *  is applied at the call site so the (absent) floor argument reads plainly, the
+ *  convention `FROSTCOAT_DEBUFF` and `ICEVALE_DEBUFF` already follow below. */
+const ECLIPSE_DEBUFF = 4;
+const MOONLIGHT_AFFLICTION_DEBUFF = 10;
+
+/** Sprite Burst's "play TWO ready 3 Might Sprite unit tokens" — two separate
+ *  game objects, which is what the numeral means (714). */
+const SPRITE_BURST_TOKENS = 2;
+
+/** Crescent Strike's two amounts: 4 to the chosen enemy, 1 to each OTHER enemy
+ *  at the same battlefield. */
+const CRESCENT_STRIKE_FOCUS_DAMAGE = 4;
+const CRESCENT_STRIKE_SPLASH_DAMAGE = 1;
+
+/** Fate Weaver's "the top 4 cards", and the "Energy cost [4] or more" the spell
+ *  she may pull from among them must meet — inclusive, as printed ("or more"). */
+const FATE_WEAVER_LOOK = 4;
+const FATE_WEAVER_MIN_SPELL_ENERGY = 4;
 
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
@@ -569,6 +591,205 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, _ctx, event) =>
       event.targetPermanentInstanceId ? grantTemporary(state, event.targetPermanentInstanceId) : state,
   },
+  "UNL-061": {
+    // Downstage Dramatics — "[Reaction] [Repeat] [2] Draw 1."
+    //
+    // The effect is one instruction and it is written whole. The `[Repeat]` is a
+    // row in `REPEAT_COSTS` (card-effects.ts), which this file does not own — and
+    // the gap is already PINNED rather than invisible: `test/repeat-keyword.test.ts`
+    // lists UNL-061 among the six UNL cards "a set under construction has not
+    // priced yet", so closing it is literally `"UNL-061": { energy: 2 }` in that
+    // table and the test's expected list shrinking by one. Until then the card is
+    // castable and draws, and `legal-actions` simply never offers a repeat variant
+    // (it asks `repeatCostOf`, which answers undefined).
+    //
+    // **So this card is registered while half a sentence of its text is inert**,
+    // which coverage cannot see — `[Repeat]` left `UNIMPLEMENTED_KEYWORDS` when the
+    // mechanism landed, so it no longer greys a card that prints it. Stated here
+    // and reported rather than left for a playtest to find.
+    //
+    // [Reaction] is rule 813 and belongs entirely to engine/timing.ts — the
+    // resolver is identical whenever it runs, exactly as Smoke Screen records.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "UNL-063": {
+    // Eclipse — "[Reaction] Give a unit -4 [Might] this turn. [Predict]."
+    //
+    // Smoke Screen's debuff one Energy cheaper and **without its floor**: OGN-093
+    // prints "to a minimum of 1 Might" and this card does not, so the `floor`
+    // argument is omitted deliberately. 143.2.b is explicit that none is implied —
+    // "If a unit's Might is ever less than 0, it is treated as 0 when referenced by
+    // spells and abilities... Although the unit's Might is treated as 0, it is not
+    // 0. Effects that calculate Might increases and decreases use the actual value"
+    // — so a second debuff on an already-emptied unit still digs, and a later pump
+    // has to climb back out. Frigid Touch and Icevale Archer read it the same way.
+    //
+    // "A unit", with no owner and no battlefield: 355.9.a.1 makes the bare noun
+    // "an object on the Board", and 355.10.a.1's Public zones name Bases alongside
+    // Battlefield Zones. Hence scope "anywhere".
+    //
+    // # `[Predict]` — the pool's first, and it is not a keyword
+    //
+    // model/keyword.ts files it under NON_KEYWORD_BRACKETS as an ACTION WORD, and
+    // **436.1 defines the bare form exactly**: "Predicting a card is the act of
+    // looking at a single card from the top of the Main Deck and choosing whether
+    // or not to Recycle it." That is `voidHatchlingOptions`/`voidHatchlingAnswer`
+    // word for word — the Hatchling's replacement step IS a Predict — so they are
+    // reused rather than re-spelt. Reuse also gets the recycle held through
+    // `holdCardsRecycled` for Karma - Channeler, which a hand-rolled deck splice
+    // would have quietly skipped.
+    //
+    // A parked QUESTION rather than a choice on the action, unlike `[Vision]`'s
+    // `visionRecycle` axis: Vision is decided as the unit is played, before
+    // anything is seen, while this look happens at RESOLUTION and the whole point
+    // is answering it having seen the card. A pre-decided field cannot carry that.
+    //
+    // Order is 359.3.d, "top to bottom of the rules text": the debuff lands now,
+    // the Predict is parked behind it.
+    //
+    // The look is a LOOK, so Nocturne - Horrifying's "as you look at or reveal me"
+    // is owed and offered FIRST — FIFO answers him before this, which is the order
+    // the two read in, and these options are rebuilt from live state if he banishes
+    // himself off the top in the meantime.
+    //
+    // 436.4 covers the short deck: "they will Predict as many as possible instead",
+    // and 436.4.a adds that this is NOT a Burn Out. An empty deck therefore leaves
+    // `voidHatchlingOptions` with its lone "leave the top card", which
+    // `advanceDecisions` retires without ever prompting.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const debuffed = event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, -ECLIPSE_DEBUFF)
+        : state;
+      // Two instructions, ignored separately (359.3.e.6): a target that left play
+      // while this sat on the chain kills the debuff and the Predict still happens,
+      // which is 135.2's worked Void Seeker split and NOT Retreat's "its owner".
+      const top = debuffed.players[ctx.casterIndex].deck[0];
+      const looked = top ? offerTopOfDeckBanish(debuffed, ctx.casterIndex, [top]) : debuffed;
+      return parkDecision(looked, { kind: "UNL-063-predict", playerIndex: ctx.casterIndex });
+    },
+  },
+  "UNL-066": {
+    // Moonlight Affliction — "[Reaction] Give a unit -10 [Might] this turn."
+    //
+    // Eclipse's sentence at seven Energy and more than twice the number: enough to
+    // empty anything in the pool for the turn. Same three readings, and each is
+    // the card's own text rather than an inheritance:
+    //
+    //  - **no floor** — nothing is printed, and 143.2.b (quoted in Eclipse above)
+    //    says a Might below 0 is a real value that is merely TREATED as 0;
+    //  - **scope "anywhere"** — "a unit", so 355.9.a.1 plus 355.10.a.1's Public
+    //    zones reach either base;
+    //  - **no owner** — shrinking your own is a bad play, not an illegal one.
+    //
+    // **It does NOT kill on its own**, and that is worth stating because -10 looks
+    // like removal: 143.2.a kills a unit whose NONZERO marked damage equals or
+    // exceeds its Might, so an undamaged unit at -6 Might is alive and merely
+    // useless. What the card really buys is that any 1 damage afterwards is lethal
+    // — and `dealDamage` is where that arithmetic is done, which is why nothing
+    // here re-checks it. (This engine has no state-based re-check of 143.2.a when
+    // MIGHT falls rather than damage rising; a unit already carrying damage does
+    // not die the instant this resolves. Engine-wide and older than this card.)
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, -MOONLIGHT_AFFLICTION_DEBUFF)
+        : state,
+  },
+  "UNL-069": {
+    // Sprite Burst — "Play two ready 3 [Might] Sprite unit tokens with
+    // [Temporary]."
+    //
+    // Sprite Call (OGN-094) doubled, so it takes that card's token unchanged:
+    // `SPRITE_TOKEN` is shared from the top of this file rather than re-declared,
+    // which is exactly the drift token.ts grew a spec parameter to prevent.
+    //
+    // **TWO calls, not a count parameter.** 714 makes each token its own game
+    // object, so two arrivals are two things for Cithria and for a battlefield's
+    // Contested check to see; one call minting a pair would be one object with a
+    // count and is not what the numeral means.
+    //
+    // **Destination is the caster's BASE, and that is a recorded SIMPLIFICATION
+    // rather than the printed rule.** 185.2.a says a token "can be played by their
+    // owner if their card type is played, FOLLOWING ALL THE APPLICABLE STEPS FOR
+    // PLAYING A CARD plus any restrictions or modifications from the effect that
+    // created the token", and 184.2 says the effect "may restrict the location" —
+    // this one does not. So by the rules these Sprites are played like any unit,
+    // i.e. to base OR to a battlefield the caster is reinforcing.
+    //
+    // Offering that choice means adding this defId to `cardPlacesTokens`
+    // (card-effects.ts), a shared file this pass does not own — and the choice it
+    // grants is "your base or battlefields you CONTROL" (Recruit the Vanguard's
+    // printed clause), which is not the same set as the ordinary reinforce rule,
+    // and it lands BOTH tokens at ONE destination. Neither of those is obviously
+    // right for this card, so it is flagged for a ruling rather than guessed at.
+    // Base is the destination that is always legal, and it is what Sprite Call's
+    // non-hidden play already does one registry up.
+    //
+    // `[Temporary]` needs no wiring: 816's Beginning-Phase kill already runs before
+    // scoring, which is what stops two free bodies from holding two battlefields.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      Array.from({ length: SPRITE_BURST_TOKENS }).reduce<GameState>(
+        (next) => placeToken(next, ctx.casterIndex, "base", SPRITE_TOKEN),
+        state,
+      ),
+  },
+  "UNL-072": {
+    // Crescent Strike — "[Action] Choose a battlefield and an enemy unit there.
+    // Deal 4 to that unit and 1 to each other enemy unit there."
+    //
+    // The battlefield is derived from the chosen unit rather than chosen
+    // separately, and that is a DIVERGENCE with one observable edge — worth being
+    // precise about, because the card names two things and the rules count them.
+    //
+    // 355.10.b's worked example is the case this ISN'T: "'Kill a unit at a
+    // battlefield' targets a unit, but not a battlefield, because the units are
+    // targets and 'at a battlefield' is a restriction." Here the battlefield is
+    // CHOSEN in as many words, and a Battlefield Zone is Public (355.10.a.1), so by
+    // the rules this spell has two targets.
+    //
+    // Every legal (battlefield, unit) pair is still offered — "an enemy unit THERE"
+    // makes the battlefield a function of the unit — so enumeration and the ordinary
+    // resolution are exact. **What differs is the response window**: if the named
+    // unit leaves play, 359.3.e.8 would keep the instruction alive for the target
+    // that is still valid ("with only the Targets available and valid being operated
+    // on"), so the splash should still hit the battlefield's other enemies. Here it
+    // does not, because the battlefield was only ever known through the unit.
+    // Expressing it properly needs a battlefield-and-unit TargetingSpec, which is an
+    // edit to card-effects.ts and legal-actions.ts — neither of them this file's.
+    //
+    // "ENEMY" throughout, measured from the caster, and the default battlefield
+    // scope because "there" names one — a unit in a base is neither a legal choice
+    // nor a splash victim.
+    //
+    // The splash list is snapshotted BEFORE the 4 is dealt, matching
+    // `dealDamageToEnemyUnitsAtBattlefield`'s own reasoning: the focus damage runs
+    // the full death funnel, and a `[Deathknell]` firing mid-resolution can move
+    // bodies. `dealDamage` no-ops on an id that has since left, so a splash victim
+    // killed by the Deathknell is skipped rather than throwing.
+    targeting: { kind: "unit", owner: "enemy" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const here = findUnitOnBattlefield(state, targetId);
+      if (!here) return state; // gone, or never at a battlefield: 359.3.e.6
+      const battlefield = state.battlefields[here.battlefieldIndex]!;
+      const casterId = state.players[ctx.casterIndex].id;
+      // "each OTHER enemy unit there" — the same side as the chosen unit is not the
+      // test; "enemy" is measured from the CASTER, so every unit at this
+      // battlefield that is not the caster's and not the focus takes the 1.
+      const splashIds = Object.entries(battlefield.units)
+        .filter(([ownerId]) => ownerId !== casterId)
+        .flatMap(([, units]) => units.map((u) => u.instanceId))
+        .filter((id) => id !== targetId);
+      return splashIds.reduce(
+        (next, id) => dealDamage(next, ctx.casterIndex, id, CRESCENT_STRIKE_SPLASH_DAMAGE),
+        dealDamage(state, ctx.casterIndex, targetId, CRESCENT_STRIKE_FOCUS_DAMAGE),
+      );
+    },
+  },
 };
 
 /** The gear cards in `playerIndex`'s own trash — Aspiring Engineer's "a gear
@@ -620,6 +841,38 @@ function movableUnitsFor(state: GameState, playerIndex: 0 | 1, battlefieldId: st
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   const here = new Set((bf?.units[state.players[playerIndex].id] ?? []).map((u) => u.instanceId));
   return ownUnitsEverywhere(state, playerIndex).filter((u) => !here.has(u.instanceId));
+}
+
+/** The top 4 of `playerIndex`'s Main Deck — Fate Weaver's look. Its own function
+ *  because BOTH her trigger (is there anything to look at?), her question's
+ *  options (which of them may be taken?) and its answer (what is "the rest"?)
+ *  have to mean the same four cards; the two drifting apart is how a question
+ *  gets parked that nothing can answer, exactly as `gearsInTrash` records.
+ *
+ *  A deck shorter than four looks at what it has (422/436.4's do-as-much-as-you-can
+ *  shape), which is also why the count is read off the slice rather than assumed. */
+function fateWeaverLooked(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].deck.slice(0, FATE_WEAVER_LOOK);
+}
+
+/** "A spell with Energy cost [4] or more from among them" — the PRINTED cost,
+ *  which is what every other effect asking about a card's cost reads (206: a
+ *  card's cost for reference purposes is what it prints, not what a discount made
+ *  this play of it), and inclusive, as "or more" says. */
+function fateWeaverCandidates(state: GameState, playerIndex: 0 | 1) {
+  return fateWeaverLooked(state, playerIndex).filter(
+    (c) => c.kind === "Spell" && c.energyCost >= FATE_WEAVER_MIN_SPELL_ENERGY,
+  );
+}
+
+/** Every unit `playerIndex` has standing at `destination` — Chakram Dancer's
+ *  "your other units HERE", where "here" is wherever she landed. Base is a real
+ *  answer rather than a degenerate one: `UnitPlayDestination` is base-or-a-
+ *  battlefield, and Sprite Mother (OGN-106) already reads "here" that way. */
+function ownUnitsAtDestination(state: GameState, playerIndex: 0 | 1, destination: UnitPlayDestination): UnitInstance[] {
+  const owner = state.players[playerIndex];
+  if (destination === "base") return owner.baseUnits;
+  return state.battlefields.find((bf) => bf.id === destination.battlefieldId)?.units[owner.id] ?? [];
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -923,6 +1176,81 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, unitId) =>
       state.players[ctx.casterIndex].activeGear.length >= 2 ? readyUnit(state, unitId) : state,
+  },
+  "UNL-064": {
+    // Fate Weaver — "When you play me, look at the top 4 cards of your Main Deck.
+    // You may reveal a spell with Energy cost [4] or more from among them and draw
+    // it. Recycle the rest."
+    //
+    // Stacked Deck's shape with a FILTER and a "you may" on it, which is why the
+    // helper it shares (`takeOneFromTopAndRecycleRest`) covers only the accepting
+    // branch: declining still has to recycle, and there is no card to keep.
+    //
+    // **A question, not a target.** 355.10.a says a card in a deck is not a target
+    // ("your hand is not a public zone" is the worked case, and a Main Deck is no
+    // more Public than a hand), so nothing here belongs on the play action — and it
+    // could not ride one anyway, since which four cards they are is not known until
+    // this resolves.
+    //
+    // MANDATORY LOOK, OPTIONAL TAKE, MANDATORY RECYCLE. That is three instructions
+    // (135.2), and it is why the question is parked even when no candidate
+    // qualifies: "recycle the rest" still has to happen, so a board with nothing
+    // takeable parks a one-option question that `advanceDecisions` executes without
+    // ever prompting. Skipping the park there would silently drop the recycle.
+    //
+    // An EMPTY deck is the one case with nothing at all to do — no look, no rest —
+    // and 422's do-as-much-as-you-can makes that the whole instruction rather than
+    // an error.
+    //
+    // The look is a LOOK, so Nocturne - Horrifying's "as you look at or reveal me"
+    // is owed on all four and is offered FIRST: FIFO answers him before this
+    // question, which is the order the two read in, and these options are rebuilt
+    // from live state if he banishes himself out of the four.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const looked = fateWeaverLooked(state, ctx.casterIndex);
+      if (looked.length === 0) return state;
+      return parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, looked), {
+        kind: "UNL-064-reveal",
+        playerIndex: ctx.casterIndex,
+      });
+    },
+  },
+  "UNL-071": {
+    // Chakram Dancer — "[Ambush] [Shield] When you play me, give your other units
+    // here [Shield] this turn."
+    //
+    // **ONE of two clauses, and the other is a KEYWORD this engine does not
+    // implement.** `[Ambush]` ("you may play me as a [Reaction] to a battlefield
+    // where you have units") is in coverage.ts's `UNIMPLEMENTED_KEYWORDS`, so the
+    // card stays flagged as unfinished on its own text whatever is written here —
+    // which is the correct report and the reason this half can be landed without
+    // over-claiming. Her printed `[Shield]` is the loader's.
+    //
+    // "HERE" is wherever SHE landed, which the trigger event already carries as
+    // `destination` — Sprite Mother's and Faithful Manufactor's precedent. Played
+    // to base, "here" is the base; that is not a special case, it is what
+    // `UnitPlayDestination` means, and until `[Ambush]` lands it is the ordinary
+    // way she arrives.
+    //
+    // "OTHER" excludes her as an OBJECT, by instanceId — two Chakram Dancers at one
+    // battlefield each satisfy the other's "other", which a defId comparison gets
+    // exactly backwards. The same reading `readyableMechs` and granted-keywords.ts
+    // already take.
+    //
+    // "YOUR units", so the opponent's bodies at a contested battlefield get
+    // nothing — the one word that separates this from a symmetric board effect.
+    //
+    // `grantKeywordThisTurn` at value 1: 814.1.b.3 says an omitted X is 1, and
+    // 814.2 makes an additional source SUM — so a unit that already prints
+    // `[Shield 1]` reads 2 while this lasts, which `mergeGrantedKeyword` does
+    // rather than this entry. `keywordsThisTurn` is what expires in the Expiration
+    // Step (317) when `runEnd` clears it; a write to `keywords` would be permanent.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) =>
+      ownUnitsAtDestination(state, ctx.casterIndex, event.destination)
+        .filter((u) => u.instanceId !== unitId)
+        .reduce((next, u) => grantKeywordThisTurn(next, u.instanceId, "Shield", 1), state),
   },
   "SFD-081": {
     // Card Sharp — "When you play me, you and each opponent may play a Gold gear
@@ -2263,6 +2591,81 @@ export const decisions: Record<string, DecisionDefinition> = {
       // rules say a Might below 0 is a real value that is merely TREATED as 0. See
       // the trigger's note.
       return giveMightThisTurn(paid, optionId, -ICEVALE_DEBUFF);
+    },
+  },
+  /**
+   * Eclipse's `[Predict]` — 436.1's "look at a single card from the top of the
+   * Main Deck and choose whether or not to Recycle it".
+   *
+   * The options and the answer are the Void Hatchling's, unchanged, because her
+   * "look at the top card first, you may recycle it" IS a Predict: one definition
+   * of "recycle the top card, and hold it for Karma - Channeler" rather than two
+   * that can disagree. Rebuilt from live state like every question here, so a
+   * Nocturne who banished himself off the top in the FIFO slot ahead of this one
+   * simply changes what the option describes.
+   *
+   * Two options whenever there is a card, so `advanceDecisions` can never answer a
+   * "you may" for the player; an empty deck leaves one, which it retires unshown —
+   * and that is 436.4's "Predict as many as possible", not a dropped instruction.
+   */
+  "UNL-063-predict": {
+    prompt: () => "Eclipse: [Predict] — recycle the top card of your deck?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) => voidHatchlingAnswer(state, d.playerIndex, optionId),
+  },
+  /**
+   * Fate Weaver's "you may reveal a spell with Energy cost [4] or more from among
+   * them and draw it. Recycle the rest."
+   *
+   * `decline` leads, as every "you may" here does, and it is NOT a no-op: the
+   * recycle is a separate mandatory instruction, so declining still sends all four
+   * to the bottom. That is the branch a `return state` would have silently eaten.
+   *
+   * Both branches recycle "THE REST" — the looked-at cards that did not go to hand
+   * — through `holdCardsRecycled`, so Karma - Channeler counts them; and both read
+   * the top four from LIVE state rather than from anything captured, which is the
+   * convention every decision in this file follows.
+   *
+   * The take goes through `revealedFromDeck` first: the card is genuinely REVEALED
+   * (425 keeps it in the deck while that happens), and that funnel is where "as I'm
+   * revealed from your deck" lives. It contributes nothing today and is called
+   * anyway — both of its clauses (Nocturne - Horrifying, Undertitan) are on UNITS,
+   * and this choice is restricted to Spells, so it cannot double-offer the banish
+   * the look above already made. The day a set prints a Spell with that clause, a
+   * version that had skipped the funnel would be silently wrong.
+   */
+  "UNL-064-reveal": {
+    prompt: () => "Fate Weaver: reveal a spell costing [4] or more and draw it? (the rest are recycled)",
+    options: (state, d) => [
+      { id: "decline", label: "Recycle all four" },
+      ...fateWeaverCandidates(state, d.playerIndex).map((c) => ({
+        id: c.instanceId,
+        label: `Draw ${c.name}`,
+        instanceId: c.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      const looked = fateWeaverLooked(state, d.playerIndex);
+      if (looked.length === 0) return state;
+      const chosen = fateWeaverCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (!chosen) {
+        // Declined, or the named card has moved while this waited: recycle the
+        // whole look. 416 puts them on the BOTTOM, in the order they were looked
+        // at, which is what keeps a second look reckoned against a real deck.
+        const players = [...state.players] as [PlayerState, PlayerState];
+        const owner = players[d.playerIndex];
+        players[d.playerIndex] = { ...owner, deck: [...owner.deck.slice(looked.length), ...looked] };
+        return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
+      }
+      // Revealed while still in the deck (425), then drawn, then the rest go to the
+      // bottom — which is exactly `takeOneFromTopAndRecycleRest`, and it recycles
+      // `looked.length - 1` because the kept card is not one of "the rest".
+      return takeOneFromTopAndRecycleRest(
+        revealedFromDeck(state, d.playerIndex, [chosen]),
+        d.playerIndex,
+        FATE_WEAVER_LOOK,
+        chosen.instanceId,
+      );
     },
   },
 };

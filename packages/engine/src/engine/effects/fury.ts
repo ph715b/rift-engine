@@ -1,6 +1,6 @@
 import type { EffectDefinition } from "../card-effects.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
-import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { UnitPlayDestination, UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
   DeathknellDefinition,
   DeathWatchDefinition,
@@ -29,6 +29,7 @@ import {
   returnUnitToHand,
 } from "../effect-helpers.js";
 import { effectiveKeywords, isMighty } from "../granted-keywords.js";
+import { controlsAnyFacedownCard } from "../hidden.js";
 import { effectiveMight } from "../effective-might.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
@@ -556,6 +557,103 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return drawCards(state, ctx.casterIndex, RIGHT_OF_CONQUEST_BASE_DRAW + controlled);
     },
   },
+  "UNL-009": {
+    // Upstage Comedy — "[Repeat] [2] Ready a unit."
+    //
+    // **THE `[Repeat]` HALF IS NOT REACHABLE, and not because of anything here.**
+    // A card's Repeat price lives in `REPEAT_COSTS` (card-effects.ts), which this
+    // file does not own; with no row there, `legal-actions` never enumerates a
+    // repeat-paid variant and `validate-play-card` refuses one, so the spell
+    // plays at its printed 2 Energy and readies exactly one unit. The row it
+    // wants is `"UNL-009": { energy: 2 }` — the plain shape Desert's Call and
+    // Feral Strength already use — and `repeat-keyword.test.ts`'s named list of
+    // unpriced UNL cards has to drop UNL-009 in the same change.
+    //
+    // The resolver needs NOTHING for that to start working: 820.1.d's additional
+    // execution goes through `card-effect-resolution`, which calls this same
+    // `resolve` a second time with `repeatChoices`, so a repeated Upstage Comedy
+    // readies a second (or the same, now-ready and therefore no-op) unit without
+    // a line here. Written this way deliberately, the same call Wallop's note two
+    // registries over records for its missing cost row.
+    //
+    // "A unit" — the bare noun, so `scope: "anywhere"` and no owner restriction.
+    // Readying an ENEMY unit is a bad play, not an illegal one, and base is where
+    // an exhausted unit usually sits; identical to Wallop's and First Mate's
+    // reading.
+    //
+    // **Cited 355.9.a.1, not the 355.9.b this file's neighbours reach for.**
+    // 355.9.a.1 is the rule that makes a bare noun wide — "'Unit,' 'gear,' and
+    // 'rune' refer to objects on the Board unless specified otherwise" — while
+    // 355.9.b is "It meets all targeting restrictions", the rule that NARROWS
+    // when a card prints "at a battlefield". Both matter and they are different
+    // halves; 72 comments in src/ cite the narrowing half for the widening claim.
+    //
+    // **NOT `exhaustedOnly`.** Nothing on the card says "exhausted", and that
+    // flag is a legality restriction rather than a hint: with it, a board of
+    // entirely ready units would make this spell UNCASTABLE. 415 already makes
+    // readying a ready unit do nothing ("nothing additional happens"), which is
+    // the rules' own answer and is what `readyUnit` implements.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => (event.targetUnitInstanceId ? readyUnit(state, event.targetUnitInstanceId) : state),
+  },
+  "UNL-010": {
+    // Vault Breaker — "[Action] Give a unit [Assault 2] and [Ganking] this turn."
+    //
+    // Blood Rush's grant and Gem Jammer's, on one card and one target: "a unit"
+    // with no owner and no battlefield printed, so `scope: "anywhere"`
+    // (355.9.a.1 — see Upstage Comedy above on why that and not 355.9.b).
+    // Arming an enemy is a legal misplay rather than a shape the targeting should
+    // forbid — the call both of those cards already make.
+    //
+    // TWO calls to `grantKeywordThisTurn` rather than one merged write, because
+    // the two keywords stack differently and that rule lives in
+    // keyword-stacking.ts: a second `[Assault 2]` this turn is a second SOURCE
+    // and sums to 4 (807.2), while a second `[Ganking]` is redundant (810.2).
+    // Both go through the one merge point, so this resolver states no stacking
+    // rule of its own.
+    //
+    // `[Ganking]` is unnumbered so the default value of 1 is right; `[Assault 2]`
+    // carries its printed 2.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const id = event.targetUnitInstanceId;
+      if (!id) return state;
+      return grantKeywordThisTurn(grantKeywordThisTurn(state, id, "Assault", VAULT_BREAKER_ASSAULT), id, "Ganking");
+    },
+  },
+  "UNL-014": {
+    // Monster Harpoon — "[Action] Deal 2 to a unit at a battlefield. If you
+    // control a facedown card, deal 4 to it instead."
+    //
+    // Sudden Storm's shape exactly, with a different condition: "instead"
+    // replaces the AMOUNT, so this is ONE instance of damage of either 2 or 4
+    // rather than 2 followed by 2 more. That matters beyond arithmetic — each
+    // instance is its own damage event, which `[Shield]` and the damage
+    // modifiers price separately.
+    //
+    // **"IT" is the UNIT, not the facedown card**, even though the facedown card
+    // is the nearer noun. Damage is dealt to units (417); a facedown card is in a
+    // Facedown Zone, which 107.3.e says is not even a location. And "instead" can
+    // only replace the 2 that the first sentence deals.
+    //
+    // "You control a facedown card" is `controlsAnyFacedownCard`, Mushroom
+    // Pouch's condition. The Pouch prints the longer "a facedown card AT A
+    // BATTLEFIELD" and this one does not, but 107.3.a/421.1 make every facedown
+    // card a card at a battlefield you control, so the two conditions cannot
+    // differ and a second predicate would only be a second thing to get wrong.
+    // Control of the card follows control of the battlefield (107.3.d), which is
+    // exactly what that helper asks.
+    //
+    // Asked at RESOLUTION, like every other "if" in this file: an opponent taking
+    // the battlefield in the response window turns the 4 back into a 2.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const amount = controlsAnyFacedownCard(state, ctx.casterIndex) ? MONSTER_HARPOON_ARMED : MONSTER_HARPOON_BASE;
+      return dealDamage(state, ctx.casterIndex, targetId, amount);
+    },
+  },
 };
 
 /** Right of Conquest's unconditional first card, named so the `1 +` in its
@@ -573,6 +671,13 @@ const SUDDEN_STORM_VS_ATTACKER = 4;
 
 /** Blast Corps Cadet's paid-for hit. */
 const BLAST_CORPS_DAMAGE = 2;
+
+/** Vault Breaker's grant, and Monster Harpoon's two amounts — named for the same
+ *  reason Sudden Storm's pair above are: two printed numbers side by side in one
+ *  resolver read as bare literals otherwise. */
+const VAULT_BREAKER_ASSAULT = 2;
+const MONSTER_HARPOON_BASE = 2;
+const MONSTER_HARPOON_ARMED = 4;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-013": {
@@ -764,7 +869,117 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, _ctx, _unitId, event) =>
       event.targetUnitInstanceId ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Ganking") : state,
   },
+  "UNL-003": {
+    // Mischievous Marai — "[Hidden] When you play me to a battlefield, deal 2 to
+    // an enemy unit HERE."
+    //
+    // Her `[Hidden]` is the keyword machinery's (engine/hidden.ts); only the
+    // trigger is here.
+    //
+    // # Why this asks a DECISION instead of declaring a target
+    //
+    // "HERE" is her destination, and a Unit's on-play target is chosen on the
+    // PlayCard action — which `legal-actions` fans out over destinations AFTER it
+    // has built the target variants. So `{ kind: "unit", owner: "enemy" }` would
+    // offer every enemy unit at every battlefield paired with every destination,
+    // and most of those pairs name a unit that is not "here". Narrowing it needs
+    // a new destination-aware property on `TargetingSpec` enumerated in
+    // legal-actions.ts; a resolver-side refusal was rejected for the reason
+    // `sameBattlefield` records — by then the card is paid for, and refusing
+    // leaves it doing nothing.
+    //
+    // So the choice is parked, exactly as Janna - Savior's "move up to one enemy
+    // unit from HERE" is (SFD-053, effects/calm.ts) and Katarina - Reckless's
+    // shot below.
+    //
+    // **The rules agree with the parked version, and it is the TargetingSpec
+    // route that diverges.** 355.5.b: "A unit with a triggered ability that says
+    // 'When I'm played, kill a unit' does not require you to choose a target as
+    // it's played. The target will be chosen when the ability triggers." Putting
+    // an on-play trigger's target on the PlayCard action is this engine's
+    // simplification (it cannot pause mid-resolution, so every other unit trigger
+    // decides at announce). What is left here is one step of slack — the decision
+    // is answered at RESOLUTION rather than when the trigger is finalized on the
+    // chain (355.8) — which is the same gap every parked decision in this engine
+    // carries.
+    //
+    // "TO A BATTLEFIELD" is printed, so a Marai played to base does nothing at
+    // all — unlike Janna, whose "your units here" is a real instruction wherever
+    // she lands. The base case returns early rather than parking a question with
+    // no answers.
+    //
+    // Nothing to shoot is nothing to ask (422 / the same call Rumble's trade and
+    // Katarina's shot make), so an empty enemy side parks no Pending Item.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      if (event.destination === "base") return state;
+      const { battlefieldId } = event.destination;
+      if (enemyUnitsAt(state, ctx.opponentIndex, battlefieldId).length === 0) return state;
+      return parkDecision(state, { kind: "UNL-003-shot", playerIndex: ctx.casterIndex, battlefieldId });
+    },
+  },
+  "UNL-012": {
+    // Lord Broadmane — "[Ambush] [Assault] When you play me, give your OTHER
+    // units HERE [Assault] this turn."
+    //
+    // **HIS `[Ambush]` IS NOT IMPLEMENTED, and it is not implementable from this
+    // file.** "You may play me as a [Reaction] to a battlefield where you have
+    // units" is a play PERMISSION — it belongs beside `PLACEMENT_GRANTS` in
+    // unit-triggers.ts and the timing tier in card-loader/timing.ts, none of
+    // which this file owns. `coverage.UNIMPLEMENTED_KEYWORDS` still carries an
+    // `Ambush` row, so the card correctly reports unimplemented despite this
+    // registration; the row leaving is what flips him, and nothing here should
+    // pretend otherwise.
+    //
+    // His own printed `[Assault]` is the keyword machinery's. Only the GRANT is
+    // written here — writing the printed one again would be a second source of
+    // truth for the same fact.
+    //
+    // "OTHER" excludes him by INSTANCE rather than by defId, so a second Lord
+    // Broadmane already standing there IS pumped. He is on the board by the time
+    // this resolves — `dispatchOnPlayUnit` fires after execute-play-card has
+    // placed him — so without the filter he would pump himself.
+    //
+    // "HERE" is `event.destination`, and unlike Mischievous Marai above he prints
+    // no "to a battlefield": played to BASE he still grants, to his other units
+    // in base. `[Assault]` is worth nothing to a unit that is not attacking, so
+    // that is a dead grant rather than a wrong one — and a Base is a place like
+    // any other, the same reading Janna - Savior's heal takes.
+    //
+    // Bare `[Assault]`, so `grantKeywordThisTurn`'s default value of 1 (807.2's
+    // sum then makes his grant stack with a Blood Rush on the same unit).
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) =>
+      ownUnitsAt(state, ctx.casterIndex, event.destination)
+        .filter((u) => u.instanceId !== unitId)
+        .reduce((next, u) => grantKeywordThisTurn(next, u.instanceId, "Assault", LORD_BROADMANE_ASSAULT), state),
+  },
 };
+
+/** Lord Broadmane's grant, and Mischievous Marai's shot. */
+const LORD_BROADMANE_ASSAULT = 1;
+const MISCHIEVOUS_MARAI_DAMAGE = 2;
+
+/** The units `playerIndex` controls at a freshly-played unit's destination —
+ *  "your other units HERE", where "here" may be a Base.
+ *
+ *  Its own walk rather than a filter over `ownUnitsEverywhere`, because that one
+ *  flattens base and every battlefield together and loses exactly the location
+ *  this reads. */
+function ownUnitsAt(state: GameState, playerIndex: 0 | 1, destination: UnitPlayDestination): readonly UnitInstance[] {
+  const owner = state.players[playerIndex];
+  if (destination === "base") return owner.baseUnits;
+  return state.battlefields.find((bf) => bf.id === destination.battlefieldId)?.units[owner.id] ?? [];
+}
+
+/** The enemy units standing at one battlefield — Mischievous Marai's "an enemy
+ *  unit here". Rebuilt from live state at every call for the reason
+ *  `DecisionDefinition.options` states: a unit that died while the question
+ *  waited must not still be on offer. */
+function enemyUnitsAt(state: GameState, enemyIndex: 0 | 1, battlefieldId: string): readonly UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return bf?.units[state.players[enemyIndex].id] ?? [];
+}
 
 /** Ferrous Forerunner's payout. A spec rather than a call to
  *  `placeRecruitToken`, because a Mech token is a different card: 3 Might, and
@@ -1941,6 +2156,29 @@ export const decisions: Record<string, DecisionDefinition> = {
         instanceId: u.instanceId,
       })),
     resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, KATARINA_RECKLESS_DAMAGE),
+  },
+  // Mischievous Marai's "deal 2 to an enemy unit HERE", raised by her on-play
+  // trigger, which has already established that an enemy unit stands there.
+  //
+  // No decline: no "you may" is printed. Scoped to `d.battlefieldId` — the
+  // battlefield she was played to — which is the whole difference from
+  // Katarina's shot above, whose clause names no battlefield and therefore
+  // offers every enemy unit including the ones in base.
+  //
+  // Rebuilt from live state, so a unit that died or walked away while the
+  // question waited is not on offer; `dealDamage` also answers safely for an id
+  // it cannot find (359.3).
+  "UNL-003-shot": {
+    prompt: () => "Mischievous Marai: deal 2 to which enemy unit here?",
+    options: (state, d) =>
+      d.battlefieldId === undefined
+        ? []
+        : enemyUnitsAt(state, d.playerIndex === 0 ? 1 : 0, d.battlefieldId).map((u) => ({
+            id: u.instanceId,
+            label: u.name,
+            instanceId: u.instanceId,
+          })),
+    resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, MISCHIEVOUS_MARAI_DAMAGE),
   },
 };
 

@@ -271,20 +271,32 @@ describe("the generated [Equip] ability", () => {
     const equipment = registry.all().filter((c) => c.type === "Gear" && c.isEquipment === true);
     expect(equipment).toHaveLength(36);
 
-    // The one that does NOT wire, named rather than counted — a bare count would
-    // let a second unwired card hide behind this one.
+    // The one the GENERATOR does not reach, named rather than counted — a bare
+    // count would let a second unreached card hide behind this one.
     //
     // UNL-158 Shepherd's Heirloom prints `[Equip] — Spend 1 XP`, and XP is a
     // cost shape `ActivationCost` does not carry: it has energy, power, exhaust
     // and two recycle forms, all of which `parseEquipCost` reads off runes and
-    // pips. There is nothing to parse here and nothing to pay with, so the
-    // generated ability is correctly absent rather than generated for free.
+    // pips. There is nothing there to parse, so `def.equipCost` is undefined and
+    // `equipAbilities()` correctly generates nothing rather than a free attach.
     //
-    // This is NOT silent: the card also prints "When you play this, gain 1 XP",
-    // so it has unwritten prose and reports unimplemented on that alone. It
-    // wires itself the day `ActivationCost` learns an `xp` field.
-    const unwired = equipment.filter((c) => !hasActivatableAbility(c.id)).map((c) => c.id);
-    expect(unwired).toEqual(["UNL-158"]);
+    // **Asked of `parseEquipCost`, not of `hasActivatableAbility`, since
+    // 2026-08-09.** The premise of the old assertion was that this card had NO
+    // ability at all, and that stopped being true when `effects/order.ts` gave it
+    // a hand-written one: the XP is gated by `availableWhile(canSpendXp)` and
+    // taken by `spendXp` inside `resolve`, because `ActivationCost` has no `xp`
+    // field and lives in a file the card wave did not own. Two different claims
+    // were being measured with one instrument, and only one of them was still
+    // true — so both are now asserted separately, and the count below cannot
+    // silently absorb a second unwired card.
+    const ungenerated = equipment.filter((c) => parseEquipCost(c.text) === undefined).map((c) => c.id);
+    expect(ungenerated, "the parser's reach changed").toEqual(["UNL-158"]);
+
+    // And the stronger invariant, which is what a player actually experiences:
+    // EVERY Equipment can be attached, however its ability got there. This is the
+    // half that would go quiet if the hand-written entry were deleted.
+    const unattachable = equipment.filter((c) => !hasActivatableAbility(c.id)).map((c) => c.id);
+    expect(unattachable, "an Equipment in the pool cannot be attached at all").toEqual([]);
   });
 
   /** The four that the widening freed, asserted as a group and by cost, because

@@ -114,3 +114,83 @@ describe("[Deflect] taxes an ABILITY that chooses the unit, not only a spell", (
     if (action) expect((action.payment?.rainbowRunes ?? []).length).toBe(0);
   });
 });
+
+/**
+ * The surcharge must not name a rune the ability's OWN Power cost will spend.
+ *
+ * **This crashed the engine, and no test in this suite could see it.** Found
+ * 2026-08-09 by the `hunt-xp` probe, which died mid-run on *"Xerath - Freed's
+ * activation cost cannot be paid"* while its controller held FOUR ready Fury
+ * runes.
+ *
+ * The cause is an ordering gap between two things that never compared notes:
+ *
+ *   `withActivationSurcharge` (legal-actions.ts) chose the tax runes while
+ *   excluding only the runes named for the ability's ENERGY. An activated
+ *   ability's POWER runes are named nowhere in the action — `payActivationCost`
+ *   pays that cost by calling `payPowerFromChanneled`, which picks from state.
+ *
+ *   And it picks FIRST. So the tax could name the very rune the Power cost was
+ *   about to take; the Power step took it, `recycleRunesForSurcharge` then could
+ *   not find it, and `executeActivateAbility` **threw**.
+ *
+ * A throw, not a refusal — because `canPayActivationCost` never looks at the
+ * surcharge, so the enumerator had already offered the action and the validator
+ * had already approved it. Every layer said yes and the executor exploded.
+ *
+ * **Why the whole suite above missed it.** It needs BOTH a `[Deflect]` target and
+ * an ability whose cost is domain Power, and every fixture here uses Iron
+ * Ballista or Orb of Regret, which cost only an exhaust. It became reachable in
+ * play only when wave 2 added Bird tokens carrying `[Deflect]`. That is the case
+ * for keeping a probe that plays whole games next to the unit tests: the
+ * combination existed in no fixture anyone had thought to write.
+ */
+describe("the [Deflect] tax and the ability's own Power cost never claim the same rune", () => {
+  const XERATH_FREED = "UNL-026"; // "[Fury], [Exhaust]: Deal 3 to a unit."
+
+  /** Xerath at a battlefield (his `availableWhile` demands it), an enemy
+   *  [Deflect 1] Poro to shoot, and a rune pool whose FIRST rune is the Fury one
+   *  his Power cost will take — which is the collision. */
+  function xerathBoard(): { state: GameState; poroId: string } {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    const xerath = realUnitInstance(XERATH_FREED);
+    const poro = realUnitInstance(POUTY_PORO);
+    state.battlefields[0] = { ...state.battlefields[0]!, units: { p1: [xerath], p2: [poro] } };
+    // Fury first, then Order: `payPowerFromChanneled` takes the first matching
+    // rune in channeled order, and the old surcharge took the first rune of ANY
+    // domain. Both land on `f0`.
+    state.players[0]!.channeled = [rune("f0", "Fury"), rune("o1", "Order"), rune("o2", "Order"), rune("o3", "Order")];
+    return { state, poroId: poro.instanceId };
+  }
+
+  it("the fixture really does set up the collision — the premise", () => {
+    const { state, poroId } = xerathBoard();
+    expect(deflectSurchargeForTargets(state, 0, [poroId]), "the Poro is not taxed, so nothing collides").toBe(1);
+    const action = activationAtPoro(state, poroId);
+    expect(action, "Xerath's ability was never offered at the Poro").toBeDefined();
+    expect(action!.payment?.rainbowRunes ?? [], "no surcharge was attached").toHaveLength(1);
+  });
+
+  it("does NOT name the rune the Fury cost will spend", () => {
+    // The single assertion that would have caught the crash.
+    const { state, poroId } = xerathBoard();
+    const action = activationAtPoro(state, poroId)!;
+    expect(action.payment!.rainbowRunes, "the tax claimed the same Fury rune the Power cost takes").not.toContain("f0");
+  });
+
+  it("and the activation actually SUBMITS rather than throwing", () => {
+    // The end-to-end proof. `submit` is what the probe drives, and this is the
+    // shape that killed it: every layer approved the action and the executor
+    // threw on a cost it had already been told was payable.
+    const { state, poroId } = xerathBoard();
+    const action = activationAtPoro(state, poroId)!;
+    expect(validateActivateAbility(state, action).ok, "the validator refuses its own enumerated action").toBe(true);
+
+    const after = submit(state, action);
+    expect(after.result.type, after.result.type === "Invalid" ? after.result.error : "").toBe("Ok");
+    // Two runes gone: one recycled for the Fury cost, one for the tax. If they
+    // had been the same rune this would be 3 — which is the bug stated as a
+    // number rather than as an absence of a crash.
+    expect(after.state.players[0]!.channeled, "the tax and the cost shared a rune").toHaveLength(2);
+  });
+});

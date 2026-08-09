@@ -54,6 +54,7 @@ const card = (defId: string): CardInstance => createCardInstance(registry.get(de
 
 const ANGLE_SHOT = "SFD-011";
 const ROCKET_BARRAGE = "SFD-077";
+const DISPOSAL_ORDER = "UNL-103"; // arrived mid-wave, after the mode step existed
 const CHARM = "OGN-043"; // non-modal control: one mode, plain `unit` targeting
 
 /** A candidate as the enumerator emits it — only the fields these comparisons
@@ -62,6 +63,22 @@ const CHARM = "OGN-043"; // non-modal control: one mode, plain `unit` targeting
  *  two candidates that differ only in mode. */
 const candidate = (modeId: string | undefined, extra: Partial<PlayCardAction> = {}): PlayCardAction =>
   ({ modeId, ...extra }) as PlayCardAction;
+
+/** Every modal card in the pool, derived. The label check and the pin below both
+ *  walk this, so a new modal card cannot be visible to one and not the other. */
+const modalCardIds = (): string[] =>
+  registry
+    .all()
+    .filter((definition) => {
+      try {
+        return cardModesOf(createCardInstance(definition)).length > 1;
+      } catch {
+        return false;
+      }
+    })
+    .map((definition) => definition.id)
+    .sort();
+
 
 describe("the engine offers modes the board must ask about", () => {
   it("Angle Shot has two, each with its OWN targeting — the reason one spec cannot describe it", () => {
@@ -84,10 +101,16 @@ describe("the engine offers modes the board must ask about", () => {
 
   it("every mode carries a label — which is what the board's buttons say", () => {
     // `CardMode.label` is documented as "what the board's button says" and had
-    // never been shown to anyone. A blank one is an unpressable button.
-    for (const defId of [ANGLE_SHOT, ROCKET_BARRAGE]) {
+    // never been shown to anyone. A blank one is an unpressable button, and the
+    // mode step has no other affordance — so this is the assertion that decides
+    // whether a NEW modal card is playable at all.
+    //
+    // Walks the census rather than a hardcoded pair, deliberately: UNL-103
+    // arrived from a card wave the day after this file was written, and a list
+    // of two ids would have kept passing while saying nothing about it.
+    for (const defId of modalCardIds()) {
       for (const mode of cardModesOf(card(defId))) {
-        expect(mode.label.length, `${defId}/${mode.id} has no label`).toBeGreaterThan(0);
+        expect(mode.label.length, `${defId}/${mode.id} has no label — its button would be blank`).toBeGreaterThan(0);
       }
     }
   });
@@ -177,18 +200,16 @@ describe("the census of modal cards", () => {
    * A third arriving is exactly when this fix stops being complete — and the
    * failure mode of a modal card is silent, so nothing else would say so.
    */
-  it("is exactly Angle Shot and Rocket Barrage", () => {
-    const modal = registry
-      .all()
-      .filter((definition) => {
-        try {
-          return cardModesOf(createCardInstance(definition)).length > 1;
-        } catch {
-          return false;
-        }
-      })
-      .map((definition) => definition.id)
-      .sort();
-    expect(modal).toEqual([ANGLE_SHOT, ROCKET_BARRAGE].sort());
+  it("is Angle Shot, Rocket Barrage and Disposal Order", () => {
+    // **UNL-103 Disposal Order arrived from a card wave the day after the mode
+    // step was built, and this is the assertion that noticed.** It needed no UI
+    // change: the step fires for any card with more than one mode, so the card
+    // was playable on arrival. Had the fix been written around the two cards that
+    // were reported instead of around the mechanism, this would have been a third
+    // silent stall — and a modal card fails quietly, so nothing else would say so.
+    //
+    // The premise is FIXED rather than the assertion weakened: still an exact
+    // equality, because the point is that a new one forces a deliberate look.
+    expect(modalCardIds()).toEqual([ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER].sort());
   });
 });
