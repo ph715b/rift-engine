@@ -1759,7 +1759,20 @@ export function legalActions(state: GameState): PlayerAction[] {
             type: "PlayCard",
             playerIndex,
             card,
-            payment: variantPayment,
+            // **The TAXED payment — the same bug the reinforce branch above
+            // already fixed, latent here until 2026-08-09.** This read
+            // `variantPayment`, and every candidate it pushed omitted a surcharge
+            // the validator then demanded. It was unreachable while this table
+            // held three cards that could not attract one; adding Desert's Call
+            // and Flurry of Feathers made it live, and `hunt-xp` died on "Flurry
+            // of Feathers must pay 1 rainbow Power for Vex - Cheerless, but named
+            // 0" — a THROW, because the AI takes an enumerated action straight to
+            // the executor.
+            //
+            // Vex - Cheerless's tax is not target-keyed, so it is owed by any
+            // spell while she is out — which is why a destination fan-out with no
+            // targets at all could still owe one.
+            payment: variantPaymentForTargets,
             ...variant,
             destinationBattlefieldId: bf.id,
             ...(fromHiddenBattlefieldId !== undefined ? { fromHiddenBattlefieldId } : {}),

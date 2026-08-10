@@ -1060,6 +1060,25 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
   // per-token split (Vanguard Armory) is an activated ability and reaches its
   // destinations another way.
   "SFD-198",
+  // **Desert's Call and Flurry of Feathers, added 2026-08-09.**
+  //
+  // The evidence was an inconsistency this table already contained: Sprite Call
+  // (OGN-094) and Desert's Call (SFD-031) print the IDENTICAL shape — "Play a
+  // [N] Might [X] unit token", no destination clause — and only one of them was
+  // listed. Only Recruit the Vanguard actually prints the parenthetical, so the
+  // list was not tracking what the cards say.
+  //
+  // 185.2.a settles which was wrong: tokens are played "following all the
+  // applicable steps for playing a card plus any restrictions or modifications
+  // from the effect that created the token", and the inherent restriction on
+  // playing a Unit is "base or a battlefield they control". Neither card
+  // restricts anything, so both get the ordinary choice. Sprite Call was right.
+  //
+  // **SFD-031 is in a hard-gated set**, so this changes behaviour in a
+  // declared-complete one — deliberately, on the project owner's call, with the
+  // probes re-run rather than assumed.
+  "SFD-031", // Desert's Call — one Sand Soldier, or two under its [Repeat]
+  "UNL-044", // Flurry of Feathers — all four Birds at ONE chosen destination
 ]);
 
 export function cardPlacesTokens(defId: string): boolean {

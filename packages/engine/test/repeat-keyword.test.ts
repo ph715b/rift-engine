@@ -1533,3 +1533,41 @@ describe("the Unleashed [Repeat] cards actually offer their repeat", () => {
     });
   }
 });
+
+/**
+ * Desert's Call now offers a DESTINATION, like every other token-playing spell.
+ *
+ * It sat outside `TOKEN_PLACEMENT_SPELL_DEF_IDS` while Sprite Call — which prints
+ * the identical shape, "Play a [N] Might [X] unit token" with no destination
+ * clause — sat inside it. Two cards saying the same thing behaved differently,
+ * which meant one was wrong regardless of which rule you preferred.
+ *
+ * 185.2.a settles it: tokens are played "following all the applicable steps for
+ * playing a card plus any restrictions or modifications from the effect that
+ * created the token", and the inherent restriction on playing a Unit is "base or
+ * a battlefield they control". Desert's Call restricts nothing, so the choice
+ * exists. Sprite Call was right.
+ *
+ * **This is a behaviour change in SFD, a declared-complete set**, made on the
+ * project owner's call rather than folded into a card wave.
+ */
+describe("Desert's Call places its token where the caster chooses", () => {
+  it("offers a battlefield the caster controls, not only base", () => {
+    const { state, spellId } = caster(DESERTS_CALL, "Calm", 8);
+    state.battlefields[0] = { ...state.battlefields[0]!, controllerId: "p1" };
+
+    const destinations = playsOf(state, spellId).map((a) => a.destinationBattlefieldId ?? "base");
+    expect(destinations.length, "the spell enumerated nothing — this asserts nothing").toBeGreaterThan(0);
+    expect(new Set(destinations), "no destination choice is offered — the token always lands in base").toContain("bf1");
+    expect(new Set(destinations), "base stopped being an option").toContain("base");
+  });
+
+  it("and its [Repeat] still works alongside the new choice", () => {
+    // The control on the change: adding a destination axis multiplies the
+    // candidate list, and the repeat variant must survive that rather than be
+    // crowded out. Both fan-outs ride `destinationBattlefieldId`.
+    const { state, spellId } = caster(DESERTS_CALL, "Calm", 8);
+    state.battlefields[0] = { ...state.battlefields[0]!, controllerId: "p1" };
+    expect(playsOf(state, spellId).filter((a) => a.repeatPaid).length, "the repeat variant vanished").toBeGreaterThan(0);
+  });
+});

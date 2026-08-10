@@ -6,7 +6,7 @@ import { deflectSurchargeForTargets } from "../src/engine/granted-keywords.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { ActivateAbilityAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makeState, realUnitInstance } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance } from "../src/model/card.js";
 import type { GearInstance } from "../src/model/card.js";
@@ -192,5 +192,73 @@ describe("the [Deflect] tax and the ability's own Power cost never claim the sam
     // had been the same rune this would be 3 — which is the bug stated as a
     // number rather than as an absence of a crash.
     expect(after.state.players[0]!.channeled, "the tax and the cost shared a rune").toHaveLength(2);
+  });
+});
+
+/**
+ * A token-placing spell's DESTINATION variants owe the surcharge too.
+ *
+ * `legal-actions` fans a token-placing Spell out over the battlefields its caster
+ * controls, and that branch pushed `variantPayment` — the untaxed one — while the
+ * Unit reinforce branch directly above it pushes `variantPaymentForTargets` under
+ * a comment recording that using the plain payment there had been "a real
+ * offered-then-refused bug".
+ *
+ * The same bug, one branch down, latent because the table held three cards that
+ * could not attract a surcharge. Adding Desert's Call and Flurry of Feathers on
+ * 2026-08-09 made it live and `hunt-xp` died on *"Flurry of Feathers must pay 1
+ * rainbow Power for Vex - Cheerless, but named 0"* — a THROW rather than a
+ * refusal, because the AI takes an enumerated action straight to the executor.
+ *
+ * Vex - Cheerless's tax is not target-keyed: any spell owes it while she is on the
+ * board. That is why a fan-out with no targets at all could still owe one, and
+ * why this is testable without any [Deflect] unit.
+ */
+describe("a token-placing spell's destination variants carry the surcharge", () => {
+  const FLURRY_OF_FEATHERS = "UNL-044"; // [Reaction], and its `birds` mode places tokens
+  const VEX_CHEERLESS = "SFD-146";
+
+  it("every enumerated destination names the rainbow, not just the base play", () => {
+    // **The fixture is the point, and my first two attempts had it wrong.** Vex is
+    // SFD-146 (I reached for SFD-121, a different card), and her tax applies only
+    // to a spell cast INTO HER COMBAT — `vexSpellSwing` returns 0 unless
+    // `showdownKind === "Combat"` and she is standing at the showdown battlefield.
+    // That is exactly why the probe hit this on Flurry of Feathers, a [Reaction]
+    // castable inside a combat, and never on Desert's Call, which is not.
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.hand = [createCardInstance(defaultCardRegistry().get(FLURRY_OF_FEATHERS))];
+    state.players[0]!.channeled = Array.from({ length: 10 }, (_, i) => rune(`r${i}`, "Calm"));
+    // A running COMBAT at bf1, with Vex on the enemy side of it and the caster
+    // controlling the battlefield so a token destination is offered at all.
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      controllerId: "p1",
+      units: { p1: [makeUnit({ name: "Mine" })], p2: [realUnitInstance(VEX_CHEERLESS)] },
+    };
+    state.turnState = "Showdown";
+    state.showdownKind = "Combat";
+    state.showdownBattlefieldId = "bf1";
+    state.focusHolder = 0;
+
+    const plays = legalActions(state).filter(
+      (a): a is Extract<typeof a, { type: "PlayCard" }> => a.type === "PlayCard" && a.card.defId === FLURRY_OF_FEATHERS,
+    );
+
+    // Premises, both asserted: the spell is castable here, and a DESTINATION
+    // variant really is fanned out. Without the second this tests the base play
+    // only, which was never the broken half.
+    expect(plays.length, "the spell enumerated nothing — this asserts nothing").toBeGreaterThan(0);
+    const destinations = plays.filter((a) => a.destinationBattlefieldId !== undefined);
+    expect(destinations.length, "no destination variant was fanned out").toBeGreaterThan(0);
+
+    // Every candidate, not just the base one. The bug produced a MIX — the base
+    // play taxed, the destination variants not — so an assertion over the first
+    // candidate would have passed.
+    for (const play of plays) {
+      expect(
+        (play.payment.rainbowRunes ?? []).length,
+        `the ${play.destinationBattlefieldId ?? "base"} variant names no rainbow, and the executor THROWS on it`,
+      ).toBe(1);
+    }
   });
 });

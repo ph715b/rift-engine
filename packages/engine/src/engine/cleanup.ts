@@ -206,11 +206,31 @@ function stageShowdowns(state: GameState): GameState {
     focusHolder: contested.contestedByIndex!,
     consecutiveFocusPasses: 0,
   };
+  // **344, and it fires for BOTH kinds** — "A Showdown begins when Control of a
+  // Battlefield is Contested during a Cleanup and the turn is in a Neutral Open
+  // State", which says nothing about anyone being there to fight. A Non-Combat
+  // Showdown is a showdown that began, and before this event existed a "when a
+  // showdown begins" listener saw nothing in that case, because `beginCombatAt`
+  // below is the only thing that fired.
+  //
+  // Held BEFORE the combat is staged, so the two land on the chain in the order
+  // they happened: the showdown began, and then (sometimes) a combat opened
+  // inside it.
+  const announced = holdEventTrigger(
+    staged,
+    {
+      kind: "showdownBegan",
+      battlefieldId: contested.id,
+      showdownKind: isCombat ? "Combat" : "NonCombat",
+      contestedByIndex: contested.contestedByIndex!,
+    },
+    contested.contestedByIndex!,
+  );
   // Only a COMBAT Showdown has attackers and defenders — a Non-Combat one is a
   // window with nobody to fight, so "attacks or defends alone" is not true of
   // anyone in it, and nobody gains the Attacker designation an Attack Trigger
   // waits on. It fires later if 316.8.b.1.a promotes it.
-  return isCombat ? beginCombatAt(staged, contested.id) : staged;
+  return isCombat ? beginCombatAt(announced, contested.id) : announced;
 }
 
 /**

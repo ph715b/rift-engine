@@ -904,6 +904,33 @@ export type GameEvent =
    * second copy of that fact, free to disagree with the field the Showdown
    * actually runs on.
    */
+  /**
+   * A SHOWDOWN began — either kind.
+   *
+   * **Not the same moment as `combatBegan`, and the difference is the whole**
+   * **reason this exists.** 344: "A Showdown begins when Control of a Battlefield
+   * is Contested during a Cleanup and the turn is in a Neutral Open State." That
+   * is true of a Non-Combat Showdown too — one player walking unopposed into a
+   * battlefield somebody else controls — and no combat opens there, so
+   * `combatBegan` never fires and a "when a showdown begins" listener saw
+   * nothing at all.
+   *
+   * It also fires at a DIFFERENT time from `combatBegan` in the one case both
+   * occur: 316.8.b.1.a promotes a Non-Combat Showdown to a Combat one at a later
+   * Cleanup when an opponent's units arrive. The showdown began at the first
+   * Cleanup; the combat begins at the second. Firing this only alongside
+   * `combatBegan` would date the showdown to the wrong moment.
+   *
+   * Carries the KIND, because a listener may reasonably care — and because a
+   * reader of a log should not have to re-derive it from the battlefield.
+   */
+  | {
+      kind: "showdownBegan";
+      battlefieldId: string;
+      showdownKind: "Combat" | "NonCombat";
+      /** Who contested it — 344's "Control of a Battlefield is Contested". */
+      contestedByIndex: 0 | 1;
+    }
   | {
       kind: "combatBegan";
       battlefieldId: string;
@@ -1108,6 +1135,7 @@ export type HeldEventKind =
   | "runesRecycled"
   | "buffSpent"
   | "equipmentAttached"
+  | "showdownBegan"
   | "combatBegan"
   | "combatWon"
   | "unitsStunned"

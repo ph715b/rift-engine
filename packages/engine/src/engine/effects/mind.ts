@@ -1639,10 +1639,11 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // The pay/decline question is dropped whole when the Energy is not there, so
     // `advanceDecisions` never shows a lone Decline (Icevale Archer's convention,
     // one registry up).
-    on: "combatBegan",
-    applies: isFightingAt,
+    on: "showdownBegan",
+    applies: (state, listener, event) =>
+      event.kind === "showdownBegan" && listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => {
-      if (event.kind !== "combatBegan") return state;
+      if (event.kind !== "showdownBegan") return state;
       // Priced at RESOLUTION, not in `applies` — Solari Shrine's split, and the
       // one that matters here: the response window this hold opens can gain or
       // spend the Energy, and 383 fixes only what TRIGGERED.

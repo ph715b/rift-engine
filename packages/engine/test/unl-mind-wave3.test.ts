@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
+import { runCleanup } from "../src/engine/cleanup.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
@@ -572,5 +573,87 @@ describe("Lillia - Fae Fawn (UNL-082): a Sprite at the location she left", () =>
     expect(baseUnitsOf(theirs, 0).map((u) => u.name), "'when I move' fired for somebody else").toEqual([
       "Lillia - Fae Fawn",
     ]);
+  });
+});
+
+/**
+ * Diana on a NON-COMBAT showdown — the half that was impossible when she landed.
+ *
+ * She reads "when a showdown begins here", and 344 makes that "when Control of a
+ * Battlefield is Contested during a Cleanup and the turn is in a Neutral Open
+ * State" — which says nothing about anyone being there to fight. A player walking
+ * unopposed into a battlefield somebody else controls begins a Showdown.
+ *
+ * When she was written the only event was `combatBegan`, so she fired on combat
+ * showdowns only and this case got nothing. `cleanup.stageShowdowns` now holds a
+ * `showdownBegan` for BOTH kinds, and these are the tests that could not exist
+ * before it.
+ *
+ * The over-trigger it also closed is asserted below: `combatBegan` fires again
+ * when a reinforcement arrives, so Diana walking into an ONGOING combat used to
+ * fire this — she gains a designation at that moment and no showdown began.
+ */
+describe("Diana - Lunari (UNL-079): a NON-COMBAT showdown is still a showdown", () => {
+  const DIANA = "UNL-079";
+
+  /** Diana alone at a battlefield the OPPONENT controls, contested by her side —
+   *  nobody to fight, so `stageShowdowns` stages a Non-Combat Showdown. */
+  function nonCombatBoard(energy = 1) {
+    const diana = realUnitInstance(DIANA);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0] = {
+      ...state.battlefields[0]!,
+      controllerId: "p2",
+      contestedByIndex: 0,
+      units: { p1: [diana] },
+    };
+    state.players[0]!.floatingEnergy = energy;
+    state.players[0]!.deck = deckOf(TIME_WARP, PROMISING_FUTURE);
+    return { state, diana };
+  }
+
+  it("asks when she contests an EMPTY battlefield — no combat, still a showdown", () => {
+    const { state } = nonCombatBoard();
+    const settled = resolveHeldTriggers(runCleanup(state));
+
+    // The premise first: this really is the non-combat branch, or the test proves
+    // nothing about it.
+    expect(settled.showdownKind, "the fixture staged a COMBAT showdown — wrong branch").toBe("NonCombat");
+    expect(pendingDecision(settled)?.kind, "she got nothing from a non-combat showdown").toBe("UNL-079-pay");
+  });
+
+  it("does NOT ask when nothing is contested — the control", () => {
+    // Without this, "she asked" above could just mean she asks on every Cleanup.
+    const { state } = nonCombatBoard();
+    state.battlefields[0] = { ...state.battlefields[0]!, contestedByIndex: null, controllerId: "p1" };
+    const settled = resolveHeldTriggers(runCleanup(state));
+    expect(settled.turnState, "a showdown staged anyway").not.toBe("Showdown");
+    expect(pendingDecision(settled), "she asked with no showdown at all").toBeUndefined();
+  });
+
+  it("does not ask a SECOND time when the showdown is already running", () => {
+    // 316.8.b.1.a promotes a Non-Combat Showdown to a Combat one at a LATER
+    // Cleanup once an opponent arrives. The showdown began at the first; only a
+    // combat begins at the second. Firing again there would date the showdown to
+    // the wrong moment — which is exactly what listening to `combatBegan` did.
+    const { state } = nonCombatBoard();
+    const first = resolveHeldTriggers(runCleanup(state));
+    expect(pendingDecision(first)?.kind).toBe("UNL-079-pay");
+
+    const answered = submit(first, {
+      type: "AnswerDecision",
+      playerIndex: 0,
+      decisionId: pendingDecision(first)!.id,
+      optionId: "decline",
+    }).state;
+    expect(pendingDecision(answered), "the first question never cleared").toBeUndefined();
+
+    // An opponent walks in: the showdown becomes a Combat one.
+    const reinforced = { ...answered, battlefields: answered.battlefields.map((bf) => ({ ...bf })) };
+    reinforced.battlefields[0]!.units = { ...reinforced.battlefields[0]!.units, p2: [makeUnit({ name: "Latecomer" })] };
+    const promoted = resolveHeldTriggers(runCleanup(reinforced));
+
+    expect(promoted.showdownKind, "it never promoted, so this asserts nothing").toBe("Combat");
+    expect(pendingDecision(promoted), "she asked again when only a COMBAT began").toBeUndefined();
   });
 });
