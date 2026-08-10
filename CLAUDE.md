@@ -85,6 +85,11 @@ were found in a single day: "rule 1678" (a line number), Frostcoat Cub's "707.2"
 (a rule that does not exist, justifying a Might floor that should not exist), and
 "rule 2701" (another line number, which I then passed into an agent brief).
 
+**A FOURTH line-number-as-rule surfaced on 2026-08-09** — "2236", cited four times
+in `chaos.ts` for "current Might", three of them pre-existing. So this is a
+recurring class rather than one bad day, and it keeps being found by whoever next
+needs the sentence rather than by any instrument.
+
 `-raw` emits the document in reading order with each number attached to its own
 text, and it settles these instantly:
 
@@ -100,6 +105,7 @@ Measured against it, citations this repo had been carrying:
 | a unit "becomes Mighty" crossing 5 | 715 | **709** |
 | "you may pay X. If you do…" is not a cost | 204 | **205** |
 | Might below 0 is treated as 0 when referenced | (cited by neighbour) | **143.2.b** |
+| a unit's "current Might" | "2236" ×4 in `chaos.ts` — a LINE NUMBER, found 2026-08-09 | **143.2** (plus **432.1**'s worked Shield example) |
 
 The current PDF is downloadable from Riot's CDN — the project owner supplied
 `https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/e9ac8e3d33e0f78cef296f5945aba7bc1313b086.pdf`.
