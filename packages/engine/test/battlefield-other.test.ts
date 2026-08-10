@@ -128,9 +128,21 @@ describe("Back-Alley Bar (OGN-277): a unit moving FROM here gets +1 Might this t
     expect(find(settled, unit.instanceId)!.mightThisTurn, "the Bar paid nothing for the departure").toBe(1);
   });
 
-  it("does NOT fire for a Recall — 456 says a Recall is not a Move", () => {
-    // The same line `movesThisTurn` and the `unitMoved` event already draw, and
-    // the Bar rides that site precisely so the three cannot disagree.
+  /**
+   * **A unit walking home HAS moved from here, and this test used to deny it.**
+   *
+   * It asserted the Bar paid nothing, citing "456 says a Recall is not a Move".
+   * That sentence is true, and it was applied to something that is not a Recall.
+   * **455 defines a Recall as a relocation to base WITHOUT it being a Move**, so a
+   * player sending their own unit home is not one: 446.1 makes any permanent
+   * changing position from one space on the Board to another a Move, and 107.1.b
+   * makes a Base a Location. The rules' Recalls are system relocations — 457.1's
+   * automatic gear recall and 446.1's "corrective Recall".
+   *
+   * The engine's action is still NAMED `RecallUnit`, inherited from the Java
+   * oracle, which is how one misreading came to sit in three places at once.
+   */
+  it("DOES fire for a unit walking home — that is a Move to base", () => {
     const { state, unit } = mover();
     const { state: recalled, result } = submit(state, {
       type: "RecallUnit",
@@ -139,7 +151,7 @@ describe("Back-Alley Bar (OGN-277): a unit moving FROM here gets +1 Might this t
     });
     expect(result).toMatchObject({ type: "Ok" });
     const settled = resolveHeldTriggers(recalled);
-    expect(find(settled, unit.instanceId)!.mightThisTurn, "a Recall paid the Bar's +1").toBe(0);
+    expect(find(settled, unit.instanceId)!.mightThisTurn, "walking home paid nothing — still treated as a Recall").toBe(1);
   });
 
   it("does not fire for a unit moving INTO it", () => {

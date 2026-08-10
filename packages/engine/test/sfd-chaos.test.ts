@@ -996,3 +996,46 @@ describe("coverage sees each of them", () => {
     expect(partialImplementationNote(registry.get(CORRUPT_ENFORCER))).toBeUndefined();
   });
 });
+
+/**
+ * Treasure Hunter walking HOME — the report that started this.
+ *
+ * *"I moved a treasure hunter back from a BF and it did not generate a gold gear
+ * token."* His text is a bare "When I move", with no destination clause at all —
+ * the block above already asserts that against a battlefield-to-battlefield move.
+ * Walking home is the third direction, and it was the one that paid nothing.
+ *
+ * **455 defines a Recall as a relocation to base WITHOUT it being a Move**, so a
+ * player sending their own unit home is a Move (446.1; 107.1.b makes a Base a
+ * Location). The engine's action is named `RecallUnit` after the Java oracle, and
+ * the name is what made a true sentence about Recalls look like it applied here.
+ */
+describe("Treasure Hunter walking home is still a move", () => {
+  function atBattlefield(): { state: GameState; hunter: UnitInstance } {
+    const hunter = realUnitInstance(TREASURE_HUNTER);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = { p1: [hunter] };
+    return { state, hunter };
+  }
+
+  it("mints a Gold token for the walk home", () => {
+    const { state, hunter } = atBattlefield();
+
+    const after = resolveHeldTriggers(
+      accept(state, { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [hunter.instanceId] }),
+    );
+
+    // Premise: he actually got home. "No gold" and "never moved" look identical.
+    expect(after.players[0]!.baseUnits.map((u) => u.name), "he never came home").toContain("Treasure Hunter");
+    expect(goldOf(after, 0), "walking home minted no Gold — the reported bug").toHaveLength(1);
+    expect(goldOf(after, 0)[0]!.exhausted, "it entered ready").toBe(true);
+  });
+
+  it("and the opponent gets nothing — the control", () => {
+    const { state, hunter } = atBattlefield();
+    const after = resolveHeldTriggers(
+      accept(state, { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [hunter.instanceId] }),
+    );
+    expect(goldOf(after, 1)).toHaveLength(0);
+  });
+});

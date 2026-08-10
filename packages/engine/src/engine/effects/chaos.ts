@@ -2187,7 +2187,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // the four files shares it); closing it is a change to effect-helpers.ts.
     // Under-fires rather than over-fires, which is the direction to err.
     on: "unitMoved",
-    applies: (_state, listener, event) => event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    // **"TO A BATTLEFIELD" is a real restriction and was not being checked.**
+    // This matched any `unitMoved` naming him, which was harmless only while the
+    // engine emitted no event for a unit walking home. It does now — 455 defines
+    // a Recall as a relocation to base WITHOUT being a Move, so a player sending
+    // their own unit home is a Move — and he immediately began paying 2 XP for
+    // going home, which his text does not offer.
+    //
+    // `to === "base"` is the whole test: `unitMoved.to` names a battlefield id for
+    // every other destination.
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId && event.to !== "base",
     resolve: (state, listener) => gainXp(state, listener.ownerIndex, MISTER_ROOT_XP),
   },
   "UNL-141": {

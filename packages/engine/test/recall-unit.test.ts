@@ -208,3 +208,66 @@ describe("RecallUnit: battlefield -> base", () => {
     expect(state.players[0]!.baseUnits.every((u) => u.exhausted)).toBe(true);
   });
 });
+
+/**
+ * Walking a unit home is a MOVE, and it fires what a Move fires.
+ *
+ * Reported from playtesting: *"I moved a treasure hunter back from a BF and it
+ * did not generate a gold gear token."* Treasure Hunter reads "When I move, play
+ * a Gold gear token exhausted", and it was right to expect one.
+ *
+ * **I first called that correct behaviour**, citing 456.1 — "Recalls do not cause
+ * Triggered Abilities to trigger that are triggered by Move actions". A true
+ * sentence about Recalls, applied to something that is not one. **455 defines a
+ * Recall as a relocation to base WITHOUT it being a Move.** A player sending
+ * their own unit home is a Move: 446.1 makes any permanent changing position from
+ * one space on the Board to another a Move, and 107.1.b makes a Base a Location.
+ * The rules' Recalls are system relocations — 457.1's automatic gear recall, and
+ * 446.1's "corrective Recall".
+ *
+ * The engine already agreed everywhere except its events: it exhausts (144.2, the
+ * standard move cost) and `validate-recall-unit` gates it through
+ * `mayMoveToBaseFrom`, which is Minotaur Reckoner's "units can't move to base".
+ * The action is still NAMED `RecallUnit`, inherited from the Java oracle — which
+ * is how one misreading came to sit in three places at once.
+ */
+describe("a unit walking home has moved", () => {
+  const originId = "bf1";
+
+  function walkHome(unitCount = 1) {
+    const units = Array.from({ length: unitCount }, () => makeUnit());
+    const state = makeState();
+    state.battlefields[0]!.units = { p1: units };
+    const action: RecallUnitAction = {
+      type: "RecallUnit",
+      playerIndex: 0,
+      unitInstanceIds: units.map((u) => u.instanceId),
+    };
+    return { after: executeRecallUnit(state, action), units };
+  }
+
+  it("counts the walk home as a move on the unit", () => {
+    const { after, units } = walkHome();
+    // `movesThisTurn` is what a "when I move" card and Miss Fortune - Captain both
+    // read. It was not incremented before this change, so a unit could walk out
+    // and back all turn and read as never having moved.
+    const home = after.players[0]!.baseUnits.find((u) => u.instanceId === units[0]!.instanceId);
+    expect(home, "the unit never arrived in base").toBeDefined();
+    expect(home!.movesThisTurn, "walking home did not count as a move").toBe(1);
+  });
+
+  it("counts one move per unit in a group walk-home", () => {
+    // A group retreat is several moves, and "when I move" is asked of each mover.
+    const { after, units } = walkHome(3);
+    const homed = units.map((u) => after.players[0]!.baseUnits.find((b) => b.instanceId === u.instanceId));
+    expect(homed.every((u) => u !== undefined), "not everyone came home").toBe(true);
+    expect(homed.map((u) => u!.movesThisTurn), "some unit's move was not counted").toEqual([1, 1, 1]);
+  });
+
+  it("still exhausts them — 144.2, the standard move cost", () => {
+    // The half that was already right, kept as a control: making the walk a Move
+    // must not have made it free.
+    const { after, units } = walkHome();
+    expect(after.players[0]!.baseUnits.find((u) => u.instanceId === units[0]!.instanceId)!.exhausted).toBe(true);
+  });
+});

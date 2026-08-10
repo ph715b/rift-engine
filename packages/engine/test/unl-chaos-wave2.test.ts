@@ -249,7 +249,23 @@ describe("Mister Root (UNL-127): when I move to a battlefield, gain 2 XP", () =>
     expect(after.players[0]!.xp, "he paid out for a friend's move").toBe(0);
   });
 
-  it("gains nothing for a RECALL — 455, a Recall is not a Move", () => {
+  /**
+   * **Right answer, wrong reason — and the wrong reason was load-bearing.**
+   *
+   * This said "gains nothing for a RECALL — 455, a Recall is not a Move". The
+   * assertion is correct; the justification was not. **455 defines a Recall as a
+   * relocation to base WITHOUT it being a Move**, so a player walking their own
+   * unit home IS a Move (446.1, with 107.1.b making a Base a Location).
+   *
+   * Mister Root pays nothing for a reason printed on the card instead: "When I
+   * move **to a battlefield**, gain 2 XP." Home is not a battlefield.
+   *
+   * **His `applies` was not checking that**, and the moment the walk-home event
+   * started firing he paid 2 XP for going home. Fixed on the card. This test now
+   * exercises the filter rather than relying on no event existing at all, which
+   * is why it is stronger than the version it replaces.
+   */
+  it("gains nothing walking HOME — his text says 'to a battlefield'", () => {
     // Its own positive control first: the ordinary move on the same board pays 2.
     const { state, root } = rootState();
     expect(moveTo(state, root.instanceId, "bf1").players[0]!.xp, "the control move paid nothing either").toBe(2);
@@ -266,7 +282,7 @@ describe("Mister Root (UNL-127): when I move to a battlefield, gain 2 XP", () =>
     );
 
     expect(home.players[0]!.baseUnits.map((u) => u.name), "he never came home").toEqual(["Mister Root"]);
-    expect(home.players[0]!.xp, "a Recall paid out as a move").toBe(0);
+    expect(home.players[0]!.xp, "a move to BASE paid his battlefield-only trigger").toBe(0);
   });
 
   /**
