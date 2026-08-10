@@ -1320,10 +1320,20 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     return legal.filter((a) => a.type === "ActivateAbility" && a.permanentInstanceId === permanentInstanceId);
   }
 
-  /** Does this permanent have an exhaust-cost ability the human can use right
-   *  now? Asked of `legal` rather than of the registry, so "Ready", "you control
-   *  it", "the Action phase" and "a legal target exists" are all answered by the
-   *  engine's own enumeration instead of being re-derived here. */
+  /**
+   * Does this permanent have an ability the human can use right now?
+   *
+   * Asked of `legal` rather than of the registry, so "Ready", "you control it",
+   * "the Action phase" and "a legal target exists" are all answered by the
+   * engine's own enumeration instead of being re-derived here.
+   *
+   * **It used to say "an exhaust-cost ability", and that description has been
+   * outgrown rather than being wrong.** Unleashed prints abilities whose whole
+   * cost is XP with no exhaust at all (UNL-102, UNL-126, UNL-162), which are
+   * repeatable while the XP lasts. They need nothing here precisely because this
+   * re-derives nothing — but a reader who believed the old wording would go
+   * looking for the exhaust gate that makes them work, and there isn't one.
+   */
   function canActivate(permanentInstanceId: string): boolean {
     return abilityCandidates(permanentInstanceId).length > 0;
   }
