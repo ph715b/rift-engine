@@ -139,10 +139,26 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   // Deleting the entry is what flips every card whose only remaining gap it was;
   // for UNL-100 Voracious Gromp, whose entire printed text is `[Hunt 3]` and its
   // reminder, that is the whole card.
-  [
-    "Level",
-    "[Level] is ignored — its ability is granted unconditionally instead of at an XP threshold",
-  ],
+  // **`[Level]` LEFT on 2026-08-09, and the shape of its removal is [Repeat]'s.**
+  //
+  // The entry said "[Level] is ignored — its ability is granted unconditionally
+  // instead of at an XP threshold". That was true of the ENGINE when written and
+  // is not a property of the keyword: wave-2 agents implemented it per card with
+  // an `atLevel(state, playerIndex, threshold)` read of `PlayerState.xp`, which is
+  // `[Legion]`'s precedent and gates in BOTH directions — 824.1.d makes the
+  // ability Inactive again the moment XP drops below N, which is why a one-shot
+  // pump was refused by two separate agents as not an acceptable approximation.
+  //
+  // A keyword-level flag greys every card that prints the word, so it was
+  // reporting Combat Experience and Wuju Apprentice — both of which gate
+  // correctly — as unimplemented. That is not merely cosmetic: `deck-generator`
+  // filters on `isCardImplemented`, so all 16 were excluded from generated decks,
+  // unreachable in play, and invisible to `reachability` and `ai-health`. A card
+  // cannot be observed working while the gate says it does not work.
+  //
+  // The cards whose `[Level]` clause is genuinely unwritten are named individually
+  // in `PARTIALLY_IMPLEMENTED` below — same as `[Repeat]`, for the same reason its
+  // note gives: a keyword-level flag would wrongly grey the ones that work.
   [
     "Ambush",
     "[Ambush] is ignored — this can't yet be played as a [Reaction] to a battlefield you hold",
@@ -431,9 +447,19 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-095",
     "half written: the +3 Might works; 'when it wins a combat this turn, gain 2 XP' is unwritten — a resolved Spell sits in its caster's trash and reaches no listener walk",
   ],
+  [
+    "UNL-133",
+    "half written: the move works; 'when you move an enemy unit, you may exhaust this to [Stun] it' cannot fire — no effect-driven move emits an event, and unitMoved carries the moved unit's controller rather than the mover",
+  ],
+  // **Exposed by removing the `[Level]` keyword flag above**, which had been
+  // greying this card for the wrong reason. Its draw is written; its two
+  // `[Level]` COST reductions are not — those are a `modifiedEnergyCost` entry in
+  // `cost-modifiers.ts`, not something a domain effect file can express. Worth
+  // noting for whoever writes it: `[Level 11]` says "instead", so the deeper tier
+  // REPLACES the shallower one — the reduction is −4, not −6.
   [
-    "UNL-133",
-    "half written: the move works; 'when you move an enemy unit, you may exhaust this to [Stun] it' cannot fire — no effect-driven move emits an event, and unitMoved carries the moved unit's controller rather than the mover",
+    "UNL-091",
+    "half written: the draw works; its [Level 6] and [Level 11] cost reductions are unwritten (no cost-modifiers entry)",
   ],
   // **UNL-023 Katarina - Reckless is HALF written**, and she is the first card in
   // this pool to make the decision-key over-report REAL rather than theoretical.

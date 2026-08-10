@@ -58,7 +58,7 @@ import {
 } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { gainPoints } from "../effect-helpers.js";
-import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "../token.js";
+import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec, BIRD_TOKEN } from "../token.js";
 
 /**
  * Card implementations for **Calm** — one file, one owner.
@@ -157,7 +157,6 @@ const DOUBLE_TROUBLE_LOOK = 3;
  * the token genuinely taxes an opponent who chooses it — 1 rainbow Power, since
  * a magnitude-less bracket is 1.
  */
-const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-031": {

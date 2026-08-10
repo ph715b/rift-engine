@@ -301,8 +301,18 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // deleting one entry is what flips every card whose only remaining gap it
     // was, and this list is the only thing that says which keyword is still
     // pending.
+    //
+    // **`[Level]` left on 2026-08-09**, and its removal is worth distinguishing
+    // from Hunt's. Hunt left because ONE keyword-keyed trigger now serves all 12
+    // cards. Level leaves because it is not a keyword-level gap at all — it is
+    // implemented PER CARD (`atLevel`, reading `PlayerState.xp`), so the flag was
+    // greying cards that gate correctly. It cost more than a wrong label:
+    // `deck-generator` filters on `isCardImplemented`, so all 16 Level cards were
+    // excluded from generated decks and could never be observed working. The ones
+    // whose Level clause really is unwritten are named in `PARTIALLY_IMPLEMENTED`
+    // instead — `[Repeat]`'s shape, for the reason its own note gives.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged].sort()).toEqual(["Ambush", "Backline", "Level"]);
+    expect([...flagged].sort()).toEqual(["Ambush", "Backline"]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is

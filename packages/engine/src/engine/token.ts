@@ -44,6 +44,28 @@ export const RECRUIT_TOKEN: TokenSpec = { name: "Recruit", might: 1, tag: "Recru
 export const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
 
 /**
+ * The Bird token — SHARED, because SIX printed cards across FOUR domains make it.
+ *
+ * **This is `SAND_SOLDIER_TOKEN`'s drift happening a second time, and further.**
+ * That one was two private copies; on 2026-08-09 this was found as THREE
+ * byte-identical `const BIRD_TOKEN` declarations — `effects/calm.ts`,
+ * `effects/chaos.ts` and `effects/order.ts` — written independently by three
+ * wave-2 agents who could not see each other's files. None of them was wrong to
+ * do it: the fan-out rule kept each out of the shared file, so a local copy was
+ * the only thing any of them could write. The consolidation is the integrator's.
+ *
+ * Its makers: UNL-033 and UNL-044 (Calm), UNL-088 (Mind), UNL-130 (Chaos),
+ * UNL-153 and UNL-160 (Order), plus the UNL-217 battlefield.
+ *
+ * The `[Deflect 1]` is the part that made sharing urgent rather than tidy — a
+ * copy that lost it would produce a Bird an opponent could target for free, and
+ * the difference is invisible until someone taxes it. It is also what exposed a
+ * crash in the [Deflect] surcharge the same day, since these tokens are what put
+ * a taxable body on the board in ordinary play.
+ */
+export const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
+
+/**
  * The 3-Might Mech — Production Surge's and Rumble - Scrapper's, and shared from
  * here for the reason the Sand Soldier records above: a stat line copied into two
  * files drifts, and this one has two owners from the day it lands.

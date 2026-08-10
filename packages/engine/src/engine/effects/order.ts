@@ -27,7 +27,7 @@ import {
   stunUnits,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
-import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec, BIRD_TOKEN, SAND_SOLDIER_TOKEN } from "../token.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { playUnitToBase } from "../deploy.js";
@@ -53,15 +53,13 @@ function vanguardTokenOrdinal(d: { count?: number }): string {
   return `${VANGUARD_ARMORY_TOKENS - remaining + 1} of ${VANGUARD_ARMORY_TOKENS}`;
 }
 
-/**
- * Shurima's Sand Soldier: a 2-Might unit token, entering exhausted like any
- * other unit (143.4.a) — nothing on either card that makes one says "ready".
+/* Shurima's Sand Soldier now comes from `token.ts`, which already exported it.
  *
- * A spec rather than a second `placeRecruitToken`, for the reason token.ts's own
- * `TokenSpec` comment gives: the Recruit is 1 Might and this is 2, and a token
- * type is data, not a function.
- */
-const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sand Soldier" };
+ * This file carried a THIRD private copy — after the two `SAND_SOLDIER_TOKEN`'s
+ * own comment records being consolidated — and nobody noticed until a test
+ * written for the Bird's triplication swept for the pattern and named this on its
+ * first run. The local copy was byte-identical, so nothing was ever observably
+ * wrong; it was simply one more place for the Might to drift. */
 
 /**
  * Unleashed's Bird — "a 1 [Might] Bird unit token with [Deflect]", made by
@@ -90,7 +88,6 @@ const SAND_SOLDIER_TOKEN: TokenSpec = { name: "Sand Soldier", might: 2, tag: "Sa
  * opponent — pinned by a test, because a keyword that parses and is read by
  * nothing is exactly how `[Deflect]` shipped inert the first time.
  */
-const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
 
 /** Ultrasoft Poro makes TWO of them; Carrion Dredger one. */
 const ULTRASOFT_PORO_BIRDS = 2;

@@ -48,7 +48,7 @@ import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
-import { placeGoldTokens, placeToken, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeToken, type TokenSpec, BIRD_TOKEN } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
 import { mayMoveToBaseFrom } from "../battlefield-continuous.js";
@@ -1224,7 +1224,6 @@ const ANGLER_BEAST_MAX_MIGHT = 2;
 /** Walking Roost's gift to the other seat — "a 1 [Might] Bird unit token with
  *  [Deflect]". Local rather than in token.ts: one owner, unlike the three specs
  *  hoisted there once two files each minted them. */
-const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keywords: { Deflect: 1 } };
 
 /** Insightful Investigator's price — "you may pay 2 XP". */
 const INVESTIGATOR_XP = 2;

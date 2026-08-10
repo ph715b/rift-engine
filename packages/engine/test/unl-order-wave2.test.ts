@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
-import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
+import { implementingModule, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { destroyUnit } from "../src/engine/effect-helpers.js";
 import { deflectSurchargeForTargets } from "../src/engine/granted-keywords.js";
@@ -720,11 +720,19 @@ describe("Bandle Soldier (UNL-151): REFUSED this wave, and pinned as refused", (
   it("still reports unimplemented, and NOT because of a missing effect entry", () => {
     const def = registry.get(BANDLE_SOLDIER);
     expect(isCardImplemented(def), "someone implemented it — delete this block and the note in deploy.ts").toBe(false);
-    // `[Level]` is in `coverage.UNIMPLEMENTED_KEYWORDS`, so the card is flagged by
-    // its keyword as well. Both halves are true today and the keyword one would
-    // survive a `deploy.ts` case, which is why the assertion above is the one
-    // that matters.
-    expect(partialImplementationNote(def)).toContain("[Level]");
+    // **This used to assert the `[Level]` keyword note, and that note is gone.**
+    // `[Level]` left `UNIMPLEMENTED_KEYWORDS` on 2026-08-09: it is implemented per
+    // card via `atLevel`, so a keyword-level flag was greying cards that gate
+    // correctly — and, worse, keeping all 16 out of generated decks, since
+    // `deck-generator` filters on `isCardImplemented`.
+    //
+    // The replacement asserts the REAL reason this card is unimplemented, which is
+    // stronger than the keyword note ever was: nothing is registered for it at
+    // all. The old assertion would have kept passing on the strength of the
+    // keyword even after someone wrote the card, which is the failure this block
+    // exists to prevent.
+    expect(implementingModule(BANDLE_SOLDIER), "an effect is registered now — delete this block and the deploy.ts note").toBeUndefined();
+    expect(partialImplementationNote(def), "it is now merely PARTIAL, not unwritten — this pin needs rewriting").toBeUndefined();
   });
 
   it("does not enter ready today, at any XP", () => {
