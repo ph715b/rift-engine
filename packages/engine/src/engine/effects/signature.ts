@@ -142,7 +142,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // The destination may be a BASE, and then "another enemy unit at its
       // destination" is another unit standing in that same base — which
       // `secondTargetIsAtDestination` has already enforced at announce.
-      const moved = forceMoveToDestination(state, movedId, event);
+      const moved = forceMoveToDestination(state, movedId, event, ctx.casterIndex);
 
       const first = findUnitAnywhere(moved, movedId);
       const second = findUnitAnywhere(moved, otherId);
@@ -803,7 +803,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) => {
       const unitId = event.targetUnitInstanceId;
       if (!unitId) return state;
-      const moved = forceMoveToDestination(state, unitId, event);
+      const moved = forceMoveToDestination(state, unitId, event, ctx.casterIndex);
       // Attached by the PAIR's controller, not the caster's — "with the same
       // controller" relates the Equipment to the unit, and `attachEquipment`
       // writes into that player's `activeGear`. Angle Shot's note records the

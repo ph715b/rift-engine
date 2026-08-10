@@ -3,7 +3,7 @@ import { submit } from "../src/engine/game-engine.js";
 import { forceMoveToBase, forceMoveToBattlefield } from "../src/engine/effect-helpers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
-import { isCardImplemented } from "../src/engine/coverage.js";
+import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
@@ -718,22 +718,25 @@ describe("coverage", () => {
    * claim Blast Cone on its own. The behavioural tests above are what actually
    * catch an inert card; every one of them was made to fail before being kept.
    */
-  it("reports seven implemented, and Blast Cone HALF — which is the honest answer", () => {
-    // **This premise was "all eight", and it was wrong in the safe direction.**
-    // Blast Cone is written by halves: its move works, its "when you move an enemy
-    // unit, you may exhaust this to [Stun] it" cannot fire at all, because no
-    // effect-driven move emits an event. Reporting it DONE is the coverage lie
-    // this file's own note above warns about — registration is per defId, so the
-    // first clause claims the card.
-    //
-    // The agent that wrote it could not fix that: `coverage.ts` is shared and six
-    // agents were writing at once, so it named the missing clause in its report
-    // and the `PARTIALLY_IMPLEMENTED` entry was added at integration. This test is
-    // the other end of that entry, and asserting the split rather than "all eight"
-    // is what makes the half-written card visible from here too.
-    const whole = [MEGATUSK, MISTER_ROOT, STAR_CROSSED, WALKING_ROOST, ABANDON, EXISTENTIAL_DREAD, INSIGHTFUL_INVESTIGATOR];
+  it("reports all eight implemented — Blast Cone completed last", () => {
+    // **All EIGHT now, and Blast Cone was the last.** This asserted seven-plus-a-
+    // half, because its "when you move an enemy unit" clause could not fire: no
+    // effect-driven move emitted an event, and `unitMoved.moverIndex` named the
+    // moved unit's controller rather than the mover. Both were fixed on
+    // 2026-08-09 — 446.1/449 gave the event, `causedByIndex` gave the mover — and
+    // its `PARTIALLY_IMPLEMENTED` row went with them.
+    const whole = [
+      MEGATUSK,
+      MISTER_ROOT,
+      STAR_CROSSED,
+      WALKING_ROOST,
+      ABANDON,
+      BLAST_CONE,
+      EXISTENTIAL_DREAD,
+      INSIGHTFUL_INVESTIGATOR,
+    ];
     expect(whole.filter((id) => !isCardImplemented(registry.get(id)))).toEqual([]);
-    expect(isCardImplemented(registry.get(BLAST_CONE)), "Blast Cone reports finished — its second clause is still unwritable").toBe(false);
+    expect(partialImplementationNote(registry.get(BLAST_CONE)), "a partial note came back for Blast Cone").toBeUndefined();
   });
 
   it("records the two clauses that are NOT written, so DONE is not read as complete", () => {

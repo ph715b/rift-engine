@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
+import { forceMoveToBattlefield } from "../src/engine/effect-helpers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
@@ -592,5 +593,91 @@ describe("Scryer's Bloom (UNL-136): Kill this, [1], [Exhaust]: [Predict 2], then
       "'This enters exhausted' is implemented now — flip this pin and drop the PARTIALLY_IMPLEMENTED entry",
     ).toBe(false);
     expect(activation(landed, bloom.instanceId), "it could not be cracked the turn it landed after all").toBeDefined();
+  });
+});
+
+/**
+ * Blast Cone's SECOND clause — "When you move an enemy unit, you may exhaust this
+ * to [Stun] it."
+ *
+ * **Refused in two consecutive waves, and the clause was never the problem.** A
+ * Standard Move only ever moves your OWN units, so "you move an ENEMY unit" is
+ * reachable only through an effect — and effects emitted no move event at all.
+ * Even once they did, `moverIndex` could not answer it: that field is the MOVED
+ * UNIT's controller, which for this sentence is the opponent.
+ *
+ * `causedByIndex` is the field that says who did the moving, and this is the card
+ * it was added for. Both halves landed on 2026-08-09 (446.1/449 for the event).
+ */
+describe("Blast Cone (UNL-133): stunning the unit you just pushed", () => {
+  const BLAST_CONE = "UNL-133";
+
+  /** The Cone in play and READY, plus an enemy unit at bf1 to shove. */
+  function coneBoard(exhausted = false) {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    const cone = { ...realGearInstance(BLAST_CONE), exhausted };
+    state.players[0]!.activeGear = [cone];
+    const victim = makeUnit({ name: "Victim", instanceId: "victim" });
+    state.battlefields[0]!.units = { p2: [victim] };
+    return { state, cone, victim };
+  }
+
+  /** p0 shoves the enemy unit to bf2, as the Cone's own first clause would. */
+  const shove = (state: GameState, victimId: string) =>
+    resolveHeldTriggers(forceMoveToBattlefield(state, victimId, "bf2", 0));
+
+  it("offers the stun when YOU moved an ENEMY unit", () => {
+    const { state, victim } = coneBoard();
+    const asked = shove(state, victim.instanceId);
+
+    expect(pendingDecision(asked)?.kind, "the Cone never offered its stun").toBe("UNL-133-stun");
+  });
+
+  it("exhausts the Cone and stuns the unit when taken", () => {
+    const { state, victim } = coneBoard();
+    const asked = shove(state, victim.instanceId);
+    const decision = pendingDecision(asked)!;
+
+    const after = submit(asked, { type: "AnswerDecision", playerIndex: 0, decisionId: decision.id, optionId: "stun" }).state;
+
+    expect(findAnywhere(after, victim.instanceId)?.stunned, "the unit was not stunned").toBe(true);
+    expect(after.players[0]!.activeGear[0]!.exhausted, "the Cone was not exhausted — the cost went unpaid").toBe(true);
+  });
+
+  it("declining leaves both the Cone and the unit alone", () => {
+    const { state, victim } = coneBoard();
+    const asked = shove(state, victim.instanceId);
+    const decision = pendingDecision(asked)!;
+
+    const after = submit(asked, { type: "AnswerDecision", playerIndex: 0, decisionId: decision.id, optionId: "decline" }).state;
+
+    expect(findAnywhere(after, victim.instanceId)?.stunned).toBeFalsy();
+    expect(after.players[0]!.activeGear[0]!.exhausted, "declining still paid the cost").toBe(false);
+  });
+
+  it("does NOT offer when the moved unit is your OWN — 'an ENEMY unit'", () => {
+    // The distinction `moverIndex` alone could never draw.
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.activeGear = [realGearInstance(BLAST_CONE)];
+    const mine = makeUnit({ name: "Mine", instanceId: "mine" });
+    state.battlefields[0]!.units = { p1: [mine] };
+
+    const asked = resolveHeldTriggers(forceMoveToBattlefield(state, mine.instanceId, "bf2", 0));
+    expect(pendingDecision(asked), "it offered a stun for moving my own unit").toBeUndefined();
+  });
+
+  it("does NOT offer when the OPPONENT did the moving — 'when YOU move'", () => {
+    // Same board, same victim, different mover. This is the assertion that
+    // `causedByIndex` exists for: `moverIndex` is identical in both cases.
+    const { state, victim } = coneBoard();
+    const asked = resolveHeldTriggers(forceMoveToBattlefield(state, victim.instanceId, "bf2", 1));
+    expect(pendingDecision(asked), "the opponent's move offered ME a stun").toBeUndefined();
+  });
+
+  it("does NOT offer when the Cone is already exhausted — the cost is impossible", () => {
+    // 203.3: an impossible cost cannot be paid, so the offer is not made.
+    const { state, victim } = coneBoard(true);
+    const asked = shove(state, victim.instanceId);
+    expect(pendingDecision(asked), "an exhausted Cone still offered its exhaust cost").toBeUndefined();
   });
 });

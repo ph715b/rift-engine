@@ -815,7 +815,7 @@ export type GameEvent =
       /** The mover's count AFTER this move — Yasuo - Windrider's "the third time
        *  I move in a turn" reads it here rather than re-deriving from a board
        *  the response window may have changed. */
-      movesThisTurn: number;
+      movesThisTurn: number;
       /**
        * Who CAUSED the move, when that is not the moved unit's controller.
        *

@@ -422,8 +422,8 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // unit arrives ready, and 450 contests the destination for the moved unit's
     // controller rather than the caster's.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
-    resolve: (state, _ctx, event) =>
-      event.targetUnitInstanceId ? forceMoveToDestination(state, event.targetUnitInstanceId, event) : state,
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? forceMoveToDestination(state, event.targetUnitInstanceId, event, ctx.casterIndex) : state,
   },
   "OGN-053": {
     // Stand United — "[Hidden][Action] Buff a friendly unit. Buffs give an

@@ -164,13 +164,13 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // constrain for a player-initiated MoveUnit; a spell moving a unit is not
     // subject to those, which is what makes the card worth casting.
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
-    resolve: (state, _ctx, event) => {
+    resolve: (state, ctx, event) => {
       const { targetUnitInstanceId: unitId } = event;
       if (!unitId) return state;
       // "Move a friendly unit AND READY IT" — the ready happens whichever
       // Location it went to, including base (359.3.e names this card's base
       // move by example). Readying after the move, printed order.
-      return readyUnit(forceMoveToDestination(state, unitId, event), unitId);
+      return readyUnit(forceMoveToDestination(state, unitId, event, ctx.casterIndex), unitId);
     },
   },
   "OGN-172": {
@@ -218,7 +218,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Recorded in docs/rules-conformance.md rather than half-fixed here, because
     // closing it changes five existing cards' enumeration.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
-    resolve: (state, _ctx, event) => {
+    resolve: (state, ctx, event) => {
       const { targetUnitInstanceId: unitId } = event;
       if (!unitId) return state;
       // Through the shared destination helper like every other move: arriving at
@@ -226,7 +226,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // not part of, which for this card is frequently the entire point. A move
       // to BASE contests nothing — there is nothing there to contest — which is
       // why the card's own word is "location" and not "battlefield".
-      return forceMoveToDestination(state, unitId, event);
+      return forceMoveToDestination(state, unitId, event, ctx.casterIndex);
     },
   },
   "SFD-136": {
@@ -2153,6 +2153,50 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  /**
+   * Blast Cone, SECOND clause — "When you move an enemy unit, you may exhaust
+   * this to [Stun] it."
+   *
+   * **Refused in wave 3 and written now that the event can answer it.** The
+   * blocker was never this clause: it was that `unitMoved` had two emitters, both
+   * player actions, and a Standard Move only ever moves your OWN units. So "you
+   * move an ENEMY unit" was reachable only through an effect, and effects emitted
+   * nothing at all.
+   *
+   * Even once they did, `moverIndex` could not answer it — that field is the MOVED
+   * UNIT's controller, which for this sentence is the opponent. `causedByIndex`
+   * is the field that says who did the moving, and this is the card it exists for.
+   *
+   * Three conditions, and each is a separate way to get it wrong:
+   *   YOU moved it — `causedByIndex === listener.ownerIndex`.
+   *   It is an ENEMY unit — `moverIndex !== listener.ownerIndex`, since that
+   *   field is the moved unit's own controller.
+   *   This gear is READY, because exhausting it is the cost (203.3: an
+   *   impossible cost cannot be paid, so the offer is not made).
+   */
+  "UNL-133": {
+    on: "unitMoved",
+    applies: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return false;
+      if (event.causedByIndex !== listener.ownerIndex) return false;
+      if (event.moverIndex === listener.ownerIndex) return false;
+      const gear = state.players[listener.ownerIndex].activeGear.find((g) => g.instanceId === listener.card.instanceId);
+      return gear !== undefined && !gear.exhausted;
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      // The unit is captured on the decision: by the time the player answers it
+      // may have moved again, and "it" is the unit this trigger fired for
+      // (359.3.f.3 — information referenced from the trigger condition is checked
+      // when the condition is fulfilled).
+      return parkDecision(state, {
+        kind: "UNL-133-stun",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        targetInstanceId: event.unitInstanceId,
+      });
+    },
+  },
   "UNL-127": {
     // Mister Root — "[Accelerate] When I move to a battlefield, gain 2 XP."
     //
@@ -3163,6 +3207,43 @@ export const decisions: Record<string, DecisionDefinition> = {
   // Not an exhaust and not a Standard Move, so `[Ganking]` is irrelevant to it —
   // 415.1.b/144.2 put the exhaust and the battlefield-to-battlefield restriction
   // on the Standard Move ACTION, and Charm's entry makes the same call.
+  /**
+   * Blast Cone's "you may exhaust this to [Stun] it".
+   *
+   * A question rather than automatic: "you may" is a real choice, and exhausting
+   * the Cone costs its next use. Both options always exist here, because `applies`
+   * already refused the case where the gear cannot pay.
+   */
+  "UNL-133-stun": {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId === undefined ? undefined : findUnitAnywhere(state, d.targetInstanceId);
+      return `Blast Cone: exhaust it to stun ${unit?.unit.name ?? "that unit"}?`;
+    },
+    options: () => [
+      { id: "decline", label: "Leave it" },
+      { id: "stun", label: "Exhaust Blast Cone and stun it" },
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "stun" || d.targetInstanceId === undefined) return state;
+      // Exhaust FIRST — it is the cost, and a cost that cannot be paid must not
+      // buy the effect. The gear is re-read here rather than trusted from
+      // `applies`, because the response window this question opens could have
+      // exhausted or removed it.
+      const gear = state.players[d.playerIndex].activeGear.find((g) => g.instanceId === d.cardInstanceId);
+      if (!gear || gear.exhausted) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        activeGear: players[d.playerIndex].activeGear.map((g) =>
+          g.instanceId === d.cardInstanceId ? { ...g, exhausted: true } : g,
+        ),
+      };
+      // Still on the board? A unit that died in the window cannot be stunned,
+      // and 359.3.e.6 skips an impossible instruction rather than failing.
+      if (!findUnitAnywhere({ ...state, players }, d.targetInstanceId)) return { ...state, players };
+      return stunUnits({ ...state, players }, d.playerIndex, [d.targetInstanceId]);
+    },
+  },
   "UNL-133-move": {
     prompt: () => "Blast Cone: move an enemy unit?",
     options: (state, d): DecisionOption[] => [
@@ -3180,17 +3261,22 @@ export const decisions: Record<string, DecisionDefinition> = {
         return options;
       }),
     ],
-    resolve: (state, _d, optionId) => {
+    resolve: (state, d, optionId) => {
       if (optionId === "decline") return state;
       const [unitId, destination] = optionId.split(":");
       if (!unitId || !destination) return state;
       // Through the shared destination helper like every other move in this file,
       // so an arrival at a battlefield applies Contested and can stage a Showdown
       // — which for a gear that then wants to stun the arrival is the point.
+      // **`d.playerIndex` is the MOVER** — the Blast Cone controller pushing an
+      // enemy unit around, not the unit's own controller. That distinction is the
+      // whole reason this card's second clause ("when YOU move an enemy unit")
+      // could not be written before `causedByIndex` existed.
       return forceMoveToDestination(
         state,
         unitId,
         destination === "base" ? { destinationIsBase: true } : { destinationBattlefieldId: destination },
+        d.playerIndex,
       );
     },
   },

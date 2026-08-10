@@ -811,12 +811,11 @@ function originIdOf(state: GameState, location: { zone: UnitZone }): string {
  * so they resolve on the chain this resolution produces rather than re-entering
  * mid-effect.
  *
- * `movesThisTurn` is NOT incremented here, deliberately. The moved unit object is
- * already in the new state by the time this runs, and bumping it would mean
- * re-finding and rewriting it in every zone these helpers can leave it in. The
- * event carries the unit's existing count, which is what Miss Fortune - Captain
- * reads; a card-driven move not counting toward a unit's own move tally is a
- * narrower gap than no event at all, and it is recorded rather than hidden.
+ * `movesThisTurn` IS incremented, by the callers, before the unit is placed —
+ * which is why this takes the already-incremented unit and simply reports its
+ * count. It briefly was not, on the reasoning that re-finding the unit afterwards
+ * would be awkward; incrementing at PLACEMENT instead makes it one line, because
+ * the unit object is in hand at that moment.
  */
 function holdMoveEvents(
   state: GameState,
@@ -888,13 +887,19 @@ export function forceMoveToBattlefield(
   const removed = removeUnitAnywhere(state, targetInstanceId);
   const battlefields = [...removed.battlefields];
   const destination = battlefields[destinationIndex]!;
+  // **Counted BEFORE it is placed.** `movesThisTurn` is a fact about the unit and
+  // a card-driven move is a move (446.1/449), so the same increment the Move
+  // action makes belongs here. Incrementing at placement rather than after is
+  // what makes it one line: the unit object is in hand right now, and re-finding
+  // it afterwards would mean searching every zone these helpers can leave it in.
+  const arrived = { ...unit, movesThisTurn: unit.movesThisTurn + 1 };
   battlefields[destinationIndex] = {
     ...destination,
-    units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), unit] },
+    units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), arrived] },
   };
 
   const moved = applyContested({ ...removed, battlefields }, destinationBattlefieldId, ownerIndex);
-  return holdMoveEvents(moved, unit, ownerIndex, originIdOf(state, location), destinationBattlefieldId, causedByIndex);
+  return holdMoveEvents(moved, arrived, ownerIndex, originIdOf(state, location), destinationBattlefieldId, causedByIndex);
 }
 
 /**
@@ -951,8 +956,10 @@ export function forceMoveToBase(state: GameState, targetInstanceId: string, caus
     units: { ...bf.units, [ownerId]: (bf.units[ownerId] ?? []).filter((u) => u.instanceId !== targetInstanceId) },
   };
   const players = [...state.players] as [PlayerState, PlayerState];
-  players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, unit] };
-  return holdMoveEvents({ ...state, battlefields, players }, unit, ownerIndex, bf.id, "base", causedByIndex);
+  // Counted here for the same reason as the battlefield half above.
+  const arrived = { ...unit, movesThisTurn: unit.movesThisTurn + 1 };
+  players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, arrived] };
+  return holdMoveEvents({ ...state, battlefields, players }, arrived, ownerIndex, bf.id, "base", causedByIndex);
 }
 
 /**
@@ -971,10 +978,15 @@ export function forceMoveToDestination(
    *  the seven call sites from each having to remember there are two fields —
    *  and forgetting the second one is the whole failure this change is about. */
   event: { readonly destinationBattlefieldId?: string; readonly destinationIsBase?: true },
+  /** Who CAUSED this move — the caster, not the moved unit's controller. Passed
+   *  through so "when YOU move an ENEMY unit" can be answered; see the field's
+   *  doc on `unitMoved`. Optional, so a caller that has no caster in hand is
+   *  unchanged. */
+  causedByIndex?: 0 | 1,
 ): GameState {
-  if (event.destinationIsBase === true) return forceMoveToBase(state, targetInstanceId);
+  if (event.destinationIsBase === true) return forceMoveToBase(state, targetInstanceId, causedByIndex);
   if (event.destinationBattlefieldId === undefined) return state;
-  return forceMoveToBattlefield(state, targetInstanceId, event.destinationBattlefieldId);
+  return forceMoveToBattlefield(state, targetInstanceId, event.destinationBattlefieldId, causedByIndex);
 }
 
 /**

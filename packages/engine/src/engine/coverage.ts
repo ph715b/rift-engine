@@ -465,10 +465,10 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-170",
     "half written: the combat-began kill works; its kill-a-friendly cost and the scaled discount that cost buys are unwritten, so it always costs 10 Energy + 3 Order",
   ],
-  [
-    "UNL-188",
-    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
-  ],
+  [
+    "UNL-188",
+    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
+  ],
   // **Two cards written by HALVES in wave 2, 2026-08-09.** Both report finished
   // without these, which is this map's whole reason to exist. Neither agent could
   // add its own entry — coverage.ts is shared and six of them were writing at
@@ -481,10 +481,11 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-095",
     "half written: the +3 Might works; 'when it wins a combat this turn, gain 2 XP' is unwritten — a resolved Spell sits in its caster's trash and reaches no listener walk",
   ],
-  [
-    "UNL-133",
-    "half written: the move works; 'when you move an enemy unit, you may exhaust this to [Stun] it' cannot fire — no effect-driven move emits an event, and unitMoved carries the moved unit's controller rather than the mover",
-  ],
+  // **UNL-133 Blast Cone left this map on 2026-08-09.** Its second clause was
+  // refused twice, and the gap was never the clause: no effect-driven move
+  // emitted an event, and `unitMoved.moverIndex` names the moved unit's
+  // controller rather than the mover. Both are fixed — 446.1/449 gave the event,
+  // and the new `causedByIndex` says who did the moving — so it is written now.
   // **Exposed by removing the `[Level]` keyword flag above**, which had been
   // greying this card for the wrong reason. Its draw is written; its two
   // `[Level]` COST reductions are not — those are a `modifiedEnergyCost` entry in
