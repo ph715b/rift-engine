@@ -57,8 +57,8 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **516 of 693 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 187/198, UNL 85/225), at its default **250 games
+`reachability` is pinned at **524 of 693 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198, UNL 92/225), at its default **250 games
 per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
@@ -125,6 +125,18 @@ Both sub-rules are real and both matter, which is exactly why this survived: the
 citation resolves to a genuine sentence, just not the one being relied on. When
 checking a number, read the sentence it lands on and confirm it says the thing
 the comment claims — a number that resolves is not yet a number that is right.
+
+**It happened again a week later, in a different shape.** Nine comments cited
+**828** for "Locations include the Battlefields and the Bases". 828 is
+`[Empowered]`; the sentence they were quoting is **198.1**, verbatim. Corrected
+2026-08-09, found by a wave-4 agent working nearby — the same way the 355.9 swap
+was found, and the same way the next one will be.
+
+So this class has now produced two multi-site sweeps and four line-numbers-as-
+rules. Nothing in the repo can detect it: the number resolves, the prose reads
+plausibly, and the compiler has no opinion. Treat a citation you did not
+personally read against `-raw` as unverified, however confident the comment
+around it sounds.
 
 ## Measure before planning
 

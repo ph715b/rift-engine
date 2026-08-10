@@ -12,7 +12,7 @@ import { validateRecallUnit } from "./validate-recall-unit.js";
  * **455: "A Recall is when a Permanent is relocated from anywhere to its Base
  * WITHOUT it being a Move."** A player sending their own unit home is a Move —
  * 446.1 makes any permanent changing position from one space on the Board to
- * another a Move, and 107.1.b/828 make a Base a Location like any other. The
+ * another a Move, and 107.1.b/198.1 make a Base a Location like any other. The
  * rules' own Recalls are system relocations: 457.1's automatic gear recall, and
  * 446.1's "corrective Recall".
  *

@@ -14,7 +14,15 @@ import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
-import { MECH_TOKEN, placeGoldTokens, placeRecruitToken, placeToken, type TokenSpec } from "../token.js";
+import {
+  BIRD_TOKEN,
+  MECH_TOKEN,
+  placeGoldTokens,
+  placeRecruitToken,
+  placeToken,
+  type TokenDestination,
+  type TokenSpec,
+} from "../token.js";
 import {
   banishCard,
   channelRunesExhausted,
@@ -45,6 +53,7 @@ import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision, repeatDecision } from "../decisions.js";
 import { isOpenBattlefield } from "../unit-triggers.js";
+import { mayPlayUnitAt } from "../battlefield-continuous.js";
 import {
   offerTopOfDeckBanish,
   revealedFromDeck,
@@ -146,6 +155,44 @@ function spriteFountainPlayEffect(state: GameState, ownerIndex: 0 | 1): GameStat
   return placeToken(state, ownerIndex, "base", SPRITE_TOKEN);
 }
 
+/** Deadly Flourish's damage. Its second sentence is unwritten — see the entry. */
+const DEADLY_FLOURISH_DAMAGE = 3;
+
+/**
+ * Sprite Queen's token, and the reason it is a function rather than two call
+ * sites: her one printed instruction has TWO moments ("when you play me OR at
+ * the start of your Beginning Phase"), and those live in two different
+ * registries here — `unitTriggers` and `eventTriggers`. `spriteFountainPlayEffect`
+ * above is the same shape for the same reason, and both exist because one
+ * sentence copied into two entries is one sentence that can drift.
+ *
+ * "TO YOUR BASE" is printed, so nothing is chosen. That also settles the
+ * `[Temporary]` interaction rather than leaving it to luck: a Sprite in base can
+ * never hold a battlefield, so the token is a body to move or spend rather than
+ * a free point, whichever moment made it.
+ */
+function spriteQueenToken(state: GameState, ownerIndex: 0 | 1): GameState {
+  return placeToken(state, ownerIndex, "base", SPRITE_TOKEN);
+}
+
+/** Gutter Palace's two exact counts — "EXACTLY 4 cards in hand and EXACTLY 4
+ *  units at battlefields". Both are equalities, not floors: overshooting loses
+ *  the win, which is the whole shape of the card. */
+const GUTTER_PALACE_HAND = 4;
+const GUTTER_PALACE_UNITS = 4;
+
+/** Blue Sentinel's `[Add]` — one rainbow Power (`:rb_rune_rainbow:`). */
+const BLUE_SENTINEL_RAINBOW = 1;
+
+/** How many units `playerIndex` has standing AT BATTLEFIELDS — Gutter Palace's
+ *  count, which deliberately excludes base. "At battlefields" is printed, so
+ *  355.9.a.1's bare-noun widening to the whole Board does not apply and a base
+ *  full of units neither helps nor spoils the win. */
+function unitsAtBattlefields(state: GameState, playerIndex: 0 | 1): number {
+  const ownerId = state.players[playerIndex].id;
+  return state.battlefields.reduce((total, bf) => total + (bf.units[ownerId]?.length ?? 0), 0);
+}
+
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
  *  because Convergent Mutation compares two units' Might across zones. */
@@ -230,7 +277,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Bellows Breath — "[Action] [Repeat] [1][Mind] Deal 1 to up to three units
     // at the same location."
     //
-    // "At the same LOCATION", not "at the same battlefield", and rule **828**
+    // "At the same LOCATION", not "at the same battlefield", and rule **198.1**
     // settles that they are different: "Locations include the Battlefields and
     // the Bases." So three units standing in one player's base are a legal
     // group, which `sameBattlefield` would refuse — its own comment records that
@@ -771,6 +818,62 @@ export const cardEffects: Record<string, EffectDefinition> = {
         state,
       ),
   },
+  "UNL-073": {
+    // Deadly Flourish — "Deal 3 to an enemy unit. When it dies this turn, play a
+    // Gold gear token exhausted."
+    //
+    // **ONE of two sentences. The second is REFUSED, not forgotten**, and the
+    // gap is named here because registration is per defId: with this entry
+    // written the card reports finished, and this comment plus the owed
+    // `PARTIALLY_IMPLEMENTED` row are the only things that say otherwise.
+    //
+    // # Why the delayed trigger cannot be written from any domain file
+    //
+    // "When IT dies this turn" is a delayed triggered ability (359.3.f.3.a)
+    // attached to a unit that must OUTLIVE it — the ability has to survive the
+    // very death it watches for. This engine has three ways a death reaches an
+    // ability and all three were read rather than assumed:
+    //
+    //  - `deathTriggers` ([Deathknell]) is keyed by the DYING card's defId, and
+    //    `holdDeathknell` looks the definition up by `death.unit.defId`. The
+    //    victim is an arbitrary enemy card, so there is no key to register under
+    //    and no seam that grants one.
+    //  - `deathWatchTriggers` / the `unitDied` event are keyed by a LISTENER, and
+    //    `holdEventTrigger` walks `allListeningPermanents`. `destroyUnit` and
+    //    `dealDamage` both call `removeUnitAnywhere` BEFORE `killUnit`, so by the
+    //    time `completeDeath` fires the event the victim is off the board and out
+    //    of the walk. Granting the victim a key this turn — the
+    //    `UnitInstance.grantedTriggersThisTurn` seam Relentless Pursuit uses —
+    //    therefore reaches nothing. Measured by reading those three functions,
+    //    not inferred.
+    //  - a card in a TRASH can listen, but only through `TRASH_LISTENER_DEF_IDS`,
+    //    a two-entry set in triggers.ts. This spell is in its caster's trash by
+    //    the time the death happens and is not in that set.
+    //
+    // What is missing is a per-victim delayed-trigger list on `GameState` — the
+    // shape `paidDeathWardUnitInstanceIds` already has for Unlicensed Armory —
+    // plus a read of it in `completeDeath`. That is model/game-state.ts and
+    // effect-helpers.ts, neither of them this file's. Writing the clause against
+    // anything that exists today would report DONE and fire never, which is the
+    // one failure this file's doc comment exists to prevent.
+    //
+    // # The sentence that IS here
+    //
+    // "An ENEMY unit" with no location word: 355.9.a.1 makes the bare noun "an
+    // object on the Board" and 355.10.a.1's Public zones name the Bases, so
+    // `scope: "anywhere"` — the same reading Eclipse and Moonlight Affliction
+    // take two entries up. `owner: "enemy"` is printed and is the difference
+    // between this and those two.
+    //
+    // 3 is not lethal to much on its own; what the missing half was buying is the
+    // Gold token when it IS. So the implemented half is strictly weaker than
+    // printed, which is the safe direction, and never wrong about the board.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId
+        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, DEADLY_FLOURISH_DAMAGE)
+        : state,
+  },
   "UNL-072": {
     // Crescent Strike — "[Action] Choose a battlefield and an enemy unit there.
     // Deal 4 to that unit and 1 to each other enemy unit there."
@@ -1251,6 +1354,27 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       });
     },
   },
+  "UNL-084": {
+    // Sprite Queen, first moment — "When you play me OR at the start of your
+    // Beginning Phase, play a ready 3 [Might] Sprite unit token with [Temporary]
+    // to your base."
+    //
+    // ONE printed instruction with TWO moments, so it is `spriteQueenToken` here
+    // and the same function in `eventTriggers` under this defId — two registries,
+    // one sentence. Registering in both is legal because the composition throws
+    // only on a duplicate WITHIN a registry.
+    //
+    // The token is `SPRITE_TOKEN` — ready, 3 Might, `[Temporary]` — shared from
+    // the top of this file rather than re-declared, which is what stops her
+    // Sprite drifting from Sprite Call's and Sprite Mother's.
+    //
+    // Her printed `[Temporary]` bracket is the TOKEN's, not hers: card-loader's
+    // `GRANTED_ONLY_KEYWORDS` already names UNL-084 for exactly that, so a
+    // 7-Energy 6-Might body does not quietly kill itself on her controller's next
+    // Beginning Phase.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => spriteQueenToken(state, ctx.casterIndex),
+  },
   "UNL-071": {
     // Chakram Dancer — "[Ambush] [Shield] When you play me, give your other units
     // here [Shield] this turn."
@@ -1590,6 +1714,207 @@ function dianaLunariReveal(state: GameState, ownerIndex: 0 | 1): GameState {
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "UNL-084": {
+    // Sprite Queen, second moment — "…OR at the start of your Beginning Phase,
+    // play a ready 3 [Might] Sprite unit token with [Temporary] to your base."
+    //
+    // The same instruction as her on-play trigger one registry up, called through
+    // the same `spriteQueenToken` so the two moments cannot drift apart.
+    //
+    // # The ORDER inside the Beginning Phase is what makes her work at all
+    //
+    // `runBeginning` runs `killTemporaryPermanents` FIRST (816: "at the start of
+    // this permanent's controller's Beginning Phase, BEFORE SCORING, kill this"),
+    // then dispatches `beginningPhase`, then scores holds. So last turn's Sprite
+    // dies before this one is made, and the new one exists during `scoreHolds`.
+    // Neither matters for the point: the token goes to BASE, which holds nothing.
+    // Stated because the reverse order would make her a Sprite-per-turn engine
+    // whose bodies never overlap, and that is not observable from this entry.
+    //
+    // "YOUR Beginning Phase" — the event carries whose it is, and she reads only
+    // her own controller's, exactly as Mushroom Pouch does below. Firing on both
+    // players' would double her rate.
+    //
+    // Resolved INLINE, like every other `beginningPhase` listener: the event is
+    // not in `HeldEventKind`, and `runBeginning`'s own comment gives the reason —
+    // holding it would put it after `scoreHolds`, in the wrong phase.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      return spriteQueenToken(state, listener.ownerIndex);
+    },
+  },
+  "UNL-085": {
+    // Sumpworks Map — "[Reaction] [Temporary] When an opponent scores, draw 1."
+    //
+    // A gear that pays you for the turn you are losing, and its two keywords need
+    // nothing here: `[Reaction]` is engine/timing.ts's, and `[Temporary]` is
+    // `killTemporaryPermanents`, which sweeps `activeGear` through `killGear` —
+    // so a Map played on your turn watches the opponent's whole turn and dies at
+    // the start of your next Beginning Phase, before you score off it.
+    //
+    // # "Scores" is TWO events here, and that is 469 rather than a convenience
+    //
+    // 468: "Scoring is the act of a Player gaining a point through the process of
+    // seizing or maintaining control over Battlefields." 469: "A player Scores in
+    // one of two ways: 469.1 Conquer … 469.2 Hold". This engine raises one event
+    // per way — `battlefieldConquered` and `battlefieldHeld` — so the card is a
+    // two-moment listener rather than needing a third event that would mean the
+    // union of these.
+    //
+    // **DIVERGENCE, in the over-firing direction, and only for Conquer.**
+    // `battlefieldHeld` is raised by `scoreHolds` only for a battlefield that is
+    // actually being scored (it filters `scoredBattlefieldsThisTurn` and
+    // `mayScoreAt` first), so the Hold half is exact. `battlefieldConquered` is
+    // deliberately NOT: `recordConquest` fires it before the withheld-point
+    // branch, so it also fires when the battlefield was already scored this turn
+    // (470) or when Forgotten Monument blocks the scoring. Neither is a Score by
+    // 469.1's own wording — "a Battlefield they did not yet Score this turn" — and
+    // the two cannot be told apart from a listener, because `recordConquest`
+    // records the scoring BEFORE it holds the event. Telling them apart needs a
+    // flag on the event (triggers.ts) or a scoring-specific event, neither of
+    // which is this file's to add. So a re-taken battlefield draws a card it
+    // should not; it costs the opponent a battlefield either way.
+    //
+    // A point WITHHELD is still a Score and still draws — 471.1 says the player
+    // "Gains UP TO one Point", so Tianna Crownguard blocking the point and
+    // 471.1.b.1's final-point draw are both Scores that happened.
+    //
+    // "An OPPONENT" is measured against the gear's controller, not the turn
+    // player: your own conquests and holds must give the Map nothing, which is
+    // the negative control its test asserts.
+    on: ["battlefieldHeld", "battlefieldConquered"],
+    applies: (_state, listener, event) =>
+      (event.kind === "battlefieldHeld" && event.holderIndex !== listener.ownerIndex) ||
+      (event.kind === "battlefieldConquered" && event.conquerorIndex !== listener.ownerIndex),
+    resolve: (state, listener, event) => {
+      // Re-checked at resolution, the convention every listener in this file
+      // follows — and MEASURED to be redundant for this card rather than assumed
+      // useful: both of these event kinds are in `HeldEventKind`, so the inline
+      // path (which does not consult `applies`) can never raise them, and the
+      // question is about the EVENT, which cannot change on the chain. A mutation
+      // that deleted only this line survived the whole suite. It is kept as the
+      // guard for a future inline emitter, and labelled rather than left implying
+      // it is load-bearing.
+      const scorer = event.kind === "battlefieldHeld" ? event.holderIndex : event.kind === "battlefieldConquered" ? event.conquerorIndex : undefined;
+      if (scorer === undefined || scorer === listener.ownerIndex) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
+  "UNL-087": {
+    // Blue Sentinel, THIRD clause — "When I hold, [Add] :rb_rune_rainbow: at the
+    // start of your next Main Phase."
+    //
+    // **ONE of three clauses. `[Shield 2]` is the loader's; the SECOND clause is
+    // REFUSED** — "Your hold effects for holding here trigger an additional time"
+    // is a continuous effect on how OTHER cards' triggers resolve, which is
+    // Karthus - Eternal's shape (triggers.ts counts him off the board and carries
+    // a `times` on the chain entry). `holdEventTrigger` has no such multiplier —
+    // it pushes exactly one entry per (listener, key) — and the doubling would
+    // also have to reach `holdBattlefieldTrigger`, since a battlefield's own "when
+    // you hold here" is a hold effect for holding here too. Both are shared files.
+    // Named here and reported rather than half-written, and the card therefore
+    // owes a `PARTIALLY_IMPLEMENTED` row.
+    //
+    // # The delayed trigger, and why this is an ordinary hold listener
+    //
+    // The printed ability is DELAYED (359.3.f.3.a — the rules work Iascylla's
+    // "when I hold, at the start of your next Main Phase…" by name in that very
+    // sub-rule). This engine has no delayed-trigger queue and no start-of-Main-
+    // Phase moment at all: `Phase` is Awaken/Beginning/Channel/Draw/Action, and
+    // 316's Main Phase IS the Action phase here.
+    //
+    // What makes the plain listener land at the printed MOMENT rather than
+    // approximate it: a `battlefieldHeld` trigger is HELD (383), and `submit`'s
+    // Pass runs the whole start of turn — Awaken, Beginning, Channel, Draw — in
+    // one action, with the single Cleanup that finalizes pending triggers at the
+    // END of it. By then `phase` is already "Action". So this resolves as the
+    // first thing in the controller's Main Phase, before they can take a
+    // Discretionary Action, which is exactly what the card says. Its test asserts
+    // the phase at the moment the Power arrives, so a change that moves the chain
+    // flush earlier fails loudly instead of silently making the Power vanish.
+    //
+    // **DIVERGENCE, and it is the printed reminder text:** "(Abilities that add
+    // resources can't be reacted to.)" — 429.2/429.2.a, "Triggered and activated
+    // abilities that Add resources resolve as soon as they are finalized … Priority
+    // and Focus will not pass". Here it is an ordinary Pending Item, so the
+    // opponent gets one response window before the Power lands. Nothing in this
+    // pool can counter a triggered ability, so what is lost is a window rather
+    // than the Power.
+    //
+    // A second divergence worth naming because it is unobservable rather than
+    // absent: 316.3 empties every Rune Pool at the START of the Main Phase, and
+    // this engine empties pools only in `runEnd`. A true delayed trigger would
+    // add AFTER that emptying; this one adds after the Main Phase has begun, so
+    // the two agree — but they agree by way of a gap, not by construction.
+    //
+    // `floatingRainbowPower`, not `floatingPower`: the pip is
+    // `:rb_rune_rainbow:`, which is domainless Power and has its own pool (the
+    // Gold token's `[Add]` and Malzahar - Fanatic use the same field).
+    //
+    // "When I HOLD" is about the battlefield this unit stands at — Ahri -
+    // Alluring's reading, and `listener.battlefieldId` against the event's is what
+    // separates it from a Legend's "when YOU hold". Holding two battlefields
+    // raises two events and only the Sentinel's own pays.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      if (event.holderIndex !== listener.ownerIndex || listener.battlefieldId !== event.battlefieldId) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const owner = players[listener.ownerIndex];
+      players[listener.ownerIndex] = {
+        ...owner,
+        floatingRainbowPower: owner.floatingRainbowPower + BLUE_SENTINEL_RAINBOW,
+      };
+      return { ...state, players };
+    },
+  },
+  "UNL-088": {
+    // Gutter Palace, first clause — "At the start of your Beginning Phase, if you
+    // have exactly 4 cards in hand and exactly 4 units at battlefields, you win
+    // the game." (Its "Discard 1, [Exhaust]:" ability is in `activatedAbilities`
+    // below, and its `[Deflect]` is the keyword machinery's.)
+    //
+    // **A DECLARED win, not points** — `GameState.declaredWinnerIndex`, the field
+    // The Grand Plaza's identical "you win the game" already writes, and
+    // `win-condition.winner` checks it before the score. Expressing it as "enough
+    // points" would be beatable by a tie and would satisfy every "an opponent is
+    // within 3 points" clause on the board.
+    //
+    // The win is realised by `withCleanupAndWinnerCheck`, which runs after the
+    // action that contained the Beginning Phase — so a Pass that starts this
+    // player's turn returns `GameOver` rather than the game continuing until
+    // someone notices.
+    //
+    // BOTH counts are EQUALITIES. "Exactly" is printed twice, so a fifth card in
+    // hand or a fifth unit at a battlefield loses the win, and that asymmetry is
+    // the card: it has to be assembled and then held at exactly that size through
+    // an opponent's turn.
+    //
+    // "Units AT BATTLEFIELDS" excludes base, and that is printed rather than
+    // inferred — 355.9.a.1's bare-noun widening is what would have reached base,
+    // and the card does not use a bare noun here. `unitsAtBattlefields` counts
+    // every battlefield, not just controlled ones: a unit standing at a contested
+    // battlefield is still a unit at a battlefield.
+    //
+    // Read at the START of the Beginning Phase, which `runBeginning` dispatches
+    // AFTER `killTemporaryPermanents` — so a `[Temporary]` body that expires this
+    // turn is already gone and does not count towards the four. That is 816's
+    // "before scoring" ordering doing its job, and it is the one place this
+    // condition could have been counted against a board that no longer exists.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      const owner = state.players[listener.ownerIndex];
+      if (owner.hand.length !== GUTTER_PALACE_HAND) return state;
+      if (unitsAtBattlefields(state, listener.ownerIndex) !== GUTTER_PALACE_UNITS) return state;
+      return { ...state, declaredWinnerIndex: listener.ownerIndex };
+    },
+  },
   "UNL-079": {
     // Diana - Lunari — "When a showdown begins here, you may pay [1]. If you do,
     // [Predict], then reveal the top card of your Main Deck. If it's a spell,
@@ -1731,7 +2056,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // 359.3.f.1/f.2 make a referent read from the SOURCE at execution; the two
     // sub-rules are neighbours and the card decides which applies.
     //
-    // "A LOCATION" is 828 — "Locations include the Battlefields and the Bases" —
+    // "A LOCATION" is 198.1 — "Locations include the Battlefields and the Bases" —
     // so leaving BASE is a location and mints a Sprite at home. `event.from` is
     // already `"base"` or a battlefield id, which is `TokenDestination` exactly.
     //
@@ -3102,6 +3427,36 @@ export const decisions: Record<string, DecisionDefinition> = {
       );
     },
   },
+  /**
+   * Gutter Palace's Bird needs a LOCATION, and the card names none.
+   *
+   * 355.2: "For Units, choose a valid Location where that Unit will enter upon
+   * being Played", with 355.2.a's default being the controller's Base or a
+   * Battlefield they Control. `legal-actions` cannot fan that out for a
+   * target-less activation, so it is asked — the same question Ultrasoft Poro
+   * (UNL-160) raises for its own Birds, and deliberately the same option list so
+   * two cards making the identical token do not offer different destinations.
+   *
+   * `mayPlayUnitAt` is asked per battlefield rather than once: Rockfall Path bars
+   * arrivals at itself and nowhere else.
+   *
+   * Base is always on offer, so this question always has at least one answer and
+   * `advanceDecisions` takes it unprompted on a board with no controlled
+   * battlefield.
+   */
+  "UNL-088-place": {
+    prompt: () => "Gutter Palace: where does the Bird go?",
+    options: (state, d) => [
+      { id: "base", label: "Your base" },
+      ...state.battlefields
+        .filter((bf) => bf.controllerId === state.players[d.playerIndex].id && mayPlayUnitAt(state, bf.id))
+        .map((bf) => ({ id: bf.id, label: bf.name })),
+    ],
+    resolve: (state, d, optionId) => {
+      const destination: TokenDestination = optionId === "base" ? "base" : { battlefieldId: optionId };
+      return placeToken(state, d.playerIndex, destination, BIRD_TOKEN);
+    },
+  },
 };
 
 /**
@@ -3118,7 +3473,37 @@ export const decisions: Record<string, DecisionDefinition> = {
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-088": {
+    // Gutter Palace, second clause — "Discard 1, [Exhaust]: Play a 1 [Might] Bird
+    // unit token with [Deflect]." (Its win condition is in `eventTriggers`.)
+    //
+    // Both halves of the price are declared. The discard is `ActivationCost`'s
+    // own field — Unlicensed Armory's, the only other card in the pool that pays
+    // one — so WHICH card goes rides on the action as `costDiscardCardInstanceId`
+    // and is fanned out by `legal-actions`, rather than being taken off the front
+    // of hand at resolution. That matters more here than it looks: the win
+    // condition above wants EXACTLY 4 cards in hand, so the ability is also this
+    // card's way of getting down to four, and the player has to be able to say
+    // which card they are throwing.
+    //
+    // `exhaust` is what makes it once per turn, and `canPayActivationCost`
+    // refuses an already-exhausted gear.
+    //
+    // The token is `BIRD_TOKEN` from token.ts — 1 Might, `[Deflect]`, shared by
+    // the six printed cards across four domains that make it. A local copy that
+    // lost the `[Deflect]` would be invisible until someone taxed it.
+    //
+    // No `entersReady`: 143.4.a's default stands and this card overrides nothing.
+    //
+    // The DESTINATION is a question (355.2) rather than an automatic base — see
+    // `UNL-088-place` above, and Ultrasoft Poro's identical shape.
+    kind: "Gear",
+    cost: { discard: 1, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "UNL-088-place", playerIndex: ctx.casterIndex }),
+  },
+};
 
 
 /**

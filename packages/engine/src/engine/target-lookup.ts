@@ -248,7 +248,7 @@ export function unitListChoiceError(
       if (!at) return `${location.unit.name} is not at a battlefield`;
       battlefieldIds.add(state.battlefields[at.battlefieldIndex]!.id);
     }
-    // "At the same LOCATION" (828: Locations include the Battlefields and the
+    // "At the same LOCATION" (198.1: Locations include the Battlefields and the
     // Bases). Keyed by zone rather than by battlefield id, so each base is its
     // own location and a unit in each base is two locations, not one group.
     if (spec.sameLocation) {

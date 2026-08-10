@@ -220,3 +220,61 @@ describe("coverage counts the additional-cost cards", () => {
     }
   });
 });
+
+/**
+ * `[Accelerate]`'s Power pip goes THROUGH the floating reduction, not after it.
+ *
+ * The enumerator priced the accelerated variant as
+ * `effectiveCost.powerCost + ACCELERATE_POWER` — and `effectiveCost` has already
+ * had floating Power taken off. So the accelerate pip was added *after* the
+ * reduction and could never be absorbed by it, while `validate-play-card`
+ * re-derives from the printed cost with the additional term folded in and lets
+ * floating rainbow Power cover it.
+ *
+ * With one rainbow banked, a 0-Power Accelerate unit therefore enumerated a
+ * 1-Power payment the validator priced at 0, and `executePlayCard` **threw**.
+ *
+ * **Found by `hunt-xp`, not by this suite**, and the reason is worth keeping: it
+ * needs floating rainbow Power banked at the moment an Accelerate card is played,
+ * and nothing banked it routinely until wave 4 added cards that do. The bug was
+ * reachable for as long as `[Accelerate]` and Malzahar's rainbow have coexisted.
+ */
+describe("an accelerated play lets floating rainbow Power pay its pip", () => {
+  const LILLIA = "UNL-082"; // 3 Energy, 0 Power, [Accelerate] — the card that threw
+
+  function board(floatingRainbowPower: number): { state: GameState; card: UnitInstance } {
+    const card = createCardInstance(defaultCardRegistry().get(LILLIA)) as UnitInstance;
+    const state = caster(card, "Mind", 8);
+    state.players[0]!.floatingRainbowPower = floatingRainbowPower;
+    return { state, card };
+  }
+
+  it("enumerates an accelerated payment the validator accepts", () => {
+    const { state, card } = board(1);
+    const accelerated = playsOf(state, card).filter((a) => a.type === "PlayCard" && a.acceleratePaid === true);
+
+    // Premise: the accelerated variant exists at all. Without it the assertions
+    // below are vacuous, which is exactly how this went unnoticed.
+    expect(accelerated.length, "no accelerated variant was offered").toBeGreaterThan(0);
+    for (const play of accelerated) {
+      const verdict = validatePlayCard(state, play as never);
+      expect(verdict.ok, verdict.ok ? "" : verdict.error).toBe(true);
+    }
+  });
+
+  it("asks for NO power rune when the rainbow covers the whole pip", () => {
+    // The specific number, not just "the validator agrees" — a fix that made both
+    // sides ask for one rune would satisfy the test above and still be wrong.
+    const { state, card } = board(1);
+    const accelerated = playsOf(state, card).find((a) => a.type === "PlayCard" && a.acceleratePaid === true)!;
+    expect(accelerated.type === "PlayCard" && accelerated.payment.powerRunes, "the rainbow did not absorb the pip").toHaveLength(0);
+  });
+
+  it("still asks for one when there is NO floating rainbow — the control", () => {
+    // Without this, "asks for zero" would pass on a build that never charged the
+    // accelerate pip at all.
+    const { state, card } = board(0);
+    const accelerated = playsOf(state, card).find((a) => a.type === "PlayCard" && a.acceleratePaid === true)!;
+    expect(accelerated.type === "PlayCard" && accelerated.payment.powerRunes, "the accelerate pip vanished entirely").toHaveLength(1);
+  });
+});

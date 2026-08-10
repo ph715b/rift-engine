@@ -30,6 +30,7 @@ import {
   ownUnitsEverywhere,
   payPowerFromChanneled,
   payEnergyFromPool,
+  recordModeUsed,
   exhaustGear,
   exhaustOwnUnitAnywhere,
   readyUnit,
@@ -44,6 +45,7 @@ import {
   takeControlOfUnit,
 } from "../effect-helpers.js";
 import { findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { effectiveMight } from "../effective-might.js";
 import { attackerIndexAt, attackingUnitsAt, isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import { killGear } from "../triggers.js";
 import { playUnitToBase, playUnitToBattlefield } from "../deploy.js";
@@ -105,6 +107,17 @@ const HARD_BARGAIN_RANSOM = 2;
  * closure, which runs long afterwards.
  */
 const CONSCRIPTION_MAX_MIGHT = 3;
+
+/**
+ * The key Maduli the Gatekeeper's destination question is registered under.
+ *
+ * Up HERE for the same reason `CONSCRIPTION_MAX_MIGHT` is: it is a COMPUTED KEY
+ * in the `decisions` literal, evaluated as that object is built at module load,
+ * so a `const` declared next to the ability that parks it would still be in its
+ * temporal dead zone. Measured — `tsc` names it (TS2448) rather than leaving it
+ * to fail at import.
+ */
+const MADULI_MOVE = "UNL-144-move";
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-135": {
@@ -210,7 +223,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // line.
     //
     // **DIVERGENCE, pre-existing and shared**: the rules make a BASE a legal
-    // destination for a spell's move (828 "Locations include the Battlefields and
+    // destination for a spell's move (198.1 "Locations include the Battlefields and
     // the Bases", and 1442 works the example with Ride The Wind moving a unit "to
     // base"). This engine's `destinationBattlefieldId` carries only a
     // battlefield, so Charm, Showstopper, Ride The Wind, Stormbringer and
@@ -477,7 +490,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // end of the turn would keep paying out long after its source stopped
     // applying, which is a worse answer than under-counting it. So a buffed unit
     // keeps its own buff across the swap and only the base+this-turn figures
-    // trade places. **Flagged as unverified** — 2236's worked example reads
+    // trade places. **Flagged as unverified** — **432.1**'s worked example reads
     // "current Might" for a spell that references Might, which would argue the
     // other way.
     targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, sameBattlefield: true },
@@ -802,7 +815,8 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // "3 Might or less" is the shared `maxMight` predicate (`unitWithinMaxMight`),
     // so it reads EFFECTIVE Might — a 3-Might unit standing under an aura is a 4
-    // and out of reach, which is 2236's "current Might".
+    // and out of reach, which is **143.2**'s Might read the way 432.1's worked
+    // example reads it (a Shield's +2 is part of "current Might" while it applies).
     //
     // "AT A BATTLEFIELD" is printed twice, so the default battlefield scope stands
     // and a unit in the enemy base is safe. Possession (OGN-203, above) prints the
@@ -1195,8 +1209,8 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // "AT A BATTLEFIELD" is printed, so base units are out of reach; "3 Might or
     // less" is asked through `unitWithinMaxMight`, the same shared predicate the
     // enumerator and the validator use, so this card and a `maxMight` spec can
-    // never disagree about what counts (it reads EFFECTIVE Might, which is 2236's
-    // "current Might").
+    // never disagree about what counts (it reads EFFECTIVE Might, which is
+    // **143.2**'s statistic as 432.1's worked example reads it).
     //
     // "ANOTHER" rides on his own instanceId, for the reason Beast Below's entry
     // gives: this resolves with him already on the board.
@@ -1487,7 +1501,100 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
     // its note for why it exists even with nothing yet able to forbid the gain.
     resolve: (state, listener) => gainXp(state, listener.ownerIndex, 1),
   },
+  "UNL-145": {
+    // Pyke - Returned — "[Hidden][Backline] ONCE EACH TURN, when an enemy unit
+    // dies while I'm at a battlefield, play a Gold gear token exhausted."
+    //
+    // # The two trigger conditions, and which seat each is measured from
+    //
+    // "An ENEMY unit" is relative to the LISTENER, not to the dying unit's own
+    // view of the world — the reason a death-watch is handed both. It is the
+    // mirror of Vicious Snapjaws above, and the `!==` is the whole difference
+    // between the two cards. Nothing excludes tokens, so an enemy Recruit dying
+    // mints a Gold; **383.3.e**'s own worked example uses exactly that case.
+    //
+    // "WHILE I'M AT A BATTLEFIELD" is `listener.battlefieldId`, which is undefined
+    // for a unit in base (and for Gear, and for the Legend). So a Pyke sitting at
+    // home watches an enemy die and mints nothing — which is the clause's whole
+    // job, since `[Hidden]` puts him at a battlefield by construction and this is
+    // what stops him from paying out after he has been sent back.
+    //
+    // Both are facts settled at FIRE time (383), captured before the corpse
+    // reached the trash, so the response window a held trigger opens cannot
+    // change either. That is the split `applies` exists to make.
+    //
+    // # "ONCE EACH TURN" is checked TWICE, and 383.3.e.1 is why
+    //
+    // The rule says two things in one sentence: *"Such a Triggered Ability will
+    // only be **performed** the specified number of times each turn. If its
+    // trigger condition would be fulfilled and it **has already been performed**
+    // that many times, **it does not trigger**."*
+    //
+    // The second half is a gate on TRIGGERING, so it belongs in `applies` — a Pyke
+    // that has already minted places no Pending Item at all, rather than one that
+    // closes the chain, costs both players a PassFocus and resolves to nothing.
+    //
+    // The first half is a cap on PERFORMANCES, so it is re-asked in `resolve`.
+    // The two differ only for SIMULTANEOUS deaths: two enemies dying to one
+    // sweep both fulfil the condition while nothing has yet been performed, so
+    // both trigger — and the resolve-side guard is what keeps the second from
+    // minting a second Gold. Taking only the `applies` guard would have paid twice
+    // for a "once each turn", which is the direction this file will not err in.
+    // Wraith of Echoes (OGN-118, triggers.ts) splits its own per-turn allowance
+    // the same way and for the same reason.
+    //
+    // # The mark is per-UNIT, not per-player
+    //
+    // `abilityModesUsedThisTurn` on the UnitInstance, cleared by `turn-manager`'s
+    // runEnd for every unit on both sides — so two Pykes keep two separate
+    // allowances, which a `PlayerState` flag could not express. Draven -
+    // Audacious's entry below records this field being borrowed for a
+    // trigger-reached allowance and says in as many words that "if a second
+    // per-unit once-a-turn card lands, that field is the right answer". This is
+    // that card, and it takes that answer.
+    //
+    // Read off the LIVE unit rather than off the listener snapshot, which was
+    // taken when the death fired: a second death resolving off the same board must
+    // see the first one's mark. `recordModeUsed` writes it wherever he now stands.
+    //
+    // A Pyke who is GONE by the time this resolves still mints — `resolvePendingTrigger`
+    // falls back to the captured card (359.3) — and there is then nowhere to write
+    // the memory and nothing that could spend it, since a unit off the board is not
+    // a listener and cannot trigger again this turn. Same shape as
+    // `scoreFirstCombatWin`'s.
+    //
+    // # The token
+    //
+    // `placeGoldTokens` — the shared maker, so the Gold arrives with the printed
+    // ability `activated-abilities.ts` registers under `GOLD_TOKEN_DEF_ID` and
+    // Renata Glasc - Industrialist's "tokens enter ready" replacement (375) still
+    // reaches it. "EXHAUSTED" is the generating effect's 184.1 modification, which
+    // is that helper's only mode and is what every card that mints one prints.
+    applies: (state, listener, death) => {
+      if (death.ownerIndex === listener.ownerIndex) return false;
+      if (listener.battlefieldId === undefined) return false;
+      return !pykeHasMinted(state, listener.card.instanceId);
+    },
+    resolve: (state, listener) => {
+      if (pykeHasMinted(state, listener.card.instanceId)) return state;
+      const minted = placeGoldTokens(state, listener.ownerIndex, PYKE_GOLD_TOKENS);
+      return findUnitAnywhere(minted, listener.card.instanceId)
+        ? recordModeUsed(minted, listener.ownerIndex, listener.card.instanceId, PYKE_GOLD_MINTED)
+        : minted;
+    },
+  },
 };
+
+/** Pyke - Returned's once-a-turn mark, and how many Gold he mints when he does. */
+const PYKE_GOLD_MINTED = "UNL-145-gold-minted";
+const PYKE_GOLD_TOKENS = 1;
+
+/** Has this Pyke already spent his "once each turn" (383.3.e.1)? Asked of the
+ *  LIVE unit; a Pyke who has left the board has no mark and cannot trigger
+ *  again anyway. */
+function pykeHasMinted(state: GameState, instanceId: string): boolean {
+  return findUnitAnywhere(state, instanceId)?.unit.abilityModesUsedThisTurn.includes(PYKE_GOLD_MINTED) ?? false;
+}
 
 /** Spirit Wheel's optional draw. */
 const SPIRIT_WHEEL_DRAW_COST = 1;
@@ -2283,7 +2390,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // comes off a battlefield's facedown zone — but the field is optional and a
     // resolver that assumed otherwise would be a claim rather than a check.
     //
-    // "An enemy unit at a DIFFERENT LOCATION" is 828's Locations, so the enemy
+    // "An enemy unit at a DIFFERENT LOCATION" is 198.1's Locations, so the enemy
     // BASE counts and dragging a reinforcement out of it is the main line; only
     // the enemy units already standing beside her are excluded. That is a wider
     // reach than a bare "an enemy unit at a battlefield" would give, and it is
@@ -2371,7 +2478,7 @@ const KHAZIX_XP = 2;
 
 /**
  * The enemy units NOT at `battlefieldId` — Evelynn - Entrancing's "an enemy unit
- * at a DIFFERENT LOCATION", which by 828 includes the enemy base.
+ * at a DIFFERENT LOCATION", which by 198.1 includes the enemy base.
  *
  * The mirror of `ownUnitsElsewhere` above (Fae Porter's own list) and written
  * beside it for the same reason: this list is also the OPTIONS the player is
@@ -3441,6 +3548,33 @@ export const decisions: Record<string, DecisionDefinition> = {
       optionId === "decline" || !d.battlefieldId ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId),
   },
 
+  // Maduli the Gatekeeper's destination — see his activated ability above for why
+  // this is a decision rather than a `{ kind: "battlefield" }` targeting spec.
+  //
+  // `options` reads LIVE state through the same `maduliDestinations` that gated
+  // the activation, so a board the answer arrives on is judged fresh: nothing can
+  // change it today (an activated ability resolves inline, with no chain item and
+  // no response window — counter-spell.ts records that divergence), and asking the
+  // live board is what keeps that from mattering the day abilities go on the
+  // chain. A Maduli who has left play offers nothing and the question is dropped.
+  //
+  // `causedByIndex` is his own controller: he is moving HIMSELF, so mover and
+  // cause coincide — but naming it is what lets a "when you move a unit" listener
+  // see this at all, which is the gap `unitMoved.causedByIndex` was added to close
+  // (Blast Cone's second clause, UNL-133 in this file).
+  [MADULI_MOVE]: {
+    prompt: () => "Maduli the Gatekeeper: move him to which enemy battlefield?",
+    options: (state, d): DecisionOption[] =>
+      !d.cardInstanceId
+        ? []
+        : maduliDestinations(state, d.playerIndex, d.cardInstanceId).map((bf) => ({
+            id: bf.id,
+            label: `Move Maduli to ${bf.name}`,
+          })),
+    resolve: (state, d, optionId) =>
+      !d.cardInstanceId ? state : forceMoveToBattlefield(state, d.cardInstanceId, optionId, d.playerIndex),
+  },
+
   // Scryer's Bloom's `[Predict 2]` — 436.1.a's "recycle any of them and put the
   // rest back on top in any order."
   //
@@ -3707,7 +3841,7 @@ const MEGATUSK_XP = 3;
  * "Your units HERE" — every unit `playerIndex` controls at the LOCATION the
  * source is standing at, the source included.
  *
- * A Location, not a battlefield: **828** makes the Bases Locations alongside the
+ * A Location, not a battlefield: **198.1** makes the Bases Locations alongside the
  * Battlefields, and Megatusk prints no "while I'm at a battlefield" restriction
  * (contrast Caitlyn - Patrolling, who does). So a Megatusk sitting at home grants
  * to his base, which is legal and useless — `[Ganking]` only ever widens a
@@ -3867,7 +4001,150 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       return gainXp(drawn, ctx.casterIndex, SCRYERS_BLOOM_XP);
     },
   },
+  "UNL-144": {
+    // Maduli the Gatekeeper — "I can't be readied. [Chaos]: Move me to an
+    // occupied enemy battlefield if my Might is greater than the total Might of
+    // enemy units there."
+    //
+    // # HALF WRITTEN, and the missing half is the DRAWBACK — the worse direction
+    //
+    // "I can't be readied" is a continuous restriction on a game action, and it
+    // has TWO readers, neither of which this file may edit:
+    //
+    //   `turn-manager.runAwaken` readies the active player's whole board with an
+    //   inline `map`, not through any helper — so a per-unit exemption has to be
+    //   read there. **315.1.b.1** is explicit that this is where it belongs: "The
+    //   Turn Player readies all Game Objects they control **that are able to be
+    //   readied**." That file's own comment already names the gap ("minus
+    //   UnitAbilities.cannotBeReadied (no card grants that yet)"); Maduli is the
+    //   card that grants it.
+    //
+    //   `effect-helpers.readyUnit` is the other door, the one every spell and
+    //   ability comes through. Its existing lock (`mayReadyPermanent`) is
+    //   PER-PLAYER — Mageseeker Warden's "spells and abilities can't ready enemy
+    //   units and gear" — so it cannot express a restriction that belongs to one
+    //   unit, and widening it is a change to a shared file.
+    //
+    // So he readies every Awaken, which makes him STRONGER than printed: a 7-cost
+    // 6-Might body whose whole price is that he stays exhausted once he has moved
+    // or fought. That is the direction this file works hardest not to err in, so
+    // it is PINNED — `unl-chaos-wave4.test.ts` asserts the wrong answer ("he
+    // readies in Awaken") on purpose, and implementing the restriction must FLIP
+    // that test rather than silently change behaviour nobody was watching. Needs a
+    // `coverage.PARTIALLY_IMPLEMENTED` entry until then; this file may not add
+    // one, and he has no unimplemented keyword to grey him, so without that entry
+    // he reports finished.
+    //
+    // # The ability, which is whole
+    //
+    // `cost: { power: { domain: "Chaos", count: 1 } }` and NO exhaust — the card
+    // prints one Chaos pip and no `:rb_exhaust:`, and the default is
+    // `{ exhaust: true }`, so taking it would have invented a limit. Repeatable
+    // while the runes last, which is the same shape Vi - Destructive's Recycle
+    // has and is bounded by the price rather than by a tap.
+    //
+    // # "an OCCUPIED ENEMY battlefield"
+    //
+    // Read as "the opponent has units standing there", which is the reading
+    // `unit-triggers.isOccupiedByEnemy` already gives the IDENTICAL phrase on
+    // Deadbloom Predator (OGN-161) and Dauntless Vanguard (SFD-093). **170.11.a**
+    // defines "occupied" as "they have a Unit present" and says nothing about
+    // whose; taking it as "a battlefield the enemy CONTROLS, occupied by anyone"
+    // would let him walk onto an enemy-controlled battlefield holding only his own
+    // allies, where "the total Might of enemy units there" is zero and the
+    // condition is vacuous. The clause that follows is what settles it: it only
+    // means anything if enemies are the ones standing there.
+    //
+    // Duplicated here rather than imported because that predicate is module-
+    // private to unit-triggers.ts and this file may not export it from there. The
+    // two answer for different call sites (a PLAY destination and a MOVE
+    // destination) and are three lines each; the drift risk is named rather than
+    // pretended away.
+    //
+    // # The Might comparison
+    //
+    // STRICTLY greater ("greater than"), read through `effectiveMight` on both
+    // sides so buffs, this-turn pumps, Equipment badges and positional auras all
+    // count — **143.2**'s statistic as 432.1's worked example reads it. **"2236"
+    // was the citation three neighbouring entries in this file carried, and it is
+    // a LINE NUMBER**: `-raw` resolves no such rule, and 143.2/432.1 are what the
+    // sentences actually needed. `isCombat: false` on both, matching every
+    // other non-damage Might reference in this file: `[Assault]` and `[Shield]`
+    // are damage-side adjustments and are not the Might a card compares.
+    //
+    // **His own Might is read WHERE HE STANDS, not where he is going.** Auras are
+    // positional, so the two can differ. **359.3.f.2** puts the check "on
+    // execution of the instruction" and the instruction executes before he has
+    // moved, so the board he is measured on is the one he is leaving.
+    //
+    // # The destination is a DECISION, not a targeting spec
+    //
+    // `TargetingSpec` has a `battlefield` kind, and it is unusable here: measured
+    // in `legal-actions.activateAbilityCandidates`, an ability whose targeting is
+    // not `unit`/`unitOrGear` is pushed as a SINGLE variant with nothing chosen —
+    // only the PlayCard path fans battlefields out. So a `{ kind: "battlefield" }`
+    // ability would be offered, paid for, and arrive at `resolve` with no
+    // destination. A parked decision is the mechanism this engine already has for
+    // a choice with no action field (free-play placement's is the same shape), and
+    // it also lets the OPTIONS carry the two conditions — so an illegal
+    // battlefield is never on the menu rather than refused after the rune is gone.
+    //
+    // No "Decline" option: the "if" is a CONDITION, not a "you may". Once the rune
+    // is paid the move happens, and `advanceDecisions` retires a one-destination
+    // question without prompting.
+    //
+    // `availableWhile` asks the same question the options do, through the same
+    // function — so a Maduli with nowhere legal to go is never offered the ability
+    // at all rather than offered it and refunded nothing (416.3).
+    kind: "Unit",
+    cost: { power: { domain: "Chaos", count: 1 } },
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex, sourceInstanceId) =>
+      maduliDestinations(state, playerIndex, sourceInstanceId).length > 0,
+    resolve: (state, ctx, _event, sourceInstanceId) =>
+      parkDecision(state, { kind: MADULI_MOVE, playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
+  },
 };
+
+/**
+ * The battlefields Maduli may move himself to — "an occupied enemy battlefield
+ * ... if my Might is greater than the total Might of enemy units there".
+ *
+ * ONE function, asked by `availableWhile` and by the decision's `options`, for
+ * the reason `mayPlaceWithoutPresence` records about its own two callers: an
+ * enumerator and a resolver that each carried their own copy of this predicate
+ * is exactly the drift that gets an ability offered and then refused.
+ *
+ * His CURRENT battlefield is excluded — 355.4.a's "a valid Location for a Move
+ * Effect is one other than the Unit's current Location". It could not qualify
+ * anyway (he is standing on it, so it is contested and he is measured against
+ * the enemies he is already fighting), but offering a move that cannot happen
+ * for one Chaos rune is the shape this file keeps out.
+ */
+function maduliDestinations(state: GameState, playerIndex: 0 | 1, sourceInstanceId: string) {
+  const at = findUnitAnywhere(state, sourceInstanceId);
+  if (!at) return [];
+  const mine = effectiveMight(
+    state,
+    at.unit,
+    at.ownerIndex,
+    at.zone === "base"
+      ? { isCombat: false }
+      : { isCombat: false, battlefieldId: state.battlefields[at.zone.battlefieldIndex]!.id },
+  );
+  const here = at.zone === "base" ? undefined : state.battlefields[at.zone.battlefieldIndex]!.id;
+  const enemyIndex = (playerIndex === 0 ? 1 : 0) as 0 | 1;
+  return state.battlefields.filter((bf) => {
+    if (bf.id === here) return false;
+    const enemies = enemyUnitsAt(state, playerIndex, bf.id);
+    if (enemies.length === 0) return false; // "OCCUPIED enemy battlefield" — 170.11.a
+    const total = enemies.reduce(
+      (sum, u) => sum + effectiveMight(state, u, enemyIndex, { isCombat: false, battlefieldId: bf.id }),
+      0,
+    );
+    return mine > total;
+  });
+}
 
 /** Scryer's Bloom's third sentence — "Gain 1 XP." */
 const SCRYERS_BLOOM_XP = 1;

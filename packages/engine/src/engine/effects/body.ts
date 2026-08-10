@@ -41,12 +41,13 @@ import {
   voidHatchlingOptions,
 } from "../top-of-deck.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
-import type { GameState, PlayerState } from "../../model/game-state.js";
+import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { Keyword } from "../../model/keyword.js";
 import { effectiveMight } from "../effective-might.js";
 import { effectiveKeywords, isMighty } from "../granted-keywords.js";
-import { isFightingAt } from "../combat-designation.js";
+import { isAttackingAt, isFightingAt, isStillHere } from "../combat-designation.js";
+import { opponentNearVictory } from "../constants.js";
 import type { GameEvent, Listener } from "../triggers.js";
 import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
 import { attachEquipment, borrowGear, detachEquipment, equipmentAttachedTo, isEquipmentGear } from "../equipment.js";
@@ -903,6 +904,117 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx, unitId) =>
       otherFriendlyMightTotal(state, ctx.casterIndex, unitId) >= KINKOU_INITIATE_MIGHT ? drawCards(state, ctx.casterIndex, 1) : state,
+  },
+  "UNL-116": {
+    // Poppy - Paragon — "[Deflect] When you play me, if an opponent's score is
+    // within 3 points of the Victory Score, ready me and gain 3 XP." Her
+    // `[Deflect]` is priced by the choose-tax in validate-play-card, so only the
+    // sentence is here.
+    //
+    // # The condition is Leona - Zealot's, and the SAME function answers it
+    //
+    // `opponentNearVictory` (engine/constants.ts) is the one definition of "within
+    // 3 points of the Victory Score", shared with Leona - Zealot and Find Your
+    // Center. It is INCLUSIVE (an opponent on 5 of 8 triggers it) and it measures
+    // against THIS game's Victory Score rather than the printed 8, so Aspirant's
+    // Climb moves it. Two copies of an inclusive-vs-exclusive boundary is exactly
+    // what that helper exists to prevent.
+    //
+    // **It is not Leona's MECHANISM, though, and the difference is printed.** She
+    // says "I enter ready", which is a replacement applied as she arrives
+    // (deploy.unitEntersReady). Poppy says "READY me", which is an instruction in a
+    // triggered effect — so she enters exhausted like anything else (143.4.a) and
+    // is readied afterwards. Through `readyUnit`, which means Mageseeker Warden's
+    // "spells and abilities can't ready enemy units" can stop it and rule 415's
+    // already-ready no-op applies; both are correct for an instruction and neither
+    // would be for a replacement.
+    //
+    // # DIVERGENCE: when the "if" is read
+    //
+    // **383.2.a.1** — "Any additional conditional statement immediately after the
+    // Condition must be true in order for the Condition to be fulfilled. Such a
+    // conditional statement is part of the Trigger Condition and not the Effect."
+    // Poppy's "if" sits immediately after "when you play me", so by the rule it is
+    // checked when she is PLAYED, and the rulebook's Sona example is explicit that
+    // it is not re-checked at resolution ("if she is removed in reaction to the
+    // triggered ability, it will still resolve").
+    //
+    // `UnitTriggerDefinition` has no `applies` — an on-play trigger is a `targeting`
+    // and a `resolve`, nothing else — so the score is necessarily read a response
+    // window LATER, when the held item resolves. The gap is narrow but real and it
+    // only opens one way: an opponent who gains a point in that window turns her on
+    // when the rules had already turned her off. Adding the hook is a change to
+    // unit-triggers.ts, which this file does not own. Contrast Kinkou Initiate two
+    // rows up, whose "if" is at the END of its effect — 383.2.a.1's Loose Cannon
+    // example makes THAT one part of the Effect, so reading it at resolution is
+    // right there and wrong here.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      opponentNearVictory(state, ctx.casterIndex) ? gainXp(readyUnit(state, unitId), ctx.casterIndex, POPPY_PARAGON_XP) : state,
+  },
+  "UNL-118": {
+    // Elder Dragon's SECOND clause — "When you play me, choose up to one enemy
+    // unit at each location. Deal 1 to them."
+    //
+    // **HALF THE CARD.** His first sentence — "Any amount of your damage is enough
+    // to kill enemy units" — is REFUSED, not forgotten, and the rules name him for
+    // it: **142.4.c**, "Some effects may alter this amount... Example: Elder
+    // Dragon's passive ability reads 'Any amount of your damage is enough to kill
+    // enemy units.' This alters the Lethal Damage value for enemy units that have
+    // damage marked BY YOU." Two things are missing and both are outside this file:
+    //  - **Per-marker damage.** 142.3.a makes marked damage belong to the player
+    //    who dealt it, and `UnitInstance.damage` is one flat number with no
+    //    attribution — so "your damage" cannot be asked at all (model/card.ts).
+    //  - **A Lethal Damage override.** The threshold is computed inline in
+    //    `effect-helpers.dealDamage` (`effectiveMight - damage <= 0`) and again in
+    //    combat's own arithmetic; both would have to consult it.
+    // See the pin in test/unl-body-wave4.test.ts, which asserts the wrong answer.
+    //
+    // # "Each LOCATION" is 198.1, not 828
+    //
+    // **198.1: "Locations include the Battlefields and the Bases."** (Nine comments
+    // in src/ cite 828 for this sentence; 828 is `[Empowered]`. Reported rather
+    // than fixed here — they are in files this one does not own.) So the sweep is
+    // every battlefield PLUS a base, and the caster's own base is not one of them
+    // for a reason that is structural rather than a reading: an enemy unit can only
+    // ever stand at a battlefield or in its own controller's base, so "each
+    // location holding an enemy unit" is the battlefields plus the opponent's base.
+    //
+    // # Why a question per location rather than a targeting spec
+    //
+    // "Up to one at EACH location" is a per-location group, and no `TargetingSpec`
+    // is that shape — `unitSlots` is a fixed 2-tuple and `unitList` is dropped on
+    // the Unit dispatch hop (see Fae Dragon's note, SFD-101). So each location gets
+    // its own parked question, which is Fae Dragon's mechanism and carries her
+    // divergence for her reason: **355 chooses targets as the ability goes on the
+    // chain and these are chosen at resolution**, so an opponent responding to the
+    // Dragon does not learn which units are named until it resolves.
+    //
+    // Parked (back of the queue) rather than repeated (front): these are separate
+    // questions about separate locations, not continuations of one, and any
+    // question a death raises in between belongs after the location it came from
+    // rather than jammed between two of the Dragon's.
+    //
+    // A SEQUENCE of 1-damage instructions rather than one simultaneous batch: the
+    // rules' "deal 1 to them" is one instruction, but `dealDamage` is the engine's
+    // single death choke point (Deathknells, death wards, killer attribution), so
+    // the amounts cannot be applied simultaneously without going round it. Nothing
+    // here reads a total, so the only observable difference is the ORDER deaths are
+    // processed in.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      elderDragonLocations(state, ctx.casterIndex).reduce(
+        (next, battlefieldId) =>
+          parkDecision(next, {
+            kind: "UNL-118-scorch",
+            playerIndex: ctx.casterIndex,
+            // Omitted rather than set to `undefined`, which `exactOptionalPropertyTypes`
+            // refuses — and the omission IS the enemy base, the same convention
+            // `PendingDecision.battlefieldId` already carries.
+            ...(battlefieldId === undefined ? {} : { battlefieldId }),
+          }),
+        state,
+      ),
   },
 };
 
@@ -1769,6 +1881,74 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       payEnergyFromPool(state, listener.ownerIndex, BLOOD_ROSE_XP_COST) !== undefined,
     resolve: (state, listener) => parkDecision(state, { kind: "UNL-109-pay", playerIndex: listener.ownerIndex }),
   },
+  "UNL-119": {
+    // Kha'Zix - Evolving Hunter — "[Hunt] When I attack, you may spend 3 XP to
+    // deal damage equal to my Might to an enemy unit here." His `[Hunt]` is the
+    // keyword's single entry in triggers.ts, so only this sentence is here.
+    //
+    // `isAttackingAt` (464.2.c) rather than a hand-rolled check, and it carries
+    // three conditions that would otherwise each have to be repeated: he must be a
+    // UNIT standing where the combat opened, he must be on the side that applied
+    // Contested, and he must be GAINING the designation now — 383.4.f's "for the
+    // first time during a combat", so a reinforcement walking in later does not
+    // fire him a second time.
+    //
+    // # "HERE" is a referent, checked at RESOLUTION
+    //
+    // 359.3.f.1 makes "here" a referent read from the ability's source, and
+    // 359.3.f.2 checks it "on execution of the instruction" — the rulebook works
+    // this with Yasuo - Remorseful by name, whose attack trigger simply mistargets
+    // when an opponent moves him out of the fight in the response window. So 383
+    // fixes THAT he triggered, and `isStillHere` decides whether the instruction
+    // has anything to point at. It answers all three ways it can fail at once: he
+    // moved, he went home, or he died.
+    //
+    // # DIVERGENCE: WHEN the 3 XP is paid
+    //
+    // **383.3.b** — a cost "immediately following the 'you may' ... that appears as
+    // the first part of the effect ... is treated as the base cost of the Triggered
+    // Ability", and **383.3.b.1**: "The cost must be paid in order to FINALIZE the
+    // Triggered Ability to the Chain." Kha'Zix prints exactly that shape, so by the
+    // rules the XP leaves at finalization and the opponent responds to an ability
+    // already paid for. Here it is a question asked at RESOLUTION, so the
+    // controller may watch the response window and then decline.
+    //
+    // That is not a shortcut taken here: `cleanup.finalizePendingTriggers` moves
+    // the whole pen onto the chain unconditionally and there is no hook for a cost
+    // at that moment. Blood Rose (UNL-109, one row up) prints the identical shape
+    // and carries the identical divergence, which is why this follows her rather
+    // than inventing a second answer.
+    //
+    // **Her `applies` gate is deliberately NOT copied.** She refuses to place a
+    // Pending Item at all when the [1] is unpayable; affordability is asked here in
+    // `resolve` instead, which is Kato the Arm's reading — whether the thing can be
+    // done is a question about the board at resolution, not a requirement that
+    // decides whether the ability triggered (383.4 fixes only the condition). The
+    // practical difference is real: XP gained in the response window (a friendly
+    // `[Hunt]`, a Nilah walking in) is spendable here and would not be in hers.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // **These three early-outs are REDUNDANT and that is measured, not
+      // assumed.** `khazixStrike` re-asks all of them when the options are built,
+      // so deleting any of these leaves the board in an identical state — the
+      // question is parked, finds only Decline, and `advanceDecisions` drains it
+      // before a player ever sees it. They are kept because raising a question
+      // nobody can answer is noise in the UI and in the AI's action list, not
+      // because they protect anything; no test can tell them apart, and the test
+      // file says so rather than claiming otherwise.
+      if (!isStillHere(state, listener.card.instanceId, event.battlefieldId)) return state;
+      if (!canSpendXp(state, listener.ownerIndex, KHAZIX_XP_COST)) return state;
+      if (enemyUnitsAtLocation(state, listener.ownerIndex, event.battlefieldId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "UNL-119-pounce",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -2432,6 +2612,77 @@ export const decisions: Record<string, DecisionDefinition> = {
         : holdCardsRecycled(recycled, opponentIndex, DISPOSAL_ORDER_CARDS);
     },
   },
+  // Elder Dragon's "up to one enemy unit at THIS location" — one of these is
+  // parked per location that held an enemy unit when he landed.
+  //
+  // `d.battlefieldId` names the location and its ABSENCE means the opponent's
+  // base, the convention `PendingDecision.battlefieldId` already carries for "a
+  // base unit has no battlefield id".
+  //
+  // "UP TO one", so Decline is a real answer and is listed first — which also
+  // means a location always has at least two options while an enemy stands there,
+  // so `advanceDecisions` never auto-fires one of these behind the player's back.
+  // Once the last enemy at a location has died to an earlier answer, only Decline
+  // survives and the question is executed silently, which is the correct outcome
+  // rather than a dropped one.
+  //
+  // Options are rebuilt live for the reason every question in this file does it:
+  // a unit killed by the answer to an EARLIER location must not be offered here.
+  // That also gives "one PER location" for free — a unit stands at exactly one
+  // location, so no two of these questions can reach the same body.
+  "UNL-118-scorch": {
+    prompt: (state, d) => `Elder Dragon: deal 1 to an enemy unit at ${locationName(state, d.battlefieldId)}?`,
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...enemyUnitsAtLocation(state, d.playerIndex, d.battlefieldId).map((u) => ({
+        id: u.instanceId,
+        label: `Deal ${ELDER_DRAGON_DAMAGE} to ${u.name}`,
+        instanceId: u.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" ? state : dealDamage(state, d.playerIndex, optionId, ELDER_DRAGON_DAMAGE),
+  },
+  // Kha'Zix - Evolving Hunter's "you may spend 3 XP to deal damage equal to my
+  // Might to an enemy unit here".
+  //
+  // ONE question carrying both halves — whether to pay, and whom to hit — because
+  // the two are not separable: declining IS not paying, and there is no board
+  // state where a player would pay and then have nothing to aim at (the trigger
+  // refuses to raise the question with no enemy here).
+  //
+  // The price and the roster are BOTH re-read live rather than trusted from the
+  // moment the trigger fired: XP can be spent in the response window by something
+  // else, and the enemy he was going to hit can die in it.
+  "UNL-119-pounce": {
+    prompt: (state, d) => {
+      const amount = khazixStrike(state, d)?.amount;
+      return amount === undefined
+        ? "Kha'Zix - Evolving Hunter: spend 3 XP to strike an enemy unit here?"
+        : `Kha'Zix - Evolving Hunter: spend 3 XP to deal ${amount} to an enemy unit here?`;
+    },
+    options: (state, d) => {
+      // "You MAY", so declining is a real answer and is listed first — and it is
+      // the ONLY answer once the XP is gone, he has left the fight, or the enemy
+      // side of the battlefield is empty.
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      const strike = khazixStrike(state, d);
+      if (strike === undefined || d.battlefieldId === undefined) return options;
+      for (const unit of enemyUnitsAtLocation(state, d.playerIndex, d.battlefieldId)) {
+        options.push({ id: unit.instanceId, label: `Deal ${strike.amount} to ${unit.name}`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const strike = khazixStrike(state, d);
+      // Unpayable between the option list and the answer, or he is gone: the
+      // "cost re-paid at the point of use" convention `hereToHelpPayment` and
+      // `spendBuff` share — the payoff is withheld rather than handed over free.
+      if (strike === undefined) return state;
+      return dealDamage(strike.paid, d.playerIndex, optionId, strike.amount);
+    },
+  },
 };
 
 /**
@@ -2859,6 +3110,93 @@ function recycleOneFromTrash(state: GameState, ownerIndex: 0 | 1, cardInstanceId
     deck: [...owner.deck, card],
   };
   return { ...state, players };
+}
+
+/** Poppy - Paragon's gain, as printed. */
+const POPPY_PARAGON_XP = 3;
+
+/** Elder Dragon's "deal 1", per chosen unit. */
+const ELDER_DRAGON_DAMAGE = 1;
+
+/** Kha'Zix - Evolving Hunter's optional price, in XP. */
+const KHAZIX_XP_COST = 3;
+
+/**
+ * The enemy units standing at ONE location, where `undefined` is the opponent's
+ * base — **198.1**, "Locations include the Battlefields and the Bases."
+ *
+ * Written once because three callers need the identical answer and they are in
+ * three different registries: Elder Dragon's location sweep, his per-location
+ * question, and Kha'Zix's "an enemy unit here". Two copies of "whose units are
+ * these" is how one of them ends up offering the caster their own board.
+ *
+ * The CASTER's own base is never a location this can be asked about, and that is
+ * structural rather than a reading: this engine files a unit under the player who
+ * controls it (`PlayerState.baseUnits`), so an enemy unit in your base does not
+ * exist to be found.
+ */
+function enemyUnitsAtLocation(state: GameState, casterIndex: 0 | 1, battlefieldId: string | undefined): UnitInstance[] {
+  const enemyIndex: 0 | 1 = casterIndex === 0 ? 1 : 0;
+  if (battlefieldId === undefined) return [...state.players[enemyIndex].baseUnits];
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return [...(bf?.units[state.players[enemyIndex].id] ?? [])];
+}
+
+/**
+ * Elder Dragon's "each location" — every battlefield plus the opponent's base,
+ * narrowed to the ones actually holding an enemy unit.
+ *
+ * The narrowing is not an optimisation: a question with only Decline on offer is
+ * executed silently by `advanceDecisions`, so leaving empty locations in would be
+ * invisible in play but would make the queue's length depend on the board rather
+ * than on the card. Filtering here says what the card does in one place.
+ *
+ * `undefined` last, so the sweep runs battlefields-then-base in board order. The
+ * card names no order and the choices cannot interact across locations (a unit
+ * stands at one), so any fixed order is as printed; a fixed one is what makes the
+ * test deterministic.
+ */
+function elderDragonLocations(state: GameState, casterIndex: 0 | 1): (string | undefined)[] {
+  return [...state.battlefields.map((bf) => bf.id), undefined].filter(
+    (id) => enemyUnitsAtLocation(state, casterIndex, id).length > 0,
+  );
+}
+
+/** What to call a location in a prompt — the battlefield's printed name, or the
+ *  opponent's base for the omitted id. */
+function locationName(state: GameState, battlefieldId: string | undefined): string {
+  if (battlefieldId === undefined) return "the enemy base";
+  return state.battlefields.find((bf) => bf.id === battlefieldId)?.name ?? battlefieldId;
+}
+
+/**
+ * Kha'Zix's strike, priced and measured together — the state with his 3 XP
+ * already spent, and the damage that state says he deals.
+ *
+ * One function for the prompt, the option labels and the resolution, because the
+ * three must agree about a number that MOVES when the cost is paid. Spending 3 XP
+ * can lower his own Might: Soul Sword's `[Level]` band (effects/calm.ts) is a
+ * threshold read off `PlayerState.xp` every evaluation, so a wearer sitting
+ * exactly on the line loses the bonus the moment the cost is taken. Reading the
+ * Might BEFORE the payment would quietly hand back a bonus the payment removed.
+ *
+ * Paying first is what the rules say, and emphatically so: **383.3.b** makes a
+ * cost immediately after a leading "you may" the *base cost* of the triggered
+ * ability, and **383.3.b.1** has it paid to finalize the ability onto the chain —
+ * i.e. before the effect happens at all, let alone before its numbers are read.
+ *
+ * `undefined` for every way the strike can fail — no source, no location, he has
+ * left the fight (359.3.f), or the XP is gone — so a caller cannot accidentally
+ * damage for a Might read off a payment that never happened.
+ */
+function khazixStrike(state: GameState, d: PendingDecision): { paid: GameState; amount: number } | undefined {
+  if (d.cardInstanceId === undefined || d.battlefieldId === undefined) return undefined;
+  if (!isStillHere(state, d.cardInstanceId, d.battlefieldId)) return undefined;
+  const paid = spendXp(state, d.playerIndex, KHAZIX_XP_COST);
+  if (paid === undefined) return undefined;
+  const self = findUnitAnywhere(paid, d.cardInstanceId);
+  if (self === undefined) return undefined;
+  return { paid, amount: mightInPlace(paid, self) };
 }
 
 /** Exhausts a gear its controller owns — Mistfall pays with itself. */

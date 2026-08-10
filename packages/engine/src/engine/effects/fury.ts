@@ -691,6 +691,46 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", SQUARE_UP_ASSAULT)
         : state,
   },
+  "UNL-007": {
+    // Smite — "[Action] Deal 3 to a unit at a battlefield. If it would die this
+    // turn, banish it instead."
+    //
+    // **ONLY THE FIRST SENTENCE IS WRITTEN, and this is a HALF.** Registration is
+    // per defId, so the damage alone reports the whole card DONE — which is why
+    // the wave's report asks for a `coverage.PARTIALLY_IMPLEMENTED` entry and why
+    // `test/unl-fury-wave4.test.ts` pins the missing half by asserting a Smitten
+    // unit lands in the TRASH.
+    //
+    // "AT A BATTLEFIELD" is printed, so the default `scope` stands (355.9.b's
+    // narrowing, "it meets all targeting restrictions" — NOT 355.9.a.1, which is
+    // the widening that a bare "a unit" would take). A unit parked in base is out
+    // of reach, the line Incinerate already draws.
+    //
+    // # Why the banish rider is refused rather than approximated
+    //
+    // "If it WOULD die this turn ... INSTEAD" is a Replacement Effect by 369.1's
+    // own identifiers ("as", "would", "instead"), and it is armed for the TURN
+    // rather than for this instruction: a unit Smitten for 3 that survives, and
+    // then dies to combat an hour later, is still banished. Nothing in this file
+    // can express that. Every death replacement in this engine is consumed inside
+    // `killUnit` (effect-helpers.ts) off a list on `GameState`
+    // (`deathWardedUnitInstanceIds`, `paidDeathWardUnitInstanceIds`), swept by
+    // `runEnd`. A fourth list is a model change plus a `killUnit` branch plus a
+    // sweep — three shared files — so it is named here and left undone.
+    //
+    // The plausible fake is worth naming because it would have passed a shallow
+    // test: banish the target HERE when this damage happens to be lethal. That is
+    // wrong in both directions — it misses every later death the card is armed
+    // for, and it would banish through the replacement chain (Zhonya's, Guardian
+    // Angel, a death ward) that 369/370 say gets to apply first.
+    //
+    // The difference is observable and not cosmetic: 808.1.d.1 makes a REPLACED
+    // death not a death, so a banished unit fires no [Deathknell] and reaches no
+    // trash-recursion. Today it dies normally and does both.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, SMITE_DAMAGE) : state,
+  },
 };
 
 /** Right of Conquest's unconditional first card, named so the `1 +` in its
@@ -718,6 +758,9 @@ const MONSTER_HARPOON_ARMED = 4;
 
 /** Square Up's grant — printed, and the largest [Assault] in the pool. */
 const SQUARE_UP_ASSAULT = 4;
+
+/** Smite's hit. Only the damage half of the card is written — see its entry. */
+const SMITE_DAMAGE = 3;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-013": {
@@ -993,6 +1036,63 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       ownUnitsAt(state, ctx.casterIndex, event.destination)
         .filter((u) => u.instanceId !== unitId)
         .reduce((next, u) => grantKeywordThisTurn(next, u.instanceId, "Assault", LORD_BROADMANE_ASSAULT), state),
+  },
+  "UNL-021": {
+    // Grim Apothecary — "[Ambush] When you play me, you may return a friendly unit
+    // at a battlefield to its owner's hand."
+    //
+    // **His `[Ambush]` is NOT implemented**, for the reason Lord Broadmane's entry
+    // above states at length: a play PERMISSION lives beside `PLACEMENT_GRANTS` in
+    // unit-triggers.ts and the timing tier in timing.ts. `UNIMPLEMENTED_KEYWORDS`
+    // still carries the `Ambush` row, so registering this clause does NOT make the
+    // card report DONE — `isCardImplemented` asks `unimplementedKeywordsOn` before
+    // it asks the registry. No PARTIALLY_IMPLEMENTED entry is owed for him.
+    //
+    // # "You may", as an enumerated variant rather than a resolver branch
+    //
+    // `optionalChoice` is the flag built for exactly this sentence, and 402.1 is
+    // why: "If the first part of a Triggered Ability's effect is 'you may,' or
+    // 'they may,' its controller decides whether or not to perform the Triggered
+    // Ability" at the Make Relevant Choices step — 402.1.a then removes it from the
+    // chain. So declining has to EXIST as a choice the enumerator offers; a
+    // resolver that quietly did nothing when handed no target would be a card that
+    // is never optional in play, because `legal-actions` pushes the empty variant
+    // only when there is nothing to choose. 402.2 ("make all choices required for
+    // this ability, such as targets") is the same step for the target itself.
+    //
+    // Tideturner (OGN-199, effects/chaos.ts) is the precedent and its comment
+    // claims to be "the ONLY card in the pool this reaches" — that sweep is stale
+    // as of this card, and its citation for the "you may" rule reads 402.2 where
+    // 402.1 is the sentence. Reported rather than edited: chaos.ts is not this
+    // file's.
+    //
+    // # The three printed restrictions
+    //
+    // **FRIENDLY** — `owner: "friendly"`, measured from the caster.
+    // **AT A BATTLEFIELD** — the default `scope`, 355.9.b's narrowing ("it meets
+    // all targeting restrictions"), so a unit in either base is out of reach. NOT
+    // 355.9.a.1, which is the widening a bare "a unit" would take.
+    // **TO ITS OWNER'S HAND** — `returnUnitToHand` also strips the Buff (705) and
+    // resets damage, because leaving play is leaving play. It files the card by the
+    // index whose zone held the unit, and in this engine CONTROL IS list membership
+    // — so for a unit taken with Hostile Takeover, "friendly" and "its owner"
+    // disagree in the rules and agree here, and the card goes to the taker's hand.
+    // That is the control-model divergence already recorded in
+    // docs/rules-conformance.md, inherited rather than introduced.
+    //
+    // **DIVERGENCE, named: he cannot choose HIMSELF.** The rules put this trigger
+    // on the chain after he has entered (383.4), so he is a friendly unit at a
+    // battlefield by the time the choice is made; this engine decides a unit
+    // trigger's target at the Make Relevant Choices step of PLAYING him, when he is
+    // still in hand and has no board instance to offer. That is the shape of every
+    // on-play targeting spec here, not something this card introduces, and the
+    // alternative (a parked decision, which could offer him) trades it for
+    // answering a turn LATER than 402 — resolution rather than finalization. The
+    // narrower miss was preferred: bouncing himself undoes his own arrival and is
+    // the one choice no board state makes worth taking.
+    targeting: { kind: "unit", owner: "friendly", optionalChoice: true },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state,
   },
 };
 
@@ -1744,6 +1844,74 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return dealDamage(detached, listener.ownerIndex, captured, BLIGHTED_BATTLEAXE_DAMAGE);
     },
   },
+  "UNL-022": {
+    // Jhin - Murderous Artist — "[Deflect] [Ganking] When I move, [Add] [1
+    // Energy][rainbow]."
+    //
+    // Both keywords are the engine's and neither belongs here: `[Deflect]` is
+    // priced by counter-spell.ts and `[Ganking]` is read by the move enumerator,
+    // and both are absent from `coverage.UNIMPLEMENTED_KEYWORDS`. Only the [Add] is
+    // this file's.
+    //
+    // Registered against the board-wide `unitMoved` EVENT rather than
+    // unit-triggers.ts's per-card `ON_MOVE_TRIGGERS` table, which is module-private
+    // and not this file's to edit — the same route Hwei - Brooding Painter
+    // (UNL-080, effects/mind.ts) and Kato the Arm (SFD-112, effects/body.ts) take.
+    //
+    // **"When I move" reaches all three emitters now**, which it did not when those
+    // two were written: `execute-move-unit`, `execute-recall-unit` (a unit walking
+    // home is a Move, 446.1) and `effect-helpers`' force-moves (449, "spells,
+    // abilities, or other effects may cause a Move to occur"). So [Ganking]'s
+    // sideways step, the walk home and a Blast Cone shove all pay him. A Recall is
+    // still NOT a Move (456) and is the one relocation that pays nothing — but note
+    // that `execute-recall-unit`'s walk home fires this deliberately; the two are
+    // different actions sharing a file.
+    //
+    // # What Adding is, and the one thing this gets wrong
+    //
+    // 429.1: "Adding is the action of putting resources into a player's Rune Pool."
+    // The printed pips are one Energy and one RAINBOW rune, so they land in
+    // `floatingEnergy` and `floatingRainbowPower` — the latter is its own pool
+    // because rainbow matches every domain while `floatingPower` is keyed by one,
+    // the split the Gold token and Malzahar's ritual already rest on. Both persist
+    // until spent and are swept by `runEnd`.
+    //
+    // **DIVERGENCE, reported rather than worked around: this is HELD on the chain
+    // like every other triggered ability, and 429.2 says it should not be.** "429.2.
+    // Triggered and activated abilities that Add resources resolve as soon as they
+    // are finalized", and 337.2 repeats it for the Chain Item. His reminder text
+    // prints the consequence — "abilities that add resources can't be reacted to" —
+    // and here they can: the hold opens a response window before the resources
+    // arrive. Making it right needs `holdEventTrigger`/the Cleanup to know that a
+    // definition resolves on finalization, which is a shared-file change to
+    // triggers.ts. Pinned in test/unl-fury-wave4.test.ts by asserting the wrong
+    // answer — that the resources are NOT there until the chain settles.
+    //
+    // `applies` is what keeps this off every other unit's move: every listener in
+    // play is asked, so without it Jhin would pay out for the whole board.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      // Re-checked at resolution, not merely in `applies`: a response window sits
+      // between the two, and the inline `dispatchEvent` path does not consult
+      // `applies` at all.
+      if (event.unitInstanceId !== listener.card.instanceId) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      // The ability's CONTROLLER is paid — Jhin's, which is `listener.ownerIndex`.
+      // `moverIndex` is the same player for a move he made himself and would be the
+      // wrong seat the moment an opponent's spell shoves him, which 449 now makes a
+      // real Move that fires this.
+      const actor = players[listener.ownerIndex];
+      players[listener.ownerIndex] = {
+        ...actor,
+        floatingEnergy: actor.floatingEnergy + JHIN_ADD_ENERGY,
+        floatingRainbowPower: actor.floatingRainbowPower + JHIN_ADD_RAINBOW,
+      };
+      return { ...state, players };
+    },
+  },
 };
 
 /** Yeti Brawler's payout and its threshold, and the Battleaxe's self-inflicted 4
@@ -1752,6 +1920,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 const YETI_BRAWLER_EXCESS_REQUIRED = 3;
 const YETI_BRAWLER_TOKENS = 2;
 const BLIGHTED_BATTLEAXE_DAMAGE = 4;
+
+/** Jhin - Murderous Artist's two printed pips — one Energy and one RAINBOW rune,
+ *  named separately because they are two different pools and a single `1` beside
+ *  another `1` reads as a doubled amount. */
+const JHIN_ADD_ENERGY = 1;
+const JHIN_ADD_RAINBOW = 1;
 
 /** Yeti Brawler's three conditions, asked once so `applies` and `resolve` cannot
  *  disagree — the split that has produced a held trigger firing on a board that

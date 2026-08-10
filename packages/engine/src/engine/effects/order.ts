@@ -12,6 +12,7 @@ import {
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
+  gainPoints,
   gainXp,
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
@@ -40,7 +41,7 @@ import { hasKeyword, isMighty } from "../granted-keywords.js";
 import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
-import { attachEquipment, wearerListener } from "../equipment.js";
+import { attachEquipment, effectiveTagsOf, wearerListener } from "../equipment.js";
 import { mayPlayUnitAt } from "../battlefield-continuous.js";
 // From the LEAF constants module, not from `activated-abilities.js` where the
 // ability lives: that import closed a cycle through token.js and registered the
@@ -776,6 +777,44 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? state
         : parkDecision(state, { kind: "UNL-168-play", playerIndex: ctx.casterIndex }),
   },
+  "UNL-175": {
+    // Tactical Retreat — "[Reaction] Choose a friendly unit. The next time it
+    // would die this turn, heal it, exhaust it, and recall it instead."
+    //
+    // **Highlander's sentence, word for word** (OGS-020, in card-effects.ts), and
+    // so it is Highlander's implementation: one id appended to
+    // `deathWardedUnitInstanceIds`, which `killUnit` consults at every point a
+    // unit would actually die. Writing a second ward mechanism for the same
+    // printed words is the drift this file keeps a single `PET_TAGS` to avoid —
+    // the three words "heal it, exhaust it, and recall it" are shared by five
+    // cards now and `reviveToBase` is the one place they are spelled out.
+    //
+    // `[Reaction]` is a printed keyword read by `timing.timingTierOf` off
+    // `SpellInstance.isReaction`; nothing about it belongs here. The reminder
+    // "(Send it to base. This isn't a move.)" is 454's Recall and is likewise
+    // already what `reviveToBase` does — it appends to `baseUnits` directly, so
+    // no vacancy or Contested check fires and no `unitMoved` event is raised.
+    //
+    // "A friendly unit" names no battlefield, so `scope: "anywhere"` on
+    // 355.9.a.1's bare noun — Highlander's entry records the same widening, and
+    // for the same reason: `dealDamage` and `destroyUnit` both reach base now, so
+    // warding a unit at home is a real play rather than a wasted one.
+    //
+    // # Inherited limitation, stated rather than papered over
+    //
+    // Two Retreats (or a Retreat and a Highlander) on the SAME unit are one ward,
+    // not two: `reviveWithDeathWard` filters the id out of the list with
+    // `!==`, which removes every copy. The printed reading is two independent
+    // delayed effects, each replacing one death. Deduping on the way in would
+    // change nothing — one entry and two-removed-together behave identically —
+    // so this is not a guard that was forgotten, it is a property of the list
+    // shape, and it is Highlander's already.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : { ...state, deathWardedUnitInstanceIds: [...state.deathWardedUnitInstanceIds, event.targetUnitInstanceId] },
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -1179,10 +1218,62 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       );
     },
   },
+  "UNL-177": {
+    // Ivern - Friend to All, FIRST clause — "As you play me, choose Bird, Cat,
+    // Dog, or Poro. I gain that tag."
+    //
+    // # A parked QUESTION, and it is a recorded timing DIVERGENCE
+    //
+    // "AS you play me" is a choice made during the steps of Playing a Card, which
+    // this engine expresses by fanning the variants onto the `PlayCardAction` —
+    // `visionRecycle`, `acceleratePaid`, `exhaustLegendPaid` are all that shape.
+    // There is no field for a TAG on that action, and adding one is a change to
+    // actions/player-action.ts, legal-actions.ts and validate-play-card.ts: three
+    // shared files. So the choice is asked at RESOLUTION of his on-play trigger
+    // instead, one chain-pop after he arrives.
+    //
+    // The consequence was MEASURED rather than assumed — every `.tags` reader in
+    // `src/engine` was read, twelve sites. Most cannot see the window at all
+    // (definition-level Mech/Dragon/Sand Soldier checks, `starhoundCandidates`'
+    // and `loyaltyCandidates`' trash walks, Rumble Scrapper's), and TWO can:
+    // `friendshipTagCount` and the Poro check in effects/calm.ts are board-wide
+    // counts of these very four tribes, and both are on `[Reaction]` cards that an
+    // opponent — or their controller — may cast inside the window.
+    //
+    // It is named rather than waved away because that is the whole gap, and it
+    // errs the safe way: a count taken before the answer sees one tribe FEWER, so
+    // the divergence can only under-pay. Recorded in this change's report.
+    //
+    // # The tag is WRITTEN onto the instance, not derived
+    //
+    // "I GAIN that tag" is a one-shot event, not a continuous grant: nothing keeps
+    // being true that could be re-derived, so there is no `effectiveTagsOf`-shaped
+    // answer here. `UnitInstance.tags` is real mutable per-instance state — the
+    // Mech token has no registry entry at all and its instance tags are its only
+    // record, which is `equipment.ts`'s own finding after a note there claimed
+    // tags were "printed-only".
+    //
+    // No decline and no "you may": the card says "choose", and all four options
+    // always exist, so this is a real question that `advanceDecisions` never
+    // auto-answers.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      parkDecision(state, { kind: "UNL-177-tag", playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
+  },
 };
 
-/** Starhound's four tribes, in the order the card names them. */
-const STARHOUND_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
+/**
+ * Bird, Cat, Dog and Poro — Unleashed's four pet tribes, in the order every card
+ * that names them prints them.
+ *
+ * Was `STARHOUND_TAGS` when one card in this file asked. THREE now do (Starhound's
+ * trash return, Ivern - Friend to All's granted tag and his scoring condition),
+ * and effects/calm.ts's Friendship asks a fourth time under its own copy. One
+ * constant per FILE is as far as the one-file-one-owner rule lets this go; one per
+ * CARD is how a list like this drifts, which is the drift `SAND_SOLDIER_TOKEN`'s
+ * note in token.ts records having already happened once.
+ */
+const PET_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
 
 /**
  * The cards in a player's trash Starhound may return — "a Bird, Cat, Dog, or
@@ -1198,7 +1289,7 @@ const STARHOUND_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
  */
 function starhoundCandidates(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
   return state.players[playerIndex].trash.filter(
-    (c): c is UnitInstance => c.kind === "Unit" && c.tags.some((t) => STARHOUND_TAGS.includes(t)),
+    (c): c is UnitInstance => c.kind === "Unit" && c.tags.some((t) => PET_TAGS.includes(t)),
   );
 }
 
@@ -1416,6 +1507,42 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
     capture: (state, death) => state.phase === "Beginning" && state.activePlayerIndex === death.ownerIndex,
     resolve: (state, ctx, _death, captured) =>
       drawCards(state, ctx.casterIndex, captured === true ? LEBLANC_DRAW * 2 : LEBLANC_DRAW),
+  },
+  "UNL-179": {
+    // Rift Herald, SECOND clause — "[Deathknell][>] Play a unit from your hand to
+    // your base, ignoring its Energy cost. (You must still pay its Power cost.)"
+    //
+    // 808.1.b makes `[>]` the formatting between the keyword and its effect —
+    // "It is formatted as '[Deathknell][>] [Effect]'" — so it is punctuation, the
+    // same reading Black Rose Dignitary and LeBlanc - Fragmented above take.
+    //
+    // **Soulgorger's shape (OGN-196) with the zone changed and the "you may"
+    // removed**, and both differences are printed:
+    //   - FROM YOUR HAND, not from the trash. Nothing else in the pool plays a
+    //     unit out of hand for free, so the walk below is this file's own.
+    //   - "PLAY a unit", with no "you may" — The Harrowing's mandatory reading
+    //     rather than Soulgorger's optional one, so no decline is offered.
+    // "TO YOUR BASE" is printed too, so `playUnitToBase` and not `playUnitFree`:
+    // nothing is chosen about where he lands, and a Herald that died at a
+    // battlefield still sends the reinforcement home. Machine Evangel's "into
+    // your base" is the same call.
+    //
+    // "You must still pay its POWER cost" is the split Glasc Mixologist's
+    // "ignoring its cost" deliberately does NOT make — see `heraldPlayable`,
+    // which prices it at offer time and again at answer time.
+    //
+    // Guarded at fire time on there being something payable in hand, so an
+    // unplayable hand parks no question at all rather than one `advanceDecisions`
+    // has to retire. `ctx.casterIndex` is the dying unit's controller, which is
+    // what "your hand" means for a Deathknell.
+    //
+    // No `capture`: nothing this clause asks about has MOVED by the time it
+    // resolves — the hand and the Power pool are both re-read live, and re-reading
+    // them is the point. `DeathknellDefinition.capture`'s own rule.
+    resolve: (state, ctx) =>
+      heraldPlayable(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "UNL-179-play", playerIndex: ctx.casterIndex }),
   },
 };
 
@@ -1741,19 +1868,29 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // mechanisms fire at the same moment and both resolve a chain-pop later, so
     // the choice costs nothing but the file it lives in.
     //
-    // It fires only for a STANDARD move (execute-move-unit), which is what the
-    // card says: a Recall is not a Move (456), and a spell-driven relocation
-    // (`forceMoveToBattlefield`) is deliberately outside the event too — so
-    // Corina dragged somewhere by an opponent's card makes nothing.
+    // **BOTH claims that used to sit here were falsified on 2026-08-09**, and
+    // both by the same change. They said this fires only for a Standard Move —
+    // "a spell-driven relocation is deliberately outside the event too" — and
+    // that "`to` is always a battlefield id (a MoveUnit action names one), so
+    // 'to a battlefield' needs no test of its own".
     //
-    // `to` is always a battlefield id (a MoveUnit action names one), so "to a
-    // battlefield" needs no test of its own.
+    // Neither holds now. 446.1/449 make an effect-driven relocation a Move and
+    // `effect-helpers` emits the event for one; 455 makes a unit walking home a
+    // Move too, and that one carries `to: "base"`.
+    //
+    // So the destination test is REAL and is written out. Without it she fired
+    // on a walk home — silently, because `placeToken` returns the state unchanged
+    // for an unknown battlefield id. Accidental safety, not correctness, and
+    // exactly the shape Mister Root (UNL-127) was caught in the same day.
     on: "unitMoved",
     applies: (_state, listener, event) =>
       // Identity, not ownership: the event is about ONE unit, and hers is the
       // only move she cares about. "When I move", not "when a friendly unit
       // moves".
-      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      // "TO A BATTLEFIELD" — home is not one.
+      event.to !== "base",
     resolve: (state, listener, event) =>
       event.kind === "unitMoved"
         ? // Three separate placements rather than a count: `placeRecruitToken`
@@ -1823,6 +1960,134 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
             });
       }, state);
     },
+  },
+  "UNL-176": {
+    // Vi - Peacekeeper, SECOND clause only — "When I attack, [Stun] an enemy unit
+    // here."
+    //
+    // **`[Ambush]` is REFUSED and it is not this file's to write.** "You may play
+    // me as a [Reaction] to a battlefield where you have units" is a play
+    // PERMISSION plus a timing tier, which lives in validate-play-card.ts and
+    // legal-actions.ts (the same two files `PLACEMENT_GRANTS` in unit-triggers.ts
+    // is read by). `coverage.ts`'s `UNIMPLEMENTED_KEYWORDS` already carries the
+    // keyword with the note "[Ambush] is ignored — this can't yet be played as a
+    // [Reaction] to a battlefield you hold", so this card stays greyed until the
+    // keyword lands whatever is written here. That is the honest state and the
+    // reason this entry exists anyway: the attack trigger is a separate ability
+    // and there is no reason for it to be inert as well.
+    //
+    // Registered as a `combatBegan` listener rather than added to
+    // unit-triggers.ts's shared ATTACK_TRIGGERS table, the route `isAttackingAt`
+    // is exported for. 383.4.e is the rule — an Attack Trigger fires when a unit
+    // "gains the Attacker designation", handed out by 464.2.c's Combat Step 1.
+    // Rek'Sai, Azir - Sovereign and Atakhan above take the same route.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // "HERE" is a REFERENT read from the ability's source at execution
+      // (359.3.f.2), so a Vi moved or killed inside the response window this
+      // trigger opens leaves the instruction pointing at nothing and it is
+      // dropped rather than re-aimed. Atakhan's entry above works the same
+      // sentence; the PDF works the case itself on Yasuo - Remorseful.
+      if (!isStillHere(state, listener.card.instanceId, event.battlefieldId)) return state;
+      const enemyIndex = (1 - listener.ownerIndex) as 0 | 1;
+      // Nothing of theirs standing here is nothing to do (055). Note this counts
+      // ALL enemy units here including already-stunned ones — see the question's
+      // own note for why a stunned unit stays a legal choice.
+      return unitsAtFor(state, enemyIndex, event.battlefieldId).length === 0
+        ? state
+        : parkDecision(state, {
+            kind: "UNL-176-stun",
+            playerIndex: listener.ownerIndex,
+            // WHERE is carried rather than re-derived: the question waits on the
+            // chain, and by the time it is answered the Showdown may have closed
+            // and `showdownBattlefieldId` been nulled. Atakhan's reason exactly.
+            battlefieldId: event.battlefieldId,
+          });
+    },
+  },
+  "UNL-177": {
+    // Ivern - Friend to All, SECOND clause — "When I conquer or hold, score 1
+    // point if your units have all of the following tags among them — Bird, Cat,
+    // Dog, and Poro."
+    //
+    // The OR is what needs `on` to be a list: one defId, two moments, which is
+    // the shape widening `on` was added for. Last Rites (SFD-150, effects/chaos.ts)
+    // is the precedent and this is its predicate with the wearer indirection
+    // dropped — Ivern is a unit, so the listener IS him.
+    //
+    // **"When I conquer or hold" is POSITIONAL**, the reading Eminent Benefactor,
+    // Ahri - Alluring and Blitzcrank - Impassive all take of the same phrase: the
+    // battlefield scored has to be the one he is standing at, not merely one his
+    // controller scored somewhere. Both events carry a battlefield for exactly
+    // that reason and `listener.battlefieldId` is where he stands.
+    //
+    // # The tag condition is checked at RESOLUTION, deliberately
+    //
+    // Everything in `applies` is a TRIGGER condition and is fixed at fire time,
+    // which is what stops an opponent cancelling an earned payout by moving him
+    // (809.1.b). The tag test is not one of those: "score 1 point IF your units
+    // have..." is a condition inside the EFFECT, and 402.1 puts an effect's own
+    // conditions at resolution. So a fourth tribe that arrives during the response
+    // window this trigger opens DOES pay out, and one that dies in it does not.
+    // That asymmetry is the rules working, not an oversight — it is why the two
+    // checks are in different functions rather than one shared predicate.
+    on: ["battlefieldConquered", "battlefieldHeld"],
+    applies: (_state, listener, event) => {
+      if (event.kind === "battlefieldConquered") {
+        return event.conquerorIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId;
+      }
+      return (
+        event.kind === "battlefieldHeld" &&
+        event.holderIndex === listener.ownerIndex &&
+        listener.battlefieldId === event.battlefieldId
+      );
+    },
+    // Through `gainPoints`, the single choke point every point-gain goes through
+    // so Tianna Crownguard's "opponents can't gain points" reaches it.
+    resolve: (state, listener) =>
+      hasEveryPetTag(state, listener.ownerIndex) ? gainPoints(state, listener.ownerIndex, 1) : state,
+  },
+  "UNL-179": {
+    // Rift Herald, FIRST clause — "When I move to a battlefield, look at the top 3
+    // cards of your Main Deck. You may reveal a unit from among them and draw it.
+    // Recycle the rest."
+    //
+    // Corina Veraza's registration (SFD-179 above): the `unitMoved` EVENT rather
+    // than unit-triggers.ts's shared ON_MOVE_TRIGGERS table, since the event is
+    // already held (383) and already carries everything this needs.
+    //
+    // # "TO A BATTLEFIELD" is checked, and Corina's entry above shows why
+    //
+    // Her comment says "`to` is always a battlefield id (a MoveUnit action names
+    // one)". That was true when it was written and is NOT true now: `unitMoved`
+    // gained effect-driven emitters on 2026-08-09 (446.1/449), and
+    // `forceMoveToBase` fires it with `to: "base"`. So a Herald sent home by an
+    // opponent's Charm would otherwise look at three cards for free. Guarded here
+    // by NAME rather than by asking the battlefield list, because "base" is the
+    // literal sentinel `holdMoveEvents` is handed.
+    //
+    // (Corina is unguarded and remains so — `placeToken` returns the state
+    // unchanged for an unknown battlefield id, so her bug is silent rather than
+    // wrong, and fixing another card's clause is not this change's business. It is
+    // named in this change's report.)
+    //
+    // Identity, not ownership: "when I move", so it matches his own instanceId and
+    // fires whoever caused the move — the card names no mover.
+    on: "unitMoved",
+    applies: (state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.to !== "base" &&
+      // An empty deck has nothing to look at, so there is no question — 055, and
+      // it keeps a Pending Item off the chain rather than relying on
+      // `advanceDecisions` to retire the prompt it would raise.
+      state.players[listener.ownerIndex].deck.length > 0,
+    resolve: (state, listener, event) =>
+      event.kind === "unitMoved" && state.players[listener.ownerIndex].deck.length > 0
+        ? parkDecision(state, { kind: "UNL-179-look", playerIndex: listener.ownerIndex })
+        : state,
   },
 };
 
@@ -2101,6 +2366,140 @@ export const decisions: Record<string, DecisionDefinition> = {
     // "the defender MUST KILL one of their units", Cull the Weak's split rather
     // than King's Edict's.
     resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
+  },
+  // Vi - Peacekeeper's half of the work: her controller naming the enemy unit at
+  // the contested battlefield her attack stuns.
+  "UNL-176-stun": {
+    prompt: () => "Vi - Peacekeeper: stun an enemy unit here",
+    // **Already-stunned units stay on the list, and that is a reading rather than
+    // an oversight.** 423 makes Stun binary and says "a Stunned Unit can not be
+    // Stunned again", so a second stun does nothing — but "an enemy unit here" is
+    // the whole printed restriction, and 355.9.b ("It meets all targeting
+    // restrictions") only narrows a target by what is PRINTED. Filtering them out
+    // would quietly turn this into "stun an UNSTUNNED enemy unit here", which
+    // matters on the one board where it differs: every enemy here already stunned,
+    // where the printed card offers a legal choice that accomplishes nothing and a
+    // filtered list would offer none at all. `stunUnits` drops a no-op stun on its
+    // own, so nothing downstream double-fires.
+    //
+    // Re-derived from live state at answer time rather than captured as a list:
+    // the question waits on the chain, and a unit that arrived or died in between
+    // must be counted as it stands now. Atakhan's question one entry up.
+    //
+    // No decline: the card prints "[Stun] an enemy unit here", not "you may".
+    options: (state, d) =>
+      (d.battlefieldId === undefined ? [] : unitsAtFor(state, (1 - d.playerIndex) as 0 | 1, d.battlefieldId)).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    // `stunUnits`, not a flag write: it is the one thing that fires `unitsStunned`
+    // (Leona - Radiant Dawn, Eclipse Herald, Solari Shrine all read it), and it is
+    // ONE call for the one unit, so the batch event is raised once per
+    // INSTRUCTION exactly as its own note requires.
+    resolve: (state, d, optionId) => stunUnits(state, d.playerIndex, [optionId]),
+  },
+  // Ivern - Friend to All's "choose Bird, Cat, Dog, or Poro. I gain that tag."
+  //
+  // Four fixed options with no decline — the card says "choose", and all four
+  // always exist, so this is a real question `advanceDecisions` never answers on
+  // the player's behalf. That is unlike every other question in this file, whose
+  // options come off the board.
+  //
+  // The unit is carried on `cardInstanceId` and re-found at ANSWER time: he can
+  // have died in the response window between his arrival and this, in which case
+  // there is nobody to give the tag to and the instruction is simply dropped
+  // (359.3.e's shape, and 055's).
+  "UNL-177-tag": {
+    prompt: () => "Ivern - Friend to All: choose a tag he gains",
+    options: () => PET_TAGS.map((tag) => ({ id: tag, label: tag })),
+    resolve: (state, d, optionId) =>
+      d.cardInstanceId === undefined || !PET_TAGS.includes(optionId)
+        ? state
+        : grantTagToUnit(state, d.cardInstanceId, optionId),
+  },
+  // Rift Herald's "look at the top 3 cards of your Main Deck. You may reveal a
+  // unit from among them and draw it. Recycle the rest."
+  //
+  // Baited Hook's structure exactly (135.2.b's separate instructions): the recycle
+  // is its OWN instruction and runs on EVERY answer, the decline included. Only
+  // the reveal-and-draw is optional, which is what "You may" attaches to.
+  "UNL-179-look": {
+    prompt: (state, d) => {
+      const top = state.players[d.playerIndex].deck.slice(0, HERALD_LOOK);
+      // The cards are NAMED. A look whose prompt does not say what was looked at
+      // is the one shape that makes the question unanswerable — Divining Shells'
+      // finding, and this is a look at three instead of one.
+      return `Rift Herald: ${top.map((c) => c.name).join(", ")} — draw a unit and recycle the rest?`;
+    },
+    options: (state, d) => [
+      { id: "decline", label: "Recycle all three" },
+      ...state.players[d.playerIndex].deck
+        .slice(0, HERALD_LOOK)
+        .filter((c): c is UnitInstance => c.kind === "Unit")
+        .map((c) => ({ id: c.instanceId, label: `Reveal and draw ${c.name}`, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      const actor = state.players[d.playerIndex];
+      const top = actor.deck.slice(0, HERALD_LOOK);
+      // Re-derived against the same walk the offer came from, and re-CHECKED that
+      // it is a Unit: the question can sit behind another whose answer moved the
+      // deck, and a stale id must not name a Spell that has drifted into the top 3.
+      const chosen = optionId === "decline" ? undefined : top.find((c) => c.instanceId === optionId && c.kind === "Unit");
+      const rest = top.filter((c) => c.instanceId !== chosen?.instanceId);
+
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...actor,
+        // "DRAW it" — it goes to hand, and the rest go to the BOTTOM of the deck,
+        // which is what Recycle means (416). Both in one write, so the three cards
+        // are off the top exactly once.
+        deck: [...actor.deck.slice(top.length), ...rest],
+        ...(chosen ? { hand: [...actor.hand, chosen] } : {}),
+      };
+      // The event, so Karma - Channeler sees it. ONE hold for the instruction
+      // however many cards moved, which is `holdCardsRecycled`'s own contract.
+      //
+      // **Deliberately NOT `drawCards` for the reveal**, even though the card says
+      // "draw it": that helper takes from the TOP, and the card being drawn may be
+      // the second or the third of the three. A `drawCards(1)` here would take the
+      // wrong card and then recycle the right one.
+      return holdCardsRecycled({ ...state, players }, d.playerIndex, rest.length);
+    },
+  },
+  // Rift Herald's `[Deathknell]` — "Play a unit from your hand to your base,
+  // ignoring its Energy cost. (You must still pay its Power cost.)"
+  //
+  // No decline: "Play a unit", not "you may play". The Harrowing's mandatory
+  // reading, and the Deathknell has already checked there is something payable —
+  // so with none this question is never raised, and with exactly one option
+  // `advanceDecisions` performs it without a prompt, because one option is not a
+  // choice.
+  "UNL-179-play": {
+    prompt: () => "Rift Herald: play a unit from your hand to your base, paying only its Power cost",
+    options: (state, d) =>
+      heraldPlayable(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: heraldLabel(c), instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      const chosen = heraldPlayable(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (chosen === undefined) return state;
+      // Re-paid here rather than trusted from the option list, which was built
+      // from an earlier state: anything that drained the pool between the question
+      // and the answer makes this fizzle rather than play a unit for free.
+      const paid = payPrintedPower(state, d.playerIndex, chosen);
+      if (paid === undefined) return state;
+
+      // Out of the HAND before it is played, or the card would be in two zones at
+      // once — and `playUnitToBase` fires the play events, which a listener reads
+      // against the finished board. `cardsPlayedThisTurn` still moves, because this
+      // IS a card being played and [Legion] counts plays rather than payments.
+      const players = [...paid.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        hand: players[d.playerIndex].hand.filter((c) => c.instanceId !== chosen.instanceId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      return playUnitToBase({ ...paid, players }, d.playerIndex, chosen);
+    },
   },
   // Starhound's "return a Bird, Cat, Dog, or Poro from your trash to your hand".
   //
@@ -2701,6 +3100,118 @@ function loyaltyCandidates(state: GameState, playerIndex: 0 | 1): UnitInstance[]
 function unitsAtFor(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
   const bf = state.battlefields.find((b) => b.id === battlefieldId);
   return [...(bf?.units[state.players[playerIndex].id] ?? [])];
+}
+
+/**
+ * Writes a granted tag onto the live unit, wherever it stands — Ivern - Friend to
+ * All's "I gain that tag".
+ *
+ * Both zones and BOTH players' lists, for the reason Draven - Audacious'
+ * `rememberCombatWinScored` walks the same way: the question is answered a
+ * response window after he arrived, and he can have been moved (or taken control
+ * of) in between. A walk of the caster's base alone would have written nothing on
+ * exactly the boards where it mattered.
+ *
+ * Idempotent on the tag — a unit that already prints it (nothing in this pool does
+ * for Ivern, but an Experimental Hexplate wearer prints "Mech" the same way) does
+ * not get a duplicate entry, since `includes` is what every reader asks and a
+ * second copy would only be visible as a longer array.
+ *
+ * # It SURVIVES into the trash, and that is a recorded divergence
+ *
+ * `completeDeath` files the very instance into `trash` (clearing only `buffed`),
+ * so a dead Ivern still carries the tag he was given. The rules make a card in a
+ * non-Board zone a new object with only its printed characteristics, and this
+ * engine has exactly one reader that could be fooled by the difference:
+ * `starhoundCandidates` above, whose "a Bird, Cat, Dog, or Poro from your trash"
+ * would return a dead Ivern it should not. `loyaltyCandidates` cannot — its
+ * ceiling is 2 Energy and he costs 6 — and `effectiveTagsOf` is a board-only
+ * reader by its own note. Undoing the write would mean a hook in `completeDeath`,
+ * which is `effect-helpers.ts`. Pinned by a test.
+ */
+function grantTagToUnit(state: GameState, unitInstanceId: string, tag: string): GameState {
+  const grant = (u: UnitInstance): UnitInstance =>
+    u.instanceId === unitInstanceId && !u.tags.includes(tag) ? { ...u, tags: [...u.tags, tag] } : u;
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(grant) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(grant);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
+
+/**
+ * "If your units have ALL of the following tags among them — Bird, Cat, Dog, and
+ * Poro" — Ivern - Friend to All's scoring condition.
+ *
+ * `friendshipTagCount` in effects/calm.ts is the same count read the other way
+ * (Friendship pumps by how many of the four it finds); this asks for all four. A
+ * deliberate duplicate rather than a shared helper, for the one-file-one-owner
+ * reason `otherFriendlyUnitsDiedWith` above records.
+ *
+ * "AMONG YOUR UNITS" is the LISTENER's controller's units wherever they stand
+ * (`ownUnitsEverywhere`) — the card names no location, so a Poro sitting at home
+ * counts exactly as one standing in the fight. Ivern himself is among them, which
+ * is the point of the first clause.
+ *
+ * Through `effectiveTagsOf` rather than `unit.tags`, so a tag granted by an
+ * Equipment counts as a printed one does. Nothing in this pool grants one of these
+ * four that way today (only "Mech"), so the two readings agree — the shared reader
+ * is what keeps them agreeing, and it is what makes Ivern's own granted tag and a
+ * printed Poro indistinguishable here, which the card requires.
+ */
+function hasEveryPetTag(state: GameState, playerIndex: 0 | 1): boolean {
+  const mine = ownUnitsEverywhere(state, playerIndex);
+  return PET_TAGS.every((tag) => mine.some((u) => effectiveTagsOf(state, u).includes(tag)));
+}
+
+/** How deep Rift Herald looks — "the top 3 cards of your Main Deck". */
+const HERALD_LOOK = 3;
+
+/**
+ * The units in a player's HAND that Rift Herald's `[Deathknell]` can actually put
+ * into play — "ignoring its Energy cost. (You must still pay its Power cost.)"
+ *
+ * ONE walk for the fire-time "is there anything to offer" test, for the option
+ * list and for the answer, so the three cannot disagree — `glascCandidates`' and
+ * `starhoundCandidates`' reason exactly. A unit whose Power cannot be paid is not
+ * offered at all, because the instruction is MANDATORY: offering it would mean
+ * "play this", answered, and then nothing happening.
+ *
+ * The Power is read off the PRINTED cost. That is what a card played by another
+ * card's instruction pays — the rules' Defy example says such an effect "always
+ * uses its printed or copied cost" — and it is also all a card in hand has.
+ */
+function heraldPlayable(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return state.players[playerIndex].hand.filter(
+    (c): c is UnitInstance => c.kind === "Unit" && payPrintedPower(state, playerIndex, c) !== undefined,
+  );
+}
+
+/**
+ * Pays a unit's printed Power cost, or `undefined` when it cannot be paid — the
+ * contract `payPowerFromChanneled` and `spendBuff` already use, so an unpayable
+ * cost withholds the payoff instead of handing it over free.
+ *
+ * A zero Power cost is payable and costs nothing; it is short-circuited rather
+ * than passed through as `count: 0`, because `powerDomain` is null exactly when
+ * the cost is 0 and null means RAINBOW to that helper — asking it for zero rainbow
+ * runes works only by accident of the arithmetic. effects/chaos.ts's
+ * `payUnitPowerCost` records the same trap for the trash-side cards.
+ */
+function payPrintedPower(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState | undefined {
+  if (card.powerCost <= 0) return state;
+  return payPowerFromChanneled(state, playerIndex, card.powerDomain, card.powerCost);
+}
+
+/** What one of Rift Herald's offers costs, said in the label — the Energy is
+ *  ignored and the Power is not, and a player choosing between two units needs to
+ *  see which. */
+function heraldLabel(card: UnitInstance): string {
+  return card.powerCost <= 0
+    ? `Play ${card.name} (free)`
+    : `Play ${card.name} (pay ${card.powerCost} ${card.powerDomain ?? "any"} Power)`;
 }
 
 /** Every unit a player has in play, base and battlefields alike. */

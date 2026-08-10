@@ -141,10 +141,17 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // card whose ability an opponent cannot respond to. Two `beginningPhase`
     // event triggers (Dr. Mundo, Mushroom Pouch) plus Jinx's Legend hook.
     const inline = [...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()].sort();
-    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251"]);
+    // **Two UNL cards joined on 2026-08-09, and the invariant HELD.** The list
+    // going from three to five is the thing this file warns about — "a new set
+    // adding to it would be the ordering regression rather than a number to
+    // update" — so it was checked before it was bumped: Sprite Queen and Gutter
+    // Palace are both `beginningPhase` listeners, which is the ONE inline event
+    // kind, and the test above asserting exactly that still passes. Inline means
+    // no response window; a card printing anything else must not appear here.
+    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("261 held / 3 inline of 264 trigger cards", () => {
+  it("276 held / 5 inline of 281 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -161,6 +168,14 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // that is the thing this test exists to make impossible to forget.
     // **208/3/211 → 231/3/234 on 2026-08-08**, when the first wave of Unleashed
     // card work landed: 23 more cards carrying a trigger, every one of them held.
+    //
+    // **261/3/264 → 276/5/281 on 2026-08-09**, wave 4: seventeen more trigger
+    // cards. TWO of them are INLINE, which is the first time that number has
+    // moved — see the note on the inline list above for why it is legitimate
+    // here and would not be for any other event kind.
+    //
+    // Recomputed, not incremented, on the same rule as before: each agent
+    // reported only its own share and none was permitted to bump the pin.
     //
     // **245/3/248 → 261/3/264 on 2026-08-09**, wave 3: sixteen more, again all
     // held. Recomputed on the same rule as wave 2 — each of the six agents
@@ -184,9 +199,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 261,
-      inline: 3,
-      cards: 264,
+      held: 276,
+      inline: 5,
+      cards: 281,
     });
   });
 

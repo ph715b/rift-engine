@@ -477,6 +477,41 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Their refusals were CORRECT: each declined to write the second clause against
   // a mechanism that does not exist, rather than registering something that would
   // report DONE and never fire.
+
+  // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
+  // which reported DONE on its first clause before these rows landed. Each was
+  // named by the agent that wrote it and pinned by a test in that agent's file.
+  //
+  // UNL-144 is the one to read twice: it is STRONGER than printed, not weaker.
+  // Every other entry here under-reaches.
+  [
+    "UNL-007",
+    "half written: the 3 damage works; 'if it would die this turn, banish it instead' is unwritten — a turn-long death replacement needs a GameState list, a killUnit branch and a runEnd sweep",
+  ],
+  [
+    "UNL-049",
+    "half written: the activated ability works; 'This enters exhausted' is unwritten — needs a GEAR_ENTERING_EXHAUSTED row in deploy.ts, so it can be used the turn it arrives",
+  ],
+  [
+    "UNL-052",
+    "half written: 'when I hold, ready and buff the next unit you play' works; her optional [Calm] additional cost is not enumerated, so the stun it gates never fires — needs an OPTIONAL_POWER_COSTS row",
+  ],
+  [
+    "UNL-073",
+    "half written: the 3 damage works; 'when it dies this turn, play a Gold gear token exhausted' is unwritten — a delayed trigger must outlive its subject, and the victim leaves the board before completeDeath fires unitDied",
+  ],
+  [
+    "UNL-087",
+    "half written: the [Add] rainbow on hold works; 'your hold effects for holding here trigger an additional time' is unwritten — holdEventTrigger has no `times` multiplier and the doubling would also have to reach holdBattlefieldTrigger",
+  ],
+  [
+    "UNL-118",
+    "half written: the on-play 'up to one enemy unit at each location, deal 1' works; 'Any amount of your damage is enough to kill enemy units' is unwritten — 142.4.c needs per-marker damage (UnitInstance.damage is one unattributed number) and a Lethal Damage override",
+  ],
+  [
+    "UNL-144",
+    "half written: the [Chaos] move ability works; 'I can't be readied' is unwritten — runAwaken readies by an inline map and readyUnit's only lock is per-player, so he readies every Awaken and is STRONGER than printed",
+  ],
   [
     "UNL-095",
     "half written: the +3 Might works; 'when it wins a combat this turn, gain 2 XP' is unwritten — a resolved Spell sits in its caster's trash and reaches no listener walk",

@@ -802,9 +802,24 @@ export type GameEvent =
    * exists rather than a widened `dispatchOnMove`: by the time that dispatcher
    * runs the unit has already been removed from where it was.
    *
-   * Does NOT fire for a spell-driven relocation (`forceMoveToBattlefield`) or a
-   * Recall (456 says a Recall is not a Move) — the same line
-   * `movesThisTurn` draws, so the counter and the event never disagree.
+   * **Fires for EVERY kind of Move, and this paragraph used to say the**
+   * **opposite.** It read "Does NOT fire for a spell-driven relocation
+   * (`forceMoveToBattlefield`) or a Recall (456 says a Recall is not a Move)".
+   * Both halves were wrong by 2026-08-09:
+   *
+   *   449 — "Spells, Abilities, or other effects may cause a Move to occur" —
+   *   so `effect-helpers`' two force-move helpers hold this event now.
+   *
+   *   455 defines a Recall as a relocation to base WITHOUT it being a Move, so a
+   *   player walking their own unit home is a MOVE and holds this too, with
+   *   `to: "base"`. 456 is a true sentence about Recalls that was being applied
+   *   to something that is not one.
+   *
+   * **`to` is therefore NOT always a battlefield id.** A card printing "when I
+   * move TO A BATTLEFIELD" must test it — Mister Root and Corina Veraza were
+   * both caught paying out for a walk home once the event started firing.
+   * `movesThisTurn` still moves with the event, so the counter and the event
+   * agree at every emitter.
    */
   | {
       kind: "unitMoved";

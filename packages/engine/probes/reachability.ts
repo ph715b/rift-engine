@@ -172,12 +172,17 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * 38%); the three hard-gated sets did not move, which is the check that no
  * finished set regressed to pay for it.
  *
- * Per set at this depth: OGN 224/248, OGS 20/22, SFD 187/198, UNL 85/225.
+ * **516 → 524 on 2026-08-09, wave 4** — UNL 85/225 to **92/225** (38% to 41%).
+ * SFD moved too, 187 → 188, and that one is NOT a card: the accelerated-cost
+ * fix stopped an enumerate-then-refuse throw that had been killing runs
+ * mid-game, so a card that used to die before being observed now finishes.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 92/225.
  * (SFD 186 → 187 is not a wave-2 card: it is the `[Deflect]`-surcharge fix in
  * `legal-actions.ts`, which stopped an activation crashing the run and so let a
  * card that had been dying mid-game finish being observed.)
  */
-const PINNED_UNION = 516;
+const PINNED_UNION = 524;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

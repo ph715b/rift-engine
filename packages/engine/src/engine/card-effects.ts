@@ -286,7 +286,7 @@ export type TargetingSpec =
        * WIDER than `sameBattlefield` above, and the difference is a rule rather
        * than a synonym.
        *
-       * **828: "Locations include the Battlefields and the Bases."** So three
+       * **198.1: "Locations include the Battlefields and the Bases."** So three
        * units standing in one player's base share a location and are a legal
        * group, while `sameBattlefield` refuses them — its own comment records
        * that a unit in base "is at no battlefield, so it can never join a

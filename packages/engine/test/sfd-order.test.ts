@@ -974,3 +974,64 @@ describe("Corina Veraza (SFD-179): three Recruits where she moved to", () => {
     expect(unitsAt(after, "bf1", "p1").filter((u) => u.isToken)).toHaveLength(0);
   });
 });
+
+/**
+ * Corina walking HOME makes nothing — "when I move TO A BATTLEFIELD".
+ *
+ * **Her comment used to say this needed no test**: "`to` is always a battlefield
+ * id (a MoveUnit action names one), so 'to a battlefield' needs no test of its
+ * own." That was true when written and stopped being true on 2026-08-09, when a
+ * unit walking home started emitting `unitMoved` with `to: "base"` (455 — a
+ * Recall is a relocation to base WITHOUT being a Move, so a player sending their
+ * own unit home is a Move).
+ *
+ * Without the destination test she fired on the walk home. It was SILENT rather
+ * than wrong, because `placeToken` returns the state unchanged for an unknown
+ * battlefield id — accidental safety, not correctness, and the same shape Mister
+ * Root (UNL-127) was caught in on the same day.
+ *
+ * Found by a wave-4 agent reading its own file rather than by any instrument.
+ */
+describe("Corina Veraza (SFD-179): walking home is not moving to a battlefield", () => {
+  it("makes no Recruits when she moves to base", () => {
+    const corina = realUnitInstance(CORINA_VERAZA);
+    const state = makeState({ phase: "Action" });
+    state.battlefields[0]!.units = { p1: [corina] };
+
+    // Positive control on the same board shape: her ordinary move DOES pay.
+    const outward = makeState({ phase: "Action" });
+    outward.players[0]!.baseUnits = [realUnitInstance(CORINA_VERAZA)];
+    const outwardMove = legalActions(outward).find(
+      (a) => a.type === "MoveUnit" && a.destinationBattlefieldId === "bf1",
+    );
+    const paid = resolveHeldTriggers(accept(outward, outwardMove, "the control move"));
+    expect(unitsAt(paid, "bf1", "p1").filter((u) => u.isToken), "the control move paid nothing either").toHaveLength(3);
+
+    // Captured BEFORE the chain is drained. `resolveHeldTriggers` resolves
+    // everything, so inspecting after it finds an empty chain whether the trigger
+    // fired or not — my second attempt at this test failed exactly that way.
+    const accepted = accept(
+      state,
+      { type: "RecallUnit", playerIndex: 0, unitInstanceIds: [corina.instanceId] },
+      "Corina walks home",
+    );
+    const placedHers = [...accepted.pendingTriggers, ...accepted.spellChain].some(
+      (e) => "listenerDefId" in e && e.listenerDefId === CORINA_VERAZA,
+    );
+    const home = resolveHeldTriggers(accepted);
+
+    expect(home.players[0]!.baseUnits.map((u) => u.name), "she never came home").toContain("Corina Veraza");
+
+    // **Asserted on the CHAIN, not on the board — and the first version of this
+    // test was vacuous for exactly that reason.** Counting tokens cannot tell
+    // "the trigger never fired" from "it fired and `placeToken` no-opped on an
+    // unknown battlefield id", which is the accidental safety this card had been
+    // relying on. Deleting the destination guard left the board identical and my
+    // first test green — I caught it only by mutating.
+    expect(placedHers, "her trigger was placed on the chain for a walk home").toBe(false);
+
+    // Board assertions kept as the second line of defence.
+    expect(home.players[0]!.baseUnits.filter((u) => u.isToken), "walking home made Recruits").toHaveLength(0);
+    expect(unitsAt(home, "bf1", "p1").filter((u) => u.isToken), "Recruits appeared where she left").toHaveLength(0);
+  });
+});

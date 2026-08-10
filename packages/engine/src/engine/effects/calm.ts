@@ -138,6 +138,24 @@ const WUJU_APPRENTICE_LEVEL = 6;
 /** Double Trouble looks at three. */
 const DOUBLE_TROUBLE_LOOK = 3;
 
+/** Scuttle Crab's Deathknell XP — 1, and named because the same card's printed
+ *  "draw 1" is also a 1 and the two are unrelated numbers. */
+const SCUTTLE_CRAB_XP = 1;
+
+/** Honeyfruit's three numbers. The threshold is hand-written rather than read
+ *  back off `def.keywords.Level` for the reason `atLevel`'s note gives, and the
+ *  two payouts are named apart because they come from DIFFERENT printed
+ *  abilities that happen to share a magnitude. */
+const HONEYFRUIT_POWER = 1;
+const HONEYFRUIT_LEVEL = 6;
+const HONEYFRUIT_LEVEL_ENERGY = 1;
+
+/** Ivern - Nurturer looks at three as well. Its OWN constant beside Double
+ *  Trouble's, not a shared one: the two cards agree on the number today and
+ *  nothing ties them together, so folding them would make a reprint of either
+ *  silently move the other. */
+const IVERN_LOOK = 3;
+
 /**
  * The 1-Might `[Deflect]` Bird that Frisky Hunter and Flurry of Feathers both
  * make is `token.BIRD_TOKEN` — SHARED from there since 2026-08-09, after three
@@ -843,6 +861,27 @@ function doubleTroubleLook(state: GameState, playerIndex: 0 | 1): GameState {
   return parkDecision(offerTopOfDeckBanish(state, playerIndex, looked), { kind: "UNL-032-unit", playerIndex });
 }
 
+/**
+ * Ivern - Nurturer's look, shared by his on-play and his on-hold trigger — the
+ * third card in this file to be `ornnLook` with the numbers changed, so it is
+ * written the same way and inherits the same two readings.
+ *
+ * The REVEAL is treated as a LOOK, exactly as Double Trouble's is: `offerTopOfDeckBanish`
+ * has already asked Nocturne's "as you look at me" for all three cards, and calling
+ * `top-of-deck.revealedFromDeck` for the one that is then revealed would offer that
+ * banish a second time on the same card. That is the per-item double-pay shape this
+ * codebase keeps recording, and Ivern is the second card to hit it — see UNL-032's
+ * entry, where the divergence is stated in full.
+ *
+ * An empty deck asks nothing at all (422): with nothing to look at there is nothing
+ * to reveal, and therefore — "THEN if you revealed" — nothing to buff either.
+ */
+function ivernLook(state: GameState, playerIndex: 0 | 1): GameState {
+  const looked = state.players[playerIndex].deck.slice(0, IVERN_LOOK);
+  if (looked.length === 0) return state;
+  return parkDecision(offerTopOfDeckBanish(state, playerIndex, looked), { kind: "UNL-051-reveal", playerIndex });
+}
+
 /** The `MightContext` for a unit `findUnitAnywhere` just located — the
  *  base-vs-battlefield branch three callers in this repo already write out by
  *  hand (Stupefy, En Garde, Gentlemen's Duel). Positional auras
@@ -1164,6 +1203,95 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => ornnLook(state, ctx.casterIndex),
   },
+  "UNL-051": {
+    // Ivern - Nurturer's FIRST moment — "When you play me or when I hold, look at
+    // the top 3 cards of your Main Deck. You may reveal a unit from among them and
+    // draw it. Recycle the rest. Then if you revealed a Bird, Cat, Dog, or Poro,
+    // do this: [Buff] a friendly unit."
+    //
+    // Ornn - Blacksmith's two-moment shape exactly: the body lives in `ivernLook`
+    // and the on-hold half registers separately in `eventTriggers`, so the two
+    // entries cannot drift apart. What Ornn does not have is the SECOND sentence,
+    // and it is a "then" rather than a second instruction — the buff happens only
+    // on the branch where a tagged unit was actually revealed, which is why it is
+    // parked from inside the reveal answer rather than queued beside it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => ivernLook(state, ctx.casterIndex),
+  },
+  "UNL-052": {
+    // Nami - Headstrong's SECOND sentence — "When you play me, if you paid the
+    // additional cost, [Stun] an enemy unit."
+    //
+    // # The additional cost itself is NOT implemented, and this clause is inert
+    //
+    // "You may pay [Calm] as an additional cost to play me" is one row in
+    // `card-effects.OPTIONAL_POWER_COSTS` — `"UNL-052": { domain: "Calm", count: 1 }`
+    // — and that is a shared file this pass does not own. Without the row the
+    // enumerator never offers the paid variant, `optionalPowerPaid` is never true,
+    // and this stun never fires in a real game. Written anyway rather than left
+    // out, because the flag it reads is a real threaded mechanism (validator,
+    // executor and `UnitTriggerEvent` all carry it, for Clockwork Keeper and the
+    // three SFD cards) and a card whose cost lands with no effect behind it is the
+    // worse failure. Pinned by a test that asserts the stun does NOT happen off an
+    // ordinary play, so adding the row fails loudly rather than silently.
+    //
+    // **The domain has to come from the table and not from the card**, which is
+    // this card repeating Clockwork Keeper's exact trap: Nami prints ZERO Power,
+    // so her `powerDomain` is null and pricing against it would accept a rune of
+    // any domain.
+    //
+    // "The target is chosen whether or not the cost was paid" — Blast Corps
+    // Cadet's and Frostcoat Cub's note, and the same consequence: a Nami played
+    // cheap names an enemy and does nothing to it. `[Stun]` is 423's action, so it
+    // goes through `stunUnits`, which drops an already-stunned unit before the
+    // event exists.
+    //
+    // "An ENEMY unit", a bare noun with no "at a battlefield", so 355.9.a.1's
+    // widening applies and a unit in the opponent's base is a legal choice.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.optionalPowerPaid && event.targetUnitInstanceId
+        ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId])
+        : state,
+  },
+  "UNL-053": {
+    // Scuttle Crab — "When you play me, draw 1." Its `[Deathknell]` is the other
+    // half and lives in `deathTriggers` below.
+    //
+    // The parenthetical "(Units with 0 Might can conquer and hold)" is reminder
+    // text for a rule this engine already follows — `scoring.isHeldBy` reads
+    // presence, never Might — so there is nothing to write for it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  // # Two Calm units REFUSED, both on "I enter ready", and both deliberately
+  //
+  // Named here rather than left silent, because a refusal nothing records is
+  // indistinguishable from a card nobody looked at — and because writing either
+  // one as an on-play trigger would register the defId, report DONE and be wrong
+  // in three observable ways that `deploy.unitEntersReady`'s own comment lists:
+  // the unit would sit EXHAUSTED through the whole response window, it would fire
+  // `unitReadied` for a readying the rules say never happened, and Mageseeker
+  // Warden could block it. "I enter ready" is a REPLACEMENT, not a readying.
+  //
+  // **UNL-035 Monch** — "If an opponent controls a stunned unit, I cost [2] less
+  // and enter ready." Two clauses, two shared files, neither of them this one:
+  // the discount is a `engine/cost-modifiers.ts` entry and the readiness is a
+  // case in `deploy.conditionalEntersReady`. Both are per-card tables, which is
+  // exactly the shape the fan-out rule keeps one agent out of.
+  //
+  // **UNL-037 Shadow Watcher** — "If a friendly unit died during your Beginning
+  // Phase this turn, I enter ready." The same `deploy` case, plus a fact NOTHING
+  // in this engine records. `PlayerState.unitsLostThisTurn` counts deaths for the
+  // whole turn and `DeathContext` notes `diedInCombat` and the location, but no
+  // field anywhere distinguishes a death in the Beginning Phase from one in the
+  // Action Phase — and `[Temporary]`'s sweep and the hold-scoring step both kill
+  // in the Beginning Phase, so the difference is real rather than theoretical.
+  // Writing it against `unitsLostThisTurn` would make the card fire off any death
+  // at any time, which is a strictly better card than the one printed.
+  //
+  // Adding it is one field on `PlayerState` (`model/game-state.ts`), one
+  // increment in the death funnel and one reset in `runEnd`. All shared.
 };
 
 /** Janna - Savior's "heal your units HERE" — `playerIndex`'s units at
@@ -1312,6 +1440,38 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // reminder ("I'm alone if there are no other friendly units here") and prints
   // nothing else; reminder text is not rules text.
   "UNL-221": LONELY_PORO_DEATHKNELL,
+  "UNL-053": {
+    // Scuttle Crab — "[Deathknell] [>] Choose an opponent. They reveal their hand.
+    // You can look at their facedown cards this turn. Gain 1 XP." (808)
+    //
+    // # Three sentences, and only the last one is a game action in this engine
+    //
+    // "Choose an opponent" has exactly one answer at two players and so is not a
+    // choice — `advanceDecisions` would execute a one-option question unprompted
+    // anyway, so parking one would be theatre.
+    //
+    // "They reveal their hand" is INFORMATION, and this engine's `GameState`
+    // models none: every zone is plainly readable from the state object, and there
+    // is no per-seat visibility anywhere in `model/`. Sabotage (OGN-156) prints the
+    // same sentence and writes nothing for it either — its decision simply lists
+    // the opponent's hand — so this is the pool's existing reading rather than a
+    // new one.
+    //
+    // "You can look at their facedown cards this turn" is the same kind of
+    // sentence about a different zone, and it is the one worth flagging: the WEB
+    // client does hide an opponent's `hiddenCards`, so this clause is a real
+    // permission there even though it is a no-op here. No engine field expresses
+    // it; adding one is `model/game-state.ts` plus the web board, neither of which
+    // this file owns. Recorded as a divergence rather than faked.
+    //
+    // "Gain 1 XP" is the whole of what this can do, and `gainXp` is the single
+    // writer for it (728–733) — which is also the only instrument that can see an
+    // XP keyword fire at all (`probes/hunt-xp.ts`).
+    //
+    // `ctx.casterIndex` is the DYING unit's controller, which is who "you" means
+    // in every printed Deathknell.
+    resolve: (state, ctx) => gainXp(state, ctx.casterIndex, SCUTTLE_CRAB_XP),
+  },
 };
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
@@ -2060,7 +2220,171 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         ? placeToken(state, listener.ownerIndex, { battlefieldId: event.battlefieldId }, SPRITE_TOKEN)
         : state,
   },
+  "UNL-051": {
+    // Ivern - Nurturer's SECOND moment — "or when I hold". His on-play half is in
+    // `unitTriggers`; both call `ivernLook`, so there is one copy of the ability.
+    //
+    // "When **I** hold" is positional, the reading Ahri - Alluring, Ornn and the
+    // Enthusiastic Promoter all take: the battlefield held must be the one Ivern is
+    // standing at, not merely one his controller held somewhere. Settled at fire
+    // time, so the response window this opens cannot be used to walk him off it.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? ivernLook(state, listener.ownerIndex) : state),
+  },
+  "UNL-052": {
+    // Nami - Headstrong's THIRD sentence — "When I hold, the next time you play a
+    // unit this turn, ready it and [Buff] it."
+    //
+    // # A Delayed Trigger (390.2), armed by a hold and spent by the next unit
+    //
+    // Two moments in one definition, which is what `on` being a list is for: the
+    // hold ARMS, the play SPENDS. The alternative — a `PlayerState` flag — is a
+    // field in `model/game-state.ts`, and none of the existing per-turn counters
+    // means this: `nextUnitsEnterReady` is Sun Disc's, and it is a REPLACEMENT
+    // ("enters ready") rather than a readying, so it fires no `unitReadied` and
+    // could not carry the buff either.
+    //
+    // The arm is recorded on NAMI'S OWN INSTANCE through `recordModeUsed`, the
+    // field the modal activated abilities already use. It is per-instance (two
+    // Namis arm separately, which is right — each holds for herself), and
+    // `turn-manager`'s runEnd clears it for every unit on both sides, which is
+    // exactly the "this turn" window the card prints. Nami has no activated
+    // ability, so nothing else reads her mode record.
+    //
+    // **DIVERGENCE, and it is the price of that carrier.** 391 makes a Delayed
+    // Trigger resolve "just like the ability they augment, but only during the
+    // specified time", and this one references neither its source nor an object it
+    // affected — so it is a plain Delayed Trigger and NOT one of 390.5's Delayed
+    // Linked Abilities, whose window is tied to the source's zone. By the rules it
+    // should still fire if Nami dies after holding; here the arm dies with her,
+    // because it is stored on her. Pinned by a test that asserts the wrong answer.
+    //
+    // "The NEXT time", so it is spent once: `"UNL-052-spent"` is recorded as it
+    // fires and `applies` refuses afterwards. Spending at RESOLUTION rather than at
+    // fire time is safe for the reason the chain gives — a `cardPlayed` trigger is
+    // held (383), and while a Chain Pending Item is up the turn is in a Closed
+    // State (310), where a Unit cannot be played at all. So no second unit can slip
+    // between the fire and the spend.
+    //
+    // "You play A UNIT" — any unit of yours, including another Nami. Nothing
+    // excludes the source, and there is nothing to exclude: she is already in play.
+    on: ["battlefieldHeld", "cardPlayed"],
+    applies: (state, listener, event) => {
+      if (event.kind === "battlefieldHeld") {
+        // Positional, like every other "when I hold" in this file.
+        return event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId;
+      }
+      if (event.kind !== "cardPlayed" || event.casterIndex !== listener.ownerIndex || event.playedKind !== "Unit") {
+        return false;
+      }
+      return namiArmed(state, listener);
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind === "battlefieldHeld") return recordModeUsed(state, listener.ownerIndex, listener.card.instanceId, NAMI_ARMED);
+      if (event.kind !== "cardPlayed" || !namiArmed(state, listener)) return state;
+      // Re-checked here as well as in `applies`: the response window between the
+      // two can have brought a second copy of this trigger to resolution first, and
+      // "the next time" is one unit however many Pending Items exist.
+      const spent = recordModeUsed(state, listener.ownerIndex, listener.card.instanceId, NAMI_SPENT);
+      // Ready THEN buff, the order the card prints. `readyUnit` refuses a unit that
+      // is already ready (415), so a unit that entered ready under Confront simply
+      // gets the buff — no `unitReadied` event for a readying that did not happen.
+      return addBuff(readyUnit(spent, event.playedInstanceId), event.playedInstanceId);
+    },
+  },
+  "UNL-055": {
+    // Vex - Mocking — "When you [Stun] an enemy unit at a battlefield, you may move
+    // me to that battlefield."
+    //
+    // `[Shield]` and `[Tank]` are keywords and need nothing here.
+    //
+    // # Per stunned unit, not per instruction — and that is why `captureEach`
+    //
+    // "AN enemy unit", singular, so this is Eclipse Herald's reading rather than
+    // Leona - Radiant Dawn's "one or more": one triggered ability per qualifying
+    // unit. `unitsStunned` is a BATCH event (one per instruction, so that Leona
+    // does not pay twice), which means the per-unit fan-out has to happen here —
+    // `captureEach` places one Pending Item per value, exactly as Ahri -
+    // Nine-Tailed Fox does for a multi-unit attack designation.
+    //
+    // Each item carries its OWN battlefield id, which is the whole reason capture
+    // is needed at all: "THAT battlefield" is the one the stunned unit was standing
+    // at when the trigger fired (359.3.f.3 — information a trigger condition
+    // references is checked when the condition is fulfilled), and the event does
+    // not carry a location. Re-deriving it at resolution would follow a victim that
+    // has since been moved, or lose the offer entirely if it died.
+    //
+    // "AT A BATTLEFIELD" is printed, so it is a real restriction (355.9.b): a unit
+    // stunned in its owner's base fires nothing, since there would be no
+    // battlefield for "that battlefield" to name.
+    //
+    // Both halves of "YOU ... ENEMY" are measured from Vex's controller, as the
+    // Herald's are: her controller must be the stunner, and the victim must not be
+    // theirs. Stunning your own unit does not walk Vex across the board.
+    on: "unitsStunned",
+    applies: (state, listener, event) => vexDestinations(state, listener, event).length > 0,
+    captureEach: (state, listener, event) => vexDestinations(state, listener, event),
+    resolve: (state, listener, _event, captured) => {
+      if (typeof captured !== "string") return state;
+      // "You MAY move me", so it is a question (402.1 puts the decision at
+      // resolution for a triggered ability's leading "you may"). Asked only when
+      // there is a move to make: 355.4.a excludes a unit's current Location, so a
+      // Vex already standing there is offered nothing rather than offered a no-op.
+      const here = findUnitAnywhere(state, listener.card.instanceId);
+      if (!here) return state;
+      if (here.zone !== "base" && state.battlefields[here.zone.battlefieldIndex]!.id === captured) return state;
+      return parkDecision(state, {
+        kind: "UNL-055-move",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: captured,
+      });
+    },
+  },
 };
+
+/** Nami - Headstrong's two marks on her own instance — "armed" by a hold,
+ *  "spent" by the unit that consumed it. Named because both strings appear in
+ *  three places each and a typo in one would arm a trigger nothing can spend. */
+const NAMI_ARMED = "UNL-052-armed";
+const NAMI_SPENT = "UNL-052-spent";
+
+/** Is this Nami's delayed trigger live — armed by a hold this turn and not yet
+ *  spent? Read from LIVE state rather than from `listener.card`, which is the
+ *  snapshot the walk found her in and can predate the arming by a chain-pop. */
+function namiArmed(state: GameState, listener: Listener): boolean {
+  const found = findUnitAnywhere(state, listener.card.instanceId);
+  const modes = found?.unit.abilityModesUsedThisTurn ?? [];
+  return modes.includes(NAMI_ARMED) && !modes.includes(NAMI_SPENT);
+}
+
+/**
+ * The battlefields Vex - Mocking may move to off one stunning — one entry per
+ * ENEMY unit her controller just stunned AT a battlefield.
+ *
+ * One function for the `applies` predicate and for `captureEach`, the same rule
+ * `aloneAt` and `enemiesStunnedFor` follow above: an ability must not be able to
+ * trigger on one count and then capture a different one.
+ *
+ * Duplicates are kept rather than deduped. Two enemies stunned at one battlefield
+ * is two triggered abilities by 359's per-unit reading, and each is a separate
+ * response window; the second simply finds Vex already there and offers nothing,
+ * which is where that collapse belongs.
+ */
+function vexDestinations(state: GameState, listener: Listener, event: GameEvent): string[] {
+  if (event.kind !== "unitsStunned" || event.stunnerIndex !== listener.ownerIndex) return [];
+  return event.stunned
+    .filter((s) => s.ownerIndex !== listener.ownerIndex)
+    .flatMap((s) => {
+      const at = findUnitAnywhere(state, s.unitInstanceId);
+      if (!at || at.zone === "base") return [];
+      return [state.battlefields[at.zone.battlefieldIndex]!.id];
+    });
+}
 
 /** Every unit standing at `battlefieldId`, BOTH players', by instance id — what
  *  Enthusiastic Promoter's unqualified "all units here" names. Ids rather than
@@ -2598,6 +2922,110 @@ export const decisions: Record<string, DecisionDefinition> = {
       return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
     },
   },
+
+  // Ivern - Nurturer's "you may reveal a unit from among them and draw it.
+  // Recycle the rest. Then if you revealed a Bird, Cat, Dog, or Poro, do this:
+  // [Buff] a friendly unit."
+  //
+  // Double Trouble's question with a tail, and the three readings it inherits are
+  // Ornn's: only UNITS are offered, "recycle the rest" happens on both branches,
+  // and the top 3 are re-sliced at ANSWER time so a deck that has moved on cannot
+  // smuggle a card up from deeper in.
+  //
+  // # The tail is gated on what was REVEALED, not on what is in hand
+  //
+  // "THEN IF you revealed" — so declining reveals nothing and buffs nothing, and
+  // the tags are read off the card that was chosen while it is still identifiable.
+  // Read BEFORE the draw, because `takeOneFromTopAndRecycleRest` moves it into a
+  // hand where a second copy of the same card would be indistinguishable.
+  //
+  // The four tags are `FRIENDSHIP_TAGS`, shared with Friendship (UNL-026's
+  // neighbour in this file) — the same four printed nouns, so one list. Ivern asks
+  // a different QUESTION of them ("did the revealed card carry any") than
+  // Friendship does ("how many distinct ones are on your board"), which is why
+  // only the list is shared and not `friendshipTagCount`.
+  "UNL-051-reveal": {
+    prompt: () => "Ivern - Nurturer: reveal a unit from the top 3 and draw it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].deck
+        .slice(0, IVERN_LOOK)
+        .filter((c) => c.kind === "Unit")
+        .map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      const looked = state.players[d.playerIndex].deck.slice(0, IVERN_LOOK);
+      if (optionId === "decline") {
+        if (looked.length === 0) return state;
+        const players = [...state.players] as [PlayerState, PlayerState];
+        players[d.playerIndex] = {
+          ...players[d.playerIndex],
+          deck: [...players[d.playerIndex].deck.slice(looked.length), ...looked],
+        };
+        // Karma - Channeler watches every recycle in this engine, including the
+        // ones written inline like this one.
+        return holdCardsRecycled({ ...state, players }, d.playerIndex, looked.length);
+      }
+      // Narrowed to a Unit before its tags are read — only Units are on offer, and
+      // `CardInstance` is a union in which a Legend has no `tags` at all.
+      const revealed = looked.find((c) => c.instanceId === optionId);
+      const tagged =
+        revealed?.kind === "Unit" && FRIENDSHIP_TAGS.some((tag) => (revealed.tags ?? []).includes(tag));
+      const drawn = takeOneFromTopAndRecycleRest(state, d.playerIndex, IVERN_LOOK, optionId);
+      // Parked rather than resolved inline: "[Buff] a friendly unit" is a choice
+      // and the engine cannot pause mid-resolution to ask. Onto the BACK of the
+      // queue, which is where a follow-up belongs — anything already waiting was
+      // raised earlier.
+      return tagged ? parkDecision(drawn, { kind: "UNL-051-buff", playerIndex: d.playerIndex }) : drawn;
+    },
+  },
+
+  // Ivern's tail — "[Buff] a friendly unit", raised only when a Bird, Cat, Dog or
+  // Poro was actually revealed.
+  //
+  // MANDATORY, so there is no Decline: the card says "do this", and 402.1's "you
+  // may" is not printed here. With exactly one friendly unit this is a single
+  // option and `advanceDecisions` executes it unprompted; with none — Ivern
+  // himself having died in the response window before this resolves — it has no
+  // options and is dropped, which is 055's "do as much as you can".
+  //
+  // "A friendly unit" carries no location word, so 355.9.a.1's bare noun puts base
+  // and battlefields both on offer, and already-buffed units stay on offer for the
+  // reason Spirit's Refuge and Aphelios both record: 702.3.a makes a second buff a
+  // no-op rather than an illegal choice.
+  "UNL-051-buff": {
+    prompt: () => "Ivern - Nurturer: buff a friendly unit",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
+
+  // Vex - Mocking's "you may move me to that battlefield".
+  //
+  // `d.battlefieldId` is "THAT battlefield", captured when the trigger fired — see
+  // her entry in `eventTriggers` for why it cannot be re-derived. `d.cardInstanceId`
+  // is Vex herself; her trigger already established she is not standing there.
+  //
+  // Two options always, so this is never auto-answered: a "you may" that
+  // `advanceDecisions` executed on the player's behalf would not be one.
+  //
+  // `forceMoveToBattlefield` rather than a zone rewrite, and it carries her own
+  // controller as `causedByIndex`: 446.1/449 make an effect-driven relocation a
+  // Move, so the `unitMoved` listeners and the Contested application (190.3.a) are
+  // the point rather than a side effect. She arrives READY — 414.3.a puts the
+  // exhaust on the Standard Move action, which this is not.
+  "UNL-055-move": {
+    prompt: (state, d) =>
+      `Vex - Mocking: move her to ${state.battlefields.find((b) => b.id === d.battlefieldId)?.name ?? "that battlefield"}?`,
+    options: () => [
+      { id: "decline", label: "Decline" },
+      { id: "move", label: "Move Vex there" },
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "move" && d.cardInstanceId && d.battlefieldId
+        ? forceMoveToBattlefield(state, d.cardInstanceId, d.battlefieldId, d.playerIndex)
+        : state,
+  },
 };
 
 /** The chain entry a stolen spell is sitting in, if it is still there — a
@@ -2647,9 +3075,69 @@ function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId
  * built-in table is a named error at import, not a silent last-write-wins.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
-  // **Still empty after the Unleashed Calm pass, and NOT because the seam went
-  // unused — because the one Calm card that prints an activated ability already
-  // has one.**
+  "UNL-049": {
+    // Honeyfruit — "This enters exhausted. [Reaction][>] [Exhaust]: [Add] [rainbow].
+    // [Level 6][>] [>>] [Reaction][>] [Exhaust]: [Add] [1 Energy][rainbow]."
+    //
+    // # ONE entry for a card that prints TWO abilities, and it is not a shortcut
+    //
+    // The `[Level 6]` half is a SECOND activated ability (the `>>` divider on this
+    // card alone is what separates them — see `model/keyword.ts`), and 824.1.b.1
+    // makes it short for "while you have 6+ XP, this card gains [that ability]".
+    // Both cost the same exhaust of the same gear, so at most one of them can ever
+    // be used, and the levelled one strictly dominates: same price, same rainbow,
+    // plus an Energy. A player at 6+ XP would take it every time.
+    //
+    // So "the base ability, plus an Energy while you are at Level 6" is
+    // observationally identical to the choice between them, and it is what is
+    // written here. The alternatives were both worse: `AbilityMode` has no
+    // per-mode `availableWhile`, so a modal pair could not turn the levelled mode
+    // off below 6 XP, and two registry entries are impossible — this table is keyed
+    // by defId and `mergeRegistries` throws on a duplicate.
+    //
+    // Read FRESH on every activation rather than latched: 824.1.d turns the
+    // dependent ability Inactive "as soon as the controlling player has less than
+    // [N] XP", and XP in this pool is spendable.
+    //
+    // # What is NOT here: "This enters exhausted"
+    //
+    // That clause is `deploy.GEAR_ENTERING_EXHAUSTED`, a set in a shared file this
+    // pass does not own — so a Honeyfruit currently lands READY and can be tapped
+    // the turn it is played, which is the whole of its printed drawback. Pinned by
+    // a test that asserts the wrong answer, so adding the id fails loudly.
+    //
+    // `[Reaction]` needs nothing here, and the reminder "(Abilities that add
+    // resources can't be reacted to.)" needs nothing either — Dragonsoul Sage's
+    // entry in `activated-abilities.ts` records why both are somebody else's
+    // business, and the second is the standing chain divergence rather than a new
+    // one.
+    //
+    // The Power is RAINBOW, so it lands in `floatingRainbowPower` (the pool keyed
+    // by nothing) rather than `floatingPower` (keyed by Domain), and the Energy is
+    // UNRESTRICTED — the card prints no "use only to…" clause, unlike Ornn's gear
+    // Power or Lux's spell Energy.
+    //
+    // `banksResource`, like every other rune-producer here: it adds a resource the
+    // board evaluator cannot price, so the heuristic AI will not take it. Recorded
+    // rather than worked around, per this project's standing rule against
+    // speculative heuristics with no evaluative basis.
+    kind: "Gear",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = {
+        ...actor,
+        floatingRainbowPower: actor.floatingRainbowPower + HONEYFRUIT_POWER,
+        floatingEnergy: actor.floatingEnergy + (atLevel(state, ctx.casterIndex, HONEYFRUIT_LEVEL) ? HONEYFRUIT_LEVEL_ENERGY : 0),
+      };
+      return { ...state, players };
+    },
+  },
+  // **The one Calm card that prints an activated ability and must NOT be
+  // registered here.**
   //
   // UNL-039 Soul Sword prints `[Equip] [Calm]` and nothing else, and
   // `activated-abilities.equipAbilities()` GENERATES an entry for every Gear

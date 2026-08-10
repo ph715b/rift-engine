@@ -38,6 +38,7 @@ import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 
 const registry = defaultCardRegistry();
 const TIDETURNER = "OGN-199";
+const GRIM_APOTHECARY = "UNL-021"; // the second card to reach optionalChoice
 
 const runes = (domain: Domain, count: number) =>
   Array.from({ length: count }, (_, i) => ({ id: `${domain}-${i}`, domain, state: "Ready" as const }));
@@ -109,9 +110,16 @@ describe("Tideturner's 'you may' is declinable (402.1)", () => {
     expect(targeting.kind === "unit" && targeting.optionalChoice, "Mindsplitter must not be optional").not.toBe(true);
   });
 
-  it("optionalChoice is still used by exactly one card in the pool", () => {
-    // A census. It was swept as the only card this reaches; a second one is a
-    // decision (is it really optional?) rather than something to absorb.
+  it("optionalChoice is used by exactly TWO cards in the pool", () => {
+    // A census. Tideturner was swept as the only card this reached, and the note
+    // said a second one is "a decision (is it really optional?) rather than
+    // something to absorb". It arrived on 2026-08-09 and the decision was made:
+    //
+    // **UNL-021 Grim Apothecary — "when you play me, you MAY return a friendly
+    // unit at a battlefield to its owner's hand."** Genuinely optional, and
+    // 402.1 puts that choice at finalization, which is exactly what the flag
+    // encodes: the decline is an enumerated variant rather than a resolver
+    // branch. Absorbed deliberately, not by widening the assertion.
     const optional = registry
       .all()
       .filter((def) => def.type === "Unit")
@@ -121,7 +129,7 @@ describe("Tideturner's 'you may' is declinable (402.1)", () => {
       })
       .map((def) => def.id);
 
-    expect(optional).toEqual([TIDETURNER]);
+    expect(optional).toEqual([TIDETURNER, GRIM_APOTHECARY]);
   });
 });
 

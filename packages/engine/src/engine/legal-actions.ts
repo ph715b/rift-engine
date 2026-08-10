@@ -779,16 +779,55 @@ export function legalActions(state: GameState): PlayerAction[] {
     // when you could afford it. Only offered when the bigger payment is actually
     // payable; a card you can afford plainly but not accelerated simply has no
     // accelerated variant.
-    const accelerated =
+    /**
+     * **Re-derived through `computeEffectiveCost`, not added to the reduced cost.**
+     *
+     * This read `effectiveCost.powerCost + ACCELERATE_POWER`, and `effectiveCost`
+     * has ALREADY had floating Power taken off it — so the accelerate pip was
+     * added after the reduction and could never be absorbed by it. The validator
+     * re-derives from the printed cost with the additional term folded in, and
+     * lets floating rainbow Power cover it.
+     *
+     * With one floating rainbow banked, a 0-Power `[Accelerate]` unit therefore
+     * enumerated a 1-Power payment the validator priced at 0, and
+     * `executePlayCard` THREW — "Lillia - Fae Fawn costs 0 power after floating
+     * Power, payment supplied 1". Found by `hunt-xp`, not by the suite, because it
+     * needs floating rainbow Power banked at the moment an Accelerate card is
+     * played, and wave 4 added the first cards that bank it routinely.
+     *
+     * The comment ~500 lines down already records this exact shape ("[Accelerate]
+     * is priced once per card, which is wrong the moment anything else about the
+     * variant changes the price"). This is the same mistake at the other end: not
+     * a stale price, but a price built by arithmetic on an already-reduced number.
+     */
+    const acceleratedEffective =
       hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden
-        ? computeAutoPayment(
-            actor.channeled,
-            effectiveCost.energyCost + ACCELERATE_ENERGY,
-            effectiveCost.powerCost + ACCELERATE_POWER,
+        ? computeEffectiveCost(
+            actor.floatingEnergy,
+            actor.floatingPower,
+            modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) + ACCELERATE_ENERGY,
+            Math.max(
+              0,
+              card.powerCost -
+                scaledPowerDiscount(state, playerIndex, card.defId) -
+                combatSpellPowerDiscount(state, playerIndex, card.kind),
+            ) + ACCELERATE_POWER,
             acceleratePowerDomain(card),
             card.powerDomainAlt,
+            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+            restrictedPowerFor(actor, card.kind),
+            actor.floatingRainbowPower,
           )
         : null;
+    const accelerated = acceleratedEffective
+      ? computeAutoPayment(
+          actor.channeled,
+          acceleratedEffective.energyCost,
+          acceleratedEffective.powerCost,
+          acceleratePowerDomain(card),
+          card.powerDomainAlt,
+        )
+      : null;
 
     // A MODAL card has no single targeting — each mode carries its own, and
     // Rocket Barrage's two name a UNIT and a GEAR respectively. So the fan-out
