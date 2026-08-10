@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
-import { forceMoveToBattlefield } from "../src/engine/effect-helpers.js";
+import { forceMoveToBase, forceMoveToBattlefield } from "../src/engine/effect-helpers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
@@ -286,35 +286,44 @@ describe("Mister Root (UNL-127): when I move to a battlefield, gain 2 XP", () =>
   });
 
   /**
-   * PINNED DIVERGENCE — asserts the WRONG answer on purpose.
+   * **This pin did its job and is now the positive assertion.**
    *
-   * **446.1**: "A Permanent changing its position from any space on the Board to
-   * another space on the Board is a Move", and **449**: "Spells, Abilities, or
-   * other effects may cause a Move to occur." So a Charm, a Fae Porter or a
-   * Relentless Pursuit relocation IS a Move, and Mister Root should be paid.
+   * It asserted the WRONG answer on purpose: that a card-driven relocation paid
+   * Mister Root nothing, because `unitMoved` had only two emitters and both were
+   * player actions. 446.1 makes any permanent changing position on the Board a
+   * Move and 449 says outright that "Spells, Abilities, or other effects may
+   * cause a Move to occur", so the engine was simply missing the event.
    *
-   * He is not. `unitMoved` has exactly ONE emitter — `execute-move-unit.ts`, the
-   * Standard Move ACTION — so every effect-driven relocation is silent. The
-   * contrast that shows this is a gap rather than a reading is 446.2: "a card
-   * changing game zones does not in itself constitute a Move", which is why the
-   * bounce-to-hand tests above correctly pay nothing. Zone change, no. Board
-   * position change, yes — and this is the second kind.
+   * Closed 2026-08-09. `effect-helpers`' two force-move helpers now hold
+   * `unitMoved` and `unitMovedFrom` through one shared emitter, so the two cannot
+   * disagree about what a move is.
    *
-   * Its own positive control runs first, because "gained nothing" reads the same
-   * whether the divergence is real or the fixture simply never moved him.
-   *
-   * Recorded in docs/rules-conformance.md. Closing it should FLIP this test, not
-   * delete it.
+   * Its positive control is kept: "gained 2" and "the fixture moved him twice"
+   * are not the same thing, and only the control tells them apart.
    */
-  it("gains nothing when an EFFECT moves him — divergent from 446.1/449", () => {
+  it("gains 2 XP when an EFFECT moves him to a battlefield — 446.1/449", () => {
     const { state, root } = rootState();
     expect(moveTo(state, root.instanceId, "bf1").players[0]!.xp, "the control move paid nothing either").toBe(2);
 
     const moved = resolveHeldTriggers(forceMoveToBattlefield(state, root.instanceId, "bf1"));
 
     expect(at(moved, "bf1", "p1").map((u) => u.name), "the effect never moved him at all").toEqual(["Mister Root"]);
-    // 2 under 446.1. 0 is what this engine does, and what this pin records.
-    expect(moved.players[0]!.xp, "446.1 is implemented now — flip this pin and update the conformance row").toBe(0);
+    expect(moved.players[0]!.xp, "a spell-driven move still fires nothing").toBe(2);
+  });
+
+  it("but NOT when an effect sends him home — his text says 'to a battlefield'", () => {
+    // The control on the new event: it fires for BOTH directions, and his own
+    // `applies` is what declines the one his text excludes. Without this, gating
+    // the event itself on destination would pass the test above and be wrong.
+    const standing = rootState().state;
+    standing.players[0]!.baseUnits = [];
+    standing.battlefields[0] = { ...standing.battlefields[0]!, units: { p1: [rootState().root] } };
+    const homeward = standing.battlefields[0]!.units["p1"]![0]!;
+
+    const home = resolveHeldTriggers(forceMoveToBase(standing, homeward.instanceId));
+
+    expect(home.players[0]!.baseUnits.map((u) => u.name), "the effect never sent him home").toContain("Mister Root");
+    expect(home.players[0]!.xp, "a move to BASE paid his battlefield-only trigger").toBe(0);
   });
 });
 

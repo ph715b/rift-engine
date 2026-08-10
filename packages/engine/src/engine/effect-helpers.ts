@@ -14,6 +14,8 @@ import {
   reviveWithDeathWard,
 } from "./death-ward.js";
 import { dispatchEvent, holdEventTrigger, holdSelfTrigger, holdUnitDied, killGear } from "./triggers.js";
+import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+import type { UnitZone } from "./target-lookup.js";
 // legend-abilities imports drawCards from here, so this is a cycle — the same
 // safe shape as the triggers.ts one above: the binding is only read inside
 // stunUnits, long after both modules have initialised.
@@ -795,7 +797,84 @@ export function addBuff(state: GameState, targetInstanceId: string): GameState {
  * whose controller chose to move them, and no card in this pool has one that
  * could be reached this way. Named here rather than left to be discovered.
  */
-export function forceMoveToBattlefield(state: GameState, targetInstanceId: string, destinationBattlefieldId: string): GameState {
+/** The battlefield id a unit was standing at, or "base". `unitMoved.from` names
+ *  a base at one end already, so this is symmetric with it. */
+function originIdOf(state: GameState, location: { zone: UnitZone }): string {
+  return location.zone === "base" ? "base" : state.battlefields[location.zone.battlefieldIndex]!.id;
+}
+
+/**
+ * The events an effect-driven Move owes — held in ONE place so the two force-move
+ * helpers cannot come to different answers about what a move is.
+ *
+ * Held rather than dispatched (383), exactly as `execute-move-unit` holds them,
+ * so they resolve on the chain this resolution produces rather than re-entering
+ * mid-effect.
+ *
+ * `movesThisTurn` is NOT incremented here, deliberately. The moved unit object is
+ * already in the new state by the time this runs, and bumping it would mean
+ * re-finding and rewriting it in every zone these helpers can leave it in. The
+ * event carries the unit's existing count, which is what Miss Fortune - Captain
+ * reads; a card-driven move not counting toward a unit's own move tally is a
+ * narrower gap than no event at all, and it is recorded rather than hidden.
+ */
+function holdMoveEvents(
+  state: GameState,
+  unit: UnitInstance,
+  ownerIndex: 0 | 1,
+  from: string,
+  to: string,
+  causedByIndex?: 0 | 1,
+): GameState {
+  // Nothing moved, nothing fired.
+  //
+  // **UNREACHABLE from both current callers, and labelled rather than left
+  // looking tested**: `forceMoveToBattlefield` returns early when the unit is
+  // already at the destination, and `forceMoveToBase` finds its subject with
+  // `findUnitOnBattlefield`, so its `from` is always a battlefield and its `to`
+  // is always "base". Deleting this line breaks no test — I checked by deleting
+  // it — which is exactly why it says so here instead of implying otherwise.
+  //
+  // Kept because it guards the NEXT caller: a phantom move event would fire 17
+  // cards for a relocation that did not happen.
+  if (from === to) return state;
+  const next = holdEventTrigger(state, {
+    kind: "unitMoved",
+    moverIndex: ownerIndex,
+    unitInstanceId: unit.instanceId,
+    from,
+    to,
+    movesThisTurn: unit.movesThisTurn,
+    ...(causedByIndex !== undefined ? { causedByIndex } : {}),
+  });
+  // "When a unit moves FROM here" — Back-Alley Bar. Fires for the battlefield
+  // left; a unit leaving BASE matches no battlefield and so fires nothing.
+  return holdBattlefieldTrigger(next, "unitMovedFrom", from, ownerIndex, unit.instanceId);
+}
+
+/**
+ * **446.1 and 449 make this a MOVE, and it now says so.**
+ *
+ * 449: "Spells, Abilities, or other effects may cause a Move to occur." 446.1:
+ * any permanent changing position from one space on the Board to another is a
+ * Move. Until 2026-08-09 this helper and `forceMoveToBase` rewrote the zones in
+ * silence, so `unitMoved` had exactly TWO emitters — both player actions — and
+ * every card-driven relocation fired nothing.
+ *
+ * Seventeen implemented cards watch a move. The asymmetry became glaring the day
+ * a player walking a unit home started firing them while a spell moving that same
+ * unit still did not.
+ *
+ * `causedByIndex` is optional and additive: absent means "the mover caused it",
+ * which is what every existing listener already assumed. Passing it is what lets
+ * "when YOU move an ENEMY unit" be written at all.
+ */
+export function forceMoveToBattlefield(
+  state: GameState,
+  targetInstanceId: string,
+  destinationBattlefieldId: string,
+  causedByIndex?: 0 | 1,
+): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   const { unit, ownerId, ownerIndex } = location;
@@ -814,7 +893,8 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
     units: { ...destination.units, [ownerId]: [...(destination.units[ownerId] ?? []), unit] },
   };
 
-  return applyContested({ ...removed, battlefields }, destinationBattlefieldId, ownerIndex);
+  const moved = applyContested({ ...removed, battlefields }, destinationBattlefieldId, ownerIndex);
+  return holdMoveEvents(moved, unit, ownerIndex, originIdOf(state, location), destinationBattlefieldId, causedByIndex);
 }
 
 /**
@@ -855,7 +935,7 @@ export function forceMoveToBattlefield(state: GameState, targetInstanceId: strin
  * instruction, not the spell. Returning the state unchanged is 055's "do as much
  * as you can", which is what every other blocked move here already does.
  */
-export function forceMoveToBase(state: GameState, targetInstanceId: string): GameState {
+export function forceMoveToBase(state: GameState, targetInstanceId: string, causedByIndex?: 0 | 1): GameState {
   const location = findUnitOnBattlefield(state, targetInstanceId);
   // Not at a battlefield: either it is already in base — 355.4.a excludes the
   // Unit's current Location, so there is no move to make — or it is not on the
@@ -872,7 +952,7 @@ export function forceMoveToBase(state: GameState, targetInstanceId: string): Gam
   };
   const players = [...state.players] as [PlayerState, PlayerState];
   players[ownerIndex] = { ...players[ownerIndex], baseUnits: [...players[ownerIndex].baseUnits, unit] };
-  return { ...state, battlefields, players };
+  return holdMoveEvents({ ...state, battlefields, players }, unit, ownerIndex, bf.id, "base", causedByIndex);
 }
 
 /**

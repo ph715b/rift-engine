@@ -815,7 +815,20 @@ export type GameEvent =
       /** The mover's count AFTER this move — Yasuo - Windrider's "the third time
        *  I move in a turn" reads it here rather than re-deriving from a board
        *  the response window may have changed. */
-      movesThisTurn: number;
+      movesThisTurn: number;
+      /**
+       * Who CAUSED the move, when that is not the moved unit's controller.
+       *
+       * `moverIndex` above is the moved unit's controller — which is the same
+       * player for a Move ACTION, and a different one for a spell that moves an
+       * ENEMY unit (Charm, Temptation, Blast Cone). "When YOU move an enemy unit"
+       * cannot be answered from `moverIndex` at all, which is why UNL-133's second
+       * clause was refused.
+       *
+       * Optional and additive: absent means "the mover caused it", so every
+       * existing listener reads exactly what it read before.
+       */
+      causedByIndex?: 0 | 1;
     }
   /**
    * One or more cards were recycled to `ownerIndex`'s Main Deck — Karma -
