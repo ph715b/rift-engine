@@ -139,25 +139,64 @@ const WUJU_APPRENTICE_LEVEL = 6;
 const DOUBLE_TROUBLE_LOOK = 3;
 
 /**
- * The 1-Might `[Deflect]` Bird — Frisky Hunter's token.
- *
- * **A LOCAL spec, and it owes a move to `token.ts`.** Five other printed cards
- * make the same token (UNL-044 Flurry of Feathers, also Calm; UNL-088 Gutter
- * Palace, Mind; UNL-130 Walking Roost, Chaos; UNL-153 Carrion Dredger and
- * UNL-160 Ultrasoft Poro, Order; and the UNL-217 Trapping Grounds battlefield),
- * so this stat line is going to exist in four domain files and
- * `battlefield-abilities.ts` unless it is consolidated — which is exactly the
- * drift `SAND_SOLDIER_TOKEN`'s own comment in token.ts records having already
- * happened once, to a spec that had two owners and two copies.
- *
- * It is here rather than there only because this change owns one file. Same
- * shape as `effects/mind.ts`'s `SPRITE_TOKEN`, which is a local spec for the
- * same reason and has the same second owner problem.
- *
- * `[Deflect]` is real and implemented (`granted-keywords.deflectSurcharge`), so
- * the token genuinely taxes an opponent who chooses it — 1 rainbow Power, since
- * a magnitude-less bracket is 1.
+ * The 1-Might `[Deflect]` Bird that Frisky Hunter and Flurry of Feathers both
+ * make is `token.BIRD_TOKEN` — SHARED from there since 2026-08-09, after three
+ * wave-2 agents each wrote a byte-identical private copy. Its own comment there
+ * records why the `[Deflect 1]` is the part that made sharing urgent.
  */
+
+/** Flurry of Feathers' second mode — "play FOUR 1 Might Bird unit tokens". */
+const FLURRY_OF_FEATHERS_BIRDS = 4;
+
+/**
+ * Friendship's four tags — "for each of the following tags among your units —
+ * Bird, Cat, Dog, and Poro".
+ *
+ * A list of the four PRINTED tags rather than a count of matching units: the
+ * card asks how many of these tags are present, so nine Poros are worth 1 and a
+ * single Bird/Cat/Dog/Poro menagerie is worth 4. Writing it as "count your units
+ * that carry any of these" is the natural mis-read and would be wrong in both
+ * directions.
+ */
+const FRIENDSHIP_TAGS = ["Bird", "Cat", "Dog", "Poro"] as const;
+
+/**
+ * Mosstomper's `[Level 3][>] I have +1 Might and [Deflect]`.
+ *
+ * Only the MIGHT half is written, through `mightModifiers` at the foot of this
+ * file — see that entry for the `[Deflect]` half, which is a divergence rather
+ * than an omission (it is currently ON at 0 XP, because `parseKeywords` reads the
+ * bracket out of the band and hands him a flat printed `[Deflect 1]`).
+ */
+const MOSSTOMPER = "UNL-047";
+const MOSSTOMPER_LEVEL = 3;
+const MOSSTOMPER_MIGHT = 1;
+
+/** Soul Sword's art-only band, `[Level 3][>] I have an additional +1 Might`
+ *  (docs/unl-equipment-abilities.md). Its printed `[Equip] [Calm]` and its +1
+ *  badge are both already handled — see `activatedAbilities` below. */
+const SOUL_SWORD = "UNL-039";
+const SOUL_SWORD_LEVEL = 3;
+const SOUL_SWORD_LEVELLED_MIGHT = 1;
+
+/**
+ * Trevor Snoozebottom's Sprite — "a ready 3 Might Sprite unit token with
+ * [Temporary]".
+ *
+ * **A LOCAL spec that owes a move to `token.ts`, and it is the SAME drift the
+ * Bird's note above records having already happened three times.** Three cards
+ * across two domains print this exact token (OGN-106 Sprite Mother and OGN-094
+ * Sprite Call in Mind, this one in Calm), so `effects/mind.ts` has a private
+ * `SPRITE_TOKEN` of its own that this is byte-identical to. It is here rather
+ * than shared only because this change owns one file; consolidating it is the
+ * integrator's, exactly as `BIRD_TOKEN`'s was.
+ *
+ * `entersReady` is the card's word ("play a READY ... token"), overriding
+ * 143.4.a's exhausted default, and `Temporary` is a real keyword —
+ * `turn-manager.killTemporaryPermanents` destroys what carries it at the start of
+ * its controller's Beginning Phase, which is the whole drawback.
+ */
+const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-031": {
@@ -678,7 +717,114 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
   },
+  "UNL-044": {
+    // Flurry of Feathers — "[Reaction] Choose one — Counter a spell. [or] Play
+    // four 1 Might Bird unit tokens with [Deflect]."
+    //
+    // MODAL, because "choose one" between two instructions that target
+    // differently is exactly what `modes` is for (card-effects.ts's `CardMode`) —
+    // one wants a spell on the chain, the other wants nothing at all. A single
+    // spec cannot describe both, and folding them would make the card uncastable
+    // with an empty chain.
+    //
+    // **The empty chain is the reason the split matters in play.** The enumerator
+    // flat-maps modes and keeps only the variants each produces, so with nothing
+    // to counter the first mode simply vanishes and the Birds are still on offer.
+    // That is what makes this a 4-Energy card you are never stuck holding, which
+    // Wind Wall (uncastable on an empty chain, and correctly so) is not.
+    modes: [
+      {
+        id: "counter",
+        label: "Counter a spell",
+        // Wind Wall's spec exactly: no filter, no owner clause, and the
+        // `[Reaction]` timing that lets it be cast onto an already-closed chain
+        // is engine/timing.ts's rather than anything here. LIFO (340.1) is what
+        // makes it resolve before its target.
+        targeting: { kind: "chainSpell" },
+        resolve: (state, _ctx, event) =>
+          event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+      },
+      {
+        id: "birds",
+        label: "Play four 1 Might Bird unit tokens with [Deflect]",
+        targeting: { kind: "none" },
+        // Four SEPARATE `placeToken` calls rather than one call with a count,
+        // because each token is a unit becoming present in its own right: 190.3.a
+        // applies Contested per arrival, and `placeToken` is where that happens.
+        //
+        // **They all land in the SAME place**, which is Recruit the Vanguard's
+        // reading of an unsplit "play four ... tokens" (see
+        // `TOKEN_PLACEMENT_SPELL_DEF_IDS`' note on Arise!) — the card prints no
+        // per-token parenthetical, so there is one destination for the play.
+        //
+        // **DIVERGENCE, and it is narrow rather than wide**: that destination is
+        // always the caster's BASE today. 813.3.a gives the choice the card should
+        // have — "[a unit] can only be played to the controlling player's base or
+        // a battlefield they control", which is exactly the fan-out Recruit the
+        // Vanguard and Sprite Call get from `cardPlacesTokens`. This defId is not
+        // in that table (`card-effects.TOKEN_PLACEMENT_SPELL_DEF_IDS`, a shared
+        // file this change does not own), so the enumerator never offers a
+        // battlefield and `destinationBattlefieldId` is always undefined.
+        //
+        // It is read here anyway, exactly as Desert's Call reads it — SFD-031 has
+        // the SAME unlisted gap — so the day the row lands this resolver needs no
+        // change. Four blockers in base is strictly weaker than four at a
+        // contested battlefield, which is the safe direction.
+        resolve: (state, ctx, event) => {
+          const destination = event.destinationBattlefieldId !== undefined
+            ? { battlefieldId: event.destinationBattlefieldId }
+            : ("base" as const);
+          let next = state;
+          for (let i = 0; i < FLURRY_OF_FEATHERS_BIRDS; i += 1) {
+            next = placeToken(next, ctx.casterIndex, destination, BIRD_TOKEN);
+          }
+          return next;
+        },
+      },
+    ],
+  },
+  "UNL-046": {
+    // Friendship — "[Reaction] Choose a unit. Give it +1 Might this turn for each
+    // of the following tags among your units — Bird, Cat, Dog, and Poro."
+    //
+    // Discipline's spec: "a unit", not "a unit at a battlefield", so 355.9.a.1's
+    // bare noun ("'Unit,' 'gear,' and 'rune' refer to objects on the Board unless
+    // specified otherwise") puts a unit in either base on the target list, and no
+    // owner clause means an enemy is a legal (if odd) choice.
+    //
+    // **The amount is a count of TAGS, not of units** — see `FRIENDSHIP_TAGS`. So
+    // it is 0..4 and never more, however wide the board.
+    //
+    // "AMONG YOUR UNITS" is the CASTER's units wherever they stand
+    // (`ownUnitsEverywhere`): the card names no location, and the chosen unit is
+    // not required to be one of them — pumping an enemy by your own Poro count is
+    // legal and pointless, which is the shape a missing owner clause always has.
+    //
+    // **The chosen unit counts itself when it is yours.** Nothing here excludes
+    // it: "each of the following tags among your units" is a board-wide count and
+    // "choose a unit" is a separate sentence, so a lone Poro Friendshipped is +1.
+    //
+    // giveMightThisTurn, NOT addBuff: this expires in the Expiration Step (317),
+    // where a Buff (702) is a counter that survives the turn.
+    //
+    // Zero is a legal amount and the card is still castable at it — the targeting
+    // is satisfied by a unit existing, and 359.3.e.11's do-as-much-as-you-can
+    // gives +0 rather than refusing.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, friendshipTagCount(state, ctx.casterIndex))
+        : state,
+  },
 };
+
+/** Friendship's multiplier — how many of Bird/Cat/Dog/Poro appear among
+ *  `playerIndex`'s units, anywhere on the Board. One function so the count and
+ *  the card cannot disagree about what "tags among your units" means. */
+function friendshipTagCount(state: GameState, playerIndex: 0 | 1): number {
+  const mine = ownUnitsEverywhere(state, playerIndex);
+  return FRIENDSHIP_TAGS.filter((tag) => mine.some((u) => (u.tags ?? []).includes(tag))).length;
+}
 
 /**
  * Double Trouble's look, written beside `ornnLook` because it IS `ornnLook` with
@@ -1820,7 +1966,111 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? ornnLook(state, listener.ownerIndex) : state),
   },
+  "UNL-043": {
+    // Enthusiastic Promoter — "[Backline] When I hold, [Buff] all units here."
+    //
+    // Only the sentence is here. `[Backline]` ("I must be assigned combat damage
+    // last") is a keyword and is UNIMPLEMENTED engine-wide — it is named in
+    // `coverage.UNIMPLEMENTED_KEYWORDS`, so this card correctly reports
+    // unimplemented whatever is written for its second half. Nothing to do here
+    // either way: `combat.ASSIGNED_LAST_DEF_IDS` is the mechanism, in a shared
+    // file, and it does not yet ask the keyword.
+    //
+    // "When **I** hold" is the positional reading Ahri - Alluring, the Guardian
+    // and Ornn all take: the battlefield held has to be the one the Promoter is
+    // standing at, not merely one his controller held somewhere.
+    //
+    // # "ALL UNITS", with no owner — and the two readings coincide today
+    //
+    // 426.3 formats the Buff action as "Buff [one or more units]" and gives
+    // "Buff a unit." and "Buff a FRIENDLY unit." as separate examples, so the
+    // owner clause is written when it is meant and this card does not write one.
+    // Taken literally, then: every unit at that location, either side's.
+    //
+    // It is unobservable in this engine and probably in the rules. A hold is
+    // 469.2's "maintains Control", which `scoring.isHeldBy` reads as presence with
+    // NO opponent units there — so an enemy unit at a battlefield you are holding
+    // is not a board this trigger can fire on. Written literally anyway, because
+    // the narrower version would be a silent guess that only shows up the day
+    // something puts an enemy body there mid-window.
+    //
+    // # "HERE" is the battlefield HELD, fixed when the trigger fired
+    //
+    // 359.3.f.3 — "some information used by triggered abilities is referenced
+    // from the TRIGGER CONDITION of the ability. This information is checked when
+    // the trigger condition is fulfilled" — and 383.4.d puts the unit's presence
+    // at the battlefield INSIDE a Hold Effect's condition ("Triggered Abilities
+    // whose Condition includes a Unit being present at a Battlefield during the
+    // Beginning phase when a player scores Victory Points from Holding"). The
+    // rules' own hold example agrees: Iascylla's "this battlefield" "refers to the
+    // battlefield she held, and so will be referenced from the trigger condition"
+    // (359.3.f.3.b).
+    //
+    // So this is deliberately NOT `isStillHere`. Yasuo - Remorseful's "here" is
+    // re-checked at execution because his condition is a DESIGNATION rather than a
+    // presence — 359.3.f.2's worked example — and the two families must not be
+    // confused. A Promoter killed in the response window still buffs the units he
+    // was standing with.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      // Per unit, in board order. `addBuff` is 426.1.b.1's no-op on an
+      // already-buffed unit — which is what the card's own reminder text ("give
+      // each a +1 Might buff IF IT DOESN'T HAVE ONE") is describing — and it
+      // raises one `unitBuffed` event per buff actually placed, which is right
+      // rather than a batch double-pay: Simian Ancestor's "when you buff ME" is a
+      // question about one unit, so N units buffed is N distinct moments.
+      return unitsAt(state, event.battlefieldId).reduce((next, id) => addBuff(next, id), state);
+    },
+  },
+  "UNL-048": {
+    // Trevor Snoozebottom — "[Shield] When I hold, play a ready 3 Might Sprite
+    // unit token with [Temporary] here."
+    //
+    // Only the sentence. `[Shield]` is printed and real (effective-might reads it
+    // for the defending side), and re-granting it here would be the double-pay
+    // 817's summing makes observable.
+    //
+    // **His `[Temporary]` is the TOKEN's, not his**, and that distinction is
+    // already load-bearing in the loader: `card-loader.GRANTED_ONLY_KEYWORDS` has
+    // a `"UNL-048": ["Temporary"]` entry precisely so that
+    // `turn-manager.killTemporaryPermanents` does not destroy Trevor himself every
+    // Beginning Phase. The keyword goes on the token, via `SPRITE_TOKEN`.
+    //
+    // "When **I** hold" and "HERE" are read exactly as the Promoter's above:
+    // positional trigger, and a battlefield referent taken from the TRIGGER
+    // CONDITION (359.3.f.3, 383.4.d, and the Iascylla hold example in
+    // 359.3.f.3.b) rather than re-checked at execution.
+    //
+    // `placeToken`, not a hand-rolled push, so the arrival applies Contested
+    // (190.3.a) if it ever lands somewhere its controller does not control. It
+    // cannot today — you only hold what you control — but the helper is the one
+    // place that decision belongs.
+    on: "battlefieldHeld",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) =>
+      event.kind === "battlefieldHeld"
+        ? placeToken(state, listener.ownerIndex, { battlefieldId: event.battlefieldId }, SPRITE_TOKEN)
+        : state,
+  },
 };
+
+/** Every unit standing at `battlefieldId`, BOTH players', by instance id — what
+ *  Enthusiastic Promoter's unqualified "all units here" names. Ids rather than
+ *  instances because the caller mutates the board between them, so an instance
+ *  captured up front would be stale by the second buff. */
+function unitsAt(state: GameState, battlefieldId: string): string[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (!bf) return [];
+  return Object.values(bf.units).flatMap((units) => units.map((u) => u.instanceId));
+}
 
 /** The units Ribbon Dancer's "give ANOTHER friendly unit" may name — hers,
  *  anywhere (355.9.a.1), minus herself. One function for the fire-time "is there
@@ -2409,11 +2659,34 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   // duplicate defId — so this is the one case where using the new seam breaks the
   // engine at import rather than doing nothing.
   //
-  // What Soul Sword is still missing is its ART-ONLY band, `[Level 3][>] I have
-  // an additional +1 Might` (docs/unl-equipment-abilities.md), which is a
-  // continuous Might modifier on the WEARER and belongs with the other Equipment
-  // Might in `card-loader.EQUIP_MIGHT_BONUS` / `effective-might`. Not an
-  // activated ability, and not reachable from this file.
+  // Its ART-ONLY band, `[Level 3][>] I have an additional +1 Might`
+  // (docs/unl-equipment-abilities.md), is a continuous Might modifier on the
+  // WEARER rather than an activated ability — so it is not this registry's, and
+  // as of 2026-08-09 it is not missing either: it is the `UNL-039` entry in
+  // `mightModifiers` at the foot of this file, which is the seam that did not
+  // exist when this note was written.
+  //
+  // # UNL-045 Forgotten Signpost is REFUSED, and it is this registry's card
+  //
+  // "[Action][>] Exhaust a unit you control, [Exhaust]: Move a DIFFERENT unit you
+  // control to the location of the unit you exhausted to pay for this ability."
+  //
+  // `ActivationCost` has no way to say "exhaust a unit you control". Every field
+  // it does have is paid from state (an exhaust of the SOURCE, a Recycle, a
+  // Power, a Buff, a `killSelf`/`banishSelf`) or rides a choice the action already
+  // carries — `killFriendlyPermanent` is the closest, and it KILLS. Adding
+  // `exhaustFriendlyUnit` is a change to `engine/activated-abilities.ts` plus the
+  // per-candidate fan-out in `engine/legal-actions.ts` and the re-derivation in
+  // the activation validator, none of which this file owns.
+  //
+  // And a second, independent gap: even given the cost, the effect names "the
+  // location of the unit you exhausted TO PAY FOR THIS ABILITY", so the resolver
+  // has to know WHICH unit paid. `ActivatedAbilityEvent` carries
+  // `targetUnitInstanceId`, `targetPermanentInstanceId`, `destinationBattlefieldId`
+  // and `xAmount` — nothing about the cost — so the cost payer is invisible to
+  // `resolve` even for the costs that already carry a choice. Both halves are
+  // shared-file work; writing the card against either missing piece would register
+  // the defId, report DONE, and move nobody.
 };
 
 
@@ -2433,4 +2706,80 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+export const mightModifiers: Record<string, MightModifier> = {
+  [MOSSTOMPER]: {
+    // Mosstomper — "[Hunt 2] [Level 3][>] I have +1 Might and [Deflect]."
+    //
+    // The MIGHT half. `[Hunt 2]` needs nothing from this file: `triggers.ts`
+    // registers it ONCE for the whole pool under `HUNT_TRIGGER_KEY`, keyed off the
+    // KEYWORD rather than the card and reading its magnitude through
+    // `effectiveKeywords`, so a per-card copy here would pay his conquer/hold XP
+    // twice.
+    //
+    // A SELF bonus, so it tests `unit.defId` — every registered modifier is asked
+    // about every unit, and a modifier that forgot this would pump the board.
+    //
+    // Read from the OWNER's XP (`ownerIndex`), not the asking player's: 824.1.c
+    // makes the condition the CONTROLLER's counter and `effectiveMight` is called
+    // by both sides.
+    //
+    // **The `[Deflect]` half is a DIVERGENCE, not an omission, and it points the
+    // WRONG way.** `card-loader.parseKeywords` reads the bracket straight out of
+    // the band and hands him a flat printed `[Deflect 1]`, so an opponent pays the
+    // rainbow surcharge to choose him at 0 XP — a band that should be Inactive
+    // below 3 (824.1.d). Closing it needs BOTH halves of a shared-file change that
+    // this file cannot make: a `card-loader.GRANTED_ONLY_KEYWORDS` entry to strip
+    // the parsed keyword (his `[Hunt]` is real, so the blanket
+    // `CONDITIONAL_KEYWORD_DEF_IDS` would take that with it), and a
+    // `granted-keywords.CONDITIONAL_GRANTS` entry to give it back under
+    // `atLevel(..., 3)`. Doing only the first would make him strictly worse than
+    // printed, which is the direction this repo never ships. Pinned by a test that
+    // asserts the WRONG answer, so closing it fails loudly.
+    defId: MOSSTOMPER,
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId === MOSSTOMPER && atLevel(state, ownerIndex, MOSSTOMPER_LEVEL) ? MOSSTOMPER_MIGHT : 0,
+  },
+  [SOUL_SWORD]: {
+    // Soul Sword's ART-ONLY band — `[Level 3][>] I have an additional +1 Might.
+    // (While you have 3+ XP, get the effect.)`
+    //
+    // **None of this is in the card data**: `text.plain` holds the `[Equip]` line
+    // and nothing else, which is why the card reported implemented while doing it.
+    // Transcribed from the card image; see docs/unl-equipment-abilities.md, and
+    // `coverage.PARTIALLY_IMPLEMENTED` for the note that has been keeping it
+    // honest — **that note is now stale and should be dropped**, together with
+    // UNL-039's row in `equipment-wearer-moments.test.ts`'s art-only list.
+    //
+    // # An AURA in this seam's terms, not a self bonus
+    //
+    // "I" is the SWORD and the Might lands on its WEARER, so this ignores
+    // `unit.defId` entirely and asks the board whether this unit is wearing one —
+    // the shape `MightModifier`'s own doc calls an aura, with the gear as source.
+    //
+    // # Deliberately OUTSIDE `equipmentMightBonusFor`
+    //
+    // That function sums the printed BADGE (`EQUIP_MIGHT_BONUS`), and Gearhead
+    // doubles exactly what it returns — "each Equipment attached to me gives
+    // double its BASE Might bonus". This band is not the base badge, so it must
+    // not be doubled; adding it here keeps the badge (+1) doubling and the band
+    // (+1) not, which is what "base" makes the reading rather than a convenience.
+    // Brutalizer's art-only "+2 if attached this turn" sits inside that function
+    // and IS doubled — a difference worth stating, since the two cards look alike.
+    //
+    // # Whose XP
+    //
+    // The GEAR's controller, which is the player whose `activeGear` holds it —
+    // 824.1.c makes the condition the ability's controller and the ability is the
+    // Sword's. That is the wearer's controller in every reachable case ("attach
+    // this to a unit YOU control"), and deliberately not assumed to be: control of
+    // a gear can move (Akshan - Mischievous borrows one), and reading the wearer's
+    // seat would then answer with the wrong player's counter.
+    defId: SOUL_SWORD,
+    bonus: (state, unit) => {
+      const holder = ([0, 1] as const).find((i) =>
+        state.players[i].activeGear.some((g) => g.defId === SOUL_SWORD && g.attachedToInstanceId === unit.instanceId),
+      );
+      return holder !== undefined && atLevel(state, holder, SOUL_SWORD_LEVEL) ? SOUL_SWORD_LEVELLED_MIGHT : 0;
+    },
+  },
+};

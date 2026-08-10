@@ -269,3 +269,75 @@ describe("deflectSurcharge: what an opponent must pay to choose this unit", () =
     expect(deflectSurcharge(state, mighty, 0, 1)).toBe(1);
   });
 });
+
+/**
+ * A keyword printed INSIDE a condition is not a printed keyword.
+ *
+ * `card-loader`'s `KW_PATTERN` sees brackets, not sentences, so `[Deflect]`
+ * written inside a `[Level 3]` band parses as a flat printed keyword and the card
+ * ships with it live at 0 XP. Sivir - Mercenary (SFD-143) is the same shape and
+ * was fixed for it; Unleashed added four more, found independently by two agents
+ * in different domain files on 2026-08-09.
+ *
+ * **Both keywords involved are ones a player can ACT on**, which is why this is a
+ * playable bug rather than a cosmetic one: `[Deflect]` makes an opponent pay a
+ * rainbow surcharge they do not owe, and `[Ganking]` permits a
+ * battlefield-to-battlefield move that should be illegal.
+ *
+ * The fix is two halves in two files — strip at load, re-grant at runtime — and
+ * BOTH are asserted here, because either alone is wrong: the strip without the
+ * grant leaves the card weaker than printed, and the grant without the strip
+ * changes nothing.
+ */
+describe("Unleashed's conditional keywords are off until their condition is met", () => {
+  const withXp = (defId: string, xp: number) => {
+    const state = makeState({ phase: "Action" });
+    const unit = realUnitInstance(defId);
+    state.players[0]!.baseUnits = [unit];
+    state.players[0]!.xp = xp;
+    return { state, unit };
+  };
+  const keywordsAt = (defId: string, xp: number) => {
+    const { state, unit } = withXp(defId, xp);
+    return effectiveKeywords(state, unit, 0);
+  };
+
+  it.each([
+    ["UNL-047", 3, "Deflect"],
+    ["UNL-075", 3, "Ganking"],
+    ["UNL-113", 6, "Deflect"],
+    ["UNL-113", 6, "Ganking"],
+  ])("%s does not carry [%s] below %i XP, and does at it", (defId, level, keyword) => {
+    expect(keywordsAt(defId as string, (level as number) - 1), `${defId} has [${keyword}] below the threshold`).not.toHaveProperty(
+      keyword as string,
+    );
+    expect(keywordsAt(defId as string, level as number), `${defId} never gains [${keyword}]`).toHaveProperty(keyword as string);
+  });
+
+  it("and their REAL printed keywords survive the strip", () => {
+    // The load-bearing negative, and the reason this uses the per-KEYWORD table
+    // rather than the per-card one. `CONDITIONAL_KEYWORD_DEF_IDS` returns `{}`,
+    // which would have taken Mosstomper's and Gustwalker's printed [Hunt 2] with
+    // it — turning a card that was too strong into one that is too weak. The
+    // first fix suggested to me was that table.
+    for (const defId of ["UNL-047", "UNL-075", "UNL-113"]) {
+      expect(keywordsAt(defId, 0), `${defId} lost its printed [Hunt]`).toHaveProperty("Hunt");
+    }
+  });
+
+  it("PINNED: Wily Newtfish is stripped with NO re-grant, so its [Ganking] is inert", () => {
+    // Asserts a WRONG answer on purpose. UNL-108's condition is "if you've gained
+    // XP this turn", and nothing records that — `gainXp` writes only the running
+    // total, so "gained some this turn" and "has some" are indistinguishable.
+    //
+    // Stripped anyway: weaker than printed is the safer error than letting a
+    // player make an illegal move all game, and the card already reports
+    // unimplemented for the same missing counter — so an inert keyword agrees
+    // with coverage instead of hiding a second gap. Adding `xpGainedThisTurn`
+    // flips this.
+    expect(keywordsAt("UNL-108", 0)).not.toHaveProperty("Ganking");
+    expect(keywordsAt("UNL-108", 99), "a re-grant landed — give it a CONDITIONAL_GRANTS entry and flip this pin").not.toHaveProperty(
+      "Ganking",
+    );
+  });
+});

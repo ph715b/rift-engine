@@ -655,6 +655,42 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return dealDamage(state, ctx.casterIndex, targetId, amount);
     },
   },
+  "UNL-017": {
+    // Square Up — "[Repeat] — Discard 1. Give a unit [Assault 4] this turn."
+    //
+    // Cleave's sentence with a bigger number (OGN-004, four registries up), so the
+    // instruction itself needs nothing new: `grantKeywordThisTurn` carries the
+    // printed 4, and 807.1.c makes that "+4 Might while I am an attacker" rather
+    // than a flat pump.
+    //
+    // "A unit" — no owner and no battlefield printed, so `scope: "anywhere"`
+    // (355.9.a.1's widening, "'Unit,' 'gear,' and 'rune' refer to objects on the
+    // Board unless specified otherwise" — NOT 355.9.b, which is the narrowing that
+    // makes a printed "at a battlefield" load-bearing). Arming an enemy is a legal
+    // misplay, the call Blood Rush and Vault Breaker already make.
+    //
+    // **THE `[Repeat]` HALF IS NOT REACHABLE, and unlike Upstage Comedy's it
+    // cannot be fixed by adding a row.** `RepeatCostSpec` (card-effects.ts) has
+    // `energy`, `power`/`domain` and `rainbowPower` and nothing else, so it cannot
+    // express a repeat cost of "Discard 1" — this is the pool's FIRST non-resource
+    // Repeat price. With no row, `legal-actions` enumerates no repeat-paid variant
+    // and `validate-play-card` refuses one, so the spell plays at its printed 4
+    // Energy and grants once. Closing it means widening that spec (a discard
+    // choice the payment path can carry, the shape Brazen Buccaneer's optional
+    // discard already has in the COST math) — a shared file, deliberately not
+    // touched here. `test/unl-fury-wave3.test.ts` pins the wrong answer so that
+    // pricing it fails loudly instead of changing quietly.
+    //
+    // The resolver needs NOTHING when that lands: 820.1.d's additional execution
+    // re-enters this same `resolve` with `repeatChoices`, and 807.2 sums the two
+    // grants to [Assault 8] on one unit (or arms two units, if the second
+    // execution names a different one).
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", SQUARE_UP_ASSAULT)
+        : state,
+  },
 };
 
 /** Right of Conquest's unconditional first card, named so the `1 +` in its
@@ -679,6 +715,9 @@ const BLAST_CORPS_DAMAGE = 2;
 const VAULT_BREAKER_ASSAULT = 2;
 const MONSTER_HARPOON_BASE = 2;
 const MONSTER_HARPOON_ARMED = 4;
+
+/** Square Up's grant — printed, and the largest [Assault] in the pool. */
+const SQUARE_UP_ASSAULT = 4;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-013": {
@@ -1591,7 +1630,158 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return parkDecision(state, { kind: "UNL-023-shot", playerIndex: listener.ownerIndex });
     },
   },
+  "UNL-018": {
+    // Yeti Brawler — "When I conquer, if you assigned 3 or more excess damage,
+    // play two Gold gear tokens exhausted."
+    //
+    // Tryndamere - Barbarian's condition (OGN-034, above) with a smaller
+    // threshold and a different payout, so it reads the same three facts through
+    // the same record and `yetiQualifies` mirrors `tryndamereQualifies`.
+    //
+    // **He prints no "after an attack" and still gets one**, which is worth
+    // stating rather than leaving to look like an omission: "you assigned excess
+    // damage" can only be true of a combat, and `lastShowdownExcessDamage` carries
+    // the battlefield and the attacking side — so matching both is what stops a
+    // walk-in conquest (which never wrote the record) or a conquest at the other
+    // battlefield from borrowing a fight's number. Requiring the match is the
+    // card's own sentence, not Tryndamere's extra clause smuggled in.
+    //
+    // "3 or more excess damage" is a term the rules never define — `pdftotext
+    // -raw` finds no "excess damage" in the PDF at all — and combat.ts's
+    // `excessAssigned` records why all three candidate readings coincide here.
+    //
+    // Both TOKENS, not one: "play TWO Gold gear tokens" is a count, and
+    // `placeGoldTokens` mints one game object per iteration. They arrive
+    // EXHAUSTED, which that helper already does unconditionally (the printed
+    // "[Reaction][>] Kill this, exhaust: [Add] rainbow" is the Gold token's own
+    // text and lives with the token, not here).
+    on: "battlefieldConquered",
+    // Asked in `applies` as well as in `resolve`, exactly as Tryndamere and Sivir -
+    // Ambitious are: the event is HELD, so the response window it opens must not be
+    // usable to move him off the battlefield and cancel a trigger that already
+    // fired. Re-asking in `resolve` is safe for the excess figure specifically —
+    // only a combat's damage step writes it and a combat cannot open mid-chain.
+    applies: (state, listener, event) => yetiQualifies(state, listener, event),
+    resolve: (state, listener, event) =>
+      yetiQualifies(state, listener, event) ? placeGoldTokens(state, listener.ownerIndex, YETI_BRAWLER_TOKENS) : state,
+  },
+  "UNL-019": {
+    // Blighted Battleaxe — "[Equip] [1][Fury]" plus the ART-ONLY band: "At the end
+    // of your turn, if I didn't conquer this turn, unattach this and deal 4 to me."
+    //
+    // **None of the band is in the card data.** `text.plain` holds the `[Equip]`
+    // line and nothing else, which is exactly why this card reported
+    // `isCardImplemented = true` while doing none of it — the generated equip
+    // ability registers the defId. Transcribed from the card image; see
+    // docs/unl-equipment-abilities.md. The `[Equip]` cost and the +4 Might badge
+    // are already handled (card-loader's EQUIP_MIGHT_BONUS); only the band is here.
+    //
+    // # "I"/"me" is the WEARER, "this" is the axe
+    //
+    // The sentence uses BOTH words, and they cannot be the same referent: a gear is
+    // not a unit, so nothing can deal 4 to it (417 deals damage to units), while
+    // "unattach this" can only mean the Equipment. Recurve Bow (SFD-016, above) is
+    // the precedent and the mechanism — `wearerListener` rewrites this gear's
+    // listener as the unit wearing it, so "when I conquer"-shaped questions can be
+    // asked of a gear at all. An unattached Battleaxe has no "me" and does nothing.
+    //
+    // # "if I didn't conquer this turn" is POSITIONAL, and that is a divergence
+    //
+    // The engine records conquests per PLAYER (`conqueredBattlefieldsThisTurn`),
+    // not per unit, so "did this unit conquer" is answered the way every "when I
+    // conquer" trigger in this file answers it — is the wearer standing at a
+    // battlefield its controller conquered this turn. Two cases differ from the
+    // printed card and both are recorded for docs/rules-conformance.md: a wearer
+    // that walked in AFTER the conquest reads as having conquered (the axe stays
+    // put, which is the generous direction), and one that conquered and then moved
+    // away reads as not having (the axe fires). Nothing on a `UnitInstance` marks
+    // participation in a conquest, and adding one is a shared-file change.
+    //
+    // # Why the condition is captured at the MOMENT
+    //
+    // `endOfTurn` is held and `runEnd` clears `conqueredBattlefieldsThisTurn` with
+    // the rest of the turn immediately after firing it, so this trigger resolves in
+    // the NEXT player's Action phase against a board that no longer remembers.
+    // Asked in `applies` — which `holdEventTrigger` runs before any of those resets
+    // — the question is asked of the turn it is about. Re-asking in `resolve` would
+    // read "didn't conquer" for every wearer, every turn. Targon's Peak's delayed
+    // ability captures for exactly this reason.
+    //
+    // The WEARER is `capture`d for the same reason: by resolution the axe may have
+    // been re-attached to somebody else, and the 4 belongs to the unit that was
+    // wearing it when the turn ended.
+    //
+    // # Unattach FIRST, then deal 4 — printed order, and observable
+    //
+    // The badge is +4 and the damage is 4, so the order decides whether a small
+    // wearer survives: detaching first drops its Might by 4 before the damage is
+    // measured for lethality, and a 4-Might wearer therefore dies.
+    //
+    // Printed order, and the rules state it for the two cases they spell out —
+    // 359.2.b for a Permanent ("execute all rules text on the card, from top to
+    // bottom") and 359.3.d for a Spell. **Neither is literally a triggered
+    // ability**, which the PDF never gives its own top-to-bottom sentence; the
+    // order is taken from the print because there is nothing to take it from
+    // instead, not because a rule was found saying so.
+    on: "endOfTurn",
+    applies: (state, listener, event) => {
+      if (event.kind !== "endOfTurn") return false;
+      // "YOUR turn" — the axe's controller's. `endOfTurn` fires once per turn for
+      // whoever's is ending, and the event carries them because by resolution
+      // `activePlayerIndex` has rotated.
+      if (event.playerIndex !== listener.ownerIndex) return false;
+      const wearer = wearerListener(state, listener);
+      return wearer !== undefined && !wearerConqueredThisTurn(state, wearer);
+    },
+    capture: (state, listener) => wearerListener(state, listener)?.card.instanceId,
+    resolve: (state, listener, event, captured) => {
+      if (event.kind !== "endOfTurn") return state;
+      // No wearer at fire time means the trigger should never have been placed;
+      // a non-string capture is that case and is not re-derived here, because the
+      // board at resolution is the wrong turn to ask.
+      if (typeof captured !== "string") return state;
+      const detached = detachEquipment(state, listener.ownerIndex, listener.card.instanceId);
+      return dealDamage(detached, listener.ownerIndex, captured, BLIGHTED_BATTLEAXE_DAMAGE);
+    },
+  },
 };
+
+/** Yeti Brawler's payout and its threshold, and the Battleaxe's self-inflicted 4
+ *  — printed numbers, named beside Tryndamere's so no resolver here reads a bare
+ *  literal. */
+const YETI_BRAWLER_EXCESS_REQUIRED = 3;
+const YETI_BRAWLER_TOKENS = 2;
+const BLIGHTED_BATTLEAXE_DAMAGE = 4;
+
+/** Yeti Brawler's three conditions, asked once so `applies` and `resolve` cannot
+ *  disagree — the split that has produced a held trigger firing on a board that
+ *  no longer qualifies before. `tryndamereQualifies` below is the same shape for
+ *  the card that prints this clause with a 5. */
+function yetiQualifies(state: GameState, listener: Listener, event: GameEvent): boolean {
+  if (event.kind !== "battlefieldConquered") return false;
+  if (event.conquerorIndex !== listener.ownerIndex) return false;
+  if (listener.battlefieldId !== event.battlefieldId) return false; // "when *I* conquer"
+  const excess = state.lastShowdownExcessDamage;
+  return (
+    excess !== null &&
+    excess.battlefieldId === event.battlefieldId &&
+    excess.attackerIndex === listener.ownerIndex &&
+    excess.amount >= YETI_BRAWLER_EXCESS_REQUIRED
+  );
+}
+
+/** Did Blighted Battleaxe's wearer conquer this turn? — answered positionally,
+ *  which is the divergence its entry above records: the engine records conquests
+ *  per player, so "I conquered" is "I am standing where my controller conquered".
+ *
+ *  A wearer in BASE has no `battlefieldId` and therefore never conquered, which
+ *  is right for the one case that is unambiguous. */
+function wearerConqueredThisTurn(state: GameState, wearer: Listener): boolean {
+  return (
+    wearer.battlefieldId !== undefined &&
+    state.players[wearer.ownerIndex].conqueredBattlefieldsThisTurn.includes(wearer.battlefieldId)
+  );
+}
 
 /** The tag Rumble - Hotheaded's trash-play reads. A constant rather than a bare
  *  string because Ferrous Forerunner's token mints the same tag above, and the
@@ -2242,4 +2432,39 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {}
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+/** Scorchclaw — "[Hunt 2][Level 3][>] I have +1 Might and enter ready." */
+const SCORCHCLAW = "UNL-016";
+const SCORCHCLAW_LEVEL = 3;
+const SCORCHCLAW_MIGHT = 1;
+
+export const mightModifiers: Record<string, MightModifier> = {
+  // Scorchclaw's `[Level 3]` Might half, and ONLY that half.
+  //
+  // **His "and enter ready" is NOT implemented and is not implementable from this
+  // file.** "I enter ready" is a REPLACEMENT for how a unit arrives, and every one
+  // in this engine lives in `deploy.conditionalEntersReady` — a shared file. Its
+  // own comment rejects the workaround explicitly, and three agents reached that
+  // conclusion independently before it was written down: an on-play `readyUnit`
+  // would leave him EXHAUSTED through the whole held-trigger response window, would
+  // fire `unitReadied` (paying out Pirate's Haven for a readying the rules say
+  // never happened), and would be blockable by Mageseeker Warden. So half of this
+  // card is written, deliberately, and `test/unl-fury-wave3.test.ts` pins the
+  // missing half by asserting he still enters exhausted at 3 XP.
+  //
+  // His `[Hunt 2]` is the keyword machinery's (triggers.ts's HUNT_TRIGGER_KEY) and
+  // is already live; nothing about it belongs here.
+  //
+  // The Might half is CONTINUOUS, not latched: 824.1.b.1 makes `[Level 3][>]`
+  // functionally "While you have 3 or more XP, this card gains [Text]", and
+  // 824.1.d makes it Inactive again "as soon as the controlling player has less
+  // than [N] XP" — so spending the XP takes the +1 straight back off. Read from the
+  // OWNER's counter, since `effectiveMight` is called by both sides.
+  //
+  // `unit.defId` is tested because every registered modifier is asked about every
+  // unit on every evaluation; without it this would buff the whole board.
+  [SCORCHCLAW]: {
+    defId: SCORCHCLAW,
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId === SCORCHCLAW && state.players[ownerIndex].xp >= SCORCHCLAW_LEVEL ? SCORCHCLAW_MIGHT : 0,
+  },
+};

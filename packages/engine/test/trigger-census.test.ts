@@ -144,7 +144,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251"]);
   });
 
-  it("245 held / 3 inline of 248 trigger cards", () => {
+  it("261 held / 3 inline of 264 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -162,6 +162,15 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // **208/3/211 → 231/3/234 on 2026-08-08**, when the first wave of Unleashed
     // card work landed: 23 more cards carrying a trigger, every one of them held.
     //
+    // **245/3/248 → 261/3/264 on 2026-08-09**, wave 3: sixteen more, again all
+    // held. Recomputed on the same rule as wave 2 — each of the six agents
+    // reported only its own share (+2 Fury, +2 Calm, +3 Body, +2 Chaos, +3 Order,
+    // +4 Mind) and none was permitted to bump the pin. They sum to exactly the +16
+    // the registries report, which is what makes this arithmetic rather than a
+    // number typed to make a test pass. Two agents measured their share by
+    // reverting their own file and re-running, which is the stronger method and
+    // the one to ask for next time.
+    //
     // **231/3/234 → 245/3/248 on 2026-08-09**, wave 2: fourteen more trigger
     // cards, again every one held. RECOMPUTED, not incremented — six agents wrote
     // to six domain files at once and none could see the others, so each measured
@@ -175,9 +184,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 245,
+      held: 261,
       inline: 3,
-      cards: 248,
+      cards: 264,
     });
   });
 

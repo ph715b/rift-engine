@@ -576,6 +576,35 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // a `CONDITIONAL_GRANTS` entry sharing one predicate with her Might half.
   "SFD-143": ["Ganking"],
 
+  // ---- Unleashed's four, found 2026-08-09 ----
+  //
+  // **Sivir's shape, four more times, and two agents found it independently.**
+  // A keyword printed INSIDE a condition — a `[Level N]` band, or "if you've
+  // gained XP this turn" — parses as a flat printed keyword, because `KW_PATTERN`
+  // sees brackets and not sentences. All four shipped with the keyword live at 0
+  // XP, and both keywords involved are ones a player can ACT on: `[Deflect]`
+  // makes an opponent pay a rainbow surcharge they do not owe, and `[Ganking]`
+  // permits a battlefield-to-battlefield move that should be illegal.
+  //
+  // Per-KEYWORD, not `CONDITIONAL_KEYWORD_DEF_IDS`, for exactly the reason Sivir's
+  // note above gives: that table returns `{}` and would take Mosstomper's and
+  // Gustwalker's real printed `[Hunt 2]` with it, leaving them worse than printed.
+  // The first suggestion I received was the per-card table; it would have been a
+  // net loss.
+  "UNL-047": ["Deflect"], // Mosstomper — "[Level 3] I have +1 Might and [Deflect]"
+  "UNL-075": ["Ganking"], // Gustwalker — "[Level 3] I have +1 Might and [Ganking]"
+  "UNL-113": ["Deflect", "Ganking"], // Master Yi - Tempered — "[Level 6] I have [Deflect] and [Ganking]"
+  // **UNL-108 Wily Newtfish is stripped WITHOUT a runtime re-grant**, and that is
+  // deliberate rather than an oversight. Its condition is "if you've gained XP
+  // this turn", and no state answers it — `gainXp` writes only the running total,
+  // so nothing can distinguish "gained some this turn" from "has some". Stripping
+  // alone leaves the card weaker than printed; leaving it alone leaves a player
+  // able to make an illegal move all game. Weaker is the safer error, and this
+  // card already reports unimplemented (its Might half needs the same missing
+  // counter), so an inert keyword is CONSISTENT with what coverage says rather
+  // than a second hidden gap. Recorded in docs/rules-conformance.md.
+  "UNL-108": ["Ganking"],
+
   // ---- The `[Temporary]` false positives, found and fixed 2026-08-08 ----
   //
   // **This class is LETHAL, which is what separates it from every entry above.**

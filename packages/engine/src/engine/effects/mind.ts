@@ -20,6 +20,7 @@ import {
   channelRunesExhausted,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
+  discardCards,
   exhaustAllFriendlyUnits,
   exhaustGear,
   forceMoveToBattlefield,
@@ -32,6 +33,7 @@ import {
   ownUnitsEverywhere,
   payEnergyFromPool,
   payPowerFromChanneled,
+  readyRunes,
   readyUnit,
   recycleUnitFromPlayToDeck,
   removeUnitAnywhere,
@@ -88,6 +90,21 @@ import { isMechUnit } from "../equipment.js";
  *  controller's next Beginning Phase (rule 816). */
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
+/**
+ * Lillia - Fae Fawn's Sprite — the same body as `SPRITE_TOKEN` above WITHOUT its
+ * "ready", and the difference is one printed word rather than an oversight.
+ *
+ * Sprite Call, Sprite Mother, Sprite Burst and Sprite Fountain all print "play a
+ * **ready** 3 [Might] Sprite unit token with [Temporary]"; Lillia prints "play a
+ * 3 [Might] Sprite unit token with [Temporary] there" and no readiness clause at
+ * all. 143.4.a's default therefore stands and hers arrives EXHAUSTED. Sharing the
+ * one spec would have handed her a token that can block or move the turn it
+ * lands, which is a strictly better card than the one printed — the same drift in
+ * the opposite direction from the one token.ts's spec parameter was added to
+ * prevent, so this is a second spec rather than a mutated copy of the first.
+ */
+const SPRITE_TOKEN_EXHAUSTED: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", keywords: { Temporary: 1 } };
+
 const FRIGID_TOUCH_MIGHT = 2;
 const BELLOWS_BREATH_DAMAGE = 1;
 const ROCKET_BARRAGE_DAMAGE = 4;
@@ -111,6 +128,23 @@ const CRESCENT_STRIKE_SPLASH_DAMAGE = 1;
  *  she may pull from among them must meet — inclusive, as printed ("or more"). */
 const FATE_WEAVER_LOOK = 4;
 const FATE_WEAVER_MIN_SPELL_ENERGY = 4;
+
+/**
+ * Sprite Fountain's play effect — "play a ready 3 [Might] Sprite unit token with
+ * [Temporary] to your base."
+ *
+ * Its own function because the card's `[Deathknell]` is literally "Repeat this
+ * gear's play effect", so the two must be the SAME instruction rather than two
+ * copies of one sentence that can drift — the reason `SPRITE_TOKEN` is shared
+ * from the top of this file rather than re-declared, applied to the effect
+ * instead of the spec.
+ *
+ * "TO YOUR BASE" is printed, so nothing is chosen and Sprite Burst's open
+ * placement question (see its entry) does not arise here.
+ */
+function spriteFountainPlayEffect(state: GameState, ownerIndex: 0 | 1): GameState {
+  return placeToken(state, ownerIndex, "base", SPRITE_TOKEN);
+}
 
 /** The non-combat MightContext for a unit wherever it is standing — the same
  *  three lines Gentlemen's Duel and Kinkou Monk already write out, needed here
@@ -1298,6 +1332,14 @@ const SPECTRAL_CENTAUR_MIGHT = 2;
 const ICEVALE_ENERGY_COST = 1;
 const ICEVALE_DEBUFF = 1;
 
+/** Diana - Lunari's optional Energy price — "you may pay [1]. If you do, ...". */
+const DIANA_LUNARI_ENERGY = 1;
+
+/** Hwei - Brooding Painter's two magnitudes: "Gear — Ready up to 2 runes" and
+ *  "Unit — Give me +3 [Might] this turn". The Spell branch is a bare "Draw 1". */
+const HWEI_RUNES = 2;
+const HWEI_MIGHT = 3;
+
 /** Every unit the OTHER player has in play, base included — Ruined Rex's "an
  *  enemy unit", which prints no location and so reaches base (355.9.a.1). Shared
  *  between his trigger, which asks whether there is anything worth asking about,
@@ -1513,7 +1555,201 @@ function unitsAtBattlefield(state: GameState, battlefieldId: string): UnitInstan
   return state.players.flatMap((p) => bf.units[p.id] ?? []);
 }
 
+/**
+ * Diana - Lunari's second half — "reveal the top card of your Main Deck. If it's
+ * a spell, draw it."
+ *
+ * Extracted for the reason `teemoStrategistReveal` above is: this is a REVEAL
+ * from a deck, so Void Hatchling's replacement ("if you would reveal cards from a
+ * deck, look at the top card first") has to be able to run in front of it, and
+ * `voidHatchlingGate` needs a body it can either call now or call from a
+ * continuation. Two copies of this would be two things able to disagree.
+ *
+ * The reveal moves nothing (425: "Cards remain in the zone they are being
+ * Revealed from"), so the card is still the top of the deck when the draw takes
+ * it — which is why "draw it" is `drawCards(..., 1)` rather than a lookup: the
+ * card being drawn IS the card that was revealed.
+ *
+ * `revealedFromDeck` is the funnel rather than a bare read, so Nocturne -
+ * Horrifying's "as you look at or reveal me" and Undertitan's "as I'm revealed
+ * from your deck" both get their moment. Neither is a Spell, so neither can be
+ * the card DRAWN here — but both can be the card REVEALED, and skipping the
+ * funnel would silently owe them nothing.
+ *
+ * An empty deck reveals nothing and draws nothing (422's do-as-much-as-you-can),
+ * which is a real state after a Predict recycled the only card.
+ */
+function dianaLunariReveal(state: GameState, ownerIndex: 0 | 1): GameState {
+  const top = state.players[ownerIndex].deck[0];
+  if (!top) return state;
+  const revealed = revealedFromDeck(state, ownerIndex, [top]);
+  // "If it's a SPELL" — the kind of the card that was turned over, asked of the
+  // instance rather than of its definition, because that is what is being
+  // revealed and `CardInstance.kind` is the same answer either way.
+  return top.kind === "Spell" ? drawCards(revealed, ownerIndex, 1) : revealed;
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "UNL-079": {
+    // Diana - Lunari — "When a showdown begins here, you may pay [1]. If you do,
+    // [Predict], then reveal the top card of your Main Deck. If it's a spell,
+    // draw it."
+    //
+    // # The trigger moment is NARROWER than the card's, and this is the divergence
+    //
+    // "A SHOWDOWN begins" is rule 344, and 316.8.b.1.a makes a Non-Combat Showdown
+    // — one player walking into an empty battlefield — a Showdown that begins just
+    // as much as a Combat one does. This engine fires an event for only one of
+    // them: `cleanup.stageShowdowns` ends `return isCombat ? beginCombatAt(staged,
+    // contested.id) : staged`, so a Non-Combat Showdown hands out no designations
+    // and raises no `combatBegan`. There is no `showdownBegan` event to listen to,
+    // and adding one is an edit to cleanup.ts and triggers.ts, neither this file's.
+    //
+    // So this fires on COMBAT showdowns only, and Diana walking alone into an
+    // empty battlefield gets nothing. Stated rather than left to be found: she is
+    // the ONLY card in the whole pool (OGN/OGS/SFD/UNL) whose text says "when a
+    // showdown begins", measured by scanning the card JSON, which is also why the
+    // event was never needed before.
+    //
+    // # Why `isFightingAt` and not a bare battlefield match
+    //
+    // `combatBegan` fires a SECOND time when a reinforcement walks into an ongoing
+    // combat (`cleanup.designateArrivals`), carrying only the arrivals in
+    // `designated`. A listener that asked only "is this my battlefield" would fire
+    // again for every body either player added to the fight, which is not a
+    // showdown beginning by any reading. `isCombatantAt` (inside `isFightingAt`)
+    // enforces 383.4.f's "for the first time during a combat" against
+    // `event.designated`, so Diana fires exactly once per combat she is present at
+    // the opening of.
+    //
+    // The residual overtrigger is Diana herself REINFORCING an ongoing combat: she
+    // gains a designation then, so this fires, and no showdown began. Named rather
+    // than papered over — telling the two apart needs the event to say which it
+    // was, which is the same missing mechanism as the Non-Combat case.
+    //
+    // "YOU may pay" is her controller, which `listener.ownerIndex` is; the side
+    // she is on is not consulted at all, since her text says "a showdown", not
+    // "when I attack".
+    //
+    // # The shape below
+    //
+    // ONE question for the payment, then the Predict behind it, then the reveal —
+    // three parked steps rather than one, because 359.3.d runs the instructions
+    // top to bottom and the Predict genuinely changes what the reveal turns over.
+    // The pay/decline question is dropped whole when the Energy is not there, so
+    // `advanceDecisions` never shows a lone Decline (Icevale Archer's convention,
+    // one registry up).
+    on: "combatBegan",
+    applies: isFightingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // Priced at RESOLUTION, not in `applies` — Solari Shrine's split, and the
+      // one that matters here: the response window this hold opens can gain or
+      // spend the Energy, and 383 fixes only what TRIGGERED.
+      if (payEnergyFromPool(state, listener.ownerIndex, DIANA_LUNARI_ENERGY) === undefined) return state;
+      return parkDecision(state, { kind: "UNL-079-pay", playerIndex: listener.ownerIndex });
+    },
+  },
+  "UNL-080": {
+    // Hwei - Brooding Painter — "When I move, draw 1, then discard 1. Then, do the
+    // following based on the discarded card's type: Spell — Draw 1. Gear — Ready
+    // up to 2 runes. Unit — Give me +3 [Might] this turn."
+    //
+    // Registered against the board-wide `unitMoved` EVENT rather than
+    // unit-triggers.ts's per-card `ON_MOVE_TRIGGERS` table, which is
+    // module-private and not this file's to edit — Kato the Arm (SFD-112,
+    // effects/body.ts) and Corrupt Enforcer (SFD-123, effects/chaos.ts) took the
+    // same route and it is the same moment: fired once per unit by
+    // `execute-move-unit` AFTER the unit has landed.
+    //
+    // **"When I move" with no destination printed still cannot mean a Recall** —
+    // 456 says a Recall is not a Move — and `unitMoved` has a single emitter, the
+    // Standard Move. It therefore also misses a spell-driven relocation, which 449
+    // ("Spells, Abilities, or other effects may cause a Move to occur") makes a
+    // real Move; that is an engine-wide divergence recorded against Corrupt
+    // Enforcer rather than a property of this card.
+    //
+    // # The order is the card, and it is three separate moments
+    //
+    // DRAW first, then discard, then branch. The drawn card is a legal discard —
+    // that is the whole point of the sequence, and it is why this cannot be
+    // `discardThenDraw` (which exists to protect the OPPOSITE guarantee for
+    // Traveling Merchant). The branch then has to know WHICH card went, which no
+    // event on the board records, so the discard is asked as this card's own
+    // question rather than through the generic `discard` decision.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      if (event.unitInstanceId !== listener.card.instanceId) return state;
+      const drawn = drawCards(state, listener.ownerIndex, 1);
+      // An empty hand after the draw (empty deck, nothing held) asks nothing at
+      // all — 422's do-as-much-as-you-can, and the question's own options come
+      // back empty so `advanceDecisions` drops it rather than prompting. Parked
+      // unconditionally so that path is the decision's and not two places'.
+      //
+      // Hwei rides along on `cardInstanceId`: the Unit branch is "give ME +3", an
+      // instruction about a body, and by the time the answer arrives nothing on
+      // the board says which mover raised the question.
+      return parkDecision(drawn, {
+        kind: "UNL-080-discard",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "UNL-082": {
+    // Lillia - Fae Fawn — "[Accelerate] When I move from a location, play a 3
+    // [Might] Sprite unit token with [Temporary] THERE."
+    //
+    // `[Accelerate]` needs nothing here: 805 makes it an Optional Additional Cost
+    // that legal-actions prices and `deploy.ts` honours ("if you do, I enter
+    // ready"), and unlike Ekko - Recurrent and Tasty Faefolk her printed ability
+    // is not gated on having paid it. The loader already keeps her `[Accelerate]`
+    // while stripping the `[Temporary]` her TOKEN carries and she does not
+    // (`GRANTED_ONLY_KEYWORDS`, card-loader.ts).
+    //
+    // The `unitMoved` EVENT, not `ON_MOVE_TRIGGERS` — see Hwei above for why, and
+    // it is this card that NEEDS the event rather than merely being able to use
+    // it: `UnitMoveTriggerEvent` carries only the DESTINATION, and "there" is the
+    // ORIGIN. `unitMoved.from` is the only place in this engine that answers it.
+    //
+    // **The rules work this exact card, by name, for exactly that.** 359.3.f.3:
+    // "Some information used by triggered abilities is referenced from the trigger
+    // condition of the ability. This information is checked when the trigger
+    // condition is fulfilled." Its example is verbatim: *"Lillia, Fae Fawn reads
+    // 'when I move from a location, play a 3 [M] Sprite token with Temporary
+    // there.' If Lillia moves to a battlefield, her triggered ability will be
+    // placed on the chain and it will note the location she moved from when it
+    // does so. If she moves to a non-board zone in reaction to the triggered
+    // ability on the chain, it will not affect where the Sprite token will be
+    // played."* So the origin is taken off the EVENT — noted when the trigger was
+    // placed — and Lillia's own survival is never asked about. That is the exact
+    // opposite of Ahri - Inquisitive's and Ezreal - Dashing's "here", which
+    // 359.3.f.1/f.2 make a referent read from the SOURCE at execution; the two
+    // sub-rules are neighbours and the card decides which applies.
+    //
+    // "A LOCATION" is 828 — "Locations include the Battlefields and the Bases" —
+    // so leaving BASE is a location and mints a Sprite at home. `event.from` is
+    // already `"base"` or a battlefield id, which is `TokenDestination` exactly.
+    //
+    // The token enters EXHAUSTED: see `SPRITE_TOKEN_EXHAUSTED` for the printed
+    // word that separates hers from every other Sprite in the pool.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved") return state;
+      if (event.unitInstanceId !== listener.card.instanceId) return state;
+      return placeToken(
+        state,
+        listener.ownerIndex,
+        event.from === "base" ? "base" : { battlefieldId: event.from },
+        SPRITE_TOKEN_EXHAUSTED,
+      );
+    },
+  },
   "SFD-075": {
     // Prize of Progress — "When you use an activated ability of a GEAR, give me
     // +1 [Might] this turn."
@@ -2061,7 +2297,60 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
-export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "UNL-078": {
+    // Sprite Fountain — "[Temporary] When you play this, play a ready 3 [Might]
+    // Sprite unit token with [Temporary] to your base. [Deathknell][>] Repeat
+    // this gear's play effect."
+    //
+    // # BOTH clauses, in ONE entry, and that is the point
+    //
+    // A gear's "when you play this" is a SELF trigger and not a `cardEffects`
+    // entry — `executePlayCard`'s gear branch pushes nothing onto the chain, so
+    // `resolveCardEffect` is never reached for a Gear and a registered effect
+    // there is silently dead. **Measured, after writing it that way first:** the
+    // Fountain landed in `activeGear` and no token appeared. Forge of the Future
+    // (OGN-212, effects/order.ts) and Poro Snax (SFD-046, effects/calm.ts) are the
+    // two precedents and both say so.
+    //
+    // A `[Deathknell]` on a GEAR is the same registry for a different reason:
+    // `deathTriggers` is the Deathknell family for UNITS, keyed off a
+    // `DeathContext` that `killUnit` builds and `killGear` does not. A dying gear
+    // goes through `holdSelfTrigger(state, "killed", gear, ownerIndex)`, the
+    // funnel Scrapheap (UNL-135, effects/chaos.ts) already uses.
+    //
+    // So both moments land here — and "REPEAT THIS GEAR'S PLAY EFFECT" then falls
+    // out for free, because `on` is a list and `resolve` is the same call either
+    // way. Two entries would have been two copies of one sentence, which is what
+    // `spriteFountainPlayEffect` exists to prevent; one entry makes the
+    // Deathknell repeat the play effect BY CONSTRUCTION rather than by two
+    // literals agreeing.
+    //
+    // It is the EFFECT that repeats and not the PLAY: on death the gear is in a
+    // trash, nothing is being played, and `cardPlayed` must not fire — which is
+    // exactly what calling the extracted body rather than replaying the card
+    // gets.
+    //
+    // `event.ownerIndex` is the gear's controller at that moment, so a Fountain
+    // killed by the opponent's Rocket Barrage still pays ITS OWN side — the same
+    // reading a unit's Deathknell gets from `death.ownerIndex`.
+    //
+    // **The printed `[Temporary]` on the GEAR is inert, and that is an engine
+    // defect rather than a reading.** `createCardInstance` builds every
+    // `GearInstance` with a hardcoded `keywords: {}` — its own comment says "Gear
+    // in this pool prints no keywords of its own, so this starts empty for every
+    // one of them", which Unleashed falsifies: the loader parses `{Temporary: 1,
+    // Deathknell: 1}` onto this card's DEFINITION and the instance drops both.
+    // `turn-manager.killTemporaryPermanents` tests `"Temporary" in g.keywords`, so
+    // this Fountain never dies on its own and the `[Deathknell]` below is
+    // reachable only through something ELSE killing it (Turn to Dust's grant,
+    // Rocket Barrage's second mode, Pickpocket, Jayce). Measured, not inferred,
+    // and pinned in test/unl-mind-wave3.test.ts; the fix is one line in
+    // model/card.ts, which this pass does not own.
+    on: ["played", "killed"],
+    resolve: (state, event) => spriteFountainPlayEffect(state, event.ownerIndex),
+  },
+};
 
 /** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
  *  a `kind` string rather than a defId, since one card can ask more than one
@@ -2635,6 +2924,149 @@ export const decisions: Record<string, DecisionDefinition> = {
    * the look above already made. The day a set prints a Spell with that clause, a
    * version that had skipped the funnel would be silently wrong.
    */
+  /**
+   * Diana - Lunari's "you may pay [1]".
+   *
+   * Its own question rather than a rider on the Predict, because the two are
+   * different instructions with a conditional between them: "If you do" gates
+   * everything after it, so declining must buy nothing at all.
+   *
+   * Two options whenever the Energy is there, so `advanceDecisions` can never
+   * answer a "you may" for the player — Chemtech Cask's note. The trigger already
+   * dropped the question whole when it is not, so this never shows a lone Decline.
+   *
+   * Re-priced at ANSWER time as well as at fire time, the convention every paid
+   * decision in this file follows: the pool may have been spent while this waited
+   * on the queue, and an option offered then is one the resolver has to honour.
+   */
+  "UNL-079-pay": {
+    prompt: () => "Diana - Lunari: pay [1] to [Predict] and reveal the top card of your deck?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (payEnergyFromPool(state, d.playerIndex, DIANA_LUNARI_ENERGY) === undefined) return options;
+      options.unshift({ id: "pay", label: "Pay [1]: [Predict], then reveal the top card" });
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay") return state;
+      // Pay first, and do nothing if the Energy has gone since the offer — a
+      // half-paid effect is the card without its price. Ava Achiever's order.
+      const paid = payEnergyFromPool(state, d.playerIndex, DIANA_LUNARI_ENERGY);
+      if (paid === undefined) return state;
+      // The `[Predict]` LOOK is a look, so Nocturne - Horrifying's "as you look at
+      // or reveal me" is owed on the top card and is offered FIRST — FIFO answers
+      // him before the Predict, which is the order the two read in. Eclipse
+      // (UNL-063) does the identical thing one registry up.
+      const top = paid.players[d.playerIndex].deck[0];
+      const looked = top ? offerTopOfDeckBanish(paid, d.playerIndex, [top]) : paid;
+      return parkDecision(looked, { kind: "UNL-079-predict", playerIndex: d.playerIndex });
+    },
+  },
+  /**
+   * Diana - Lunari's `[Predict]` — 436.1's "look at a single card from the top of
+   * the Main Deck and choose whether or not to Recycle it".
+   *
+   * The options and the answer are Void Hatchling's, unchanged, for the reason
+   * Eclipse's entry records at length: her replacement step IS a Predict, so one
+   * definition rather than two that can disagree, and the recycle is held through
+   * `holdCardsRecycled` for Karma - Channeler.
+   *
+   * The REVEAL is queued behind the answer rather than run inside it, because the
+   * reveal is itself a reveal-from-deck and Void Hatchling replaces those too
+   * ("if you would reveal cards from a deck, look at the top card first"). So the
+   * Predict's answer hands off to `voidHatchlingGate`, exactly as Teemo -
+   * Strategist's trigger does — and with no Hatchling in play the gate runs the
+   * reveal inline and nothing extra is asked.
+   *
+   * An empty deck leaves `voidHatchlingOptions` with its lone "leave the top
+   * card", which `advanceDecisions` retires unshown — 436.4's "Predict as many as
+   * possible", explicitly not a Burn Out (436.4.a).
+   */
+  "UNL-079-predict": {
+    prompt: () => "Diana - Lunari: [Predict] — recycle the top card of your deck?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) => {
+      const answered = voidHatchlingAnswer(state, d.playerIndex, optionId);
+      return voidHatchlingGate(
+        answered,
+        d.playerIndex,
+        d.playerIndex,
+        { kind: "UNL-079-reveal", playerIndex: d.playerIndex },
+        (s) => dianaLunariReveal(s, d.playerIndex),
+      );
+    },
+  },
+  /**
+   * Void Hatchling's look, before Diana - Lunari's reveal — the sixth
+   * continuation registered under a SITE's defId, and identical in shape to
+   * `OGN-121-reveal` above.
+   *
+   * Nothing is captured: the reveal reads the top of the deck from live state,
+   * which is what it means for the Hatchling to have replaced the step.
+   */
+  "UNL-079-reveal": {
+    prompt: () => "Void Hatchling: recycle the top card before Diana - Lunari reveals?",
+    options: (state, d) => voidHatchlingOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) => dianaLunariReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
+  },
+  /**
+   * Hwei - Brooding Painter's "discard 1. Then, do the following based on the
+   * discarded card's type."
+   *
+   * **Its own question rather than the generic `discard` decision, and that is
+   * forced.** That handler is shared and reports nothing back; the branch here is
+   * about WHICH card went, and nothing on the board records it — the card is in
+   * the trash beside everything else discarded this turn, and reading "the last
+   * card in the trash" would be answered by anything else that reached the trash
+   * in between.
+   *
+   * MANDATORY: no "you may" is printed, so there is no decline. A hand with
+   * exactly one card is therefore not a question and `advanceDecisions` executes
+   * it unshown, which is what makes this shape usable for a mandatory instruction
+   * at all (Aspiring Engineer's note above). An EMPTY hand offers nothing and the
+   * question is dropped — 422's do-as-much-as-you-can — which also drops the
+   * branch, since a branch on "the discarded card's type" has no subject.
+   *
+   * `discardCards` with the card NAMED does the move, fires the discarded card's
+   * own self-trigger (Scrapheap) and raises `cardsDiscarded` ONCE for the
+   * instruction, which is what Jinx - Rebel across the table reads.
+   */
+  "UNL-080-discard": {
+    prompt: () => "Hwei - Brooding Painter: discard 1",
+    options: (state, d) =>
+      state.players[d.playerIndex].hand.map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      const chosen = state.players[d.playerIndex].hand.find((c) => c.instanceId === optionId);
+      // Gone while this waited: no card discarded, so no type, so no branch.
+      if (!chosen) return state;
+      const discarded = discardCards(state, d.playerIndex, 1, [chosen.instanceId]);
+      switch (chosen.kind) {
+        case "Spell":
+          return drawCards(discarded, d.playerIndex, 1);
+        case "Gear":
+          // "Ready UP TO 2 runes" — `readyRunes` maxes it out rather than asking
+          // which, the convention Annie - Dark Child and Sona - Harmonious already
+          // set and that helper's own doc argues: readying is strictly beneficial,
+          // so taking all of it IS the faithful reading of "up to N".
+          return readyRunes(discarded, d.playerIndex, HWEI_RUNES);
+        case "Unit":
+          // "Give ME +3" is an instruction about a body, and
+          // `giveMightThisTurnToOwnUnit` is the one call that answers "is this
+          // still my unit in play" — a Hwei killed in the window this question
+          // waited in gets nothing (359.3.e), while the discard above still
+          // happened. `cardInstanceId` is Hwei, captured when the question was
+          // raised, because by then nothing on the board says which mover asked.
+          return d.cardInstanceId === undefined
+            ? discarded
+            : giveMightThisTurnToOwnUnit(discarded, d.playerIndex, d.cardInstanceId, HWEI_MIGHT);
+        default:
+          // A Legend is never in a hand, so this is the compiler's question rather
+          // than the game's — and the card names three types, so a fourth doing
+          // nothing is what the text says.
+          return discarded;
+      }
+    },
+  },
   "UNL-064-reveal": {
     prompt: () => "Fate Weaver: reveal a spell costing [4] or more and draw it? (the rest are recycled)",
     options: (state, d) => [
@@ -2704,4 +3136,54 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {}
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+/** Gustwalker's threshold and bonus — "[Level 3][>] I have +1 [Might] and
+ *  [Ganking]." */
+const GUSTWALKER = "UNL-075";
+const GUSTWALKER_LEVEL = 3;
+const GUSTWALKER_MIGHT = 1;
+
+/** `[Level N]` as a CONTINUOUS condition — 824.1.b.1 makes it "functionally short
+ *  for 'While you have [N] or more XP, this card gains [Text]'", and 824.1.d turns
+ *  the ability off again the moment XP drops below N, so it is read fresh on every
+ *  evaluation rather than latched.
+ *
+ *  A private copy, like effects/body.ts's and effects/calm.ts's: the predicate is
+ *  one comparison against `PlayerState.xp`, and the only place it could be shared
+ *  from is a file this pass does not own. */
+const atLevel = (state: GameState, ownerIndex: 0 | 1, threshold: number): boolean =>
+  state.players[ownerIndex].xp >= threshold;
+
+export const mightModifiers: Record<string, MightModifier> = {
+  [GUSTWALKER]: {
+    // Gustwalker — "[Hunt 2] [Level 3][>] I have +1 [Might] and [Ganking]."
+    //
+    // **THE MIGHT HALF ONLY.** The `[Ganking]` half needs a conditional keyword
+    // GRANT, and `granted-keywords.ts`'s `CONDITIONAL_GRANTS` is module-private
+    // with no per-domain seam — the twin of the gap `mightModifiers` itself was
+    // added to close. Sivir - Mercenary (SFD-143) prints the identical
+    // "I have +2 [Might] and [Ganking]" shape and needed BOTH: a
+    // `CONDITIONAL_GRANTS` row AND a `GRANTED_ONLY_KEYWORDS` row in card-loader.ts
+    // to stop the parser reading the bracket as a flat printed keyword.
+    //
+    // **Gustwalker has neither, so he currently carries `[Ganking]`
+    // UNCONDITIONALLY** — measured off `createCardInstance`, whose keywords come
+    // out `{Hunt: 2, Level: 3, Ganking: 1}` at 0 XP, and `validate-move-unit`
+    // asks `hasKeyword(..., "Ganking")`, so he can move battlefield-to-
+    // battlefield from the moment he lands. That is Sivir's bug verbatim, one
+    // card later. Both files are shared and neither is this pass's, so it is
+    // reported rather than half-fixed here — and this entry deliberately does
+    // NOT compensate by withholding the Might, which would leave the card wrong
+    // in two directions instead of one.
+    //
+    // `[Hunt 2]` needs nothing: it is keyword-keyed in triggers.ts
+    // (`HUNT_TRIGGER_KEY`) and serves all twelve Hunt cards from one entry.
+    //
+    // The XP read is the OWNER's, not the asking player's — "while YOU have 3+
+    // XP" is the controller's counter, and `effectiveMight` is called by both
+    // sides. `unit.defId` is what makes this a SELF bonus rather than an aura:
+    // every modifier is asked about every unit on every evaluation.
+    defId: GUSTWALKER,
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId === GUSTWALKER && atLevel(state, ownerIndex, GUSTWALKER_LEVEL) ? GUSTWALKER_MIGHT : 0,
+  },
+};

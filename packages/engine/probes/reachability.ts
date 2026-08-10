@@ -166,12 +166,18 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * hard-gated sets did not move, which is what the union rising by exactly UNL's
  * gain says and is the check that no finished set regressed to pay for it.
  *
- * Per set at this depth: OGN 224/248, OGS 20/22, SFD 187/198, UNL 68/225.
+ * **499 → 516 on 2026-08-09, wave 3** — six agents again, ~24 cards landed plus
+ * two new contribution seams (`mightModifiers`, and the activated-ability one
+ * from wave 2 now carrying five cards). UNL went 68/225 to **85/225** (30% to
+ * 38%); the three hard-gated sets did not move, which is the check that no
+ * finished set regressed to pay for it.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 187/198, UNL 85/225.
  * (SFD 186 → 187 is not a wave-2 card: it is the `[Deflect]`-surcharge fix in
  * `legal-actions.ts`, which stopped an activation crashing the run and so let a
  * card that had been dying mid-game finish being observed.)
  */
-const PINNED_UNION = 499;
+const PINNED_UNION = 516;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

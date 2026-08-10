@@ -407,17 +407,25 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     // that is the whole failure mode — so the list has to be stated somewhere
     // that fails when it changes.
     //
-    // Transcriptions are in docs/unl-equipment-abilities.md. Two of UNL's five
-    // Equipment are deliberately absent: Hunter's Machete's art-only `[Hunt]`
-    // grant IS implemented, and Shepherd's Heirloom already reports
-    // unimplemented on its unpriceable `[Equip] — Spend 1 XP` cost.
+    // Transcriptions are in docs/unl-equipment-abilities.md.
+    //
+    // **This list SHRINKS as the art bands are written, and it just did.** UNL-019
+    // Blighted Battleaxe and UNL-039 Soul Sword left on 2026-08-09 — their bands
+    // are implemented, so their "art-only" notes went with them and this premise
+    // moved from three to one. That is the mechanism working: the note is deleted
+    // by the same change that writes the card, and this test is what makes the
+    // deletion deliberate rather than forgotten.
+    //
+    // Deliberately absent for other reasons: Hunter's Machete's art-only `[Hunt]`
+    // grant IS implemented, and Shepherd's Heirloom was finished in wave 2 — the
+    // note claiming its `[Equip] — Spend 1 XP` is unpriceable is gone too.
     const owed = registry
       .all()
       .filter((d) => d.type === "Gear" && d.isEquipment === true)
       .filter((d) => (partialImplementationNote(d) ?? "").includes("art-only"))
       .map((d) => d.id)
       .sort();
-    expect(owed).toEqual(["UNL-019", "UNL-039", "UNL-188"]);
+    expect(owed).toEqual(["UNL-188"]);
     // And each really does look unfinished, which is the point of the note.
     for (const id of owed) expect(isCardImplemented(registry.get(id)), `${id} still reports implemented`).toBe(false);
   });

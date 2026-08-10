@@ -423,13 +423,47 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   //   unobservable while activations resolve inline. Recorded in
   //   docs/rules-conformance.md rather than here, because this map is for cards
   //   that would otherwise look finished — and this one now IS finished.
+  // **UNL-019 and UNL-039 LEFT this map on 2026-08-09**, both written in wave 3.
+  // Recorded because a stale entry here fails in the direction this file is least
+  // watchful about: it makes a FINISHED card report unfinished, which is quiet
+  // (nobody chases a card that claims to be incomplete) and which also keeps it
+  // out of every generated deck, since `deck-generator` filters on
+  // `isCardImplemented`. Both agents flagged their own row as owed for deletion;
+  // neither could delete it.
+  //
+  // **Cards written by HALVES in wave 3.** Every one reports DONE without an entry
+  // here, because registration is per defId and the first clause claims the card.
+  // Each was named by the agent that wrote it and each is pinned by a test in that
+  // agent's file asserting the wrong answer, so closing the gap fails loudly.
   [
-    "UNL-019",
-    "art-only: its end-of-turn unattach-and-deal-4 is unwritten (only the [Equip] cost and +4 badge work)",
+    "UNL-016",
+    "half written: the [Level 3] +1 Might works; 'and enter ready' is unwritten — needs a case in deploy.conditionalEntersReady",
   ],
   [
-    "UNL-039",
-    "art-only: its [Level 3] additional +1 Might is unwritten (only the [Equip] cost and +1 badge work)",
+    "UNL-017",
+    "half written: the [Assault 4] works; its [Repeat] — Discard 1 is inert — RepeatCostSpec carries energy/power/rainbow only, so this is the pool's first NON-RESOURCE repeat cost and no table row can fix it",
+  ],
+  // **STRONGER than printed, which is the worse direction of the two.** Every other
+  // entry here under-reaches; this one lets the gear be cracked the turn it lands.
+  [
+    "UNL-136",
+    "half written: the ability works; 'This enters exhausted' is unwritten — needs a GEAR_ENTERING_EXHAUSTED row in deploy.ts, so it can be used the turn it arrives",
+  ],
+  [
+    "UNL-140",
+    "half written: the take-control works; its optional 'spend 5 XP' additional cost and the any-Might target it buys are unwritten — no XP additional cost exists on PlayCardAction or in card-effects.ts's cost tables",
+  ],
+  [
+    "UNL-164",
+    "half written: the kill decision works; its 'spend 3 XP' additional cost is unwritten, so the controller always kills (204.2.a makes it a real cost)",
+  ],
+  [
+    "UNL-168",
+    "half written: the free play works; its '-[2] if you choose a Bird/Cat/Dog/Poro' discount is unwritten, so it always costs the printed 2 Energy + 1 rainbow",
+  ],
+  [
+    "UNL-170",
+    "half written: the combat-began kill works; its kill-a-friendly cost and the scaled discount that cost buys are unwritten, so it always costs 10 Energy + 3 Order",
   ],
   [
     "UNL-188",

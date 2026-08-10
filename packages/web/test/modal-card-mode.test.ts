@@ -54,7 +54,8 @@ const card = (defId: string): CardInstance => createCardInstance(registry.get(de
 
 const ANGLE_SHOT = "SFD-011";
 const ROCKET_BARRAGE = "SFD-077";
-const DISPOSAL_ORDER = "UNL-103"; // arrived mid-wave, after the mode step existed
+const DISPOSAL_ORDER = "UNL-103"; // arrived in wave 2, after the mode step existed
+const FLURRY_OF_FEATHERS = "UNL-044"; // wave 3 — its two modes want DIFFERENT target kinds
 const CHARM = "OGN-043"; // non-modal control: one mode, plain `unit` targeting
 
 /** A candidate as the enumerator emits it — only the fields these comparisons
@@ -200,7 +201,7 @@ describe("the census of modal cards", () => {
    * A third arriving is exactly when this fix stops being complete — and the
    * failure mode of a modal card is silent, so nothing else would say so.
    */
-  it("is Angle Shot, Rocket Barrage and Disposal Order", () => {
+  it("is Angle Shot, Rocket Barrage, Disposal Order and Flurry of Feathers", () => {
     // **UNL-103 Disposal Order arrived from a card wave the day after the mode
     // step was built, and this is the assertion that noticed.** It needed no UI
     // change: the step fires for any card with more than one mode, so the card
@@ -210,6 +211,15 @@ describe("the census of modal cards", () => {
     //
     // The premise is FIXED rather than the assertion weakened: still an exact
     // equality, because the point is that a new one forces a deliberate look.
-    expect(modalCardIds()).toEqual([ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER].sort());
+    // **A FOURTH arrived in wave 3, and it is the sharpest case yet.** Flurry of
+    // Feathers counters a spell OR plays four Bird tokens — `{kind:"chainSpell"}`
+    // against `{kind:"none"}`. A board that guessed one spec for the card would
+    // offer a chain target for the token mode or no target for the counter mode;
+    // asking the mode first is the only thing that makes either playable.
+    //
+    // Still needed no UI change. Two modal cards have now arrived AFTER the mode
+    // step was built and both worked on landing, which is the payoff for having
+    // fixed the mechanism rather than the two cards that were reported.
+    expect(modalCardIds()).toEqual([ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER, FLURRY_OF_FEATHERS].sort());
   });
 });

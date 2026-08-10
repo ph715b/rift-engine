@@ -15,6 +15,7 @@ import {
   gainXp,
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
+  grantTemporary,
   legionActive,
   holdCardsRecycled,
   ownUnitsEverywhere,
@@ -34,8 +35,8 @@ import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
-import { isAttackingAt } from "../combat-designation.js";
-import { isMighty } from "../granted-keywords.js";
+import { isAttackingAt, isStillHere } from "../combat-designation.js";
+import { hasKeyword, isMighty } from "../granted-keywords.js";
 import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
@@ -100,6 +101,17 @@ const DIVINING_SHELLS_MIGHT = 2;
 const HEIRLOOM_XP = 1;
 /** Enthralling Protector's buff price. */
 const ENTHRALLING_PROTECTOR_XP = 2;
+/** Shadow's Call pays two cards for the unit it dooms. */
+const SHADOWS_CALL_DRAW = 2;
+/** Undying Loyalty's ceiling — "no more than [2] and no more than [rainbow]".
+ *  The Power pip is unnumbered, which this pool's convention reads as 1 (Energy
+ *  prints as a NUMBERED glyph, Power as COUNTED PIPS — see Defy in
+ *  docs/rules-calls-resolved.md), the same reading `GLASC_MAX_POWER` records. */
+const LOYALTY_MAX_ENERGY = 2;
+const LOYALTY_MAX_POWER = 1;
+/** LeBlanc - Fragmented's `[Deathknell]` draws this many, or twice as many in
+ *  her controller's Beginning Phase. */
+const LEBLANC_DRAW = 1;
 
 /** Divine Judgment's four categories, in the order the card names them. */
 const JUDGMENT_CATEGORIES = ["units", "gear", "runes", "hand"] as const;
@@ -669,6 +681,101 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return enemy ? stunUnits(pumped, ctx.casterIndex, [enemy]) : pumped;
     },
   },
+  "UNL-165": {
+    // Shadow's Call — "Choose a friendly unit WITHOUT [Temporary]. Give it
+    // [Temporary]. Draw 2."
+    //
+    // Two cards for two Energy, paid for at the top of your next turn with a
+    // body: 816.1.b makes `[Temporary]` "at the start of this permanent's
+    // controller's Beginning Phase, kill this", and 816.1.c fixes the moment as
+    // that Beginning Phase starting — which `turn-manager.killTemporaryPermanents`
+    // runs BEFORE holds score, so the doomed unit cannot even pay for itself with
+    // a point on the way out.
+    //
+    // `grantTemporary` writes the keyword onto the instance's own `keywords` map,
+    // which is exactly what that kill step reads. A `giveKeywordThisTurn` grant
+    // would have been silently inert twice over: `keywordsThisTurn` is not what
+    // the step reads, and `runEnd` clears it before the Beginning Phase it is
+    // supposed to survive to.
+    //
+    // "A friendly unit", no battlefield named, so `scope: "anywhere"` on
+    // 355.9.a.1's bare noun — a unit sitting at home is as good a sacrifice as one
+    // in the fight, and rather a better one.
+    //
+    // # DIVERGENCE: "without [Temporary]" is enforced at RESOLUTION, not announce
+    //
+    // 355.9.b — "It meets all targeting restrictions" — makes the printed
+    // "without [Temporary]" a TARGETING restriction, so 355.8 ("in order to put a
+    // spell or ability on the chain, valid choices must be made for all targets")
+    // and 355.16 together mean an already-Temporary unit can never be named. No
+    // `TargetingSpec` here can say that: the union carries `maxMight`,
+    // `exhaustedOnly` and `attackingOnly`, but nothing about a keyword the target
+    // must LACK, and adding one is an edit to card-effects.ts, legal-actions.ts,
+    // validate-play-card.ts and target-lookup.ts — four shared files.
+    //
+    // So the check lands here, and it REFUSES THE WHOLE SPELL — the draw included.
+    // That is deliberately NOT 359.3.e.5's shape, whose Void Seeker example keeps
+    // the draw when a target has become illegal on the chain: this target was
+    // never legal, a state the rules do not reach, so there is no printed
+    // behaviour to be faithful to. What there IS is a direction, and it is the one
+    // this codebase does not ship — naming an already-doomed Sprite token would
+    // otherwise turn a 2-Energy "Draw 2 and lose a unit" into a 2-Energy "Draw 2",
+    // and UNL prints six cards that make [Temporary] Sprites. Refusing outright is
+    // never stronger than printed; obeying 359.3.e.5 here would be.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      const location = findUnitAnywhere(state, event.targetUnitInstanceId);
+      // 359.3.e.5's genuine case: the unit left play while this sat on the chain.
+      // The instruction related to it is ignored — and the draw, a separate
+      // instruction, still happens.
+      if (!location) return drawCards(state, ctx.casterIndex, SHADOWS_CALL_DRAW);
+      // Through `hasKeyword` rather than `"Temporary" in unit.keywords`, so a
+      // granted instance counts exactly as a printed one does (816.3 makes having
+      // Temporary a characteristic that "may be checked"). Nothing in this pool
+      // grants it by aura, so the two readings agree today; the shared reader is
+      // what keeps them agreeing.
+      if (hasKeyword(state, location.unit, location.ownerIndex, "Temporary")) return state;
+      return drawCards(grantTemporary(state, event.targetUnitInstanceId), ctx.casterIndex, SHADOWS_CALL_DRAW);
+    },
+  },
+  "UNL-168": {
+    // Undying Loyalty, SECOND clause only — "Play a unit with cost no more than
+    // [2] and no more than [rainbow] from your trash, ignoring its cost."
+    //
+    // **The first clause is REFUSED**: "This costs [2] less if you CHOOSE a Bird,
+    // Cat, Dog, or Poro" is a discount whose size depends on the card named, so it
+    // has to be priced per enumerated variant at ANNOUNCE — `legal-actions` prices
+    // `ignoresCostWhenPaid` that way already — and the tables that drive it
+    // (`OPTIONAL_UNIT_COSTS`, `optionalPowerCostOf`) live in card-effects.ts with
+    // their readers in legal-actions.ts and validate-play-card.ts. None of those
+    // is this file's to edit. The card therefore always costs its printed [2] and
+    // one rainbow: WEAKER than printed, which is the safe direction, and it is
+    // the whole of what is missing.
+    //
+    // The ceiling is Spectral Matron's read exactly — "no more than [2]" is
+    // Energy, "no more than [rainbow]" bounds the SIZE of the Power cost and not
+    // its colour (a rainbow pip is any domain), and both are read off the PRINTED
+    // cost, which is what a "costing no more than" filter asks: the rules' Defy
+    // example says such an effect "always uses its printed or copied cost".
+    //
+    // A parked QUESTION rather than an `ownTrashCard` target, and here that is
+    // forced rather than preferred: `{ kind: "ownTrashCard" }` carries a
+    // `cardKind` and nothing else, so it would offer every unit in the trash
+    // regardless of cost — a 10-Energy Atakhan played free, which is very much
+    // stronger than printed. The option list below is this file's own, so the
+    // ceiling is enforced exactly. The cost is the recorded family divergence
+    // Starhound's entry already carries: 355.9.a.4 makes a card in a Public trash
+    // a target, chosen as the spell is announced, and Spectral Matron, Glasc
+    // Mixologist and Flame Chompers all choose a response window later.
+    //
+    // No decline: the card prints "Play a unit", not "you may".
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      loyaltyCandidates(state, ctx.casterIndex).length === 0
+        ? state
+        : parkDecision(state, { kind: "UNL-168-play", playerIndex: ctx.casterIndex }),
+  },
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -1032,6 +1139,46 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
         ? state
         : parkDecision(state, { kind: "UNL-167-return", playerIndex: ctx.casterIndex }),
   },
+  "UNL-164": {
+    // Safety Inspector, SECOND clause only — "When you play me, each player must
+    // kill one of their units."
+    //
+    // **The first clause is REFUSED**: "You may spend 3 XP as an ADDITIONAL COST
+    // to play me" has no mechanism. `OPTIONAL_UNIT_COSTS` is paid with a chosen
+    // permanent and `OPTIONAL_POWER_COSTS` with runes and Energy; neither can
+    // express XP, both live in card-effects.ts, and the "did they pay" flag would
+    // need a field on `PlayCardAction` (actions/player-action.ts) plus pricing in
+    // legal-actions.ts and validate-play-card.ts. Four shared files.
+    //
+    // 204.1.b and 204.2.a are what make it a real cost rather than something this
+    // resolver could take — "Additional Costs must be paid to finalize the spell
+    // or ability" — and 205 names XP explicitly among the things an instruction
+    // can require a player to spend. This is the same gap `activatedAbilities`
+    // below records for `ActivationCost`, one path over: THAT one has an
+    // `availableWhile` hook a domain file can reach, and the PLAY path has none.
+    //
+    // So the third sentence — "if you paid my additional cost, you don't kill a
+    // unit this way" — has no reachable true branch, and the Inspector's
+    // controller always kills. That is the printed behaviour of DECLINING, so the
+    // card is strictly weaker than printed rather than wrong, which is the safe
+    // direction; what is lost is the option to buy out of it.
+    //
+    // Cull the Weak's shape (OGN-209) for the clause that IS here, and for its
+    // reasons: nothing is fanned onto the action, because each player chooses
+    // their OWN victim and the caster has no say over it — a fan-out would commit
+    // the choice at play time, and the window before this resolves is exactly
+    // when a unit can be added or removed. APNAP, and the queue is FIFO, so
+    // parking in that order IS the ordering.
+    targeting: { kind: "none" },
+    resolve: (state) => {
+      const first = state.activePlayerIndex;
+      const second = (1 - first) as 0 | 1;
+      return [first, second].reduce(
+        (next, playerIndex) => parkDecision(next, { kind: "UNL-164-kill", playerIndex }),
+        state,
+      );
+    },
+  },
 };
 
 /** Starhound's four tribes, in the order the card names them. */
@@ -1230,6 +1377,45 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
     // whose condition was not met.
     capture: (state, death) => otherFriendlyUnitsDiedWith(state, death.ownerIndex, death.battlefieldId),
     resolve: (state, ctx, _death, captured) => (captured === true ? drawCards(state, ctx.casterIndex, 1) : state),
+  },
+  "UNL-172": {
+    // LeBlanc - Fragmented — "[Assault] [Deathknell][>] Draw 1. If it's your
+    // Beginning Phase, draw 2 instead."
+    //
+    // Only the granted effect is here. `[Assault]` is a printed keyword — 807.1.c,
+    // "functionally short for 'While I am an attacker, I have +X [M]'" — applied
+    // by `effectiveMight`'s combat branch, and the `[>]` is the grant arrow
+    // (model/keyword.ts's
+    // NON_KEYWORD_BRACKETS), punctuation rather than a third ability. Black Rose
+    // Dignitary two entries up prints the same pair and splits it the same way.
+    //
+    // "INSTEAD", so it is 2 in the window and 1 outside it — never 3.
+    //
+    // # `capture`, and this is the card that cannot work without it
+    //
+    // "If it's YOUR Beginning Phase" is a question about the moment she DIED, and
+    // asking `state.phase` in `resolve` would answer FALSE every single time. A
+    // `[Deathknell]` is held (383) and finalised onto the chain by the Cleanup;
+    // `turn-manager.runBeginning` kills, dispatches and scores and then returns
+    // `{ ...scoreHolds(...), phase: "Channel" }` in one synchronous call, so the
+    // phase has moved on before any player can pass on the chain. The one thing
+    // that reliably kills a unit in that window is `killTemporaryPermanents`
+    // itself (816.1.b, "before scoring") — a [Temporary] LeBlanc is precisely the
+    // board this clause is printed for, and precisely the one a resolution-time
+    // read gets wrong.
+    //
+    // Shard of Undoing (UNL-174, below) records the same finding from the
+    // death-WATCH side and settles it at fire time for the same reason; this is
+    // `DeathknellDefinition.capture`'s own rule — capture only what has MOVED —
+    // and the phase is the fact that moves.
+    //
+    // BOTH halves of "your Beginning Phase" are captured, not just the phase:
+    // "your" is the dying unit's controller (what an unqualified pronoun means for
+    // a Deathknell, the same reading Honest Broker's "you" takes), so a LeBlanc
+    // killed during the OPPONENT's Beginning Phase draws the ordinary 1.
+    capture: (state, death) => state.phase === "Beginning" && state.activePlayerIndex === death.ownerIndex,
+    resolve: (state, ctx, _death, captured) =>
+      drawCards(state, ctx.casterIndex, captured === true ? LEBLANC_DRAW * 2 : LEBLANC_DRAW),
   },
 };
 
@@ -1575,6 +1761,69 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
           [0, 1, 2].reduce((next) => placeRecruitToken(next, listener.ownerIndex, { battlefieldId: event.to }), state)
         : state,
   },
+  "UNL-170": {
+    // Atakhan, THIRD clause only — "When I attack, the defender must kill one of
+    // their units here."
+    //
+    // **The first clause is REFUSED**: "You may kill a friendly unit as an
+    // additional cost to play me. If you do, I cost [1] less for each Energy it
+    // costs and [Order] less for each Power it costs." The KILL is expressible —
+    // `OPTIONAL_UNIT_COSTS`' `killFriendly` is Cruel Patron's and Commander
+    // Ledros' — but the DISCOUNT is not: `repeatable` buys a flat 1 Power per
+    // payment, and this scales with the printed cost of whatever was killed, on
+    // both axes at once. Pricing it means new shape in card-effects.ts and new
+    // arithmetic in legal-actions.ts and validate-play-card.ts, three shared
+    // files. So he costs his printed 10 and 3 with no way to buy it down —
+    // strictly weaker than printed, which is the safe direction, and the exact
+    // half that is missing.
+    //
+    // `[Ganking]` is a printed keyword and is read by validate-move-unit and the
+    // move fan-out through `effectiveKeywords`; nothing about it belongs here.
+    //
+    // Registered as a `combatBegan` listener rather than added to
+    // unit-triggers.ts's ATTACK_TRIGGERS table — that table is shared, and
+    // `isAttackingAt` is exported precisely so a per-domain file can take the same
+    // shape without editing it. 383.4.e is the rule: an Attack Trigger fires when
+    // a unit "gains the Attacker designation", which 464.2.c's Combat Step 1 hands
+    // out. Rek'Sai - Swarm Queen and Azir - Sovereign are the two entries above
+    // taking the same route.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // "HERE" is a REFERENT, read from the ability's source at execution
+      // (359.3.f.2) — so an Atakhan moved or killed inside the response window
+      // this trigger opens leaves the instruction with nothing to point at, and it
+      // is dropped rather than re-aimed. The PDF works this exact case on Yasuo -
+      // Remorseful. 383 still fixes that the ability TRIGGERED; only its "here"
+      // goes stale.
+      if (!isStillHere(state, listener.card.instanceId, event.battlefieldId)) return state;
+      // 464.2.c.2: "The Defender is the player who did not apply the Contested
+      // status." `applies` has already established that this listener's
+      // controller is the Attacker, so with two seats the defender is the other
+      // one. Written as a walk of the other indices rather than `1 - ownerIndex`
+      // so a third seat is a data change — King's Edict's and Shard of Undoing's
+      // care over the same sentence.
+      const defenders = ([0, 1] as const).filter((i) => i !== listener.ownerIndex);
+      return defenders.reduce((next, defenderIndex) => {
+        // Nothing of theirs standing here is nothing to do (055), and a question
+        // with no answers would be dropped by `advanceDecisions` anyway — guarded
+        // so it is not even asked. Note this is deliberately NOT "they have no
+        // units": a defender with a full base and nothing at the contested
+        // battlefield loses nothing, because the card says "here".
+        return unitsAtFor(next, defenderIndex, event.battlefieldId).length === 0
+          ? next
+          : parkDecision(next, {
+              kind: "UNL-170-kill",
+              playerIndex: defenderIndex,
+              // WHERE is carried rather than re-derived: the question waits on the
+              // chain, and by the time it is answered the Showdown may have closed
+              // and `showdownBattlefieldId` been nulled.
+              battlefieldId: event.battlefieldId,
+            });
+      }, state);
+    },
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -1811,6 +2060,48 @@ export const decisions: Record<string, DecisionDefinition> = {
     // unit" correctly sees a friendly death and stays quiet.
     resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
   },
+  // Safety Inspector's half of the work: one player naming which of their own
+  // units the Inspector costs them. Cull the Weak's question with a different
+  // card's name on it — asked of BOTH players, so it is written from the
+  // ANSWERING player's point of view rather than the caster's.
+  "UNL-164-kill": {
+    prompt: () => "Safety Inspector: kill one of your units",
+    // "One of their units" names no battlefield, so a unit in base is as eligible
+    // as one standing out (355.9.a.1's bare noun, and 355.10.a.1 puts Bases among
+    // the Public zones). No options at all when the player has nothing —
+    // `advanceDecisions` drops the question rather than deadlocking on it — and
+    // exactly one unit is not a choice, so it is killed without a prompt.
+    options: (state, d) =>
+      ownUnits(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    // The killer is the player answering, not the Inspector's controller: "each
+    // player MUST KILL one of their units" puts both the choice and the kill on
+    // them, so a watcher asking "did you kill an enemy unit" correctly sees a
+    // friendly death and stays quiet. Cull the Weak's reading, and NOT King's
+    // Edict's, where the spell does the killing.
+    resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
+  },
+  // Atakhan's half of the work: the DEFENDER naming which of their units at the
+  // contested battlefield his attack costs them.
+  "UNL-170-kill": {
+    prompt: () => "Atakhan: kill one of your units here",
+    // **"HERE" is the whole filter, and it is the difference between this
+    // question and the three above.** Cull the Weak, King's Edict and Shard of
+    // Undoing all reach every unit their answerer controls; this one reaches only
+    // the contested battlefield, so a defender who left a reserve at home keeps
+    // it. Re-derived from live state at answer time rather than captured as a
+    // list: the question waits on the chain, and a unit that arrived or died in
+    // between must be counted as it stands now.
+    options: (state, d) =>
+      (d.battlefieldId === undefined ? [] : unitsAtFor(state, d.playerIndex, d.battlefieldId)).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    // The defender kills their OWN, so the killer is the player answering —
+    // "the defender MUST KILL one of their units", Cull the Weak's split rather
+    // than King's Edict's.
+    resolve: (state, d, optionId) => destroyUnit(state, optionId, d.playerIndex),
+  },
   // Starhound's "return a Bird, Cat, Dog, or Poro from your trash to your hand".
   //
   // No decline: the card prints "return", not "you may return", and the trigger
@@ -1829,6 +2120,42 @@ export const decisions: Record<string, DecisionDefinition> = {
       // untagged card that happens to be sitting there.
       const chosen = starhoundCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
       return chosen ? returnCardFromTrash(state, d.playerIndex, chosen.instanceId) : state;
+    },
+  },
+  // Undying Loyalty's "play a unit with cost no more than [2] and no more than
+  // [rainbow] from your trash, ignoring its cost".
+  //
+  // Spectral Matron's question with a tighter ceiling and NO DECLINE: she prints
+  // "you may play", this card prints "Play a unit". The spell has already checked
+  // there is something to offer, so this is never an empty question.
+  "UNL-168-play": {
+    prompt: () => "Undying Loyalty: play a unit from your trash, ignoring its cost",
+    options: (state, d) =>
+      loyaltyCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      // Re-derived at ANSWER time against the same walk the offer came from: the
+      // trash moves while a question waits on the chain, and going through the
+      // candidate list rather than straight to the card is also what stops a stale
+      // id naming a unit ABOVE the ceiling that happens to be sitting there.
+      const chosen = loyaltyCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+      if (chosen === undefined) return state;
+      // Out of the trash BEFORE it is played, or the card would be in two zones at
+      // once. "IGNORING ITS COST" is the whole cost, both halves — unlike
+      // Soulgorger's "you must still pay its Power cost" — so nothing is paid and
+      // nothing is discounted; the payment is EMPTY rather than small.
+      // `cardsPlayedThisTurn` still moves, because this is a play and [Legion]
+      // counts plays rather than payments. Spectral Matron's entry exactly.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
+      };
+      // Through the shared free-play funnel, so it enters exhausted (143.4.a)
+      // unless something on the board says otherwise, both events a real play
+      // fires go off, and the caster is asked WHERE it lands rather than always
+      // being sent home.
+      return playUnitFree({ ...state, players }, d.playerIndex, chosen);
     },
   },
   // Spectral Matron's "you may play a unit ... from your trash, ignoring its
@@ -2342,6 +2669,38 @@ function recycleJudgmentItem(
     runeDeck: [...actor.runeDeck, { ...rune, state: "Ready" as const }],
   };
   return { ...state, players };
+}
+
+/**
+ * The units in a player's trash Undying Loyalty may play — "cost no more than
+ * [2] and no more than [rainbow]".
+ *
+ * `powerCost <= 1` rather than a domain check, for `matronPlayableFromTrash`'s
+ * reason: a rainbow pip is any domain, so what is bounded is how MANY Power the
+ * card costs, not which colour. Read off the PRINTED cost, which is what a
+ * "costing no more than" filter asks (the rules' Defy example).
+ *
+ * ONE walk for the resolve-time "is there anything to offer" test and for the
+ * option list, so the two cannot disagree about what is within the ceiling —
+ * `glascCandidates`' reason exactly.
+ */
+function loyaltyCandidates(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return state.players[playerIndex].trash.filter(
+    (c): c is UnitInstance =>
+      c.kind === "Unit" && c.energyCost <= LOYALTY_MAX_ENERGY && c.powerCost <= LOYALTY_MAX_POWER,
+  );
+}
+
+/**
+ * The units `playerIndex` has standing at ONE battlefield — Atakhan's "here".
+ *
+ * Deliberately not `ownUnits` filtered afterwards: that walk flattens the whole
+ * board and loses which battlefield each unit came from, which is the only thing
+ * this question is about.
+ */
+function unitsAtFor(state: GameState, playerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return [...(bf?.units[state.players[playerIndex].id] ?? [])];
 }
 
 /** Every unit a player has in play, base and battlefields alike. */

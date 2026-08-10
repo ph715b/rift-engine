@@ -12,6 +12,7 @@ import {
   dealDamageToAllUnitsAtAllBattlefields,
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
+  forceMoveToBase,
   forceMoveToBattlefield,
   gainXp,
   giveMightThisTurn,
@@ -534,6 +535,49 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? state
         : parkDecision(state, {
             kind: "UNL-101-where",
+            playerIndex: ctx.casterIndex,
+            targetInstanceId: event.targetUnitInstanceId,
+          }),
+  },
+  "UNL-107": {
+    // Stare Down — "Choose a friendly unit and a battlefield. Move all enemy
+    // units at that battlefield with less Might than the chosen unit to their
+    // base. Gain 1 XP."
+    //
+    // # TWO targets of different KINDS, and only one of them can be announced
+    //
+    // 355.10.b works this card's second half by name: *"'Kill all units at a
+    // battlefield' targets a battlefield, but not any units"* — so the
+    // battlefield here is a genuine target, not a restriction, and 355 wants both
+    // it and the friendly unit named as the spell goes on the chain.
+    //
+    // **No `TargetingSpec` can carry both.** `{ kind: "battlefield" }` exists and
+    // `{ kind: "unit" }` exists; there is no pair of them, and `unitSlots` is a
+    // 2-tuple of UNIT roles. Adding one is a change to card-effects.ts,
+    // legal-actions.ts and validate-play-card.ts, none of which this file owns.
+    //
+    // So the UNIT is announced and the BATTLEFIELD is a parked question — Call to
+    // Battle's split (UNL-101 above), and the divergence is named for the same
+    // reason it is there: an opponent responding to this does not learn which
+    // battlefield until it resolves. **It is a DIVERGENCE and needs a row in
+    // docs/rules-conformance.md**, which this file's owner cannot write.
+    //
+    // Which half to announce is not arbitrary. 355.8 makes a card whose targeting
+    // cannot be satisfied UNCASTABLE, and "choose a friendly unit" cannot be
+    // satisfied with an empty board — announcing the unit keeps that. Announcing
+    // the battlefield instead (there is always one) would make the card castable
+    // with no friendly unit at all, which is WIDER than printed, and this codebase
+    // does not ship in that direction (see `chainSpellAndUnit`'s note for the
+    // precedent).
+    //
+    // "A FRIENDLY unit" names no battlefield, so `scope: "anywhere"` (355.9.a.1) —
+    // and staring down a battlefield from your own base is the card's normal use.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : parkDecision(state, {
+            kind: "UNL-107-where",
             playerIndex: ctx.casterIndex,
             targetInstanceId: event.targetUnitInstanceId,
           }),
@@ -1638,6 +1682,93 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "UNL-114": {
+    // Nidalee - Cat Form's second clause — "When I win a combat, draw 1. (I win
+    // if I remain after combat.)" Her `[Ambush]` is a keyword and is not
+    // implemented anywhere, so she stays correctly reported as partial.
+    //
+    // `combatWon` (466.3.a) rather than `battlefieldConquered`, for the reason the
+    // event's own doc gives: a conquest also fires on a walk-in that never fought,
+    // and a combat can be won at a battlefield its winner already controlled.
+    //
+    // **The printed reminder is LOOSER than the rule, and the rule is what is
+    // implemented.** "I win if I remain after combat" would also pay out on a
+    // 466.3.d **No Result** — both players still standing, which is exactly when
+    // step 3d recalls the attackers — and 466.3.a defines a win as being *"the
+    // only Player that has units remaining at this battlefield during this step"*,
+    // with 466.3.c handing that result down: *"Units at this battlefield inherit
+    // the same combat result as their controllers."* So a mutual survival wins
+    // nothing for anybody and she draws nothing, which is what `combatWon`
+    // already encodes by only firing when exactly one side is left.
+    //
+    // "**I** win" is therefore positional AND owner-checked, 466.3.c's two halves:
+    // her controller is the winner, and she is standing where it happened. That
+    // she SURVIVED needs no check of its own — a unit that died in the exchange is
+    // not a listener at all, since the walk only finds permanents still in play.
+    on: "combatWon",
+    applies: (_state, listener, event) =>
+      event.kind === "combatWon" &&
+      event.winnerIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
+  "UNL-115": {
+    // Nilah - Joyful Ascetic's third clause — "When I move, gain 1 XP." Her
+    // `[Accelerate]` and `[Ganking]` are both keywords the engine already serves,
+    // so this sentence is the whole of what needed writing.
+    //
+    // `[Ganking]` is what makes it an engine rather than a one-off: she can walk
+    // battlefield to battlefield, and every Standard Move pays again.
+    //
+    // Registered against the board-wide `unitMoved` rather than unit-triggers.ts's
+    // per-card `ON_MOVE_TRIGGERS`, which this file does not own — Kato the Arm and
+    // Irresistible Faefolk took the same route and it reaches the same moment.
+    //
+    // **"When I move" is narrower here than it reads, and that is measured rather
+    // than assumed.** `unitMoved` is fired from exactly one site — the
+    // `MoveUnit` action in actions/execute-move-unit.ts — so a Standard Move to a
+    // battlefield is the only thing that pays. A Recall is not a Move at all (456)
+    // and correctly pays nothing; a SPELL-driven relocation
+    // (`forceMoveToBattlefield`, which Call to Battle and Irresistible Faefolk use
+    // on her) arguably is a move and pays nothing here. That gap belongs to the
+    // event rather than to this card — Imposing Challenger (UNL-105 above) prints
+    // the identical bare "when I move" and carries the identical limit — and
+    // closing it means firing the event from the effect helper, which is
+    // effect-helpers.ts and not this file's.
+    //
+    // Identity by instanceId: `unitMoved` fires for every unit either player
+    // moves, so without it she would bank XP off the whole board walking around.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener) => gainXp(state, listener.ownerIndex, NILAH_MOVE_XP),
+  },
+  "UNL-109": {
+    // Blood Rose's first clause — "When you play a unit, you may pay [1] to gain
+    // 1 XP." (Its "Spend 3 XP, [Exhaust]: Ready a unit" is in
+    // `activatedAbilities` at the foot of this file — two clauses, two
+    // mechanisms, one card.)
+    //
+    // Jax - Unrelenting's shape (SFD-119 above) at a different moment: a "you may
+    // pay" is a parked question, and the offer is made ONLY when the [1] is really
+    // payable, so a player with an empty pool is not asked a question they cannot
+    // answer and both players are not charged a PassFocus for it.
+    //
+    // "WHEN YOU play" is her controller only (`casterIndex`), the reading Cithria
+    // of Cloudfield and Yordle Explorer take of the same event. "A UNIT" excludes
+    // Spells and Gear — without the `playedKind` check she would tick over on
+    // every card played, which for a 1-Energy gear is most of a game's XP.
+    //
+    // No "another" is printed and none is needed: she is a GEAR, so she can never
+    // be the unit that was played.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Unit" &&
+      payEnergyFromPool(state, listener.ownerIndex, BLOOD_ROSE_XP_COST) !== undefined,
+    resolve: (state, listener) => parkDecision(state, { kind: "UNL-109-pay", playerIndex: listener.ownerIndex }),
+  },
 };
 
 /** Triggers a card fires about ITSELF — being played, discarded or killed. Keyed
@@ -1665,6 +1796,69 @@ export const decisions: Record<string, DecisionDefinition> = {
       dazzlingAuroraReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex),
   },
 
+  // Stare Down's battlefield — the half of its targeting no spec can announce
+  // (see the card).
+  //
+  // EVERY battlefield is offered, including one with nothing to move. The card
+  // says "a battlefield" and 355.10.b's worked example makes that a target in its
+  // own right, so pruning to the ones where something would happen would take a
+  // legal (if pointless) choice away — and, worse, would AUTO-PICK whenever
+  // exactly one battlefield qualified, since `advanceDecisions` executes a
+  // one-option question without asking. It also guarantees the question is never
+  // DROPPED, which is what keeps the "Gain 1 XP" sentence reachable.
+  //
+  // The XP is gained HERE, after the moves, rather than in the resolver before
+  // the question is parked — and the order is load-bearing rather than cosmetic.
+  // 1 XP can cross a `[Level N]` threshold, and `[Level]` Might bonuses are
+  // CONTINUOUS (824.1.b.1, see `mightModifiers`), so gaining it first could raise
+  // the chosen unit's Might and widen what "less Might" reaches. The card prints
+  // the move first.
+  "UNL-107-where": {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      return `Stare Down: which battlefield does ${unit?.unit.name ?? "your unit"} stare down?`;
+    },
+    options: (state) => state.battlefields.map((bf) => ({ id: bf.id, label: bf.name })),
+    resolve: (state, d, optionId) => {
+      // **Every Might is read BEFORE any unit moves**, `unitsDuel`'s ordering and
+      // for its reason: "all enemy units ... with less Might" is one comparison
+      // against one board, and moving the first one home changes what the rest
+      // (and the chosen unit) are standing next to — positional auras, Leona -
+      // Zealot, Trusty Ramhound all read neighbours.
+      const doomed = staredDown(state, d.playerIndex, d.targetInstanceId, optionId);
+      const moved = doomed.reduce((next, unit) => forceMoveToBase(next, unit.instanceId), state);
+      // Its own sentence, so it is unconditional: a chosen unit that died in the
+      // response window (359.3) leaves nothing to compare against and moves
+      // nobody, and the XP still lands.
+      return gainXp(moved, d.playerIndex, STARE_DOWN_XP);
+    },
+  },
+  // Blood Rose's "you may pay [1] to gain 1 XP", raised by her on-play-a-unit
+  // trigger.
+  //
+  // Jax - Unrelenting's `SFD-119-draw` one screen up, and it keeps both of that
+  // handler's conventions: declining is listed FIRST so a mis-click and the AI's
+  // tie-break both land on doing nothing, and the payment is re-asked at ANSWER
+  // time as well as at fire time — the Energy may have been spent while the
+  // question waited on the chain, and an option offered then is one the resolver
+  // has to honour.
+  "UNL-109-pay": {
+    prompt: () => "Blood Rose: pay [1] to gain 1 XP?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (payEnergyFromPool(state, d.playerIndex, BLOOD_ROSE_XP_COST)) {
+        options.push({ id: "pay", label: "Pay [1] and gain 1 XP" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "pay") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, BLOOD_ROSE_XP_COST);
+      // A payment that cannot be made gains nothing — re-derived rather than
+      // trusted, the convention every paid decision in this file follows.
+      return paid ? gainXp(paid, d.playerIndex, BLOOD_ROSE_XP_GAIN) : state;
+    },
+  },
   "SFD-119-draw": {
     // Jax - Unrelenting's "you may pay [1] to draw 1."
     prompt: () => "Jax - Unrelenting: pay [1] to draw 1?",
@@ -2567,6 +2761,55 @@ const GRIM_RESOLVE_MIGHT = 3;
 /** Crowd Favorite's activation price, in XP. */
 const CROWD_FAVORITE_XP = 2;
 
+/** Stare Down's gain, as printed. Its own sentence, so it is unconditional. */
+const STARE_DOWN_XP = 1;
+
+/**
+ * Stare Down's "all enemy units at that battlefield with less Might than the
+ * chosen unit".
+ *
+ * Three restrictions and each is printed. **ENEMY** — measured against the
+ * CASTER, so a friendly standing there is never sent home. **AT THAT
+ * BATTLEFIELD** — read off the battlefield's own roster, so nothing in either
+ * base is reachable, which is the whole shape of the card. **LESS MIGHT** —
+ * strictly `<`, as printed, so an equal-Might body stares back.
+ *
+ * The chosen unit's Might is read WHERE IT STANDS (`mightInPlace`), for the
+ * reason that helper records: the positional auras give different answers at a
+ * battlefield and at home, and Stare Down is most often cast from home. Each
+ * enemy is read the same way, at the battlefield it is about to leave.
+ *
+ * Returns the empty list when the chosen unit has left play — 359.3, the
+ * comparison has no subject and the whole calculation drops out.
+ */
+function staredDown(
+  state: GameState,
+  casterIndex: 0 | 1,
+  chosenInstanceId: string | undefined,
+  battlefieldId: string,
+): UnitInstance[] {
+  if (chosenInstanceId === undefined) return [];
+  const chosen = findUnitAnywhere(state, chosenInstanceId);
+  if (chosen === undefined) return [];
+  const might = mightInPlace(state, chosen);
+  const enemyIndex: 0 | 1 = casterIndex === 0 ? 1 : 0;
+  const here = state.battlefields.find((bf) => bf.id === battlefieldId);
+  if (here === undefined) return [];
+  return (here.units[state.players[enemyIndex].id] ?? []).filter((unit) => {
+    const found = findUnitAnywhere(state, unit.instanceId);
+    return found !== undefined && mightInPlace(state, found) < might;
+  });
+}
+
+/** Blood Rose's optional Energy price, and what it buys. */
+const BLOOD_ROSE_XP_COST = 1;
+const BLOOD_ROSE_XP_GAIN = 1;
+/** Blood Rose's activation price, in XP. */
+const BLOOD_ROSE_READY_XP = 3;
+
+/** Nilah - Joyful Ascetic's gain, per move. */
+const NILAH_MOVE_XP = 1;
+
 /** Disposal Order's "up to 3 cards", as the count its repeated question starts
  *  from — and, by subtraction, how many have already gone (see the handler). */
 const DISPOSAL_ORDER_CARDS = 3;
@@ -2702,6 +2945,51 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       return addBuff(paid, sourceInstanceId);
     },
   },
+  "UNL-109": {
+    // Blood Rose's second clause — "Spend 3 XP, [Exhaust]: Ready a unit." (Its
+    // "when you play a unit, you may pay [1] to gain 1 XP" is the `cardPlayed`
+    // listener in `eventTriggers` above.)
+    //
+    // # THE EXHAUST IS PRINTED, so `cost` is omitted rather than emptied
+    //
+    // Exactly the opposite of Crowd Favorite one entry up, and the two sit
+    // together so the difference cannot be read as an oversight: `cost` defaults
+    // to `{ exhaust: true }`, his card prints no exhaust symbol and therefore
+    // needs the empty object, and this one prints `:rb_exhaust:` and therefore
+    // needs the default. The exhaust is what makes this once per turn, which is
+    // the whole brake on a gear that readies a unit.
+    //
+    // # The XP is still spent in `resolve`
+    //
+    // `ActivationCost` has no `xp` field — Crowd Favorite's note and Shepherd's
+    // Heirloom's (UNL-158, effects/order.ts) both record why, and adding one is a
+    // change to activated-abilities.ts, which this file does not own. So
+    // affordability is asked in `availableWhile`, which both the enumerator and
+    // the validator reach through `canPayActivationCost`, and the decrement
+    // happens at the top of `resolve`; an activation's effect runs inline, so
+    // nothing can move a player's XP between the two. Only the PLACEMENT of the
+    // cost diverges (204.1.b makes it a base cost), and that is already a recorded
+    // divergence rather than one this card introduces.
+    //
+    // # "Ready A UNIT"
+    //
+    // The bare noun, so `scope: "anywhere"` with no owner restriction
+    // (355.9.a.1) — the same reading Wallop's and Call to Glory's identical
+    // sentences already take. Readying an ENEMY unit is a bad play, not an
+    // illegal one, and base is where an exhausted unit usually sits.
+    kind: "Gear",
+    targeting: { kind: "unit", scope: "anywhere" },
+    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, BLOOD_ROSE_READY_XP),
+    resolve: (state, ctx, event) => {
+      if (event.targetUnitInstanceId === undefined) return state;
+      const paid = spendXp(state, ctx.casterIndex, BLOOD_ROSE_READY_XP);
+      // `availableWhile` already refused an unaffordable activation, so this is
+      // unreachable — written out rather than asserted because a silent free ready
+      // is the failure mode a cost helper's `undefined` exists to prevent.
+      if (paid === undefined) return state; // 203.3
+      return readyUnit(paid, event.targetUnitInstanceId);
+    },
+  },
 };
 
 /**
@@ -2738,6 +3026,42 @@ const levelSelfMight = (defId: string, threshold: number, amount: number): Might
     unit.defId === defId && atLevel(state, ownerIndex, threshold) ? amount : 0,
 });
 
+/**
+ * # Two Body cards are NOT here, and both refusals are about the same seam
+ *
+ * **UNL-113 Master Yi - Tempered** — "[Level 6][>] I have [Deflect] and
+ * [Ganking]." Neither is a Might bonus, so `mightModifiers` cannot express it,
+ * and a keyword granted by a card's own conditional text belongs in
+ * `granted-keywords.ts`'s `CONDITIONAL_GRANTS` — a shared file with no per-domain
+ * registry (measured: `effects/index.ts` composes nine sources and a granted
+ * keyword is not one of them). `grantKeywordThisTurn` is NOT a substitute: it
+ * writes `keywordsThisTurn`, which latches until end of turn, and 824.1.d turns a
+ * `[Level]` ability Inactive again the moment XP drops below N.
+ *
+ * **And the gap is not that he does nothing — it is that he does it ALWAYS.**
+ * `card-loader`'s `KW_PATTERN` sees only brackets, so both keywords parse as flat
+ * printed ones: measured, `defaultCardRegistry().get("UNL-113").keywords` is
+ * `{Hunt:2, Level:6, Deflect:1, Ganking:1}` and `effectiveKeywords` hands him both
+ * at ZERO XP. `CONDITIONAL_KEYWORD_DEF_IDS` is the named set that exists for
+ * exactly this and holds four OGN cards and no UNL one. Four UNL cards are
+ * affected pool-wide — UNL-047, UNL-075, UNL-108 and UNL-113, measured over the
+ * whole loaded set rather than sampled — and the fix is one table in
+ * cards/card-loader.ts plus a grant each, both shared. Pinned in
+ * test/unl-body-wave3.test.ts.
+ *
+ * **UNL-108 Wily Newtfish** — "If you've gained XP this turn, I have +1 Might and
+ * [Ganking]." Its `[Ganking]` is the same always-on loader defect, and the
+ * MIGHT half — which this seam could otherwise carry — is blocked one level
+ * earlier: **nothing anywhere records that XP was gained this turn.** `gainXp` is
+ * the single writer and adds to `PlayerState.xp` and nothing else, and no
+ * `xpGainedThisTurn` field exists on `PlayerState` (grepped for, not assumed).
+ * The current total cannot answer it: a player who started the turn on 5 and is
+ * still on 5 has gained nothing, and a player who gained 2 and spent 2 has. This
+ * is Raging Soul's `discardedThisTurn` and Sivir - Mercenary's `powerSpentThisTurn`
+ * shape and wants the same three edits — a field on `PlayerState`
+ * (model/game-state.ts), a write in `gainXp` (effect-helpers.ts) and a reset in
+ * `runEnd` (turn-manager.ts) — all outside this file.
+ */
 export const mightModifiers: Record<string, MightModifier> = {
   // **The first two cards through this seam, and the reason it exists.** Both
   // were refused by wave-2 agents — correctly — because `effective-might.ts` had

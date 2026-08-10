@@ -470,6 +470,20 @@ export function sivirConditionMet(state: GameState, ownerIndex: 0 | 1): boolean 
 }
 
 const CONDITIONAL_GRANTS: Record<string, Grant> = {
+  // **Unleashed's `[Level N]` grants, 2026-08-09.** The keyword is stripped at
+  // load (`card-loader.GRANTED_ONLY_KEYWORDS`) and handed back here under the real
+  // condition — Sivir - Mercenary's exact pairing, one file apart.
+  //
+  // Read fresh on every evaluation, which is the whole point: 824.1.d makes the
+  // ability Inactive again "as soon as the controlling player has less than [N]
+  // XP", so a player who spends down loses the keyword. A latched grant would be
+  // wrong in the same direction the flat printed keyword was.
+  //
+  // Wily Newtfish (UNL-108) is deliberately ABSENT — its condition is "if you've
+  // gained XP this turn" and no state answers that; see the card-loader note.
+  "UNL-047": { when: (state, _unit, ownerIndex) => state.players[ownerIndex].xp >= 3, keywords: ["Deflect"] },
+  "UNL-075": { when: (state, _unit, ownerIndex) => state.players[ownerIndex].xp >= 3, keywords: ["Ganking"] },
+  "UNL-113": { when: (state, _unit, ownerIndex) => state.players[ownerIndex].xp >= 6, keywords: ["Deflect", "Ganking"] },
   [SIVIR_MERCENARY]: {
     when: (state, _unit, ownerIndex) => sivirConditionMet(state, ownerIndex),
     keywords: ["Ganking"],
