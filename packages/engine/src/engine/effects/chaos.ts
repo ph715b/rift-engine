@@ -1694,7 +1694,22 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // "TO A BATTLEFIELD" needs no destination check: a `MoveUnitAction` carries a
     // `destinationBattlefieldId`, so every Standard Move in this engine ends at
     // one. The event also never fires for a Recall (454, a Recall is not a Move)
-    // or for a spell-driven relocation, which is the line the card wants.
+    // or for a spell-driven relocation.
+    //
+    // **This comment used to add "which is the line the card wants" of BOTH
+    // exclusions, and that was half wrong.** The Recall half is right — 454. The
+    // spell-driven half is a DIVERGENCE, not a reading: 446.1 makes "a Permanent
+    // changing its position from any space on the Board to another space on the
+    // Board" a Move, and 449 says outright that "Spells, Abilities, or other
+    // effects may cause a Move to occur". The engine misses those only because
+    // `unitMoved` has a single emitter, `execute-move-unit.ts`.
+    //
+    // Left as behaviour (the fix is a held event from `effect-helpers`' two force
+    // -move helpers, carrying who CAUSED the move) but no longer as a claim that
+    // it is correct. Recorded in docs/rules-conformance.md and pinned by
+    // "gains nothing when an EFFECT moves him" in test/unl-chaos-wave2.test.ts.
+    // Corrected 2026-08-09 — a confident note that a gap is intentional is worse
+    // than no note, because it stops the next reader looking.
     //
     // The discard goes through `discardCards`, so with more than one card in hand
     // it stops and ASKS rather than taking the front of hand, and it fires

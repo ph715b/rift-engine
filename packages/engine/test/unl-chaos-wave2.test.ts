@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
+import { forceMoveToBattlefield } from "../src/engine/effect-helpers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { optionsFor, pendingDecision } from "../src/engine/decisions.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
@@ -266,6 +267,38 @@ describe("Mister Root (UNL-127): when I move to a battlefield, gain 2 XP", () =>
 
     expect(home.players[0]!.baseUnits.map((u) => u.name), "he never came home").toEqual(["Mister Root"]);
     expect(home.players[0]!.xp, "a Recall paid out as a move").toBe(0);
+  });
+
+  /**
+   * PINNED DIVERGENCE — asserts the WRONG answer on purpose.
+   *
+   * **446.1**: "A Permanent changing its position from any space on the Board to
+   * another space on the Board is a Move", and **449**: "Spells, Abilities, or
+   * other effects may cause a Move to occur." So a Charm, a Fae Porter or a
+   * Relentless Pursuit relocation IS a Move, and Mister Root should be paid.
+   *
+   * He is not. `unitMoved` has exactly ONE emitter — `execute-move-unit.ts`, the
+   * Standard Move ACTION — so every effect-driven relocation is silent. The
+   * contrast that shows this is a gap rather than a reading is 446.2: "a card
+   * changing game zones does not in itself constitute a Move", which is why the
+   * bounce-to-hand tests above correctly pay nothing. Zone change, no. Board
+   * position change, yes — and this is the second kind.
+   *
+   * Its own positive control runs first, because "gained nothing" reads the same
+   * whether the divergence is real or the fixture simply never moved him.
+   *
+   * Recorded in docs/rules-conformance.md. Closing it should FLIP this test, not
+   * delete it.
+   */
+  it("gains nothing when an EFFECT moves him — divergent from 446.1/449", () => {
+    const { state, root } = rootState();
+    expect(moveTo(state, root.instanceId, "bf1").players[0]!.xp, "the control move paid nothing either").toBe(2);
+
+    const moved = resolveHeldTriggers(forceMoveToBattlefield(state, root.instanceId, "bf1"));
+
+    expect(at(moved, "bf1", "p1").map((u) => u.name), "the effect never moved him at all").toEqual(["Mister Root"]);
+    // 2 under 446.1. 0 is what this engine does, and what this pin records.
+    expect(moved.players[0]!.xp, "446.1 is implemented now — flip this pin and update the conformance row").toBe(0);
   });
 });
 
