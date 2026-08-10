@@ -8,7 +8,7 @@ import { createCardInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { Domain } from "../src/model/domain.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
 
 /**
  * **Tideturner (OGN-199): "when you play me, you MAY choose a unit you control
@@ -122,5 +122,74 @@ describe("Tideturner's 'you may' is declinable (402.1)", () => {
       .map((def) => def.id);
 
     expect(optional).toEqual([TIDETURNER]);
+  });
+});
+
+/**
+ * "...a unit you control **at another location**" — the half that was not enforced.
+ *
+ * Reported from playtesting: *"tideturner is not working. I cant target unit in
+ * base or another battlefield."*
+ *
+ * The engine offered every friendly unit as a target, INCLUDING one standing
+ * where Tideturner was about to land. Its resolver is `swapUnitLocations`, so
+ * that pair is a no-op: the card resolves, both units stay exactly where they
+ * are, and nothing visible happens. A player who picked the nearest unit — the
+ * one already at the destination — saw the card do nothing, which is
+ * indistinguishable from an unimplemented card.
+ *
+ * **This is a TARGETING restriction, not a resolver check.** 355.9.b is the
+ * narrowing half ("It meets all targeting restrictions") and 355.8 declares
+ * targets at finalization, so an ineligible unit must never be offered in the
+ * first place.
+ *
+ * It could not live in `TargetingSpec`: the constraint relates the TARGET to the
+ * DESTINATION, and `scope` describes the target alone with no knowledge of where
+ * the card is going. Hence a per-card marker read where the two are paired.
+ */
+describe("Tideturner's target must be at ANOTHER location", () => {
+  const TIDETURNER = "OGN-199";
+
+  /** A friendly unit in base and another at bf1, so both a base target and a
+   *  battlefield target exist and each is same-location for exactly one
+   *  destination. */
+  function swapBoard() {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.floatingEnergy = 20;
+    state.players[0]!.floatingPower = { Mind: 9, Calm: 9, Chaos: 9, Fury: 9, Body: 9, Order: 9 };
+    const tide = realUnitInstance(TIDETURNER);
+    state.players[0]!.hand = [tide];
+    state.players[0]!.baseUnits = [makeUnit({ name: "Homebody", instanceId: "home" })];
+    state.battlefields[0]!.controllerId = "p1";
+    state.battlefields[0]!.units = { p1: [makeUnit({ name: "Fielder", instanceId: "field" })] };
+    return { state, tide };
+  }
+
+  const pairs = () => {
+    const { state, tide } = swapBoard();
+    return legalActions(state)
+      .filter((a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === tide.instanceId)
+      .map((p) => `${p.destinationBattlefieldId ?? "base"}<-${p.targetUnitInstanceId ?? "none"}`)
+      .sort();
+  };
+
+  it("offers only the CROSS-location swaps, plus the declines", () => {
+    // The positive control is built in: if the filter over-reached and removed
+    // everything, the two legal pairs would be missing too.
+    expect(pairs()).toEqual(["base<-field", "base<-none", "bf1<-home", "bf1<-none"]);
+  });
+
+  it("never offers a target already at the destination — the no-op pair", () => {
+    // Stated separately from the equality above because THIS is the bug: each of
+    // these resolves to a swap between two units in the same place.
+    expect(pairs(), "a base target for a base play — the swap does nothing").not.toContain("base<-home");
+    expect(pairs(), "a bf1 target for a bf1 play — the swap does nothing").not.toContain("bf1<-field");
+  });
+
+  it("still offers the DECLINE at both destinations — 'you MAY choose'", () => {
+    // The optional half this file is otherwise about must survive the new filter:
+    // a card with no legal target is still castable, because declining is real.
+    expect(pairs()).toContain("base<-none");
+    expect(pairs()).toContain("bf1<-none");
   });
 });

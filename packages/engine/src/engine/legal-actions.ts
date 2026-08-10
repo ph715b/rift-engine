@@ -42,6 +42,7 @@ import {
   costExhaustsLegend,
   cardMayMoveToBase,
   cardPlacesTokens,
+  targetMustBeElsewhere,
   moveDestinationAllowed,
   type TargetingSpec,
   discardChoiceOf,
@@ -1264,6 +1265,27 @@ export function legalActions(state: GameState): PlayerAction[] {
         variantPaymentForTargets = taxed;
       }
 
+      /**
+       * Tideturner's "at ANOTHER location" — a restriction relating the TARGET to
+       * the DESTINATION, which `TargetingSpec` cannot express because `scope`
+       * describes the target alone and knows nothing about where the card lands.
+       *
+       * Enforced at enumeration because it is a targeting restriction (355.9.b,
+       * the narrowing half) and 355.8 declares targets at finalization. Left to
+       * the resolver it becomes a silent no-op: the swap runs with both units in
+       * the same place and nothing moves, which is precisely how it was reported
+       * — "tideturner is not working".
+       */
+      const targetIsElsewhere = (destination: string | undefined): boolean => {
+        if (!targetMustBeElsewhere(card.defId)) return true;
+        const targetId = (variant as { targetUnitInstanceId?: string }).targetUnitInstanceId;
+        if (targetId === undefined) return true; // the declined variant
+        const found = findUnitAnywhere(state, targetId);
+        if (!found) return true;
+        const targetLocation = found.zone === "base" ? "base" : state.battlefields[found.zone.battlefieldIndex]!.id;
+        return targetLocation !== (destination ?? "base");
+      };
+
       const play: PlayCardAction = { type: "PlayCard", playerIndex, card, payment: variantPaymentForTargets, ...variant, ...hiddenFields };
       // [Accelerate] is priced once per card, which is wrong the moment anything
       // else about the variant changes the price. Kraken Hunter is both
@@ -1684,7 +1706,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       const baseVariantForbidden =
         (fromHidden && ((card.kind === "Spell" && cardPlacesTokens(card.defId)) || card.kind === "Unit")) ||
         (card.kind === "Unit" && !mayPlayUnitToBase(card.defId));
-      if (!baseVariantForbidden) actions.push(play);
+      if (!baseVariantForbidden && targetIsElsewhere(undefined)) actions.push(play);
 
       // A Unit may ALSO be played directly to a battlefield where the actor
       // already has a unit of their own — "reinforce" — alongside the
@@ -1734,7 +1756,7 @@ export function legalActions(state: GameState): PlayerAction[] {
             ...hiddenFields,
             destinationBattlefieldId: bf.id,
           };
-          actions.push(reinforce);
+          if (targetIsElsewhere(bf.id)) actions.push(reinforce);
         }
       }
 

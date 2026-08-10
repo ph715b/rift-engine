@@ -1081,6 +1081,29 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
   "UNL-044", // Flurry of Feathers — all four Birds at ONE chosen destination
 ]);
 
+/**
+ * Cards whose unit target must be at a DIFFERENT location from where the card
+ * itself is being played.
+ *
+ * Tideturner (OGN-199): "you may choose a unit you control **at another
+ * location**. Move me to its location and it to my original location." A target
+ * standing where Tideturner is about to land makes the swap a no-op — the card
+ * resolves, both units stay put, and nothing visible happens.
+ *
+ * **That is a TARGETING restriction, not a resolver check.** 355.9.b — "It meets
+ * all targeting restrictions" — is the narrowing half, and 355.8 declares targets
+ * at finalization, so an ineligible unit must never be offered. Reported from
+ * playtesting as "tideturner is not working".
+ *
+ * Its own table because the constraint relates the TARGET to the DESTINATION, and
+ * `TargetingSpec` describes the target alone: `scope` cannot see where the card is
+ * going. The pairing happens in `legal-actions`, which is where this is read.
+ */
+const TARGET_MUST_BE_ELSEWHERE = new Set(["OGN-199"]);
+
+export function targetMustBeElsewhere(defId: string): boolean {
+  return TARGET_MUST_BE_ELSEWHERE.has(defId);
+}
 export function cardPlacesTokens(defId: string): boolean {
   return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);
 }

@@ -3013,6 +3013,14 @@ button:disabled {
   height: 58%;
   transform: rotate(calc(4deg + (var(--fan) * 3.5deg)));
   transform-origin: 50% 0%;
+  /* **The FIRST piece paints on top, not the last.**
+     Each later piece sits LOWER (`--fan` pushes it down), and DOM order alone
+     would paint it above the one before — so it covered the previous piece's
+     protruding band and two Equipment looked like one. Reported from
+     playtesting: "multiple equipment only show as 1 underneath the unit".
+     Descending z-index gives the paper stack: each card covers the upper part
+     of the one below it, leaving every card a visible strip of its own. */
+  z-index: calc(10 - var(--fan));
   border-radius: 0.4rem;
   overflow: hidden;
   background: #2a2a33;

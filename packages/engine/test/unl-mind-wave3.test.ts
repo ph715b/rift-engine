@@ -211,24 +211,33 @@ describe("Sprite Fountain (UNL-078): a Sprite on play, and the same Sprite again
    * The fix is one line in model/card.ts, which the wave-3 mind pass does not
    * own. Closing it MUST fail this test, which is the point of pinning it.
    */
-  it("PIN: its printed [Temporary] is dropped by createCardInstance, so it survives its own Beginning Phase", () => {
+  /**
+   * **This pin did its job.** It asserted that Sprite Fountain's printed
+   * `[Temporary]` was DROPPED by `createCardInstance` — a Gear branch that
+   * hardcoded `keywords: {}` — so the gear never died at its own Beginning
+   * Phase and its `[Deathknell]` was reachable only by somebody else killing it.
+   *
+   * Fixed 2026-08-09, together with the same drop that made `[Quick-Draw]` gear
+   * unplayable in a Showdown (the instance lost `isReaction` too). Rewritten to
+   * assert the right answer rather than deleted, because the failure mode is
+   * silent in both directions: a gear that never dies looks like a gear that is
+   * working.
+   */
+  it("keeps its printed [Temporary], dies at its own Beginning Phase, and its Deathknell fires", () => {
     const fountain = realGearInstance(SPRITE_FOUNTAIN);
     const def = registry.get(SPRITE_FOUNTAIN);
-    // A Legend has no `keywords` at all, so the union has to be narrowed before
-    // the definition can be asked — and the narrowing is a real check here, not
-    // ceremony: a Gear is what this pin is about.
-    expect(def.type === "Gear" ? def.keywords : undefined, "the DEFINITION does carry it").toMatchObject({
-      Temporary: 1,
-    });
-    expect(fountain.keywords, "the INSTANCE drops it — this is the defect").toEqual({});
+    expect(def.type === "Gear" ? def.keywords : undefined, "the DEFINITION lost it").toMatchObject({ Temporary: 1 });
+    expect(fountain.keywords, "the INSTANCE drops it again — createCardInstance regressed").toMatchObject({ Temporary: 1 });
 
     const state = makeState({ phase: "Beginning" });
     state.players[0]!.activeGear = [fountain];
 
     const after = resolveHeldTriggers(runBeginning(state));
 
-    expect(after.players[0]!.activeGear, "it died — the model defect is fixed, update this pin").toHaveLength(1);
-    expect(baseUnitsOf(after, 0), "and no Deathknell fired").toEqual([]);
+    expect(after.players[0]!.activeGear, "it survived its own [Temporary]").toHaveLength(0);
+    // And the half the drop had made unreachable: dying fires its [Deathknell],
+    // which repeats the play effect and mints a Sprite.
+    expect(baseUnitsOf(after, 0).length, "the [Deathknell] never fired").toBeGreaterThan(0);
   });
 });
 

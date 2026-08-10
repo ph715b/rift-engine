@@ -270,3 +270,50 @@ describe("the protruding band identifies the Equipment", () => {
     expect(container.querySelector(".attached-card .attached-name")?.textContent).toBe("Ghost Gear");
   });
 });
+
+describe("two Equipment do not collapse into one", () => {
+  /**
+   * Reported from playtesting: *"multiple equipment only show as 1 underneath
+   * the unit."*
+   *
+   * The data was right — `attachmentProps` passes the whole list and two
+   * `.attached-card` elements render. The bug was paint ORDER: each later piece
+   * sits lower (`--fan` pushes it down) and DOM order painted it ABOVE the one
+   * before, so it covered the previous piece's protruding band. Two cards, one
+   * visible strip.
+   *
+   * jsdom does no layout and no stacking, so what is asserted is the pair of
+   * facts the CSS keys off: a distinct `--fan` per piece, and DOM order matching
+   * the descending z-index that makes the first paint on top.
+   */
+  it("gives each piece its own fan index, in DOM order", () => {
+    const { container } = draw(
+      <CardView
+        card={unit()}
+        attachedEquipment={[
+          { instanceId: "g1", name: "Long Sword", defId: LONG_SWORD },
+          { instanceId: "g2", name: "Doran's Blade", defId: "SFD-095" },
+          { instanceId: "g3", name: "Third", defId: "SFD-095" },
+        ]}
+      />,
+    );
+    const fans = [...container.querySelectorAll<HTMLElement>(".attached-card")].map((el) => el.style.getPropertyValue("--fan"));
+    expect(fans, "the pieces share a fan index and stack exactly on each other").toEqual(["0", "1", "2"]);
+  });
+
+  it("names each one, so the visible strips are distinguishable", () => {
+    // Two Equipment showing two identical strips would be the same bug wearing a
+    // different hat — the strips have to say WHICH gear they are.
+    const { container } = draw(
+      <CardView
+        card={unit()}
+        attachedEquipment={[
+          { instanceId: "g1", name: "Long Sword", defId: LONG_SWORD },
+          { instanceId: "g2", name: "Doran's Blade", defId: "SFD-095" },
+        ]}
+      />,
+    );
+    const labels = [...container.querySelectorAll(".attached-card .attached-name")].map((el) => el.textContent);
+    expect(labels).toEqual(["Long Sword", "Doran's Blade"]);
+  });
+});

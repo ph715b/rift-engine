@@ -270,13 +270,33 @@ export interface GearInstance extends CardInstanceBase {
    */
   borrowedControl?: { fromIndex: 0 | 1; whileInPlayInstanceId: string };
   /**
-   * Keywords this gear carries. Present so a keyword can be GRANTED to it at
-   * runtime — Fading Memories gives "a unit at a battlefield **or a gear**"
-   * [Temporary], and without this the gear half of that card had nowhere to
-   * write the result. Gear in this pool prints no keywords of its own, so this
-   * starts empty for every one of them.
+   * Keywords this gear carries — PRINTED as well as granted.
+   *
+   * **This said "Gear in this pool prints no keywords of its own, so this starts
+   * empty for every one of them", and it was false when written.** Long Sword
+   * (SFD-022) prints `[Quick-Draw]`, and Unleashed adds Gear printing
+   * `[Temporary]` and `[Deathknell]`. `createCardInstance` hardcoded `{}` on the
+   * strength of that sentence, so every printed Gear keyword was dropped between
+   * the definition and the instance — reported from playtesting as "unable to
+   * play longsword during a combat even though it has [Quick-Draw]".
+   *
+   * Populated from the definition now. Safe to pass straight through because
+   * `card-loader` already strips what the bracket parser gets wrong
+   * (`GRANTED_ONLY_KEYWORDS`, `CONDITIONAL_KEYWORD_DEF_IDS`, the `[Temporary]`
+   * false positives) — so a definition's keywords are the cleaned set, not the
+   * raw parse.
    */
   keywords: Partial<Record<Keyword, number>>;
+  /**
+   * Printed `[Reaction]`, which for Gear comes from `[Quick-Draw]`'s reminder
+   * text ("This has [Reaction]").
+   *
+   * `timingTierOf` tests `"isReaction" in card`, and its own comment anticipated
+   * this exactly — "adding it to Gear later then needs no change here". It was
+   * right; the field simply never arrived, so every Quick-Draw Gear read as
+   * Default tier and could not be played in a Showdown.
+   */
+  isReaction?: boolean;
 }
 
 export type CardInstance = LegendInstance | UnitInstance | SpellInstance | GearInstance;
@@ -364,7 +384,11 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         powerDomain: def.powerDomain,
         ...(def.powerDomainAlt !== undefined ? { powerDomainAlt: def.powerDomainAlt } : {}),
         attachedToInstanceId: null,
-        keywords: {},
+        // From the DEFINITION, not `{}`. See the field docs — the hardcoded empty
+        // object dropped every printed Gear keyword, and `[Quick-Draw]`'s
+        // `[Reaction]` with it.
+        keywords: def.keywords,
+        isReaction: def.isReaction,
       };
   }
 }
