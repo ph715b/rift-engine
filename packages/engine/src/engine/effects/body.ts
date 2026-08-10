@@ -1,4 +1,5 @@
 import type { EffectDefinition } from "../card-effects.js";
+import type { MightModifier } from "../effective-might.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
@@ -2701,4 +2702,51 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       return addBuff(paid, sourceInstanceId);
     },
   },
+};
+
+/**
+ * Continuous Might modifiers contributed by this domain file.
+ *
+ * The seam `effective-might.ts` had no equivalent of until 2026-08-09: every
+ * conditional or scaling Might card had to be hand-added to that shared file,
+ * which the fan-out rule keeps parallel agents out of — so three cards were
+ * refused across two waves rather than written.
+ *
+ * Keyed by defId. A SELF bonus tests `unit.defId`; an AURA tests the board for
+ * its source and ignores it. `bonus` is called for every unit on every
+ * evaluation, so it must be pure and cheap.
+ */
+const GEMHAND_HUNTER = "UNL-094";
+const GEMHAND_HUNTER_LEVEL = 6;
+const GEMHAND_HUNTER_BONUS = 1;
+const TARGONIAN_VISIONARY = "UNL-098";
+const TARGONIAN_VISIONARY_LEVEL = 11;
+const TARGONIAN_VISIONARY_BONUS = 4;
+
+/** `[Level N]` as a CONTINUOUS condition, which is what 824.1.b.1 makes it:
+ *  "functionally short for 'While you have [N] or more XP, this card gains
+ *  [Text]'". Read fresh on every evaluation rather than latched, because 824.1.d
+ *  turns the ability off again the moment XP drops below N. */
+const atLevel = (state: GameState, ownerIndex: 0 | 1, threshold: number): boolean =>
+  state.players[ownerIndex].xp >= threshold;
+
+/** A `[Level N][>] I have +X Might` self-bonus. Both cards below print exactly
+ *  this shape, so it is one builder rather than two near-identical entries. */
+const levelSelfMight = (defId: string, threshold: number, amount: number): MightModifier => ({
+  defId,
+  bonus: (state, unit, ownerIndex) =>
+    unit.defId === defId && atLevel(state, ownerIndex, threshold) ? amount : 0,
+});
+
+export const mightModifiers: Record<string, MightModifier> = {
+  // **The first two cards through this seam, and the reason it exists.** Both
+  // were refused by wave-2 agents — correctly — because `effective-might.ts` had
+  // no registry a domain file could contribute to, and the obvious workaround (a
+  // one-shot pump when the unit is played) is wrong in both directions under
+  // 824.1.d.
+  //
+  // Read from the OWNER's XP, not the asking player's: "while YOU have 6+ XP" is
+  // the controller's counter, and `effectiveMight` is called by both sides.
+  [GEMHAND_HUNTER]: levelSelfMight(GEMHAND_HUNTER, GEMHAND_HUNTER_LEVEL, GEMHAND_HUNTER_BONUS),
+  [TARGONIAN_VISIONARY]: levelSelfMight(TARGONIAN_VISIONARY, TARGONIAN_VISIONARY_LEVEL, TARGONIAN_VISIONARY_BONUS),
 };

@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { domainMightModifierSources, mergeRegistries } from "./effects/index.js";
 import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
@@ -47,6 +48,58 @@ export interface MightContext {
    * the rule that was implicit has to be written down.
    */
   mightyCheck?: true;
+}
+
+/**
+ * A continuous Might modifier contributed by a per-domain effect file.
+ *
+ * # Why this seam exists
+ *
+ * `effective-might.ts` had no registry a domain file could contribute to: every
+ * conditional or scaling Might card had to be hand-added to `continuousAuraBonus`
+ * below AND to `effectiveMightDefIds()` — a shared file that the card fan-out rule
+ * deliberately keeps parallel agents out of. So the cards were refused. Wave 1
+ * refused UNL-004 on it; wave 2 refused UNL-094 and UNL-098 on it independently,
+ * and both correctly rejected the obvious workaround.
+ *
+ * **The workaround is wrong in both directions, which is why a seam was needed**
+ * rather than a one-shot pump at play time. 824.1.b.1 makes `[Level N]`
+ * "functionally short for 'While you have [N] or more XP, this card gains
+ * [Text]'", and 824.1.d makes the ability Inactive again "as soon as the
+ * controlling player has less than [N] XP". A bonus applied once when the unit
+ * lands is wrong below the threshold and wrong after XP is spent.
+ *
+ * # Shape
+ *
+ * Keyed by defId, and every registered modifier is asked about every unit — so a
+ * SELF bonus ("I have +1 Might") tests `unit.defId`, while an AURA ("your units
+ * have +1 Might") tests the board for its source and ignores `unit.defId`. One
+ * shape covers both; the alternative was two registries and a rule about which to
+ * use, which is the sort of thing that gets picked wrong once.
+ *
+ * The `defId` is what `effectiveMightDefIds()` reports to coverage, so a
+ * registered card is never counted inert.
+ */
+export interface MightModifier {
+  /** The card this belongs to — reported to coverage. For an aura this is the
+   *  SOURCE, not the unit being buffed. */
+  defId: string;
+  /** The bonus for THIS unit, or 0. Called for every unit, every evaluation, so
+   *  it must be pure and cheap — nothing here may write to state. */
+  bonus: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ctx: MightContext) => number;
+}
+
+/**
+ * The per-domain modifiers, merged lazily.
+ *
+ * Lazy for the reason `activated-abilities.ts` composes lazily: this module is
+ * imported by much of the engine, and composing at module scope would reach
+ * `effects/index.js` while it is still initialising.
+ */
+let composedMightModifiers: Record<string, MightModifier> | undefined;
+function domainMightModifiers(): Record<string, MightModifier> {
+  composedMightModifiers ??= mergeRegistries<MightModifier>("Might modifier", domainMightModifierSources());
+  return composedMightModifiers;
 }
 
 /** Finds where `ownerIndex`'s own copy of `defId` currently sits (there's
@@ -196,7 +249,11 @@ const DRAVEN_SHOWBOAT = "OGN-028";
  * disagree — a parallel list of ids would drift the first time one changed.
  */
 export function effectiveMightDefIds(): string[] {
+  // The domain-file contributions are part of this list, not a parallel one —
+  // a card registered through the seam must not report inert for having been
+  // written in the "wrong" file.
   return [
+    ...Object.values(domainMightModifiers()).map((m) => m.defId),
     GAREN_COMMANDER,
     MASTER_YI_MEDITATIVE,
     WIELDER_OF_WATER,
@@ -266,6 +323,13 @@ function zealotPenaltyApplies(state: GameState, unit: UnitInstance, ownerIndex: 
  */
 function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, ctx: MightContext): number {
   let bonus = 0;
+
+  // The per-domain contributions first, so a card written in a domain file is
+  // indistinguishable from one written here — see `MightModifier`.
+  for (const modifier of Object.values(domainMightModifiers())) {
+    bonus += modifier.bonus(state, unit, ownerIndex, ctx);
+  }
+
   const ownLocation = ctx.battlefieldId ?? "base";
 
   // Garen - Commander and Darius - Executioner print the same sentence ("other

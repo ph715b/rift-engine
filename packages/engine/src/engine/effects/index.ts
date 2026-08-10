@@ -3,6 +3,7 @@ import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
+import type { MightModifier } from "../effective-might.js";
 import * as body from "./body.js";
 import * as calm from "./calm.js";
 import * as chaos from "./chaos.js";
@@ -121,6 +122,20 @@ export function domainActivatedAbilities(): { name: string; entries: Record<stri
   return EFFECT_SOURCES.map((s) => ({
     name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
     entries: s.module.activatedAbilities,
+  }));
+}
+
+/**
+ * Continuous Might modifiers contributed by the per-domain files.
+ *
+ * Lazy for the same reason as the activated abilities above: `effective-might.ts`
+ * is imported by much of the engine, and composing at module scope would reach a
+ * domain file before this module has finished initialising.
+ */
+export function domainMightModifierSources(): { name: string; entries: Record<string, MightModifier> }[] {
+  return EFFECT_SOURCES.map((s) => ({
+    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    entries: s.module.mightModifiers,
   }));
 }
 

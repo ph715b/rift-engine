@@ -1,4 +1,5 @@
 import type { EffectDefinition } from "../card-effects.js";
+import type { MightModifier } from "../effective-might.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type {
@@ -2414,3 +2415,22 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   // Might in `card-loader.EQUIP_MIGHT_BONUS` / `effective-might`. Not an
   // activated ability, and not reachable from this file.
 };
+
+
+/**
+ * Continuous Might modifiers contributed by this domain file.
+ *
+ * The seam `effective-might.ts` had no equivalent of until 2026-08-09: every
+ * conditional or scaling Might card had to be hand-added to that shared file,
+ * which the fan-out rule keeps parallel agents out of — so three cards were
+ * refused across two waves rather than written.
+ *
+ * Keyed by defId. A SELF bonus tests `unit.defId`; an AURA tests the board for
+ * its source and ignores it. `bonus` is called for every unit on every
+ * evaluation, so it must be pure and cheap.
+ *
+ * A `[Level N]` bonus belongs HERE and not in an on-play trigger: 824.1.d turns
+ * the ability off again the moment XP drops below N, so a one-shot pump is wrong
+ * in both directions.
+ */
+export const mightModifiers: Record<string, MightModifier> = {};
