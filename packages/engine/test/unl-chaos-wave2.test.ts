@@ -731,3 +731,92 @@ describe("coverage", () => {
     expect(cone.text ?? "", "UNL-133 stopped printing its second clause").toContain("When you move an enemy unit");
   });
 });
+
+/**
+ * Walking Roost — the OPPONENT chooses where their Bird goes.
+ *
+ * This landed sending the token straight to their base, on the reasoning that a
+ * choice would be "a second decision the printed text does not ask for". That was
+ * backwards: 185.2.a plays a token "following all the applicable steps for playing
+ * a card plus any restrictions or modifications from the effect that created the
+ * token", and the inherent restriction on playing a Unit is base or a battlefield
+ * they control. Walking Roost restricts nothing — so FORCING base was the
+ * addition, not the choice.
+ *
+ * Settled by the project owner on 2026-08-09, alongside the same correction to
+ * Desert's Call and Flurry of Feathers, so every token-playing card in the pool
+ * now behaves alike.
+ *
+ * Driven through `answerDecisions` with a capturing chooser rather than by
+ * inspecting `pendingDecision` directly: `resolveHeldTriggers` returns the moment
+ * the chain reopens, which is BEFORE this question surfaces, so a direct read
+ * finds nothing and looks exactly like "the choice was never offered".
+ */
+describe("Walking Roost (UNL-130): their Bird, their choice of destination", () => {
+  function roostBoard() {
+    // bf1 is the OPPONENT's, so they have a real destination to choose.
+    //
+    // **The garrison is load-bearing, and its absence cost an hour.** `runCleanup`
+    // runs `lapseUnoccupiedControl`, so a battlefield its controller has no units
+    // on stops being theirs before the decision's options are computed — leaving
+    // "base" as the only option, which resolves without ever asking. The symptom
+    // was an empty decision log, which reads exactly like "the choice was never
+    // implemented" rather than "the fixture lost the battlefield".
+    const state = casterState();
+    state.battlefields[0]!.controllerId = "p2";
+    state.battlefields[0]!.units = { p2: [makeUnit({ name: "Garrison" })] };
+    const roost = realUnitInstance(WALKING_ROOST);
+    state.players[0]!.hand = [roost];
+    return { state, roost };
+  }
+
+  /** Plays the Roost and answers its question with `pick`, recording what was
+   *  asked and of whom. */
+  function cast(pick: (ids: string[]) => string) {
+    const { state, roost } = roostBoard();
+    const seen: { ids: string[]; playerIndex: number; kind: string }[] = [];
+    // The BASE play, named explicitly. With a battlefield in play that the caster
+    // may place into, `playOf` takes whichever variant is enumerated first, and a
+    // Roost played to a battlefield resolves down a different path — which showed
+    // up as "no decision was ever raised", indistinguishable from the feature
+    // being absent.
+    const basePlay = plays(state, WALKING_ROOST).find((a) => a.destinationBattlefieldId === undefined);
+    expect(basePlay, "the Roost has no base play on this board").toBeDefined();
+    const after = answerDecisions(resolveHeldTriggers(accept(state, basePlay!)), (options, decision) => {
+      seen.push({ ids: options.map((o) => o.id), playerIndex: decision.playerIndex, kind: decision.kind });
+      return pick(options.map((o) => o.id));
+    });
+    return { after, seen };
+  }
+
+  it("asks THEM, not the caster", () => {
+    const { seen } = cast((ids) => ids[0]!);
+    const asked = seen.find((d) => d.kind === "UNL-130-where");
+    expect(asked, "no destination was asked for — it went straight to base").toBeDefined();
+    expect(asked!.playerIndex, "the CASTER was asked where the opponent's token goes").toBe(1);
+  });
+
+  it("offers their base and the battlefields THEY control, and nothing else", () => {
+    const { seen } = cast((ids) => ids[0]!);
+    const ids = seen.find((d) => d.kind === "UNL-130-where")!.ids;
+    expect(ids, "base is always legal and must always be offered").toContain("base");
+    expect(ids, "a battlefield they control was not offered").toContain("bf1");
+    // bf2 is controlled by NOBODY, so it is not "a battlefield they control".
+    expect(ids, "a battlefield they do not control was offered").not.toContain("bf2");
+  });
+
+  it("puts the Bird where they say", () => {
+    const { after } = cast((ids) => (ids.includes("bf1") ? "bf1" : ids[0]!));
+    expect((after.battlefields[0]!.units["p2"] ?? []).map((u) => u.name), "the Bird did not land where they chose").toContain("Bird");
+    expect(after.players[1]!.baseUnits.map((u) => u.name), "it went to base as well as bf1").not.toContain("Bird");
+  });
+
+  it("and it is still THEIR Bird, with its [Deflect]", () => {
+    // The half the destination change must not disturb: "they play" decides whose
+    // board it stands on and which side the surcharge taxes.
+    const { after } = cast(() => "base");
+    const bird = after.players[1]!.baseUnits.find((u) => u.name === "Bird");
+    expect(bird, "the Bird is not on their side").toBeDefined();
+    expect(bird!.keywords, "the Bird lost its [Deflect]").toMatchObject({ Deflect: 1 });
+  });
+});

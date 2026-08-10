@@ -3010,6 +3010,8 @@ const GEMHAND_HUNTER_BONUS = 1;
 const TARGONIAN_VISIONARY = "UNL-098";
 const TARGONIAN_VISIONARY_LEVEL = 11;
 const TARGONIAN_VISIONARY_BONUS = 4;
+const WILY_NEWTFISH = "UNL-108";
+const WILY_NEWTFISH_BONUS = 1;
 
 /** `[Level N]` as a CONTINUOUS condition, which is what 824.1.b.1 makes it:
  *  "functionally short for 'While you have [N] or more XP, this card gains
@@ -3073,4 +3075,17 @@ export const mightModifiers: Record<string, MightModifier> = {
   // the controller's counter, and `effectiveMight` is called by both sides.
   [GEMHAND_HUNTER]: levelSelfMight(GEMHAND_HUNTER, GEMHAND_HUNTER_LEVEL, GEMHAND_HUNTER_BONUS),
   [TARGONIAN_VISIONARY]: levelSelfMight(TARGONIAN_VISIONARY, TARGONIAN_VISIONARY_LEVEL, TARGONIAN_VISIONARY_BONUS),
+  // **Wily Newtfish — not a `[Level]` card, and that is why it is written out.**
+  // "If you've gained XP THIS TURN" is a per-turn flag, not an XP threshold, so
+  // `levelSelfMight` above does not fit: a player sitting on 6 XP gained back on
+  // turn two satisfies every [Level] band and this clause not at all.
+  //
+  // Refused in wave 3 and written once `xpGainedThisTurn` existed. Its [Ganking]
+  // half is the matching `CONDITIONAL_GRANTS` entry reading the same flag — one
+  // printed sentence across two files, and they must not come apart.
+  [WILY_NEWTFISH]: {
+    defId: WILY_NEWTFISH,
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId === WILY_NEWTFISH && state.players[ownerIndex].xpGainedThisTurn ? WILY_NEWTFISH_BONUS : 0,
+  },
 };

@@ -1572,7 +1572,16 @@ export function gainPoints(state: GameState, playerIndex: 0 | 1, amount: number)
  */
 export function gainXp(state: GameState, playerIndex: 0 | 1, amount: number): GameState {
   if (amount <= 0) return state;
-  return updatePlayer(state, playerIndex, (p) => ({ ...p, xp: p.xp + amount }));
+  // `xpGainedThisTurn` is set HERE because this is the single writer of `xp` —
+  // the same reason `powerSpentThisTurn` is bumped inside `payPowerFromChanneled`
+  // rather than at its callers. A per-site tally would miss whichever call
+  // nobody remembered, and XP is gained from keywords, triggers and abilities
+  // alike.
+  //
+  // Guarded by the `amount <= 0` early return above, so "gained 0" does not
+  // count as having gained — which matters, since `[Hunt 0]` and a scaled gain
+  // that resolves to nothing both reach here.
+  return updatePlayer(state, playerIndex, (p) => ({ ...p, xp: p.xp + amount, xpGainedThisTurn: true }));
 }
 
 /** Can this player pay `amount` XP right now? The question the play enumerator

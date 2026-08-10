@@ -500,27 +500,35 @@ describe("Nilah - Joyful Ascetic (UNL-115): when I move, gain 1 XP", () => {
 });
 
 describe("the four Body clauses this wave REFUSED", () => {
-  it("PINS UNL-108 Wily Newtfish: no per-turn XP-gain flag exists, so the Might half is unwritten", () => {
-    // "If you've gained XP this turn, I have +1 Might and [Ganking]."
+  it("Wily Newtfish gains its +1 Might once XP was gained THIS TURN", () => {
+    // **This was a pin, and it named the missing mechanism precisely enough to
+    // build.** It recorded that "if you've gained XP this turn" was unanswerable:
+    // `gainXp` wrote only the running total, and 5 unchanged all turn is a
+    // different fact from 5 after gaining 2 and spending 2. It asked for
+    // `discardedThisTurn`'s shape, and that is exactly what was built —
+    // `PlayerState.xpGainedThisTurn`, set in `gainXp` (the single writer) and
+    // cleared in `runEnd`.
     //
-    // The MIGHT half is blocked one level BELOW the `mightModifiers` seam: `gainXp`
-    // writes `PlayerState.xp` and nothing else, and no `xpGainedThisTurn` field
-    // exists — so "have you gained XP this turn" is unanswerable, and the running
-    // total cannot stand in for it (5 unchanged all turn is a different fact from
-    // 5 after gaining 2 and spending 2). This is Raging Soul's `discardedThisTurn`
-    // shape and wants the same three edits, none of them in this file.
-    //
-    // Driven with the XP actually gained, so it fails the day the clause lands.
+    // Now asserts both edges, because a flag that is never cleared would pass the
+    // positive half forever.
     const newt = realUnitInstance(WILY_NEWTFISH);
-    const state = gainXp(makeState({ phase: "Action" }), 0, 3);
-    state.battlefields[0]!.units = { p1: [newt] };
-
+    const base = makeState({ phase: "Action" });
+    base.battlefields[0]!.units = { p1: [newt] };
     const printed = newt.might;
+
+    // Holding XP is NOT gaining it this turn — the distinction the flag exists for.
+    const holding = { ...base, players: [{ ...base.players[0]!, xp: 9 }, base.players[1]!] } as typeof base;
     expect(
-      effectiveMight(state, newt, 0, { isCombat: false, battlefieldId: "bf1" }),
-      "the +1 Might landed — update this pin",
+      effectiveMight(holding, newt, 0, { isCombat: false, battlefieldId: "bf1" }),
+      "a standing XP total paid the bonus — the flag is reading `xp`, not the gain",
     ).toBe(printed);
-    expect(implementingModule(WILY_NEWTFISH), "something claimed the card").toBeUndefined();
+
+    const gained = gainXp(base, 0, 3);
+    expect(
+      effectiveMight(gained, newt, 0, { isCombat: false, battlefieldId: "bf1" }),
+      "gaining XP this turn did not pay the +1",
+    ).toBe(printed + 1);
+    expect(implementingModule(WILY_NEWTFISH), "nothing claims the card").toBeDefined();
   });
 
   it("the four conditional keywords are OFF below their condition — the defect this wave found", () => {
@@ -585,7 +593,11 @@ describe("the four Body clauses this wave REFUSED", () => {
     // The measurement that matters more than the pins: a card that reports DONE
     // while doing nothing is the failure this repo keeps finding. So this asserts
     // what is TRUE today, and every line that is wrong is named as wrong.
-    expect(isCardImplemented(registry.get(WILY_NEWTFISH)), "Wily Newtfish reads as finished").toBe(false);
+    // **Wily Newtfish now reports FINISHED, and that is correct.** Both halves
+    // landed once `PlayerState.xpGainedThisTurn` was built: the +1 Might through
+    // the `mightModifiers` seam and the [Ganking] through `CONDITIONAL_GRANTS` —
+    // one printed sentence across two files, reading the same flag.
+    expect(isCardImplemented(registry.get(WILY_NEWTFISH)), "a half went missing — check both files read xpGainedThisTurn").toBe(true);
     // Master Yi reports UNIMPLEMENTED, and needs NO hand-written coverage entry —
     // checked rather than assumed, because the wave brief expected him to
     // over-report as finished on the strength of his `[Hunt 2]`. He does not:

@@ -684,6 +684,22 @@ export interface PlayerState {
    * runEnd.
    */
   discardedThisTurn: boolean;
+
+  /**
+   * Has this player GAINED XP this turn?
+   *
+   * `xp` is a running total, so it cannot answer this: "gained some this turn"
+   * and "has some" are indistinguishable from it, and a player who has been
+   * sitting on 6 XP since turn two has gained none. Wily Newtfish (UNL-108) —
+   * "If you've gained XP this turn, I have +1 Might and [Ganking]" — is the first
+   * card to ask, and until this existed its keyword had to be stripped and left
+   * inert rather than granted wrongly.
+   *
+   * A flag rather than a count, and about the PLAYER rather than any particular
+   * gain — exactly `discardedThisTurn` above, which Raging Soul reads the same
+   * way. Set by `gainXp`, the single writer, and cleared by runEnd.
+   */
+  xpGainedThisTurn: boolean;
 }
 
 /**

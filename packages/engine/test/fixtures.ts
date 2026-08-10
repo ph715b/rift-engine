@@ -95,6 +95,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
     discardedThisTurn: false,
+    xpGainedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

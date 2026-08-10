@@ -54,7 +54,7 @@ import { RAINBOW } from "../hidden.js";
 import { placeGoldTokens, placeToken, type TokenSpec, BIRD_TOKEN } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
-import { mayMoveToBaseFrom } from "../battlefield-continuous.js";
+import { mayMoveToBaseFrom, mayPlayUnitAt } from "../battlefield-continuous.js";
 import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
@@ -1291,11 +1291,22 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // THEIR index. That is not cosmetic: it decides whose board it stands on,
     // whose `tokensEnterReady` applies to it, and which side `[Deflect]` taxes.
     //
-    // **To their BASE**, because the card names no destination. Every "play a
-    // token" in this pool that lands somewhere else prints where ("here",
-    // "battlefields you control"), and 143.4.a's default entry is exhausted, which
-    // `createToken` already does. A destination CHOICE for the opponent would be a
-    // second decision the printed text does not ask for.
+    // **The OPPONENT chooses where it goes**, and this used to send it straight
+    // to their base on the reasoning that a choice would be "a second decision the
+    // printed text does not ask for". That was the wrong way round: 185.2.a says a
+    // token is played "following all the applicable steps for playing a card plus
+    // any restrictions or modifications from the effect that created the token",
+    // and the inherent restriction on playing a Unit is base or a battlefield they
+    // control. Walking Roost restricts nothing, so the ordinary choice is what the
+    // text asks for — forcing base was the addition.
+    //
+    // Settled by the project owner on 2026-08-09, alongside the same correction to
+    // Desert's Call and Flurry of Feathers, so every token-playing card in the
+    // pool now behaves alike.
+    //
+    // Parked on the OPPONENT's index — "they play" makes it their choice on your
+    // card, which `parkDecision` takes an arbitrary `playerIndex` for. 143.4.a's
+    // exhausted entry is unchanged and `createToken` already does it.
     //
     // The spec is local rather than added to token.ts: it has one owner, unlike
     // the Recruit/Sand Soldier/Mech specs, which were hoisted there only once two
@@ -1303,7 +1314,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // in the four-set pool reads it, measured, so it is flavour today and the
     // thing that would silently miss a Bird tomorrow if it were dropped.
     targeting: { kind: "none" },
-    resolve: (state, ctx) => placeToken(state, ctx.opponentIndex, "base", BIRD_TOKEN),
+    resolve: (state, ctx) => parkDecision(state, { kind: "UNL-130-where", playerIndex: ctx.opponentIndex }),
   },
   "UNL-135": {
     // Insightful Investigator — "When you play me, choose an opponent. They reveal
@@ -3076,6 +3087,30 @@ export const decisions: Record<string, DecisionDefinition> = {
   // `options` reads LIVE state rather than a snapshot, which is what makes it
   // correct behind a Nocturne - Horrifying banish queued in front of it: if he
   // took the card being looked at, this asks about whatever is on top now.
+  /**
+   * Walking Roost — WHERE the opponent puts the Bird you gave them.
+   *
+   * Parked on THEIR index, because "they play a 1 Might Bird unit token" makes it
+   * their play and so their choice. 185.2.a gives a played token the ordinary
+   * steps for playing a card, and the inherent restriction on playing a Unit is
+   * "base or a battlefield they control" — so those are the options, and no more.
+   *
+   * `mayPlayUnitAt` is asked per battlefield rather than once, because Rockfall
+   * Path prints "units can't be played here" and a token unit being played is a
+   * unit being played. Base is always legal and always offered, so this decision
+   * can never be empty.
+   */
+  "UNL-130-where": {
+    prompt: () => "Walking Roost: where does your Bird go?",
+    options: (state, d) => [
+      { id: "base", label: "Your base" },
+      ...state.battlefields
+        .filter((bf) => bf.controllerId === state.players[d.playerIndex].id && mayPlayUnitAt(state, bf.id))
+        .map((bf) => ({ id: bf.id, label: bf.name })),
+    ],
+    resolve: (state, d, optionId) =>
+      placeToken(state, d.playerIndex, optionId === "base" ? "base" : { battlefieldId: optionId }, BIRD_TOKEN),
+  },
   "UNL-131-predict": {
     prompt: () => "Abandon: recycle the top card of your Main Deck?",
     options: (state, d): DecisionOption[] => {

@@ -37,6 +37,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
     discardedThisTurn: false,
+    xpGainedThisTurn: false,
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,

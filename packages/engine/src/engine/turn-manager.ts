@@ -349,6 +349,7 @@ export function runEnd(state: GameState): GameState {
     firstFriendlyDeathUsedThisTurn: false,
     extraMightPerBuffThisTurn: 0,
     discardedThisTurn: false,
+    xpGainedThisTurn: false,
     // Targon's Peak's armed ready is 'this turn' state and ends with the turn.
     // The trigger fired above already CAPTURED the count, so clearing it here
     // cannot take the effect away — see BattlefieldTriggerDefinition.capture.
