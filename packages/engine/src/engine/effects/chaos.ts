@@ -131,7 +131,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // handed `undefined` and the card would be castable, inert and reported as
     // done. It is the third card in that set, after Charm and Showstopper.
     //
-    // `scope: "anywhere"`, not the default: "a friendly unit" is 355.9.b's bare
+    // `scope: "anywhere"`, not the default: "a friendly unit" is 355.9.a.1's bare
     // noun, so a unit in base is a legal choice — and it is the main one, since
     // this is how the card deploys. Charm's "an ENEMY unit" is the contrast.
     //
@@ -165,7 +165,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // No owner restriction — "a unit", not "an enemy unit". Bouncing your own is
     // a real line (it resets damage and saves a unit about to die), not an
-    // oversight, and 355.9.b's bare noun carries no side.
+    // oversight, and 355.9.a.1's bare noun carries no side.
     //
     // returnUnitToHand sends it to its OWNER's hand rather than the caster's,
     // and strips Buffs on the way (709, "if a Unit leaves play, remove all Buffs
@@ -187,7 +187,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // at the destination yet, and counting it would make every destination legal
     // and the restriction meaningless.
     //
-    // `scope: "anywhere"` — "an enemy unit" is 355.9.b's bare noun, so one
+    // `scope: "anywhere"` — "an enemy unit" is 355.9.a.1's bare noun, so one
     // sitting in the enemy base is a legal target, and dragging it out is a real
     // line.
     //
@@ -371,7 +371,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The two coincide here anyway — Whirlwind prints neither [Action] nor
     // [Reaction], so only the turn player can ever cast it.
     //
-    // "A unit", not "a unit at a battlefield" — 355.9.b's bare noun, so a unit
+    // "A unit", not "a unit at a battlefield" — 355.9.a.1's bare noun, so a unit
     // sitting in either base is on offer too. Rebuke (above) prints the narrower
     // wording and gets the narrower reach; the difference between them is
     // printed, and this codebase has got that distinction wrong before.
@@ -486,7 +486,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // every object of a kind chooses none of them, so there is nothing to pick
     // and nothing to validate.
     //
-    // "ALL units" is BOTH bases as well as every battlefield (355.9.b's bare
+    // "ALL units" is BOTH bases as well as every battlefield (355.9.a.1's bare
     // noun, the same reading Whirlwind takes), so `allUnitsInPlay` — the walk
     // Whirlwind's own option list uses — is the right set and a battlefield-only
     // sweep would be wrong. At 8 Energy and 2 Power this is the pool's board
@@ -1121,7 +1121,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // card's two decisions. **No targeting at all** — 355.10.d: an effect that
     // names every object of a kind chooses none of them, so there is nothing to
     // pick and nothing to validate. And **"all units" is BOTH bases as well as
-    // every battlefield** (355.9.b's bare noun), so `allUnitsInPlay` is the right
+    // every battlefield** (355.9.a.1's bare noun), so `allUnitsInPlay` is the right
     // walk; a battlefield-only sweep would leave every reserve standing.
     //
     // "2 Might or less" goes through `unitWithinMaxMight`, the shared predicate a
@@ -1734,7 +1734,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // choose to pay, and a held trigger that resolves to nothing still costs both
     // players a PassFocus.
     //
-    // "A unit YOU CONTROL" carries no location (355.9.b's bare noun), so a unit
+    // "A unit YOU CONTROL" carries no location (355.9.a.1's bare noun), so a unit
     // sitting in base is a legal choice — and it is the main one, since this is
     // how the Porter reinforces. Units already at the destination are excluded:
     // there is no move for them to make.
@@ -2141,7 +2141,7 @@ function pupJoins(state: GameState, listener: Listener, event: GameEvent): boole
 
 /**
  * The units `playerIndex` controls that are NOT already at `battlefieldId` —
- * Fae Porter's "a unit you control", which names no location (355.9.b) and so
+ * Fae Porter's "a unit you control", which names no location (355.9.a.1) and so
  * reaches base as well as every other battlefield.
  *
  * Filtered rather than left to `forceMoveToBattlefield`'s own already-there
@@ -2533,7 +2533,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   },
 
   // Whirlwind's half: one player choosing a unit — ANY unit, either owner's,
-  // base or battlefield (355.9.b's bare noun) — to send to its owner's hand.
+  // base or battlefield (355.9.a.1's bare noun) — to send to its owner's hand.
   //
   // The decline leads, and is what makes "MAY" mean may: with no unit in play at
   // all it is the only option, so the question is executed rather than asked and

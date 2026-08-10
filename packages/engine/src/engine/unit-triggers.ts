@@ -843,7 +843,7 @@ const ATTACK_TRIGGERS_PARTLY_HERE: Record<
       case "Order": {
         // "An enemy unit" — no "here" on this branch, unlike the Fury one. The
         // card distinguishes them in print, so this reaches an enemy anywhere on
-        // the board, base included (355.9.b).
+        // the board, base included (355.9.a.1).
         const anyEnemy = enemiesAnywhere(recycled, ctx.casterIndex)[0];
         return anyEnemy ? stunUnits(recycled, ctx.casterIndex, [anyEnemy]) : recycled;
       }

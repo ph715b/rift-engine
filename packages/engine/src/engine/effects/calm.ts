@@ -215,7 +215,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-034": {
     // Feral Strength — "[Reaction] [Repeat] [2] Give a unit +2 Might this turn."
     //
-    // "A unit", not "a unit at a battlefield", so 355.9.b puts a unit in either
+    // "A unit", not "a unit at a battlefield", so 355.9.a.1 puts a unit in either
     // base on the target list — the same reading Smoke Screen and En Garde take,
     // and no owner clause, so an enemy is a legal (if odd) target.
     //
@@ -372,7 +372,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Charm — "Move an enemy unit."
     //
     // Names no battlefield, so the unit can be taken from the enemy's base as
-    // well as from a battlefield (355.9.b — the bare noun "unit" means objects on
+    // well as from a battlefield (355.9.a.1 — the bare noun "unit" means objects on
     // the Board, and Bases are Public). Where it goes rides on
     // `destinationBattlefieldId`, the field a token-placing spell already uses.
     //
@@ -413,7 +413,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Discipline — "[Reaction] Give a unit +2 Might this turn. Draw 1."
     //
     // scope: "anywhere", deliberately. The card says "a unit", NOT "a unit at a
-    // battlefield", and rule 355.9.b settles what the bare noun means: unit
+    // battlefield", and rule 355.9.a.1 settles what the bare noun means: unit
     // refers to objects on the Board unless the text says otherwise, and the
     // targeting section's own list of Public zones names Bases right alongside
     // Battlefield Zones. So a unit standing at home is a legal target — and so
@@ -499,7 +499,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
   "OGN-050": {
     // Rune Prison — "[Action] Stun a unit."
     //
-    // scope: "anywhere". "A unit", not "a unit at a battlefield" — rule 355.9.b
+    // scope: "anywhere". "A unit", not "a unit at a battlefield" — rule 355.9.a.1
     // settles the bare noun as objects on the Board, and the targeting section
     // lists Bases among the Public zones. Same reading Discipline, Final Spark
     // and Stupefy already have. No owner restriction either: stunning your own
@@ -536,7 +536,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // multiplier layer in effective-might that no other card wants.
     //
     // "A friendly unit" with no battlefield named, so scope "anywhere"
-    // (355.9.b) — sacrificing a unit at home for one big turn is the play.
+    // (355.9.a.1) — sacrificing a unit at home for one big turn is the play.
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, _ctx, event) => {
       const id = event.targetUnitInstanceId;
@@ -588,7 +588,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // [Level 6][>] Give it +3 Might this turn instead."
     //
     // Discipline's spec exactly: "a unit", not "a unit at a battlefield", so
-    // 355.9.b's bare noun puts a unit in either base on the target list, and no
+    // 355.9.a.1's bare noun puts a unit in either base on the target list, and no
     // owner clause means an enemy is a legal (if odd) choice.
     //
     // **"INSTEAD" is the whole of the second sentence's arithmetic.** The
@@ -667,7 +667,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // `choicesOf`; all three are shared files. Pinned by a test that asserts the
     // draw does NOT happen, so closing the gap fails loudly.
     //
-    // Rune Prison's spec: "a unit", not "a unit at a battlefield" (355.9.b), and
+    // Rune Prison's spec: "a unit", not "a unit at a battlefield" (355.9.a.1), and
     // no owner clause — stunning your own is a bad play, not an illegal one.
     //
     // [Hidden] and [Action] are timing (engine/timing.ts). The irony of the
@@ -893,9 +893,13 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // nothing about it changes what this resolver does.
     //
     // Played to BASE she still heals — "your units here" is a real instruction
-    // wherever she is, and 355.9.b makes a Base a place like any other — but the
-    // second half asks nothing, because no enemy unit can be standing in your
-    // base for her to move out of it.
+    // wherever she is, and **107.1.b** makes a Base a place like any other
+    // ("Each Base is a Location") — but the second half asks nothing, because no
+    // enemy unit can be standing in your base for her to move out of it.
+    //
+    // Cited 107.1.b, not the 355.9.b this once said. That claim is about what
+    // "here" resolves to, which is a LOCATION question and not a targeting one —
+    // so neither half of 355.9 was ever the right rule for it.
     //
     // "HEAL", not "heal all units": only the caster's, and only at her location.
     // `healAllUnits` is the wrong helper twice over (it clears both players,
@@ -954,8 +958,10 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // **"HERE" is where he landed**, so this reads `event.destination` rather
     // than looking him up — the same field, and the same reason, as Blitzcrank -
     // Impassive's "to here" and Janna - Savior's "your units here". Played to
-    // BASE the token lands in base: a Base is a Location like any other (355.9.b,
-    // and 107.1.b makes it one), so "here" is a real answer there too rather than
+    // BASE the token lands in base: a Base is a Location like any other
+    // (**107.1.b**, "Each Base is a Location" — this once also cited 355.9.b,
+    // which is a targeting rule and says nothing about what "here" means), so
+    // "here" is a real answer there too rather than
     // a case the card declines to work in. That is deliberately NOT Blitzcrank's
     // "when you play me TO A BATTLEFIELD", which prints the restriction this card
     // does not.
@@ -1076,7 +1082,7 @@ function trashUnitsAndGear(state: GameState, playerIndex: 0 | 1) {
  * are no other friendly units at the same location."
  *
  * LOCATION, not battlefield, so a death in base asks about the base. That is the
- * same bare-noun reading (355.9.b) that Discipline and Rune Prison take of "a
+ * same bare-noun reading (355.9.a.1) that Discipline and Rune Prison take of "a
  * unit", applied to "here": a Base is a place on the Board like any other, and a
  * Poro that dies at home surrounded by its friends did not die alone.
  *
@@ -1663,7 +1669,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // than a Move — 454). It is the card's own condition, and a check that is
     // currently always true is cheaper to keep than to rediscover.
     //
-    // "ANOTHER friendly unit" carries no location word, so 355.9.b's bare-noun
+    // "ANOTHER friendly unit" carries no location word, so 355.9.a.1's bare-noun
     // reading applies and a unit at home is a legal choice — pumping a defender
     // in base is exactly what this is for when the Dancer walks in alone.
     //
@@ -1816,7 +1822,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 };
 
 /** The units Ribbon Dancer's "give ANOTHER friendly unit" may name — hers,
- *  anywhere (355.9.b), minus herself. One function for the fire-time "is there
+ *  anywhere (355.9.a.1), minus herself. One function for the fire-time "is there
  *  anybody to give it to" check and for the option list, so the two cannot
  *  disagree about what "another" means. */
 function ribbonDancerCandidates(state: GameState, ownerIndex: 0 | 1, selfInstanceId: string): UnitInstance[] {
@@ -2015,7 +2021,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // on-play trigger, which has already established that he was played TO a
   // battlefield and that some enemy unit exists.
   //
-  // "AN ENEMY UNIT" carries no location word, so 355.9.b's bare-noun reading
+  // "AN ENEMY UNIT" carries no location word, so 355.9.a.1's bare-noun reading
   // applies and a unit sitting in the opponent's base is a legal grab — which is
   // the interesting half of the card, since dragging a defender out of a
   // battlefield they were holding is something Charm already does.
@@ -2040,7 +2046,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // Spirit's Refuge's "buff a friendly unit", raised by its on-play self-trigger.
   //
   // "A friendly unit" carries no location word, so base and battlefield are both
-  // eligible — 355.9.b's bare-noun reading, the same one Vanguard Helm's
+  // eligible — 355.9.a.1's bare-noun reading, the same one Vanguard Helm's
   // equivalent question takes. Already-buffed units stay on offer: 702.3.a makes a
   // second buff a no-op rather than an illegal choice, and filtering them would
   // quietly rewrite the card as "an UNBUFFED friendly unit".

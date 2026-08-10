@@ -260,7 +260,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // and deals all 12 to a lone survivor.
     //
     // `min: 6, max: 6` — not "up to six". Nothing in the text offers fewer.
-    // `scope: "anywhere"`: "a unit" is 355.9.b's bare noun, so a unit in either
+    // `scope: "anywhere"`: "a unit" is 355.9.a.1's bare noun, so a unit in either
     // base is a legal target, the same reading Final Spark already takes.
     targeting: { kind: "unitList", min: 6, max: 6, scope: "anywhere", allowsDuplicates: true },
     resolve: (state, ctx, event) =>
@@ -509,7 +509,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // this uncastable with fewer than two units in play. The two chosen units are
     // always DISTINCT under `unitSlots`, which is what "ANOTHER unit" wants.
     //
-    // `scope: "anywhere"`: "a unit" is 355.9.b's bare noun, so either player's base
+    // `scope: "anywhere"`: "a unit" is 355.9.a.1's bare noun, so either player's base
     // is in reach — and either player's unit, since the card names no owner. Buffing
     // an enemy is legal and occasionally right (feeding a -2 to something that
     // matters more), so nothing narrows it here.
@@ -700,7 +700,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // applies for Defy's cost filter, so a Repeat-boosted spell still gives its
     // printed number.
     //
-    // **"A friendly unit" is a bare noun**, so `scope: "anywhere"` — 355.9.b's
+    // **"A friendly unit" is a bare noun**, so `scope: "anywhere"` — 355.9.a.1's
     // reading reaches base, the same reading Blitzcrank - Impassive already uses.
     //
     // A vanished target is a no-op on both halves: two counters can name the same

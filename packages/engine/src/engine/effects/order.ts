@@ -145,7 +145,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // difference between this and the `min: 0` slot cards a few entries down,
     // and it is printed.
     //
-    // `scope: "anywhere"`: "two friendly units" names no battlefield, so 355.9.b
+    // `scope: "anywhere"`: "two friendly units" names no battlefield, so 355.9.a.1
     // reaches base.
     //
     // "EACH +1", so the same amount goes to both — one instruction applied per
@@ -183,7 +183,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // resolution time. Same split Spoils of War and Find Your Center take.
     //
     // "A unit", not "a friendly unit" and not "at a battlefield": scope
-    // "anywhere" with no owner restriction, the reading 355.9.b gives the bare
+    // "anywhere" with no owner restriction, the reading 355.9.a.1 gives the bare
     // noun and the one Primal Strength and Discipline already take. Pumping an
     // enemy unit is a bad play, not an illegal one.
     //
@@ -463,7 +463,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // paid for.
     //
     // `scope` left at its default "battlefield" — the text names one, so a unit
-    // sheltering in either base is out of reach (355.9.b).
+    // sheltering in either base is out of reach (355.9.a.1).
     targeting: { kind: "unit", maxMight: 2 },
     resolve: (state, ctx, event) => {
       if (!event.targetUnitInstanceId) return state;
@@ -508,7 +508,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Mutation's note records.
     //
     // `scope: "anywhere"` for both — "a friendly unit", no battlefield named
-    // (355.9.b).
+    // (355.9.a.1).
     targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere", asymmetricSlots: true },
     resolve: (state, ctx, event) => {
       const victimId = event.targetUnitInstanceId;
@@ -750,7 +750,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // Harnessed Dragon — "When you play me, kill an enemy unit."
     //
     // "An enemy unit" with no battlefield named, so scope "anywhere": a unit
-    // sheltering in the opponent's base is a legal target (355.9.b).
+    // sheltering in the opponent's base is a legal target (355.9.a.1).
     //
     // destroyUnit, not damage: a Kill Instruction ignores Might and marked
     // damage, and routes through the funnel that fires [Deathknell] (808) and
@@ -920,7 +920,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // offered. Checking it in the resolver instead would come too late: the unit
     // would already be in play and the ability already on the chain.
     //
-    // Scope "anywhere": "an enemy unit" names no battlefield (355.9.b), so one
+    // Scope "anywhere": "an enemy unit" names no battlefield (355.9.a.1), so one
     // sheltering in the opponent's base is a legal target — Harnessed Dragon's
     // reading of the same phrase.
     targeting: { kind: "unit", owner: "enemy", maxMight: 3, scope: "anywhere" },
@@ -990,7 +990,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // is about to leave play.
     //
     // `ownUnitsEverywhere`, so a unit at home counts as much as one in the fight:
-    // "friendly unit" names no battlefield (355.9.b), and 2869 makes "friendly"
+    // "friendly unit" names no battlefield (355.9.a.1), and 2869 makes "friendly"
     // simply "controlled by you".
     //
     // Through `gainXp` rather than `xp + n` inline — that helper is the choke
@@ -1756,7 +1756,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   "OGN-209-kill": {
     prompt: () => "Cull the Weak: kill one of your units",
     // "One of their units" names no battlefield, so a unit in base is as
-    // eligible as one at a battlefield — 355.9.b, the bare noun "unit" means
+    // eligible as one at a battlefield — 355.9.a.1, the bare noun "unit" means
     // objects on the Board, and Bases are Public.
     //
     // No options at all when the player has no units: rule 055's "do as much as
@@ -2354,7 +2354,7 @@ function ownUnits(state: GameState, playerIndex: 0 | 1) {
  * rules' Special Terms definition read the other way round: *"A unit is alone
  * when there are no other friendly units at the same location."*
  *
- * LOCATION, not battlefield, so a death in base asks about the base — 355.9.b's
+ * LOCATION, not battlefield, so a death in base asks about the base — 355.9.a.1's
  * bare-noun reading, and a Base is a place on the Board like any other. A Poro
  * that dies at home surrounded by its friends did not die alone, so it draws.
  *
@@ -2568,7 +2568,7 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     // being killed — the gear reaches the trash and its own "when I am killed"
     // self-trigger (it has none) would fire.
     //
-    // "A UNIT", not "a unit at a battlefield", so `scope: "anywhere"` on 355.9.b's
+    // "A UNIT", not "a unit at a battlefield", so `scope: "anywhere"` on 355.9.a.1's
     // bare noun, and no `owner` — pumping an enemy is a bad play, not an illegal
     // one. Same reading Smoke Screen and Orb of Regret already get.
     //

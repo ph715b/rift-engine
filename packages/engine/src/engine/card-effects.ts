@@ -38,12 +38,37 @@ import { placeRecruitToken, type TokenDestination } from "./token.js";
  * this pool — a card only opts into the wider scope when its printed text
  * declines to name a battlefield.
  */
-/** Where a "unit"-kind target may be drawn from. `"battlefield"` is the default
- *  because most text says "a unit at a battlefield"; `"anywhere"` is the bare
- *  noun "unit", which 355.9.b makes include Bases. `"base"` is the narrowest and
- *  the newest — Showstopper's "buff a friendly unit IN YOUR BASE, then move it to
- *  a battlefield", where reaching a unit already at a battlefield would make the
- *  move half meaningless. */
+/**
+ * Where a "unit"-kind target may be drawn from.
+ *
+ * `"battlefield"` is the default because most text says "a unit at a
+ * battlefield". `"anywhere"` is the bare noun "unit". `"base"` is the narrowest
+ * and the newest — Showstopper's "buff a friendly unit IN YOUR BASE, then move it
+ * to a battlefield", where reaching a unit already at a battlefield would make
+ * the move half meaningless.
+ *
+ * # The two rules `"anywhere"` rests on, and the one it does NOT
+ *
+ * **355.9.a.1** is the widening: *"'Unit,' 'gear,' and 'rune' refer to objects on
+ * the Board unless specified otherwise."* That is what makes a bare noun mean the
+ * whole board.
+ *
+ * **355.10.a.1** is what puts a BASE in reach specifically: *"Public zones are
+ * Battlefield Zones, Bases, Trashes, Legend Zones, Champion Zones, and Facedown
+ * Zones."* Several comments in the effect files say "the targeting section lists
+ * Bases among the Public zones" — this is that sentence.
+ *
+ * **355.9.b is the NARROWING**, *"It meets all targeting restrictions"* — the rule
+ * that makes a printed "at a battlefield" load-bearing. It is the right citation
+ * for `"battlefield"` and the wrong one for `"anywhere"`.
+ *
+ * **72 comments in `src/` had those two swapped**, cited on 2026-08-09 and found
+ * by a card agent. Both sub-rules are real, which is exactly why it survived:
+ * every one of those citations RESOLVED to a genuine sentence, just not the one
+ * being relied on. 64 were corrected; the 8 that stand are the ones genuinely
+ * making the narrowing claim, plus two that were never a targeting question at all
+ * (what "here" means, which is 107.1.b — "Each Base is a Location").
+ */
 export type TargetScope = "battlefield" | "anywhere" | "base";
 
 /** Who may fill one slot of a multi-target spell. `"any"` means either
@@ -161,7 +186,7 @@ export type TargetingSpec =
        * Per-slot scope, for the one card whose two targets are scoped
        * DIFFERENTLY: Zenith Blade's "Stun an enemy unit **at a battlefield**.
        * You may move **a friendly unit** to that enemy unit's battlefield." The
-       * first half names a battlefield and the second does not, and rule 355.9.b
+       * first half names a battlefield and the second does not, and rule 355.9.a.1
        * makes that difference load-bearing — the friendly being moved is usually
        * the one sitting at home.
        *
@@ -333,7 +358,7 @@ export type TargetingSpec =
    *
    * `owner`/`scope` mean exactly what they do on the `unit` kind. Riposte passes
    * `scope: "anywhere"`, since "a friendly unit" carries no location word and
-   * 355.9.b's bare-noun reading reaches base — the same reading Blitzcrank -
+   * 355.9.a.1's bare-noun reading reaches base — the same reading Blitzcrank -
    * Impassive's decision already uses.
    *
    * The cost filters are carried for the same reason `chainSpell` carries them,

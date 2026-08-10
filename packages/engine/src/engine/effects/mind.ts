@@ -231,7 +231,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // 2-Might body outright — reading a minimum into text that has none would
     // have quietly removed the card's whole point.
     //
-    // "A unit", so 355.9.b reaches base as well; no owner clause, so debuffing
+    // "A unit", so 355.9.a.1 reaches base as well; no owner clause, so debuffing
     // your own is legal and pointless, the usual pair.
     targeting: { kind: "unit", scope: "anywhere" },
     resolve: (state, _ctx, event) =>
@@ -319,7 +319,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // "ITS OWNER plays it", not the caster: `playUnitToBase` is handed the unit's
     // own controller, so rescuing a friendly unit returns it to the right base.
     // Scope "anywhere" because the text names no battlefield; a unit already in
-    // base is a legal (if pointless) target, which is 355.9.b rather than an
+    // base is a legal (if pointless) target, which is 355.9.a.1 rather than an
     // oversight.
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
     resolve: (state, _ctx, event) => {
@@ -393,7 +393,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // of 1 Might."
     //
     // scope: "anywhere", deliberately. The card says "a unit", NOT "a unit at a
-    // battlefield", and rule 355.9.b settles what the bare noun means: the
+    // battlefield", and rule 355.9.a.1 settles what the bare noun means: the
     // targeting section's own list of Public zones names Bases alongside
     // Battlefield Zones, so a unit standing at home is a legal target. No owner
     // restriction is printed either, so `owner` is left unset — shrinking your
@@ -428,7 +428,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // owner channels 1 rune exhausted."
     //
     // scope "anywhere": the text says "a friendly unit", not "at a battlefield",
-    // and 355.9.b puts Bases among the public zones a target may be drawn from.
+    // and 355.9.a.1 puts Bases among the public zones a target may be drawn from.
     // Bouncing a unit out of your own base is a real (if narrow) play — it
     // re-arms an on-play trigger — so it is not worth narrowing on a guess.
     //
@@ -1061,7 +1061,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // this turn, to a minimum of 1 Might."
     //
     // "Enemy UNITS", not "enemy units here" and not "at a battlefield" — so this
-    // reaches the opponent's base as well (355.9.b), which is what makes it a
+    // reaches the opponent's base as well (355.9.a.1), which is what makes it a
     // board sweep rather than a combat trick.
     //
     // The floor is applied PER UNIT by giveMightThisTurn rather than to the
@@ -1155,7 +1155,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // for a 4-Might body that can move, fight or be spent the turn it lands, but
     // only on a board that has already paid for two gear.
     //
-    // "Gear" means gear on the BOARD (355.9.b: "'Unit,' 'gear,' and 'rune' refer
+    // "Gear" means gear on the BOARD (355.9.a.1: "'Unit,' 'gear,' and 'rune' refer
     // to objects on the Board unless specified otherwise"), which is `activeGear`
     // — a facedown card at a battlefield is not a gear until it is played, and one
     // in the trash is not one at all.
@@ -1298,7 +1298,7 @@ const ICEVALE_ENERGY_COST = 1;
 const ICEVALE_DEBUFF = 1;
 
 /** Every unit the OTHER player has in play, base included — Ruined Rex's "an
- *  enemy unit", which prints no location and so reaches base (355.9.b). Shared
+ *  enemy unit", which prints no location and so reaches base (355.9.a.1). Shared
  *  between his trigger, which asks whether there is anything worth asking about,
  *  and his decision, which asks what the answers are; the two drifting apart is
  *  how a question gets parked that nothing can answer, exactly as `gearsInTrash`
@@ -1327,7 +1327,7 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   // effect.)"
   //
   // "AN ENEMY UNIT", with no location clause at all, so scope is everywhere:
-  // 355.9.b's list of Public zones names Bases alongside Battlefield Zones, and
+  // 355.9.a.1's list of Public zones names Bases alongside Battlefield Zones, and
   // the pool says "at a battlefield" (Riptide Rex, one registry up) or "in a
   // base" (Yone - Blademaster) when it means one. 4 is enough to reach a unit
   // that has been parked at home all game, which is the card.

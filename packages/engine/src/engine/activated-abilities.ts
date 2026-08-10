@@ -968,7 +968,7 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     // **"A unit", not "a unit at a battlefield"** — the distinction is
     // load-bearing here and the two cards differ on it. Caitlyn's text names a
     // battlefield and takes the default scope; Xerath's is a bare noun, so
-    // 355.9.b makes it the whole board and base units are legal targets. Written
+    // 355.9.a.1 makes it the whole board and base units are legal targets. Written
     // out explicitly rather than defaulted, because the default is the other
     // answer.
     //

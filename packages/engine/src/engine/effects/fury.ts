@@ -172,7 +172,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-003": {
     // Blood Rush — "[Action] [Repeat] [1] Give a unit [Assault 2] this turn."
     //
-    // "A unit" with no battlefield clause and no owner clause: 355.9.b puts a
+    // "A unit" with no battlefield clause and no owner clause: 355.9.a.1 puts a
     // unit in either base on the list, and nothing stops the caster arming an
     // enemy. [Assault N] is only worth anything to an ATTACKER, so pointing it at
     // an enemy is a legal misplay rather than a shape the targeting should
@@ -200,7 +200,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // Two slots scoped DIFFERENTLY in print, so `slotScopes` rather than one
     // shared scope: the first target is "at a battlefield", the second is "up to
-    // one other unit" with no location clause at all, which 355.9.b reads as
+    // one other unit" with no location clause at all, which 355.9.a.1 reads as
     // reaching either base. Zenith Blade is the precedent for the split and for
     // why a spec-wide scope would refuse a target the card allows.
     //
@@ -295,7 +295,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // card's real ceiling and would have been unreachable under a distinct-targets
     // reading.
     //
-    // `scope: "anywhere"` — "a unit" is 355.9.b's bare noun. Icathian Rain is the
+    // `scope: "anywhere"` — "a unit" is 355.9.a.1's bare noun. Icathian Rain is the
     // same sentence six times over and takes the same shape.
     targeting: { kind: "unitList", min: 2, max: 2, scope: "anywhere", allowsDuplicates: true },
     resolve: (state, ctx, event) =>
@@ -754,7 +754,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // it just makes the card work on the turn's first play when it shouldn't.
     //
     // "A unit" with no owner and no battlefield named, so scope "anywhere" and
-    // either side is legal (355.9.b). The target is still CHOSEN when Legion is
+    // either side is legal (355.9.a.1). The target is still CHOSEN when Legion is
     // unmet — enumeration cannot know whether the condition will hold at
     // resolution, and a card that offers no target would be unplayable rather
     // than merely ineffective.
@@ -858,7 +858,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // for the same fact.
     //
     // "A unit", with no owner and no battlefield named, so `scope: "anywhere"`
-    // and either side is legal — 355.9.b's bare noun, the same call Cleave makes
+    // and either side is legal — 355.9.a.1's bare noun, the same call Cleave makes
     // two registries up. Handing an opponent's unit free mobility is a bad play
     // rather than an illegal one, and the enumeration must offer it or a human
     // could not make it.
@@ -1571,7 +1571,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // has resolved into play and the listener walk therefore already finds her.
     //
     // "An ENEMY unit" with no battlefield named, so a unit sitting in the
-    // opponent's BASE is a legal choice — 355.9.b's bare noun, the same reading
+    // opponent's BASE is a legal choice — 355.9.a.1's bare noun, the same reading
     // Gem Jammer's grant and Dangerous Duo's pump take. Contrast Mischievous Marai
     // (UNL-003), which prints "an enemy unit HERE" and means something narrower.
     on: "cardPlayed",
@@ -1635,7 +1635,7 @@ function rumbleTrades(state: GameState, playerIndex: 0 | 1, rumbleInstanceId: st
 
   const trades: RumbleTrade[] = [];
   // The clause names no battlefield, so a unit sitting in base is fodder too —
-  // 355.9.b's bare noun, the same reading Cleave and Gem Jammer take.
+  // 355.9.a.1's bare noun, the same reading Cleave and Gem Jammer take.
   for (const fodder of ownUnitsEverywhere(state, playerIndex).filter((u) => u.instanceId !== rumbleInstanceId)) {
     const might = currentMight(state, playerIndex, fodder);
     for (const mech of mechs) {

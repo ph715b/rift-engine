@@ -301,7 +301,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // line lands, rather than needing a second author to notice it is missing.
     //
     // "Ready a unit" — the bare noun, so scope "anywhere" with no owner
-    // restriction (355.9.b). Readying an ENEMY unit is a bad play, not an illegal
+    // restriction (355.9.a.1). Readying an ENEMY unit is a bad play, not an illegal
     // one; same reading Call to Glory's "a unit" and First Mate's "ready another
     // unit" already take, and base is where an exhausted unit usually sits.
     targeting: { kind: "unit", scope: "anywhere" },
@@ -363,7 +363,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // Primal Strength (OGN-154, above) at a different number, and the same three
     // readings apply unchanged: the bare noun "a unit" is scope "anywhere"
-    // (355.9.b), so a body sitting in either player's BASE is a legal target;
+    // (355.9.a.1), so a body sitting in either player's BASE is a legal target;
     // there is no floor because none is printed; and it is `giveMightThisTurn`
     // rather than a Buff, so it expires in the Expiration Step (317) instead of
     // persisting (705).
@@ -434,7 +434,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // mirrored pair is right — the flag exists for Convergent Mutation, whose slot
     // 0 is a beneficiary and slot 1 only a measurement.
     //
-    // Scope is "anywhere" because the printed text names no battlefield (355.9.b),
+    // Scope is "anywhere" because the printed text names no battlefield (355.9.a.1),
     // the same reading Challenge takes and the opposite of Marching Orders, which
     // prints "at a battlefield" on its enemy half.
     //
@@ -478,7 +478,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // is not writable from this file — see the note at `GRIM_RESOLVE_MIGHT`.
     //
     // "A FRIENDLY unit" with no battlefield printed, so `scope: "anywhere"`
-    // (355.9.b) — a body sitting at home is a legal subject, which matters because
+    // (355.9.a.1) — a body sitting at home is a legal subject, which matters because
     // the pump is most often cast on a unit about to walk out.
     //
     // `giveMightThisTurnToOwnUnit` rather than the bare `giveMightThisTurn`, for
@@ -848,7 +848,7 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // says it should sit at 2. The instanceId filter is the whole of the card.
     //
     // TOTAL Might, so it is a sum over every unit the caster controls: no
-    // battlefield is named, so base counts too (355.9.b). Each unit's Might is
+    // battlefield is named, so base counts too (355.9.a.1). Each unit's Might is
     // read WHERE IT STANDS (`mightInPlace`), because the positional auras — Garen
     // - Commander, Lee Sin - Centered — give different answers at a battlefield
     // and at home, and a sum taken with `isCombat: false` is the same reading
@@ -1412,7 +1412,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       if (event.kind !== "unitMoved") return state;
       if (event.unitInstanceId !== listener.card.instanceId) return state;
       // "ANOTHER friendly unit" with no battlefield named, so base counts
-      // (355.9.b) and Kato himself does not. Nothing to give it to is 055's
+      // (355.9.a.1) and Kato himself does not. Nothing to give it to is 055's
       // do-as-much-as-you-can and asks nothing — the same place Miss Fortune -
       // Captain puts her "is anything exhausted" check, and for the same reason:
       // whether a recipient EXISTS is a question about the board at resolution,
@@ -1563,7 +1563,7 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // relocation — so the printed "to a battlefield" needs no extra check.
     //
     // "AN ENEMY UNIT" names no battlefield, so their base is on offer too
-    // (355.9.b) — which is the card's real use, pulling a defender out of safety
+    // (355.9.a.1) — which is the card's real use, pulling a defender out of safety
     // into a fight the Faefolk has just started.
     //
     // "THAT battlefield" is `event.to`, carried onto the decision rather than
@@ -1894,7 +1894,7 @@ export const decisions: Record<string, DecisionDefinition> = {
   // on-conquer trigger once the excess threshold is met.
   //
   // "AN ENEMY UNIT" with no "here" printed, so this reaches the opponent's whole
-  // board including their base (355.9.b) — the same distinction Twisted Fate -
+  // board including their base (355.9.a.1) — the same distinction Twisted Fate -
   // Gambler's two branches draw from each other, one saying "here" and one not.
   //
   // "THAT MUCH" is re-derived from `lastShowdownExcessDamage` rather than carried,
@@ -2287,7 +2287,7 @@ function sivirQualifies(state: GameState, listener: Listener, event: GameEvent):
 }
 
 /** Every unit `playerIndex` controls except one — Kato the Arm's "ANOTHER
- *  friendly unit", which names no battlefield and so includes base (355.9.b). */
+ *  friendly unit", which names no battlefield and so includes base (355.9.a.1). */
 function otherFriendlyUnits(state: GameState, playerIndex: 0 | 1, excludeInstanceId: string): UnitInstance[] {
   return ownUnitsEverywhere(state, playerIndex).filter((u) => u.instanceId !== excludeInstanceId);
 }

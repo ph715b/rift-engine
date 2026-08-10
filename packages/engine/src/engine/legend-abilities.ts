@@ -528,7 +528,7 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
   "OGN-261-buff": {
     prompt: () => "Leona - Radiant Dawn: buff a friendly unit",
     // "A friendly unit" names no battlefield, so a unit in base is as eligible
-    // as one at a battlefield (355.9.b). Already-buffed units are still offered:
+    // as one at a battlefield (355.9.a.1). Already-buffed units are still offered:
     // 702.3.a makes a second buff a no-op rather than an illegal choice, and
     // filtering them here would silently change "buff a friendly unit" into
     // "buff an unbuffed friendly unit" — which matters when everything you
