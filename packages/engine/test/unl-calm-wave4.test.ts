@@ -179,11 +179,14 @@ describe("Honeyfruit (UNL-049): [Exhaust]: [Add] rainbow, and an Energy at [Leve
     expect(second.players[0]!.floatingRainbowPower, "the base ability stopped working too").toBe(2);
   });
 
-  it("PINS THE GAP: 'This enters exhausted' is NOT implemented", () => {
-    // `deploy.GEAR_ENTERING_EXHAUSTED` is the mechanism and it is a shared file.
-    // Until the id is added there a Honeyfruit lands READY and can be tapped the
-    // turn it is played, which is the whole of its printed drawback.
-    expect(gearEntersExhausted(HONEYFRUIT), "the gap closed — delete this test and the PARTIAL coverage entry").toBe(false);
+  it("enters exhausted, which is the whole of its printed drawback", () => {
+    // **Was a pin, fired 2026-08-10, flipped rather than deleted.** The mechanism
+    // — `deploy.GEAR_ENTERING_EXHAUSTED` — already existed and held exactly one
+    // entry; this card had simply never been added, because the wave that wrote it
+    // could not edit a shared file. Until then a Honeyfruit landed READY and could
+    // be tapped the turn it was played: STRONGER than printed, which is the
+    // direction that looks finished.
+    expect(gearEntersExhausted(HONEYFRUIT), "Honeyfruit can be tapped the turn it lands again").toBe(true);
     // The positive control for the check itself: Iron Ballista is in that set, so
     // a `false` here would not merely mean "the function always says no".
     expect(gearEntersExhausted("OGN-017"), "the enters-exhausted check itself is broken").toBe(true);
@@ -404,21 +407,34 @@ describe("Nami - Headstrong (UNL-052): when I hold, ready and buff the next unit
     expect(poro!.buffed).toBe(false);
   });
 
-  it("PINS THE GAP: her optional [Calm] cost is not offered, so the stun cannot fire", () => {
-    // One row in `card-effects.OPTIONAL_POWER_COSTS` — a shared file — is the whole
-    // of what is missing: `"UNL-052": { domain: "Calm", count: 1 }`.
+  it("offers BOTH variants, and only the paid one stuns", () => {
+    // **Was a pin, fired 2026-08-10, flipped rather than deleted.** One row in
+    // `card-effects.OPTIONAL_POWER_COSTS` — a shared file the wave could not edit
+    // — was the whole of what was missing: `"UNL-052": { domain: "Calm", count: 1 }`.
+    // Until it landed `optionalPowerPaid` could never be true and her [Stun] was
+    // unreachable in any real game.
+    //
+    // She is the SECOND card to ship this way; Pyke - Dockside Butcher (UNL-028)
+    // printed the identical sentence and had the identical dead clause. Both are
+    // now asserted, in their own files, through a real enumerated action.
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [spellInstance(NAMI)];
     state.players[0]!.channeled = runes(8);
     state.battlefields[0]!.units = { p2: [makeUnit({ instanceId: "victim" })] };
 
-    expect(
-      playsOf(state, NAMI).some((a) => a.optionalPowerPaid === true),
-      "the paid variant is offered now — delete this pin and the PARTIAL coverage entry",
-    ).toBe(false);
+    const plays = playsOf(state, NAMI);
+    const paid = plays.find((a) => a.optionalPowerPaid === true);
+    const unpaid = plays.find((a) => a.optionalPowerPaid !== true);
+    expect(paid, "the optional [Calm] variant is not enumerated — the row is gone").toBeDefined();
+    expect(unpaid, "the free variant vanished — the optional cost became mandatory").toBeDefined();
 
-    const played = play(state, NAMI);
-    expect(findUnit(played, "victim")!.stunned, "an unpaid Nami stunned anyway").toBe(false);
+    const withCost = answerDecisions(resolveHeldTriggers(accept(state, paid!)));
+    expect(findUnit(withCost, "victim")!.stunned, "the paid Nami did not stun").toBe(true);
+
+    // The negative on the same fixture, so the assertion above cannot pass on a
+    // build that stuns regardless of the flag.
+    const without = answerDecisions(resolveHeldTriggers(accept(state, unpaid!)));
+    expect(findUnit(without, "victim")!.stunned, "an unpaid Nami stunned anyway").toBe(false);
   });
 
   it("and the stun resolver itself works when the flag arrives", () => {

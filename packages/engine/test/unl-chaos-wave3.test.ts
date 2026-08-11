@@ -577,7 +577,7 @@ describe("Scryer's Bloom (UNL-136): Kill this, [1], [Exhaust]: [Predict 2], then
    *
    * Adding the row should FLIP both expectations, not delete them.
    */
-  it("enters READY — divergent from its own 'This enters exhausted'", () => {
+  it("enters EXHAUSTED, so it cannot be cracked the turn it lands", () => {
     const bloom = realGearInstance(SCRYERS_BLOOM);
     const state = casterState();
     state.players[0]!.hand = [bloom];
@@ -587,12 +587,17 @@ describe("Scryer's Bloom (UNL-136): Kill this, [1], [Exhaust]: [Predict 2], then
     expect(play, "the Bloom could not be played at all").toBeDefined();
     const landed = answerDecisions(resolveHeldTriggers(accept(state, play!)));
 
-    // false under the card's own text. true is what this engine does.
+    // **Was a pin asserting the WRONG answer, fired 2026-08-10, flipped rather
+    // than deleted.** `deploy.GEAR_ENTERING_EXHAUSTED` already existed with one
+    // entry; this card had never been added, because the wave that wrote it could
+    // not edit a shared file. Until then the Bloom landed ready and could be
+    // cracked immediately — STRONGER than printed, which is the direction that
+    // looks finished and so goes unreported.
     expect(
       landed.players[0]!.activeGear[0]!.exhausted,
-      "'This enters exhausted' is implemented now — flip this pin and drop the PARTIALLY_IMPLEMENTED entry",
-    ).toBe(false);
-    expect(activation(landed, bloom.instanceId), "it could not be cracked the turn it landed after all").toBeDefined();
+      "the Bloom lands ready again — its printed drawback is gone",
+    ).toBe(true);
+    expect(activation(landed, bloom.instanceId), "it can still be cracked the turn it lands").toBeUndefined();
   });
 });
 

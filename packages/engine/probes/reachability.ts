@@ -200,8 +200,21 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * not see it and neither could the typecheck.
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 111/225.
+ *
+ * **543 -> 551 on 2026-08-10, the table-row pass** — no card was written. Six
+ * cards were already implemented and simply absent from a table: `[Backline]`'s
+ * four (`combat.assignmentOrder` consulted a one-entry defId allowlist instead of
+ * asking the keyword), two Gear missing their `GEAR_ENTERING_EXHAUSTED` row, and
+ * Nami's `OPTIONAL_POWER_COSTS` row. UNL **111/225 -> 119/225** (50% to 53%).
+ *
+ * Worth reading beside the wave-5 note above: eleven cards were WRITTEN there for
+ * +11, and eight more came from adding rows to tables that already existed. This
+ * probe is the only instrument that can see either kind, because coverage reports
+ * all of them implemented either way.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/225.
  */
-const PINNED_UNION = 543;
+const PINNED_UNION = 551;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

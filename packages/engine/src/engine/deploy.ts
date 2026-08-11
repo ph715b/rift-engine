@@ -65,7 +65,16 @@ const VAYNE_HUNTER = "OGN-035";
  * this is not. Same "small, precise, non-speculative table" convention as
  * effective-might.ts's aura list.
  */
-const GEAR_ENTERING_EXHAUSTED = new Set(["OGN-017"]); // Iron Ballista
+const GEAR_ENTERING_EXHAUSTED = new Set([
+  "OGN-017", // Iron Ballista
+  // **Both added 2026-08-10, and both were STRONGER than printed without the
+  // row** — the direction coverage.ts's own note calls the worse one, because a
+  // card that does too much looks finished. Each shipped from a card wave with
+  // its ability written and its "This enters exhausted" clause dropped, since
+  // this table is shared and the wave could not touch it.
+  "UNL-049",
+  "UNL-136",
+]);
 
 export function gearEntersExhausted(defId: string): boolean {
   return GEAR_ENTERING_EXHAUSTED.has(defId);

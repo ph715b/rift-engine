@@ -319,27 +319,48 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // be two halves, one of which (a false flat `[Reaction]` parsed from the
     // keyword's own reminder text) was making the cards STRONGER than printed at
     // the same time as the missing half made them unplayable.
-    expect([...flagged].sort()).toEqual(["Backline"]);
+    // **`[Backline]` left on 2026-08-10, and the list is EMPTY for the fifth
+    // time.** Its removal is the sharpest instance yet of the shape `[Level]`'s
+    // note describes: not a keyword-level gap at all. `combat.assignmentOrder`
+    // had sorted three tiers since Caitlyn - Patrolling was written; it simply
+    // consulted a one-entry defId allowlist instead of asking `hasKeyword`,
+    // because `"Backline"` was not in KEYWORDS on the day it was written. The
+    // keyword arrived with Unleashed and nothing connected the two, so for a week
+    // the parser populated a keyword nothing read while this list blamed four
+    // cards on a mechanism that already existed. One `hasKeyword` call.
+    //
+    // Empty is the map's normal resting state between sets — it has now emptied
+    // and refilled five times, twice on the day a set's JSON arrived. Keep the
+    // mechanism.
+    expect([...flagged].sort()).toEqual([]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is
-    // the regression this whole file is pointed at. UNL is the only set allowed
-    // to appear, and it must appear — an empty set here would mean the four
-    // keywords above were declared and then matched nothing.
+    // the regression this whole file is pointed at.
+    //
+    // **This used to require UNL to appear** — "it must appear, an empty set here
+    // would mean the four keywords above were declared and then matched nothing".
+    // That premise expired with `[Backline]` on 2026-08-10: the map is empty, so
+    // nothing is flagged and no set appears. The surviving invariant is the one
+    // that was always the point — a COMPLETE set may never be flagged — and the
+    // "did the sweep actually reach anything" half now lives in its own test
+    // below, asked of the bracket parser rather than of the pool's current state.
     const flaggedSets = new Set(
       registry
         .all()
         .filter((def) => unimplementedKeywordsOn(def).length > 0)
         .map((def) => def.id.split("-")[0]!),
     );
-    expect([...flaggedSets]).toEqual(["UNL"]);
+    for (const set of flaggedSets) expect(COMPLETE_SETS, `${set} is complete and yet flagged`).not.toContain(set);
 
     // **Backline specifically must NOT drag OGN-068 Caitlyn - Patrolling in.**
     // She prints the effect as prose and is implemented per-card in
     // `combat.ASSIGNED_LAST_DEF_IDS`; only UNL prints the bracket. This is the
     // whole reason `unimplementedKeywordsOn` reads the TEXT rather than
     // `def.keywords`, and it would regress silently — she would simply go grey
-    // in the deck builder, in a set that is supposed to be hard-gated.
+    // in the deck builder, in a set that is supposed to be hard-gated. Still
+    // asserted now that the keyword is implemented, because the risk is the same
+    // shape pointed the other way: she must keep her Backline via the allowlist.
     expect(unimplementedKeywordsOn(registry.get("OGN-068"))).toEqual([]);
   });
 
@@ -709,13 +730,36 @@ describe("a partial note says how much is left", () => {
     }
   });
 
-  it("and the sweep above is not vacuous — some set really is under construction", () => {
-    // The half that would rot silently: once every set is in COMPLETE_SETS the
-    // loop above skips everything and passes while asserting nothing. This is
-    // the positive control, and it is the line to DELETE (with a note saying the
-    // pool is finished) rather than to weaken, if that day comes.
+  it("and the sweep above is not vacuous — the bracket parser it rides on still reads", () => {
+    // The half that would rot silently: the loop above passes while asserting
+    // nothing if `unimplementedKeywordsOn` has stopped SEEING keywords, as opposed
+    // to seeing them and finding none unimplemented.
+    //
+    // **This used to assert that some card, somewhere, carries an unimplemented
+    // keyword — and that premise expired on 2026-08-10** when `[Backline]` left
+    // and UNIMPLEMENTED_KEYWORDS emptied for the fifth time. Its own note said to
+    // DELETE it if that day came "with a note saying the pool is finished". The
+    // pool is NOT finished — a hundred UNL cards are unwritten — so deleting it
+    // would have been right for the wrong reason and would have removed the only
+    // check that the sweep still reaches anything.
+    //
+    // Rewritten to prove the MECHANISM rather than the pool's current state, on a
+    // subject that cannot be implemented out from under it: the bracket parser is
+    // the part that would break silently, and it is asked directly. An empty
+    // UNIMPLEMENTED_KEYWORDS map is then a real finding rather than a broken sweep.
+    expect(keywordFromBracketText("Tank"), "the bracket parser stopped resolving a known keyword").toBe("Tank");
+    expect(keywordFromBracketText("Backline"), "Backline fell out of KEYWORDS entirely").toBe("Backline");
+    expect(keywordFromBracketText("NotAKeyword"), "the parser now resolves anything").toBeUndefined();
+
+    // The pool really does still print the brackets the sweep walks, so a parser
+    // that reads and a pool that prints are both confirmed.
+    const bracketed = registry.all().filter((def) => /\[Backline\]/.test(def.text ?? ""));
+    expect(bracketed.length, "no card prints [Backline] any more — the fixture drifted").toBe(4);
+
+    // And the invariant the original line was really defending: no card from a
+    // COMPLETE set may ever be flagged. Vacuously true while the map is empty,
+    // and the thing that must hold the moment it refills.
     const flagged = registry.all().filter((def) => unimplementedKeywordsOn(def).length > 0);
-    expect(flagged.length, "no card anywhere carries an unimplemented keyword — is the sweep still reaching?").toBeGreaterThan(0);
     for (const def of flagged) expect(COMPLETE_SETS).not.toContain(def.id.split("-")[0]!);
   });
 });

@@ -172,17 +172,26 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   //
   // It was the largest single blocker left in this map: twelve cards, none of
   // which could appear in a generated deck while it stood.
-  // **Backline is here for the UNL cards and does NOT grey Caitlyn**, which is
-  // the whole reason `unimplementedKeywordsOn` reads the TEXT rather than
-  // `def.keywords`. OGN-068 Caitlyn - Patrolling prints the effect as prose and
-  // is implemented per-card in `combat.ASSIGNED_LAST_DEF_IDS`; she carries no
-  // `[Backline]` bracket, so she is not flagged. The 4 UNL cards that DO print
-  // the bracket get nothing from `assignmentOrder` until it learns to ask the
-  // keyword, and are flagged until it does.
-  [
-    "Backline",
-    "[Backline] is ignored — this is not yet assigned combat damage last",
-  ],
+  // **`[Backline]` LEFT this map on 2026-08-10, and its entry was the clearest
+  // case yet of a note outliving the thing it described.** The row said the four
+  // UNL cards "get nothing from `assignmentOrder` until it learns to ask the
+  // keyword" — which was true when written, and stopped being most of the way
+  // true when `"Backline"` was added to `model/keyword.ts` with the set. From then
+  // on the parser was populating the keyword and `assignmentOrder` simply never
+  // asked; the tier logic, including Tank's tie-break, had been sitting in
+  // `combat.ts` the whole time for Caitlyn's sake.
+  //
+  // One line in `assignmentOrder` — `hasKeyword(..., "Backline")` beside the
+  // existing allowlist — freed three cards outright. Caitlyn keeps the allowlist
+  // because she prints the sentence as prose and carries no bracket at all.
+  //
+  // UNL-090 LeBlanc - Everywhere At Once is NOT freed by it, and correctly gets
+  // no row here. She was never one keyword away — nothing is registered for her
+  // at all — so she now reports plainly unimplemented rather than blamed on
+  // `[Backline]`. That is the right direction: this map exists for cards that
+  // would otherwise look FINISHED, and a card with no implementation already
+  // looks unfinished without help. She is the reason `unimplementedKeywordsOn`
+  // and `PARTIALLY_IMPLEMENTED` are separate answers.
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.
@@ -455,10 +464,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // **STRONGER than printed, which is the worse direction of the two.** Every other
   // entry here under-reaches; this one lets the gear be cracked the turn it lands.
   [
-    "UNL-136",
-    "half written: the ability works; 'This enters exhausted' is unwritten — needs a GEAR_ENTERING_EXHAUSTED row in deploy.ts, so it can be used the turn it arrives",
-  ],
-  [
     "UNL-140",
     "half written: the take-control works; its optional 'spend 5 XP' additional cost and the any-Might target it buys are unwritten — no XP additional cost exists on PlayCardAction or in card-effects.ts's cost tables",
   ],
@@ -487,6 +492,13 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // a mechanism that does not exist, rather than registering something that would
   // report DONE and never fire.
 
+  // **Three rows LEFT this map on 2026-08-10** — UNL-049 and UNL-136 to a
+  // `GEAR_ENTERING_EXHAUSTED` entry each, UNL-052 Nami to an
+  // `OPTIONAL_POWER_COSTS` row. All three notes named the exact table that
+  // was missing them and all three tables already existed; the waves that
+  // wrote the cards simply could not edit a shared file. **Two of the three
+  // were STRONGER than printed** while they sat here, which is the direction
+  // this map's own comment calls the worse one.
   // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
   // which reported DONE on its first clause before these rows landed. Each was
   // named by the agent that wrote it and pinned by a test in that agent's file.
@@ -496,14 +508,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   [
     "UNL-007",
     "half written: the 3 damage works; 'if it would die this turn, banish it instead' is unwritten — a turn-long death replacement needs a GameState list, a killUnit branch and a runEnd sweep",
-  ],
-  [
-    "UNL-049",
-    "half written: the activated ability works; 'This enters exhausted' is unwritten — needs a GEAR_ENTERING_EXHAUSTED row in deploy.ts, so it can be used the turn it arrives",
-  ],
-  [
-    "UNL-052",
-    "half written: 'when I hold, ready and buff the next unit you play' works; her optional [Calm] additional cost is not enumerated, so the stun it gates never fires — needs an OPTIONAL_POWER_COSTS row",
   ],
   [
     "UNL-073",

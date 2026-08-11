@@ -91,14 +91,20 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
  * Cards printing `[Backline]` as PLAIN PROSE — "I must be assigned combat damage
  * last".
  *
- * A per-card set rather than a keyword, and the rules are why: Caitlyn -
- * Patrolling prints the sentence rather than the bracket, so `parseKeywords`
- * sees nothing and "Backline" is absent from `KEYWORDS` entirely. Adding it there
- * would mean teaching the keyword parser a word no card in this pool brackets.
- * The conformance row that called Backline "a keyword with no card in this pool"
- * was wrong about her, and this is the correction.
+ * A per-card set BESIDE the keyword, and Caitlyn is why: she prints the sentence
+ * as prose rather than as a bracket, so `parseKeywords` sees nothing on her and
+ * no keyword check can reach her.
+ *
+ * **The rest of this comment used to say "Backline is absent from `KEYWORDS`
+ * entirely", and that went stale without anyone noticing.** It was true when
+ * written; `"Backline"` was added to `model/keyword.ts` with Unleashed, whose four
+ * cards DO print the bracket. So for a week `assignmentOrder` consulted a
+ * one-entry allowlist while the parser was already populating a keyword it never
+ * asked about, and the coverage note blamed a mechanism that existed. Reading the
+ * keyword — as of 2026-08-10 — also picks up a GRANTED `[Backline]`, which an
+ * allowlist could never have done.
  */
-const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling
+const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling, who prints it as prose
 
 /** Units whose printed text says they deal no combat damage. Read by
  *  `outgoingMight`, beside the Stun rule it mirrors. */
@@ -126,8 +132,22 @@ const SYMBOL_OF_THE_SOLARI = "OGN-227";
  */
 function assignmentOrder(state: GameState, units: readonly UnitInstance[], ownerIndex: 0 | 1): readonly UnitInstance[] {
   const isTank = (u: UnitInstance) => hasKeyword(state, u, ownerIndex, "Tank");
-  // Tank wins the tie, so a Tank+Backline unit is never also counted as last.
-  const isBackline = (u: UnitInstance) => !isTank(u) && ASSIGNED_LAST_DEF_IDS.has(u.defId);
+  // The keyword and the allowlist are BOTH consulted: the four UNL cards print
+  // `[Backline]`, Caitlyn prints the same sentence as prose, and `hasKeyword`
+  // additionally catches a Backline granted by an effect.
+  //
+  // **`!isTank(u)` is Tank winning the tie, and it is MEASURED-REDUNDANT for
+  // observable outcomes** — kept because it is correct, labelled so nobody reads
+  // it as load-bearing. Dropping it survived mutation on 2026-08-10, and the
+  // reason is worth knowing before `distribute` is ever changed: without it a
+  // Tank+Backline unit lands in BOTH tiers and appears twice in the returned
+  // list, but `distribute` recomputes `lethal` from state each time and dumps any
+  // surplus on the last entry, so a Tank+Backline unit with 5 Might facing a
+  // 9-Might pool produced identical survivors AND identical
+  // `lastShowdownExcessDamage` either way. The guard becomes observable the
+  // moment assignment stops being pure arithmetic over the same state.
+  const isBackline = (u: UnitInstance) =>
+    !isTank(u) && (hasKeyword(state, u, ownerIndex, "Backline") || ASSIGNED_LAST_DEF_IDS.has(u.defId));
   const tanks = units.filter(isTank);
   const backline = units.filter(isBackline);
   if (tanks.length === 0 && backline.length === 0) return units; // nothing to reorder

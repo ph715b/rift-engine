@@ -850,6 +850,14 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: n
   // action could reach. One row is the whole difference between a written card
   // and a played one, which is the shape worth remembering about this table.
   "UNL-028": { domain: "Fury", count: 1 },
+  // Nami - Headstrong — "You may pay [Calm] as an additional cost to play me",
+  // gating a `[Stun]`. The IDENTICAL shape to Pyke above, found by reading the
+  // half-written list back after his row landed rather than by anything
+  // reporting it: both cards had shipped with the trigger written and the cost
+  // unenumerable, and neither could ever fire. Worth the note because it is now
+  // twice, so the next card printing this sentence should be checked against
+  // this table before it is called blocked.
+  "UNL-052": { domain: "Calm", count: 1 },
 };
 
 /**

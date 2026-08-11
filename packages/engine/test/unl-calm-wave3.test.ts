@@ -302,13 +302,18 @@ describe("Enthusiastic Promoter (UNL-043): when I hold, [Buff] all units here", 
     expect(unitsAtBf(settled, "bf1").find((u) => u.instanceId === "fresh")!.buffed, "one unit's no-op stopped the rest").toBe(true);
   });
 
-  it("its own text is registered, whatever coverage says about [Backline]", () => {
-    // NOT `isCardImplemented`: `[Backline]` is in coverage's UNIMPLEMENTED_KEYWORDS
-    // (the engine does not yet assign combat damage last for the keyword), so this
-    // card reports unimplemented no matter what is written for its second half.
-    // Asked of the MODULE instead, which is the question this file can answer.
+  it("its own text is registered, and [Backline] no longer holds it back", () => {
+    // **This pin fired on 2026-08-10 and is flipped rather than deleted.** It was
+    // written asking the MODULE rather than `isCardImplemented`, because
+    // `[Backline]` sat in UNIMPLEMENTED_KEYWORDS and greyed the card no matter
+    // what was written for its own half. The keyword turned out to need one
+    // `hasKeyword` call in `combat.assignmentOrder` — the three-tier sort had been
+    // there since Caitlyn - Patrolling — so the card came whole.
+    //
+    // Both questions are kept: the module answer is what this file can prove, and
+    // the coverage answer is the one that was wrong for a week.
     expect(implementingModule(PROMOTER)).toBe("event triggers");
-    expect(isCardImplemented(registry.get(PROMOTER)), "[Backline] landed — revisit this").toBe(false);
+    expect(isCardImplemented(registry.get(PROMOTER)), "the Promoter is greyed again").toBe(true);
   });
 });
 
