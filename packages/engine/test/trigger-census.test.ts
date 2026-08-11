@@ -151,7 +151,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("285 held / 5 inline of 290 trigger cards", () => {
+  it("286 held / 5 inline of 291 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -168,6 +168,12 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // that is the thing this test exists to make impossible to forget.
     // **208/3/211 → 231/3/234 on 2026-08-08**, when the first wave of Unleashed
     // card work landed: 23 more cards carrying a trigger, every one of them held.
+    //
+    // **285/5/290 → 286/5/291 on 2026-08-10**, and the +1 is UNL-058 Lillia -
+    // Protector of Dreams, whose "when you play a token unit" had been refused
+    // twice for want of an event `placeToken` never fired. She is the pool's
+    // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
+    // listeners are all negative on it.
     //
     // **276/5/281 → 285/5/290 on 2026-08-10**, wave 5: nine more trigger cards,
     // every one of them held, and the inline count did not move.
@@ -220,9 +226,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 285,
+      held: 286,
       inline: 5,
-      cards: 290,
+      cards: 291,
     });
   });
 

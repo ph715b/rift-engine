@@ -216,8 +216,32 @@ const SHURELYAS_REQUIEM = "SFD-192";
  *  LEGEND-sourced keyword aura, and the third Rumble to grant Mechs something. */
 const RUMBLE_MECHANIZED_MENACE = "SFD-181";
 
+/** Lillia - Protector of Dreams — "Your token units have [Tank]."
+ *
+ *  The pool's first aura whose recipient condition is the recipient's own TOKEN
+ *  NATURE rather than a printed tag or a board state. `appliesTo` rather than
+ *  `appliesToDef`, and the two are not interchangeable here: a token has no
+ *  CardDefinition to ask — `createToken` builds the instance from a `TokenSpec` —
+ *  so the definition-level predicate could never see one. `[Tank]` is read on the
+ *  board by `combat.assignmentOrder` rather than at entry, which is what makes
+ *  the instance-level predicate sufficient; `[Vision]`'s entry trap, recorded on
+ *  `appliesToDef` above, does not reach this card. */
+const LILLIA_PROTECTOR = "UNL-058";
+
 const KEYWORD_AURAS: Record<string, KeywordAura> = {
   [CAPTAIN_FARRON]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Assault"] },
+  [LILLIA_PROTECTOR]: {
+    source: "unit",
+    // "YOUR token units", with no location clause — 355.9.a.1 widens a bare
+    // noun to the whole Board, so a token standing in base is covered too.
+    scope: "anywhere",
+    // She is not a token, so `appliesTo` already excludes her; stated as false
+    // rather than true because the card prints no "other" and a reader should
+    // not infer one.
+    excludesSelf: false,
+    appliesTo: (unit) => unit.isToken,
+    keywords: ["Tank"],
+  },
   [TARIC_PROTECTOR]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Shield"] },
   [GEMCRAFT_SEER]: { source: "unit", scope: "anywhere", excludesSelf: true, keywords: ["Vision"] },
   [SPIRITS_REFUGE]: {

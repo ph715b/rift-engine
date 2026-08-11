@@ -213,8 +213,39 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * all of them implemented either way.
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/225.
+ *
+ * **551 -> 550 on 2026-08-10, and this is the first time the pin has gone DOWN.**
+ * A drop is red and this one gated red; it is recorded here rather than quietly
+ * lowered, because the diagnosis is the useful part and the same shape will
+ * recur every time a card is finished.
+ *
+ * Two cards were implemented that day (UNL-058 Lillia, UNL-091 Concentrate).
+ * Measured against the pre-change sha by stashing and re-running, then diffed
+ * bucket by bucket, exactly two things moved:
+ *
+ *  - **UNL-091 Concentrate: `neverSeated` -> `offeredNeverTaken`.** Becoming
+ *    implemented SEATED it, because `deck-generator` builds covering decks from
+ *    `needsImplementation && isCardImplemented`. It is now offered in real games
+ *    and the AI declines it — strictly more visibility than before, and the
+ *    bucket this probe's own header calls "usually not a defect".
+ *  - **UNL-196 Daisy! -> `drawnNeverOffered`**, which IS the actionable bucket,
+ *    and it is the whole of the -1.
+ *
+ * Daisy! is sampling, and that was checked rather than assumed: at `GAMES=500`
+ * the `drawnNeverOffered` bucket is EMPTY and she is exercised. She costs 9
+ * Energy + 2 Calm — the most expensive card in the set — so "drawn but never
+ * offered" means never affordable rather than never enumerable, and both new
+ * cards are Calm, which is precisely the deck whose curve they changed.
+ *
+ * **The structural lesson, which is why this comment is long:** seating a new
+ * card DISPLACES another from a fixed-size covering deck, so finishing a card
+ * can legitimately move this figure down by one. A drop on the same day a card
+ * is implemented must be diagnosed in both directions — it is neither
+ * automatically a regression nor automatically noise.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 118/224.
  */
-const PINNED_UNION = 551;
+const PINNED_UNION = 550;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

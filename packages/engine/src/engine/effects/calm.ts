@@ -1575,7 +1575,51 @@ function apprenticeSmithReveal(state: GameState, ownerIndex: 0 | 1): GameState {
   return revealedFromDeck(after, ownerIndex, [top]);
 }
 
+/** Lillia - Protector of Dreams gives HERSELF +1 per token unit you play. */
+const LILLIA_TOKEN_MIGHT = 1;
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "UNL-058": {
+    // Lillia - Protector of Dreams — "When you play a TOKEN UNIT, give me +1
+    // [Might] this turn." Her second sentence ("your token units have [Tank]") is
+    // a `KEYWORD_AURAS` row in granted-keywords.ts, not this file.
+    //
+    // **This card was REFUSED twice and neither refusal was wrong at the time.**
+    // Both halves needed something that did not exist: `placeToken` held no event
+    // whatsoever, so "when you play a token unit" could not be observed, and the
+    // aura table had no way to ask about the RECIPIENT's token nature. Both
+    // landed on 2026-08-10 and the card is written without a single new
+    // primitive.
+    //
+    // Three conditions, all facts about the EVENT, so all asked in `applies` —
+    // 383.2.a.1 fixes the Trigger Condition at the moment it is fulfilled, and
+    // Sona - Harmonious's worked example under it makes a listener removed in
+    // reaction still resolve:
+    //
+    //   `isToken` is the whole card. 185.2.a makes a token PLAYED and 185 keeps
+    //   it from being a card, and this sentence wants exactly the first without
+    //   the second — the only listener in the pool that is positive on it, where
+    //   the three card-readers are negative.
+    //
+    //   `playedKind === "Unit"` because a Gold GEAR token is also a played token
+    //   and she says "token UNIT".
+    //
+    //   `casterIndex === ownerIndex` for "when YOU play". Without it an
+    //   opponent's Recruit would pump her.
+    //
+    // No cap: she prints no "first time each turn", so three tokens in a turn is
+    // +3 and each is its own held item.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.isToken &&
+      event.playedKind === "Unit" &&
+      event.casterIndex === listener.ownerIndex,
+    // The owned-unit form, so she no-ops if she has left the board between the
+    // hold and the pop rather than reaching for a Lillia an opponent has taken.
+    resolve: (state, listener) =>
+      giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, LILLIA_TOKEN_MIGHT),
+  },
   "SFD-190": {
     // Forgefire Cape — "When I attack or defend, deal 2 to ALL enemy units here."
     //

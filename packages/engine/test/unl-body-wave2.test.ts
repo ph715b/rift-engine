@@ -5,7 +5,7 @@ import { resolveShowdown } from "../src/engine/combat.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
 import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
 import { activatedAbilityFor } from "../src/engine/activated-abilities.js";
-import { implementingModule, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
+import { implementingModule, implementingModules, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { gainXp } from "../src/engine/effect-helpers.js";
 import { createCardInstance } from "../src/model/card.js";
@@ -99,17 +99,19 @@ describe("Concentrate (UNL-091): draw 2", () => {
     expect(after.players[0]!.deck).toHaveLength(3);
   });
 
-  it("PINS the unwritten half: the [Level] discounts do not reach the cost", () => {
-    // "[Level 6][>] This costs [2] less. [Level 11][>] This costs [4] less
-    // instead." — a COST reduction, which lives in cost-modifiers.ts and is not
-    // written. 11 XP is past BOTH thresholds, so a card that priced either one
-    // would answer 3 or 1 here rather than the printed 5.
+  it("prices its [Level] discounts — and 11 XP is -4, NOT -6", () => {
+    // **Was a pin asserting the printed 5, fired 2026-08-10, flipped rather than
+    // deleted.** The discount lives in cost-modifiers.ts, and the note that stood
+    // here — "no cost-modifiers entry" — was exactly right and exactly that
+    // small: `modifiedEnergyCost` already takes `state`, so reading XP needed no
+    // plumbing.
     //
-    // Asserting the WRONG answer deliberately, per this repo's rule for a
-    // recorded divergence: whoever writes the discount has to come here and
-    // change it, rather than the gap closing unnoticed.
+    // 11 XP is past BOTH thresholds, which is what makes this the interesting
+    // value: the card prints "INSTEAD", so the deeper tier REPLACES the
+    // shallower one. Stacking would answer -6 and cost 0 here. Full boundary
+    // coverage lives in test/unl-token-aura-and-level-cost.test.ts.
     const state = gainXp(makeState({ phase: "Action" }), 0, 11);
-    expect(modifiedEnergyCost(state, 0, "Spell", 5, CONCENTRATE)).toBe(5);
+    expect(modifiedEnergyCost(state, 0, "Spell", 5, CONCENTRATE), "the tiers stacked, or did not fire").toBe(1);
   });
 
   it("reports as PARTIAL rather than done, without a hand-written entry", () => {
@@ -118,9 +120,16 @@ describe("Concentrate (UNL-091): draw 2", () => {
     // for any card carrying an unimplemented keyword. That derivation is what
     // stops the draw half claiming the whole card, and both halves are asserted:
     // the effect IS registered here, and the card still does not read finished.
+    // **This test's PREMISE expired on 2026-08-10, when the discount landed.** It
+    // was asserting the card reads unfinished, derived from the printed `[Level]`
+    // bracket rather than from a hand-written coverage entry. Both halves are now
+    // written, so both halves are asserted the other way — and the point it was
+    // really making survives: the card is claimed by TWO modules, and neither one
+    // alone would have been enough to call it done.
     expect(implementingModule(CONCENTRATE), "the draw was never registered").toBe("card-effects");
-    expect(isCardImplemented(registry.get(CONCENTRATE)), "the card reads as finished").toBe(false);
-    expect(partialImplementationNote(registry.get(CONCENTRATE))).toMatch(/Level/);
+    expect(implementingModules(CONCENTRATE), "the [Level] discount is not registered").toContain("cost-modifiers");
+    expect(isCardImplemented(registry.get(CONCENTRATE)), "the card is greyed again").toBe(true);
+    expect(partialImplementationNote(registry.get(CONCENTRATE)), "something still blames this card").toBeUndefined();
   });
 });
 

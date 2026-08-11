@@ -145,6 +145,28 @@ function heraldCount(state: GameState, playerIndex: 0 | 1): number {
   return player.baseUnits.filter((u) => u.defId === HERALD_OF_SCALES).length + atBattlefields;
 }
 
+/**
+ * Concentrate — "[Level 6][>] This costs [2] less. [Level 11][>] This costs [4]
+ * less INSTEAD."
+ *
+ * **"Instead" is the whole subtlety and it is why these are a tiered lookup
+ * rather than two independent reductions.** The deeper tier REPLACES the
+ * shallower one, so a player at 11+ XP gets -4, not -6. `[Level]`'s own rule
+ * (824) makes each clause active while the XP threshold is met, which without
+ * the printed "instead" would leave both active at once.
+ *
+ * Read off `PlayerState.xp` through `state`, which `modifiedEnergyCost` already
+ * takes — this needed no new plumbing, only a row. The card's draw half has been
+ * written since wave 3 in effects/mind.ts; this closes it.
+ */
+const CONCENTRATE = "UNL-091";
+/** Highest tier first, so the lookup below returns the deepest one that applies
+ *  — which is exactly what "instead" means. */
+const CONCENTRATE_TIERS: readonly { readonly xp: number; readonly discount: number }[] = [
+  { xp: 11, discount: 4 },
+  { xp: 6, discount: 2 },
+];
+
 /** Battering Ram — "I cost [1] less for each card you've played this turn, to a
  *  minimum of [1]." Both numbers are printed, so both are named. */
 const BATTERING_RAM = "SFD-012";
@@ -594,6 +616,11 @@ export function costModifierDefIds(): string[] {
     HERALD_OF_SCALES,
     BATTERING_RAM,
     JAULL_FISH,
+    // Concentrate's two [Level] tiers. Its DRAW half is registered in
+    // effects/mind.ts, so both modules claim the card and coverage merges them —
+    // the same split Production Surge's note below describes, except that here
+    // both halves are genuinely implemented rather than one.
+    CONCENTRATE,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -710,6 +737,15 @@ export function modifiedEnergyCost(
   if (isDragon(defId)) {
     const heralds = heraldCount(state, playerIndex);
     if (heralds > 0) cost = Math.max(HERALD_FLOOR, cost - HERALD_DISCOUNT * heralds);
+  }
+
+  // Concentrate's [Level] tiers. Applied before the floors below on the same
+  // reasoning as every conditional discount here: a sometimes-discount comes off
+  // the printed cost. `find` on a highest-first list is what makes the printed
+  // "instead" true — at 11+ XP this returns 4 and never also applies the 2.
+  if (defId === CONCENTRATE) {
+    const tier = CONCENTRATE_TIERS.find((t) => player.xp >= t.xp);
+    if (tier !== undefined) cost = Math.max(0, cost - tier.discount);
   }
 
   // Raging Firebrand's charge. Applied to SPELLS only ("the next SPELL you play")

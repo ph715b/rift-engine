@@ -355,19 +355,37 @@ describe("Vilemaw (UNL-060): when I hold, draw 1", () => {
 
 // ---------------------------------------------------------------------------
 
-describe("the three cards this wave REFUSED, and why each is visible", () => {
+describe("the cards this wave REFUSED, and why each is visible", () => {
   // These are NOT pins on a divergence — nothing was written for them, so there
   // is no wrong behaviour to freeze. They exist so that "implemented" cannot
-  // creep up on these three ids from a half-written registration in this file:
+  // creep up on these ids from a half-written registration in this file:
   // registration is per defId, so one clause would flip the flag for the whole
   // card. If a later wave writes one properly it will also remove its id here.
   for (const [defId, needs] of [
     [ALPHA_WILDCLAW, "target-lookup.UNCHOOSEABLE_BY_ENEMIES is a flat defId Set; this is a Might-conditional aura over OTHER units"],
-    [LILLIA_PROTECTOR, "no event exists for a token being played (token.placeToken fires none), and the [Tank] aura needs granted-keywords.KEYWORD_AURAS"],
-    [MASTER_YI_UNSTOPPABLE, "the [Level] bands are cost reductions (cost-modifiers.ts) plus a second UNCHOOSEABLE entry"],
+    [MASTER_YI_UNSTOPPABLE, "the [Level] bands reduce POWER pips as well as Energy, which modifiedEnergyCost cannot express, plus a second UNCHOOSEABLE entry"],
   ] as const) {
     it(`${defId} is still unimplemented — ${needs}`, () => {
       expect(isCardImplemented(registry.get(defId))).toBe(false);
     });
   }
+
+  it("UNL-058 Lillia is WRITTEN — this refusal expired on 2026-08-10", () => {
+    // **Removed from the list above rather than left to rot, and the reason is
+    // worth keeping.** This wave's refusal named two blockers and both were
+    // accurate at the time: `placeToken` fired no event whatsoever, so "when you
+    // play a token unit" could not be observed, and `KEYWORD_AURAS` had no way
+    // to ask about the RECIPIENT's token nature.
+    //
+    // Neither turned out to be a subsystem. The first became a required
+    // `isToken` field on the `cardPlayed` event — which the rules demanded
+    // anyway, since 185.2.a makes a token PLAYED while 185 keeps it from being a
+    // CARD, and three listeners in the pool had been accidentally right only
+    // because nothing fired at all. The second was `appliesTo`, which already
+    // existed for Spirit's Refuge's "buffed".
+    //
+    // Kept as an assertion rather than deleted so that a regression in either
+    // mechanism fails HERE, next to the refusal it invalidated.
+    expect(isCardImplemented(registry.get(LILLIA_PROTECTOR)), "Lillia went back to being unimplemented").toBe(true);
+  });
 });

@@ -57,11 +57,21 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **551 of 693 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/225), at its default **250 games
+`reachability` is pinned at **550 of 692 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198, UNL 118/224), at its default **250 games
 per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
+
+**It dropped for the first time on 2026-08-10, by one, and it was NOT a
+regression** — worth knowing because the same shape recurs whenever a card is
+finished. `deck-generator` seats cards on `isCardImplemented`, so implementing
+one ADDS it to a fixed-size covering deck and DISPLACES another; the displaced
+card here (Daisy!, the set's most expensive at 9 Energy + 2 Calm) stopped being
+affordable rather than stopping being enumerable, and `GAMES=500` exercised her
+again with an EMPTY `drawnNeverOffered`. Diagnose a same-day drop by stashing,
+re-running against the old sha and diffing the BUCKETS — the movement, not the
+total, is what says which it is.
 
 **Do not read its buckets from a shallow run.** The depth is load-bearing and was
 measured: at `GAMES=40` the same probe reports 101 never-exercised and 8 cards

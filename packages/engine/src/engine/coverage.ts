@@ -540,10 +540,11 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // `cost-modifiers.ts`, not something a domain effect file can express. Worth
   // noting for whoever writes it: `[Level 11]` says "instead", so the deeper tier
   // REPLACES the shallower one — the reduction is −4, not −6.
-  [
-    "UNL-091",
-    "half written: the draw works; its [Level 6] and [Level 11] cost reductions are unwritten (no cost-modifiers entry)",
-  ],
+  // **UNL-091 Concentrate LEFT this map on 2026-08-10.** Its note said "no
+  // cost-modifiers entry", which was exactly right and exactly as small as it
+  // sounds: `modifiedEnergyCost` already takes `state`, so reading XP needed no
+  // plumbing at all. The only thing worth care was the printed "instead" — the
+  // [Level 11] tier REPLACES [Level 6], so the discount is -4 and never -6.
   // **UNL-023 Katarina - Reckless is HALF written**, and she is the first card in
   // this pool to make the decision-key over-report REAL rather than theoretical.
   //
