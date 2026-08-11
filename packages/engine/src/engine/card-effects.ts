@@ -905,6 +905,56 @@ export function optionalPowerCostOf(defId: string): { domain?: Domain; count?: n
 }
 
 /**
+ * "You may spend N XP as an additional cost to play me" — **204.2**, whose own
+ * wording is the phrase these cards print ("as an additional cost"), with
+ * **204.2.a**: "Additional Costs must be paid to finalize the spell or ability,
+ * in addition to the base cost."
+ *
+ * A SEPARATE table from `OPTIONAL_POWER_COSTS` rather than an `xp` field on it,
+ * for the reason every flag on `PlayCardAction` has its own: the two are paid
+ * from different places and priced by different code. A Power cost changes the
+ * rune payment and rides the whole `computeAutoPayment` / `[Deflect]` /
+ * discount-axis machinery; XP is **not a Game Object** (731) and cannot be
+ * targeted, discounted or taxed, so its variant is the plain payment with a flag
+ * — nothing about the runes changes at all. Folding them together would have
+ * meant an optional-cost record where half the fields are meaningless for half
+ * the cards.
+ *
+ * `spendXp`/`canSpendXp` (730.2) already exist; this is only the table saying
+ * which cards ask, and how much.
+ */
+const OPTIONAL_XP_COSTS: Readonly<Record<string, number>> = {
+  // Safety Inspector — "You may spend 3 XP as an additional cost to play me",
+  // which buys an EXEMPTION from his own symmetrical kill.
+  "UNL-164": 3,
+  // **UNL-140 Conscription is deliberately NOT here, and the reason is the
+  // shape of what its cost BUYS.** Safety Inspector's XP changes what his
+  // trigger does at resolution, which a flag on the action expresses exactly.
+  // Conscription's changes what may be CHOSEN — "choose any enemy unit at a
+  // battlefield INSTEAD" lifts a `maxMight` cap that lives in its
+  // `TargetingSpec` — and the enumerator fans optional costs out INSIDE the
+  // target loop, so a paid variant built there still carries a target already
+  // filtered to 3 Might or less.
+  //
+  // Listing it would therefore sell 5 XP for nothing: the caster pays and the
+  // cap still stands. That is strictly worse than under-offering, which is the
+  // direction this engine errs on everywhere else. It is the same
+  // choice-depends-on-a-variant shape `[Ambush]` needed (where the timing tier
+  // depends on the destination) and it wants the same kind of fix — the
+  // targeting filter has to be asked per variant, not once per card.
+};
+
+/** How much XP this card offers to take as an additional cost, if it does. */
+export function optionalXpCostOf(defId: string): number | undefined {
+  return OPTIONAL_XP_COSTS[defId];
+}
+
+/** For coverage: the cards whose printed additional cost this table implements. */
+export function optionalXpCostDefIds(): string[] {
+  return Object.keys(OPTIONAL_XP_COSTS);
+}
+
+/**
  * `[Repeat]`'s additional cost — rule 820.1.
  *
  * "Repeat is an Optional Additional Cost keyword ... The Cost is an Additional

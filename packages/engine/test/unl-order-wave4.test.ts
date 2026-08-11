@@ -749,13 +749,24 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     expect(casts[0]!.payment.powerRunes).toHaveLength(1);
   });
 
-  it("Safety Inspector (UNL-164) still has no way to buy out of its own kill", () => {
-    // Wave 3 wrote the kill and refused the "spend 3 XP" additional cost; nothing
-    // in wave 4 changed that, and the same four shared files still stand in the
-    // way. The controller therefore always kills, which is the printed behaviour
-    // of DECLINING — weaker than printed, the safe direction.
+  it("Safety Inspector (UNL-164) CAN buy out of his own kill — this refusal expired 2026-08-10", () => {
+    // **Was a refusal pin, and it is inverted rather than deleted.** Wave 3 wrote
+    // the kill and refused the "spend 3 XP" additional cost; wave 4 re-checked and
+    // agreed. Both were right at the time — the mechanism genuinely did not exist
+    // — and the refusal named the four shared files it would take. That is what
+    // was built: `OPTIONAL_XP_COSTS`, `optionalXpPaid`, an enumerated variant, a
+    // validator check, and the spend in execute-play-card.
+    //
+    // What both refusals OVERestimated is worth keeping: they expected the rune
+    // pricing fan-out an optional POWER cost needs. 731 makes XP not a Game
+    // Object, so there is no domain, no [Deflect] tax and no discount axis — the
+    // paid variant is the plain play plus a flag, and its payment is identical.
+    //
+    // `optionalUnitCostOf` is still undefined for him and that is still correct:
+    // his cost is XP, not a chosen permanent. Kept so the two tables cannot be
+    // confused for one another.
     expect(optionalUnitCostOf(SAFETY_INSPECTOR)).toBeUndefined();
-    expect(partialImplementationNote(registry.get(SAFETY_INSPECTOR)), "the partial note went missing").toMatch(/3 XP/);
+    expect(partialImplementationNote(registry.get(SAFETY_INSPECTOR)), "he is being blamed for a half he now has").toBeUndefined();
 
     const inspector = realUnitInstance(SAFETY_INSPECTOR);
     const state = makeState({ phase: "Action" });
@@ -765,17 +776,17 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     state.players[0]!.baseUnits = [makeUnit({ instanceId: "mine", name: "Mine" })];
 
     const casts = castsOf(state, inspector.instanceId);
-    expect(casts, "the Inspector was fanned into paid/unpaid variants — the clause has landed").toHaveLength(1);
+    expect(casts, "the paid/unpaid fan-out is gone").toHaveLength(2);
 
-    // He lands in base beside "Mine", so his controller has TWO units and the
-    // kill is a real question with no way to decline. That IS the refusal: with 9
-    // XP banked there is no option to buy out of it.
-    const asked = passUntilSettled(accept(state, casts[0], "Safety Inspector"));
-    expect(offered(asked).ids.sort(), "an opt-out appeared — the XP cost has landed").toEqual(
+    // The DECLINED variant still behaves exactly as this pin proved it did — kept
+    // so that adding the option cannot have changed the option-less path.
+    const free = casts.find((c) => (c as { optionalXpPaid?: true }).optionalXpPaid !== true)!;
+    const asked = passUntilSettled(accept(state, free, "Safety Inspector, cost declined"));
+    expect(offered(asked).ids.sort(), "declining stopped asking the caster to kill").toEqual(
       [inspector.instanceId, "mine"].sort(),
     );
     const after = answer(asked, "mine");
-    expect(unitAnywhere(after, "mine"), "with 9 XP banked he still had to kill one of his own — as refused").toBeUndefined();
+    expect(unitAnywhere(after, "mine"), "declining no longer costs a unit").toBeUndefined();
   });
 
   it("Undying Loyalty (UNL-168) still charges full price for a Poro", () => {

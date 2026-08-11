@@ -41,6 +41,7 @@ import {
   discardChoiceOf,
   hasXRainbowCost,
   optionalPowerCostOf,
+  optionalXpCostOf,
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
@@ -678,6 +679,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // all drop out, so the payment must be empty rather than merely small.
   if (action.acceleratePaid && !hasAccelerate(card, state, action.playerIndex, inHand)) {
     return fail(`${card.name} does not have [Accelerate]`);
+  }
+  // "You may spend N XP as an additional cost" (204.2). Enforced HERE rather than
+  // trusted from the enumerator, in both directions — a card that does not print
+  // the option cannot claim it, and one that does still needs the XP (204.2.a:
+  // "Additional Costs must be paid to finalize the spell or ability").
+  //
+  // Deliberately NOT folded into `payingOptional` below: that set drives an
+  // optional-cost DISCOUNT, and XP is not a Game Object (731) — it is not
+  // discountable, taxable or domained, so joining it there would have quietly
+  // reduced the rune price of every card printing an XP cost.
+  if (action.optionalXpPaid === true) {
+    const owed = optionalXpCostOf(card.defId);
+    if (owed === undefined) {
+      return fail(`${card.name} has no optional XP cost to pay`);
+    }
+    if (state.players[action.playerIndex].xp < owed) {
+      return fail(`${card.name} needs ${owed} XP as an additional cost, but you have ${state.players[action.playerIndex].xp}`);
+    }
   }
   // A discard choice: legal only for a card that asks for one, only naming a
   // card actually in hand, and never the card being played (by the time it

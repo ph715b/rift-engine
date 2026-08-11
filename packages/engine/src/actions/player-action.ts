@@ -141,6 +141,18 @@ export interface PlayCardAction {
    *  `acceleratePaid`, which additionally means "enters ready". */
   optionalPowerPaid?: true;
   /**
+   * "You may spend N XP as an additional cost to play me" (204.2) — whether the
+   * caster took the option. Conscription and Safety Inspector.
+   *
+   * Its OWN field, and the reason is sharper than for the neighbours above: XP is
+   * **not a Game Object** (731), so unlike `optionalPowerPaid` it changes nothing
+   * about the rune payment — no `[Deflect]` tax, no discount axis, no domain to
+   * price against. The paid variant is the SAME `payment` as the plain one plus
+   * this flag. Sharing a field with `optionalPowerPaid` would have made the
+   * pricing code believe runes were owed that never were.
+   */
+  optionalXpPaid?: true;
+  /**
    * Bard - Mercurial's "you may exhaust your legend as an additional cost to play
    * me" — whether the caster took the option.
    *

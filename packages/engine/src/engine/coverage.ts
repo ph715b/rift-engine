@@ -465,12 +465,15 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // entry here under-reaches; this one lets the gear be cracked the turn it lands.
   [
     "UNL-140",
-    "half written: the take-control works; its optional 'spend 5 XP' additional cost and the any-Might target it buys are unwritten — no XP additional cost exists on PlayCardAction or in card-effects.ts's cost tables",
+    "half written: the take-control works; its optional 'spend 5 XP' cost is deliberately not offered — the XP cost mechanism now exists (OPTIONAL_XP_COSTS), but this card's cost buys a WIDER TARGET and optional costs are fanned out inside the target loop, so a paid variant would still carry a 3-Might-capped target and sell the XP for nothing",
   ],
-  [
-    "UNL-164",
-    "half written: the kill decision works; its 'spend 3 XP' additional cost is unwritten, so the controller always kills (204.2.a makes it a real cost)",
-  ],
+  // **UNL-164 Safety Inspector LEFT this map on 2026-08-10.** Its note named
+  // four shared files and was right about all four; `OPTIONAL_XP_COSTS` plus
+  // `optionalXpPaid` is what they became. Worth recording that the refusal
+  // OVERestimated the work in one specific way: it expected the pricing
+  // fan-out an optional POWER cost needs, and XP needs none of it — 731 makes
+  // XP not a Game Object, so there is no domain, no [Deflect] tax and no
+  // discount axis, and the paid variant is the plain play plus a flag.
   [
     "UNL-168",
     "half written: the free play works; its '-[2] if you choose a Bird/Cat/Dog/Poro' discount is unwritten, so it always costs the printed 2 Energy + 1 rainbow",

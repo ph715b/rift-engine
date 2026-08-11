@@ -244,8 +244,30 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * automatically a regression nor automatically noise.
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 118/224.
+ *
+ * **550 -> 549 on 2026-08-10, the SECOND consecutive drop, same structural
+ * cause.** UNL-164 Safety Inspector became whole, was therefore seated, and
+ * displaced others from a fixed-size covering deck. Diagnosed the same way and
+ * it decomposes exactly:
+ *
+ *  - **Newly EXERCISED: UNL-164 Safety Inspector and UNL-174 Shard of Undoing.**
+ *    The card this change wrote is reachable in real games, which is the thing
+ *    coverage cannot tell you.
+ *  - **UNL-107 Stare Down and UNL-165 Shadow's Call moved into
+ *    `offeredNeverTaken`** — still offered every game, the AI declines them.
+ *    This probe's own table calls that bucket "usually not a defect".
+ *  - **UNL-180 The Ruination** is the -1, and it is sampling: at `GAMES=500`
+ *    `drawnNeverOffered` is EMPTY and it is exercised.
+ *
+ * **Two drops in two changes is worth a decision, not another lowered number.**
+ * The cause is real and will recur on every card finished from here: seating is
+ * derived from `isCardImplemented`, so the covering decks are rebuilt each time
+ * and the 250-game sample lands differently. If this happens a third time,
+ * re-base the pin at `GAMES=500` — where `drawnNeverOffered` has been empty on
+ * all three measurements — and accept the 120s, rather than keep explaining a
+ * figure whose noise floor is now the same size as the signal.
  */
-const PINNED_UNION = 550;
+const PINNED_UNION = 549;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

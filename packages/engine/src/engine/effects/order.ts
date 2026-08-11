@@ -1182,25 +1182,24 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // Safety Inspector, SECOND clause only — "When you play me, each player must
     // kill one of their units."
     //
-    // **The first clause is REFUSED**: "You may spend 3 XP as an ADDITIONAL COST
-    // to play me" has no mechanism. `OPTIONAL_UNIT_COSTS` is paid with a chosen
-    // permanent and `OPTIONAL_POWER_COSTS` with runes and Energy; neither can
-    // express XP, both live in card-effects.ts, and the "did they pay" flag would
-    // need a field on `PlayCardAction` (actions/player-action.ts) plus pricing in
-    // legal-actions.ts and validate-play-card.ts. Four shared files.
+    // **The first clause was REFUSED and is WRITTEN as of 2026-08-10.** The
+    // refusal was exact about what was missing — "a field on `PlayCardAction`
+    // plus pricing in legal-actions.ts and validate-play-card.ts", four shared
+    // files — and that is what was built: `OPTIONAL_XP_COSTS` in card-effects.ts,
+    // `optionalXpPaid` on the action, an enumerated variant, a validator check
+    // that enforces the rule independently, and the spend in execute-play-card.
     //
-    // 204.1.b and 204.2.a are what make it a real cost rather than something this
-    // resolver could take — "Additional Costs must be paid to finalize the spell
-    // or ability" — and 205 names XP explicitly among the things an instruction
-    // can require a player to spend. This is the same gap `activatedAbilities`
-    // below records for `ActivationCost`, one path over: THAT one has an
-    // `availableWhile` hook a domain file can reach, and the PLAY path has none.
+    // 204.2 is the sentence these cards print ("as an additional cost") and
+    // 204.2.a is what makes it real: "Additional Costs must be paid to finalize
+    // the spell or ability". 730.2 is the spend itself.
+    //
+    // **Its variant is the plain play plus a flag, and nothing else** — 731 makes
+    // XP not a Game Object, so unlike an optional POWER cost there is no domain
+    // to price against, no `[Deflect]` tax and no discount axis. That is why this
+    // one did not need the pricing fan-out its refusal reasonably expected.
     //
     // So the third sentence — "if you paid my additional cost, you don't kill a
-    // unit this way" — has no reachable true branch, and the Inspector's
-    // controller always kills. That is the printed behaviour of DECLINING, so the
-    // card is strictly weaker than printed rather than wrong, which is the safe
-    // direction; what is lost is the option to buy out of it.
+    // unit this way" — now has a reachable true branch, and it is read below.
     //
     // Cull the Weak's shape (OGN-209) for the clause that IS here, and for its
     // reasons: nothing is fanned onto the action, because each player chooses
@@ -1209,13 +1208,19 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     // when a unit can be added or removed. APNAP, and the queue is FIFO, so
     // parking in that order IS the ordering.
     targeting: { kind: "none" },
-    resolve: (state) => {
+    resolve: (state, _ctx, _unitInstanceId, event) => {
       const first = state.activePlayerIndex;
       const second = (1 - first) as 0 | 1;
-      return [first, second].reduce(
-        (next, playerIndex) => parkDecision(next, { kind: "UNL-164-kill", playerIndex }),
-        state,
-      );
+      // "EACH player must kill one of their units. If you paid my additional
+      // cost, YOU don't kill a unit this way." So the exemption is the
+      // Inspector's controller only — never the opponent, and never both.
+      //
+      // Expressed by not PARKING the question rather than by parking it and
+      // auto-declining: a parked decision is a real prompt the caster would have
+      // to dismiss, and 383.3.a's "may" shape is not what this prints. It is a
+      // flat exemption from an otherwise mandatory kill.
+      const asked = event.optionalXpPaid === true ? [second] : [first, second];
+      return asked.reduce((next, playerIndex) => parkDecision(next, { kind: "UNL-164-kill", playerIndex }), state);
     },
   },
   "UNL-177": {

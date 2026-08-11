@@ -13,6 +13,7 @@ import {
   combatSpellPowerDiscount,
 } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
+import { optionalXpCostOf } from "../engine/card-effects.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -336,6 +337,16 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
+    // "You may spend N XP as an additional cost" (204.2). Spent HERE, with the
+    // rest of the cost, on the same reasoning the Legend exhaust below it gives:
+    // a cost is paid for the PLAY, not for the payout, so it leaves even when the
+    // exemption it buys turns out to be worth nothing. 730.2 is the spend itself
+    // ("reduce the value of XP marked on the Player").
+    //
+    // Not routed through `spendXp`, which returns `undefined` when short: the
+    // validator has already refused an unaffordable claim, and an optional
+    // undefined here would silently drop every other field in this object.
+    xp: actor.xp - (action.optionalXpPaid ? (optionalXpCostOf(card.defId) ?? 0) : 0),
     // Bard - Mercurial's "exhaust your legend as an additional cost". Paid here,
     // with the rest of the cost, so it is spent whether or not the trigger that
     // reads it ends up doing anything — a cost is paid for the play, not for the
@@ -437,6 +448,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // how it was paid for. Same dropped-field hazard as the fields above.
         ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
         ...(action.optionalPowerPaid !== undefined ? { optionalPowerPaid: action.optionalPowerPaid } : {}),
+        // The paid XP option (204.2). Forwarded on BOTH unit hops for the reason
+        // this file records twice: a flag enumerated, validated and dropped here
+        // leaves the card paying its cost and doing nothing.
+        ...(action.optionalXpPaid !== undefined ? { optionalXpPaid: action.optionalXpPaid } : {}),
         // Bard - Mercurial's paid Legend exhaust. Forwarded on BOTH unit hops for
         // the reason this file records twice: a flag that is enumerated,
         // validated, and dropped here leaves the card paying its cost and doing
@@ -489,6 +504,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       // the same optional cost and fires the same trigger.
       ...(action.acceleratePaid !== undefined ? { acceleratePaid: action.acceleratePaid } : {}),
       ...(action.optionalPowerPaid !== undefined ? { optionalPowerPaid: action.optionalPowerPaid } : {}),
+        // The paid XP option (204.2). Forwarded on BOTH unit hops for the reason
+        // this file records twice: a flag enumerated, validated and dropped here
+        // leaves the card paying its cost and doing nothing.
+        ...(action.optionalXpPaid !== undefined ? { optionalXpPaid: action.optionalXpPaid } : {}),
         // Bard - Mercurial's paid Legend exhaust. Forwarded on BOTH unit hops for
         // the reason this file records twice: a flag that is enumerated,
         // validated, and dropped here leaves the card paying its cost and doing

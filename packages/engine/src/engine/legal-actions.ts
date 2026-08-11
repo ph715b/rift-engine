@@ -48,6 +48,7 @@ import {
   discardChoiceOf,
   hasXRainbowCost,
   optionalPowerCostOf,
+  optionalXpCostOf,
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
@@ -1452,6 +1453,31 @@ export function legalActions(state: GameState): PlayerAction[] {
             });
           }
         }
+      }
+      // "You may spend N XP as an additional cost" (204.2) — Conscription and
+      // Safety Inspector.
+      //
+      // **The simplest additional cost in this file, and deliberately so.** XP is
+      // not a Game Object (731): it cannot be targeted, taxed by `[Deflect]`, or
+      // reduced by a discount axis, and it has no domain to price against. So the
+      // paid variant reuses the plain `paidPayment` UNCHANGED and differs only by
+      // the flag — none of the `computeAutoPayment` fan-out above applies, and a
+      // version that ran it anyway would have invented rune costs the card does
+      // not print.
+      //
+      // `!fromHidden` matches the neighbouring branches. 811 ignores a hidden
+      // card's BASE cost and an additional cost is not that, so this is a real if
+      // currently unreachable simplification: neither card prints `[Hidden]`.
+      //
+      // Gated on affording it, exactly as the optional-Power branch is — a caster
+      // short of XP simply has no paid variant, rather than being offered one the
+      // validator would refuse. That split is this file's recurring crash class.
+      const optionalXp = optionalXpCostOf(card.defId);
+      if (optionalXp !== undefined && !fromHidden && actor.xp >= optionalXp) {
+        // Spreads the plain `play` rather than rebuilding it, so the two cannot
+        // drift: the paid variant IS the plain one plus a flag, and that is the
+        // whole claim being made about an XP cost.
+        actions.push({ ...play, optionalXpPaid: true });
       }
       // Irelia - Graceful — "your spells that choose me cost [1] OR [rainbow]
       // less." TWO candidates, one per axis, because the "or" is a real choice

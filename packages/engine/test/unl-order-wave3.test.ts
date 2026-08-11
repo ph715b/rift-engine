@@ -427,10 +427,12 @@ describe("Undying Loyalty (UNL-168): play a cheap unit from your trash, ignoring
 });
 
 describe("Safety Inspector (UNL-164): each player must kill one of their units", () => {
-  it("is reported HALF implemented — the partial note is the honest answer", () => {
-    // Was `true`, which was a coverage lie: the first clause claimed the whole
-    // card. A PARTIALLY_IMPLEMENTED entry was added at integration.
-    expect(isCardImplemented(registry.get(SAFETY_INSPECTOR))).toBe(false);
+  it("is WHOLE as of 2026-08-10 — both clauses are written", () => {
+    // Was `false` with a PARTIALLY_IMPLEMENTED entry: the second clause was
+    // written and the first ("you may spend 3 XP as an additional cost") had no
+    // mechanism at all. That entry is retired and this is inverted rather than
+    // deleted, so the card going back to half fails here.
+    expect(isCardImplemented(registry.get(SAFETY_INSPECTOR)), "the Inspector is greyed again").toBe(true);
   });
 
   function inspectorState(place: (state: GameState) => void): { state: GameState; inspector: UnitInstance } {
@@ -498,11 +500,16 @@ describe("Safety Inspector (UNL-164): each player must kill one of their units",
     expect(unitAnywhere(after, inspector.instanceId), "the Inspector died for a choice that named Mine").toBeDefined();
   });
 
-  it("DIVERGENCE: the 3 XP buy-out is not offered, at any XP — the first clause is unwritten", () => {
+  it("the 3 XP buy-out IS offered, and spares its buyer — was a pin, flipped 2026-08-10", () => {
     // "You may spend 3 XP as an additional cost to play me. ... If you paid my
-    // additional cost, you don't kill a unit this way." XP has no place in the
-    // PLAY cost pipeline, so there is exactly one enumerated way to play him and
-    // his controller always pays the unit.
+    // additional cost, you don't kill a unit this way." XP had no place in the
+    // PLAY cost pipeline when this was written, so there was exactly one
+    // enumerated way to play him and his controller always paid the unit.
+    //
+    // `OPTIONAL_XP_COSTS` + `optionalXpPaid` closed it. Both variants are
+    // asserted here, and the buy-out's EFFECT is asserted in
+    // test/optional-xp-cost.test.ts, which also covers the boundary and the
+    // enumerate/validate pairing.
     const inspector = realUnitInstance(SAFETY_INSPECTOR);
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.players[0]!.hand = [inspector];
@@ -511,29 +518,33 @@ describe("Safety Inspector (UNL-164): each player must kill one of their units",
     state.players[0]!.baseUnits = [makeUnit({ instanceId: "mine", name: "Mine" })];
 
     const casts = castsOf(state, inspector.instanceId);
-    expect(casts, "a second, XP-paid variant is enumerated now — update this pin").toHaveLength(1);
+    expect(casts, "the XP-paid variant is no longer enumerated").toHaveLength(2);
 
-    const asked = passUntilSettled(accept(state, casts[0], "Safety Inspector with 9 XP"));
-    expect(asked.players[0]!.xp, "XP was spent by something").toBe(9);
-    // The question is asked at all, which is the divergence: with the cost paid
-    // the card says its controller kills NOTHING, so there would be no question
-    // here to answer.
+    // The FREE variant still behaves exactly as it did — the half this file
+    // originally proved, kept so the new cost cannot have changed it.
+    const free = casts.find((c) => (c as { optionalXpPaid?: true }).optionalXpPaid !== true)!;
+    const asked = passUntilSettled(accept(state, free, "Safety Inspector, cost declined"));
+    expect(asked.players[0]!.xp, "declining the cost still spent XP").toBe(9);
     const after = answer(asked, "mine");
-    expect(unitAnywhere(after, "mine"), "the caster was spared — the buy-out has landed").toBeUndefined();
+    expect(unitAnywhere(after, "mine"), "the caster was spared without paying").toBeUndefined();
   });
 
-  it("PARTIAL: coverage names the half that is missing", () => {
-    // **This pin did its job.** It asserted the card had NO partial note while
-    // being half-written — the over-report that registration-per-defId always
-    // produces, and which the agent could not fix because `coverage.ts` is shared.
-    // The entry landed at integration and this failed, exactly as designed.
+  it("coverage no longer names a missing half — there isn't one", () => {
+    // **This assertion has now been inverted TWICE, and both flips were the
+    // mechanism working.** As written by the card agent it asserted the card had
+    // NO partial note while being half-written — the over-report that
+    // registration-per-defId always produces, which the agent could not fix
+    // because `coverage.ts` is shared. The entry landed at integration and it
+    // went red. It then asserted the note EXISTED, and went red again on
+    // 2026-08-10 when the XP cost was built and the entry was retired.
     //
-    // Inverted rather than deleted: the note going missing again would mean the
-    // card had silently gone back to claiming a half it does not have.
+    // Inverted rather than deleted each time. A note reappearing here would mean
+    // someone had recorded a gap in this card, which is exactly the moment a
+    // reader should be sent to look.
     expect(
       partialImplementationNote(registry.get(SAFETY_INSPECTOR)),
-      "the PARTIALLY_IMPLEMENTED entry was dropped — this card is claiming a half it does not have",
-    ).toBeDefined();
+      "a partial note came back — the Inspector has a gap again",
+    ).toBeUndefined();
   });
 });
 

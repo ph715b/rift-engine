@@ -86,6 +86,12 @@ export interface UnitTriggerEvent {
    *  gated on it, and only the action knows: exhausting a Legend leaves the same
    *  mark on the board as an Awaken-less turn does. */
   exhaustLegendPaid?: boolean;
+  /** Safety Inspector's "you may spend 3 XP as an additional cost" (204.2) —
+   *  "if you paid my additional cost, you don't kill a unit this way", so the
+   *  trigger has to know. Only the action does: XP is a bare number on the
+   *  player and by the time this resolves it has already been spent, so the
+   *  board cannot be asked whether it was spent FOR THIS. */
+  optionalXpPaid?: boolean;
 }
 
 export interface UnitTriggerDefinition {
@@ -432,6 +438,7 @@ export function dispatchOnPlayUnit(
     acceleratePaid?: boolean;
     optionalPowerPaid?: boolean;
     exhaustLegendPaid?: boolean;
+    optionalXpPaid?: boolean;
   },
 ): GameState {
   // **No Legend dispatch here.** Volibear - Relentless Storm used to be fired
@@ -549,6 +556,7 @@ export function dispatchOnPlayUnit(
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
     ...(extra?.optionalPowerPaid !== undefined ? { optionalPowerPaid: extra.optionalPowerPaid } : {}),
     ...(extra?.exhaustLegendPaid !== undefined ? { exhaustLegendPaid: extra.exhaustLegendPaid } : {}),
+    ...(extra?.optionalXpPaid !== undefined ? { optionalXpPaid: extra.optionalXpPaid } : {}),
   });
 }
 
