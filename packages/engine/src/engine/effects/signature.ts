@@ -25,11 +25,12 @@ import {
   readyUnit,
   recallUnitToBase,
   removeUnitAnywhere,
+  returnPermanentToHand,
   stunUnits,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
-import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
+import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { isHiddenCard } from "../hidden.js";
 import { parkDecision } from "../decisions.js";
 import { counterSpell, spellsOnChain } from "../counter-spell.js";
@@ -39,7 +40,9 @@ import { defaultCardRegistry } from "../../cards/card-registry.js";
 import type { CardInstance, GearInstance, UnitInstance } from "../../model/card.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import { attachEquipment, isEquipmentGear, isMechUnit } from "../equipment.js";
-import { SAND_SOLDIER_TOKEN, placeToken, type TokenDestination } from "../token.js";
+import { SAND_SOLDIER_TOKEN, placeGoldTokens, placeToken, type TokenDestination, type TokenSpec } from "../token.js";
+import { playUnitToBattlefield } from "../deploy.js";
+import { applyContested } from "../cleanup.js";
 
 /**
  * Card implementations for the **dual-domain** cards — one file, one owner.
@@ -879,7 +882,221 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return placed.slice(0, ARISE_READY_COUNT).reduce((s, id) => readyUnit(s, id), next);
     },
   },
+  "UNL-186": {
+    // Death from Below (Fury + Chaos) — "Kill a unit at a battlefield. Then, if it
+    // had 3 [Might] or less, you may play this from your trash for [rainbow]."
+    //
+    // **HALF a card, and the half that is missing is named rather than
+    // approximated.** The kill is written; the recursion is not, because "play
+    // THIS from your trash" is a per-INSTANCE play permission with a REPLACED
+    // cost, and this engine's only trash-play permission (`timing.mayPlayFromTrash`)
+    // is per-player, Units-only and charges the printed price. Both halves of that
+    // would have to change in timing.ts plus a field on PlayerState — see the
+    // report accompanying this change.
+    //
+    // Registering the kill alone is deliberate and the trade is stated because
+    // registration is per defId: this card will report DONE. The alternative was
+    // leaving a hard removal spell inert for the sake of a clause that fires at
+    // most once per copy.
+    //
+    // `scope` left at its default, so "a unit AT A BATTLEFIELD" is enforced by the
+    // targeting and a unit sheltering in either base is out of reach (355.9.b's
+    // narrowing — the printed location word is a targeting restriction).
+    //
+    // Killed BY THE CASTER (`ctx.casterIndex`), which is not decoration: it is what
+    // makes "when you kill a unit" (Solari Shrine) and "killed with a spell"
+    // (Immortal Phoenix) see this death, the same reading Noxian Guillotine's
+    // [Legion] half takes above.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+  },
+  "UNL-190": {
+    // Lilting Lullaby (Calm + Mind) — "[Reaction] Counter a spell. Its controller
+    // can't play spells this turn."
+    //
+    // **HALF a card.** The counter is written; the lockout is not, and the reason
+    // is worth stating because a field that looks like it would do the job exists:
+    // `PlayerState.cannotPlayCardsThisTurn` is Brynhir Thundersong's "opponents
+    // can't play CARDS this turn", and reusing it here would also stop the victim
+    // playing units and gear — WIDER than printed, which is the direction this
+    // codebase does not ship. A spells-only twin needs game-state.ts,
+    // board-restrictions.ts, player-setup.ts and turn-manager.ts, none of which
+    // this file owns.
+    //
+    // 425.1.a is what the first sentence does — "a card or ability that is
+    // Countered does nothing and is cleared from the chain" — and `counterSpell`
+    // is the single writer of it.
+    //
+    // No cost filter: the card names none, so any spell on the chain is a legal
+    // choice. 355.9.a.2 is why the target is a chain object rather than anything
+    // on the board, and the PDF's own example under it ("a spell that says
+    // 'Counter a spell' cannot target itself") is already enforced by
+    // `counterableSpells` — this spell is not on the chain when its own targets
+    // are chosen.
+    //
+    // A vanished target is a no-op: two counters can name the same spell and the
+    // second finds nothing, which is a real case rather than defensive padding
+    // (see `counterSpell`'s own note).
+    targeting: { kind: "chainSpell" },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+  },
+  "UNL-184": {
+    // Thrill of the Hunt (Fury + Body) — "[Reaction] Banish a friendly unit, then
+    // its owner plays it to any battlefield, ignoring its cost."
+    //
+    // # Arcane Shift's blink with one printed word changed, and the word is the card
+    //
+    // SFD-200 above says only "plays it" — the ordinary permission — so it goes
+    // through `playUnitFree`, which offers BASE and, among battlefields, only the
+    // ones rule 813 already lets a paid play reach. This prints "to ANY
+    // BATTLEFIELD", and neither half of that list is right for it:
+    //  - Base is not an option. 198.1 — "Locations include the Battlefields and
+    //    the Bases" — makes a base a Location that is not a Battlefield, so the
+    //    sentence excludes it rather than this file choosing to.
+    //  - EVERY battlefield is an option, presence or not. 813's restriction is
+    //    precisely the default "any" is overriding; reading it as a plain "a
+    //    battlefield" would delete the line the card exists for, which is dropping
+    //    a body into a fight it was not already in.
+    //
+    // So the destination question is asked here rather than borrowed. What IS
+    // borrowed is the holding pen: `unitsAwaitingFreePlacement`, because the unit
+    // must be off the board while the question is outstanding — arriving is what
+    // fires its on-play trigger and what contests a battlefield, and deploying it
+    // at base first would fire both for the wrong place. free-play.ts's own
+    // comment records that reasoning; only the option list differs here, which is
+    // why the decision kind is this card's rather than `FREE_PLAY_PLACEMENT`.
+    //
+    // # The rest
+    //
+    // The banish is TRANSIENT — banished and replayed in one instruction, nothing
+    // can observe the middle zone — so the unit goes straight back to play rather
+    // than through `PlayerState.banished`. Arcane Shift makes the same call, and
+    // for the same reason.
+    //
+    // A fresh copy: 705 strips the Buff on leaving play, and damage, this-turn
+    // Might, stun and the move counter are properties of the body that left.
+    //
+    // "ITS OWNER plays it", not the caster — `found.ownerIndex`. Friendly-only
+    // targeting makes the two the same player today; naming it is what keeps that
+    // an observation rather than an assumption.
+    //
+    // "A friendly unit" carries an owner word and no location word, so
+    // `scope: "anywhere"` under 355.9.a.1 — and the unit standing at home is
+    // exactly the one this is usually cast on.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (!unitId) return state;
+      const found = findUnitAnywhere(state, unitId);
+      if (!found) return state; // killed in the response window — 359.3
+      const returning: UnitInstance = {
+        ...found.unit,
+        damage: 0,
+        mightThisTurn: 0,
+        buffed: false,
+        stunned: false,
+        movesThisTurn: 0,
+      };
+      const removed = removeUnitAnywhere(state, unitId);
+      const parked: GameState = {
+        ...removed,
+        unitsAwaitingFreePlacement: [
+          ...removed.unitsAwaitingFreePlacement,
+          { unit: returning, playerIndex: found.ownerIndex },
+        ],
+      };
+      return parkDecision(parked, {
+        kind: THRILL_OF_THE_HUNT_PLACEMENT,
+        playerIndex: found.ownerIndex,
+        cardInstanceId: returning.instanceId,
+      });
+    },
+  },
+  "UNL-182": {
+    // Curtain Call (Fury + Mind) — "[Repeat] — [1] / [rainbow] / [1][rainbow].
+    // Choose one you haven't already chosen — Draw 1. / Deal 2 to a unit at a
+    // battlefield. / Deal 3 to a unit at a base. / Give a unit at a battlefield
+    // -4 [Might] this turn."
+    //
+    // # The four modes are written; the THREE `[Repeat]`s are not
+    //
+    // **This is the card 820.1.c.2 and c.3 were waiting for**, and card-effects.ts's
+    // `REPEAT_COSTS` table says so in advance: "each of these prints exactly ONE
+    // instance of Repeat, checked across the set ... this models one instance and
+    // repeat-cost-table.test.ts asserts the premise — the day a set prints two,
+    // that test fails and this shape is what changes." Curtain Call prints THREE,
+    // each with its own cost, each payable or not payable individually. A
+    // `RepeatCostSpec` is one cost, so no row in that table can express this; and
+    // "one you haven't ALREADY chosen" additionally needs the mode to be re-chosen
+    // per EXECUTION, where `modeId` is chosen once per action. Both live in
+    // card-effects.ts, which this file does not own — see the report.
+    //
+    // So one execution, one mode. That is exactly the card with no Repeat paid,
+    // which is how it will usually be cast; "you haven't already chosen" has
+    // nothing to exclude when there is only one choice.
+    //
+    // # The modes
+    //
+    // The two damage modes differ ONLY in where they may point, and the printed
+    // asymmetry is the point of the card — 2 into a fight, or 3 into somebody's
+    // base, where almost nothing in this pool can reach. `scope: "base"` is the
+    // one scope that EXCLUDES battlefields rather than adding to them, and with no
+    // owner word it is either player's base.
+    //
+    // None of the three targeted modes names an owner, so each may be pointed at
+    // your own units. Dealing yourself 3 is a bad play rather than an illegal one,
+    // and the debuff on your own unit is occasionally right (nothing here reads it
+    // as a benefit); 355.9.b is what makes the printed location words binding while
+    // leaving ownership open.
+    //
+    // NO floor on the debuff. Smoke Screen and Siphon Power print "to a minimum of
+    // 1 [M]" and this does not, so `giveMightThisTurn` is called without one — a
+    // 4-Might unit taken to 0 dies to the next point of damage, which is the card.
+    modes: [
+      {
+        id: "draw",
+        label: "Draw 1",
+        targeting: { kind: "none" },
+        resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+      },
+      {
+        id: "burn-battlefield",
+        label: "Deal 2 to a unit at a battlefield",
+        targeting: { kind: "unit" },
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, CURTAIN_CALL_BATTLEFIELD_DAMAGE) : state,
+      },
+      {
+        id: "burn-base",
+        label: "Deal 3 to a unit at a base",
+        targeting: { kind: "unit", scope: "base" },
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, CURTAIN_CALL_BASE_DAMAGE) : state,
+      },
+      {
+        id: "shrink",
+        label: "Give a unit at a battlefield -4 Might this turn",
+        targeting: { kind: "unit" },
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, -CURTAIN_CALL_SHRINK) : state,
+      },
+    ],
+  },
 };
+
+/** Curtain Call's two damage modes and its debuff, each named once so the mode
+ *  and the test quote the same number. */
+const CURTAIN_CALL_BATTLEFIELD_DAMAGE = 2;
+const CURTAIN_CALL_BASE_DAMAGE = 3;
+const CURTAIN_CALL_SHRINK = 4;
+
+/** Thrill of the Hunt's "to any battlefield" question — written once because the
+ *  resolver that raises it and the decision that answers it must agree, and a
+ *  typo in either would be SILENT (a parked question nothing implements simply
+ *  never appears, which reads exactly like a unit that was never banished). */
+const THRILL_OF_THE_HUNT_PLACEMENT = "UNL-184-place";
 
 /** Arise!'s "ready up to two of them". */
 const ARISE_READY_COUNT = 2;
@@ -896,6 +1113,48 @@ const ARISE_READY_COUNT = 2;
 function equipmentControlledBy(state: GameState, playerIndex: 0 | 1): GearInstance[] {
   return state.players[playerIndex].activeGear.filter((g) => isEquipmentGear(g));
 }
+
+/**
+ * Every unit `playerIndex` could be asked to point a bare "a unit" at — either
+ * player's, in either base or at any battlefield.
+ *
+ * `eligibleTargets` rather than a hand-rolled walk of the four zones, and that is
+ * the whole reason it is a function: that helper is where `unitChooseableBy`
+ * filters the units an opponent may not choose (Ruin Runner), and a decision that
+ * walked the board itself would offer one and be the only place in the engine
+ * that does. Two cards here ask the same question — Rengar's pump and Vi's ready
+ * — so they ask it in one place.
+ *
+ * `scope: "anywhere"` and no owner: 355.9.a.1's bare "unit" is objects on the
+ * Board, and neither card prints an owner word.
+ */
+function anyUnitChooseableBy(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  return eligibleTargets(state, playerIndex, undefined, "anywhere");
+}
+
+/**
+ * How much excess damage `playerIndex` assigned in the fight at `battlefieldId`,
+ * or 0 when the record is from another battlefield, from the other side of a
+ * fight, or absent.
+ *
+ * A SECOND copy of effects/body.ts's `excessFor`, and deliberately so rather than
+ * shared: that one is private to the file that owns Sivir - Ambitious, and moving
+ * it would mean editing a file this one does not own. The two read the same single
+ * field and are asserted against the same three conditions; if a third card ever
+ * prints the clause, the shared home is effect-helpers.ts.
+ */
+function excessAssignedBy(state: GameState, playerIndex: 0 | 1, battlefieldId: string | undefined): number {
+  const excess = state.lastShowdownExcessDamage;
+  if (!excess || excess.battlefieldId !== battlefieldId || excess.attackerIndex !== playerIndex) return 0;
+  return excess.amount;
+}
+
+/** Vi - Piltover Enforcer's "3 or more excess damage" — Sivir - Ambitious prints
+ *  the same clause at 5, so the threshold is a per-card number and not a rule. */
+const VI_EXCESS_REQUIRED = 3;
+
+/** Rengar - Pridestalker's "+1 [Might] this turn". */
+const RENGAR_MIGHT = 1;
 
 /** Void Rush's "reducing its cost by [2 Energy]". */
 const VOID_RUSH_DISCOUNT = 2;
@@ -1037,6 +1296,108 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
    * docs/rules-conformance.md against those two cards, and this card inherits it
    * rather than adding a second reading.
    */
+  "UNL-183": {
+    // Rengar - Pridestalker (Fury + Body) — "When you play a unit, give a unit
+    // +1 [Might] this turn."
+    //
+    // # A LEGEND registered in a domain file, which is new and is the point
+    //
+    // Every other Legend in this engine lives in `LEGEND_ABILITIES`, a shared
+    // table a fanned-out agent cannot touch. Nothing forced that: `Listener.zone`
+    // already has a `"legend"` case and `listeningPermanents` already ends with
+    // `owner.legend`, so an entry in THIS registry keyed by a Legend's defId is
+    // found by the ordinary listener walk and held as an ordinary Chain Pending
+    // Item (383). The `zone === "legend"` check below is what makes that explicit
+    // rather than incidental — the same way Super Mega Death Rocket asserts
+    // `zone === "trash"` above instead of assuming no other copy can exist.
+    //
+    // # "When YOU play a unit"
+    //
+    // `casterIndex === listener.ownerIndex` — an opponent's unit is not his
+    // moment. `playedKind === "Unit"` because `cardPlayed` fires for every card,
+    // and a Spell must not pump anything.
+    //
+    // The unit just played is itself a legal choice: `deploy.playUnitToBase` and
+    // `playUnitToBattlefield` both fire `cardPlayed` AFTER the unit has landed, so
+    // it is already on the board when this resolves. That is the ordinary line —
+    // the new body arrives a point bigger.
+    //
+    // # There is deliberately NO "is there anything to choose" gate
+    //
+    // The obvious one — refuse to trigger on an empty board, 355.8/383.4 — was
+    // written first and then removed as **unreachable and therefore untestable**:
+    // the unit that fired this is already on the board, so "you played a unit"
+    // guarantees at least one legal choice. A mutation that deleted the gate
+    // survived every test in the wave-5 file, which is what settled it; a branch
+    // no measurement can distinguish is a branch that will be wrong quietly.
+    //
+    // The one case the gate would have covered is the played unit dying inside the
+    // response window before this resolves. Then the decision's option list is
+    // empty and decisions.ts drops the question, which is the same outcome by a
+    // different route.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      listener.zone === "legend" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Unit",
+    resolve: (state, listener) => parkDecision(state, { kind: "UNL-183-pump", playerIndex: listener.ownerIndex }),
+  },
+  "UNL-187": {
+    // Vi - Piltover Enforcer (Fury + Order) — "When you conquer, if you assigned
+    // 3 or more excess damage, you may exhaust me to ready a unit."
+    //
+    // Sivir - Ambitious (SFD-120, effects/body.ts) prints the same condition at 5
+    // and Tryndamere - Barbarian at 5 as well, so the reading is settled rather
+    // than invented here: "excess damage" is a term the rules never define —
+    // `excess` appears in the PDF only under Burn Out — and `combat.excessAssigned`
+    // records why all three candidate readings coincide. The number is written
+    // once, by the damage step, into `state.lastShowdownExcessDamage`.
+    //
+    // **Two clauses of Sivir's that this card does NOT print**, and dropping them
+    // is what makes it a different card rather than a copy:
+    //  - no "after an attack". The record carries a battlefield and an attacking
+    //    side anyway, so a conquest by walking into an empty battlefield reads 0
+    //    and this stays silent — which is the same outcome, reached from the data
+    //    rather than from a clause.
+    //  - no "when I conquer". This is a LEGEND, who stands at no battlefield, so
+    //    there is no "here" for it to be at and the trigger is the player's
+    //    conquest — the same distinction Super Mega Death Rocket's "when you
+    //    conquer" draws against Kai'Sa - Survivor's "when I conquer".
+    //
+    // The excess threshold is the trigger's printed CONDITION ("IF you assigned"),
+    // so it is asked in `applies`, at the moment of the event — 383.4: "if those
+    // requirements are not fulfilled when the unit gains the designation, it will
+    // not trigger". Re-asking it in the body would let an opponent cancel a fired
+    // trigger inside the response window.
+    //
+    // The EXHAUST is a cost, not a condition, so it is NOT asked here: it is
+    // re-derived when the question is answered (414.4, "the action must be able to
+    // be completed for the cost to be paid"), which is the same split Rek'sai -
+    // Void Burrower makes on the same event.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      listener.zone === "legend" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      excessAssignedBy(state, listener.ownerIndex, event.battlefieldId) >= VI_EXCESS_REQUIRED,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      // Re-checked because neither fact can change inside the response window
+      // (only a combat's damage step writes the record, and a combat cannot open
+      // mid-chain) — so a mismatch here means the trigger was resolved for the
+      // wrong event, not that the board moved.
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (excessAssignedBy(state, listener.ownerIndex, event.battlefieldId) < VI_EXCESS_REQUIRED) return state;
+      // An exhausted Vi cannot pay, so she is not asked at all — Rek'sai - Void
+      // Burrower's conquer clause makes the same check in the same place, and for
+      // the same reason: the exhaust is a cost, so it is read at RESOLUTION rather
+      // than when the trigger fired (414.4), and the response window in between is
+      // exactly where a Legend can be exhausted out from under it.
+      if (state.players[listener.ownerIndex].legend.exhausted) return state;
+      return parkDecision(state, { kind: "UNL-187-ready", playerIndex: listener.ownerIndex });
+    },
+  },
   [RELENTLESS_PURSUIT_GRANT]: {
     on: "battlefieldConquered",
     applies: (_state, listener, event) =>
@@ -1257,7 +1618,117 @@ export const decisions: Record<string, DecisionDefinition> = {
       return { ...played, players: after };
     },
   },
+  /**
+   * Rengar - Pridestalker's "give a unit +1 [Might] this turn", asked once per
+   * unit its controller plays.
+   *
+   * **No decline, because the card prints none.** "Give a unit +1" is mandatory,
+   * so with one unit on the board `advanceDecisions` auto-resolves it without a
+   * prompt — which is right: a question with one legal answer is not a question.
+   * The Rengar test asserts the pump lands in exactly that case, so an accidental
+   * "Decline" option would be caught rather than silently making the card
+   * optional.
+   *
+   * Either player's units, in either zone: the card names no owner and no
+   * location (355.9.a.1). Buffing an enemy is a bad play rather than an illegal
+   * one, and the case that matters is a board where the only unit is theirs —
+   * "give A unit" then has exactly one answer, and it is not the one you want.
+   */
+  "UNL-183-pump": {
+    prompt: () => "Rengar - Pridestalker: give a unit +1 Might this turn",
+    options: (state, d) =>
+      anyUnitChooseableBy(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => giveMightThisTurn(state, optionId, RENGAR_MIGHT),
+  },
+  /**
+   * Vi - Piltover Enforcer's "you may exhaust me to ready a unit", raised by her
+   * conquer trigger once the excess threshold is met.
+   *
+   * ONE question rather than two, unlike Rek'sai's pair: her cost buys nothing a
+   * player could want to see first, so committing the exhaust and naming the unit
+   * are the same decision. Rek'sai's are split because her cost buys a REVEAL,
+   * and collapsing hers would make a player commit to results they have already
+   * been shown.
+   *
+   * The exhaust is re-derived here rather than trusted from the trigger (414.4) —
+   * a response window sits between them, and anything that exhausts a Legend in it
+   * takes the offer away.
+   *
+   * **Only EXHAUSTED units are offered**, which is a narrowing and is 415.1.b's:
+   * "a Unit that is already Ready cannot be Readied again", so offering one would
+   * spend Vi on a no-op. Contrast Leona - Radiant Dawn, who deliberately DOES
+   * offer already-buffed units — 702.3.a makes a second buff a no-op rather than
+   * illegal, and there the whole answer can honestly be "nothing happens". Here
+   * the player is paying an exhaust for it.
+   *
+   * "Ready A UNIT", no owner word, so either player's (355.9.a.1) — readying an
+   * enemy is a bad play, not an illegal one, and `readyUnit`'s own
+   * `mayReadyPermanent` gate is what refuses it under Mageseeker Warden.
+   */
+  "UNL-187-ready": {
+    prompt: () => "Vi - Piltover Enforcer: exhaust her to ready a unit?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (state.players[d.playerIndex].legend.exhausted) return options;
+      for (const unit of anyUnitChooseableBy(state, d.playerIndex)) {
+        if (!unit.exhausted) continue;
+        options.push({ id: unit.instanceId, label: `Exhaust Vi and ready ${unit.name}`, instanceId: unit.instanceId });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state; // cost no longer payable
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      return readyUnit({ ...state, players }, optionId);
+    },
+  },
+  /**
+   * Thrill of the Hunt's "to any battlefield" — see the card above for why the
+   * option list is every battlefield and not `playUnitFree`'s.
+   *
+   * No decline: the play is not a "you may". A board with one battlefield
+   * auto-resolves, which is the correct reading of a mandatory choice with one
+   * legal answer.
+   *
+   * An empty list when the pen no longer holds the unit is how decisions.ts drops
+   * a question that no longer applies — the same shape Sett - The Boss's save
+   * uses. Nothing in this pool can empty the pen between the park and the answer
+   * (the queue is answered before any other action), so this is the "moot" branch
+   * rather than a reachable one.
+   */
+  [THRILL_OF_THE_HUNT_PLACEMENT]: {
+    prompt: (state, d) => `Thrill of the Hunt: where does ${awaitingThrillUnit(state, d.cardInstanceId)?.name ?? "it"} enter play?`,
+    options: (state, d) =>
+      awaitingThrillUnit(state, d.cardInstanceId) === undefined
+        ? []
+        : state.battlefields.map((bf) => ({ id: bf.id, label: bf.name })),
+    resolve: (state, d, optionId) => {
+      const held = state.unitsAwaitingFreePlacement.find((p) => p.unit.instanceId === d.cardInstanceId);
+      if (!held) return state;
+      const released: GameState = {
+        ...state,
+        unitsAwaitingFreePlacement: state.unitsAwaitingFreePlacement.filter((p) => p.unit.instanceId !== held.unit.instanceId),
+      };
+      const deployed = playUnitToBattlefield(released, held.playerIndex, held.unit, optionId);
+      // Contested is applied by the CALLER, which deploy.ts's own note explains:
+      // arriving at a battlefield can make it Contested and can be an attack, and
+      // only the card that played the unit knows which. A unit appearing from a
+      // card's text is a unit becoming present (190.3.a), so it contests exactly
+      // as a walk-in does — which for this card is the whole point.
+      return applyContested(deployed, optionId, held.playerIndex);
+    },
+  },
 };
+
+/** The unit Thrill of the Hunt's placement question is about, while it is still
+ *  in the pen. */
+function awaitingThrillUnit(state: GameState, cardInstanceId: string | undefined): UnitInstance | undefined {
+  if (cardInstanceId === undefined) return undefined;
+  return state.unitsAwaitingFreePlacement.find((p) => p.unit.instanceId === cardInstanceId)?.unit;
+}
 
 /**
  * Activated abilities contributed by this domain file.
@@ -1273,7 +1744,109 @@ export const decisions: Record<string, DecisionDefinition> = {
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+/** Pyke - Bloodharbor Ripper's ":rb_energy_1:, :rb_exhaust::". */
+const PYKE_ENERGY_COST = 1;
+
+/**
+ * Lillia - Bashful Bloom's printed ":rb_energy_4:", BEFORE her "[1] less for each
+ * friendly unit with [Temporary]" — which is not applied. See her entry.
+ */
+const LILLIA_ENERGY_COST = 4;
+
+/** Lillia's "ready 3 [Might] Sprite unit token with [Temporary]" — the fourth
+ *  copy of this spec in the engine; see her entry for why it is local. */
+const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
+
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-185": {
+    // Pyke - Bloodharbor Ripper (Fury + Chaos) — "[1], [Exhaust]: Return a
+    // friendly unit at a battlefield to its owner's hand. Play a Gold gear token
+    // exhausted."
+    //
+    // Miss Fortune - Bounty Hunter's shape (`kind: "Legend"`, a targeted exhaust
+    // ability) with a price on it, and `ActivationCost` already carries both
+    // halves — `{ energy, exhaust }` is what the two preset Legend abilities
+    // print. Nothing new was needed at the cost end.
+    //
+    // # The bounce is a COST-LIKE mandatory, so it gates the whole ability
+    //
+    // "Return a friendly unit AT A BATTLEFIELD" is the first instruction and it
+    // names a target, so 355.8 makes the ability unusable with nothing at a
+    // battlefield to return — which means Pyke cannot mint a Gold off an empty
+    // board. That is the card rather than a limitation: the Gold is payment for
+    // pulling one of your own bodies out of a fight, and enumeration refusing to
+    // offer the ability with no legal target is what enforces it.
+    //
+    // `scope` left at its default so the printed "at a battlefield" binds
+    // (355.9.b, the NARROWING half), and `owner: "friendly"` from the printed
+    // word. "Its OWNER's hand" and the caster's are the same player under
+    // friendly-only targeting; `returnPermanentToHand` files it by owner anyway,
+    // which is what keeps that an observation.
+    //
+    // # The Gold is unconditional
+    //
+    // Two sentences, not one instruction with a rider, so the token lands even if
+    // the returned unit died in the window between activation and resolution.
+    // `placeGoldTokens` mints it EXHAUSTED already — 149.1 has gear entering
+    // ready, so the sixteen cards printing "exhausted" are the ones overriding a
+    // default (184.1), and the token's own "[Reaction][>] Kill this, [Exhaust]:
+    // [Add] [rainbow]" is registered against `GOLD_TOKEN_DEF_ID` rather than here.
+    kind: "Legend",
+    cost: { energy: PYKE_ENERGY_COST, exhaust: true },
+    targeting: { kind: "unit", owner: "friendly" },
+    resolve: (state, ctx, event) => {
+      const returned = event.targetUnitInstanceId ? returnPermanentToHand(state, event.targetUnitInstanceId) : state;
+      return placeGoldTokens(returned, ctx.casterIndex, 1);
+    },
+  },
+  "UNL-189": {
+    // Lillia - Bashful Bloom (Calm + Mind) — "[4], [Exhaust]: Play a ready
+    // 3 [Might] Sprite unit token with [Temporary]. This ability costs [1] less
+    // for each friendly unit with [Temporary]."
+    //
+    // # DIVERGENCE: the discount is not applied, so this always costs [4]
+    //
+    // `ActivationCost.energy` is a NUMBER and `activationCostOf(defId, modeId)` is
+    // handed no state, so an activation cost cannot depend on the board. Four
+    // pricing sites go through that function — `canPayActivationCost`,
+    // `payActivationCost`, the enumerator's payment and the validator's
+    // re-derivation — and a discount that reached only some of them is exactly the
+    // offered-then-refused split this codebase keeps paying for. Widening it is a
+    // change to activated-abilities.ts and validate-activate-ability.ts, neither of
+    // which this file owns.
+    //
+    // So the divergence is in the UNDER-offering direction: the ability is always
+    // available at its printed base price and never cheaper. A Lillia standing
+    // beside three Sprites pays 4 where she should pay 1. Reported rather than
+    // approximated — the alternative (a discount applied in the resolver) would
+    // hand the player a Sprite they had not paid for.
+    //
+    // # The token
+    //
+    // `SPRITE_TOKEN` is a fourth local copy of a spec that already exists in
+    // effects/calm.ts and effects/mind.ts (twice). Not shared from token.ts,
+    // because that file is not this one's to edit — the same position the wave-2
+    // agents were in when three of them wrote byte-identical `BIRD_TOKEN`s. The
+    // stat line is quoted from the printed text here so a future consolidation has
+    // a source rather than three siblings.
+    //
+    // "A READY ... token" overrides 143.4.a's enters-exhausted default, which is
+    // what `entersReady` is for; `[Temporary]` is the keyword that kills it at the
+    // start of its controller's Beginning Phase, and it is conferred on the TOKEN
+    // rather than on Lillia (card-loader's own note about OGN-106 Sprite Mother
+    // makes the same distinction).
+    //
+    // BASE, because the card names no location and every other Sprite-maker in
+    // this pool that names none places at base. An ability has no
+    // `destinationBattlefieldId` axis to fan out over the way a spell in
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS` does, so this is the convention rather than
+    // a choice made against an alternative that exists.
+    kind: "Legend",
+    cost: { energy: LILLIA_ENERGY_COST, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", SPRITE_TOKEN),
+  },
+};
 
 
 /**
@@ -1292,4 +1865,53 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {}
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+const MASTER_YI_WUJU_MASTER = "UNL-191";
+/** His first clause's `[Level 6]` and the +1 it grants — 824.1.b.1's "[N] or
+ *  more XP", so 6 is on and 5 is off. */
+const MASTER_YI_LEVEL = 6;
+const MASTER_YI_MIGHT = 1;
+
+export const mightModifiers: Record<string, MightModifier> = {
+  "UNL-191": {
+    // Master Yi - Wuju Master (Calm + Body) — "[Level 6][>] Your units have
+    // +1 [Might]. [Level 11][>] Your units enter ready."
+    //
+    // # HALF a card: the [Level 6] aura is here, the [Level 11] clause is not
+    //
+    // "Your units enter READY" is a replacement effect at deploy time, and the one
+    // predicate that answers it — `deploy.unitEntersReady` — is a shared file this
+    // one does not own. It cannot be faked as an on-play `readyUnit` either, and
+    // deploy.ts's own comment says why in three measured ways: the trigger is a
+    // held Chain Pending Item so the unit sits EXHAUSTED through the whole response
+    // window, it fires `unitReadied` and pays out Pirate's Haven for a readying
+    // that never happened, and it is blockable by Mageseeker Warden. Three agents
+    // reached that conclusion independently. So the clause is REFUSED rather than
+    // approximated — see the report.
+    //
+    // # Why the [Level 6] half is a continuous modifier and not a trigger
+    //
+    // 824.1.b.1 makes `[Level N]` "functionally short for 'While you have [N] or
+    // more XP, this card gains [Text]'", and 824.1.d turns the Dependent Ability
+    // Inactive "as soon as the controlling player has less than [N] XP". A one-shot
+    // pump would be wrong in BOTH directions — applied below the threshold and
+    // still applied after XP is spent — which is precisely the reasoning
+    // `MightModifier` was added for.
+    //
+    // # The source is a LEGEND, which is what makes this entry unusual
+    //
+    // Every other aura in this table finds its source by walking the board for a
+    // unit with the right defId. A Legend is in no location at all, so the test is
+    // `players[ownerIndex].legend.defId` — asked of the UNIT's owner, since "YOUR
+    // units" is measured against Master Yi's controller and this bonus is
+    // evaluated for every unit on the board, both sides included.
+    //
+    // Unconditional otherwise: no "here", no combat clause, so it applies in base
+    // as readily as at a battlefield and `ctx` is not read at all.
+    defId: MASTER_YI_WUJU_MASTER,
+    bonus: (state, _unit, ownerIndex) =>
+      state.players[ownerIndex].legend.defId === MASTER_YI_WUJU_MASTER &&
+      state.players[ownerIndex].xp >= MASTER_YI_LEVEL
+        ? MASTER_YI_MIGHT
+        : 0,
+  },
+};

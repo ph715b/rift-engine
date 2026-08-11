@@ -57,8 +57,8 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **532 of 692 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 188/198, UNL 100/224), at its default **250 games
+`reachability` is pinned at **543 of 693 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198, UNL 111/225), at its default **250 games
 per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
@@ -106,6 +106,9 @@ Measured against it, citations this repo had been carrying:
 | "you may pay X. If you do…" is not a cost | 204 | **205** |
 | Might below 0 is treated as 0 when referenced | (cited by neighbour) | **143.2.b** |
 | a unit's "current Might" | "2236" ×4 in `chaos.ts` — a LINE NUMBER, found 2026-08-09 | **143.2** (plus **432.1**'s worked Shield example) |
+| "an ability on the Chain is independent of the card that made it" | **809.1.b** ×3 in `triggers.ts` — which is `[Deflect]`'s FORMATTING rule, "It is formatted as `Deflect [X]`". Found 2026-08-10 | **383.3** ("a Triggered Ability behaves like an Activated Ability and is placed on the Chain") with **377.3.a.1** ("the ability goes on the chain but has no card to represent it") |
+| "this-turn effects are fixed amounts" | 317 — the **Ending Phase** | **432.1.a** |
+| "a check on something no longer available returns null" | a bare 359.3 | **359.3.e.12** |
 
 The current PDF is downloadable from Riot's CDN — the project owner supplied
 `https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/e9ac8e3d33e0f78cef296f5945aba7bc1313b086.pdf`.

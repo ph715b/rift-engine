@@ -182,12 +182,26 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * Inferna's whole text is two keywords and their reminders, so with `[Ambush]`
  * live she needs no card code at all.
  *
- * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 100/224.
  * (SFD 186 → 187 is not a wave-2 card: it is the `[Deflect]`-surcharge fix in
  * `legal-actions.ts`, which stopped an activation crashing the run and so let a
  * card that had been dying mid-game finish being observed.)
+ *
+ * **532 → 543 on 2026-08-10, card wave 5** — fourteen cards written across five
+ * domain files, of which eleven were observed acting. UNL **100/224 → 111/225**
+ * (45% to 50%), and every other set is unchanged, which is the control worth
+ * reading: a wave that touched only domain effect files should move exactly one
+ * set's figure.
+ *
+ * One of the eleven is not a card this wave wrote. **UNL-028 Pyke - Dockside
+ * Butcher** was written INERT — his on-play trigger reads `optionalPowerPaid`,
+ * and nothing could set it until the integrator added his
+ * `OPTIONAL_POWER_COSTS` row. He is the case this probe exists for: implemented,
+ * fully tested by his own suite, and unreachable in a real game. Coverage could
+ * not see it and neither could the typecheck.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 111/225.
  */
-const PINNED_UNION = 532;
+const PINNED_UNION = 543;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

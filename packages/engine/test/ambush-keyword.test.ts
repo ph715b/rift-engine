@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
-import { partialImplementationNote } from "../src/engine/coverage.js";
+import { unimplementedKeywordsOn } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -152,7 +152,15 @@ describe("the keyword no longer greys any card", () => {
 
     // Not all twelve report finished: several carry a SECOND gap of their own.
     // The claim is only that [Ambush] itself is no longer the reason.
-    const blamed = printed.filter((d) => (partialImplementationNote(d) ?? "").includes("[Ambush]"));
+    //
+    // **Asked of the DERIVED keyword list, not of the prose.** This used to
+    // substring-search `partialImplementationNote` for "[Ambush]", and it went red
+    // on 2026-08-10 the moment a hand-written note for UNL-060 mentioned the
+    // keyword in passing — "the hold-draw works and [Ambush] is the loader's" — to
+    // say the opposite of what the test read it as saying. `unimplementedKeywordsOn`
+    // is the actual question ("is this card greyed BECAUSE of the keyword") and it
+    // cannot be moved by how a neighbouring sentence is worded.
+    const blamed = printed.filter((d) => unimplementedKeywordsOn(d).includes("Ambush"));
     expect(blamed.map((d) => d.id), "a card is still greyed by [Ambush]").toEqual([]);
   });
 });

@@ -841,6 +841,15 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: n
   // runes; every other one is a single pip, which is why `count` had never been
   // exercised above 1.
   "SFD-109": { domain: "Body", count: 2 },
+  // Pyke - Dockside Butcher — "You may pay [Fury] as an additional cost to play
+  // me", whose on-play trigger reads `optionalPowerPaid` to ready him and give
+  // +2 Might. **Added by the integrator, not by the agent that wrote the card**:
+  // this table is shared and five agents were writing at once, so the trigger
+  // shipped correct and INERT — `optionalPowerPaid` could never be true, and the
+  // only proof it worked was a direct `dispatchOnPlayUnit` call that no real
+  // action could reach. One row is the whole difference between a written card
+  // and a played one, which is the shape worth remembering about this table.
+  "UNL-028": { domain: "Fury", count: 1 },
 };
 
 /**

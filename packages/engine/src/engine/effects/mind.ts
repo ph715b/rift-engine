@@ -13,6 +13,7 @@ import { isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designatio
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import { drawCards } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
+import { hasKeyword } from "../granted-keywords.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
 import {
   BIRD_TOKEN,
@@ -31,6 +32,7 @@ import {
   discardCards,
   exhaustAllFriendlyUnits,
   exhaustGear,
+  forceMoveToBase,
   forceMoveToBattlefield,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
@@ -113,6 +115,28 @@ const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", enter
  * prevent, so this is a second spec rather than a mutated copy of the first.
  */
 const SPRITE_TOKEN_EXHAUSTED: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", keywords: { Temporary: 1 } };
+
+/**
+ * Keeper of Masks' two Reflections — "play two Reflection unit tokens here. They
+ * become copies of me."
+ *
+ * `might: 0` is 187.6's printed token ("A 0 [M] Reflection token is a domainless
+ * unit token with 0 Might") surviving the copy, because 477.1.b.1.a's list of
+ * copyable traits does not include Might. See her entry in `unitTriggers` for the
+ * full reading and for why the number is a constant rather than a literal.
+ *
+ * The keywords are the copied Rules Text; the name is the copied Name. The TAG
+ * stays "Reflection" — she prints no tags of her own, so there is nothing for the
+ * copy to replace, and the tag is what 187.6 calls the token.
+ */
+const KEEPER_REFLECTION_MIGHT = 0;
+const KEEPER_REFLECTIONS = 2;
+const KEEPER_REFLECTION_TOKEN: TokenSpec = {
+  name: "Keeper of Masks",
+  might: KEEPER_REFLECTION_MIGHT,
+  tag: "Reflection",
+  keywords: { Temporary: 1, Hidden: 1 },
+};
 
 const FRIGID_TOUCH_MIGHT = 2;
 const BELLOWS_BREATH_DAMAGE = 1;
@@ -928,7 +952,131 @@ export const cardEffects: Record<string, EffectDefinition> = {
       );
     },
   },
+  "UNL-083": {
+    // Smoke and Mirrors — "[Hidden] [Action] Choose a unit you control and another
+    // unit you control at a different location. If at least one of them has
+    // [Temporary], move each to the other's location. Draw 1."
+    //
+    // # It is a swap, and both halves are ordinary force-moves
+    //
+    // "Move each to the other's LOCATION" — 198.1's "Locations include the
+    // Battlefields and the Bases", so a unit at home and a unit at a battlefield
+    // trade places. That is exactly the pair `forceMoveToBattlefield` /
+    // `forceMoveToBase` covers, and going through them rather than rewriting the
+    // zones is what makes this fire `unitMoved` (446.1/449 make an effect-driven
+    // relocation a Move), bump `movesThisTurn`, and apply Contested on arrival.
+    //
+    // BOTH destinations are read BEFORE either unit moves. Reading the second
+    // unit's location after the first had already been placed would send it to
+    // where the first one now is, which is not a swap at all — the classic
+    // temp-variable bug, and the reason the two locations are captured up front.
+    //
+    // SEQUENTIAL, not simultaneous, and that is visible in one place: the first
+    // arrival can apply Contested and open a Showdown before the second unit has
+    // left. This engine has no simultaneous-move primitive; the same divergence
+    // Card Sharp's two parked questions record for choices.
+    //
+    // # "At a DIFFERENT location" is a targeting restriction this spec cannot say
+    //
+    // **DIVERGENCE, in the permissive direction.** `unitSlots` has
+    // `sameBattlefield` (Facebreaker's) and no inverse, so the enumerator and the
+    // validator both accept two units standing together. 355 makes that an invalid
+    // choice and the spell uncastable with it; here it is castable and the swap
+    // simply does nothing, while "Draw 1" still happens. The guard below is
+    // therefore a resolver check standing in for a spec flag — the shape
+    // `TargetingSpec`'s own comments warn about, taken knowingly because the
+    // alternative is an edit to card-effects.ts, legal-actions.ts and
+    // validate-play-card.ts, none of which this file owns.
+    //
+    // **DIVERGENCE, in the restrictive direction, and the rules work THIS CARD by
+    // name.** 811.1.d.2 confines a from-Hidden spell's targets to the battlefield
+    // it was hidden at "unless the ability explicitly restricts targeting in a way
+    // that makes this impossible", and 811.1.d.2.a's example is Smoke and Mirrors:
+    // *"the first unit chosen can be chosen at the battlefield Smoke and Mirrors
+    // was played from, so it must be. The second unit chosen explicitly restricts
+    // targeting in a way that makes this impossible, so it can be chosen from any
+    // location."* `legal-actions` applies `atHiddenBattlefield` to BOTH slots, so a
+    // from-Hidden play can only ever name two units standing together — which,
+    // with the divergence above, is a play that draws and moves nothing. The whole
+    // from-Hidden mode of this card is therefore inert until the second slot is
+    // exempted. Reported rather than half-written; it is the same shared edit.
+    //
+    // # The [Temporary] gate
+    //
+    // "If at least ONE of them has [Temporary]" is a condition on the MOVE
+    // instruction, not on the choice — so it is read here at resolution, and read
+    // through `hasKeyword` so a Temporary granted by Turn to Dust or by Sprite
+    // Queen's token counts exactly like a printed one. The draw is its own
+    // instruction (135.2) and happens either way, including when both targets have
+    // left play while this sat on the chain (359.3.e).
+    //
+    // `min: 2`: both choices are mandatory, so the card is uncastable with one
+    // unit. NOT `asymmetricSlots` — swapping A with B is swapping B with A, so the
+    // enumerator's default pruning of one ordering is correct here and doubling the
+    // variants would offer the player a distinction that does not exist. That is
+    // the opposite call from Convergent Mutation above, whose slot 0 is the
+    // beneficiary and slot 1 only a measurement.
+    targeting: { kind: "unitSlots", slots: ["friendly", "friendly"], min: 2, scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const first = event.targetUnitInstanceId ? findUnitAnywhere(state, event.targetUnitInstanceId) : undefined;
+      const second = event.secondTargetUnitInstanceId
+        ? findUnitAnywhere(state, event.secondTargetUnitInstanceId)
+        : undefined;
+      const swapped = smokeAndMirrorsSwap(state, first, second);
+      return drawCards(swapped, ctx.casterIndex, 1);
+    },
+  },
 };
+
+/** Where a unit stands, as the ONE value "a different location" is compared on —
+ *  a battlefield id, or the owner's base. 198.1: "Locations include the
+ *  Battlefields and the Bases", so two units in one base share a location and are
+ *  NOT a legal Smoke and Mirrors pair, while a base unit and a battlefield unit
+ *  are. Both units here are the caster's own, so one "base" token is enough; a
+ *  card that could name both players' units would need the owner in the key. */
+function locationKeyOf(state: GameState, location: AnyUnitLocation): string {
+  return location.zone === "base" ? "base" : state.battlefields[location.zone.battlefieldIndex]!.id;
+}
+
+/**
+ * Smoke and Mirrors' swap, split out so the guard and the two moves read in one
+ * place rather than inside a ternary chain.
+ *
+ * Returns the state UNCHANGED for every case the instruction cannot be performed
+ * — a target that left play (359.3.e), two units at the same location, or neither
+ * carrying `[Temporary]`. The caller draws regardless, which is the point of
+ * separating them.
+ */
+function smokeAndMirrorsSwap(
+  state: GameState,
+  first: AnyUnitLocation | undefined,
+  second: AnyUnitLocation | undefined,
+): GameState {
+  if (!first || !second) return state;
+  const firstAt = locationKeyOf(state, first);
+  const secondAt = locationKeyOf(state, second);
+  // **MEASURED REDUNDANT against today's helpers, and labelled rather than left
+  // implying it is load-bearing** — the convention `holdMoveEvents` already
+  // follows for its own `from === to`. A mutation that deleted this line survived
+  // the whole file's suite: `forceMoveToBattlefield` returns early when the unit
+  // is already at the destination, and `forceMoveToBase` finds its subject with
+  // `findUnitOnBattlefield`, so a base unit "moved" to base is a no-op too.
+  // Neither increments `movesThisTurn` on the way out.
+  //
+  // Kept because it is the printed restriction ("at a DIFFERENT location") said in
+  // the one place this file can say it, and because a future move helper without
+  // those early-outs would otherwise fire two phantom `unitMoved` events.
+  if (firstAt === secondAt) return state;
+  const temporary =
+    hasKeyword(state, first.unit, first.ownerIndex, "Temporary") ||
+    hasKeyword(state, second.unit, second.ownerIndex, "Temporary");
+  if (!temporary) return state;
+  // Captured above, so the second move still reads the ORIGINAL destination after
+  // the first unit has already been placed.
+  const moveTo = (next: GameState, instanceId: string, to: string): GameState =>
+    to === "base" ? forceMoveToBase(next, instanceId) : forceMoveToBattlefield(next, instanceId, to);
+  return moveTo(moveTo(state, first.unit.instanceId, secondAt), second.unit.instanceId, firstAt);
+}
 
 /** The gear cards in `playerIndex`'s own trash — Aspiring Engineer's "a gear
  *  from your trash".
@@ -1442,6 +1590,66 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
         { kind: "SFD-081-mine", playerIndex: ctx.casterIndex } as const,
         { kind: "SFD-081-theirs", playerIndex: (1 - ctx.casterIndex) as 0 | 1 } as const,
       ].reduce((acc, seed) => parkDecision(acc, seed), state),
+  },
+  "UNL-081": {
+    // Keeper of Masks — "[Hidden] [Temporary] When you play me, play two
+    // Reflection unit tokens here. They become copies of me."
+    //
+    // Her two keywords are not this entry's: `[Hidden]` is engine/hidden.ts's and
+    // `[Temporary]` is `killTemporaryPermanents`, which reads printed `keywords`
+    // on the instance. She really does kill herself — the reminder text says "kill
+    // ME" — so unlike Sprite Queen's, this bracket is NOT the token's and she needs
+    // no `GRANTED_ONLY_KEYWORDS` row.
+    //
+    // "HERE" is wherever she landed, which the trigger event already carries as
+    // `destination` — Chakram Dancer's and Sprite Mother's precedent. From Hidden
+    // that is always the battlefield she was hidden at (811.1.d.1).
+    //
+    // # What a "copy" is, and the one number that is NOT one
+    //
+    // **477.1.b.1.a lists the copyable traits exactly: Name, Super Type, Type,
+    // Tags, Cost, Domain, Rules Text. MIGHT IS NOT AMONG THEM**, and its absence
+    // reads as deliberate rather than as an omission: the sibling layer 477.1.a
+    // carries a dedicated sub-rule 477.1.a.1 ("Assignment of Might is dealt with in
+    // this layer") and the copy sub-rule has no equivalent. 187.6 then fixes what
+    // the body actually is — "A 0 [M] Reflection token is a domainless unit token
+    // with 0 Might" — and nothing in the copy raises it. So each Reflection here is
+    // a 0-Might body carrying her rules text, NOT a second 1-Might Keeper.
+    //
+    // Verified against `pdftotext -raw` AND `-layout`, because a 0-Might copy is
+    // surprising enough to look like a mis-extraction. Both emit the same
+    // seven-item list. Named as a constant so a ruling the other way is one line.
+    //
+    // What the copied Rules Text is worth on the board is `[Temporary]`: the two
+    // Reflections die with her at the start of her controller's next Beginning
+    // Phase, before scoring (816). `[Hidden]` is carried for faithfulness and is
+    // inert by 811.1.b, which scopes it to "while this card is in your hand or in
+    // your Champion Zone" — nothing on the Board can use it.
+    //
+    // **Their own "when you play me" does NOT re-fire, and that is structural
+    // rather than a guard.** The tokens are played and THEN become copies (477.1.b
+    // is a layer, not a play), so the trigger moment is over before they have the
+    // text. It is also true by construction here: `placeToken` is not a play path,
+    // so `dispatchOnPlayUnit` never sees them and there is no recursion to bound.
+    //
+    // # The token is a SPEC, not a real Layer-1 copy
+    //
+    // **DIVERGENCE, and it is the mechanism rather than this card's outcome.**
+    // `TokenSpec` carries name, Might, tag and keywords, so the four copied traits
+    // that are observable in this pool land exactly. The three that do not are
+    // Cost (185.3.a.2 appends it; Atakhan's "I cost [1] less for each Energy it
+    // costs" is the only card that could read it, and 185.3.a.1's "treated as 0"
+    // is what the token keeps), Domain, and Super Type. A general copy — LeBlanc -
+    // Deceiver and Mirror Image copy an ARBITRARY unit, not a known one — needs a
+    // real copy field on `UnitInstance` and belongs in token.ts/card.ts, neither
+    // of which this file owns. Keeper is the one copy in the pool whose subject is
+    // known at authoring time, which is why she can be written without it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) =>
+      Array.from({ length: KEEPER_REFLECTIONS }).reduce<GameState>(
+        (next) => placeToken(next, ctx.casterIndex, event.destination, KEEPER_REFLECTION_TOKEN),
+        state,
+      ),
   },
 };
 

@@ -2470,7 +2470,91 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
         KHAZIX_XP,
       ),
   },
+  "UNL-149": {
+    // Diana - No Longer Human — "[Ambush] When you play a spell, give me +2
+    // [Might] this turn."
+    //
+    // `[Ambush]` needs nothing here: 822.1.c makes it a passive that widens the
+    // legal play DESTINATIONS, and `timing.ambushReactionAt` already grants the
+    // `[Reaction]` half. Only this sentence is hers.
+    //
+    // "When YOU play" is her controller's own spell (`casterIndex ===
+    // ownerIndex`) — an opponent's Spell is a different sentence, and without
+    // that check she would grow on the response window she is meant to survive.
+    //
+    // `playedKind === "Spell"` is the other half of the narrowing: `cardPlayed`
+    // is fired for every card kind, so a Gear or a Unit would otherwise pump her
+    // too. Both conditions are FACTS ABOUT THE EVENT, so they are the only two
+    // asked, and they are asked in `applies` — 383.2.a.1 fixes the Trigger
+    // Condition at the moment the condition is fulfilled, and Sona - Harmonious's
+    // worked example under it is explicit that a listener removed in reaction
+    // "will still resolve".
+    //
+    // No cap. She prints no "first time each turn", so a turn with three Spells
+    // is +6, and each one is its own held item.
+    //
+    // `giveMightThisTurnToOwnUnit` rather than the bare `giveMightThisTurn`:
+    // "give ME" is her own body, and the owned-unit form no-ops if she has left
+    // the board between the hold and the pop rather than reaching for a Diana the
+    // opponent has taken control of.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" && event.casterIndex === listener.ownerIndex && event.playedKind === "Spell",
+    resolve: (state, listener) =>
+      giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, DIANA_SPELL_MIGHT),
+  },
+  "UNL-150": {
+    // Vex - Apathetic — "[Deflect] When an opponent plays a unit while I'm at a
+    // battlefield, [Stun] it. They can't move it this turn."
+    //
+    // **HALF the sentence, deliberately.** The `[Stun]` is here; "they can't move
+    // it this turn" is NOT implemented — there is no per-unit movement lock in
+    // this engine, and the one gate that would have to carry it is
+    // `validate-move-unit.ts`, whose own doc comment already names "Vex -
+    // Apathetic's movement lock" as one of the named-card exceptions it omits.
+    // That is a shared file this pass may not edit, so the card is weaker than
+    // printed rather than wrong in a second direction, and
+    // test/unl-chaos-wave5.test.ts pins the gap by asserting the stunned unit can
+    // still be moved — closing it must FLIP that test rather than silently
+    // changing behaviour nobody was watching.
+    //
+    // Her `[Deflect]` is the loader's printed keyword and the surcharge machinery
+    // reads it; nothing about it belongs here.
+    //
+    // # The three conditions, and why all three sit in `applies`
+    //
+    // "an OPPONENT plays" — `casterIndex !== ownerIndex`, so her controller
+    // reinforcing does not stun their own arrival. "a UNIT" — `playedKind`, so a
+    // Spell or Gear is not her moment. "while I'M AT A BATTLEFIELD" — 383.2.a.1
+    // makes a conditional immediately after the Condition part of the TRIGGER
+    // CONDITION rather than of the effect, and the rulebook's worked example for
+    // it (Sona - Harmonious, "if I'm at a battlefield") says the ability is placed
+    // on the chain only if the condition holds when it is fulfilled, and "if she
+    // is removed in reaction to the triggered ability, it will still resolve". So
+    // a Vex recalled during the response window this hold opens still stuns.
+    //
+    // **Any battlefield, not hers.** The card says "while I'm at a battlefield",
+    // not "here" — 355.9.b's narrowing is what a printed "here" would have bought
+    // and she does not print one. So she stunlocks the whole board while she
+    // stands anywhere but base, which is what a 4-Energy 0-Power body with
+    // `[Deflect]` is priced for.
+    //
+    // `listener.ownerIndex` is the STUNNER, so a "when you stun" watcher on her
+    // side pays out; `stunUnits` fires ONE `unitsStunned` per call, which is what
+    // keeps the per-instruction accounting honest for a single victim.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex !== listener.ownerIndex &&
+      event.playedKind === "Unit" &&
+      listener.battlefieldId !== undefined,
+    resolve: (state, listener, event) =>
+      event.kind === "cardPlayed" ? stunUnits(state, listener.ownerIndex, [event.playedInstanceId]) : state,
+  },
 };
+
+/** Diana - No Longer Human's per-spell pump — "give me +2 [Might] this turn". */
+const DIANA_SPELL_MIGHT = 2;
 
 /** Kha'Zix - Mutating Horror's payout — "+2 [Might] this turn and gain 2 XP". */
 const KHAZIX_PUMP = 2;

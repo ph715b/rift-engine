@@ -151,7 +151,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("276 held / 5 inline of 281 trigger cards", () => {
+  it("285 held / 5 inline of 290 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -168,6 +168,27 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // that is the thing this test exists to make impossible to forget.
     // **208/3/211 → 231/3/234 on 2026-08-08**, when the first wave of Unleashed
     // card work landed: 23 more cards carrying a trigger, every one of them held.
+    //
+    // **276/5/281 → 285/5/290 on 2026-08-10**, wave 5: nine more trigger cards,
+    // every one of them held, and the inline count did not move.
+    //
+    // Attribution, summed from what each agent measured rather than inferred from
+    // the total: **+2 Fury** (UNL-029 Red Brambleback's conquer, UNL-028 Pyke's
+    // on-play), **+2 Calm** (UNL-056 Yuumi, UNL-060 Vilemaw), **+1 Mind**
+    // (UNL-081 Keeper of Masks), **+2 Chaos** (UNL-149 Diana, UNL-150 Vex) and
+    // **+2 signature** (UNL-183 Rengar, UNL-187 Vi). They sum to exactly the +9
+    // the registries report.
+    //
+    // Two of the five measured their own share the stronger way this file asked
+    // for last wave — by reverting their own domain file and re-running the census
+    // against `HEAD` — rather than by counting their registrations. That is now
+    // the method to ask for, and it is what makes this arithmetic.
+    //
+    // **The Rengar and Vi entries are the first LEGEND abilities in the census.**
+    // Worth knowing before the next wave: no seam had to be built for them.
+    // `listeningPermanents` already ends with `owner.legend` and `Listener.zone`
+    // already carries `"legend"`, so a Legend's triggered ability has always been
+    // registrable from a domain file and nobody had tried.
     //
     // **261/3/264 → 276/5/281 on 2026-08-09**, wave 4: seventeen more trigger
     // cards. TWO of them are INLINE, which is the first time that number has
@@ -199,9 +220,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 276,
+      held: 285,
       inline: 5,
-      cards: 281,
+      cards: 290,
     });
   });
 

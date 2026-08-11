@@ -10,7 +10,7 @@ import type {
   Listener,
   SelfTriggerDefinition,
 } from "../triggers.js";
-import { isAttackingAt, isStillHere } from "../combat-designation.js";
+import { isAttackingAt, isFightingAt, isStillHere } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
@@ -2345,7 +2345,105 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       });
     },
   },
+  "UNL-056": {
+    // Yuumi - Magical Cat — "When I attack or defend, give one of your other
+    // units here +3 Might and [Tank] this turn."
+    //
+    // Her own printed `[Tank]` is the card frame's and needs nothing here.
+    //
+    // `isFightingAt` is the shared "attack OR defend" predicate (383.4.e and
+    // 383.4.f are two rules, and this card asks for either). It carries the two
+    // checks this entry would otherwise repeat: she must be a UNIT standing at
+    // the battlefield the combat opened at, and she must be GAINING her
+    // designation NOW — 383.4.e.2.a/f.2.a check the condition "only once per
+    // combat", so a reinforcement arriving later fires the event again for
+    // itself and not for her.
+    //
+    // **The candidate check is in `resolve`, NOT in `applies`, and that is the
+    // rules reading rather than a convenience.** The trigger condition is "when
+    // I attack or defend" and nothing else, so the ability triggers even with
+    // nobody to give the buff to; the instruction is then simply ignored
+    // (359.3.e.6, "Instructions that can't be followed ... are ignored"). Putting
+    // the emptiness test in `applies` would be 383.4.e.2.b's "other requirements
+    // besides attacking", which this card does not print. Ribbon Dancer's
+    // "ANOTHER friendly unit" takes the same split one registry down.
+    on: "combatBegan",
+    applies: (state, listener, event) => isFightingAt(state, listener, event),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // "HERE" is a referent read from the ability's source (359.3.f.1) and
+      // checked on EXECUTION of the instruction (359.3.f.2) — the rules' own
+      // worked example being an opponent answering Yasuo - Remorseful's attack
+      // trigger by moving him, after which "'here' is no longer the battlefield
+      // where combat is ongoing and the attack trigger mistargets". A Yuumi
+      // killed or bounced in the response window this hold opens therefore buffs
+      // nobody, and the buff is never re-aimed at wherever she ended up. That
+      // check lives inside `yuumiCandidates` so the fire-time question and the
+      // answer-time option list cannot disagree about it.
+      if (yuumiCandidates(state, listener.ownerIndex, listener.card.instanceId, event.battlefieldId).length === 0) {
+        return state;
+      }
+      return parkDecision(state, {
+        kind: "UNL-056-buff",
+        playerIndex: listener.ownerIndex,
+        // WHICH Yuumi — "OTHER" is an exclusion by object, so a second copy of
+        // her at the same battlefield is a legal recipient for the first.
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
+  "UNL-060": {
+    // Vilemaw's third clause — "When I hold, draw 1."
+    //
+    // 383.4.d: a Hold Effect triggers off "a Unit being present at a Battlefield
+    // during the Beginning phase when a player scores Victory Points from
+    // Holding", and 383.4.d.1 gives "When I hold..." as its printed form.
+    // 383.4.d.2.a makes the ability the UNIT's, so "I" is positional — the
+    // battlefield held has to be the one Vilemaw is standing at, not merely one
+    // his controller held somewhere. Ahri - Alluring and Blitzcrank - Impassive
+    // read their own "when I hold" the same way, one registry up.
+    //
+    // His other two clauses are NOT here. `[Ambush]` is a keyword the loader
+    // carries, and "enemy units here with less Might than me don't deal combat
+    // damage" needs `combat.outgoingMight`, which this file does not own —
+    // reported as a partial rather than approximated.
+    on: "battlefieldHeld",
+    // Both halves settled at fire time, as Ahri's are: the hold has happened and
+    // the response window this opens is exactly when an opponent could move or
+    // kill him, which must not cancel a draw already earned.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? drawCards(state, listener.ownerIndex, 1) : state),
+  },
 };
+
+/** Yuumi - Magical Cat's "+3 Might and [Tank] this turn" — printed values, named
+ *  because each appears in her trigger's prose and in the decision that lands
+ *  them. */
+const YUUMI_MIGHT = 3;
+
+/**
+ * The units Yuumi - Magical Cat may give her buff to — her controller's OTHER
+ * units at the battlefield the combat opened at.
+ *
+ * One function for the fire-time "is there anybody to give it to" check, for the
+ * option list and for the answer-time guard, the same one-walk rule
+ * `ribbonDancerCandidates` and `vexDestinations` follow: an ability must not be
+ * able to trigger on one set and then buff something outside it.
+ *
+ * **Returns nothing once Yuumi herself has left**, which is 359.3.f.2's referent
+ * check rather than a tidiness rule — see her trigger.
+ *
+ * "OTHER" is an exclusion by OBJECT, not by card: a second Yuumi at the same
+ * battlefield is a legal recipient for the first, exactly as `ownUnitAtLocation`
+ * reads "other friendly units" for the keyword auras.
+ */
+function yuumiCandidates(state: GameState, ownerIndex: 0 | 1, selfInstanceId: string, battlefieldId: string): UnitInstance[] {
+  if (!isStillHere(state, selfInstanceId, battlefieldId)) return [];
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  return (bf?.units[state.players[ownerIndex].id] ?? []).filter((u) => u.instanceId !== selfInstanceId);
+}
 
 /** Nami - Headstrong's two marks on her own instance — "armed" by a hold,
  *  "spent" by the unit that consumed it. Named because both strings appear in
@@ -3025,6 +3123,43 @@ export const decisions: Record<string, DecisionDefinition> = {
       optionId === "move" && d.cardInstanceId && d.battlefieldId
         ? forceMoveToBattlefield(state, d.cardInstanceId, d.battlefieldId, d.playerIndex)
         : state,
+  },
+
+  // Yuumi - Magical Cat's "give one of your OTHER units HERE +3 Might and [Tank]
+  // this turn", raised by her attack-or-defend trigger, which has already
+  // established that such a unit exists.
+  //
+  // NO decline option: the card carries no "you may", so once it has triggered
+  // the buff has to land somewhere. With exactly one candidate that makes this a
+  // single option and `advanceDecisions` executes it without a prompt — there is
+  // no choice to make. With NONE (Yuumi died or was moved in the response window)
+  // it returns an empty list and the question is moot, which is 359.3.f.2's
+  // referent check and not a special case.
+  "UNL-056-buff": {
+    prompt: () => "Yuumi - Magical Cat: give another of your units here +3 Might and [Tank] this turn",
+    options: (state, d) =>
+      yuumiCandidates(state, d.playerIndex, d.cardInstanceId ?? "", d.battlefieldId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => {
+      // Re-asked against the SAME walk the options came from. `answerDecision`
+      // already refuses an option that is not on offer, so this cannot be reached
+      // through the action path today and is not claimed as tested — it is here
+      // because BOTH halves of one printed sentence land below it, and a future
+      // caller that resolves without that check must not be able to put the Might
+      // somewhere the keyword does not go.
+      if (!yuumiCandidates(state, d.playerIndex, d.cardInstanceId ?? "", d.battlefieldId ?? "").some((u) => u.instanceId === optionId)) {
+        return state;
+      }
+      // `giveMightThisTurn`, not a Buff: "this turn" expires in the Expiration
+      // Step (317.2.c), where a Buff would persist. `[Tank]` rides
+      // `keywordsThisTurn` and expires with it; 815.2 makes a second instance
+      // redundant, so naming a unit that already has [Tank] is a legal, quiet
+      // no-op rather than a stacking bonus.
+      return grantKeywordThisTurn(giveMightThisTurn(state, optionId, YUUMI_MIGHT), optionId, "Tank");
+    },
   },
 };
 

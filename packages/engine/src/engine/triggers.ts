@@ -532,8 +532,8 @@ function karthusCount(state: GameState, ownerIndex: 0 | 1): number {
  * and the walk ran AFTER it with a comment explaining that a Deathknell which
  * kills things could remove a listener before it fired. 383 determines the whole
  * set of triggered abilities at the moment of the event, together — so a listener
- * the Deathknell later kills has still triggered, and 809.1.b makes its ability
- * resolve anyway. (2) The Deathknell is placed LAST so that under LIFO (340.1) it
+ * the Deathknell later kills has still triggered, and 383.3 with 377.3.a.1 makes
+ * its ability resolve anyway. (2) The Deathknell is placed LAST so that under LIFO (340.1) it
  * still resolves FIRST, which is where it sat inline.
  */
 export function holdUnitDied(state: GameState, death: DeathContext): GameState {
@@ -603,8 +603,16 @@ interface HeldDeathknell {
  * Resolves a held `[Deathknell]` when the chain pops it.
  *
  * Nothing is looked up: the dying card is in a trash by now, which is the whole
- * reason this family needed its own source. 809.1.b again — an ability on the
- * Chain is independent of the card that made it.
+ * reason this family needed its own source. **383.3** puts a triggered ability on
+ * the Chain "like an Activated Ability", and **377.3.a.1** is the sentence that
+ * makes the independence explicit: "the ability goes on the chain but has no card
+ * to represent it". Nothing to represent it means nothing to look up.
+ *
+ * These two rules replaced **809.1.b**, which was cited here and at two
+ * neighbouring sites and is `[Deflect]`'s formatting rule ("It is formatted as
+ * 'Deflect [X]'"). Found 2026-08-10 by a wave-5 agent working in another file —
+ * the fifth wrong citation in this repo and the third found by whoever next
+ * happened to need the sentence rather than by any instrument.
  */
 export function resolveHeldDeathknell(state: GameState, entry: TriggerChainEntry): GameState {
   const definition = allDeathknells()[entry.listenerDefId];
@@ -1823,8 +1831,8 @@ export function holdSelfTrigger(state: GameState, kind: SelfEventKind, card: Car
  *
  * Nothing is looked up: the card is on the entry, and by now it is in a trash
  * (killed, discarded) or in play (played) — the ability does not care, and could
- * not find it in two of those three cases anyway. 809.1.b again: an ability on
- * the Chain is independent of the card that made it.
+ * not find it in two of those three cases anyway. 383.3 with 377.3.a.1 again: an
+ * ability on the Chain "has no card to represent it".
  */
 export function resolveHeldSelfTrigger(state: GameState, entry: TriggerChainEntry): GameState {
   const trigger = allSelfTriggers()[entry.listenerDefId];

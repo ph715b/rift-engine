@@ -562,6 +562,63 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-023",
     "only the second clause is written — 'when you hide a card, ready me' is unimplemented",
   ],
+  // **Wave 5, 2026-08-10.** One card, and its shape is worth reading because the
+  // refusal behind it was argued rather than assumed. Vilemaw prints three
+  // clauses; the hold-draw is written, `[Ambush]` is the loader's, and the third
+  // is a conditional aura over the OPPONENT's units.
+  //
+  // `combat.ts`'s `DEALS_NO_COMBAT_DAMAGE_DEF_IDS` is keyed by the defId of the
+  // unit that is silenced, which fits Ezreal - Dashing (who silences himself) and
+  // cannot express "enemy units HERE with less Might than me". The agent also
+  // considered and REJECTED routing it through `mightModifiers` as an
+  // outgoing-Might floor, on two grounds worth keeping: it recurses (the enemy's
+  // own Might is the input to the comparison that would modify it) and it would
+  // strip Mightiness through `isMighty`'s outgoing branch. Both are right.
+  // **UNL-028 Pyke - Dockside Butcher is deliberately NOT here.** The agent that
+  // wrote him reported him as owed a row, and he would have been: his on-play
+  // trigger reads `optionalPowerPaid`, which nothing could ever set. The blocker
+  // was one `OPTIONAL_POWER_COSTS` row in `card-effects.ts` — a shared file the
+  // agent could not touch — so the row went in with this wave instead and the
+  // card is whole. Recorded because the alternative was a partial entry that
+  // would have gone stale the same day.
+  [
+    "UNL-029",
+    "half written: 'when I conquer, [Buff] a friendly unit' works; 'your conquer effects for conquering here trigger an additional time' is unwritten — holdEventTrigger has no `times` multiplier and the doubling must also reach holdBattlefieldTrigger, since a battlefield's own 'when you conquer here' is one too",
+  ],
+  // **The four signature cards from wave 5, 2026-08-10.** All four report DONE on
+  // their first clause, which is this map's whole reason to exist. UNL-191 is the
+  // one to read twice: a `mightModifiers` aura and a deploy-time replacement are
+  // different tables, so half a Legend is the natural failure here rather than an
+  // unusual one.
+  [
+    "UNL-182",
+    "the four modes work; its THREE [Repeat]s are not modelled — RepeatCostSpec expresses exactly one Repeat instance (its own comment says so), and 820.1.c.2 needs each payable individually with a per-EXECUTION mode re-choice, where modeId is currently chosen once per action",
+  ],
+  [
+    "UNL-186",
+    "half written: the kill works; 'play this from your trash for [rainbow]' is unwritten — timing.mayPlayFromTrash is per-player, Units-only, and charges the printed price, so a per-instance permission with a REPLACED cost needs timing.ts plus a PlayerState field",
+  ],
+  [
+    "UNL-190",
+    "half written: the counter works; 'its controller can't play spells this turn' is unwritten — PlayerState.cannotPlayCardsThisTurn stops CARDS, which is wider than printed, and a spells-only twin needs game-state.ts, board-restrictions.ts, player-setup.ts and turn-manager.ts",
+  ],
+  [
+    "UNL-191",
+    "half written: the [Level 6] +1 Might aura works; [Level 11] 'your units enter ready' is unwritten — only deploy.unitEntersReady answers it, and deploy.ts's own comment rules out faking it as an on-play readyUnit (a held trigger leaves the unit exhausted through the response window, fires unitReadied, and is blockable by Mageseeker Warden)",
+  ],
+  // Vex's missing clause is NARROWER than it reads, and the narrowing is the
+  // reason this note says "rarely" rather than "never": a played unit arrives
+  // exhausted, and an exhausted unit cannot move. The gap only bites once
+  // something has readied it — `unitsEnterReadyThisTurn`, `[Accelerate]`, or an
+  // "I enter ready" clause.
+  [
+    "UNL-150",
+    "half written: the [Stun] works; 'they can't move it this turn' is unwritten — no per-unit movement lock exists, so a unit readied after arriving can still be moved",
+  ],
+  [
+    "UNL-060",
+    "one of three clauses: 'when I hold, draw 1' works and [Ambush] is the loader's; 'enemy units here with less Might than me don't deal combat damage' is unwritten — DEALS_NO_COMBAT_DAMAGE_DEF_IDS is keyed by the silenced unit's own defId and cannot express a conditional aura over enemies",
+  ],
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

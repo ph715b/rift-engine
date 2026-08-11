@@ -56,6 +56,7 @@ const ANGLE_SHOT = "SFD-011";
 const ROCKET_BARRAGE = "SFD-077";
 const DISPOSAL_ORDER = "UNL-103"; // arrived in wave 2, after the mode step existed
 const FLURRY_OF_FEATHERS = "UNL-044"; // wave 3 — its two modes want DIFFERENT target kinds
+const CURTAIN_CALL = "UNL-182"; // wave 5 — FOUR modes, and one of them is scoped to base
 const CHARM = "OGN-043"; // non-modal control: one mode, plain `unit` targeting
 
 /** A candidate as the enumerator emits it — only the fields these comparisons
@@ -201,7 +202,7 @@ describe("the census of modal cards", () => {
    * A third arriving is exactly when this fix stops being complete — and the
    * failure mode of a modal card is silent, so nothing else would say so.
    */
-  it("is Angle Shot, Rocket Barrage, Disposal Order and Flurry of Feathers", () => {
+  it("is Angle Shot, Rocket Barrage, Disposal Order, Flurry of Feathers and Curtain Call", () => {
     // **UNL-103 Disposal Order arrived from a card wave the day after the mode
     // step was built, and this is the assertion that noticed.** It needed no UI
     // change: the step fires for any card with more than one mode, so the card
@@ -220,6 +221,20 @@ describe("the census of modal cards", () => {
     // Still needed no UI change. Two modal cards have now arrived AFTER the mode
     // step was built and both worked on landing, which is the payoff for having
     // fixed the mechanism rather than the two cards that were reported.
-    expect(modalCardIds()).toEqual([ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER, FLURRY_OF_FEATHERS].sort());
+    // **A FIFTH arrived in wave 5, and it is the first with FOUR modes.** Curtain
+    // Call is draw / burn-at-a-battlefield / burn-at-a-base / shrink, and its two
+    // burn modes differ in SCOPE rather than in target kind — one is `scope:
+    // "base"`. That is a narrower difference than Flurry's, and it lands on
+    // `pendingSlotsAreSymmetric` rather than on the mode step itself.
+    //
+    // **This test is the reason it was looked at at all.** It failed in the ROOT
+    // run of a wave that touched only engine domain files — the exact shape
+    // CLAUDE.md's step 1 exists for, and the third time an engine change has been
+    // caught by a WEB test. Three modal cards have now arrived after the mode step
+    // was built and all three worked on landing; that is the payoff for having
+    // fixed the mechanism rather than the two cards originally reported.
+    expect(modalCardIds()).toEqual(
+      [ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER, FLURRY_OF_FEATHERS, CURTAIN_CALL].sort(),
+    );
   });
 });

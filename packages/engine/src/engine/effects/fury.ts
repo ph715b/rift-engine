@@ -12,6 +12,7 @@ import type {
 } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
+  addBuff,
   dealDamage,
   completeDeath,
   discardCards,
@@ -44,7 +45,7 @@ import {
 } from "../death-ward.js";
 import { killGear } from "../triggers.js";
 import { parkDecision, type DecisionOption } from "../decisions.js";
-import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
+import { findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -1094,11 +1095,59 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, _ctx, _unitId, event) =>
       event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state,
   },
+  "UNL-028": {
+    // Pyke - Dockside Butcher's LAST sentence — "When you play me, if you paid the
+    // additional cost, ready me and give me +2 Might this turn."
+    //
+    // # The additional cost itself is NOT implemented, and this clause is inert
+    //
+    // "You may pay [Fury] as an additional cost to play me" is one row in
+    // `card-effects.OPTIONAL_POWER_COSTS` — `"UNL-028": { domain: "Fury", count: 1 }`
+    // — and that is a shared file this pass does not own. Without the row the
+    // enumerator never offers the paid variant, `optionalPowerPaid` is never true,
+    // and neither the ready nor the pump can fire in a real game. Written anyway
+    // rather than left out, for the reason Nami - Headstrong (UNL-052,
+    // effects/calm.ts) records: the flag is a real threaded mechanism (validator,
+    // executor and `UnitTriggerEvent` all carry it, for Clockwork Keeper and the
+    // three SFD cards), so the day the row lands the card works. Pinned by a test
+    // that asserts an ordinary play readies nothing, so adding the row fails loudly
+    // rather than silently changing behaviour.
+    //
+    // **The domain has to come from that table, not from `card.powerDomain`** —
+    // Pyke prints ZERO Power, so his `powerDomain` is null and pricing against it
+    // would accept a rune of any domain. Clockwork Keeper's exact trap.
+    //
+    // # "Ready me", not "I enter ready" — and the difference is the whole entry
+    //
+    // Scorchclaw (UNL-016, `mightModifiers` below) prints "enter ready", which is a
+    // REPLACEMENT for how a unit arrives and lives in `deploy.conditionalEntersReady`;
+    // an on-play `readyUnit` would be wrong for it in three measurable ways. Pyke
+    // prints an INSTRUCTION, so `readyUnit` is exactly right here: he really does
+    // arrive exhausted (143.4) and really is readied afterwards, so firing
+    // `unitReadied` (Pirate's Haven) and being stoppable by Mageseeker Warden are
+    // both correct rather than artefacts.
+    //
+    // # Printed order: ready first, then the Might
+    //
+    // Not observable today — nothing here reads Might between the two — but 359.2.b
+    // ("execute all rules text on the card, from top to bottom") is the order the
+    // sentence prints, and the alternative would need a reason.
+    //
+    // `[Hidden]` and `[Ganking]` are the engine's and belong nowhere in this file:
+    // hidden.ts prices the hide, the move enumerator reads the Ganking, and neither
+    // is in `coverage.UNIMPLEMENTED_KEYWORDS`.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, unitId, event) =>
+      event.optionalPowerPaid ? giveMightThisTurn(readyUnit(state, unitId), unitId, PYKE_BUTCHER_MIGHT) : state,
+  },
 };
 
 /** Lord Broadmane's grant, and Mischievous Marai's shot. */
 const LORD_BROADMANE_ASSAULT = 1;
 const MISCHIEVOUS_MARAI_DAMAGE = 2;
+
+/** What Pyke - Dockside Butcher's paid Fury buys, on top of the ready. */
+const PYKE_BUTCHER_MIGHT = 2;
 
 /** The units `playerIndex` controls at a freshly-played unit's destination —
  *  "your other units HERE", where "here" may be a Base.
@@ -1912,6 +1961,63 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return { ...state, players };
     },
   },
+  "UNL-029": {
+    // Red Brambleback's THIRD clause — "When I conquer, [Buff] a friendly unit."
+    //
+    // # Two of the card's three clauses are elsewhere, and one is REFUSED
+    //
+    // `[Accelerate]` (805) is the engine's: `hasAccelerate` prices the optional
+    // additional cost, `legal-actions` fans the paid variant out, and
+    // `deploy.unitEntersReady` reads the flag. Nothing about it belongs here.
+    //
+    // **"Your conquer effects for conquering here trigger an additional time" is
+    // NOT implemented.** It is a continuous effect on how OTHER cards' triggers
+    // resolve, which is Karthus - Eternal's shape — triggers.ts counts him off the
+    // board and carries a `times` on the chain entry, and `resolveHeldDeathknell`
+    // runs the definition that many times. `holdEventTrigger` has no such
+    // multiplier: it pushes exactly one entry per (listener, key), and the doubling
+    // would also have to reach `holdBattlefieldTrigger`, since a battlefield's own
+    // "when you conquer here" is a conquer effect for conquering here too. Both are
+    // shared files this pass does not own. Blue Sentinel (UNL-087, effects/mind.ts)
+    // refused the identical sentence about HOLDING for the identical reason, and
+    // this card owes the same `PARTIALLY_IMPLEMENTED` row. Registration is per
+    // defId, so the clause below alone makes him report DONE — pinned in
+    // test/unl-fury-wave5.test.ts by asserting his own buff lands exactly ONCE.
+    //
+    // # "When I conquer" is positional
+    //
+    // Inviolus Vox's reading (UNL-027, just above) exactly: he must be standing AT
+    // the battlefield taken, which is what separates a unit's conquer trigger from
+    // a Legend's "when YOU conquer". Both conditions settle in `applies` because
+    // `battlefieldConquered` is a Chain Pending Item (383) — holding one for
+    // somebody else's conquest costs both players a PassFocus for nothing — and the
+    // location is deliberately NOT re-asked in `resolve`, since the window the hold
+    // opens is precisely when an opponent would push him sideways.
+    //
+    // # The buff is a parked DECISION
+    //
+    // "A friendly unit" with a real choice behind it and no "you may": Vox's and
+    // Ivern's question, and the same mechanism. The conquest is a held event, so
+    // the question outlives the moment. Already-buffed units stay ON offer —
+    // 702.3.a makes a second buff a no-op rather than an illegal choice, which is
+    // what `addBuff` implements and what Ivern's and Spirit's Refuge's options
+    // both record.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      // No "you may", so the buff has to land somewhere — but with nothing of his
+      // controller's left on the board there is nothing to land on, and a Pending
+      // Item that can only resolve to nothing is not worth a response window. He is
+      // normally his own candidate, so this is the dead-Brambleback case.
+      ownUnitsEverywhere(state, listener.ownerIndex).length > 0,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      return parkDecision(state, { kind: "UNL-029-buff", playerIndex: listener.ownerIndex });
+    },
+  },
 };
 
 /** Yeti Brawler's payout and its threshold, and the Battleaxe's self-inflicted 4
@@ -2545,6 +2651,25 @@ export const decisions: Record<string, DecisionDefinition> = {
           })),
     resolve: (state, d, optionId) => dealDamage(state, d.playerIndex, optionId, MISCHIEVOUS_MARAI_DAMAGE),
   },
+  // Red Brambleback's "[Buff] a friendly unit", raised by his conquer trigger,
+  // which has already established that his controller has a unit to buff.
+  //
+  // NO decline: the card carries no "you may", so once it has triggered the buff
+  // has to land. With exactly one candidate `advanceDecisions` executes it without
+  // a prompt, which is right — there is no choice to make.
+  //
+  // "A friendly unit" names no battlefield, so 355.9.a.1's bare noun puts base and
+  // battlefields both on offer, and the Brambleback himself is eligible (the text
+  // says no "other"). Already-buffed units stay on offer too: 702.3.a makes a
+  // second buff a no-op rather than an illegal choice, which is the reading Ivern
+  // and Spirit's Refuge both take. Candidates are rebuilt from live state, so a
+  // unit killed in the response window is simply not offered.
+  "UNL-029-buff": {
+    prompt: () => "Red Brambleback: buff a friendly unit",
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    resolve: (state, _d, optionId) => addBuff(state, optionId),
+  },
 };
 
 /** Inviolus Vox's pump and Katarina - Reckless's shot — printed numbers, named
@@ -2576,18 +2701,117 @@ const DRAVEN_PUMP = 2;
 /**
  * Activated abilities contributed by this domain file.
  *
- * **Empty on purpose, and it is the seam that matters, not the contents.**
+ * **The seam matters more than the contents, and it stood EMPTY until wave 5.**
  * `ACTIVATED_ABILITIES` was module-private in `activated-abilities.ts`, so a
  * domain file could not register an activated ability AT ALL — the wave-1 agents
  * refused UNL-026 and UNL-093 on exactly that, and every future card with a
  * printed "[cost]: do something" would have hit the same wall or been written
- * into the shared file that the fan-out rule keeps agents out of.
+ * into the shared file that the fan-out rule keeps agents out of. Vi - Hotheaded
+ * is the first card this file registers through it.
  *
  * Merged lazily by `activated-abilities.ts`, through the same `mergeRegistries`
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
-export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {};
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-030": {
+    // Vi - Hotheaded — "[Deflect] [2][Fury]: Double my Might this turn."
+    //
+    // `[Deflect]` is counter-spell.ts's surcharge and belongs nowhere in this file;
+    // it is absent from `coverage.UNIMPLEMENTED_KEYWORDS`. The ability is the only
+    // clause here.
+    //
+    // # No exhaust, so it REPEATS while the runes last
+    //
+    // The printed cost is `:rb_energy_2::rb_rune_fury:` with no `:rb_exhaust:`, and
+    // the registry's default is `{ exhaust: true }` — taking the default would have
+    // invented a once-per-turn limit the card does not print. Maduli (UNL-141,
+    // effects/chaos.ts) and Vi - Destructive are the same shape: bounded by the
+    // price, not by a tap. Doubling twice in a turn is therefore legal and is
+    // 2×, then 2× again on the already-doubled figure — see the snapshot note.
+    //
+    // # EFFECTIVE Might, not printed, and it is a SNAPSHOT
+    //
+    // **432 is Doubling's own rule and it settles both halves.** 432.1: "Doubling
+    // is the act of increasing a numeric attribute by an amount equal to that
+    // attribute's CURRENT value" — so buffs, this-turn pumps, Equipment badges and
+    // positional auras are all part of what is doubled (143.2's statistic), which
+    // is Last Stand's reading (OGN-069, effects/calm.ts) and the same
+    // `effectiveMight` choke point. And 432.1.a: it "creates an effect that
+    // modulates that attribute by that SPECIFIC AMOUNT for the duration specified"
+    // — a fixed `+M this turn`, not a live multiplier. So a buff arriving later
+    // lands on top rather than being doubled too, and a second activation doubles
+    // the already-doubled figure. (The "317" this claim used to be filed under is
+    // the Ending Phase and says nothing of the kind.)
+    //
+    // # DIVERGENCE: `isCombat: false` drops `[Assault]`/`[Shield]`
+    //
+    // 807.1.c makes `[Assault]` short for "While I am an attacker, I have +X [M]"
+    // and 814.1.c makes `[Shield]` "While I am a defender, I have +X [M]" — they
+    // are MIGHT, not damage-side adjustments, and 432.1's worked example is this
+    // exact instruction: "A unit with 3 base Might and Shield 2 is in combat as a
+    // Defender. Since Shield applies, its current Might is 5 ... it gets +5 Might
+    // this turn." This engine models both keywords as combat-role terms that only
+    // apply under `ctx.isCombat`, so a Vi activated while defending with a granted
+    // `[Shield]` doubles 3 rather than 5.
+    //
+    // Kept rather than fixed for ONE card: Last Stand is the pool's other doubler
+    // and reads it the same way, and two answers to one question is the worse
+    // failure. Faithful would be `{ isCombat: true, isAttackingSide, combatRole:
+    // "remaining" }` derived from `attackerIndexAt`, which is the shape that gives
+    // an attacker its Assault and a defender its Shield. Reported for
+    // docs/rules-conformance.md and PINNED in test/unl-fury-wave5.test.ts, which
+    // asserts the wrong figure on a defending, Shielded Vi — so closing it (for
+    // both cards) fails loudly.
+    //
+    // `effectiveMight` already clamps at 0 (**143.2.b**: a Might below 0 is treated
+    // as 0 when referenced), so a debuffed Vi doubles to nothing rather than to a
+    // negative pump. 477.3.c agrees from the other side — "players cannot increase
+    // a numeric attribute by a negative amount ... they increase it by 0 instead" —
+    // and works Last Stand as its example. Nothing here has to floor it again.
+    //
+    // # Where she is read from
+    //
+    // "My Might" carries no location word, so she is found through
+    // `findUnitAnywhere` and the ability is offered in base as well as at a
+    // battlefield — `activateAbilityCandidates` walks both zones. The battlefield
+    // is passed into the `MightContext` when she is at one, because positional
+    // auras (Garen - Commander) are part of the figure being doubled.
+    //
+    // No `availableWhile`: the card prints no restriction on activating, and a Vi
+    // at 0 Might who pays for nothing is the player's business — what a cost has to
+    // be is payable, not worthwhile.
+    kind: "Unit",
+    cost: { energy: 2, power: { domain: "Fury", count: 1 } },
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _event, sourceInstanceId) => {
+      const location = findUnitAnywhere(state, sourceInstanceId);
+      // She can be killed between the ability being finalized and resolving, and
+      // there is then nothing to double: **359.3.e.12** — a check on "a card or
+      // permanent whose location, zone, or status has changed such that that
+      // information is no longer available ... returns 'null' and all calculations
+      // based on it are ignored", with "a unit that is no longer on the board is
+      // treated as having null Might" as its own first example.
+      if (!location) return state;
+      return giveMightThisTurn(
+        state,
+        sourceInstanceId,
+        effectiveMight(state, location.unit, location.ownerIndex, unitMightContext(state, location)),
+      );
+    },
+  },
+};
+
+/** The `MightContext` for a unit `findUnitAnywhere` just located — the
+ *  base-vs-battlefield branch that calm.ts and mind.ts each write out for the same
+ *  reason. Positional auras (Garen - Commander) resolve "base" from the omitted
+ *  field. Duplicated rather than imported because those copies are module-private
+ *  to files this one does not own. */
+function unitMightContext(state: GameState, location: AnyUnitLocation): { isCombat: false; battlefieldId?: string } {
+  return location.zone === "base"
+    ? { isCombat: false }
+    : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
+}
 
 
 /**
