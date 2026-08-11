@@ -301,6 +301,9 @@ export function playUnitToBattlefield(
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
     playedPowerCost: deployed.powerCost,
+    // A real card, never a token — see `isToken`'s note in triggers.ts for why
+    // the two must be told apart (185 vs 350.2).
+    isToken: false,
   });
   // Last, so LIFO resolves it first — see execute-play-card for why the position
   // is chosen rather than incidental.
@@ -326,6 +329,9 @@ export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitI
     playedKind: deployed.kind,
     playedInstanceId: deployed.instanceId,
     playedPowerCost: deployed.powerCost,
+    // A real card, never a token — see `isToken`'s note in triggers.ts for why
+    // the two must be told apart (185 vs 350.2).
+    isToken: false,
   });
   // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
   return holdSelfTrigger(withEvent, "played", deployed, playerIndex);

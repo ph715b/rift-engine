@@ -237,17 +237,17 @@ describe("Ember Monk (OGN-167): +2 when you play a card FROM hidden", () => {
   }
 
   it("fires on a hidden play", () => {
-    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, fromHidden: true });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, isToken: false, fromHidden: true });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(2);
   });
 
   it("does NOT fire on an ordinary play", () => {
-    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0 });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, isToken: false });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 
   it("does NOT fire for the OPPONENT's hidden play", () => {
-    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, fromHidden: true });
+    const after = fireHeld(monkState(), { kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "synthetic", playedPowerCost: 0, isToken: false, fromHidden: true });
     expect(atBf(after, "p1")[0]!.mightThisTurn).toBe(0);
   });
 });

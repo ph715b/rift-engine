@@ -2585,6 +2585,17 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // opponent's turn. 383 fixes what triggered at the moment of the event.
     applies: (state, listener, event) =>
       event.kind === "cardPlayed" &&
+      // **185: "Tokens are not cards."** This sentence says CARD, so a token
+      // played by its owner is not one — 185.1.a makes that nature permanent, and
+      // 350.2 keeps "can still be Played" and "is a card" apart. Added 2026-08-10
+      // with the token `cardPlayed` event; before it, nothing fired for a token at
+      // all and this listener was accidentally correct.
+      //
+      // **Not merely a rules point here — Viktor LOOPED.** He plays a Recruit
+      // token, the token held `cardPlayed`, and that re-fired him: two tests in
+      // `event-triggers.test.ts` failed with "the chain never reopened" the first
+      // time the event was emitted. The gate is what makes his own token stop.
+      !event.isToken &&
       event.casterIndex === listener.ownerIndex &&
       state.activePlayerIndex !== listener.ownerIndex,
     resolve: (state, listener, event) => {

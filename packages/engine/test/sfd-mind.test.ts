@@ -522,13 +522,13 @@ describe("Chemtech Cask (SFD-063): a spell on the opponent's turn, for an exhaus
     const held = (event: Parameters<typeof holdEventTrigger>[1]) =>
       holdEventTrigger(state, event).pendingTriggers.map((t) => t.listenerDefId);
 
-    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "x", playedPowerCost: 0 })).toContain(
+    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Spell", playedInstanceId: "x", playedPowerCost: 0, isToken: false })).toContain(
       CHEMTECH_CASK,
     ); // the control: this one DOES place it
-    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: "x", playedPowerCost: 0 })).not.toContain(
+    expect(held({ kind: "cardPlayed", casterIndex: 0, playedKind: "Unit", playedInstanceId: "x", playedPowerCost: 0, isToken: false })).not.toContain(
       CHEMTECH_CASK,
     );
-    expect(held({ kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "x", playedPowerCost: 0 })).not.toContain(
+    expect(held({ kind: "cardPlayed", casterIndex: 1, playedKind: "Spell", playedInstanceId: "x", playedPowerCost: 0, isToken: false })).not.toContain(
       CHEMTECH_CASK,
     );
   });

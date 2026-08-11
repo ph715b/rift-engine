@@ -1144,6 +1144,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     on: "cardPlayed",
     applies: (_state, listener, event) =>
       event.kind === "cardPlayed" &&
+      // **185: "Tokens are not cards."** This sentence says CARD, so a token is
+      // not one. Belt-and-braces rather than load-bearing — 185.3.a.1 gives a
+      // token no printed cost and `holdTokenPlayed` sends `playedPowerCost: 0`,
+      // so the threshold below already refuses it. Stated anyway, because the
+      // reason it is safe is a second fact that could change independently.
+      !event.isToken &&
       event.casterIndex === listener.ownerIndex &&
       event.playedPowerCost >= YORDLE_EXPLORER_POWER_THRESHOLD,
     resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),

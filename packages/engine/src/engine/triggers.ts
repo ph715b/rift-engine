@@ -669,6 +669,37 @@ export type GameEvent =
        */
       playedPowerCost: number;
       fromHidden?: boolean;
+      /**
+       * Was the thing played a TOKEN rather than a card?
+       *
+       * **This is the difference between two sentences the rules keep apart and
+       * this engine used to conflate**, and it decides which listeners may fire:
+       *
+       *   - **185**: "Tokens are not cards." **185.1.a**: a token cannot lose its
+       *     token nature by any means. So "when you play a CARD" must NOT fire —
+       *     OGN-027's "your second card in a turn", OGN-117's "a card on an
+       *     opponent's turn", SFD-100's "a card with Power cost N or more".
+       *   - **350.2**: "Tokens are not cards, but can still be Played", and
+       *     **185.2.a**: a token "can be played by their owner if their card type
+       *     is played, following all the applicable steps for playing a card". So
+       *     "when you play a UNIT" MUST fire — a token unit is a unit being
+       *     played — and likewise "when you play a gear" for a Gold token.
+       *
+       * Before 2026-08-10 `placeToken` and `placeGearToken` held NO event at all,
+       * so BOTH readings came out the same way: nothing fired. That made the
+       * "card" listeners accidentally correct and silently narrowed every
+       * "unit"/"gear" one. Two agents hit it from opposite directions in the same
+       * hour — as the reason UNL-150 Vex never fires on a token, and as the reason
+       * UNL-058 Lillia could not be written at all.
+       *
+       * REQUIRED, not optional, for the reason `playedKind`'s comment above gives:
+       * an optional discriminator lets a producer omit it. Note the failure mode
+       * here is the OPPOSITE of that one and the compiler cannot catch it — a
+       * LISTENER that forgets to check this does not go silent, it wrongly fires.
+       * The six card-reading listeners are gated individually and named in
+       * `test/token-played-event.test.ts`, which is the only thing watching.
+       */
+      isToken: boolean;
     }
   /** `playerIndex`'s Beginning Phase is starting. Fired BEFORE holds score, for
    *  the same reason `[Temporary]`'s kill runs there: a Beginning-Phase ability

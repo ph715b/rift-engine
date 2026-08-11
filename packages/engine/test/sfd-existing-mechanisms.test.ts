@@ -322,6 +322,7 @@ describe("Yordle Explorer (SFD-100): draws off a card costing [rainbow][rainbow]
         playedKind: "Spell",
         playedInstanceId: "played",
         playedPowerCost,
+        isToken: false,
       }),
     );
 

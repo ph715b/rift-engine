@@ -2,6 +2,46 @@ import type { GearInstance, UnitInstance } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { applyContested } from "./cleanup.js";
 import { tokensEnterReady } from "./board-restrictions.js";
+import { holdEventTrigger } from "./triggers.js";
+
+
+/**
+ * A token entering the board is a PLAY — **185.2.a**: "Tokens can be played by
+ * their owner if their card type is played, following all the applicable steps
+ * for playing a card", and **350.2**: "Tokens are not cards, but can still be
+ * Played."
+ *
+ * Held (383) rather than fired inline, for the reason every other trigger in
+ * this engine is: `placeToken` has 27 call sites, many of them inside a
+ * resolver, and an inline dispatch would let a token's trigger re-enter the
+ * resolution that created it.
+ *
+ * `isToken: true` is the whole point of the event — see its note in triggers.ts.
+ * A listener reading "when you play a CARD" must refuse this; one reading "when
+ * you play a UNIT" or "a gear" must accept it. Before this existed neither
+ * fired, which made the first group accidentally right and the second silently
+ * narrow.
+ *
+ * `playedPowerCost: 0` is not a placeholder: **185.3.a.1** gives a token no
+ * printed cost, so the one card that reads the field (SFD-100, "a card with
+ * Power cost [rainbow][rainbow] or more") would not match a token even if it
+ * were not already excluded by `isToken`.
+ */
+function holdTokenPlayed(
+  state: GameState,
+  casterIndex: 0 | 1,
+  playedKind: "Unit" | "Gear",
+  playedInstanceId: string,
+): GameState {
+  return holdEventTrigger(state, {
+    kind: "cardPlayed",
+    casterIndex,
+    playedKind,
+    playedInstanceId,
+    playedPowerCost: 0,
+    isToken: true,
+  });
+}
 
 /** Where a created token is put — "base", or a specific battlefield. */
 export type TokenDestination = "base" | { battlefieldId: string };
@@ -154,7 +194,7 @@ export function placeToken(
   if (destination === "base") {
     const players = [...state.players] as [PlayerState, PlayerState];
     players[casterIndex] = { ...players[casterIndex], baseUnits: [...players[casterIndex].baseUnits, token] };
-    return { ...state, players };
+    return holdTokenPlayed({ ...state, players }, casterIndex, "Unit", token.instanceId);
   }
 
   const bfIndex = state.battlefields.findIndex((bf) => bf.id === destination.battlefieldId);
@@ -168,7 +208,12 @@ export function placeToken(
   // It's also how a Non-Combat Showdown gets promoted to a Combat one (316.8.b.1.a):
   // token-making Spells are exactly what an opponent holding Focus can cast into
   // someone else's window now that Action speed exists.
-  return applyContested({ ...state, battlefields }, destination.battlefieldId, casterIndex);
+  return holdTokenPlayed(
+    applyContested({ ...state, battlefields }, destination.battlefieldId, casterIndex),
+    casterIndex,
+    "Unit",
+    token.instanceId,
+  );
 }
 
 /**
@@ -268,7 +313,7 @@ export function placeGearToken(
   const token = createGearToken(spec, entersExhausted && !tokensEnterReady(state, casterIndex));
   const players = [...state.players] as [PlayerState, PlayerState];
   players[casterIndex] = { ...players[casterIndex], activeGear: [...players[casterIndex].activeGear, token] };
-  return { ...state, players };
+  return holdTokenPlayed({ ...state, players }, casterIndex, "Gear", token.instanceId);
 }
 
 /** `count` Gold tokens at once, all exhausted — the shape every SFD card that

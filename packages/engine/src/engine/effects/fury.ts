@@ -1437,6 +1437,16 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // moment of the event; this is exactly the condition that proves it.
     applies: (state, listener, event) =>
       event.kind === "cardPlayed" &&
+      // **185: "Tokens are not cards."** This sentence says CARD, so a token
+      // played by its owner is not one — 185.1.a makes that nature permanent, and
+      // 350.2 keeps "can still be Played" and "is a card" apart. Added 2026-08-10
+      // with the token `cardPlayed` event; before it, nothing fired for a token at
+      // all and this listener was accidentally correct.
+      //
+      // Doubly so for this card: `cardsPlayedThisTurn` counts CARDS and a token
+      // never increments it, so without this gate his `=== 2` would be asked on
+      // a token play whose count had not moved — firing him on the wrong card.
+      !event.isToken &&
       event.casterIndex === listener.ownerIndex &&
       state.players[listener.ownerIndex].cardsPlayedThisTurn === 2,
     resolve: (state, listener, event) => {

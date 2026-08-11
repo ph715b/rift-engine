@@ -132,6 +132,9 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     playedKind: action.card.kind,
     playedInstanceId: action.card.instanceId,
     playedPowerCost: powerCostOf(action.card),
+    // A real card, never a token — see `isToken`'s note in triggers.ts for why
+    // the two must be told apart (185 vs 350.2).
+    isToken: false,
     // Ember Monk watches specifically for a play FROM facedown. Carried on the
     // existing event rather than a new one, so every other listener still sees
     // a hidden play as the play it is.

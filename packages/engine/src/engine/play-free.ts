@@ -107,6 +107,9 @@ function firePlayed(state: GameState, playerIndex: 0 | 1, card: CardInstance): G
     playedKind: card.kind,
     playedInstanceId: card.instanceId,
     playedPowerCost: powerCostOf(card),
+    // A real card, never a token — see `isToken`'s note in triggers.ts for why
+    // the two must be told apart (185 vs 350.2).
+    isToken: false,
   });
   // Last, so LIFO resolves it first — see execute-play-card for the reasoning.
   return holdSelfTrigger(withEvent, "played", card, playerIndex);
