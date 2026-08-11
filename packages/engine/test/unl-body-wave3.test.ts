@@ -613,8 +613,10 @@ describe("the four Body clauses this wave REFUSED", () => {
     ).toBeUndefined();
     // Nidalee's `[Ambush]` is an unimplemented KEYWORD, so she is flagged for
     // free — her draw clause is written and hers is a genuine partial.
-    expect(isCardImplemented(registry.get(NIDALEE_CAT_FORM))).toBe(false);
-    expect(partialImplementationNote(registry.get(NIDALEE_CAT_FORM))).toMatch(/Ambush/);
+    // Nidalee was greyed by `[Ambush]` alone; the keyword landed 2026-08-09 and
+    // she is whole, with no partial note left to match.
+    expect(isCardImplemented(registry.get(NIDALEE_CAT_FORM))).toBe(true);
+    expect(partialImplementationNote(registry.get(NIDALEE_CAT_FORM))).toBeUndefined();
     // Nilah's two keywords are both implemented and her one sentence is written,
     // so she is whole. Stare Down and Blood Rose likewise.
     expect(isCardImplemented(registry.get(NILAH_JOYFUL_ASCETIC)), "Nilah is not being counted").toBe(true);

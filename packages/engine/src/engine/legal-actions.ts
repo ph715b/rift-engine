@@ -69,6 +69,7 @@ import {
   acceleratePowerDomain,
   actingPlayerIndex,
   hasAccelerate,
+  ambushHasAnyDestination,
   mayPlayCardNow,
   mayPlayFromTrash,
   mayPlayUnitToBase,
@@ -663,7 +664,21 @@ export function legalActions(state: GameState): PlayerAction[] {
     // [Action] card additionally during Showdowns, a [Reaction] card also onto a
     // closed chain. Same predicate validate-play-card uses, so enumeration and
     // validation can't disagree about what's castable.
-    if (!mayPlayCardNow(state, playerIndex, card, fromHidden)) continue;
+    // **`[Ambush]` is why this is not simply `continue`.** 822.1.b gives the card
+    // Reaction timing only WHILE being played to a battlefield where its
+    // controller has units, so the tier is a property of the (card, destination)
+    // pair rather than of the card. Dropping the card here — before any
+    // destination is known — is what made all 12 Ambush units unplayable in a
+    // Showdown, which is the only state their keyword is for.
+    //
+    // So the card survives this gate if ANY battlefield would grant it, and each
+    // destination is then gated individually below. Base plays are unaffected:
+    // 822.1.b says "to a battlefield", so a base play still needs the ordinary
+    // tier and is checked with no destination.
+    if (!mayPlayCardNow(state, playerIndex, card, fromHidden) && !ambushHasAnyDestination(state, playerIndex, card)) {
+      continue;
+    }
+    const timedForBase = mayPlayCardNow(state, playerIndex, card, fromHidden);
 
     // A discard choice is fanned out per card in hand, exactly like Vision's
     // two-way choice: the engine cannot pause mid-resolution to ask, so which
@@ -1745,7 +1760,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       const baseVariantForbidden =
         (fromHidden && ((card.kind === "Spell" && cardPlacesTokens(card.defId)) || card.kind === "Unit")) ||
         (card.kind === "Unit" && !mayPlayUnitToBase(card.defId));
-      if (!baseVariantForbidden && targetIsElsewhere(undefined)) actions.push(play);
+      // `timedForBase`: an Ambush card that only survived the gate above because
+      // some battlefield qualifies must NOT get a base play out of it.
+      if (timedForBase && !baseVariantForbidden && targetIsElsewhere(undefined)) actions.push(play);
 
       // A Unit may ALSO be played directly to a battlefield where the actor
       // already has a unit of their own — "reinforce" — alongside the
@@ -1776,7 +1793,12 @@ export function legalActions(state: GameState): PlayerAction[] {
             // offered a [Reaction] Unit a reinforce destination the validator then
             // refused, and the AI (which trusts legalActions and calls the executor
             // directly) threw on it mid-game.
-            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id, card.defId)) continue;
+            if (!mayPlayUnitToBattlefield(state, playerIndex, bf.id, card.defId, card)) continue;
+            // The TIMING half, asked per destination — `[Ambush]` grants Reaction
+            // into this battlefield specifically (822.1.b). Without it an Ambush
+            // unit that passed the card-level gate would be offered at every
+            // battlefield, including ones where its controller has nobody.
+            if (!mayPlayCardNow(state, playerIndex, card, fromHidden, bf.id)) continue;
           }
           const reinforce: PlayCardAction = {
             type: "PlayCard",

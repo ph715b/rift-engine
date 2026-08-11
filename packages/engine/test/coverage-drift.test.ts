@@ -312,7 +312,14 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // whose Level clause really is unwritten are named in `PARTIALLY_IMPLEMENTED`
     // instead — `[Repeat]`'s shape, for the reason its own note gives.
     const flagged = new Set(registry.all().flatMap((def) => unimplementedKeywordsOn(def)));
-    expect([...flagged].sort()).toEqual(["Ambush", "Backline"]);
+    // **`[Ambush]` LEFT on 2026-08-09**, and it was the largest entry the map
+    // ever held: twelve cards, none of which could reach a generated deck while
+    // it stood. Its removal is the same shape as `[Hunt]`'s — one mechanism
+    // serving every card that prints it — except that the mechanism turned out to
+    // be two halves, one of which (a false flat `[Reaction]` parsed from the
+    // keyword's own reminder text) was making the cards STRONGER than printed at
+    // the same time as the missing half made them unplayable.
+    expect([...flagged].sort()).toEqual(["Backline"]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is

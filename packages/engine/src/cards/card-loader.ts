@@ -101,6 +101,37 @@ export function hiddenKeywordFalsePositiveDefIds(): string[] {
   return [...HIDDEN_KEYWORD_FALSE_POSITIVE_DEF_IDS];
 }
 
+/**
+ * `[Reaction]` that a card only MENTIONS, and does not have unconditionally.
+ *
+ * `isReaction` is parsed as `plain.includes("[Reaction]")`, and `[Ambush]`'s
+ * reminder text is "(You may play me as a **[Reaction]** to a battlefield where
+ * you have units.)" — so every Ambush card came out of the loader with
+ * unconditional Reaction timing.
+ *
+ * **That is STRONGER than printed, and it hid a second bug that was weaker.**
+ * 822.1.b grants Reaction only "as long as I'm being played to a battlefield
+ * where you control Units", so an Ambush card could be played to BASE at reaction
+ * speed, which the keyword does not permit — while at the same time it could not
+ * reach the garrisoned battlefield the keyword exists for, because 813 narrows
+ * Showdown destinations to battlefields you CONTROL. Too strong and too weak at
+ * once, from one parse.
+ *
+ * The real permission is destination-dependent and lives in
+ * `timing.ambushReactionAt`. This strips the flat one so the conditional grant is
+ * the only source. Same shape as `GRANTED_ONLY_KEYWORDS` above: a bracket the
+ * parser saw that is not a flat printed property.
+ *
+ * Keyed on the KEYWORD rather than a defId list, because every card printing
+ * `[Ambush]` carries the same reminder and a list would need a row per card
+ * forever.
+ */
+function reactionIsOnlyAmbushReminder(plain: string): boolean {
+  if (!plain.includes("[Ambush]")) return false;
+  // A card could print BOTH — a real [Reaction] and an [Ambush]. Strip only when
+  // the sole mention sits inside Ambush's own reminder.
+  return plain.split("[Reaction]").length - 1 === 1 && /\[Ambush\][^.]*\[Reaction\]/.test(plain);
+}
 const LEGION_DISCOUNT_PATTERN = /\[Legion\].*?cost\s*:rb_energy_(\d+):\s*less/i;
 
 /**
@@ -873,7 +904,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
         hidden: isGenuinelyHidden(plain, id),
-        isReaction: plain.includes("[Reaction]"),
+        isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
         tags: card.tags ?? [],
         text: plain,
       };
@@ -889,7 +920,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         imageUrl,
         energyCost,
         powerCost,
-        isReaction: plain.includes("[Reaction]"),
+        isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
         isAction: plain.includes("[Action]"),
         hidden: isGenuinelyHidden(plain, id),
         text: plain,
@@ -906,7 +937,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         energyCost,
         powerCost,
         keywords: printedKeywords(id, plain),
-        isReaction: plain.includes("[Reaction]"),
+        isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
         hidden: isGenuinelyHidden(plain, id),
         // The three Equipment fields. Two are parsed and one is a table,
         // because the badge is art-only data no parser can reach.

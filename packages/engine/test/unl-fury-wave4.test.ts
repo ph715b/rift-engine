@@ -281,8 +281,8 @@ describe("Grim Apothecary (UNL-021): when you play me, you may return a friendly
     // `unimplementedKeywordsOn` before it asks the registry. So no
     // PARTIALLY_IMPLEMENTED entry is owed for him — the keyword row already says it.
     const def = registry.get(GRIM_APOTHECARY);
-    expect(unimplementedKeywordsOn(def)).toEqual(["Ambush"]);
-    expect(isCardImplemented(def), "UNL-021 reports DONE — has [Ambush] landed?").toBe(false);
+    expect(unimplementedKeywordsOn(def)).toEqual([]);
+    expect(isCardImplemented(def), "[Ambush] landed 2026-08-09 — this card is whole now").toBe(true);
   });
 });
 
@@ -433,8 +433,8 @@ describe("what this wave did and did not write", () => {
   it.each([
     // REFUSED — `[Ambush]` is a play PERMISSION (unit-triggers.ts's
     // PLACEMENT_GRANTS + timing.ts). Inferna is keyword-only besides.
-    [INFERNA, false],
-    [GRIM_APOTHECARY, false],
+    [INFERNA, true], // [Ambush] landed 2026-08-09
+    [GRIM_APOTHECARY, true], // [Ambush] landed 2026-08-09
     // REFUSED — "double all damage that would be dealt to it this turn" needs a
     // per-unit multiplier on UnitInstance read at both `dealDamage`
     // (effect-helpers.ts) and combat's `applyDamage` (combat.ts).

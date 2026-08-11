@@ -546,7 +546,7 @@ describe("Chakram Dancer (UNL-071): your other units here get [Shield] this turn
     // Registration is per defId, so this is the one assertion that says the card
     // is half done: coverage flags it through `UNIMPLEMENTED_KEYWORDS`, and when
     // [Ambush] lands this flips and the expectation has to be updated with it.
-    expect(isCardImplemented(registry.get(CHAKRAM_DANCER))).toBe(false);
+    expect(isCardImplemented(registry.get(CHAKRAM_DANCER))).toBe(true);
   });
 
   /** The Dancer in hand, an ally already at bf1 (which is also what lets her be

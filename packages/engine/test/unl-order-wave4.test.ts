@@ -245,18 +245,19 @@ describe("Tactical Retreat (UNL-175): the next death this turn is a recall inste
 // ── Vi - Peacekeeper (UNL-176) ──────────────────────────────────────────────
 
 describe("Vi - Peacekeeper (UNL-176): when I attack, stun an enemy unit here", () => {
-  it("REFUSAL PIN: [Ambush] is unwritten, so the card is still reported unimplemented", () => {
+  it("is whole — her attack trigger was written, and [Ambush] landed", () => {
     // The attack trigger below is real and fires; the play permission is not.
     // "You may play me as a [Reaction] to a battlefield where you have units" is a
     // play permission plus a timing tier, and both live in legal-actions.ts and
     // validate-play-card.ts. `coverage.ts` carries [Ambush] in
     // UNIMPLEMENTED_KEYWORDS, so the card stays greyed whatever is written here.
     //
-    // Delete this pin the day the keyword lands — and note the SECOND assertion,
-    // which is what stops "unimplemented" being read as "nothing was written".
-    expect(unimplementedKeywordsOn(registry.get(VI_PEACEKEEPER))).toContain("Ambush");
-    expect(isCardImplemented(registry.get(VI_PEACEKEEPER))).toBe(false);
-    expect(partialImplementationNote(registry.get(VI_PEACEKEEPER))).toMatch(/Ambush/);
+    // **The keyword landed on 2026-08-09**, and this pin said to delete it that
+    // day. Inverted instead: Vi is greyed by nothing now, and a note reappearing
+    // would mean the keyword had regressed.
+    expect(unimplementedKeywordsOn(registry.get(VI_PEACEKEEPER)), "[Ambush] is greying cards again").toEqual([]);
+    expect(isCardImplemented(registry.get(VI_PEACEKEEPER)), "Vi lost a clause — she was whole once [Ambush] landed").toBe(true);
+    expect(partialImplementationNote(registry.get(VI_PEACEKEEPER))).toBeUndefined();
   });
 
   /** Vi attacking at bf1 with `enemies` defending there. */
@@ -725,10 +726,13 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     // validate-play-card.ts. 204.1.b/204.2.a make it a real cost, and 205 names XP
     // among the things an instruction can require be spent.
     //
-    // [Tank] works (combat.ts's assignment order) and [Ambush] does not, so the
-    // card is greyed by the keyword as well as by the clause.
+    // [Tank] and [Ambush] both work now — the keyword landed 2026-08-09 — so the
+    // ONLY thing still greying this card is its unwritten XP additional cost,
+    // which is what this pin is actually about. That is a stronger pin than it
+    // was: it can no longer pass on the strength of an unrelated keyword.
     expect(optionalUnitCostOf(POPPY_DEFENDER), "an additional cost is registered now — rewrite this pin").toBeUndefined();
-    expect(unimplementedKeywordsOn(registry.get(POPPY_DEFENDER))).toContain("Ambush");
+    expect(unimplementedKeywordsOn(registry.get(POPPY_DEFENDER)), "a keyword is greying it instead of the cost").toEqual([]);
+    expect(isCardImplemented(registry.get(POPPY_DEFENDER)), "the XP cost landed — rewrite this pin").toBe(false);
     expect(isCardImplemented(registry.get(POPPY_DEFENDER))).toBe(false);
 
     // The discount is the observable half: he costs his printed 6 Energy and one

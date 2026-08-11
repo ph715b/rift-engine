@@ -177,12 +177,17 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * fix stopped an enumerate-then-refuse throw that had been killing runs
  * mid-game, so a card that used to die before being observed now finishes.
  *
- * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 92/225.
+ * **524 → 532 on 2026-08-09, `[Ambush]`** — one keyword, twelve cards. UNL
+ * 92/225 → **100/224** (41% to 45%), and `needsCode` itself dropped by one:
+ * Inferna's whole text is two keywords and their reminders, so with `[Ambush]`
+ * live she needs no card code at all.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 100/224.
  * (SFD 186 → 187 is not a wave-2 card: it is the `[Deflect]`-surcharge fix in
  * `legal-actions.ts`, which stopped an activation crashing the run and so let a
  * card that had been dying mid-game finish being observed.)
  */
-const PINNED_UNION = 524;
+const PINNED_UNION = 532;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

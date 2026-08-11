@@ -381,7 +381,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // asked per card because the answer depends on its printed timing: see
   // engine/timing.ts for the tiers and the rules behind them.
   const fromHidden = action.fromHiddenBattlefieldId !== undefined;
-  const rejection = timingRejection(state, action.playerIndex, action.card, fromHidden);
+  // The DESTINATION is passed so `[Ambush]` is judged against where the unit is
+  // actually going (822.1.b). The enumerator asks the same question the same way;
+  // asking it differently here is how an offered action becomes a refused one.
+  const rejection = timingRejection(
+    state,
+    action.playerIndex,
+    action.card,
+    fromHidden,
+    action.destinationBattlefieldId,
+  );
   if (rejection !== null) return fail(rejection);
 
   if (fromHidden) {
@@ -403,7 +412,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     card.kind === "Unit" &&
     action.fromHiddenBattlefieldId === undefined &&
     action.destinationBattlefieldId !== undefined &&
-    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId, card.defId)
+    !mayPlayUnitToBattlefield(state, action.playerIndex, action.destinationBattlefieldId, card.defId, card)
   ) {
     return fail(`${card.name} can only be played to your base or a battlefield you control while a Showdown is open`);
   }

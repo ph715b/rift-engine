@@ -92,6 +92,59 @@ export function timingTierOf(card: CardInstance): TimingTier {
  * Does NOT check cost, targets, phase, or a Unit's destination restrictions —
  * validate-play-card owns those. This is only the timing gate.
  */
+/**
+ * `[Ambush]` — **822.1.b**: "I may be played to a battlefield where you control
+ * Units" and "I have [Reaction] AS LONG AS I'm being played to a battlefield
+ * where you control Units."
+ *
+ * # Why this takes a destination
+ *
+ * The permission is CONDITIONAL ON WHERE THE UNIT IS GOING, which is the whole
+ * difficulty: `timingTierOf` answers per card, and the tier here is Reaction at
+ * one battlefield and Default at another on the same board, in the same instant.
+ * That is the same shape as a modal card whose targeting depends on the mode.
+ *
+ * The PLACEMENT half of 822.1.b needs nothing new — the ordinary reinforce rule
+ * already lets a Unit be played to a battlefield where its controller has units.
+ * Measured, not assumed: `legal-actions`' reinforce loop gates on `hasPresence`,
+ * which is that sentence. So Ambush's only unimplemented half is the TIMING.
+ *
+ * # "where you control Units", not "a battlefield you hold"
+ *
+ * `coverage.ts` described this keyword as "can't yet be played as a [Reaction] to
+ * a battlefield you hold", and holding is a different question — a battlefield can
+ * be held by a player with no units standing on it right now, and units can stand
+ * at a battlefield its owner does not hold. 822.1.b says units, so this asks
+ * about units.
+ *
+ * 822.3 puts the check at announce: "if there are no units at the location chosen
+ * before Finalization completes, then it is no longer a valid location by
+ * Ambush's reasoning". Both callers ask at announce, so that is satisfied by
+ * construction rather than by a re-check.
+ */
+export function hasAmbush(card: CardInstance): boolean {
+  return card.kind === "Unit" && "Ambush" in card.keywords;
+}
+
+/** Does `[Ambush]` grant this card Reaction timing INTO `battlefieldId`? */
+export function ambushReactionAt(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: CardInstance,
+  battlefieldId: string,
+): boolean {
+  if (!hasAmbush(card)) return false;
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (bf === undefined) return false;
+  return (bf.units[state.players[playerIndex].id] ?? []).length > 0;
+}
+
+/** Is there ANY battlefield Ambush would let this card be played to right now?
+ *  Used by the enumerator, which gates a card on timing before it knows where it
+ *  is going — without this an Ambush unit is dropped whole in a Showdown. */
+export function ambushHasAnyDestination(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+  return hasAmbush(card) && state.battlefields.some((bf) => ambushReactionAt(state, playerIndex, card, bf.id));
+}
 export function mayPlayCardNow(
   state: GameState,
   playerIndex: 0 | 1,
@@ -101,6 +154,11 @@ export function mayPlayCardNow(
    *  may be played any time a card with Reaction may be played as a result" —
    *  whatever its printed timing says. */
   fromHidden = false,
+  /** Where the Unit is being played, when that is known. `[Ambush]` grants
+   *  Reaction timing only INTO a battlefield where its controller has units
+   *  (822.1.b), so the tier cannot be answered without it. Omitted by every
+   *  caller that is asking about the card rather than about one destination. */
+  destinationBattlefieldId?: string,
 ): boolean {
   if (playerIndex !== actingPlayerIndex(state)) return false;
   // Brynhir Thundersong's lock. Before the tier switch, because it bars EVERY
@@ -108,7 +166,9 @@ export function mayPlayCardNow(
   // of a card that shuts a turn down.
   if (!mayPlayCardsAtAll(state, playerIndex)) return false;
 
-  switch (fromHidden ? "Reaction" : timingTierOf(card)) {
+  const ambushed =
+    destinationBattlefieldId !== undefined && ambushReactionAt(state, playerIndex, card, destinationBattlefieldId);
+  switch (fromHidden || ambushed ? "Reaction" : timingTierOf(card)) {
     case "Reaction":
       // Every window, including a closed Chain — the new item resolves before
       // what's already there (161.1.a), which the LIFO chain gives for free.
@@ -195,6 +255,11 @@ export function mayPlayUnitToBattlefield(
   /** The card being played, for the card-keyed restrictions above. Optional so
    *  callers that ask the board-wide question alone are unchanged. */
   defId?: string,
+  /** The card instance, when `[Ambush]` should widen the destinations 813
+   *  narrows. Separate from `defId` because the keyword lives on the INSTANCE
+   *  (it can be granted), and omitted by callers asking the board-wide
+   *  question. */
+  ambushCard?: CardInstance,
 ): boolean {
   // Perched Grimwyrm's "only". Checked FIRST because it is the narrowest gate:
   // it refuses destinations the ordinary rules would allow, and composing it
@@ -212,6 +277,16 @@ export function mayPlayUnitToBattlefield(
   // allow a destination for it to be offered.
   if (!mayPlayUnitAt(state, battlefieldId)) return false;
   if (state.turnState === "Neutral") return true;
+  // **822.1.c: `[Ambush]` "adds options to locations that are valid for a Unit to
+  // be played to".** 813 narrows Showdown destinations to battlefields you
+  // CONTROL; Ambush widens them to battlefields where you have UNITS, which is a
+  // different and sometimes larger set — a battlefield can be garrisoned by a
+  // player who does not control it, which is exactly the position an ambush is
+  // launched from.
+  //
+  // Without this the keyword was unreachable: the card gained Reaction timing and
+  // then had nowhere legal to go.
+  if (ambushCard !== undefined && ambushReactionAt(state, playerIndex, ambushCard, battlefieldId)) return true;
   const destination = state.battlefields.find((bf) => bf.id === battlefieldId);
   return destination === undefined || destination.controllerId === state.players[playerIndex].id;
 }
@@ -225,8 +300,13 @@ export function timingRejection(
   playerIndex: 0 | 1,
   card: CardInstance,
   fromHidden = false,
+  /** The destination the action names, so `[Ambush]` can be judged against it —
+   *  the same argument `mayPlayCardNow` takes, passed through for the same
+   *  reason. Omitting it here while the enumerator passes it is precisely how an
+   *  offered-then-refused pair is born. */
+  destinationBattlefieldId?: string,
 ): string | null {
-  if (mayPlayCardNow(state, playerIndex, card, fromHidden)) return null;
+  if (mayPlayCardNow(state, playerIndex, card, fromHidden, destinationBattlefieldId)) return null;
 
   if (playerIndex !== actingPlayerIndex(state)) {
     if (!state.chainOpen) return "A spell is resolving and your opponent holds priority.";
@@ -239,6 +319,13 @@ export function timingRejection(
   }
   // Open State, acting player, still rejected — so it's a Default-tier card in a
   // Showdown, the one remaining case.
+  // An Ambush card refused at a SPECIFIC destination gets the reason that
+  // actually applies — "you have no units there" — rather than the generic tier
+  // complaint, which would be misleading for a card that plainly prints a
+  // Showdown permission.
+  if (hasAmbush(card) && destinationBattlefieldId !== undefined) {
+    return `${card.name} can only [Ambush] to a battlefield where you have units.`;
+  }
   return tier === "Default"
     ? `${card.name} needs [Action] or [Reaction] to be played during a Showdown.`
     : `${card.name} can't be played right now.`;

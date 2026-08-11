@@ -159,10 +159,19 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   // The cards whose `[Level]` clause is genuinely unwritten are named individually
   // in `PARTIALLY_IMPLEMENTED` below — same as `[Repeat]`, for the same reason its
   // note gives: a keyword-level flag would wrongly grey the ones that work.
-  [
-    "Ambush",
-    "[Ambush] is ignored — this can't yet be played as a [Reaction] to a battlefield you hold",
-  ],
+  // **`[Ambush]` LEFT on 2026-08-09.** The entry read "[Ambush] is ignored — this
+  // can't yet be played as a [Reaction] to a battlefield you hold", and the
+  // description was itself slightly wrong: 822.1.b says "a battlefield where you
+  // control Units", and holding is a different question — a battlefield can be
+  // held by a player with no units standing there.
+  //
+  // The PLACEMENT half of the keyword needed nothing: the ordinary reinforce rule
+  // already allows a Unit into a battlefield where its controller has units. Only
+  // the TIMING was missing, and it is conditional on the DESTINATION, which is why
+  // it could not be a per-card tier — see `timing.ambushReactionAt`.
+  //
+  // It was the largest single blocker left in this map: twelve cards, none of
+  // which could appear in a generated deck while it stood.
   // **Backline is here for the UNL cards and does NOT grey Caitlyn**, which is
   // the whole reason `unimplementedKeywordsOn` reads the TEXT rather than
   // `def.keywords`. OGN-068 Caitlyn - Patrolling prints the effect as prose and

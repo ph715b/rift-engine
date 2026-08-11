@@ -467,7 +467,7 @@ describe("Inferna (UNL-002): PIN — keyword-only, and [Ambush] is unimplemented
     // on purpose, so that landing [Ambush] fails here instead of changing quietly.
     const def = registry.get(INFERNA);
     expect(def.text).toContain("[Ambush]");
-    expect(unimplementedKeywordsOn(def), "the keyword she parses and cannot use").toEqual(["Ambush"]);
-    expect(isCardImplemented(def), "UNL-002 reports DONE — has [Ambush] landed?").toBe(false);
+    expect(unimplementedKeywordsOn(def), "the keyword she parses and cannot use").toEqual([]);
+    expect(isCardImplemented(def), "[Ambush] landed 2026-08-09 — this card is whole now").toBe(true);
   });
 });

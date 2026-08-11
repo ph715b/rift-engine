@@ -393,7 +393,7 @@ describe("Lord Broadmane (UNL-012): give your OTHER units HERE [Assault] this tu
     // fails loudly here instead of changing quietly.
     const def = registry.get(LORD_BROADMANE);
     expect(def.text).toContain("[Ambush]");
-    expect(unimplementedKeywordsOn(def), "the keyword he parses and cannot use").toEqual(["Ambush"]);
-    expect(isCardImplemented(def), "UNL-012 reports DONE — has [Ambush] landed?").toBe(false);
+    expect(unimplementedKeywordsOn(def), "the keyword he parses and cannot use").toEqual([]);
+    expect(isCardImplemented(def), "[Ambush] landed 2026-08-09 — this card is whole now").toBe(true);
   });
 });
