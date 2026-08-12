@@ -1323,6 +1323,12 @@ button:disabled {
   font-weight: 700;
   line-height: 1.35;
   pointer-events: none;
+  /* Top-most, and stated rather than left to source order. This element exists
+     to CONTRADICT the number printed on the art below it, so anything that
+     covers it turns the card into a confident lie. `.attached-stack` is isolated
+     now and would not reach it anyway — this is the independent guarantee, so
+     the next thing to grow a z-index cannot silently take it away again. */
+  z-index: 4;
 }
 
 /* The printed value, kept beside the current one rather than replaced. A bare
@@ -1341,6 +1347,9 @@ button:disabled {
 
 .card-status-badges {
   position: absolute;
+  /* Same reasoning as `.might-overlay`: damage, buffs and the Equipment count
+     are runtime state the art cannot show, so they must outrank the art. */
+  z-index: 4;
   bottom: 0.3rem;
   left: 0;
   right: 0;
@@ -3049,6 +3058,22 @@ button:disabled {
   pointer-events: none;
   /* Must not clip either, or the same bug returns one level down. */
   overflow: visible;
+  /* **Contains the fan's z-index — without this the stack floats above the card
+     art itself.** The pieces inside carry `z-index: 10, 9, 8...` so that each
+     covers the one below it (see `.attached-card`). But this container was
+     `z-index: auto`, which is NOT a stacking context, so those values escaped
+     into the card's context and outranked everything painted later in the DOM:
+     the art (`.card-art`), the Might overlay, the status badges.
+
+     Reported from playtesting as "equipment is appearing above the unit it is
+     equipped to blocking me from seeing the updated might" — one regression, two
+     visible symptoms, and it arrived WITH the fix for "multiple equipment only
+     show as 1", which is where the z-index came from.
+
+     `isolation: isolate` makes the fan local. The stack as a whole then paints
+     where its source position says it should: before the art, so the tuck is
+     back, and before the overlay, so the number is readable. */
+  isolation: isolate;
 }
 
 /* **The card normally clips its own overflow**, and that alone made the first

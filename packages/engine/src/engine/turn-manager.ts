@@ -133,7 +133,25 @@ function killTemporaryPermanents(state: GameState): GameState {
   // through killGear so a gear that triggers on its own death (Scrapheap) fires,
   // exactly as a unit's [Deathknell] does — this was the site the earlier comment
   // here said would need to change once gear deaths had triggers.
-  const doomedGear = afterUnits.players[controller].activeGear.filter((g) => "Temporary" in g.keywords);
+  //
+  // **An ATTACHED Equipment is spared — 718.2**: "While in this state, the card's
+  // printed Rules Text is Inactive." `[Temporary]` is a Triggered Ability
+  // keyword (816.1), so an attached gear's copy of it does not function, and the
+  // gear survives until it is detached.
+  //
+  // Reported from playtesting as "spinning axe temporary triggered even though it
+  // is equipped to a unit", and the report was right. Spinning Axe (SFD-186) is
+  // the only Equipment in the pool printing `[Temporary]`, and it was dying the
+  // turn after it was attached — which made the whole card pointless, since
+  // attaching it is the only thing it does.
+  //
+  // Its own reminder text says so ("If this is unattached, kill it..."), and that
+  // reminder is NOT why this is the right answer: 135.2.d.3 makes the exact
+  // wording of reminder text have no effect on the rules. It is right because
+  // 718.2 makes the printed ability Inactive. The reminder merely agrees.
+  const doomedGear = afterUnits.players[controller].activeGear.filter(
+    (g) => "Temporary" in g.keywords && g.attachedToInstanceId === null,
+  );
   return doomedGear.reduce((next, gear) => killGear(next, gear, controller), afterUnits);
 }
 
