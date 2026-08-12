@@ -1,3 +1,9 @@
+> **SUPERSEDED — SFD is COMPLETE (206/206) and hard-gated in
+> `coverage.COMPLETE_SETS`.** Everything this brief asks for was done. **Its
+> verification loop is WRONG**: it names `exercised`, which `reachability`
+> replaced, and predates `hunt-xp`. Read `CLAUDE.md` for the loop; nothing here
+> is still to do.
+
 # Session brief — make the engine set-ready, before SFD (Spiritforged) lands
 
 Written 2026-08-03 at `017752e`, branch `feat/showdowns-timing-and-chain-viewer`,

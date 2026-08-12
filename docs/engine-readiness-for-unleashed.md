@@ -1,3 +1,11 @@
+> **SUPERSEDED — Unleashed landed 2026-08-08 and this plan is spent.**
+> UNL is in the pool (235 cards, 177 implemented as of 2026-08-11) and every
+> readiness item here is either done or has been overtaken. **The probe list
+> below is WRONG**: it predates `reachability` replacing `exercised` and
+> `hunt-xp` existing at all. The verification loop lives in `CLAUDE.md` and
+> nowhere else — this file's own header already says not to copy it, and the
+> copy leaked in anyway.
+
 # Getting the engine ready, before Unleashed
 
 **Do not copy the verification loop into this file.** It is in `CLAUDE.md` at the
