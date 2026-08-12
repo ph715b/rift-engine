@@ -133,6 +133,8 @@ const COMBAT_EXPERIENCE_LEVELLED_MIGHT = 3;
  *  cards, named separately so raising one card's band cannot silently move the
  *  other's. */
 const COMBAT_EXPERIENCE_LEVEL = 6;
+/** Skyward Strike — "[Level 6][>] [Stun] an enemy unit." */
+const SKYWARD_STRIKE_LEVEL = 6;
 const WUJU_APPRENTICE_LEVEL = 6;
 
 /** Double Trouble looks at three. */
@@ -640,6 +642,49 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // Per chosen id, in the order chosen. A unit that has left play in the
       // meantime is skipped by the helper rather than throwing (055).
       (event.targetUnitInstanceIds ?? []).reduce((next, id) => recallUnitToBase(next, id), state),
+  },
+  "UNL-038": {
+    // Skyward Strike — "Move an enemy unit. [Level 6][>] [Stun] an enemy unit."
+    //
+    // # Two slots, and they are NOT interchangeable
+    //
+    // Slot 0 is the unit that MOVES; slot 1 is the one that gets STUNNED. Both
+    // are "an enemy unit" with no location clause, so 355.9.a.1's bare noun puts
+    // a unit in either base on both lists — and `scope: "anywhere"` says so.
+    //
+    // `asymmetricSlots` because (move A, stun B) and (move B, stun A) are
+    // genuinely different plays. Without it the enumerator prunes one ordering as
+    // a duplicate, which for two same-role slots is usually right and is wrong
+    // here.
+    //
+    // Nothing prints "another", so the SAME unit may fill both slots... except
+    // that `legal-actions` requires the two to be distinct units. That is a
+    // narrowing, recorded in docs/rules-conformance.md rather than worked around,
+    // because moving a unit and then stunning that same unit is a real line the
+    // card's wording permits.
+    //
+    // # `min: 1`, and what that costs
+    //
+    // The stun exists only at `[Level 6]`, and a `TargetingSpec` is static — it
+    // cannot ask the board. So the second slot is OPTIONAL and the resolver gates
+    // it on XP. Below 6 XP a caster may still NAME a second target and it does
+    // nothing: an over-OFFER, never an over-reach, which is the direction this
+    // engine errs in and is recorded as a divergence.
+    targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 1, scope: "anywhere", asymmetricSlots: true },
+    resolve: (state, ctx, event) => {
+      const moved = event.targetUnitInstanceId;
+      const moveDone = moved ? forceMoveToDestination(state, moved, event, ctx.casterIndex) : state;
+      // 824.1.b.1 — "[Level 6][>]" is "while you have 6 or more XP", read HERE
+      // rather than when the spell was announced, which is where a resolving
+      // instruction reads its conditions.
+      const stunTarget = event.secondTargetUnitInstanceId;
+      if (!stunTarget || !atLevel(moveDone, ctx.casterIndex, SKYWARD_STRIKE_LEVEL)) return moveDone;
+      // Stunned AFTER the move, so a unit dragged somewhere and then stunned is
+      // stunned wherever it now stands — `stunUnits` is positional only through
+      // the id, so this is ordering rather than location, and the printed order
+      // is move-then-stun.
+      return stunUnits(moveDone, ctx.casterIndex, [stunTarget]);
+    },
   },
   "UNL-031": {
     // Combat Experience — "[Reaction] Give a unit +1 Might this turn.

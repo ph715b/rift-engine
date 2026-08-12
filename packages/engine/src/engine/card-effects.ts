@@ -1196,6 +1196,12 @@ export function cardPlacesTokens(defId: string): boolean {
  *  not a move, so a card here is not offered without one. */
 const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
+  // Skyward Strike — "Move an enemy unit. [Level 6][>] [Stun] an enemy unit."
+  // Its FIRST slot is the moved unit, so `withDestinations` finds it under
+  // `targetUnitInstanceId` exactly as it does for a single-target card; the
+  // second slot is the stun and never takes a destination. Dragon's Rage below
+  // is the precedent for a `unitSlots` card carrying a chosen destination at all.
+  "UNL-038",
   // Showstopper — "Buff a friendly unit in your base, THEN MOVE IT to a
   // battlefield." The move is the second half of one instruction rather than a
   // separate effect, so it needs the same destination field; what differs from
@@ -1304,6 +1310,9 @@ export function cardMovesTarget(defId: string): boolean {
  */
 const MOVE_TO_BASE_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
+  // Skyward Strike — "Move an enemy unit", naming no battlefield, so 355.4.a and
+  // 198.1 make a base a legal destination like any other Location.
+  "UNL-038",
   // Ride The Wind — "Move a friendly unit and ready it." The card the rules'
   // own worked example (359.3.e) names: "Base is a legal move destination for
   // Ride the Wind".

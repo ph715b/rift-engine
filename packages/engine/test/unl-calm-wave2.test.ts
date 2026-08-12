@@ -430,7 +430,7 @@ describe("Back Off (UNL-042): the stun lands; the draw is REFUSED and pinned", (
 });
 
 describe("the three UNL Calm cards this wave REFUSED, asserted rather than left silent", () => {
-  it("Skyward Strike (UNL-038) has no move-destination entry, so its first sentence cannot work", () => {
+  it("Skyward Strike (UNL-038) HAS its move-destination entry — refusal expired 2026-08-11", () => {
     // "Move an enemy unit." A move-target spell needs a row in
     // `card-effects.MOVE_TARGET_SPELL_DEF_IDS`, without which the enumerator
     // never fans a destination, `event.destinationBattlefieldId` is always
@@ -442,8 +442,15 @@ describe("the three UNL Calm cards this wave REFUSED, asserted rather than left 
     // stun would register the defId and report the card DONE while its printed
     // instruction was inert, which is the over-report this repo calls the worse
     // direction.
-    expect(cardMovesTarget(SKYWARD_STRIKE), "the entry landed — write the card").toBe(false);
-    expect(implementingModule(SKYWARD_STRIKE)).toBeUndefined();
+    // **The refusal was right for three waves and is now spent.** The whole card
+    // was refused rather than half-written, on the reasoning that registering only
+    // the `[Level 6]` stun would report it DONE while its printed instruction was
+    // inert. That reasoning is why the card arrived whole rather than in halves.
+    expect(cardMovesTarget(SKYWARD_STRIKE), "the move-destination row went missing").toBe(true);
+    // And it is CLAIMED now — asserted by name, because the whole point of the
+    // original refusal was that a card with an inert printed instruction must not
+    // report finished. It reports finished because it works.
+    expect(implementingModule(SKYWARD_STRIKE), "nothing claims Skyward Strike").toBe("card-effects");
   });
 
   it("Soul Sword (UNL-039) already HAS its [Equip] ability, generated from the printed cost", () => {

@@ -233,7 +233,7 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
   // and "unimplemented" alone cannot tell the day the blocker lands. So each of
   // these asserts the MECHANISM, and fails when the mechanism appears.
 
-  it("SIX still report unimplemented — Allay and Alpha Wildclaw have left", () => {
+  it("FIVE still report unimplemented — Allay, Alpha Wildclaw and Skyward Strike have left", () => {
     // **ALLAY was removed from this list on 2026-08-11.** This re-audit correctly
     // measured her as blocked on a registration point rather than a mechanism —
     // "one row, structurally identical to Captain Farron's" — and the integrator
@@ -245,19 +245,26 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // `[Level]` COST reductions did not, so he is a recorded PARTIAL rather than
     // an unwritten card — and this list asks `isCardImplemented`, which a partial
     // correctly answers `false`.
-    for (const id of [MONCH, SHADOW_WATCHER, SKYWARD_STRIKE, SIGNPOST, TRICKSY_TENTACLES, MASTER_YI_UNSTOPPABLE]) {
+    // **SKYWARD_STRIKE left on 2026-08-11** — two table rows in card-effects.ts,
+    // exactly as this re-audit measured.
+    for (const id of [MONCH, SHADOW_WATCHER, SIGNPOST, TRICKSY_TENTACLES, MASTER_YI_UNSTOPPABLE]) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }
   });
 
-  it("UNL-038 Skyward Strike and UNL-054 Tricksy Tentacles still have no move-destination entry", () => {
+  it("UNL-054 Tricksy Tentacles still has no move-destination entry; UNL-038 got its own", () => {
     // Both print "move" as their whole first instruction, and 355.4 makes the Move
     // Destination a choice made when the spell is FINALIZED — so it has to be a row
     // in `card-effects.MOVE_TARGET_SPELL_DEF_IDS`, without which the enumerator
     // never fans a destination and `event.destinationBattlefieldId` is always
     // undefined. Asking at resolution instead would be a real divergence, not a
     // shortcut: 355.4 puts the choice before the response window.
-    expect(cardMovesTarget(SKYWARD_STRIKE), "the row landed — write the card").toBe(false);
+    // **Skyward Strike left on 2026-08-11.** Its row landed and the card is
+    // written; the Tentacles' refusal is UNCHANGED and is the more interesting
+    // half, because it needs more than a row — `withDestinations` reads
+    // `targetUnitInstanceId`, and a `unitList` variant carries the plural field,
+    // so it gets no "already there" skip and never reaches the base branch.
+    expect(cardMovesTarget(SKYWARD_STRIKE), "Skyward Strike lost its row").toBe(true);
     expect(cardMovesTarget(TRICKSY_TENTACLES), "the row landed — write the card").toBe(false);
   });
 
