@@ -521,12 +521,17 @@ describe("the Body clauses this wave REFUSED, and the two timing divergences", (
     ).toEqual(["survivor"]);
   });
 
-  it("Rengar - Trophy Hunter still cannot be played to a battlefield he does not hold", () => {
-    // **PIN.** "I can be played to a battlefield where there are enemy units (even
-    // if you don't have units there)" is byte-identical to Deadbloom Predator's
-    // and Dauntless Vanguard's grant, and is ONE row in
-    // `unit-triggers.PLACEMENT_GRANTS` (`"UNL-120": "occupiedEnemyBattlefield"`) —
-    // a shared file this wave does not own.
+  it("Rengar - Trophy Hunter CAN be played to an occupied enemy battlefield", () => {
+    // **Was a PIN, flipped at integration 2026-08-11.** "I can be played to a
+    // battlefield where there are enemy units (even if you don't have units
+    // there)" is byte-identical to Deadbloom Predator's and Dauntless Vanguard's
+    // grant, and the refusal named the fix exactly: one row in
+    // `unit-triggers.PLACEMENT_GRANTS`. A wave-6 re-audit re-measured it as still
+    // accurate, and the row went in.
+    //
+    // His `[Ambush]` is a separate mechanism and unaffected: that grants Reaction
+    // TIMING into a battlefield where you DO have units, which is the other half
+    // of his printed sentence.
     const rengar = realUnitInstance("UNL-120");
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [rengar];
@@ -538,7 +543,8 @@ describe("the Body clauses this wave REFUSED, and the two timing divergences", (
     // The positive control: he IS playable, just only to base — so an empty list
     // here would mean the fixture cannot afford him rather than that the grant is
     // missing.
-    expect(destinations, "he is not playable at all — this pin measures nothing").toContain(undefined);
-    expect(destinations, "the occupied-enemy grant landed, so delete this pin").not.toContain("bf1");
+    // The base play must survive: the grant WIDENS 813 rather than replacing it.
+    expect(destinations, "he lost his ordinary base play").toContain(undefined);
+    expect(destinations, "the occupied-enemy grant is gone").toContain("bf1");
   });
 });

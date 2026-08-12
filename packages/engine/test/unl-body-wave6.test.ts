@@ -429,12 +429,15 @@ describe("PIN — Repulse (UNL-106) counters nothing", () => {
 });
 
 describe("PIN — which of wave 4's five refusals are still open", () => {
-  it("FOUR still report unimplemented; the fifth was written all along", () => {
+  it("THREE still report unimplemented; two were written all along", () => {
     // One place that says where the set stands, so closing any of them flips
     // exactly one line here rather than being noticed by nobody. The reasons
     // differ and the distinction is the point: four are genuinely unwritten, and
     // Master Yi is written and unclaimed (see his own pin above).
-    for (const defId of [REPULSE, DETERMINED_SENTRY, ARACHNOID_HORROR, "UNL-120"]) {
+    // **UNL-120 Rengar - Trophy Hunter left this list on 2026-08-11.** This
+    // re-audit measured his fix as one `PLACEMENT_GRANTS` row, "byte-identical to
+    // Deadbloom Predator's", and that is exactly what it was.
+    for (const defId of [REPULSE, DETERMINED_SENTRY, ARACHNOID_HORROR]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} now reports implemented`).toBe(false);
       expect(implementingModules(defId), `${defId} is claimed by a module now`).toEqual([]);
     }

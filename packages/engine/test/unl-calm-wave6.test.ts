@@ -233,8 +233,13 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
   // and "unimplemented" alone cannot tell the day the blocker lands. So each of
   // these asserts the MECHANISM, and fails when the mechanism appears.
 
-  it("all eight report unimplemented", () => {
-    for (const id of [MONCH, SHADOW_WATCHER, SKYWARD_STRIKE, ALLAY, SIGNPOST, TRICKSY_TENTACLES, ALPHA_WILDCLAW, MASTER_YI_UNSTOPPABLE]) {
+  it("SEVEN still report unimplemented — Allay left the list at integration", () => {
+    // **ALLAY was removed from this list on 2026-08-11.** This re-audit correctly
+    // measured her as blocked on a registration point rather than a mechanism —
+    // "one row, structurally identical to Captain Farron's" — and the integrator
+    // added that row. The other seven are unchanged and each is asserted against
+    // its own blocker below.
+    for (const id of [MONCH, SHADOW_WATCHER, SKYWARD_STRIKE, SIGNPOST, TRICKSY_TENTACLES, ALPHA_WILDCLAW, MASTER_YI_UNSTOPPABLE]) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }
   });

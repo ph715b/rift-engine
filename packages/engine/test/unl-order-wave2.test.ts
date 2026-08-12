@@ -717,9 +717,14 @@ describe("Bandle Soldier (UNL-151): REFUSED this wave, and pinned as refused", (
    * exactly the shape UNL-197 Towering Pairofant already has. `deploy.ts` is
    * shared, so this wave does not own it.
    */
-  it("still reports unimplemented, and NOT because of a missing effect entry", () => {
+  it("is IMPLEMENTED as one deploy case — was a refusal, flipped 2026-08-11", () => {
     const def = registry.get(BANDLE_SOLDIER);
-    expect(isCardImplemented(def), "someone implemented it — delete this block and the note in deploy.ts").toBe(false);
+    // **Flipped at integration.** The refusal was right and specific: "I enter
+    // ready" is a 369.3 replacement and only `deploy.conditionalEntersReady`
+    // answers it, which no card wave could edit. A wave-6 re-audit measured the
+    // fix as one `case` byte-identical to Scorchclaw's minus his Might half, and
+    // that is what it was.
+    expect(isCardImplemented(def), "Bandle Soldier is greyed again").toBe(true);
     // **This used to assert the `[Level]` keyword note, and that note is gone.**
     // `[Level]` left `UNIMPLEMENTED_KEYWORDS` on 2026-08-09: it is implemented per
     // card via `atLevel`, so a keyword-level flag was greying cards that gate
@@ -731,13 +736,18 @@ describe("Bandle Soldier (UNL-151): REFUSED this wave, and pinned as refused", (
     // all. The old assertion would have kept passing on the strength of the
     // keyword even after someone wrote the card, which is the failure this block
     // exists to prevent.
-    expect(implementingModule(BANDLE_SOLDIER), "an effect is registered now — delete this block and the deploy.ts note").toBeUndefined();
+    // It IS registered now, and by the module that answers "does this unit enter
+    // ready" — asserted by NAME rather than merely non-undefined, because the
+    // wrong module claiming it would mean somebody faked the clause as an on-play
+    // `readyUnit`, which deploy.ts's own header rejects in three measured ways.
+    expect(implementingModule(BANDLE_SOLDIER), "the wrong module claims him").toBe("play-card rules");
     expect(partialImplementationNote(def), "it is now merely PARTIAL, not unwritten — this pin needs rewriting").toBeUndefined();
   });
 
-  it("does not enter ready today, at any XP", () => {
-    // The behavioural half — so "unimplemented" is a fact about the board and not
-    // just about a coverage table.
+  it("enters READY at 3 XP, and exhausted below it", () => {
+    // The behavioural half — so "implemented" is a fact about the board and not
+    // just about a coverage table. Both sides of 824.1.b.1's "N or more" are
+    // asserted, because the boundary is the whole of what this card does.
     const soldier = realUnitInstance(BANDLE_SOLDIER);
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [soldier];
@@ -745,6 +755,16 @@ describe("Bandle Soldier (UNL-151): REFUSED this wave, and pinned as refused", (
     state.players[0]!.xp = 3;
 
     const played = passUntilSettled(accept(state, castsOf(state, soldier.instanceId)[0], "Bandle Soldier"));
-    expect(unitAnywhere(played, soldier.instanceId)!.exhausted, "it entered ready — the refusal is stale").toBe(true);
+    expect(unitAnywhere(played, soldier.instanceId)!.exhausted, "he arrived exhausted at 3 XP").toBe(false);
+
+    // One XP short, on the same fixture: the gate is `>=`, and without this the
+    // assertion above would pass on a build that readies him unconditionally.
+    const poorer = makeState({ phase: "Action" });
+    const soldier2 = realUnitInstance(BANDLE_SOLDIER);
+    poorer.players[0]!.hand = [soldier2];
+    poorer.players[0]!.channeled = runesFor(BANDLE_SOLDIER);
+    poorer.players[0]!.xp = 2;
+    const lean = passUntilSettled(accept(poorer, castsOf(poorer, soldier2.instanceId)[0], "Bandle Soldier at 2 XP"));
+    expect(unitAnywhere(lean, soldier2.instanceId)!.exhausted, "he entered ready at 2 XP").toBe(true);
   });
 });

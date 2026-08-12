@@ -47,6 +47,9 @@ const FIORA_VICTORIOUS = "OGN-232";
  * keyword — every grant above is a card's own text about itself.
  */
 const CAPTAIN_FARRON = "OGN-015";
+/** Allay, Eager Admirer: "While I'm at a battlefield, your other units here have
+ *  [Deflect]." Her own printed [Deflect] is the frame's, not this aura. */
+const ALLAY_EAGER_ADMIRER = "UNL-041";
 /** Taric - Protector: "[Shield][Tank] Other friendly units here have [Shield]."
  *  The printed two are the card frame's; only the aura is written here. */
 const TARIC_PROTECTOR = "OGN-074";
@@ -245,6 +248,18 @@ const LILLIA_PROTECTOR = "UNL-058";
 
 const KEYWORD_AURAS: Record<string, KeywordAura> = {
   [CAPTAIN_FARRON]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Assault"] },
+  // Allay, Eager Admirer — "While I'm at a battlefield, your OTHER units here
+  // have [Deflect]." Structurally identical to Captain Farron above, one keyword
+  // over: same source kind, same "here" scope, same self-exclusion.
+  //
+  // **No longer the no-op an older comment in effects/calm.ts claims it would
+  // be.** That note dates from when `[Deflect]` was parsed and ignored; the
+  // surcharge is implemented now (`deflectSurchargeForTargets`), so this aura
+  // really does tax an opponent for choosing the units around her.
+  //
+  // Her own printed `[Deflect]` is the card frame's and is not written here —
+  // the same split every entry in this table makes.
+  [ALLAY_EAGER_ADMIRER]: { source: "unit", scope: "here", excludesSelf: true, keywords: ["Deflect"] },
   [LILLIA_PROTECTOR]: {
     source: "unit",
     // "YOUR token units", with no location clause — 355.9.a.1 widens a bare

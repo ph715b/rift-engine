@@ -151,7 +151,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("301 held / 5 inline of 306 trigger cards", () => {
+  it("302 held / 5 inline of 307 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -174,6 +174,21 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **306 → 307 cards on 2026-08-11**, and this one is fully attributable —
+    // unlike the wave above it, which is worth the contrast.
+    //
+    // FOUR cards were finished that day, each by a single shared-table row a
+    // wave-6 agent had located precisely: UNL-041 Allay (a KEYWORD_AURAS row),
+    // UNL-120 Rengar - Trophy Hunter (PLACEMENT_GRANTS), UNL-151 Bandle Soldier
+    // (a `conditionalEntersReady` case) and UNL-142 Heedless Resurrection
+    // (OPTIONAL_UNIT_COSTS). Only ONE of the four registers a trigger — Rengar's
+    // placement grant rides `unit-triggers` — so the census moves by exactly +1
+    // while the implemented count moves by 4.
+    //
+    // That gap is the useful thing to notice: this census counts TRIGGER cards,
+    // not finished ones, and three of those four are finished without appearing
+    // here at all.
     //
     // **291 → 306 cards on 2026-08-10**, wave 6 plus two integrator fixes.
     // Fifteen more trigger cards, all held; the inline count did not move.
@@ -247,9 +262,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 301,
+      held: 302,
       inline: 5,
-      cards: 306,
+      cards: 307,
     });
   });
 

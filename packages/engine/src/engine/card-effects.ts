@@ -785,6 +785,20 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   "SFD-044": { kind: "returnFriendlyGearToHand", mandatory: true },
   "OGN-048": { kind: "exhaustReadyFriendly" }, // Meditation
   "OGN-147": { kind: "spendBuffFriendly" }, // Wildclaw Shaman
+  // Heedless Resurrection — "As an additional cost to play this, kill a friendly
+  // unit. Play a unit from your trash that costs no more Energy and no more Power
+  // than the killed unit."
+  //
+  // MANDATORY (204.2.a: "Additional Costs must be paid to finalize"), so there is
+  // no decline variant: with no friendly unit to kill the card is simply
+  // unplayable, which is what makes the killed unit's cost a reliable ceiling.
+  //
+  // The EFFECT was written in effects/chaos.ts by a wave-6 agent and was
+  // unreachable without this row — `legal-actions` enumerates no
+  // additional-cost variant for a card the table does not name, so the card
+  // could be played only by hand-building the action. This is the whole of what
+  // was missing, which the agent measured and said so.
+  "UNL-142": { kind: "killFriendly", mandatory: true },
   // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
   // No "you may", so there is no decline variant and the card simply cannot be
   // played with nothing of yours to kill.

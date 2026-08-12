@@ -145,24 +145,28 @@ describe("Heedless Resurrection (UNL-142): kill a friendly unit, play a no-large
   // wave may not add it. Adding `"UNL-142": { kind: "killFriendly", mandatory: true }`
   // must make BOTH halves of this fail: the enumerator will start naming the
   // victim, and the plain variant will stop being offered at all.
-  it("PINNED WRONG: the enumerator offers the spell with NO victim named, and it then does nothing", () => {
-    const { state, spell, victim, cheap } = resurrectionState();
+  it("is ENUMERATED with a victim named — was a pin, flipped at integration 2026-08-11", () => {
+    // **Was `PINNED WRONG`, asserting the enumerator offered no victim.** The
+    // effect had been written and was unreachable: `legal-actions` fans an
+    // additional-cost variant only for a card `OPTIONAL_UNIT_COSTS` names, so the
+    // spell could be played only by hand-building the action. The agent that
+    // wrote the effect measured the missing row exactly — "one row, nothing
+    // else" — and the integrator added it.
+    //
+    // Inverted rather than deleted, and made stronger than the pin was: every
+    // offered variant must now NAME a victim, because the cost is MANDATORY
+    // (204.2.a) and a variant without one would be the offered-then-refused
+    // split this engine keeps producing.
+    const { state, spell } = resurrectionState();
 
     const offered = legalActions(state).filter(
       (a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === spell.instanceId,
     );
-    expect(offered.length, "the spell was not playable at all — this pin proves nothing").toBeGreaterThan(0);
+    expect(offered.length, "the spell is not playable at all — the row went missing").toBeGreaterThan(0);
     expect(
-      offered.filter((a) => a.additionalCostUnitInstanceId !== undefined),
-      "the OPTIONAL_UNIT_COSTS row has landed — the card now works, so fix this test's premise",
+      offered.filter((a) => a.additionalCostUnitInstanceId === undefined),
+      "a variant was offered with no victim — the cost is mandatory (204.2.a)",
     ).toHaveLength(0);
-
-    const after = resolveChain(accept(state, offered[0]!));
-
-    expect(pendingDecision(after), "an unpaid Resurrection asked a question").toBeUndefined();
-    expect(inPlay(after, victim.instanceId), "the victim died without the cost being named").toBeDefined();
-    expect(inPlay(after, cheap.instanceId), "a unit came back for free").toBeUndefined();
-    expect(trashUnitIds(after, 0)).toEqual(trashUnitIds(state, 0));
   });
 
   it("kills the named victim and plays a cheaper unit out of the trash", () => {
@@ -264,17 +268,36 @@ describe("Heedless Resurrection (UNL-142): kill a friendly unit, play a no-large
   // kill-then-play-under-a-ceiling sentence: the bounced friendly unit "can't be
   // killed and its Might is treated as null", and its controller "can't choose
   // any unit from among them".
-  it("does nothing when the named victim has already left play (359.3.e.12)", () => {
-    const { state, spell, victim, cheap } = resurrectionState();
-    state.players[0]!.baseUnits = []; // the victim is named but not on the board
+  it("is REFUSED when the named victim is not on the board (204.2.a)", () => {
+    // **This test's premise changed with the cost, and the new one is stronger.**
+    //
+    // It used to assert that a Resurrection naming an absent victim resolved and
+    // did nothing — the do-as-much-as-you-can reading of 359.3.e.12. That was the
+    // right description while the cost was unenumerable and the action could only
+    // be hand-built. With the `OPTIONAL_UNIT_COSTS` row in place the cost is
+    // MANDATORY, and 204.2.a settles it earlier: "Additional Costs must be paid to
+    // finalize the spell", so a play that cannot pay is not a play that fizzles —
+    // it is not a legal action at all, and the validator says so.
+    //
+    // That is the better guarantee: the refusal happens before anything is spent.
+    const { state, spell, victim } = resurrectionState();
     const paid = { ...playOf(state, spell), additionalCostUnitInstanceId: victim.instanceId };
+    const vanished: GameState = {
+      ...state,
+      players: [{ ...state.players[0]!, baseUnits: [] }, state.players[1]!] as GameState["players"],
+    };
 
-    const after = resolveChain(accept(state, paid));
-
-    expect(pendingDecision(after)).toBeUndefined();
-    expect(inPlay(after, cheap.instanceId), "the payoff was handed over unpaid").toBeUndefined();
-    expect(trashUnitIds(after, 0)).toEqual(trashUnitIds(state, 0));
+    // **What is NOT covered, said here rather than in a test that asserts
+    // nothing:** the genuine mid-chain shape — announced legally, victim
+    // removed during the response window, resolves against nothing — needs a
+    // unit to leave play between announcement and resolution, which no fixture
+    // in this file can arrange. The resolver's guard for it exists and is
+    // unproved. A placeholder test was written here and deleted: a vacuous
+    // assertion is worse than a named gap.
+    const { result } = submit(vanished, paid);
+    expect(result, "a play whose additional cost cannot be paid was accepted").toMatchObject({ type: "Invalid" });
   });
+
 });
 
 // ---------------------------------------------------------------------------

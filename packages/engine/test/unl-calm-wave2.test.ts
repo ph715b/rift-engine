@@ -461,14 +461,20 @@ describe("the three UNL Calm cards this wave REFUSED, asserted rather than left 
     expect(def.type === "Gear" ? def.equipCost : undefined).toEqual({ energy: 0, domain: "Calm", count: 1 });
   });
 
-  it("Allay (UNL-041) is unwritten: its aura needs granted-keywords.KEYWORD_AURAS", () => {
+  it("Allay (UNL-041) is WRITTEN — her aura is one KEYWORD_AURAS row", () => {
     // "While I'm at a battlefield, your other units here have [Deflect]" is
     // EXACTLY the shape `KEYWORD_AURAS` already expresses for Captain Farron and
     // Taric - Protector (`source: "unit", scope: "here", excludesSelf: true`), so
     // the mechanism exists and the registration point does not: that table is in
     // the shared `engine/granted-keywords.ts` and there is no per-domain seam for
     // it, unlike card effects, triggers, decisions and now activated abilities.
-    expect(implementingModule(ALLAY)).toBeUndefined();
-    expect(isCardImplemented(registry.get(ALLAY))).toBe(false);
+    // **Flipped at integration 2026-08-11.** The refusal was exactly right for
+    // two waves — the mechanism existed and the registration point did not —
+    // and the fix was the one row both notes described, beside Captain
+    // Farron's. Inverted rather than deleted, because a card that stops being
+    // claimed goes quiet: `deck-generator` seats on `isCardImplemented`, so
+    // an unclaimed Allay would vanish from generated decks without a word.
+    expect(implementingModule(ALLAY), "Allay lost her registration").toBe("granted keywords");
+    expect(isCardImplemented(registry.get(ALLAY)), "Allay is greyed again").toBe(true);
   });
 });

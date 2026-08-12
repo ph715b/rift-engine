@@ -302,7 +302,25 @@ const GAMES = Number(process.env.GAMES ?? 250);
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 144/224.
  */
-const PINNED_UNION = 576;
+/**
+ * **576 -> 581 on 2026-08-11.** Four cards finished, and not one of them needed
+ * card code: each was already written and missing a single row in a shared
+ * table that a wave-6 agent had located precisely.
+ *
+ *   UNL-041 Allay          one KEYWORD_AURAS row
+ *   UNL-120 Rengar         one PLACEMENT_GRANTS row
+ *   UNL-151 Bandle Soldier one conditionalEntersReady case
+ *   UNL-142 Heedless Res.  one OPTIONAL_UNIT_COSTS row
+ *
+ * Three of the four were REFUSED by earlier waves for exactly the right reason
+ * — the mechanism existed and the registration point was in a file a card wave
+ * may not touch — and each refusal named the row. This is the shape to look for
+ * when a wave's cards run out: the agents cannot make these edits, so they
+ * accumulate as precise, measured reports until an integrator harvests them.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 149/224.
+ */
+const PINNED_UNION = 581;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

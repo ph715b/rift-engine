@@ -530,7 +530,7 @@ describe("Soul Sword (UNL-039): the art-only [Level 3][>] additional +1 Might", 
 });
 
 describe("the two UNL Calm cards this wave REFUSED, asserted rather than left silent", () => {
-  it("Allay (UNL-041) still has nowhere to register a keyword AURA", () => {
+  it("Allay (UNL-041) now HAS her aura row — was a refusal, flipped 2026-08-11", () => {
     // "While I'm at a battlefield, your other units here have [Deflect]" is
     // EXACTLY the shape `granted-keywords.KEYWORD_AURAS` already expresses for
     // Captain Farron and Taric - Protector (`source: "unit", scope: "here",
@@ -541,8 +541,14 @@ describe("the two UNL Calm cards this wave REFUSED, asserted rather than left si
     // decision, activated-ability and (since 2026-08-09) Might-modifier seams.
     //
     // Re-measured this wave rather than inherited from wave 2's note.
-    expect(implementingModule(ALLAY)).toBeUndefined();
-    expect(isCardImplemented(registry.get(ALLAY))).toBe(false);
+    // **Flipped at integration 2026-08-11.** The refusal was exactly right for
+    // two waves — the mechanism existed and the registration point did not —
+    // and the fix was the one row both notes described, beside Captain
+    // Farron's. Inverted rather than deleted, because a card that stops being
+    // claimed goes quiet: `deck-generator` seats on `isCardImplemented`, so
+    // an unclaimed Allay would vanish from generated decks without a word.
+    expect(implementingModule(ALLAY), "Allay lost her registration").toBe("granted keywords");
+    expect(isCardImplemented(registry.get(ALLAY)), "Allay is greyed again").toBe(true);
   });
 
   it("Forgotten Signpost (UNL-045) has no 'exhaust a unit you control' activation cost", () => {

@@ -106,6 +106,7 @@ export function playCardDefIds(): string[] {
     // the two registrations — a card implemented across two modules must be
     // visible from both or the deck builder greys a card that works.
     SCORCHCLAW,
+    BANDLE_SOLDIER,
     MASTER_YI_WUJU_MASTER,
     ...GEAR_ENTERING_EXHAUSTED,
   ];
@@ -239,6 +240,15 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // the moment he is played, so 824.1.d's "goes Inactive when XP drops" has
       // nothing to take back here.
       return player.xp >= SCORCHCLAW_LEVEL;
+    case BANDLE_SOLDIER:
+      // UNL — "[Level 3][>] I enter ready", and that is his ENTIRE printed text.
+      //
+      // Scorchclaw's case above minus the Might half, so he is the cleanest
+      // possible demonstration of what this predicate is for: a card whose whole
+      // rules text is a conditional enter-ready has no other registration
+      // anywhere, which is why `playCardDefIds()` must name him or coverage would
+      // report a finished card inert.
+      return player.xp >= BANDLE_SOLDIER_LEVEL;
     default:
       return false;
   }
@@ -289,6 +299,9 @@ const XIN_ZHAO_OTHER_UNITS = 2;
  *  enters-ready half is answerable here. */
 const SCORCHCLAW = "UNL-016";
 const SCORCHCLAW_LEVEL = 3;
+/** Bandle Soldier (UNL-151) — "[Level 3][>] I enter ready", his whole text. */
+const BANDLE_SOLDIER = "UNL-151";
+const BANDLE_SOLDIER_LEVEL = 3;
 /** Master Yi - Wuju Master (UNL-191) — "[Level 11][>] Your units enter ready."
  *  A LEGEND's aura, so it is a board query beside Magma Wurm's rather than a case
  *  in the per-card switch: it is a property of the controller, not of the unit

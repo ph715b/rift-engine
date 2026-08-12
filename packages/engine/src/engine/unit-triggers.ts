@@ -147,6 +147,15 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "OGN-176": "openBattlefield", // Sneaky Deckhand
   "OGN-174": "openBattlefield", // Sai Scout
   "OGN-161": "occupiedEnemyBattlefield", // Deadbloom Predator
+  // Rengar - Trophy Hunter — "I can be played to a battlefield where there are
+  // enemy units (even if you don't have units there)." Byte-identical to
+  // Deadbloom Predator above; the parenthetical is the rule's own reminder that
+  // this WIDENS 813's presence requirement rather than replacing it.
+  //
+  // His `[Ambush]` is separate and already works: that grants Reaction TIMING
+  // into a battlefield where you DO have units, which is the other half of the
+  // sentence and a different mechanism (timing.ambushReactionAt).
+  "UNL-120": "occupiedEnemyBattlefield", // Rengar - Trophy Hunter
   // SFD-093 Dauntless Vanguard — "You may play me to an occupied enemy
   // battlefield." Byte-identical to Deadbloom Predator above, which is why it
   // is one row and not a card implementation: the validator and the enumerator
