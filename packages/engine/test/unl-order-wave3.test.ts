@@ -6,7 +6,6 @@ import { implementingModule, isCardImplemented, partialImplementationNote } from
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { destroyUnit, grantTemporary } from "../src/engine/effect-helpers.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
-import { resolveShowdown } from "../src/engine/combat.js";
 import { optionalUnitCostOf } from "../src/engine/card-effects.js";
 import type { Domain } from "../src/model/domain.js";
 import type { RuneCard } from "../src/model/rune.js";
@@ -16,7 +15,10 @@ import type { UnitInstance } from "../src/model/card.js";
 import { beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
- * Wave 3's Unleashed Order cards — five written, three refused.
+ * Wave 3's Unleashed Order cards — five written, three refused, and one of those
+ * three (Galio - Indefatigable) written in wave 6. Its pin is DELETED rather than
+ * amended, which is what a pin is for: it failed the moment the card landed, and
+ * `unl-order-wave6.test.ts` now owns the card. Two refusals remain.
  *
  * Every reachable path goes through `legalActions` -> `submit` or through the
  * real dispatch funnel it feeds (`runBeginning`, `beginCombatAt`,
@@ -30,9 +32,10 @@ import { beginCombatAt, makeState, makeUnit, playUnitTrigger, realUnitInstance, 
  * for is a card that is registered, enumerated, paid for and inert — and a
  * happy-path assertion passes just as well when the condition is never checked.
  *
- * The three refusals are pinned as tests for the same reason wave 2 pinned
- * Bandle Soldier: a refusal recorded only in prose goes stale silently, while one
- * recorded as an assertion fails the moment someone implements the card.
+ * The refusals are pinned as tests for the same reason wave 2 pinned Bandle
+ * Soldier: a refusal recorded only in prose goes stale silently, while one
+ * recorded as an assertion fails the moment someone implements the card. That is
+ * exactly what happened to Galio's — see the note above.
  */
 
 const registry = defaultCardRegistry();
@@ -42,7 +45,6 @@ const SHADOWS_CALL = "UNL-165";
 const UNDYING_LOYALTY = "UNL-168";
 const ASHE_FOCUSED = "UNL-169";
 const ATAKHAN = "UNL-170";
-const GALIO_INDEFATIGABLE = "UNL-171";
 const LEBLANC_FRAGMENTED = "UNL-172";
 const SACRIFICE = "UNL-173";
 
@@ -728,45 +730,6 @@ describe("Ashe - Focused (UNL-169): REFUSED this wave, and pinned as refused", (
     const after = playUnitTrigger(state, ashe, 0, "base");
     expect(after.players[1]!.banished, "she banished something — the refusal is stale").toHaveLength(0);
     expect(after.players[1]!.hand, "their hand moved").toHaveLength(1);
-  });
-});
-
-describe("Galio - Indefatigable (UNL-171): REFUSED this wave, and pinned as refused", () => {
-  /**
-   * "[Deflect] [Tank] **I don't deal combat damage.**"
-   *
-   * Both keywords are live already — `[Tank]` orders damage assignment in
-   * `combat.assignmentOrder` and `[Deflect]` taxes an opponent's targeting — so
-   * the ONLY unwritten thing is the third sentence, and there is exactly one
-   * place it can go: `DEALS_NO_COMBAT_DAMAGE_DEF_IDS`, a hard-coded Set in
-   * `engine/combat.ts` that already holds Ezreal - Dashing (SFD-082) for the same
-   * printed sentence.
-   *
-   * `combat.ts` is shared and has no per-domain seam — unlike `mightModifiers`
-   * and `activatedAbilities`, which were opened up precisely so a domain file
-   * could contribute. One line in that Set finishes this card; this wave may not
-   * write it.
-   *
-   * A 3-Energy 6-Might `[Tank]` that also HITS for 6 is a much better card than
-   * the one printed, so leaving him unregistered rather than half-written is the
-   * safe direction — and the test below is what makes the gap visible.
-   */
-  it("still reports unimplemented, with nothing registered for it", () => {
-    const def = registry.get(GALIO_INDEFATIGABLE);
-    expect(isCardImplemented(def), "someone implemented him — delete this block").toBe(false);
-    expect(implementingModule(GALIO_INDEFATIGABLE), "an effect is registered now — delete this block").toBeUndefined();
-  });
-
-  it("DEALS his full 6 Might in combat today, which the card forbids", () => {
-    // The wrong answer, asserted deliberately: a defender he should not be able
-    // to scratch dies. The day the Set gains his defId this fails, which is the
-    // point.
-    const galio = realUnitInstance(GALIO_INDEFATIGABLE);
-    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
-    state.battlefields[0]!.units = { p1: [galio], p2: [makeUnit({ instanceId: "theirs", name: "Theirs", might: 5 })] };
-
-    const resolved = resolveShowdown(state, "bf1", 0);
-    expect(unitAnywhere(resolved, "theirs"), "he no longer deals combat damage — delete this pin").toBeUndefined();
   });
 });
 

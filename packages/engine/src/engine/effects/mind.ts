@@ -811,8 +811,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // `SPRITE_TOKEN` is shared from the top of this file rather than re-declared,
     // which is exactly the drift token.ts grew a spec parameter to prevent.
     //
-    // **TWO calls, not a count parameter.** 714 makes each token its own game
-    // object, so two arrivals are two things for Cithria and for a battlefield's
+    // **TWO calls, not a count parameter.** 185.1 makes a token a Game Object in
+    // its own right ("'Token' is an intrinsic category of Game Objects, in the
+    // same way 'card' is"), so two arrivals are two things for Cithria and for a battlefield's
     // Contested check to see; one call minting a pair would be one object with a
     // count and is not what the numeral means.
     //

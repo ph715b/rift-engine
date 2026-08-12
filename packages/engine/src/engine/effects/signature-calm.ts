@@ -4,7 +4,7 @@ import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
 import type { EffectDefinition } from "../card-effects.js";
 import type { MightModifier } from "../effective-might.js";
 import type { DeathWatchDefinition, DeathknellDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
-import type { PlayerState } from "../../model/game-state.js";
+import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { TokenDestination } from "../token.js";
 import { counterSpell } from "../counter-spell.js";
 import {
@@ -13,13 +13,15 @@ import {
   drawCards,
   forceMoveToBattlefield,
   forceMoveToDestination,
+  gainXp,
   giveMightThisTurn,
   ownUnitsEverywhere,
   readyUnit,
   stunUnits,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
-import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
+import { canonicalDefId } from "../../cards/card-loader.js";
+import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
 import {
   ARISE_READY_COUNT,
@@ -41,6 +43,39 @@ import {
  * that needs every card to have exactly one derivable home rather than a judgment
  * call. Shared helpers are in `signature-shared.ts`.
  */
+
+/**
+ * How much damage would finish this unit off right now — effective Might minus
+ * the damage already on it, floored at 1.
+ *
+ * The floor is **355.14.g**, "valid damage is a positive integer amount, greater
+ * than or equal to 1": a unit already at or past lethal (a -[M] effect can put
+ * one there without killing it, since 143.2.b only treats the negative as 0 when
+ * it is READ) still has to be assigned at least 1 out of the pool, so it cannot
+ * be a free kill that costs the split nothing.
+ *
+ * `undefined` for a unit that is not at a battlefield — either GONE (killed by a
+ * sibling's `[Deathknell]` part-way through a split, which is what this answer is
+ * really for) or in a BASE, which the split's own walk was already told to
+ * exclude. **Measured 2026-08-11: that makes the base rule guarded twice, and
+ * neither guard alone is observable** — widening the walk to `scope: "anywhere"`
+ * changes no outcome, because a base unit sorts last on `MAX_SAFE_INTEGER` and is
+ * then skipped here. Mutating both together does fail the test. Recorded rather
+ * than tidied away: the overlap is incidental, and a reader who deletes either
+ * one on the strength of a green run would be deleting a live rule.
+ *
+ * Its own function because the split loop asks it TWICE per unit — once to order
+ * the allocations and once to size one — and both must be read against the state
+ * as it is at that moment. Volibear - Furious's split re-reads it inside its loop
+ * for the same reason, and states it: an earlier kill can take an aura off the
+ * board and change what the next unit needs.
+ */
+function lethalDamageFor(state: GameState, instanceId: string): number | undefined {
+  const at = findUnitOnBattlefield(state, instanceId);
+  if (!at) return undefined;
+  const battlefieldId = state.battlefields[at.battlefieldIndex]!.id;
+  return Math.max(1, effectiveMight(state, at.unit, at.ownerIndex, { isCombat: false, battlefieldId }) - at.unit.damage);
+}
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "OGN-258": {
@@ -377,6 +412,142 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, _ctx, event) =>
       event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
   },
+  "UNL-192": {
+    // Alpha Strike (Calm + Body) — "[Action] Choose a friendly unit. It deals
+    // damage equal to its Might split among enemy units at battlefields. Then for
+    // each unit this kills, do this: Gain 1 XP."
+    //
+    // # The PDF works this card by name, under 355.14 "Splitting"
+    //
+    // Its worked example is Alpha Strike itself, and it settles three things that
+    // would otherwise have been guesses: each unit the damage is split among is
+    // TARGETED (355.14.a), the number of them is capped at the damage available
+    // (355.14.c), and each must receive at least 1 (355.14.g). The loop below
+    // honours all three — it never assigns 0, so it can never reach more units
+    // than there is damage to spend.
+    //
+    // # The friendly unit is CHOSEN; the split targets are NOT — a divergence
+    //
+    // 355.14.b puts the split targets on the announcement, alongside the friendly
+    // unit, and this engine cannot express that: `TargetingSpec` has no kind that
+    // crosses a single `unit` with a `unitList`, and widening it is a change to
+    // card-effects.ts plus the enumerator and validator that read it. So the
+    // caster names the unit that swings and the ENGINE allocates its Might. That
+    // is Volibear - Furious's split exactly (unit-triggers.ts, OGN-041), which is
+    // this pool's only other "split among", and it is recorded in
+    // docs/rules-conformance.md as an auto-selection rather than a rules reading.
+    //
+    // The cost is visible: an opponent gets no window to respond to the split
+    // being aimed, and `[Deflect]` is never surcharged for a unit the split
+    // reaches, because nothing announces choosing it.
+    //
+    // # CHEAPEST-LETHAL FIRST, not board order — and Volibear's order was rejected
+    //
+    // Volibear takes the enemies in board order and gives each exactly what kills
+    // it. That is arbitrary between equally-good enemies, and his card gives no
+    // reason to prefer one. **This card prints its own objective**: "for each unit
+    // this kills, gain 1 XP" pays per BODY, so the allocation that maximises kills
+    // is the one that reads the card. Sorting by what each unit needs and paying
+    // the cheapest first is optimal for that (it is the greedy that maximises how
+    // many items fit a fixed budget), where board order is not — three enemies of
+    // 3, 2 and 2 Might under a 4-Might swing kill one in board order and two here.
+    //
+    // Still a choice a player might not make (finishing one big blocker instead of
+    // two small ones is a real play), so it is Unverified in the same row as the
+    // auto-selection above rather than claimed as the rules' answer.
+    //
+    // # What is read when
+    //
+    // The Might is read at RESOLUTION through `effectiveMight`, so a pump or an
+    // aura in the response window makes the swing bigger — the PDF's own example
+    // for this card turns on exactly that, an opponent shrinking the chosen unit
+    // with Frigid Touch after it was named. A unit that is GONE by then deals
+    // nothing (359.3.e.12) and the spell gains no XP.
+    //
+    // The targets come from `eligibleTargets(..., "enemy", "battlefield")` — the
+    // same shared walk the announce path uses, so a unit an opponent may not
+    // choose (Ruin Runner) is left out of the split for the same reason it would
+    // be left out of a targeting fan-out, and "at battlefields" excludes both
+    // bases without this file rewriting the scan.
+    //
+    // # DIVERGENCE: Bonus Damage is applied per HIT, not once to the pool (715.3)
+    //
+    // "If the Deal action Splits damage, then the Bonus Damage applies to the
+    // amount of Damage that will be Split. This can alter the number of targets
+    // eligible to be chosen" — and the PDF works that with Volibear, whose 5
+    // becomes a 6 to be split. Here the pool is the raw Might and each allocation
+    // then picks the bonus up separately inside `dealDamage`, which is the only
+    // funnel that knows about Annie - Fiery, Ravenborn Tome, Rabadon's Deathcrown
+    // and Void Gate. So with a Bonus Damage source out, the split reaches one
+    // target FEWER than the rules allow and each unit it does reach is overkilled
+    // by the bonus.
+    //
+    // Not corrected by pre-subtracting the bonus from each `hit`: the modifier is
+    // battlefield-dependent (Void Gate) and additive only by today's accident, so
+    // inverting it here would be a second, silently-drifting copy of
+    // `modifiedDamageAmount`'s arithmetic living in one card. Volibear - Furious
+    // has the identical gap; the fix for both is a split-aware entry point on the
+    // damage funnel, which is not this file's to add. Recorded in
+    // docs/rules-conformance.md.
+    //
+    // # "For each unit THIS kills"
+    //
+    // Counted per allocation, immediately after the damage that could have caused
+    // it: alive before, absent after. A unit already dead when its turn comes —
+    // killed by a sibling's `[Deathknell]` inside this same resolution — is
+    // skipped and pays nothing, which is the honest reading of "this kills".
+    //
+    // One `gainXp` call with the total rather than N calls of 1. `gainXp` fires no
+    // event and has no per-call side effect beyond `xpGainedThisTurn`, so the two
+    // are indistinguishable; the total is written once for the same reason every
+    // batch instruction here is (a per-item payout is how this engine has
+    // double-paid before).
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const chosenId = event.targetUnitInstanceId;
+      if (!chosenId) return state;
+      // "A friendly unit" is a bare noun — 355.9.a.1's objects on the Board — so
+      // the swinging unit may be standing in base; only its VICTIMS are printed
+      // "at battlefields". Located anywhere, therefore, and its Might read in
+      // whichever zone it is in.
+      const source = findUnitAnywhere(state, chosenId);
+      if (!source) return state;
+      let remaining = effectiveMight(
+        state,
+        source.unit,
+        source.ownerIndex,
+        source.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: state.battlefields[source.zone.battlefieldIndex]!.id },
+      );
+
+      // Ordered ONCE, off the board as it stands at resolution — this is the
+      // "which units does the split name" question, and 355.14.b asks it once.
+      // Each allocation then re-reads what its own unit needs, since the previous
+      // kill may have moved it.
+      const order = eligibleTargets(state, ctx.casterIndex, "enemy", "battlefield")
+        .map((u) => ({ instanceId: u.instanceId, cost: lethalDamageFor(state, u.instanceId) ?? Number.MAX_SAFE_INTEGER }))
+        .sort((a, b) => a.cost - b.cost);
+
+      let next = state;
+      let kills = 0;
+      for (const { instanceId } of order) {
+        if (remaining <= 0) break;
+        const lethal = lethalDamageFor(next, instanceId);
+        if (lethal === undefined) continue; // died to a sibling's Deathknell, or left
+        const hit = Math.min(remaining, lethal);
+        next = dealDamage(next, ctx.casterIndex, instanceId, hit);
+        // Spent whether or not the damage landed. A prevention (Counter Strike,
+        // Unyielding Spirit) REPLACES the instance rather than un-assigning it, so
+        // the pool is gone either way — and `dealDamage` is where every one of
+        // those lives, which is why the split goes through it per unit rather than
+        // doing its own arithmetic.
+        remaining -= hit;
+        if (!findUnitAnywhere(next, instanceId)) kills += 1;
+      }
+      return gainXp(next, ctx.casterIndex, kills);
+    },
+  },
 };
 
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
@@ -506,7 +677,11 @@ export const mightModifiers: Record<string, MightModifier> = {
     // as readily as at a battlefield and `ctx` is not read at all.
     defId: MASTER_YI_WUJU_MASTER,
     bonus: (state, _unit, ownerIndex) =>
-      state.players[ownerIndex].legend.defId === MASTER_YI_WUJU_MASTER &&
+      // `canonicalDefId`, because every UNL Legend is printed three times as three
+      // distinct ids for one card. The effect registries alias printings at merge
+      // time; a literal comparison like this is what that cannot reach, so an
+      // Overnumbered Master Yi would have granted nothing.
+      canonicalDefId(state.players[ownerIndex].legend.defId) === MASTER_YI_WUJU_MASTER &&
       state.players[ownerIndex].xp >= MASTER_YI_LEVEL
         ? MASTER_YI_MIGHT
         : 0,

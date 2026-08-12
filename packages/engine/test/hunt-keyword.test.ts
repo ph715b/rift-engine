@@ -243,10 +243,19 @@ describe("coverage now tells the truth about [Hunt]", () => {
 
   it("does NOT claim the eleven that print more than the keyword", () => {
     // The over-report direction, and the one coverage.ts calls the worse one.
-    // Master Yi - Tempered's `[Level 6]` clause is unwritten, so finishing Hunt
-    // must not make him look done.
+    //
+    // **The premise here was WRONG, not merely stale, and it was inverted on
+    // 2026-08-10.** It said Master Yi - Tempered's `[Level 6]` clause was
+    // unwritten. It had been written since 2026-08-09 as a `CONDITIONAL_GRANTS`
+    // row — what was missing was `grantedKeywordDefIds()` CLAIMING that table, so
+    // he worked in every game and reported unimplemented. `deck-generator` seats
+    // on `isCardImplemented`, so he could never reach a generated deck and
+    // `reachability` could never see him.
+    //
+    // He still has text beyond `[Hunt]` — that is the half this test is really
+    // about, and it is unchanged. What moved is that a module now claims it.
     const yi = registry.get(MASTER_YI_TEMPERED);
-    expect(needsImplementation(yi)).toBe(true);
-    expect(isCardImplemented(yi)).toBe(false);
+    expect(needsImplementation(yi), "his text became keyword-only — the premise moved again").toBe(true);
+    expect(isCardImplemented(yi), "he reports unimplemented again — granted-keywords stopped claiming its table").toBe(true);
   });
 });

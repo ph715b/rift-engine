@@ -2460,7 +2460,113 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
     resolve: (state, listener, event) => (event.kind === "battlefieldHeld" ? drawCards(state, listener.ownerIndex, 1) : state),
   },
+  "UNL-050": {
+    // Iascylla — "When I hold, at the start of your next Main Phase, you may move
+    // an enemy unit to this battlefield."
+    //
+    // # A DELAYED trigger written as an ordinary hold listener, and the rules say
+    // the two land at the same moment here
+    //
+    // The printed ability is delayed, and this engine has no delayed-trigger queue
+    // and no start-of-Main-Phase moment at all (`Phase` is Awaken/Beginning/
+    // Channel/Draw/Action; 316's Main Phase IS the Action phase here). Blue
+    // Sentinel (UNL-087, effects/mind.ts) already reached this conclusion for the
+    // identical clause shape and its note carries the argument; the short version
+    // is that a `battlefieldHeld` trigger is HELD (383), and `submit`'s Pass runs
+    // Awaken/Beginning/Channel/Draw as ONE action with a single Cleanup that
+    // finalizes pending triggers at the END of it — by which time `phase` is
+    // already "Action". So this resolves as the first thing in the controller's
+    // Main Phase, before they can take a Discretionary Action, which is 316.4's
+    // "at the start of Main Phase game effects take place".
+    //
+    // The "NEXT" costs nothing extra: a hold scores in the controller's own
+    // Beginning Phase (383.4.d), so their next Main Phase is this same turn's.
+    //
+    // **The one place the approximation is observable** is 316.3 — the Main Phase
+    // begins by emptying every Rune Pool, and this engine empties pools only in
+    // `runEnd`. Nothing this card does touches a pool, so the gap is unreachable
+    // from here; it is named because it is the same gap Blue Sentinel records.
+    //
+    // # "This battlefield" is the one she HELD — and the rules work this card by name
+    //
+    // **359.3.f.3.b**, verbatim: *"Iascylla reads 'When I hold, at the start of
+    // your next Main Phase, you may move an enemy unit to this battlefield.' The
+    // 'this battlefield' in her delayed triggered ability refers to the battlefield
+    // she held, and so will be referenced from the trigger condition, when the
+    // triggered ability is generated."*
+    //
+    // So the destination is captured from the EVENT and is NOT re-derived from
+    // where Iascylla is standing when the question is answered. That is the
+    // opposite of Yuumi - Magical Cat's "other friendly units HERE" three entries
+    // up, which `yuumiCandidates` guards with `isStillHere` under 359.3.f.2: hers
+    // is a referent checked on execution, this one is fixed at generation. An
+    // Iascylla killed or bounced in the response window this hold opens still drags
+    // a body onto the battlefield she held.
+    //
+    // "When **I** hold" is positional all the same — 383.4.d.2.a makes the ability
+    // the UNIT's, so the battlefield held has to be the one she is standing at when
+    // it scores. Same reading as Ahri - Alluring's, Blitzcrank's and Vilemaw's.
+    on: "battlefieldHeld",
+    // `holderIndex === listener.ownerIndex` is REDUNDANT here and is kept for the
+    // reason effects/mind.ts's Sumpworks Map keeps its equivalent: measured, then
+    // labelled, rather than left implying it is load-bearing. `scoring.isHeldBy`
+    // requires that NO opponent unit is at the battlefield, so a listener standing
+    // at the one that just scored is necessarily the holder's — a mutation
+    // deleting only this clause survived all 11 tests in
+    // test/unl-calm-wave6.test.ts. It stays because it states the card's sentence
+    // ("when **I** hold") and because the redundancy is a property of `isHeldBy`,
+    // not of this file.
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldHeld" && event.holderIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      // 055's do-as-much-as-you-can: with no enemy unit that could legally arrive,
+      // there is no question worth parking. Asked through the same helper the
+      // option list uses, so the fire-time check and the answers cannot disagree.
+      //
+      // **Also measured redundant, and also kept rather than quietly dropped.**
+      // `parkDecision` calls `advanceDecisions`, which EXECUTES a one-option
+      // question on the spot — so without this guard the "you may" would park,
+      // auto-decline and vanish, which is observationally identical. Deleting this
+      // line survived the whole suite. It is here so the trigger says what it does
+      // rather than relying on a downstream collapse that is somebody else's
+      // invariant.
+      if (iascyllaCandidates(state, listener.ownerIndex, event.battlefieldId).length === 0) return state;
+      return parkDecision(state, {
+        kind: "UNL-050-drag",
+        playerIndex: listener.ownerIndex,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
 };
+
+/**
+ * The enemy units Iascylla's delayed trigger may drag to the battlefield she
+ * held — the opponent's units ANYWHERE, minus any already standing there.
+ *
+ * "AN ENEMY UNIT" carries no location word, so 355.9.a.1's bare-noun reading puts
+ * a unit sitting in the opponent's base in reach, exactly as Blitzcrank -
+ * Impassive's grab does.
+ *
+ * The exclusion is **355.4.a** — "A valid Location for a Move Effect is one other
+ * than the Unit's current Location" — so a unit already at that battlefield has no
+ * move to make and must not be offered one. `forceMoveToBattlefield` already
+ * returns the state unchanged for that case, so this changes no outcome; what it
+ * changes is that the player is never shown a button that does nothing, which is
+ * the same reason `legal-actions`' destination fan-out skips the battlefield a
+ * target is already at.
+ *
+ * One function for the fire-time "is there anybody to drag" check and for the
+ * option list, the rule `yuumiCandidates` and `vexDestinations` follow above.
+ */
+function iascyllaCandidates(state: GameState, ownerIndex: 0 | 1, battlefieldId: string): UnitInstance[] {
+  const enemyIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
+  const alreadyHere = new Set(
+    (state.battlefields.find((bf) => bf.id === battlefieldId)?.units[state.players[enemyIndex].id] ?? []).map((u) => u.instanceId),
+  );
+  return ownUnitsEverywhere(state, enemyIndex).filter((u) => !alreadyHere.has(u.instanceId));
+}
 
 /** Yuumi - Magical Cat's "+3 Might and [Tank] this turn" — printed values, named
  *  because each appears in her trigger's prose and in the decision that lands
@@ -2759,6 +2865,39 @@ export const decisions: Record<string, DecisionDefinition> = {
     ],
     resolve: (state, d, optionId) =>
       optionId === "decline" || !d.battlefieldId ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId),
+  },
+  // Iascylla's "you may move an enemy unit to this battlefield", raised by her
+  // hold trigger, which has already fixed WHICH battlefield (359.3.f.3.b names
+  // this card) and established that some enemy unit could legally arrive.
+  //
+  // Rebuilt from live state like every decision here, so an enemy unit killed in
+  // the response window is not on offer and one that walked in during it is —
+  // `iascyllaCandidates` is the same walk the trigger used to decide whether to
+  // ask at all.
+  //
+  // Declining is listed FIRST, matching Blitzcrank's grab above: dragging a body
+  // onto a battlefield you are holding contests it, and `answerDecisions` in the
+  // test fixtures defaults to the first option, so the harmless answer is the
+  // default rather than the aggressive one.
+  //
+  // `causedByIndex` is Iascylla's controller and NOT the moved unit's — the unit
+  // moving is the opponent's, so `unitMoved.moverIndex` will read as the enemy
+  // seat. "When YOU move an enemy unit" (UNL-133's refused clause) can only ever
+  // be answered off this field, and a mover that omits it silently claims the move
+  // was the opponent's own. Blitzcrank's grab omits it; that is a gap in his entry
+  // rather than a convention to copy.
+  "UNL-050-drag": {
+    prompt: () => "Iascylla: move an enemy unit to the battlefield she held?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.battlefieldId === undefined ? [] : iascyllaCandidates(state, d.playerIndex, d.battlefieldId)).map((u) => ({
+        id: u.instanceId,
+        label: `Move ${u.name} here`,
+        instanceId: u.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" || !d.battlefieldId ? state : forceMoveToBattlefield(state, optionId, d.battlefieldId, d.playerIndex),
   },
   // Spirit's Refuge's "buff a friendly unit", raised by its on-play self-trigger.
   //

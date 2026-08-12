@@ -4,6 +4,7 @@ import { dispatchOnPlayUnit } from "./unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 import { opponentNearVictory } from "./constants.js";
 import { isMechUnit } from "./equipment.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 
 /**
  * A unit arriving in play, and the state it arrives in.
@@ -258,7 +259,14 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
  */
 function masterYiReadiesYourUnits(state: GameState, playerIndex: 0 | 1): boolean {
   const player = state.players[playerIndex];
-  return player.legend.defId === MASTER_YI_WUJU_MASTER && player.xp >= MASTER_YI_ENTERS_READY_LEVEL;
+  // **`canonicalDefId`, not a bare comparison.** Every UNL Legend is printed
+  // three times — plain, `(Overnumbered)`, `(Signature)` — as three distinct
+  // ids for the same card, so a player whose Legend is `UNL-231` has Master Yi
+  // and this would not have known it. The effect REGISTRIES handle printings
+  // centrally at merge time; a literal comparison like this one is exactly what
+  // that merge cannot reach, which is why `printing-aliases.test.ts` scans the
+  // source for them.
+  return canonicalDefId(player.legend.defId) === MASTER_YI_WUJU_MASTER && player.xp >= MASTER_YI_ENTERS_READY_LEVEL;
 }
 
 /** Every unit this player has in play, base and battlefields alike. */

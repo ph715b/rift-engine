@@ -804,7 +804,9 @@ export type GameEvent =
    * Held, in rule 469.2's sense: "maintains Control of a Battlefield they did
    * not yet Score this turn". So this is the SCORING event, not merely "still
    * has units there" — a battlefield already scored this turn by a Conquer is not
-   * held again (471.1.b), and fires nothing.
+   * held again (**470**: "A player may only Score, from either method, once per
+   * Battlefield per turn"), and fires nothing. Cited as 471.1.b until 2026-08-10;
+   * that is the FINAL POINT's restrictions and says nothing about repeat scoring.
    *
    * ONE event per battlefield, not one per Beginning Phase. Both cards that read
    * it say "when **I** hold", which is a claim about the battlefield the unit is

@@ -1,7 +1,7 @@
 import type { CardDefinition } from "../model/card-definition.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
 import { activatedAbilityDefIds, borrowedAbilityDefIds } from "./activated-abilities.js";
-import { loaderHandledDefIds } from "../cards/card-loader.js";
+import { canonicalDefId, loaderHandledDefIds, printingAliases } from "../cards/card-loader.js";
 import { playCardDefIds } from "./deploy.js";
 import { cardEffectDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
@@ -343,13 +343,33 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
  * the coverage-drift test that pins exactly that.
  */
 export function implementingModules(defId: string): string[] {
-  return COVERAGE_SOURCES.filter((source) => source.defIds().includes(defId)).map((source) => source.label);
+  // **Asked of the CANONICAL printing.** Unleashed prints every Legend three
+  // times and reprints five Poros, as distinct ids for the same card. The effect
+  // registries alias those at merge time, but two coverage sources report the
+  // ids they hold rather than the keys they are reached by — `effectiveMightDefIds`
+  // maps each entry's own `defId`, and `playCardDefIds` is a hand-listed array —
+  // so an alternate printing would report unimplemented while working perfectly.
+  //
+  // Resolved HERE, once, rather than in each source: this is the module that
+  // answers "is this card implemented", and the answer for a printing is
+  // whatever the answer is for the card.
+  const canonical = canonicalDefId(defId);
+  return COVERAGE_SOURCES.filter(
+    (source) => source.defIds().includes(defId) || source.defIds().includes(canonical),
+  ).map((source) => source.label);
 }
 
 /** Every defId implemented anywhere in the engine. Computed once and lazily —
  *  eagerly would run across the pre-existing card-effects import cycle. */
 function registeredDefIds(): Set<string> {
-  registered ??= new Set(COVERAGE_SOURCES.flatMap((source) => source.defIds()));
+  // Alternate printings count as registered when their canonical print is —
+  // same reasoning as `implementingModules` above.
+  registered ??= new Set([
+    ...COVERAGE_SOURCES.flatMap((source) => source.defIds()),
+    ...[...printingAliases()].filter(([, canonical]) =>
+      COVERAGE_SOURCES.some((source) => source.defIds().includes(canonical)),
+    ).map(([alias]) => alias),
+  ]);
   return registered;
 }
 
@@ -506,6 +526,11 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // deploy.ts's own header gives the three measured reasons the workaround is
   // wrong. The fix was one `case` and one board query, beside the ones already
   // there for Leona, Vayne and Magma Wurm.
+  // **Wave 6, 2026-08-10.** One card written by halves — two of three clauses.
+  [
+    "UNL-201",
+    "two of three clauses: the combat-won XP and the [Spend 1 XP] buff work; the third ability (Spend 2 XP, [Exhaust]: move an exhausted friendly unit home) is unwritten — two abilities on one defId must be modes of one entry, and canPayActivationCost receives modeId and drops it, so one predicate cannot price both",
+  ],
   // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
   // which reported DONE on its first clause before these rows landed. Each was
   // named by the agent that wrote it and pinned by a test in that agent's file.
@@ -641,7 +666,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
  *  "finished". The same reasoning as COVERAGE_SOURCES asking each module instead
  *  of keeping a list. */
 export function partialImplementationNote(def: CardDefinition): string | undefined {
-  const listed = PARTIALLY_IMPLEMENTED.get(def.id);
+  // **Asked of the CANONICAL printing**, for the same reason `implementingModules`
+  // is — and this one is the direction that BITES. Kha'Zix - Voidreaver (UNL-201)
+  // is written by halves and carries a row here; without this, his
+  // `(Overnumbered)` and `(Signature)` prints found no row, reported WHOLE, and
+  // would have been seated in generated decks as finished cards while two thirds
+  // of one clause was missing.
+  //
+  // Caught by `printing-aliases.test.ts`'s partition assertion ("no printing
+  // disagrees with its canonical print") within an hour of the row landing —
+  // which is exactly what that test is for, since nothing else compares the two.
+  const listed = PARTIALLY_IMPLEMENTED.get(canonicalDefId(def.id));
   const missingKeywords = unimplementedKeywordsOn(def).map((k) => UNIMPLEMENTED_KEYWORDS.get(k)!);
   // A card that carries an unimplemented keyword AND has no registered module at
   // all is not "partial" — NOTHING of it works, and saying only "[Deflect] is
@@ -821,7 +856,9 @@ export function isCardImplemented(def: CardDefinition): boolean {
   // A card whose registration covers only some of its text is NOT implemented.
   // Checked before the registry, since it is registered — that is the whole
   // reason this list has to exist.
-  if (PARTIALLY_IMPLEMENTED.has(def.id)) return false;
+  // Canonical, like `partialImplementationNote` above — an alternate printing of
+  // a half-written card is half-written.
+  if (PARTIALLY_IMPLEMENTED.has(canonicalDefId(def.id))) return false;
   // An unimplemented keyword is the same kind of partial, derived rather than
   // listed. Fiora - Victorious is the case that needs it: her grant IS registered
   // (granted-keywords), and [Ganking] and [Shield] really do work, so the registry

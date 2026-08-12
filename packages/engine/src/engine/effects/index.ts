@@ -10,6 +10,7 @@ import * as chaos from "./chaos.js";
 import * as fury from "./fury.js";
 import * as mind from "./mind.js";
 import * as order from "./order.js";
+import { printingAliases } from "../../cards/card-loader.js";
 import * as signatureFury from "./signature-fury.js";
 import * as signatureCalm from "./signature-calm.js";
 import * as signatureMind from "./signature-mind.js";
@@ -69,6 +70,34 @@ export function mergeRegistries<T>(label: string, sources: { name: string; entri
       }
       owner.set(defId, source.name);
       merged[defId] = entry;
+    }
+  }
+
+  // **Alternate printings inherit their twin's implementation.**
+  //
+  // Unleashed prints every Legend three times (plain / `(Overnumbered)` /
+  // `(Signature)`) and reprints five Poros from earlier sets. All 31 are
+  // distinct ids — a deck list names a printing — but they are the same card,
+  // and every registry here is keyed by defId. So a deck holding the Signature
+  // print of Rengar - Pridestalker got a Legend with NO ABILITY: measured, 12 of
+  // the 31 printings had an implemented twin and nothing of their own.
+  //
+  // Done here rather than in each file because it is not a card-authoring
+  // decision — no agent should have to remember to register a card three times,
+  // and `mergeRegistries` throwing on duplicates means one who did would break
+  // the build.
+  //
+  // **Only keys that are exactly an aliased defId are expanded**, which is what
+  // keeps DECISION keys out of it: those are `"UNL-183-pump"`-shaped and are
+  // parked by name from the resolver, so an aliased listener already parks the
+  // canonical key and needs no entry of its own.
+  //
+  // An explicit registration WINS over the alias. That is the conservative way
+  // round: if a printing ever does diverge from its twin, writing it by hand is
+  // how you say so, and this must not silently overwrite that.
+  for (const [alias, canonical] of printingAliases()) {
+    if (merged[alias] === undefined && merged[canonical] !== undefined) {
+      merged[alias] = merged[canonical]!;
     }
   }
   return merged;

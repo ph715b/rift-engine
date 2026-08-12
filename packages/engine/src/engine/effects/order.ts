@@ -3487,6 +3487,21 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
 };
 
 
+/** Galio - Indefatigable — "[Deflect] [Tank] I don't deal combat damage." Only
+ *  the third sentence is written below; the two keywords are the engine's own.
+ *
+ *  **Declared ABOVE the table, not beside its siblings at the foot of the file**:
+ *  `defId` is evaluated when this module initialises, so a `const` below it is in
+ *  the temporal dead zone and every import of effects/index.ts throws with
+ *  "Cannot access 'GALIO_INDEFATIGABLE' before initialization". Measured, not
+ *  guessed — that is what the first run of this entry did. */
+const GALIO_INDEFATIGABLE = "UNL-171";
+/** Big enough that no sum of printed Might, auras, buffs, Equipment badges and
+ *  this-turn pumps in this pool can survive it, so `effectiveMight`'s closing
+ *  `Math.max(0, m)` always lands on 0 (143.2.b). Not a Might value — a floor
+ *  expressed in the one arithmetic this seam has. */
+const NO_COMBAT_DAMAGE_PENALTY = 1000;
+
 /**
  * Continuous Might modifiers contributed by this domain file.
  *
@@ -3503,4 +3518,54 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+export const mightModifiers: Record<string, MightModifier> = {
+  "UNL-171": {
+    // Galio - Indefatigable, THIRD sentence — "I don't deal combat damage."
+    //
+    // His other two are already live and neither needed a line: `[Deflect]`'s
+    // surcharge is charged off `effectiveKeywords`, and `combat.assignmentOrder`
+    // reads `[Tank]` through `hasKeyword`. This sentence was the whole of what was
+    // unwritten, and a 3-Energy 6-Might `[Tank]` that also HITS for 6 is a much
+    // better card than the printed one — which is why it was left unregistered
+    // rather than half-written.
+    //
+    // # Why this is a Might modifier and not `combat.DEALS_NO_COMBAT_DAMAGE_DEF_IDS`
+    //
+    // That Set is the canonical home — one line, already holding Ezreal - Dashing
+    // (SFD-082) for this exact printed sentence — and a wave-3 agent refused this
+    // card on it, correctly as far as it went: `combat.ts` is shared and has no
+    // per-domain seam. What the refusal missed is that `mightModifiers` reaches
+    // the same arithmetic. `outgoingMight` is the only place a
+    // `combatRole: "outgoing"` Might DECIDES anything — swept, and there are
+    // exactly two callers: `combat.outgoingMight` (combat.ts:415-416's two damage
+    // pools) and `granted-keywords.isMighty`, which takes the HIGHER of the two
+    // roles and so can never be lowered by a penalty in one of them.
+    //
+    // **143.2.b is what makes this exact rather than an approximation**: "If a
+    // unit's Might is ever less than 0, it is treated as 0 when referenced by
+    // spells and abilities, **and when summing Might to be assigned as damage in
+    // the Combat Damage Step**" — and `effectiveMight` ends in `Math.max(0, m)`.
+    // So the sum Galio contributes to the pool is 0 and nothing else moves:
+    // `remainingMight` is a separate context and is deliberately untouched, so he
+    // is no easier to KILL for dealing nothing. That is the same split the Stun
+    // rule beside that Set takes (423), and the same one Ezreal's entry records.
+    //
+    // A SATURATING sentinel rather than a Might value, and it has to be: the sum
+    // it must cancel includes auras, Equipment badges and this-turn pumps that a
+    // `MightModifier` cannot see from here. Nothing in the four-set pool comes
+    // near it — the largest single term is Dr. Mundo - Expert's "+1 for each card
+    // in your trash", bounded by a deck. 143.2.b.1 ("although the unit's Might is
+    // treated as 0, it is not 0") is why this is safe to be a big number rather
+    // than an exact cancellation: the actual value is only consulted by effects
+    // that calculate increases and decreases, and this term exists solely in the
+    // outgoing-damage context, where no such effect is evaluated.
+    //
+    // **If `combat.ts` is ever open, delete this entry and add "UNL-171" to that
+    // Set instead.** It is the better shape and is behaviour-identical; the test
+    // pinning him asserts that he deals 0 and still absorbs 6, not which module
+    // says so, so it passes either way.
+    defId: GALIO_INDEFATIGABLE,
+    bonus: (_state, unit, _ownerIndex, ctx) =>
+      unit.defId === GALIO_INDEFATIGABLE && ctx.combatRole === "outgoing" ? -NO_COMBAT_DAMAGE_PENALTY : 0,
+  },
+};

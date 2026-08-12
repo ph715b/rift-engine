@@ -151,7 +151,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("286 held / 5 inline of 291 trigger cards", () => {
+  it("301 held / 5 inline of 306 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -174,6 +174,27 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **291 → 306 cards on 2026-08-10**, wave 6 plus two integrator fixes.
+    // Fifteen more trigger cards, all held; the inline count did not move.
+    //
+    // **Attribution is INCOMPLETE, and that is stated rather than papered over.**
+    // Four of the seven agents measured their own share by swapping in `git show
+    // HEAD`'s copy of their file and re-running: **+1 Calm** (UNL-050 Iascylla),
+    // **+1 Chaos** (UNL-148's self trigger), **+1 signature-mind** (UNL-199) and
+    // **+2 signature-body** (UNL-201, UNL-203). The remaining +10 were decomposed
+    // by nobody: seven files moved at once and each agent could see only its own.
+    //
+    // That is a weaker basis than the previous four waves, whose per-agent shares
+    // summed exactly to the total. Recorded as a known gap rather than dressed up.
+    // If this figure is ever disputed, settle it with a per-file `git stash` and
+    // re-run — what the earlier waves did, and what a smaller fan-out makes cheap.
+    //
+    // **A large part of the rise is NOT new cards.** The printing-alias pass makes
+    // every alternate print inherit its twin's registry entry, so one Legend with
+    // a trigger now contributes three census rows — its plain, `(Overnumbered)`
+    // and `(Signature)` ids. That is correct: each is a distinct defId a listener
+    // walk can reach, and before the alias two of the three were inert.
     //
     // **276/5/281 → 285/5/290 on 2026-08-10**, wave 5: nine more trigger cards,
     // every one of them held, and the inline count did not move.
@@ -226,9 +247,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 286,
+      held: 301,
       inline: 5,
-      cards: 291,
+      cards: 306,
     });
   });
 

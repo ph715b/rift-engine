@@ -209,9 +209,13 @@ export function killUnit(
  * Files a permanent that has just LEFT THE BOARD into a non-board zone —
  * dropping it entirely if it is a token.
  *
- * **Rule 714: "Tokens are Created on the board or the Chain and CANNOT EXIST
- * ELSEWHERE." Rule 715: "If a token is put into any Non-Board Zone besides the
+ * **Rule 186: "Tokens are Created on the board or the Chain and CANNOT EXIST
+ * ELSEWHERE." Rule 186.1: "If a token is put into any Non-Board Zone besides the
  * chain, it CEASES TO EXIST immediately after moving to its new zone."**
+ *
+ * (These were cited as 714/715 until 2026-08-10, with the sentences quoted
+ * correctly — 714/715 are Bonus Damage. The prose being right is exactly why it
+ * survived: nothing reads wrong until you look the number up.)
  *
  * So a killed token does not sit in a trash, a bounced token does not sit in a
  * hand, and a recycled token does not go to the bottom of a deck. Every one of

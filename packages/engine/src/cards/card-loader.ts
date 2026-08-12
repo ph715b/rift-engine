@@ -968,6 +968,92 @@ export function loadCardDefinitions(): CardDefinition[] {
 }
 
 /**
+ * The printing suffixes this pool uses. A card named `X (Overnumbered)` is the
+ * same card as `X` — a different PRINT, not a different card.
+ *
+ * `(Ultimate)` is here for Baron Nashor, the one card that uses it, and it
+ * behaves identically: `UNL-238` is `UNL-147` with reminder text dropped.
+ */
+const PRINTING_SUFFIX = /\s*\((Overnumbered|Signature|Ultimate)\)\s*$/;
+
+/** The card's name with any printing suffix removed — the identity two prints
+ *  of one card share. */
+function printingBaseName(name: string): string {
+  return name.replace(PRINTING_SUFFIX, "").trim();
+}
+
+/**
+ * Alternate printings, mapped to the id of the print that carries the
+ * implementation — **31 cards, and 12 of them were INERT in a real game.**
+ *
+ * # What this is
+ *
+ * Unleashed prints every Legend three times: a plain print, an `(Overnumbered)`
+ * one and a `(Signature)` one, the last carrying an asterisk in its collector
+ * number so `deriveId` yields ids like `UNL-231*`. It also reprints five Poros
+ * from earlier sets. All 31 are DISTINCT ids — that is correct and deliberate,
+ * since a deck list names a printing — but they are the SAME CARD, and every
+ * registry in this engine is keyed by defId.
+ *
+ * So a player whose deck contained the Signature print of Rengar - Pridestalker
+ * got a Legend with no ability at all. Measured before this existed: **12 of the
+ * 31 printings had an implemented twin and no implementation of their own.** The
+ * other 19 are aliased too, so they land implemented the day their twin does
+ * rather than needing to be noticed again.
+ *
+ * # Why it is derived rather than listed
+ *
+ * A hand-written table is one more list to forget, and this pool has already
+ * produced four wrong lists that were maintained by hand. The base NAME is the
+ * identity, and it is checked: `printingsMatchTheirTwin` in
+ * `test/printing-aliases.test.ts` asserts every alias has identical rules text
+ * (reminder text stripped), type, cost and Might. A print that genuinely
+ * differed would fail there rather than silently inherit the wrong behaviour.
+ *
+ * # What it does NOT do
+ *
+ * It does not merge the cards. Each printing keeps its own id, art, and place in
+ * a deck list; only the IMPLEMENTATION lookup is redirected.
+ */
+let printingAliasCache: ReadonlyMap<string, string> | undefined;
+
+export function printingAliases(): ReadonlyMap<string, string> {
+  if (printingAliasCache) return printingAliasCache;
+  const defs = loadCardDefinitions();
+  const canonical = new Map<string, string>();
+  for (const d of defs) {
+    if (PRINTING_SUFFIX.test(d.name)) continue;
+    // First plain print wins. Two sets can print the same card (UNL reprints
+    // five Poros), and either implementation serves — they are the same card.
+    if (!canonical.has(d.name)) canonical.set(d.name, d.id);
+  }
+  const aliases = new Map<string, string>();
+  for (const d of defs) {
+    if (!PRINTING_SUFFIX.test(d.name)) continue;
+    const target = canonical.get(printingBaseName(d.name));
+    // A printing with no plain twin would be a data problem, not something to
+    // paper over: leaving it unaliased makes it report unimplemented, which is
+    // the honest answer and is asserted in the test.
+    if (target !== undefined && target !== d.id) aliases.set(d.id, target);
+  }
+  printingAliasCache = aliases;
+  return aliases;
+}
+
+/**
+ * The id whose implementation this card uses — itself, unless it is an alternate
+ * printing of another card.
+ *
+ * Read this instead of `defId` anywhere an implementation is looked up by id.
+ * The effect registries handle it centrally (see `mergeRegistries` in
+ * effects/index.ts); the sites that need it individually are the ones comparing
+ * a defId to a literal, which no merge can reach.
+ */
+export function canonicalDefId(defId: string): string {
+  return printingAliases().get(defId) ?? defId;
+}
+
+/**
  * One real (non-alternate-art) rune image per domain — Rune-type cards are
  * deliberately excluded from `loadCardDefinitions` (they're never a
  * playable CardDefinition), but their art is still needed for display.

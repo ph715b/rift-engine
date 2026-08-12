@@ -111,6 +111,21 @@ export function grantedKeywordDefIds(): string[] {
     FIORA_VICTORIOUS,
     ...Object.keys(DYNAMIC_KEYWORD_VALUES),
     ...Object.keys(KEYWORD_AURAS),
+    // **`CONDITIONAL_GRANTS` was missing from this list until 2026-08-10, and it
+    // is the same trap the paragraph above describes, one table over.**
+    //
+    // Four XP-gated rows landed here on 2026-08-09. Three of them (UNL-047,
+    // UNL-075, UNL-108) also register a `mightModifiers` entry, so coverage
+    // claimed them through that and nobody noticed. **UNL-113 Master Yi -
+    // Tempered grants keywords only** — so he worked in play, every game, and
+    // reported UNIMPLEMENTED for three days.
+    //
+    // That is not cosmetic: `deck-generator` seats cards on `isCardImplemented`,
+    // so a champion that works could never appear in a generated deck and was
+    // invisible to `reachability` — the one instrument that would otherwise have
+    // caught it. Spread rather than re-listed, so the next row added to that
+    // table cannot repeat this.
+    ...Object.keys(CONDITIONAL_GRANTS),
     ...equipmentKeywordDefIds(),
     ...equipmentDefIds(),
   ];

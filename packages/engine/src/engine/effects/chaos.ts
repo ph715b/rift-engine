@@ -12,6 +12,7 @@ import type {
 } from "../triggers.js";
 import type { DecisionDefinition } from "../decisions.js";
 import {
+  banishCard,
   canSpendXp,
   channelRunesExhausted,
   dealDamage,
@@ -61,7 +62,8 @@ import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
-import { wearerListener } from "../equipment.js";
+import { recordBanishedWithGear, unitsBanishedWith, wearerListener } from "../equipment.js";
+import { modifiedEnergyCost } from "../cost-modifiers.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -839,6 +841,111 @@ export const cardEffects: Record<string, EffectDefinition> = {
       // `takeControlOfUnit` is a no-op and there is nothing to exhaust.
       const taken = takeControlOfUnit(state, unitId, ctx.casterIndex);
       return exhaustOwnUnitAnywhere(taken, ctx.casterIndex, unitId);
+    },
+  },
+  "UNL-142": {
+    // Heedless Resurrection — "[Reaction] As an additional cost to play this,
+    // kill a friendly unit. Play a unit from your trash that costs no more
+    // Energy and no more Power than the killed unit, ignoring its cost."
+    //
+    // # WRITTEN AND INERT TODAY, and the missing piece is ONE TABLE ROW
+    //
+    // "As an additional cost to play this, kill a friendly unit" is exactly the
+    // shape `card-effects.OPTIONAL_UNIT_COSTS` already carries for Cruel Patron
+    // (OGN-208): `{ kind: "killFriendly", mandatory: true }`. That file is shared
+    // and this pass may not add to it, so the enumerator never fans out a variant
+    // naming the victim, `additionalCostUnitInstanceId` is never set by a real
+    // game, and this resolver returns the state untouched — a 2-Energy 1-Power
+    // Reaction that does nothing.
+    //
+    // Written anyway, for the reason Pyke - Dockside Butcher (UNL-028) and Nami -
+    // Headstrong (UNL-052) both record: the field is a fully threaded mechanism
+    // (`legal-actions` fans it, `validate-play-card` checks it,
+    // `execute-play-card` forwards it onto the chain entry and
+    // `card-effect-resolution.choicesOf` hands it back), so the day the row lands
+    // the card works. Pinned by a test that asserts the unpaid play does nothing,
+    // so adding the row FAILS that test rather than silently changing behaviour
+    // nobody was watching.
+    //
+    // **The validator does not reject the field on an unlisted card** — its check
+    // is guarded by `optionalCost !== undefined` — so the effect below really is
+    // driven end to end through `submit` in the tests rather than by calling this
+    // resolver. What is genuinely unexercised is the ENUMERATION, and the
+    // mandatory-ness the row also buys: printed, a Resurrection with no friendly
+    // unit is UNPLAYABLE, and today it is merely pointless.
+    //
+    // # The kill happens at RESOLUTION, not at finalization
+    //
+    // **204.2.a**: "Additional Costs must be paid to finalize the spell or
+    // ability", which on a `[Reaction]` is observable — printed, the victim is
+    // already dead while the opponent decides how to answer. This engine pays
+    // every `OPTIONAL_UNIT_COSTS` cost inside the effect (Meditation's exhaust,
+    // Wildclaw Shaman's buff, Cruel Patron's kill), so the whole family shares
+    // that divergence rather than this card inventing one.
+    //
+    // # Two ceilings, both PRINTED, and the corpse is where they are read from
+    //
+    // **206**: "Effects that need to determine a card's cost for any purpose
+    // always use its printed or copied cost, even if that cost is increased,
+    // decreased, or ignored as the card is played." Its third worked example is
+    // ATAKHAN, whose "I cost [1] less for each Energy it costs and [Y] less for
+    // each Power it costs" is the same sentence about the same killed friendly
+    // unit — so "no more Energy and no more Power than the killed unit" is two
+    // separate caps read off the victim's printed pips, and no cost modifier of
+    // either side's touches them.
+    //
+    // `PendingDecision` carries a single `count` and two numbers do not fit in it,
+    // so they are re-read off the card in the trash when the question is answered.
+    // **359.3.e.13** licenses that directly — "a spell or ability that moves
+    // something to a different zone as a cost or effect can 'look back' at its
+    // characteristics before it changes zones" — and 206 is what makes the look-up
+    // safe a response window later, since a printed cost is the one thing that
+    // cannot move. (Baited Hook carries ITS cap on the decision instead, because
+    // MIGHT is stripped by the death; a printed cost is not.)
+    //
+    // Two cases leave nothing to read and both fizzle rather than guess: a TOKEN
+    // victim ceases to exist on reaching the trash (**186.1**), and a death
+    // REPLACED by Zhonya's Hourglass or Sett was never a death at all (808.1.d.1).
+    // Both UNDER-offer, which is the direction to err — and the token case is a
+    // real divergence rather than a vacuous one, since 206's own example prices a
+    // token off the card it copies.
+    //
+    // # The victim is itself an eligible answer
+    //
+    // It costs exactly as much as itself, so `<=` admits it, and nothing in the
+    // text excludes it — the cost is paid before the instruction executes, so by
+    // then it is just a unit in the trash. That makes this a self-contained
+    // flicker (re-entering exhausted under **143.4**, and printed, shedding damage
+    // and every temporary modification under **124.1**), which is the sharpest
+    // thing the card does; stated here rather than left to be discovered.
+    //
+    // **The 124.1 half does not happen, and the gap is not this card's.**
+    // `effect-helpers.completeDeath` files the unchanged instance into the trash —
+    // it strips the Buff (705) and nothing else — so a unit that dies damaged
+    // comes back damaged, and a this-turn pump rides along. Every "play a unit
+    // from your trash" in the pool reaches it (Soulgorger, The Harrowing, Last
+    // Rites, Fizz - Trickster); this card only makes it cheap and repeatable.
+    // Pinned in test/unl-chaos-wave6.test.ts, which asserts the WRONG answer on
+    // purpose so that fixing effect-helpers.ts fails loudly.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const victimId = event.additionalCostUnitInstanceId;
+      if (victimId === undefined) return state; // the row is not in the table yet
+      // **359.3.e.12**, whose worked example is BAITED HOOK doing exactly this:
+      // an opponent bounces the named friendly unit while the ability is on the
+      // chain, "it can't be killed and its Might is treated as null", and the
+      // controller "can't choose any unit from among them". A [Reaction] gives
+      // them a real window to do it.
+      if (findUnitAnywhere(state, victimId) === undefined) return state;
+      // No `killerIndex`, following Cruel Patron: paying a cost with your own unit
+      // is not you "killing" it in the sense Solari Shrine asks about.
+      return parkDecision(destroyUnit(state, victimId), {
+        kind: "UNL-142-resurrect",
+        playerIndex: ctx.casterIndex,
+        // The corpse, not the spell — `targetInstanceId` is "what the question is
+        // ABOUT", and the whole question is bounded by what it cost.
+        targetInstanceId: victimId,
+      });
     },
   },
 };
@@ -2775,6 +2882,52 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
       return parkDecision(state, { kind: "UNL-133-move", playerIndex: event.ownerIndex });
     },
   },
+  "UNL-148": {
+    // Cursed Sarcophagus, FIRST clause — "When you play this, banish all units
+    // from your trash." Its `[Exhaust]` half is in `activatedAbilities` below.
+    //
+    // A `selfTriggers` entry rather than a `cardEffects` one, for the reason
+    // Blast Cone's entry above and Sprite Fountain's (UNL-078, effects/mind.ts)
+    // both record and one of them MEASURED: `executePlayCard`'s gear branch pushes
+    // nothing onto the chain, so `resolveCardEffect` is never reached for a Gear
+    // and an effect registered there is silently dead.
+    //
+    // # "Banished WITH this" is a link, and the link already exists
+    //
+    // `GearInstance.banishedInstanceIds` is The Zero Drive's field (SFD-090), and
+    // `equipment.recordBanishedWithGear` is its single writer. Compared by
+    // INSTANCE, so two Sarcophagi keep two pits and neither can crack the other's
+    // — which is exactly what "with THIS" means and what a per-player list of
+    // banished units could not express.
+    //
+    // The trigger is HELD (383), so by the time it resolves the gear is already in
+    // `activeGear`, which is where that writer looks first.
+    //
+    // # UNITS only, and only from the OWNER's trash
+    //
+    // "all units from YOUR trash" — a Spell or Gear in the same trash stays put,
+    // and the opponent's trash is untouched. `event.ownerIndex` is the gear's
+    // controller at that moment, the same reading a Deathknell takes from
+    // `death.ownerIndex`.
+    //
+    // # Banishing is not killing
+    //
+    // `banishCard` moves the INSTANCE between zones and fires nothing: these cards
+    // are already in the trash, so nothing dies here and no death-watch may see
+    // one. That is also what preserves the identity the pit is recorded against.
+    on: ["played"],
+    resolve: (state, event) => {
+      const owner = event.ownerIndex;
+      // Snapshotted before the fold, because each `banishCard` rewrites the trash
+      // the next iteration would read.
+      const units = state.players[owner].trash.filter((c) => c.kind === "Unit");
+      return units.reduce(
+        (next, unit) =>
+          recordBanishedWithGear(banishCard(next, owner, unit.instanceId), owner, event.card.instanceId, unit.instanceId),
+        state,
+      );
+    },
+  },
 };
 
 /** Questions this domain's cards stop to ask — see engine/decisions.ts. Keyed by
@@ -3717,6 +3870,41 @@ export const decisions: Record<string, DecisionDefinition> = {
       return recycleFromTop(state, d.playerIndex, [recycled]);
     },
   },
+
+  // Heedless Resurrection's payoff — "play a unit from your trash that costs no
+  // more Energy and no more Power than the killed unit, ignoring its cost".
+  //
+  // No decline: the instruction carries no "you may", so the only options are the
+  // units that actually fit under both ceilings. The Harrowing's entry above takes
+  // the same reading and pins both of the branches that follow from it.
+  //
+  // The ceilings are re-derived from `d.targetInstanceId` — the corpse in the
+  // trash — rather than carried on the decision, because two numbers do not fit in
+  // `PendingDecision.count` and a printed cost cannot change. See the card's entry
+  // for the two cases where there is no corpse to read.
+  "UNL-142-resurrect": {
+    prompt: () => "Heedless Resurrection: play a unit from your trash that cost no more than the one you killed",
+    options: (state, d) => heedlessOptions(state, d.playerIndex, d.targetInstanceId),
+    resolve: (state, d, optionId) => playTrashUnitIgnoringCost(state, d.playerIndex, optionId),
+  },
+
+  // Cursed Sarcophagus' crack — "Play a unit banished with this. (You must pay
+  // its costs.)"
+  //
+  // Priced when the OPTIONS are built and AGAIN when one is taken, the split
+  // `playableTrashUnits` makes and for the same reason: this question can sit
+  // behind others, and the runes it was offered against may be gone by the time it
+  // is answered. Re-paying is what makes that fizzle rather than hand over a free
+  // unit.
+  //
+  // The gear rides on `cardInstanceId` rather than being re-found, because two
+  // Sarcophagi keep two pits and cracking the wrong one is a different game — the
+  // same reason Spirit Wheel carries the Wheel that fired.
+  "UNL-148-play": {
+    prompt: () => "Cursed Sarcophagus: play a unit banished with it, paying its costs",
+    options: (state, d) => sarcophagusOptions(state, d.playerIndex, d.cardInstanceId),
+    resolve: (state, d, optionId) => playBanishedUnit(state, d.playerIndex, optionId),
+  },
 };
 
 /**
@@ -3871,6 +4059,174 @@ function playUnitFromTrash(state: GameState, playerIndex: 0 | 1, optionId: strin
   players[playerIndex] = {
     ...players[playerIndex],
     trash: players[playerIndex].trash.filter((c) => c.instanceId !== optionId),
+    cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1,
+  };
+  return playUnitFree({ ...paid, players }, playerIndex, card);
+}
+
+/**
+ * The units in `playerIndex`'s trash that fit under BOTH of Heedless
+ * Resurrection's ceilings — "no more Energy AND no more Power than the killed
+ * unit".
+ *
+ * The ceilings come off the corpse itself, still in the trash: printed pips, so
+ * no cost modifier and no this-turn effect can move them, which is what makes
+ * re-reading them a turn's worth of decisions later sound. With no corpse to read
+ * there is no ceiling and nothing is offered — see the card's entry for the two
+ * ways that happens.
+ *
+ * No affordability filter, unlike `playableTrashUnits`: "ignoring its cost" means
+ * there is nothing to be unable to afford.
+ */
+function heedlessOptions(state: GameState, playerIndex: 0 | 1, corpseInstanceId: string | undefined): DecisionOption[] {
+  if (corpseInstanceId === undefined) return [];
+  const trash = state.players[playerIndex].trash;
+  const corpse = trash.find((c) => c.instanceId === corpseInstanceId);
+  if (corpse === undefined || corpse.kind !== "Unit") return [];
+  return trash
+    .filter((c): c is UnitInstance => c.kind === "Unit")
+    .filter((c) => c.energyCost <= corpse.energyCost && c.powerCost <= corpse.powerCost)
+    .map((c) => ({ id: c.instanceId, label: `Play ${c.name}`, instanceId: c.instanceId }));
+}
+
+/**
+ * Takes a named unit out of the trash and plays it for nothing at all.
+ *
+ * `playUnitFromTrash`'s sibling with the payment removed, rather than a parameter
+ * on it: that one exists because Soulgorger and The Harrowing print "ignoring its
+ * ENERGY cost. (You must still pay its Power cost.)", and this one because
+ * Heedless Resurrection prints "ignoring its cost" flat. Folding them together
+ * would make the difference between the two sentences a boolean.
+ *
+ * `cardsPlayedThisTurn` is bumped for the reason its twin gives: this IS a card
+ * being played, which is what `[Legion]` counts.
+ */
+function playTrashUnitIgnoringCost(state: GameState, playerIndex: 0 | 1, optionId: string): GameState {
+  const card = state.players[playerIndex].trash.find((c) => c.instanceId === optionId);
+  if (!card || card.kind !== "Unit") return state;
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...players[playerIndex],
+    trash: players[playerIndex].trash.filter((c) => c.instanceId !== optionId),
+    cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1,
+  };
+  return playUnitFree({ ...state, players }, playerIndex, card);
+}
+
+/**
+ * A gear by instance id, wherever it currently is.
+ *
+ * `activeGear` AND `banished`, matching `recordBanishedWithGear`'s own walk: a
+ * Sarcophagus can be banished (Time Warp, Pickpocket) while its pit still holds
+ * units, and the list travels with the instance rather than being keyed off a
+ * board position.
+ */
+function gearAnywhere(state: GameState, playerIndex: 0 | 1, gearInstanceId: string | undefined) {
+  if (gearInstanceId === undefined) return undefined;
+  const owner = state.players[playerIndex];
+  const found =
+    owner.activeGear.find((g) => g.instanceId === gearInstanceId) ??
+    owner.banished.find((c) => c.instanceId === gearInstanceId);
+  return found !== undefined && found.kind === "Gear" ? found : undefined;
+}
+
+/**
+ * The units banished with one Cursed Sarcophagus that its controller can pay for
+ * right now.
+ *
+ * Priced when the options are built, so a unit nobody can afford is never offered
+ * rather than offered and then refused — **419.2.a** ("as long as a player has the
+ * resources to pay the costs associated with the card ... they may Play cards"),
+ * and the rule this file applies throughout.
+ *
+ * A recorded id that names nothing in the banished zone is SKIPPED rather than
+ * treated as an error: the list is never pruned when a unit is played out of it
+ * (nothing in the text says the pit empties), so a played unit's id stays on the
+ * gear forever and simply stops resolving. The Zero Drive's resolver skips for the
+ * same reason.
+ */
+function sarcophagusOptions(state: GameState, playerIndex: 0 | 1, gearInstanceId: string | undefined): DecisionOption[] {
+  const gear = gearAnywhere(state, playerIndex, gearInstanceId);
+  if (gear === undefined) return [];
+  const options: DecisionOption[] = [];
+  for (const unitId of unitsBanishedWith(gear)) {
+    const card = state.players[playerIndex].banished.find((c) => c.instanceId === unitId);
+    if (card === undefined || card.kind !== "Unit") continue;
+    if (sarcophagusPayment(state, playerIndex, card) === undefined) continue;
+    options.push({ id: card.instanceId, label: sarcophagusLabel(state, playerIndex, card), instanceId: card.instanceId });
+  }
+  return options;
+}
+
+/**
+ * Pays a banished unit's FULL printed cost, or `undefined` when it cannot be paid.
+ *
+ * A local twin of `signature-shared.voidRushPayment` rather than a call to it:
+ * that one bakes in Void Rush's own 2-Energy discount, and a shared version would
+ * need the discount as a parameter for the benefit of two callers in two files.
+ * The reasoning is entirely borrowed, including the order.
+ *
+ * **POWER FIRST, then Energy.** `payPowerFromChanneled` recycles the rune and
+ * banks 1 floating Energy for one that was still Ready, which is the same "a Ready
+ * rune spent on Power still counts toward the Energy cost" arithmetic
+ * `computeAutoPayment` does. Paying Energy first would exhaust that rune and lose
+ * the credit, refusing plays the ordinary cost pipeline allows.
+ *
+ * `playedFromHand: false`, which is not cosmetic — it is what lets Void Drone's
+ * and Drag Under's own "costs [2] less when played from anywhere but your hand"
+ * apply to a Sarcophagus play.
+ */
+function sarcophagusPayment(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState | undefined {
+  let paid: GameState | undefined = state;
+  if (card.powerCost > 0) {
+    paid =
+      payPowerFromChanneled(state, playerIndex, card.powerDomain, card.powerCost) ??
+      (card.powerDomainAlt !== undefined
+        ? payPowerFromChanneled(state, playerIndex, card.powerDomainAlt, card.powerCost)
+        : undefined);
+  }
+  if (!paid) return undefined;
+  return payEnergyFromPool(paid, playerIndex, sarcophagusEnergy(state, playerIndex, card));
+}
+
+/** What a banished unit costs in Energy after every cross-cutting modifier — read
+ *  off the state the question was asked in, so the label and the payment quote one
+ *  number. */
+function sarcophagusEnergy(state: GameState, playerIndex: 0 | 1, card: UnitInstance): number {
+  return modifiedEnergyCost(state, playerIndex, "Unit", card.energyCost, card.defId, false);
+}
+
+/** What one option says it costs, so the price a player is agreeing to is visible
+ *  rather than implied — `voidRushLabel`'s job, and `playLabel`'s. */
+function sarcophagusLabel(state: GameState, playerIndex: 0 | 1, card: UnitInstance): string {
+  const energy = sarcophagusEnergy(state, playerIndex, card);
+  const power = card.powerCost > 0 ? `, ${card.powerCost} ${card.powerDomain ?? "any"} Power` : "";
+  return `Play ${card.name} (pay ${energy} Energy${power})`;
+}
+
+/**
+ * Takes a named unit out of the banished zone, pays for it, and plays it.
+ *
+ * The cost is re-paid here rather than trusted from the option list, for the
+ * reason `playUnitFromTrash` records: the options were built from an earlier
+ * state, and anything that drained the pool in between must make this fizzle
+ * rather than hand over a free unit.
+ *
+ * Through `playUnitFree`, so the destination is a real choice (359.2.c — a unit
+ * "enters the Board exhausted at the Location that was CHOSEN", and 419.3.b keeps
+ * every step of Play normal for a play made during a resolution). Base-only boards
+ * are not asked, since one destination is not a choice.
+ */
+function playBanishedUnit(state: GameState, playerIndex: 0 | 1, optionId: string): GameState {
+  const card = state.players[playerIndex].banished.find((c) => c.instanceId === optionId);
+  if (!card || card.kind !== "Unit") return state;
+  const paid = sarcophagusPayment(state, playerIndex, card);
+  if (!paid) return state;
+
+  const players = [...paid.players] as [PlayerState, PlayerState];
+  players[playerIndex] = {
+    ...players[playerIndex],
+    banished: players[playerIndex].banished.filter((c) => c.instanceId !== optionId),
     cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1,
   };
   return playUnitFree({ ...paid, players }, playerIndex, card);
@@ -4187,6 +4543,59 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       maduliDestinations(state, playerIndex, sourceInstanceId).length > 0,
     resolve: (state, ctx, _event, sourceInstanceId) =>
       parkDecision(state, { kind: MADULI_MOVE, playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
+  },
+  "UNL-148": {
+    // Cursed Sarcophagus, SECOND clause — "[Exhaust]: Play a unit banished with
+    // this. (You must pay its costs.)" Its on-play banish is the `selfTriggers`
+    // entry above.
+    //
+    // # "You must pay its costs" — paid HERE, at resolution
+    //
+    // 419.1.a makes hand and Chosen Champion the only zones a player may play
+    // from by default, so a play out of the banished zone needs a permission
+    // somewhere. This engine has exactly one such permission (`mayPlayFromTrash`,
+    // Last Rites' counter) and it is wired through timing.ts, legal-actions.ts and
+    // validate-play-card.ts — three shared files. So the play is performed inside
+    // the resolution instead, which is what the pool's other pay-at-resolution
+    // cards already do: Soulgorger and The Harrowing pay Power in
+    // `playUnitFromTrash` below, and Void Rush (effects/signature-shared.ts) pays
+    // BOTH halves in `voidRushPayment`, whose shape `sarcophagusPayment` mirrors.
+    //
+    // Named limitations, all inherited from `payPowerFromChanneled` and all
+    // UNDER-offering — the unit is withheld, never handed over unpaid:
+    //  - a split Power pip is tried as all-primary then all-alt, never mixed;
+    //  - a rune-DECK payment is chosen by the engine, not by the player.
+    // Energy goes through `modifiedEnergyCost` with `playedFromHand: false`, so
+    // every cross-cutting discount (and Void Drone's from-elsewhere one) applies
+    // to a Sarcophagus play exactly as it would to a play from hand.
+    //
+    // # No `availableWhile`, and that is the printed card
+    //
+    // **419.3.c**: "If there are no eligible cards to Play when instructed to Play
+    // in this manner, then nothing happens." So a Sarcophagus over an empty pit
+    // may still be exhausted for nothing, and The Zero Drive — the only other
+    // play-what-I-banished card in the pool — takes the same reading with a
+    // costlier price. Gating availability on a non-empty pit would be this engine
+    // inventing a restriction the card does not print.
+    //
+    // # Mandatory, so no decline
+    //
+    // "Play a unit banished with this" carries no "you may". The options list is
+    // therefore the affordable units alone: with none the question is dropped
+    // (419.3.c again, and 359.3.e.11's "instructions that can be partially
+    // followed are followed as much as possible") and with exactly one it is
+    // executed without asking, the same two branches The Harrowing's entry pins.
+    //
+    // # The pit is not emptied by cracking it
+    //
+    // "Play A unit", singular, and nothing says the rest go anywhere — so a
+    // Sarcophagus readied on a later turn plays another. That is what makes the
+    // banish worth 4 Energy and 1 Power, and it is why `banishedInstanceIds` is
+    // read rather than consumed: only the unit actually played leaves the zone.
+    kind: "Gear",
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _event, sourceInstanceId) =>
+      parkDecision(state, { kind: "UNL-148-play", playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
   },
 };
 

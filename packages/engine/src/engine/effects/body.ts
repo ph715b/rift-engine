@@ -81,6 +81,39 @@ import { placeGoldTokens } from "../token.js";
  *
  * Composition rejects duplicates, so registering a defId that some other file
  * already handles throws at import rather than silently shadowing it.
+ *
+ * # The four Body cards this file cannot hold, re-audited 2026-08-12
+ *
+ * Every one of them is a play PERMISSION or a play RESTRICTION, which this engine
+ * answers at GATES rather than in a resolver — so none of the nine registries
+ * `effects/index.ts` composes can carry them, and no amount of writing here would
+ * make one work. Each is pinned in test/unl-body-wave6.test.ts asserting the wrong
+ * answer, with a positive control off the same fixture proving the door it needs is
+ * live for the card that already has it.
+ *
+ *  - **UNL-117 Arachnoid Horror** and **UNL-120 Rengar - Trophy Hunter** —
+ *    `unit-triggers.PLACEMENT_GRANTS`. Rengar's sentence is byte-identical to
+ *    Deadbloom Predator's and is one row (`"occupiedEnemyBattlefield"`). The
+ *    Arachnoid's is NOT: **740.2.a** defines "alone" as "no other FRIENDLY units at
+ *    the same location", so "if an enemy unit is alone there" asks whether the
+ *    OPPONENT has exactly one unit there and says nothing about your own — strictly
+ *    narrower than Deadbloom's `>= 1`, so it needs its own grant kind. Its second
+ *    sentence widens the same permission to every friendly unit, which is Miss
+ *    Fortune - Buccaneer's shape in board-restrictions.ts.
+ *  - **UNL-111 Determined Sentry** — "I can't move to base" is a per-UNIT
+ *    restriction where `battlefield-continuous.mayMoveToBaseFrom` is per-BATTLEFIELD.
+ *    **446.1** is why that is the right door: a permanent changing position from one
+ *    space on the Board to another is a Move, and a Base is a space (198.1), so the
+ *    engine's `RecallUnitAction` is that move despite its name. **456.3** — "a Recall
+ *    cannot be prevented by actions and Game Effects that restrict or block
+ *    Movement" — is why combat's step-3d recall (466.1.a.2) must stay unaffected,
+ *    exactly as it already is for Vilemaw's Lair and Minotaur Reckoner.
+ *  - **UNL-106 Repulse** — "counter an enemy spell that chooses it AND NO OTHER
+ *    friendly unit" is a constraint BETWEEN its two targets, and `chainSpellAndUnit`
+ *    (Riposte's spec) carries no filter fields at all. Approximating it as Not So
+ *    Fast's `{ kind: "chainSpell", enemyOnly, choosesFriendlyPermanent }` was
+ *    rejected: that is wider than printed in three directions at once (a spell
+ *    choosing two friendly units, a chosen GEAR, and a friendly unit in BASE).
  */
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-107": {
@@ -3373,7 +3406,7 @@ const levelSelfMight = (defId: string, threshold: number, amount: number): Might
 });
 
 /**
- * # Two Body cards are NOT here, and both refusals are about the same seam
+ * # One Body card is not here, and its refusal was closed elsewhere
  *
  * **UNL-113 Master Yi - Tempered** — "[Level 6][>] I have [Deflect] and
  * [Ganking]." Neither is a Might bonus, so `mightModifiers` cannot express it,
@@ -3384,29 +3417,31 @@ const levelSelfMight = (defId: string, threshold: number, amount: number): Might
  * writes `keywordsThisTurn`, which latches until end of turn, and 824.1.d turns a
  * `[Level]` ability Inactive again the moment XP drops below N.
  *
- * **And the gap is not that he does nothing — it is that he does it ALWAYS.**
- * `card-loader`'s `KW_PATTERN` sees only brackets, so both keywords parse as flat
- * printed ones: measured, `defaultCardRegistry().get("UNL-113").keywords` is
- * `{Hunt:2, Level:6, Deflect:1, Ganking:1}` and `effectiveKeywords` hands him both
- * at ZERO XP. `CONDITIONAL_KEYWORD_DEF_IDS` is the named set that exists for
- * exactly this and holds four OGN cards and no UNL one. Four UNL cards are
- * affected pool-wide — UNL-047, UNL-075, UNL-108 and UNL-113, measured over the
- * whole loaded set rather than sampled — and the fix is one table in
- * cards/card-loader.ts plus a grant each, both shared. Pinned in
- * test/unl-body-wave3.test.ts.
+ * **That shared pair of edits LANDED on 2026-08-09 and the card now works** —
+ * `card-loader`'s `GRANTED_ONLY_KEYWORDS` strips his always-on printed
+ * `[Deflect]`/`[Ganking]` and `CONDITIONAL_GRANTS["UNL-113"]` hands them back at
+ * 6+ XP. Re-measured through the real paths in test/unl-body-wave6.test.ts rather
+ * than inferred from the table: the move enumerator offers the bf1->bf2 move at 6
+ * XP and withholds it at 5, and an enemy spell choosing him is charged one extra
+ * rainbow rune at 6 and none at 5.
  *
- * **UNL-108 Wily Newtfish** — "If you've gained XP this turn, I have +1 Might and
- * [Ganking]." Its `[Ganking]` is the same always-on loader defect, and the
- * MIGHT half — which this seam could otherwise carry — is blocked one level
- * earlier: **nothing anywhere records that XP was gained this turn.** `gainXp` is
- * the single writer and adds to `PlayerState.xp` and nothing else, and no
- * `xpGainedThisTurn` field exists on `PlayerState` (grepped for, not assumed).
- * The current total cannot answer it: a player who started the turn on 5 and is
- * still on 5 has gained nothing, and a player who gained 2 and spent 2 has. This
- * is Raging Soul's `discardedThisTurn` and Sivir - Mercenary's `powerSpentThisTurn`
- * shape and wants the same three edits — a field on `PlayerState`
- * (model/game-state.ts), a write in `gainXp` (effect-helpers.ts) and a reset in
- * `runEnd` (turn-manager.ts) — all outside this file.
+ * **What is still open is a COVERAGE CLAIM, not the card.**
+ * `granted-keywords.grantedKeywordDefIds()` hand-lists four constants instead of
+ * `Object.keys(CONDITIONAL_GRANTS)`, so the four XP rows added that day claim
+ * nothing. Three of them are covered by a second registration — UNL-047, UNL-075
+ * and UNL-108 each also carry a `mightModifiers` entry, the last of them in the
+ * table below — leaving Master Yi as the only card the omission is visible on. He
+ * therefore reports unimplemented, which keeps him out of `deck-generator`'s decks
+ * and out of `reachability` entirely. Pinned in test/unl-body-wave6.test.ts.
+ *
+ * **UNL-108 Wily Newtfish** was refused here for the same shape and is now WHOLE.
+ * "If you've gained XP this turn, I have +1 Might and [Ganking]" needed a per-turn
+ * flag that did not exist — `gainXp` wrote `PlayerState.xp` and nothing else, and
+ * the standing total cannot answer the question (a player who gained 2 and spent 2
+ * has gained XP; one who sat on 5 all turn has not). `xpGainedThisTurn` landed with
+ * the three edits that refusal named, and the card is now one printed sentence
+ * across two files: the Might half in the table below, the `[Ganking]` half in
+ * `CONDITIONAL_GRANTS`, both reading the same flag. They must not come apart.
  */
 export const mightModifiers: Record<string, MightModifier> = {
   // **The first two cards through this seam, and the reason it exists.** Both

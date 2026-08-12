@@ -598,15 +598,18 @@ describe("the four Body clauses this wave REFUSED", () => {
     // the `mightModifiers` seam and the [Ganking] through `CONDITIONAL_GRANTS` —
     // one printed sentence across two files, reading the same flag.
     expect(isCardImplemented(registry.get(WILY_NEWTFISH)), "a half went missing — check both files read xpGainedThisTurn").toBe(true);
-    // Master Yi reports UNIMPLEMENTED, and needs NO hand-written coverage entry —
-    // checked rather than assumed, because the wave brief expected him to
-    // over-report as finished on the strength of his `[Hunt 2]`. He does not:
-    // `[Hunt]` is served by the keyword and claims no defId, his `[Level 6][>] I
-    // have ...` leaves residual prose once brackets and reminders are stripped,
-    // and no module registers him — so `isCardImplemented` is false and
-    // `partialImplementationNote` is correctly silent (nothing of his own text is
-    // written, so there is no "partial" to describe).
-    expect(isCardImplemented(registry.get(MASTER_YI_TEMPERED)), "Master Yi now reads finished").toBe(false);
+    // **Master Yi reports FINISHED as of 2026-08-10, and this assertion was
+    // WRONG rather than stale.** It said "no module registers him", and that was
+    // true of the CLAIM LIST but not of the code: his `[Level 6]` grant had been a
+    // `CONDITIONAL_GRANTS` row since 2026-08-09 and worked in every game.
+    // `grantedKeywordDefIds()` hand-listed four constants instead of reading that
+    // table, so he was written, working, and invisible — and because
+    // `deck-generator` seats on `isCardImplemented`, unreachable in play and
+    // unseeable by `reachability`, the instrument built for exactly this.
+    //
+    // Found by a wave-6 re-audit agent that was told to distrust the refusal note
+    // rather than inherit it. The fix is one spread.
+    expect(isCardImplemented(registry.get(MASTER_YI_TEMPERED)), "Master Yi went back to unclaimed").toBe(true);
     expect(
       partialImplementationNote(registry.get(MASTER_YI_TEMPERED)),
       "he now reports PARTIAL — something registered him; check the entry says the right thing",

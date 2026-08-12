@@ -326,7 +326,19 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
 
   // The per-domain contributions first, so a card written in a domain file is
   // indistinguishable from one written here — see `MightModifier`.
-  for (const modifier of Object.values(domainMightModifiers())) {
+  //
+  // **Deduped by IDENTITY, and that is not defensive tidying — it is load-bearing
+  // as of 2026-08-10.** This registry is now keyed by PRINTING: `mergeRegistries`
+  // aliases every alternate print of a card to its twin's entry, so Master Yi -
+  // Wuju Master appears three times (plain, `(Overnumbered)`, `(Signature)`) as
+  // three keys holding ONE object. Every other consumer in the engine looks an
+  // entry up BY KEY and is unaffected; this is the only one that iterates values,
+  // and without the Set it applied his `[Level 6]` aura three times — a 3-Might
+  // unit read as 6 instead of 4.
+  //
+  // Caught by `unl-signature-wave5.test.ts`, which asserts the exact figure. A
+  // test that had only checked "the aura applied" would have passed.
+  for (const modifier of new Set(Object.values(domainMightModifiers()))) {
     bonus += modifier.bonus(state, unit, ownerIndex, ctx);
   }
 

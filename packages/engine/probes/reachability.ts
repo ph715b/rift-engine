@@ -282,7 +282,27 @@ const GAMES = Number(process.env.GAMES ?? 250);
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/224.
  */
-const PINNED_UNION = 551;
+/**
+ * **551 -> 576 on 2026-08-10, the largest single rise this probe has recorded**,
+ * and only part of it is new cards. Wave 6 wrote nine; the rest is two classes of
+ * card that ALREADY WORKED and could not be seen:
+ *
+ *  - **Alternate printings.** Every UNL Legend is printed three times as three
+ *    distinct ids, and only the plain print carried the implementation. Twelve
+ *    printings were inert in a real game — draft the Signature Rengar and you got
+ *    a Legend with no ability. Aliased centrally at `mergeRegistries`.
+ *  - **UNL-113 Master Yi - Tempered**, written since 2026-08-09 and never CLAIMED:
+ *    `grantedKeywordDefIds()` hand-listed four constants instead of reading its own
+ *    table. `deck-generator` seats on `isCardImplemented`, so a working champion
+ *    could not enter a generated deck and this probe could never see him.
+ *
+ * Both are the same shape and neither is visible to the suite or the typecheck:
+ * the card works, the registry cannot see it, so it is never dealt. This probe is
+ * the only instrument that can tell "unwritten" from "written and unreachable".
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 144/224.
+ */
+const PINNED_UNION = 576;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

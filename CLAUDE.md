@@ -57,8 +57,8 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **551 of 692 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/224), at its default **250 games
+`reachability` is pinned at **576 of 692 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198, UNL 144/224), at its default **250 games
 per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
@@ -126,6 +126,9 @@ Measured against it, citations this repo had been carrying:
 | a unit's "current Might" | "2236" ×4 in `chaos.ts` — a LINE NUMBER, found 2026-08-09 | **143.2** (plus **432.1**'s worked Shield example) |
 | "an ability on the Chain is independent of the card that made it" | **809.1.b** ×3 in `triggers.ts` — which is `[Deflect]`'s FORMATTING rule, "It is formatted as `Deflect [X]`". Found 2026-08-10 | **383.3** ("a Triggered Ability behaves like an Activated Ability and is placed on the Chain") with **377.3.a.1** ("the ability goes on the chain but has no card to represent it") |
 | "this-turn effects are fixed amounts" | 317 — the **Ending Phase** | **432.1.a** |
+| "tokens cannot exist off the board; a token put elsewhere ceases to exist" | **714/715** in `effect-helpers.ts`, with both sentences quoted VERBATIM and correctly — 714/715 are **Bonus Damage**. Found 2026-08-10 | **186** and **186.1** |
+| "each token is its own game object" | 714 in `effects/mind.ts` | **185.1** |
+| "a battlefield already scored this turn is not held again" | **471.1.b** in `triggers.ts` — which is the FINAL POINT's restrictions | **470** ("A player may only Score, from either method, once per Battlefield per turn") |
 | "a check on something no longer available returns null" | a bare 359.3 | **359.3.e.12** |
 
 The current PDF is downloadable from Riot's CDN — the project owner supplied
