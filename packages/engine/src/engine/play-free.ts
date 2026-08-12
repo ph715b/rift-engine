@@ -2,7 +2,7 @@ import type { CardInstance, GearInstance, SpellInstance, UnitInstance } from "..
 import { powerCostOf } from "../model/card.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { contextFor } from "./effect-context.js";
-import { cardModeOf } from "./card-effects.js";
+import { cardModeOf, type ResolveEvent } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { playUnitFree } from "./free-play.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
@@ -39,6 +39,24 @@ export function playCardIgnoringCost(
    *  which is ever at a battlefield. Absent means base, as every earlier caller
    *  wanted. */
   destinationBattlefieldId?: string,
+  /**
+   * The choices the played card's own effect needs — a target, a mode, a
+   * destination.
+   *
+   * **Added 2026-08-11, from a playtest report: "spells played with fizz dont
+   * seem to do anything".** `playSpellImmediately` used to resolve with `{}`
+   * unconditionally, on the reasoning that "the choices a spell needs are made
+   * when it is ANNOUNCED, and nothing announced this one". That reasoning is
+   * sound for a spell nobody could choose for — but Fizz - Trickster ASKS which
+   * spell to play, so the player is right there and can be asked what to point it
+   * at. Without this the card left the trash, resolved against nothing, and was
+   * recycled: it did exactly what the report said, which is nothing.
+   *
+   * Optional, so every existing caller keeps the old behaviour — a card played
+   * with no chooser present still does as much as it can and no more
+   * (**359.3.e.11**, "do as much as you can").
+   */
+  choices?: ResolveEvent,
 ): GameState {
   if (card.kind === "Unit") {
     return destinationBattlefieldId === undefined
@@ -46,7 +64,7 @@ export function playCardIgnoringCost(
       : playUnitToBattlefield(state, playerIndex, card as UnitInstance, destinationBattlefieldId);
   }
   if (card.kind === "Gear") return playGear(state, playerIndex, card as GearInstance);
-  if (card.kind === "Spell") return playSpellImmediately(state, playerIndex, card as SpellInstance);
+  if (card.kind === "Spell") return playSpellImmediately(state, playerIndex, card as SpellInstance, choices);
   // A Legend is never in a deck or a trash, so nothing can reach here — and a
   // silent no-op is the right answer rather than a throw, since every caller
   // takes whatever the zone handed it.
@@ -74,17 +92,23 @@ function playGear(state: GameState, playerIndex: 0 | 1, card: GearInstance): Gam
  * resolution (Rhasa's cost, Dr. Mundo's Might) therefore sees the same trash a
  * normal cast would have shown it — one card larger.
  */
-function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellInstance): GameState {
+function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellInstance, choices?: ResolveEvent): GameState {
   const played = firePlayed(state, playerIndex, card);
   // No mode either: `cardModeOf(card, undefined)` gives the sole mode of an
   // ordinary card and NOTHING for a modal one, which is the same "as much as
   // it can and no more" answer an absent target already gets.
   const effect = cardModeOf(card, undefined);
-  // No targets: the choices a spell needs are made when it is ANNOUNCED, and
-  // nothing announced this one. A targeted spell played this way therefore does
-  // as much as it can and no more, which is 055's convention and the same answer
-  // every resolver here already gives an absent target.
-  const resolved = effect ? effect.resolve(played, contextFor(playerIndex, card.instanceId), {}) : played;
+  // **Targets, when the caller has them.** The choices a spell needs are normally
+  // made when it is ANNOUNCED, and nothing announced this one — so a caller that
+  // cannot ask still passes nothing and the spell does as much as it can and no
+  // more (**359.3.e.11**, "do as much as you can"; this comment cited "055"
+  // until 2026-08-11, which is not a rule at all).
+  //
+  // A caller that CAN ask passes what the player chose. Fizz - Trickster is the
+  // case that forced it: he asks which spell to play, so the chooser is present
+  // and a second question can be asked. Before this, every targeted spell he
+  // played resolved against nothing.
+  const resolved = effect ? effect.resolve(played, contextFor(playerIndex, card.instanceId), choices ?? {}) : played;
   const players = [...resolved.players] as [PlayerState, PlayerState];
   players[playerIndex] = { ...players[playerIndex], trash: [...players[playerIndex].trash, card] };
   return { ...resolved, players };

@@ -45,7 +45,8 @@ import {
   takeOneFromTopAndRecycleRest,
   takeControlOfUnit,
 } from "../effect-helpers.js";
-import { findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { eligibleTargets, findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { cardModeOf } from "../card-effects.js";
 import { effectiveMight } from "../effective-might.js";
 import { attackerIndexAt, attackingUnitsAt, isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import { killGear } from "../triggers.js";
@@ -1072,6 +1073,25 @@ function fizzCandidates(state: GameState, playerIndex: 0 | 1) {
       c.energyCost <= FIZZ_MAX_ENERGY &&
       (c.powerCost === 0 || payPowerFromChanneled(state, playerIndex, c.powerDomain, c.powerCost) !== undefined),
   );
+}
+
+
+/**
+ * Does this from-trash spell have a UNIT target to choose, and is there anyone to
+ * point it at?
+ *
+ * Only the single-unit shape is asked. That is deliberate rather than lazy: a
+ * multi-slot or destination-carrying spell needs a choice this one question
+ * cannot express, and offering half of it would be worse than the old behaviour
+ * — the player would answer, and the rest of the spell would still fizzle
+ * silently. Those stay on the do-as-much-as-you-can path (359.3.e.11) and are
+ * named in docs/rules-conformance.md.
+ */
+function fizzSpellNeedsTarget(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+  const effect = cardModeOf(card, undefined);
+  const targeting = effect?.targeting;
+  if (targeting?.kind !== "unit") return false;
+  return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).length > 0;
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
@@ -2962,6 +2982,30 @@ export const decisions: Record<string, DecisionDefinition> = {
       const paid =
         chosen.powerCost === 0 ? state : payPowerFromChanneled(state, d.playerIndex, chosen.powerDomain, chosen.powerCost);
       if (paid === undefined) return state;
+      // **A spell that needs a target gets a SECOND question — added 2026-08-11.**
+      //
+      // Reported from playtesting as "spells played with fizz dont seem to do
+      // anything", and that was exactly right: `playCardIgnoringCost` resolved
+      // the spell with no choices at all, so Hextech Ray left the trash, dealt 3
+      // to nobody, and was recycled. The card did its whole job and the spell did
+      // none of its own.
+      //
+      // Asking is legitimate here in a way it is not for every free play: Fizz
+      // ASKS which spell, so the chooser is already answering questions and a
+      // second one costs them nothing. 355.8 puts a spell's targets at
+      // finalization, and this is as close to that moment as a from-trash play
+      // gets.
+      //
+      // Parked rather than resolved inline so the target is re-derived when it is
+      // ANSWERED — the board can move while the question waits, which is the same
+      // reason the spell choice above is re-derived.
+      if (fizzSpellNeedsTarget(paid, d.playerIndex, chosen)) {
+        return parkDecision(paid, {
+          kind: "SFD-140-target",
+          playerIndex: d.playerIndex,
+          cardInstanceId: chosen.instanceId,
+        });
+      }
       // Out of the trash before it is played, or the card is in two zones at
       // once — the same ordering Glasc Mixologist's decision takes.
       const players = [...paid.players] as [PlayerState, PlayerState];
@@ -2985,6 +3029,65 @@ export const decisions: Record<string, DecisionDefinition> = {
       };
       // Karma - Channeler watches every recycle in this engine, including the
       // ones written inline like this one.
+      return holdCardsRecycled({ ...played, players: after }, d.playerIndex, 1);
+    },
+  },
+  "SFD-140-target": {
+    // **The second half of Fizz - Trickster, added 2026-08-11 from a playtest
+    // report: "spells played with fizz dont seem to do anything".**
+    //
+    // The first question picks the spell; this one points it. Before this
+    // existed, `playCardIgnoringCost` resolved the chosen spell with NO choices,
+    // so every targeted spell Fizz played left the trash, hit nothing, and was
+    // recycled. The card worked perfectly and the spell did nothing, which is
+    // precisely how the report reads.
+    //
+    // **No decline.** The first question already carried one, and 355.8 makes a
+    // target chosen at finalization rather than optional — a spell you have
+    // committed to playing does not get to un-choose. If the board empties while
+    // this waits, `options` returns nothing and the question is moot, which is
+    // the engine's existing answer for a target that vanished (359.3.e.12).
+    prompt: (state, d) => {
+      const card = state.players[d.playerIndex].trash.find((c) => c.instanceId === d.cardInstanceId);
+      return `Fizz - Trickster: choose a target for ${card?.name ?? "the spell"}`;
+    },
+    options: (state, d) => {
+      const card = state.players[d.playerIndex].trash.find((c) => c.instanceId === d.cardInstanceId);
+      if (card === undefined) return [];
+      const targeting = cardModeOf(card, undefined)?.targeting;
+      if (targeting?.kind !== "unit") return [];
+      // Re-derived at ANSWER time, like every other decision in this file: the
+      // board can move while the question waits on the chain.
+      return eligibleTargets(state, d.playerIndex, targeting.owner, targeting.scope).map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      }));
+    },
+    resolve: (state, d, optionId) => {
+      const card = state.players[d.playerIndex].trash.find((c) => c.instanceId === d.cardInstanceId);
+      if (card === undefined) return state;
+      // Out of the trash before it is played, or the card is in two zones at once
+      // — the same ordering the spell-choosing question above takes.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== card.instanceId),
+      };
+      const played = playCardIgnoringCost({ ...state, players }, d.playerIndex, card, undefined, {
+        targetUnitInstanceId: optionId,
+      });
+      // "RECYCLE that spell after you play it" — the same tail the first question
+      // runs, and for the same reason: a resolved Spell has been put back in the
+      // trash by `playSpellImmediately`, so it is taken from there by identity.
+      const after = [...played.players] as [PlayerState, PlayerState];
+      const owner = after[d.playerIndex];
+      if (!owner.trash.some((c) => c.instanceId === card.instanceId)) return played;
+      after[d.playerIndex] = {
+        ...owner,
+        trash: owner.trash.filter((c) => c.instanceId !== card.instanceId),
+        deck: [...owner.deck, card],
+      };
       return holdCardsRecycled({ ...played, players: after }, d.playerIndex, 1);
     },
   },
