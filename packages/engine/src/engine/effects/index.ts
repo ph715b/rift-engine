@@ -10,20 +10,39 @@ import * as chaos from "./chaos.js";
 import * as fury from "./fury.js";
 import * as mind from "./mind.js";
 import * as order from "./order.js";
-import * as signature from "./signature.js";
+import * as signatureFury from "./signature-fury.js";
+import * as signatureCalm from "./signature-calm.js";
+import * as signatureMind from "./signature-mind.js";
+import * as signatureBody from "./signature-body.js";
 
 /** Every per-domain source file, in a stable order. Exported so the ownership
  *  test can walk them without re-listing the set (a new domain file added here
  *  is automatically covered by that test). */
 export const EFFECT_SOURCES = [
-  { domain: "Fury" as const, module: fury },
-  { domain: "Chaos" as const, module: chaos },
-  { domain: "Order" as const, module: order },
-  { domain: "Mind" as const, module: mind },
-  { domain: "Body" as const, module: body },
-  { domain: "Calm" as const, module: calm },
-  // null = "no single owning domain": the dual-domain signature cards.
-  { domain: null, module: signature },
+  { domain: "Fury" as const, name: "effects/fury.ts", module: fury },
+  { domain: "Chaos" as const, name: "effects/chaos.ts", module: chaos },
+  { domain: "Order" as const, name: "effects/order.ts", module: order },
+  { domain: "Mind" as const, name: "effects/mind.ts", module: mind },
+  { domain: "Body" as const, name: "effects/body.ts", module: body },
+  { domain: "Calm" as const, name: "effects/calm.ts", module: calm },
+  // **The dual-domain (champion signature) cards, split four ways on 2026-08-10.**
+  //
+  // `domain: null` means "no single owning domain", which is what makes these
+  // cards signature cards. They shared one `signature.ts` until that file became
+  // the largest remaining block of unwritten work AND the only one an agent
+  // fan-out could not parallelise — six domain files, one signature file.
+  //
+  // A card's home is its FIRST domain in canonical order (Fury, Calm, Mind, Body,
+  // Chaos, Order), so `Body+Fury` is Fury's and `Body+Order` is Body's. Nothing
+  // lands in Chaos or Order today because every such card carries an earlier
+  // domain; those files are not created until a card needs them.
+  //
+  // `name` is explicit now rather than derived from `domain`, which was null for
+  // all of them and would have labelled four files "signature.ts".
+  { domain: null, name: "effects/signature-fury.ts", module: signatureFury },
+  { domain: null, name: "effects/signature-calm.ts", module: signatureCalm },
+  { domain: null, name: "effects/signature-mind.ts", module: signatureMind },
+  { domain: null, name: "effects/signature-body.ts", module: signatureBody },
 ];
 
 /**
@@ -58,13 +77,13 @@ export function mergeRegistries<T>(label: string, sources: { name: string; entri
 /** Spell/Gear effects contributed by the per-domain files. */
 export const domainCardEffects: Record<string, EffectDefinition> = mergeRegistries(
   "card effect",
-  EFFECT_SOURCES.map((s) => ({ name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`, entries: s.module.cardEffects })),
+  EFFECT_SOURCES.map((s) => ({ name: s.name, entries: s.module.cardEffects })),
 );
 
 /** Unit on-play triggers contributed by the per-domain files. */
 export const domainUnitTriggers: Record<string, UnitTriggerDefinition> = mergeRegistries(
   "unit trigger",
-  EFFECT_SOURCES.map((s) => ({ name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`, entries: s.module.unitTriggers })),
+  EFFECT_SOURCES.map((s) => ({ name: s.name, entries: s.module.unitTriggers })),
 );
 
 /** [Deathknell] effects contributed by the per-domain files, as mergeRegistries
@@ -73,7 +92,7 @@ export const domainUnitTriggers: Record<string, UnitTriggerDefinition> = mergeRe
  *  un-merged list. */
 export function domainDeathTriggers(): { name: string; entries: Record<string, DeathknellDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.deathTriggers,
   }));
 }
@@ -88,7 +107,7 @@ export function domainDeathTriggers(): { name: string; entries: Record<string, D
  */
 export function domainDeathWatch(): { name: string; entries: Record<string, DeathWatchDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.deathWatchTriggers,
   }));
 }
@@ -97,7 +116,7 @@ export function domainDeathWatch(): { name: string; entries: Record<string, Deat
  *  SOURCES — triggers.ts composes them lazily, same as domainDeathTriggers. */
 export function domainEventTriggers(): { name: string; entries: Record<string, EventTriggerDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.eventTriggers,
   }));
 }
@@ -105,7 +124,7 @@ export function domainEventTriggers(): { name: string; entries: Record<string, E
 /** Self-triggers contributed by the per-domain files. */
 export function domainSelfTriggers(): { name: string; entries: Record<string, SelfTriggerDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.selfTriggers,
   }));
 }
@@ -120,7 +139,7 @@ export function domainSelfTriggers(): { name: string; entries: Record<string, Se
  */
 export function domainActivatedAbilities(): { name: string; entries: Record<string, ActivatedAbilityDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.activatedAbilities,
   }));
 }
@@ -134,7 +153,7 @@ export function domainActivatedAbilities(): { name: string; entries: Record<stri
  */
 export function domainMightModifierSources(): { name: string; entries: Record<string, MightModifier> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.mightModifiers,
   }));
 }
@@ -143,7 +162,7 @@ export function domainMightModifierSources(): { name: string; entries: Record<st
  *  trigger sources — decisions.ts and the effect files import each other. */
 export function domainDecisions(): { name: string; entries: Record<string, DecisionDefinition> }[] {
   return EFFECT_SOURCES.map((s) => ({
-    name: `effects/${s.domain?.toLowerCase() ?? "signature"}.ts`,
+    name: s.name,
     entries: s.module.decisions,
   }));
 }

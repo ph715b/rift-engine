@@ -1,0 +1,524 @@
+import type { DecisionDefinition } from "../decisions.js";
+import type { UnitTriggerDefinition } from "../unit-triggers.js";
+import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
+import type { EffectDefinition } from "../card-effects.js";
+import type { MightModifier } from "../effective-might.js";
+import type { DeathWatchDefinition, DeathknellDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
+import type { PlayerState } from "../../model/game-state.js";
+import type { TokenDestination } from "../token.js";
+import { counterSpell } from "../counter-spell.js";
+import {
+  dealDamage,
+  destroyUnit,
+  drawCards,
+  forceMoveToBattlefield,
+  forceMoveToDestination,
+  giveMightThisTurn,
+  ownUnitsEverywhere,
+  readyUnit,
+  stunUnits,
+} from "../effect-helpers.js";
+import { effectiveMight } from "../effective-might.js";
+import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
+import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
+import {
+  ARISE_READY_COUNT,
+  LILLIA_ENERGY_COST,
+  MASTER_YI_LEVEL,
+  MASTER_YI_MIGHT,
+  MASTER_YI_WUJU_MASTER,
+  SPRITE_TOKEN,
+  equipmentControlledBy,
+} from "./signature-shared.js";
+
+/**
+ * Dual-domain (champion signature) cards whose FIRST domain in canonical order —
+ * Fury, Calm, Mind, Body, Chaos, Order — is **Calm**.
+ *
+ * So a `Calm+X` card lives here whatever X is, and a card pairing an EARLIER
+ * domain with Calm lives in that domain's file instead. The rule is mechanical on
+ * purpose: `mergeRegistries` throws when two files claim one defId, and avoiding
+ * that needs every card to have exactly one derivable home rather than a judgment
+ * call. Shared helpers are in `signature-shared.ts`.
+ */
+
+export const cardEffects: Record<string, EffectDefinition> = {
+  "OGN-258": {
+    // Dragon's Rage (Calm + Body) — "Move an enemy unit. Then do this: Choose
+    // another enemy unit at its destination. They deal damage equal to their
+    // Mights to each other."
+    //
+    // Two enemy targets and a destination, and the relationship between them is
+    // what makes the card: the second is chosen at the FIRST one's destination,
+    // not where either currently stands. `secondAtDestination` is that — distinct
+    // from `sameBattlefield`, which compares present locations, because here the
+    // first unit is about to move somewhere the board does not yet reflect.
+    //
+    // `min: 2`: both choices are mandatory (355), so the card is uncastable
+    // without a second enemy somewhere to send the first into. That is the card
+    // rather than a limitation — it is a way to make an opponent's own units
+    // fight, and one unit cannot.
+    //
+    // BOTH Mights are read before EITHER damage is dealt, the same ordering
+    // Gentlemen's Duel and Challenge record: the first to die still deals its
+    // full Might on the way out, where deal-then-read would silently reduce the
+    // damage coming back.
+    //
+    // The move happens FIRST, printed order, so the duel is fought at the
+    // destination — and `forceMoveToBattlefield` applies Contested for the MOVED
+    // unit's controller, which can open a Showdown the caster never joined.
+    targeting: { kind: "unitSlots", slots: ["enemy", "enemy"], min: 2, asymmetricSlots: true, secondAtDestination: true },
+    resolve: (state, ctx, event) => {
+      const { targetUnitInstanceId: movedId, secondTargetUnitInstanceId: otherId } = event;
+      if (!movedId || !otherId) return state;
+      // The destination may be a BASE, and then "another enemy unit at its
+      // destination" is another unit standing in that same base — which
+      // `secondTargetIsAtDestination` has already enforced at announce.
+      const moved = forceMoveToDestination(state, movedId, event, ctx.casterIndex);
+
+      const first = findUnitAnywhere(moved, movedId);
+      const second = findUnitAnywhere(moved, otherId);
+      if (!first || !second) return moved;
+      const ctxFor = (loc: typeof first) =>
+        loc.zone === "base" ? { isCombat: false as const } : { isCombat: false as const, battlefieldId: moved.battlefields[loc.zone.battlefieldIndex]!.id };
+      const firstMight = effectiveMight(moved, first.unit, first.ownerIndex, ctxFor(first));
+      const secondMight = effectiveMight(moved, second.unit, second.ownerIndex, ctxFor(second));
+
+      const hurt = dealDamage(moved, ctx.casterIndex, otherId, firstMight);
+      return dealDamage(hurt, ctx.casterIndex, movedId, secondMight);
+    },
+  },
+  "OGN-256": {
+    // Fox-Fire (Calm + Mind) — "Kill any number of units at a battlefield with
+    // total Might 4 or less."
+    //
+    // **The PDF works this exact card**, and three things fall out of its example,
+    // all load-bearing and none guessed:
+    //  - **ONE battlefield.** "at a single battlefield", "units at the same
+    //    battlefield" — hence `sameBattlefield`.
+    //  - **EFFECTIVE Might**, so a this-turn pump or an aura changes the answer.
+    //    That is the whole point of the example, in which a Reaction gives two of
+    //    four chosen Recruits +1 [M] after they were chosen.
+    //  - **A GROUP requirement**: the set must collectively satisfy the
+    //    restriction when the card is FINALIZED, which is what `maxTotalMight`
+    //    checks at announce time.
+    //
+    // "Any number" is genuinely `min: 0` — the rules say so outright ("If they
+    // choose zero, the spell or ability can be played without any targets"), so
+    // this is castable on an empty board and kills nothing.
+    //
+    // **The resolution-time re-choice is NOT implemented**, and it is the half the
+    // PDF's example is really about: if the group stops qualifying before the
+    // spell resolves, its controller "can choose a subset of the original targets
+    // that fulfills the targeting requirement". Here the kill simply proceeds on
+    // the units still present. Recorded in docs/rules-conformance.md — it needs a
+    // mid-resolution question, which is a decision-queue shape rather than a
+    // targeting one.
+    //
+    // Either player's units: the card names no owner, and killing your own is a
+    // real (if rare) play — clearing a battlefield you are about to lose.
+    targeting: { kind: "unitList", min: 0, sameBattlefield: true, maxTotalMight: 4 },
+    resolve: (state, _ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => destroyUnit(next, id), state),
+  },
+  "OGN-262": {
+    // Zenith Blade (Calm + Order) — "[Action] Stun an enemy unit at a
+    // battlefield. You may move a friendly unit to that enemy unit's
+    // battlefield."
+    //
+    // `min: 1`: the stun is mandatory, the move is "you may". That is exactly
+    // what a two-slot spec with a minimum of one expresses — enumeration offers
+    // both the stun-only variant and every stun+move pair, so declining is a
+    // real choice rather than a target the player leaves blank.
+    //
+    // `slotScopes` because the two halves are scoped differently in print: the
+    // enemy is "at a battlefield", the friendly is not, and the friendly you
+    // most want to send is the one standing in base. Reading one scope for both
+    // would either forbid that or make the enemy targetable in their own base.
+    //
+    // The destination is NOT chosen — it is "that enemy unit's battlefield",
+    // read off the board at resolution. A unit that has left the battlefield in
+    // between (killed on the chain, moved) leaves nothing to move to, and the
+    // stun still happens: the move is the optional half.
+    //
+    // forceMoveToBattlefield, not the MoveUnit executor: 414.3.a puts the
+    // exhaust on the Standard Move ACTION, so a unit sent by a spell arrives
+    // ready, and 450 contests the destination for the MOVED unit's controller.
+    // Here that is the caster's own unit walking into the enemy's battlefield,
+    // which is the whole point of the card.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["enemy", "friendly"],
+      min: 1,
+      slotScopes: ["battlefield", "anywhere"],
+    },
+    resolve: (state, ctx, event) => {
+      const enemyId = event.targetUnitInstanceId;
+      if (!enemyId) return state;
+      // Where the enemy is must be read BEFORE the stun, not because stunning
+      // moves anything (it does not) but because Eclipse Herald and Leona fire
+      // inside stunUnits and either could kill or relocate it.
+      const enemyBattlefield = findUnitOnBattlefield(state, enemyId);
+      const stunned = stunUnits(state, ctx.casterIndex, [enemyId]);
+
+      const friendlyId = event.secondTargetUnitInstanceId;
+      if (!friendlyId || !enemyBattlefield) return stunned;
+      return forceMoveToBattlefield(stunned, friendlyId, state.battlefields[enemyBattlefield.battlefieldIndex]!.id);
+    },
+  },
+  "OGN-260": {
+    // Last Breath (Calm + Chaos) — "[Action] Ready a friendly unit. It deals
+    // damage equal to its Might to an enemy unit at a battlefield."
+    //
+    // `slotScopes`, the second card in the pool to need them (Zenith Blade above
+    // is the first) and for the same printed reason: the enemy is "at a
+    // battlefield" and the friendly is not. The unit you most want to ready is
+    // usually the exhausted one sitting at home, and a single scope would either
+    // forbid that or make the enemy reachable in their own base.
+    //
+    // `min: 2` — BOTH halves are mandatory and both are targets, so 355.8 settles
+    // castability outright: "in order to put a spell or ability on the chain,
+    // valid choices must be made for all targets." This is not a "do as much as
+    // you can" card the way Back to Back's "two friendly units" is; there is no
+    // "up to" anywhere in the text, so with no enemy at a battlefield the spell
+    // simply cannot be played, ready or no ready.
+    //
+    // Ready FIRST, then damage — printed order. Nothing in this pool makes
+    // readying change a Might, so the two orders agree today; doing it in the
+    // card's order is what keeps that true when something does (and it is the
+    // order a player watching the board expects).
+    //
+    // Might is read through effectiveMight at resolution, like Gentlemen's Duel's
+    // exchange: buffs, this-turn modifiers and continuous auras all count, and
+    // the damage lands from the CASTER (`ctx.casterIndex`) because the unit
+    // dealing it is theirs — which is what feeds Annie - Fiery's damage bonus.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 2,
+      slotScopes: ["anywhere", "battlefield"],
+    },
+    resolve: (state, ctx, event) => {
+      const friendlyId = event.targetUnitInstanceId;
+      if (!friendlyId) return state;
+      const readied = readyUnit(state, friendlyId);
+
+      const enemyId = event.secondTargetUnitInstanceId;
+      if (!enemyId) return readied;
+      // Located AFTER the ready rather than before, so the Might read is the one
+      // the board holds at the moment the damage is dealt.
+      const location = findUnitAnywhere(readied, friendlyId);
+      if (!location) return readied; // it left play while this sat on the chain
+      const might = effectiveMight(
+        readied,
+        location.unit,
+        location.ownerIndex,
+        location.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: readied.battlefields[location.zone.battlefieldIndex]!.id },
+      );
+      return dealDamage(readied, ctx.casterIndex, enemyId, might);
+    },
+  },
+  "SFD-196": {
+    // Defiant Dance (Calm + Chaos) — "[Reaction] Give a unit +2 [M] this turn and
+    // another unit -2 [M] this turn."
+    //
+    // `asymmetricSlots` is the whole correctness of this card and it is easy to
+    // miss: both slots take the role "any", so without the flag `legal-actions`
+    // prunes (B,A) once it has offered (A,B) — and here the two slots do OPPOSITE
+    // things, so half the card would be unreachable. Exactly Convergent Mutation's
+    // reasoning, and the second card in the pool to need it.
+    //
+    // `min: 2` — nothing says "up to", so 355.8 settles castability: valid choices
+    // must be made for all targets before the spell goes on the chain, which makes
+    // this uncastable with fewer than two units in play. The two chosen units are
+    // always DISTINCT under `unitSlots`, which is what "ANOTHER unit" wants.
+    //
+    // `scope: "anywhere"`: "a unit" is 355.9.a.1's bare noun, so either player's base
+    // is in reach — and either player's unit, since the card names no owner. Buffing
+    // an enemy is legal and occasionally right (feeding a -2 to something that
+    // matters more), so nothing narrows it here.
+    //
+    // NO floor on the debuff. Smoke Screen and Siphon Power print "to a minimum of
+    // 1 [M]" and this does not, so `giveMightThisTurn` is called without one — a
+    // 2-Might unit taken to 0 dies to the next point of damage, which is the card.
+    targeting: { kind: "unitSlots", slots: ["any", "any"], min: 2, scope: "anywhere", asymmetricSlots: true },
+    resolve: (state, _ctx, event) => {
+      const pumped = event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, 2) : state;
+      return event.secondTargetUnitInstanceId ? giveMightThisTurn(pumped, event.secondTargetUnitInstanceId, -2) : pumped;
+    },
+  },
+  "SFD-194": {
+    // Counter Strike — "[Reaction] Choose a unit. The NEXT time that unit would
+    // be dealt damage this turn, prevent it. Draw 1."
+    //
+    // The pool's first PER-UNIT, single-use prevention.
+    // `preventsSpellDamageThisTurn` is the neighbouring shape and is a different
+    // card: it is per-PLAYER and unlimited for the turn. This is one instance on
+    // one unit and is then spent, which is what "the next time" means — so the
+    // id is REMOVED by `dealDamage` when it fires rather than filtered at end of
+    // turn.
+    //
+    // "Choose A UNIT", unqualified — either side's. Shielding your own attacker
+    // and blanking an enemy's removal are both real plays, and `[Reaction]`
+    // timing is what makes the second one possible.
+    //
+    // The id is PUSHED rather than set: two Counter Strikes on one unit prevent
+    // two instances, because each is its own "next time".
+    //
+    // The draw is unconditional and on its own line (135.2.b), so it happens
+    // even if the chosen unit is never damaged.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const shielded =
+        event.targetUnitInstanceId === undefined
+          ? state
+          : {
+              ...state,
+              damagePreventedOnceInstanceIds: [
+                ...state.damagePreventedOnceInstanceIds,
+                event.targetUnitInstanceId,
+              ],
+            };
+      return drawCards(shielded, ctx.casterIndex, 1);
+    },
+  },
+  "SFD-198": {
+    // Arise! (Calm + Order) — "Play a 2 [Might] Sand Soldier unit token for each
+    // Equipment you control. Then do this: Ready up to two of them."
+    //
+    // # The count is the board's, read at resolution
+    //
+    // "For each Equipment you control" is `equipmentControlledBy` — the caster's
+    // `activeGear` filtered to Equipment. It counts DETACHED Equipment too: the
+    // card says control, not "attached", and a piece of gear sitting unworn in
+    // `activeGear` is controlled just as much as one on a unit. It also counts an
+    // Equipment taken from an opponent, because control is what `activeGear`
+    // membership means here — the row rules-conformance.md carries about control
+    // being which list a permanent sits in.
+    //
+    // Read at RESOLUTION rather than when the spell is announced, which is the
+    // default for everything a resolver reads and matters here because a spell in
+    // response can kill the gear.
+    //
+    // # The destination
+    //
+    // **Not a per-token choice.** The handoff that scoped this card said Arise!
+    // shared Vanguard Armory's per-token destination axis; the printed text does
+    // not — Vanguard Armory prints "(You may play them to different locations.)"
+    // and this card prints no parenthetical at all. So it takes Recruit the
+    // Vanguard's shape instead: one chosen destination for all of them, riding
+    // `destinationBattlefieldId`, with SFD-198 added to
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS` so the enumerator and the validator agree
+    // about which battlefields are legal ("ones you CONTROL", which is stricter
+    // than the Unit deploy rule).
+    //
+    // # "Ready up to two of them"
+    //
+    // Maxed out rather than asked, and `readyRunes` is the precedent that settles
+    // it: readying is strictly beneficial and never wrong, so taking all of it IS
+    // the faithful implementation of "up to N". Here the tokens are also
+    // INDISTINGUISHABLE — same 2 Might, same tag, minted in the same instant — so
+    // "which two" is not a choice a player could answer differently to any effect.
+    //
+    // "Of THEM" is the tokens this spell just made, so the ids are captured from
+    // the placement rather than re-derived from the board afterwards: a Sand
+    // Soldier already standing there from Desert's Call is not one of them.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      const count = equipmentControlledBy(state, ctx.casterIndex).length;
+      let next = state;
+      const placed: string[] = [];
+      for (let i = 0; i < count; i += 1) {
+        const before = new Set(ownUnitsEverywhere(next, ctx.casterIndex).map((u) => u.instanceId));
+        next = placeToken(next, ctx.casterIndex, destination, SAND_SOLDIER_TOKEN);
+        // One at a time and diffed each time, the same recovery `placeSandSoldier`
+        // in effects/order.ts uses and for the same reason: `placeToken` returns
+        // only the state, and a token minted with a fresh instanceId is the only
+        // new id in the caster's units. Undefined when nothing landed —
+        // `placeToken` no-ops on a battlefield id that names nothing.
+        const token = ownUnitsEverywhere(next, ctx.casterIndex).find((u) => !before.has(u.instanceId));
+        if (token) placed.push(token.instanceId);
+      }
+      return placed.slice(0, ARISE_READY_COUNT).reduce((s, id) => readyUnit(s, id), next);
+    },
+  },
+  "UNL-190": {
+    // Lilting Lullaby (Calm + Mind) — "[Reaction] Counter a spell. Its controller
+    // can't play spells this turn."
+    //
+    // **HALF a card.** The counter is written; the lockout is not, and the reason
+    // is worth stating because a field that looks like it would do the job exists:
+    // `PlayerState.cannotPlayCardsThisTurn` is Brynhir Thundersong's "opponents
+    // can't play CARDS this turn", and reusing it here would also stop the victim
+    // playing units and gear — WIDER than printed, which is the direction this
+    // codebase does not ship. A spells-only twin needs game-state.ts,
+    // board-restrictions.ts, player-setup.ts and turn-manager.ts, none of which
+    // this file owns.
+    //
+    // 425.1.a is what the first sentence does — "a card or ability that is
+    // Countered does nothing and is cleared from the chain" — and `counterSpell`
+    // is the single writer of it.
+    //
+    // No cost filter: the card names none, so any spell on the chain is a legal
+    // choice. 355.9.a.2 is why the target is a chain object rather than anything
+    // on the board, and the PDF's own example under it ("a spell that says
+    // 'Counter a spell' cannot target itself") is already enforced by
+    // `counterableSpells` — this spell is not on the chain when its own targets
+    // are chosen.
+    //
+    // A vanished target is a no-op: two counters can name the same spell and the
+    // second finds nothing, which is a real case rather than defensive padding
+    // (see `counterSpell`'s own note).
+    targeting: { kind: "chainSpell" },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+  },
+};
+
+export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "SFD-192": {
+    // Shurelya's Requiem (Calm + Mind) — "[Unique] [Equip] :rainbow:. When you
+    // play this, ready your units."
+    //
+    // **HALF a card, deliberately, and the other half is not writable here.** Its
+    // `[Equip]` cost is a RAINBOW rune, and `ActivationCost.power` names one
+    // `Domain` — rainbow is not one. So `equipAbilities()` skips it by name along
+    // with the other three rainbow-cost Equipment, and this Gear can be played and
+    // will fire the clause below, but can never attach by its own ability.
+    // `coverage.PARTIALLY_IMPLEMENTED` already carries exactly that note for this
+    // defId, so the card keeps reporting as partial rather than flipping to done
+    // the moment something was registered for it — which is the failure this
+    // repo's registration-is-per-defId rule exists to catch.
+    //
+    // A SELF-trigger rather than an event listener, the same shape Forge of the
+    // Future needs and for the same reason: a Gear's OWN arrival is not a moment
+    // `allListeningPermanents` reaches for that Gear, so keying it by the played
+    // card's defId is what makes it fire at all.
+    //
+    // The body is On the Hunt's (SFD-204 above) word for word, because the printed
+    // clause is: "ready your units" — no location, so base and every battlefield,
+    // and no type widening, so the Gear and the Legend stay exhausted
+    // (`readyPermanent` exists for Miss Fortune - Captain, who names no type).
+    // The id list is snapshotted before the first ready for the reason recorded
+    // there: `readyUnit` holds a `unitReadied` event and Pirate's Haven answers
+    // it, so the instruction applies to the units that existed when it began.
+    //
+    // `event.ownerIndex` is who PLAYED it — "your units" is the caster's board.
+    // A self-trigger's owner is `action.playerIndex` at every hold site, so this
+    // stays right for a free play (play-free.ts) as well as a paid one.
+    on: ["played"],
+    resolve: (state, event) =>
+      ownUnitsEverywhere(state, event.ownerIndex)
+        .map((u) => u.instanceId)
+        .reduce((next, id) => readyUnit(next, id), state),
+  },
+};
+
+export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "UNL-189": {
+    // Lillia - Bashful Bloom (Calm + Mind) — "[4], [Exhaust]: Play a ready
+    // 3 [Might] Sprite unit token with [Temporary]. This ability costs [1] less
+    // for each friendly unit with [Temporary]."
+    //
+    // # DIVERGENCE: the discount is not applied, so this always costs [4]
+    //
+    // `ActivationCost.energy` is a NUMBER and `activationCostOf(defId, modeId)` is
+    // handed no state, so an activation cost cannot depend on the board. Four
+    // pricing sites go through that function — `canPayActivationCost`,
+    // `payActivationCost`, the enumerator's payment and the validator's
+    // re-derivation — and a discount that reached only some of them is exactly the
+    // offered-then-refused split this codebase keeps paying for. Widening it is a
+    // change to activated-abilities.ts and validate-activate-ability.ts, neither of
+    // which this file owns.
+    //
+    // So the divergence is in the UNDER-offering direction: the ability is always
+    // available at its printed base price and never cheaper. A Lillia standing
+    // beside three Sprites pays 4 where she should pay 1. Reported rather than
+    // approximated — the alternative (a discount applied in the resolver) would
+    // hand the player a Sprite they had not paid for.
+    //
+    // # The token
+    //
+    // `SPRITE_TOKEN` is a fourth local copy of a spec that already exists in
+    // effects/calm.ts and effects/mind.ts (twice). Not shared from token.ts,
+    // because that file is not this one's to edit — the same position the wave-2
+    // agents were in when three of them wrote byte-identical `BIRD_TOKEN`s. The
+    // stat line is quoted from the printed text here so a future consolidation has
+    // a source rather than three siblings.
+    //
+    // "A READY ... token" overrides 143.4.a's enters-exhausted default, which is
+    // what `entersReady` is for; `[Temporary]` is the keyword that kills it at the
+    // start of its controller's Beginning Phase, and it is conferred on the TOKEN
+    // rather than on Lillia (card-loader's own note about OGN-106 Sprite Mother
+    // makes the same distinction).
+    //
+    // BASE, because the card names no location and every other Sprite-maker in
+    // this pool that names none places at base. An ability has no
+    // `destinationBattlefieldId` axis to fan out over the way a spell in
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS` does, so this is the convention rather than
+    // a choice made against an alternative that exists.
+    kind: "Legend",
+    cost: { energy: LILLIA_ENERGY_COST, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", SPRITE_TOKEN),
+  },
+};
+
+export const mightModifiers: Record<string, MightModifier> = {
+  "UNL-191": {
+    // Master Yi - Wuju Master (Calm + Body) — "[Level 6][>] Your units have
+    // +1 [Might]. [Level 11][>] Your units enter ready."
+    //
+    // # HALF a card: the [Level 6] aura is here, the [Level 11] clause is not
+    //
+    // "Your units enter READY" is a replacement effect at deploy time, and the one
+    // predicate that answers it — `deploy.unitEntersReady` — is a shared file this
+    // one does not own. It cannot be faked as an on-play `readyUnit` either, and
+    // deploy.ts's own comment says why in three measured ways: the trigger is a
+    // held Chain Pending Item so the unit sits EXHAUSTED through the whole response
+    // window, it fires `unitReadied` and pays out Pirate's Haven for a readying
+    // that never happened, and it is blockable by Mageseeker Warden. Three agents
+    // reached that conclusion independently. So the clause is REFUSED rather than
+    // approximated — see the report.
+    //
+    // # Why the [Level 6] half is a continuous modifier and not a trigger
+    //
+    // 824.1.b.1 makes `[Level N]` "functionally short for 'While you have [N] or
+    // more XP, this card gains [Text]'", and 824.1.d turns the Dependent Ability
+    // Inactive "as soon as the controlling player has less than [N] XP". A one-shot
+    // pump would be wrong in BOTH directions — applied below the threshold and
+    // still applied after XP is spent — which is precisely the reasoning
+    // `MightModifier` was added for.
+    //
+    // # The source is a LEGEND, which is what makes this entry unusual
+    //
+    // Every other aura in this table finds its source by walking the board for a
+    // unit with the right defId. A Legend is in no location at all, so the test is
+    // `players[ownerIndex].legend.defId` — asked of the UNIT's owner, since "YOUR
+    // units" is measured against Master Yi's controller and this bonus is
+    // evaluated for every unit on the board, both sides included.
+    //
+    // Unconditional otherwise: no "here", no combat clause, so it applies in base
+    // as readily as at a battlefield and `ctx` is not read at all.
+    defId: MASTER_YI_WUJU_MASTER,
+    bonus: (state, _unit, ownerIndex) =>
+      state.players[ownerIndex].legend.defId === MASTER_YI_WUJU_MASTER &&
+      state.players[ownerIndex].xp >= MASTER_YI_LEVEL
+        ? MASTER_YI_MIGHT
+        : 0,
+  },
+};
+
+/** Empty, and deliberately declared: `effects/index.ts` reads every registry
+ *  off every module, so a missing export is `undefined` at merge time rather
+ *  than an empty table. Declaring them keeps adding a card here to one line.
+ */
+export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
+export const deathTriggers: Record<string, DeathknellDefinition> = {};
+export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {};
+export const decisions: Record<string, DecisionDefinition> = {};
