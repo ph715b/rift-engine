@@ -454,10 +454,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Each was named by the agent that wrote it and each is pinned by a test in that
   // agent's file asserting the wrong answer, so closing the gap fails loudly.
   [
-    "UNL-016",
-    "half written: the [Level 3] +1 Might works; 'and enter ready' is unwritten — needs a case in deploy.conditionalEntersReady",
-  ],
-  [
     "UNL-017",
     "half written: the [Assault 4] works; its [Repeat] — Discard 1 is inert — RepeatCostSpec carries energy/power/rainbow only, so this is the pool's first NON-RESOURCE repeat cost and no table row can fix it",
   ],
@@ -502,6 +498,14 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // wrote the cards simply could not edit a shared file. **Two of the three
   // were STRONGER than printed** while they sat here, which is the direction
   // this map's own comment calls the worse one.
+  // **UNL-016 Scorchclaw and UNL-191 Master Yi - Wuju Master LEFT this map on
+  // 2026-08-10.** Both were half-written in the same shape — a `[Level N]`
+  // Might aura in a domain file, and an 'enter ready' clause that only
+  // `deploy.ts` can answer — and both agents refused that half by name rather
+  // than fake it as an on-play `readyUnit`. Those refusals were RIGHT, and
+  // deploy.ts's own header gives the three measured reasons the workaround is
+  // wrong. The fix was one `case` and one board query, beside the ones already
+  // there for Leona, Vayne and Magma Wurm.
   // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
   // which reported DONE on its first clause before these rows landed. Each was
   // named by the agent that wrote it and pinned by a test in that agent's file.
@@ -609,10 +613,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   [
     "UNL-190",
     "half written: the counter works; 'its controller can't play spells this turn' is unwritten — PlayerState.cannotPlayCardsThisTurn stops CARDS, which is wider than printed, and a spells-only twin needs game-state.ts, board-restrictions.ts, player-setup.ts and turn-manager.ts",
-  ],
-  [
-    "UNL-191",
-    "half written: the [Level 6] +1 Might aura works; [Level 11] 'your units enter ready' is unwritten — only deploy.unitEntersReady answers it, and deploy.ts's own comment rules out faking it as an on-play readyUnit (a held trigger leaves the unit exhausted through the response window, fires unitReadied, and is blockable by Mageseeker Warden)",
   ],
   // Vex's missing clause is NARROWER than it reads, and the narrowing is the
   // reason this note says "rarely" rather than "never": a played unit arrives

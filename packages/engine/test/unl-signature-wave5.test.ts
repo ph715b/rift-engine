@@ -316,9 +316,18 @@ describe("Master Yi - Wuju Master (UNL-191): [Level 6] your units have +1 Might"
     expect(mightOf(state, "mine", 0), "the 3 above proves nothing — neither aura applied").toBe(4);
   });
 
-  it("PINNED: his [Level 11] 'your units enter ready' is UNWRITTEN", () => {
-    // Half a card. `deploy.unitEntersReady` is the only predicate that answers
-    // this and it is not this file's to edit; delete this test when it is.
+  it("his [Level 11] 'your units enter ready' WORKS — was a pin, flipped 2026-08-10", () => {
+    // Was half a card, pinned by asserting the wrong answer. `deploy.unitEntersReady`
+    // is the only predicate that answers this and was not this file's to edit; the
+    // agent refused the clause rather than fake it, which deploy.ts's own header
+    // gives three measured reasons for. The fix was one board query beside Magma
+    // Wurm's — an aura keyed on the CONTROLLER, not a case keyed on the arriving
+    // card, since "your units" is every unit the player plays.
+    //
+    // Flipped rather than deleted, and driven end-to-end through a real play so it
+    // asserts the deploy path rather than the predicate. The boundary (10 vs 11),
+    // the wrong-Legend case and the opponent's-units case are in
+    // test/level-enters-ready.test.ts.
     const poro = realUnitInstance(STALWART_PORO);
     const state = withLegend(makeState({ phase: "Action" }), 0, MASTER_YI_WUJU);
     state.players[0]!.xp = 20;
@@ -326,7 +335,7 @@ describe("Master Yi - Wuju Master (UNL-191): [Level 6] your units have +1 Might"
     state.players[0]!.floatingEnergy = 6;
 
     const after = playAndSettle(state, playsOf(state, poro.instanceId)[0]!);
-    expect(unitAnywhere(after, poro.instanceId)!.exhausted, "[Level 11] now works — retire this pin").toBe(true);
+    expect(unitAnywhere(after, poro.instanceId)!.exhausted, "[Level 11] regressed — the Poro arrived exhausted").toBe(false);
   });
 
   it("is reported as implemented by coverage", () => {
@@ -336,7 +345,10 @@ describe("Master Yi - Wuju Master (UNL-191): [Level 6] your units have +1 Might"
     // carries a PARTIALLY_IMPLEMENTED row saying so. Asserting the note exists
     // makes closing that gap fail LOUDLY rather than silently.
     expect(implementingModules(MASTER_YI_WUJU), "the aura is not registered at all").not.toEqual([]);
-    expect(partialImplementationNote(registry.get(MASTER_YI_WUJU)), "the [Level 11] gap closed — retire this and the coverage row").toContain("Level 11");
+    // **Was `.toContain("Level 11")`.** That gap is closed, the coverage row is
+    // retired, and the honest answer is no note at all — asserted rather than
+    // deleted so a note reappearing sends a reader to look for the new gap.
+    expect(partialImplementationNote(registry.get(MASTER_YI_WUJU)), "a partial note came back — Yi has a gap again").toBeUndefined();
   });
 });
 

@@ -267,7 +267,22 @@ const GAMES = Number(process.env.GAMES ?? 250);
  * all three measurements — and accept the 120s, rather than keep explaining a
  * figure whose noise floor is now the same size as the signal.
  */
-const PINNED_UNION = 549;
+/**
+ * **549 -> 551 on 2026-08-10.** Two cards finished — UNL-016 Scorchclaw and
+ * UNL-191 Master Yi - Wuju Master, whose "enter ready" halves were one `case`
+ * and one board query in `deploy.ts` — and one CRASH fixed.
+ *
+ * The crash is the part worth reading, because it is the reason a rise here can
+ * come from a bug fix rather than from new code. `hunt-xp` threw on Pyke -
+ * Dockside Butcher: the enumerator priced an optional Power cost by ADDING it to
+ * an already-float-reduced figure, which the validator then priced a pip lower.
+ * A card that throws mid-game stops being observed for the rest of that game, so
+ * fixing it hands back everything downstream of it — the same route this file
+ * already records for SFD's `[Deflect]`-surcharge fix.
+ *
+ * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/224.
+ */
+const PINNED_UNION = 551;
 const PINNED_AT_GAMES = 250;
 
 const registry = defaultCardRegistry();

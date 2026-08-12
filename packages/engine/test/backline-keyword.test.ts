@@ -7,7 +7,11 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { grantKeywordThisTurn } from "../src/engine/effect-helpers.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
-import { makeState, makeUnit } from "./fixtures.js";
+import { makeState, makeUnit, spellInstance } from "./fixtures.js";
+import { legalActions } from "../src/engine/legal-actions.js";
+import { validatePlayCard } from "../src/actions/validate-play-card.js";
+import type { PlayCardAction } from "../src/actions/player-action.js";
+import type { RuneCard } from "../src/model/rune.js";
 
 /**
  * `[Backline]` — **465.2.c**: "I must be assigned combat damage last", the mirror
@@ -212,5 +216,79 @@ describe("two more tables that already existed, and the cards that were not in t
     expect(optionalPowerCostOf("UNL-052"), "Nami's [Stun] can still never fire").toEqual({ domain: "Calm", count: 1 });
     expect(optionalPowerCostOf("UNL-028"), "Pyke's row regressed").toEqual({ domain: "Fury", count: 1 });
     expect(optionalPowerCostOf("UNL-043"), "an unrelated card gained an optional cost").toBeUndefined();
+  });
+});
+
+describe("a 0-Power card with an optional Power cost, played on floating Power", () => {
+  // **The FIFTH offered-then-refused crash in this engine, found by `hunt-xp` on
+  // 2026-08-10 — and caused by the two table rows above.**
+  //
+  // `legal-actions` priced an optional Power cost by ADDING it to `effectiveCost`,
+  // which has already had floating Power taken off. Its comment argued that was
+  // safe because "float is already spent... the two differ only when float remains
+  // unspent, which by construction it does not". That construction fails for a
+  // card printing NO Power: there is nothing for the float to be spent on, so it
+  // survives, and `validate-play-card` — which folds the additional cost in BEFORE
+  // applying float — priced the play a pip lower. `executePlayCard` threw.
+  //
+  // Both cards this reaches were added the day before: Pyke (UNL-028) and Nami
+  // (UNL-052) are the pool's only 0-Power cards with an optional Power cost. The
+  // suite could not see it because it needs floating Power OF THE RIGHT DOMAIN
+  // banked at the moment such a card is played.
+  const PYKE = "UNL-028"; // 3 Energy, 0 Power, "you may pay [Fury]"
+  const NAMI = "UNL-052"; // 3 Energy, 0 Power, "you may pay [Calm]"
+
+  /** `defId` in hand, plenty of runes, and ONE floating Power of `domain` banked
+   *  — the state that makes the enumerator and the validator disagree. */
+  function withFloatingPower(defId: string, domain: "Fury" | "Calm"): GameState {
+    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
+    state.players[0]!.hand = [spellInstance(defId)];
+    state.players[0]!.channeled = Array.from(
+      { length: 9 },
+      (_, i) => ({ id: `r${i}`, domain, state: "Ready" }) as RuneCard,
+    );
+    state.players[0]!.floatingPower = { ...state.players[0]!.floatingPower, [domain]: 1 };
+    return state;
+  }
+
+  it.each([
+    [PYKE, "Fury" as const],
+    [NAMI, "Calm" as const],
+  ])("%s: every enumerated variant is accepted by the validator", (defId, domain) => {
+    const state = withFloatingPower(defId, domain);
+    const plays = legalActions(state).filter(
+      (a): a is PlayCardAction => a.type === "PlayCard" && a.card.defId === defId,
+    );
+
+    expect(plays.length, "the card was not playable at all — the fixture measures nothing").toBeGreaterThan(0);
+    expect(plays.some((a) => a.optionalPowerPaid === true), "the paid variant is not offered — no split to test").toBe(true);
+
+    for (const play of plays) {
+      const verdict = validatePlayCard(state, play);
+      expect(verdict.ok, verdict.ok ? "" : verdict.error).toBe(true);
+    }
+  });
+
+  it("the floating Power really does absorb the optional pip", () => {
+    // The positive claim behind the fix, not just "nothing threw": with one Fury
+    // floating, the paid variant should name ZERO Power runes, because the float
+    // covers the additional cost. A build that merely stopped crashing by
+    // enumerating fewer variants would not satisfy this.
+    const state = withFloatingPower(PYKE, "Fury");
+    const paid = legalActions(state).find(
+      (a): a is PlayCardAction => a.type === "PlayCard" && a.card.defId === PYKE && a.optionalPowerPaid === true,
+    )!;
+
+    expect(paid.payment.powerRunes, "the float was not applied to the optional cost").toHaveLength(0);
+  });
+
+  it("...and with NO float banked it still costs a rune — the control", () => {
+    const state = withFloatingPower(PYKE, "Fury");
+    state.players[0]!.floatingPower = { ...state.players[0]!.floatingPower, Fury: 0 };
+    const paid = legalActions(state).find(
+      (a): a is PlayCardAction => a.type === "PlayCard" && a.card.defId === PYKE && a.optionalPowerPaid === true,
+    )!;
+
+    expect(paid.payment.powerRunes, "the optional cost became free without float").toHaveLength(1);
   });
 });

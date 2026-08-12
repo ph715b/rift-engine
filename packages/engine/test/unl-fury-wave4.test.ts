@@ -440,7 +440,13 @@ describe("what this wave did and did not write", () => {
     // (effect-helpers.ts) and combat's `applyDamage` (combat.ts).
     [LOTUS_TRAP, false],
     // Wave 3's two halves, each carrying a PARTIALLY_IMPLEMENTED entry.
-    [SCORCHCLAW, false],
+    // **`true` as of 2026-08-10**, and this row has now been both. It was `true`
+    // when only the Might half existed (a coverage lie), `false` once a
+    // PARTIALLY_IMPLEMENTED entry recorded the missing 'and enter ready', and
+    // `true` again now that the entry is retired and the clause is one `case` in
+    // `deploy.conditionalEntersReady`. The value moving twice is the mechanism
+    // working; what would be wrong is it moving without the note moving with it.
+    [SCORCHCLAW, true],
     [SQUARE_UP, false],
     // Written this wave.
     [JHIN, true],

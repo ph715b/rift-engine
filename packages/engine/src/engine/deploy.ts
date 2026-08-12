@@ -100,6 +100,12 @@ export function playCardDefIds(): string[] {
     // file is shared; that refusal was right, and the fix is a case rather than
     // the hook the refusal asked for.
     TOWERING_PAIROFANT,
+    // Both added 2026-08-10, and both are the SECOND half of a card whose first
+    // half is a Might modifier in a domain file. Declared here so coverage merges
+    // the two registrations — a card implemented across two modules must be
+    // visible from both or the deck builder greys a card that works.
+    SCORCHCLAW,
+    MASTER_YI_WUJU_MASTER,
     ...GEAR_ENTERING_EXHAUSTED,
   ];
 }
@@ -127,6 +133,21 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     // separate because a caller that asks must not accidentally spend.
     state.players[playerIndex].nextUnitsEnterReady > 0 ||
     otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId) ||
+    // Master Yi - Wuju Master: "[Level 11][>] Your units enter ready."
+    //
+    // Beside Magma Wurm rather than in `conditionalEntersReady`'s switch, and the
+    // distinction is the point: that switch answers "does THIS card enter ready",
+    // keyed on the arriving unit's defId. This is a property of the CONTROLLER —
+    // every unit they play, whatever it is — so keying it on the arrival would
+    // have meant a case per card in the pool.
+    //
+    // Unlike the Wurm it needs no self-exclusion. Yi is a LEGEND and never the
+    // unit arriving, so "your units" cannot include him and there is no copy of
+    // himself to skip.
+    //
+    // Live, not latched (824.1.b.1 / 824.1.d): spending back below 11 XP stops
+    // readying the NEXT unit, and takes nothing back from one already in play.
+    masterYiReadiesYourUnits(state, playerIndex) ||
     // A property of THIS card and the score, unlike the three above — the only
     // override that depends on who is winning.
     (card.defId === LEONA_ZEALOT && opponentNearVictory(state, playerIndex)) ||
@@ -200,9 +221,44 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // "if you have two or more OTHER units in your BASE" — base only, not
       // the battlefields, and "other" is free for the same reason.
       return player.baseUnits.length >= XIN_ZHAO_OTHER_UNITS;
+    case SCORCHCLAW:
+      // UNL — "[Level 3][>] I have +1 [Might] and enter ready."
+      //
+      // The second half of a card whose first half is a `mightModifiers` entry in
+      // effects/fury.ts, and the two are in different files because they are
+      // genuinely different mechanisms: a continuous Might aura and a deploy-time
+      // replacement. His agent refused this half by name and was right to — the
+      // file is shared and the workaround it rejected is the one this function's
+      // own header rejects.
+      //
+      // **Read live, not latched**, which is why it belongs in this predicate
+      // rather than on the instance: 824.1.b.1 makes `[Level 3][>]` "while you
+      // have 3 or more XP", so a Scorchclaw played at 2 XP arrives exhausted and
+      // one played at 3 arrives ready. The question is only ever asked once, at
+      // the moment he is played, so 824.1.d's "goes Inactive when XP drops" has
+      // nothing to take back here.
+      return player.xp >= SCORCHCLAW_LEVEL;
     default:
       return false;
   }
+}
+
+/**
+ * Master Yi - Wuju Master's `[Level 11]` — "Your units enter ready."
+ *
+ * Reads the player's LEGEND rather than the board, because that is where a
+ * Legend lives: `PlayerState.legend` is a single slot, never in `baseUnits`, so
+ * the unit walks every other aura in this file uses would never find him.
+ *
+ * His `[Level 6]` +1 Might aura is a `mightModifiers` entry in
+ * effects/signature.ts. The two halves of the card are in different files for
+ * the same reason Scorchclaw's are: a continuous Might modifier and a
+ * deploy-time replacement are different mechanisms, and neither table can
+ * express the other.
+ */
+function masterYiReadiesYourUnits(state: GameState, playerIndex: 0 | 1): boolean {
+  const player = state.players[playerIndex];
+  return player.legend.defId === MASTER_YI_WUJU_MASTER && player.xp >= MASTER_YI_ENTERS_READY_LEVEL;
 }
 
 /** Every unit this player has in play, base and battlefields alike. */
@@ -220,6 +276,18 @@ const XIN_ZHAO_VIGILANT = "SFD-176";
  *  ANY unit, either side, which is why its case sums both players' counters. */
 const TOWERING_PAIROFANT = "UNL-008";
 const XIN_ZHAO_OTHER_UNITS = 2;
+/** Scorchclaw (UNL-016) — "[Level 3][>] I have +1 [Might] and enter ready."
+ *  The Might half is a `mightModifiers` entry in effects/fury.ts; only the
+ *  enters-ready half is answerable here. */
+const SCORCHCLAW = "UNL-016";
+const SCORCHCLAW_LEVEL = 3;
+/** Master Yi - Wuju Master (UNL-191) — "[Level 11][>] Your units enter ready."
+ *  A LEGEND's aura, so it is a board query beside Magma Wurm's rather than a case
+ *  in the per-card switch: it is a property of the controller, not of the unit
+ *  arriving. His `[Level 6]` Might aura is a `mightModifiers` entry in
+ *  effects/signature.ts. */
+const MASTER_YI_WUJU_MASTER = "UNL-191";
+const MASTER_YI_ENTERS_READY_LEVEL = 11;
 
 /**
  * Spends one Sun Disc charge, if the unit that just entered play used one.

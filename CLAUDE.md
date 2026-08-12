@@ -57,8 +57,8 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **549 of 692 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 188/198, UNL 118/224), at its default **250 games
+`reachability` is pinned at **551 of 692 cards needing code ever exercised**
+(OGN 224/248, OGS 20/22, SFD 188/198, UNL 119/224), at its default **250 games
 per mode**,
 which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.

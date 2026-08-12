@@ -1425,8 +1425,50 @@ export function legalActions(state: GameState): PlayerAction[] {
           const additional = discountedOptionalCosts(state, playerIndex, axis, [
             { energy: optionalPower.energy ?? 0, power: optionalPower.count ?? 0, rainbow: 0 },
           ]);
-          const energyCost = Math.max(0, effectiveCost.energyCost - own.energy) + additional.energy;
-          const powerCost = Math.max(0, effectiveCost.powerCost - own.power) + additional.power;
+          // **Re-derived through `computeEffectiveCost`, not added to the
+          // already-float-reduced figure — corrected 2026-08-10, and this is the
+          // SECOND time this exact mistake has been made in this file.**
+          //
+          // The paragraph above used to argue the arithmetic was safe here: float
+          // "is already spent, so adding to it charges the extra in full... the two
+          // differ only when float remains unspent, which by construction it does
+          // not". That construction does not hold for a card printing NO Power.
+          // `effectiveCost` has nothing to spend the float ON, so it survives, and
+          // the validator — which folds the additional cost in BEFORE applying
+          // float — then prices the play a pip lower than this did.
+          //
+          // Live on UNL-028 Pyke - Dockside Butcher and UNL-052 Nami - Headstrong,
+          // both 0-Power cards with an optional Power cost, both added the day
+          // before. `hunt-xp` threw "Pyke - Dockside Butcher costs 0 power after
+          // floating Power, payment supplied 1" — the FIFTH offered-then-refused
+          // crash in this engine and the fifth found by a probe rather than by the
+          // suite, because it needs floating Power of the right domain banked at
+          // the moment such a card is played.
+          //
+          // The `[Accelerate]` branch ~1000 lines up carries the identical
+          // correction, for the identical reason, found by the identical probe.
+          const optionalEffective = computeEffectiveCost(
+            actor.floatingEnergy,
+            actor.floatingPower,
+            Math.max(
+              0,
+              modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) - own.energy,
+            ) + additional.energy,
+            Math.max(
+              0,
+              card.powerCost -
+                own.power -
+                scaledPowerDiscount(state, playerIndex, card.defId) -
+                combatSpellPowerDiscount(state, playerIndex, card.kind),
+            ) + additional.power,
+            optionalPower.domain ?? card.powerDomain,
+            card.powerDomainAlt,
+            card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+            restrictedPowerFor(actor, card.kind),
+            actor.floatingRainbowPower,
+          );
+          const energyCost = optionalEffective.energyCost;
+          const powerCost = optionalEffective.powerCost;
           const shape = `${energyCost}/${powerCost}`;
           if (pricedOptional.has(shape)) continue; // this axis buys nothing new
           pricedOptional.add(shape);

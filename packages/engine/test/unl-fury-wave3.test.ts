@@ -138,22 +138,29 @@ describe("Scorchclaw (UNL-016): [Level 3][>] I have +1 Might", () => {
     // A PARTIALLY_IMPLEMENTED entry was added at integration — so he is now
     // reported NOT done, and the note says which half is missing. That is the
     // honest answer, and it is what the pin below is about.
-    expect(isCardImplemented(registry.get(SCORCHCLAW)), "the partial note was dropped — he is claiming a half he does not have").toBe(false);
-    expect(partialImplementationNote(registry.get(SCORCHCLAW))).toContain("enter ready");
+    // **Inverted a SECOND time on 2026-08-10, and both flips were the mechanism
+    // working.** As written it asserted DONE, which became a coverage lie when the
+    // missing "and enter ready" was noticed; a PARTIALLY_IMPLEMENTED entry made it
+    // false. That entry is now retired — the clause is one `case` in
+    // `deploy.conditionalEntersReady` — so DONE is the honest answer again, and
+    // the note must be gone with it.
+    expect(isCardImplemented(registry.get(SCORCHCLAW)), "Scorchclaw is greyed again").toBe(true);
+    expect(partialImplementationNote(registry.get(SCORCHCLAW)), "a partial note came back — he has a gap again").toBeUndefined();
   });
 
-  it("PIN (DIVERGENCE): his 'and enter ready' half is UNWRITTEN — he still arrives exhausted at 3 XP", () => {
-    // Asserting the WRONG answer on purpose. "I enter ready" is a replacement for
-    // how a unit arrives and lives in `deploy.conditionalEntersReady`, a shared
-    // file this wave may not edit; faking it as an on-play `readyUnit` was rejected
-    // there in writing (the unit would sit exhausted through the held trigger's
-    // whole response window, would fire `unitReadied`, and would be blockable).
+  it("his 'and enter ready' half WORKS — was a pin, flipped 2026-08-10", () => {
+    // Was asserting the WRONG answer on purpose. "I enter ready" is a replacement
+    // for how a unit arrives and lives in `deploy.conditionalEntersReady`, a
+    // shared file this wave could not edit; faking it as an on-play `readyUnit`
+    // was rejected there in writing (the unit would sit exhausted through the held
+    // trigger's whole response window, would fire `unitReadied`, and would be
+    // blockable). That refusal was right, and the fix was one `case`.
     //
-    // Registration is per defId, so the Might half above already reports the card
-    // DONE — which is why this pin exists. Adding the deploy.ts case fails here
-    // loudly instead of changing quietly.
+    // The boundary and the cross-checks live in test/level-enters-ready.test.ts;
+    // what is kept here is the at-level answer, beside his Might half, so the two
+    // clauses of one card are still asserted together.
     const { state, scorchclaw } = withXp(3);
-    expect(unitEntersReady(state, 0, scorchclaw), "the [Level 3] enter-ready landed — update the pin").toBe(false);
+    expect(unitEntersReady(state, 0, scorchclaw), "the [Level 3] enter-ready regressed").toBe(true);
     // Positive control on the instrument: it CAN say yes, so the `false` above is
     // a measurement rather than a broken call.
     const quick = { ...scorchclaw, keywords: { ...scorchclaw.keywords, Quick: 1 } };
@@ -424,7 +431,13 @@ describe("what this wave did and did not write", () => {
     // at integration — which is what turns these from `true` to `false`. Without
     // the entry each reported DONE on its first clause, which is the coverage LIE
     // this wave produced seven of.
-    [SCORCHCLAW, false],
+    // **`true` as of 2026-08-10**, and this row has now been both. It was `true`
+    // when only the Might half existed (a coverage lie), `false` once a
+    // PARTIALLY_IMPLEMENTED entry recorded the missing 'and enter ready', and
+    // `true` again now that the entry is retired and the clause is one `case` in
+    // `deploy.conditionalEntersReady`. The value moving twice is the mechanism
+    // working; what would be wrong is it moving without the note moving with it.
+    [SCORCHCLAW, true],
     [SQUARE_UP, false],
     // REFUSED — "if you've spent [4] or more to play a spell this turn". No
     // counter exists: PlayerState carries `powerSpentThisTurn` and nothing about
