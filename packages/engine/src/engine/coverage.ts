@@ -531,6 +531,13 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-201",
     "two of three clauses: the combat-won XP and the [Spend 1 XP] buff work; the third ability (Spend 2 XP, [Exhaust]: move an exhausted friendly unit home) is unwritten — two abilities on one defId must be modes of one entry, and canPayActivationCost receives modeId and drops it, so one predicate cannot price both",
   ],
+  // **2026-08-11.** One card written by a quarter, and it is the shape this map
+  // exists for: the clause that landed is the LAST of four, so the first three
+  // are what a reader would assume works.
+  [
+    "UNL-059",
+    "one of four clauses: the [Level 16] unchooseable-by-enemies works; the three [Level] COST reductions ([2][Calm], then [4][Calm][Calm], then [6][Calm][Calm][Calm] 'instead') are unwritten — they need a tiered lookup in cost-modifiers.ts applied in BOTH modifiedEnergyCost and scaledPowerDiscount, since the deepest tier replaces the shallower ones",
+  ],
   // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
   // which reported DONE on its first clause before these rows landed. Each was
   // named by the agent that wrote it and pinned by a test in that agent's file.

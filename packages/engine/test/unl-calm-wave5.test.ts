@@ -361,14 +361,26 @@ describe("the cards this wave REFUSED, and why each is visible", () => {
   // creep up on these ids from a half-written registration in this file:
   // registration is per defId, so one clause would flip the flag for the whole
   // card. If a later wave writes one properly it will also remove its id here.
+  // **ALPHA_WILDCLAW left this list on 2026-08-11.** Its refusal was accurate —
+  // `unitChooseableBy` took no state and consulted a flat `Set<defId>` — and the
+  // fix was the one the wave-6 re-audit measured: widen the signature (all four
+  // call sites already had `state`) and add a board query for the aura, since it
+  // is keyed by the PROTECTOR rather than the protected. He is whole; his other
+  // line is `[Tank]`, a keyword.
   for (const [defId, needs] of [
-    [ALPHA_WILDCLAW, "target-lookup.UNCHOOSEABLE_BY_ENEMIES is a flat defId Set; this is a Might-conditional aura over OTHER units"],
-    [MASTER_YI_UNSTOPPABLE, "the [Level] bands reduce POWER pips as well as Energy, which modifiedEnergyCost cannot express, plus a second UNCHOOSEABLE entry"],
+    [MASTER_YI_UNSTOPPABLE, "his [Level 16] unchooseable clause landed 2026-08-11, but the three [Level] COST reductions did not — a tiered lookup in cost-modifiers.ts, applied in BOTH modifiedEnergyCost and scaledPowerDiscount"],
   ] as const) {
     it(`${defId} is still unimplemented — ${needs}`, () => {
       expect(isCardImplemented(registry.get(defId))).toBe(false);
     });
   }
+
+  it("Alpha Wildclaw (UNL-057) is WRITTEN — this refusal expired on 2026-08-11", () => {
+    // Kept as an inversion rather than a deletion: his clause is a pure NEGATIVE,
+    // so if it silently stopped being registered nothing would look wrong — a
+    // play that should be impossible would simply become legal.
+    expect(isCardImplemented(registry.get(ALPHA_WILDCLAW)), "Alpha Wildclaw is greyed again").toBe(true);
+  });
 
   it("UNL-058 Lillia is WRITTEN — this refusal expired on 2026-08-10", () => {
     // **Removed from the list above rather than left to rot, and the reason is

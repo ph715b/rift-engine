@@ -89,7 +89,27 @@ import { UNEXERCISED_ALLOWLIST } from "./unexercised-allowlist.ts";
  * check and `GAMES=500` when working the list down — but do not read the buckets
  * from a shallow run.
  */
-const GAMES = Number(process.env.GAMES ?? 250);
+/**
+ * **250 -> 500 on 2026-08-11, and this was decided in advance rather than in the
+ * moment.**
+ *
+ * The pin dropped by one on three separate changes, every time for the same
+ * structural reason: `deck-generator` seats on `isCardImplemented`, so finishing
+ * a card ADDS it to a fixed-size covering deck and DISPLACES another, and at 250
+ * games the displaced card sometimes falls below the sampling floor. Each drop
+ * decomposed cleanly and each time `GAMES=500` showed an EMPTY
+ * `drawnNeverOffered` — four measurements running.
+ *
+ * CLAUDE.md recorded the rule after the second: "if it drops a third time,
+ * re-base the pin at GAMES=500 and accept the 120s, rather than keep explaining a
+ * number whose noise floor has grown to the size of the signal." It dropped a
+ * third time, so this is that.
+ *
+ * The table above still describes the trade-off and is still true. What changed
+ * is which column the GATE reads: a figure that needs a paragraph of explanation
+ * every time it moves is not a regression detector, it is a chore.
+ */
+const GAMES = Number(process.env.GAMES ?? 500);
 
 /**
  * The recorded union, as `walkout` pins 191/107/32.
@@ -320,8 +340,18 @@ const GAMES = Number(process.env.GAMES ?? 250);
  *
  * Per set at this depth: OGN 224/248, OGS 20/22, SFD 188/198, UNL 149/224.
  */
-const PINNED_UNION = 581;
-const PINNED_AT_GAMES = 250;
+/**
+ * **581 @250 -> 587 @500 on 2026-08-11.** Not a rise in what works — a change of
+ * measuring depth, and the two figures are not comparable. See `GAMES` above.
+ *
+ * At this depth OGN reads 228/248 rather than 224: four OGN cards were never
+ * sampled at 250 and are exercised at 500, which is the clearest statement of
+ * what the shallower depth was costing.
+ *
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 151/224.
+ */
+const PINNED_UNION = 587;
+const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();
 const facts = poolFacts(registry);

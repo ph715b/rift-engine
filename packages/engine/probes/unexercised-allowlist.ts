@@ -65,12 +65,16 @@ export const UNEXERCISED_ALLOWLIST: Readonly<Record<string, string>> = {
   // Reachable, but priced out of the format. Measured, not assumed.
   // ---------------------------------------------------------------------------
 
-  "OGN-158":
-    "Volibear - Imposing: 12 Energy + 2 Power, the most expensive card in a pool whose median Energy cost " +
-    "is 3, in a game that lasts 5–8 turns. `why-not-offered.ts` measured it affordable in 2 states out of " +
-    "1000 games across all four modes — so the enumerator is right to stay silent and there is nothing to " +
-    "fix. It clears this list on its own at GAMES=500, which is why the allowlist gate is asserted only at " +
-    "the pinned depth.",
+  // **OGN-158 Volibear - Imposing LEFT this list on 2026-08-11, and his entry
+  // predicted it.** It read: "It clears this list on its own at GAMES=500, which
+  // is why the allowlist gate is asserted only at the pinned depth." The pinned
+  // depth became 500 that day, and the very next run reported his excuse stale.
+  //
+  // He was excused for being priced out — 12 Energy + 2 Power in a pool whose
+  // median is 3, measured affordable in 2 states out of 1000 games — which was
+  // true of the sample rather than of the card. Twice the games found the states.
+  // Worth keeping as a note: an allowlist entry is a claim about what a
+  // measurement can SEE, and changing the measurement is what expires it.
 
   // ---------------------------------------------------------------------------
   // Not a blind spot — a condition self-play has never satisfied.

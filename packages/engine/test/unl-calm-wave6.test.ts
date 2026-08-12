@@ -233,13 +233,19 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
   // and "unimplemented" alone cannot tell the day the blocker lands. So each of
   // these asserts the MECHANISM, and fails when the mechanism appears.
 
-  it("SEVEN still report unimplemented — Allay left the list at integration", () => {
+  it("SIX still report unimplemented — Allay and Alpha Wildclaw have left", () => {
     // **ALLAY was removed from this list on 2026-08-11.** This re-audit correctly
     // measured her as blocked on a registration point rather than a mechanism —
     // "one row, structurally identical to Captain Farron's" — and the integrator
     // added that row. The other seven are unchanged and each is asserted against
     // its own blocker below.
-    for (const id of [MONCH, SHADOW_WATCHER, SKYWARD_STRIKE, SIGNPOST, TRICKSY_TENTACLES, ALPHA_WILDCLAW, MASTER_YI_UNSTOPPABLE]) {
+    // **ALPHA_WILDCLAW left on 2026-08-11** — his refusal named the fix
+    // (`unitChooseableBy` takes no state) and that fix landed, so he is whole.
+    // MASTER_YI stays: his `[Level 16]` clause landed with it, but his three
+    // `[Level]` COST reductions did not, so he is a recorded PARTIAL rather than
+    // an unwritten card — and this list asks `isCardImplemented`, which a partial
+    // correctly answers `false`.
+    for (const id of [MONCH, SHADOW_WATCHER, SKYWARD_STRIKE, SIGNPOST, TRICKSY_TENTACLES, MASTER_YI_UNSTOPPABLE]) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }
   });
@@ -265,15 +271,22 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     expect(activatedAbilityFor(SIGNPOST), "an ability appeared — write the card").toBeUndefined();
   });
 
-  it("UNL-057 and UNL-059 still cannot say 'unchooseable' conditionally", () => {
-    // `target-lookup.unitChooseableBy(unit, ownerIndex, chooserIndex)` takes NO
-    // state, and consults a flat `Set<defId>`. Alpha Wildclaw's clause is an aura
-    // over OTHER units conditioned on Might, and Master Yi's is conditioned on XP;
-    // neither is a property of the receiving unit's defId alone.
+  it("UNL-057 and UNL-059 CAN say 'unchooseable' conditionally — flipped 2026-08-11", () => {
+    // **Was a refusal pin, and the refusal was exactly right.**
+    // `unitChooseableBy` took no state and consulted a flat `Set<defId>`, so
+    // neither a Might-conditional aura over OTHER units (Alpha Wildclaw) nor an
+    // XP-gated prohibition (Master Yi) was expressible.
     //
-    // Asserted through the ONE thing this file can see without reaching into a
-    // module-private const: Ruin Runner (SFD-105) is the only card the restriction
-    // names, and its whole printed text IS the restriction.
-    expect(chooseRestrictionDefIds(), "a second unchooseable card landed — re-audit UNL-057/UNL-059").toEqual(["SFD-105"]);
+    // The re-audit also measured the fix: widen the signature — all four call
+    // sites already had `state` — and replace the Set with a per-defId predicate
+    // table. It landed with a board query beside it for the aura, since that one
+    // is keyed by the PROTECTOR rather than the protected.
+    //
+    // Inverted rather than deleted: this list is the only place a reader can see
+    // which cards carry an absolute prohibition, and a card silently leaving it
+    // would make a play legal that should be impossible.
+    expect(chooseRestrictionDefIds().sort(), "a card lost its choose restriction").toEqual(
+      ["SFD-105", "UNL-057", "UNL-059"].sort(),
+    );
   });
 });

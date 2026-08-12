@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import { counterableSpells } from "./counter-spell.js";
 import { attackerIndexAt } from "./combat-designation.js";
 // NOTE: equipment.ts imports findUnitAnywhere from this module, so this is a
@@ -72,7 +73,7 @@ export function eligibleTargets(
             ? // Ruin Runner. Filtered in the WALK rather than by each caller, so
               // every one of the six fan-out sites and both validator sites get
               // the negative from one place — see `unitChooseableBy`.
-              state.players[ownerIndex].baseUnits.filter((u) => unitChooseableBy(u, ownerIndex, playerIndex))
+              state.players[ownerIndex].baseUnits.filter((u) => unitChooseableBy(state, u, ownerIndex, playerIndex))
             : [],
         )
       : [];
@@ -88,7 +89,7 @@ function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: 
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
       if (owner === "friendly" && ownerIndex !== playerIndex) return [];
       if (owner === "enemy" && ownerIndex === playerIndex) return [];
-      return units.filter((u) => unitChooseableBy(u, ownerIndex, playerIndex));
+      return units.filter((u) => unitChooseableBy(state, u, ownerIndex, playerIndex));
     }),
   );
 }
@@ -580,7 +581,7 @@ export function unitOrGearTargets(
     for (const [ownerId, units] of Object.entries(bf.units)) {
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
       for (const u of units) {
-        if (opts.chooserIndex !== undefined && !unitChooseableBy(u, ownerIndex, opts.chooserIndex)) continue;
+        if (opts.chooserIndex !== undefined && !unitChooseableBy(state, u, ownerIndex, opts.chooserIndex)) continue;
         out.push({ instanceId: u.instanceId, name: u.name, ownerIndex, isGear: false });
       }
     }
@@ -622,15 +623,73 @@ export function unitOrGearTargets(
  * is the same measured-from-the-owner reading `deflectSurcharge` takes, and it
  * matters: buffing your own Ruin Runner is an ordinary play.
  *
- * A named per-card set rather than a parsed restriction, matching every other
+ * A named per-card table rather than a parsed restriction, matching every other
  * small precise table in this engine.
+ *
+ * **A predicate per card, not a bare Set — widened 2026-08-11.** Ruin Runner's
+ * prohibition is unconditional and was the only one in the pool; Master Yi -
+ * Unstoppable's is gated on `[Level 16]`, which is a fact about the CONTROLLER
+ * and cannot be answered by a defId alone.
  */
-const UNCHOOSEABLE_BY_ENEMIES = new Set(["SFD-105"]);
+const UNCHOOSEABLE_BY_ENEMIES: Readonly<Record<string, (state: GameState, unitOwnerIndex: 0 | 1) => boolean>> = {
+  // Ruin Runner — "I can't be chosen by enemy spells and abilities." No
+  // condition at all, which is why this was a Set until a conditional one landed.
+  "SFD-105": () => true,
+  // Master Yi - Unstoppable — "[Level 16][>] I can't be chosen by enemy spells
+  // and abilities." Read LIVE off the owner's XP: 824.1.b.1 makes `[Level N][>]`
+  // "while you have N or more XP", and 824.1.d turns it Inactive the moment XP
+  // drops below — so spending back under 16 makes him choosable again mid-turn.
+  "UNL-059": (state, unitOwnerIndex) => state.players[unitOwnerIndex].xp >= MASTER_YI_UNSTOPPABLE_LEVEL,
+};
+
+const MASTER_YI_UNSTOPPABLE_LEVEL = 16;
+
+/**
+ * Alpha Wildclaw — "Your units HERE with less Might than me can't be chosen by
+ * enemy spells and abilities."
+ *
+ * **An aura over OTHER units, so it cannot be a row in the table above.** That
+ * table is keyed by the defId of the unit being PROTECTED; this is keyed by the
+ * defId of the unit doing the protecting, and has to be looked up from the other
+ * end — the same split `deploy.unitEntersReady` makes between its per-card switch
+ * and Magma Wurm's board query, and for the same reason.
+ *
+ * "HERE" is the Wildclaw's own battlefield, so a protected unit must be standing
+ * with him; a unit in base is unprotected however small it is. "YOUR units" is
+ * measured from HIS controller, which is the same seat the protected unit's
+ * owner sits in — an enemy unit beside him gets nothing.
+ *
+ * "LESS MIGHT THAN ME" is strict and read through `effectiveMight` (143.2's
+ * current Might), so a buff on either side moves the line live. He does not
+ * protect himself: nothing has less Might than itself.
+ */
+const ALPHA_WILDCLAW = "UNL-057";
+
+function shieldedByWildclaw(state: GameState, unit: UnitInstance, unitOwnerIndex: 0 | 1): boolean {
+  for (const bf of state.battlefields) {
+    const here = bf.units[state.players[unitOwnerIndex].id] ?? [];
+    if (!here.some((u) => u.instanceId === unit.instanceId)) continue;
+    const mine = effectiveMight(state, unit, unitOwnerIndex, { isCombat: false, battlefieldId: bf.id });
+    return here.some(
+      (u) =>
+        u.defId === ALPHA_WILDCLAW &&
+        // **MEASURED-REDUNDANT, kept deliberately.** Removing this survived
+        // mutation on 2026-08-11: the comparison below is a strict `>`, so a
+        // Wildclaw checked against himself gives `might > might` and excludes
+        // himself anyway. It becomes load-bearing the instant that `>` is
+        // relaxed, which is why it stays — labelled, so a green run is not read
+        // as proof it does something.
+        u.instanceId !== unit.instanceId &&
+        effectiveMight(state, u, unitOwnerIndex, { isCombat: false, battlefieldId: bf.id }) > mine,
+    );
+  }
+  return false;
+}
 
 /** For coverage.ts — this restriction IS Ruin Runner's whole printed text, so
- *  nothing else claims the card. */
+ *  nothing else claims the card, and it is Alpha Wildclaw's second sentence. */
 export function chooseRestrictionDefIds(): string[] {
-  return [...UNCHOOSEABLE_BY_ENEMIES];
+  return [...Object.keys(UNCHOOSEABLE_BY_ENEMIES), ALPHA_WILDCLAW];
 }
 
 /**
@@ -645,9 +704,18 @@ export function chooseRestrictionDefIds(): string[] {
  * Cheap on the hot path: the Set is consulted only when the chooser is not the
  * unit's own controller, which is the minority of reads in a fan-out.
  */
-export function unitChooseableBy(unit: UnitInstance, unitOwnerIndex: 0 | 1, chooserIndex: 0 | 1): boolean {
+export function unitChooseableBy(
+  state: GameState,
+  unit: UnitInstance,
+  unitOwnerIndex: 0 | 1,
+  chooserIndex: 0 | 1,
+): boolean {
   if (chooserIndex === unitOwnerIndex) return true; // "ENEMY spells and abilities"
-  return !UNCHOOSEABLE_BY_ENEMIES.has(unit.defId);
+  // `state` was added 2026-08-11 and every one of the four call sites already had
+  // it in scope, which is why this stayed a pure function of the unit for so
+  // long: nothing needed the board until a CONDITIONAL prohibition arrived.
+  if (UNCHOOSEABLE_BY_ENEMIES[canonicalDefId(unit.defId)]?.(state, unitOwnerIndex) === true) return false;
+  return !shieldedByWildclaw(state, unit, unitOwnerIndex);
 }
 
 /**
@@ -678,7 +746,7 @@ export function unchooseableAmong(
     // A gear named by a unit-or-gear slot finds no unit and is skipped — gear
     // carries no such restriction in this pool.
     if (found === undefined) continue;
-    if (!unitChooseableBy(found.unit, found.ownerIndex, chooserIndex)) return found.unit.name;
+    if (!unitChooseableBy(state, found.unit, found.ownerIndex, chooserIndex)) return found.unit.name;
   }
   return undefined;
 }

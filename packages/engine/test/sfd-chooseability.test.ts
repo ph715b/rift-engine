@@ -75,16 +75,22 @@ describe("Ruin Runner (SFD-105): can't be chosen by enemy spells and abilities",
   });
 
   it("is a property of the CHOOSER, not of the unit", () => {
-    const runner = board().battlefields[0]!.units["p1"]!.find((u) => u.instanceId === "runner")!;
+    // `unitChooseableBy` gained a `state` parameter on 2026-08-11, when a
+    // CONDITIONAL prohibition arrived (Master Yi - Unstoppable's `[Level 16]`)
+    // and an aura over other units (Alpha Wildclaw). Ruin Runner's own answer is
+    // unconditional and unchanged.
+    const state = board();
+    const runner = state.battlefields[0]!.units["p1"]!.find((u) => u.instanceId === "runner")!;
 
-    expect(unitChooseableBy(runner, 0, 0), "its own side was refused").toBe(true);
-    expect(unitChooseableBy(runner, 0, 1), "an enemy was allowed").toBe(false);
+    expect(unitChooseableBy(state, runner, 0, 0), "its own side was refused").toBe(true);
+    expect(unitChooseableBy(state, runner, 0, 1), "an enemy was allowed").toBe(false);
   });
 
   it("does not restrict an ordinary unit", () => {
-    const ordinary = board().battlefields[0]!.units["p1"]!.find((u) => u.instanceId === "ordinary")!;
+    const state = board();
+    const ordinary = state.battlefields[0]!.units["p1"]!.find((u) => u.instanceId === "ordinary")!;
 
-    expect(unitChooseableBy(ordinary, 0, 1)).toBe(true);
+    expect(unitChooseableBy(state, ordinary, 0, 1)).toBe(true);
   });
 
   it("is claimed by a module", () => {

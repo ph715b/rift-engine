@@ -57,10 +57,10 @@ is red, diff the error list against HEAD before assuming the errors are yours.
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **581 of 692 cards needing code ever exercised**
-(OGN 224/248, OGS 20/22, SFD 188/198, UNL 149/224), at its default **250 games
+`reachability` is pinned at **587 of 692 cards needing code ever exercised**
+(OGN 228/248, OGS 20/22, SFD 188/198, UNL 151/224), at its default **500 games
 per mode**,
-which takes ~60s. A FLOOR, not an equality — it is supposed to rise, and the
+which takes ~120s. A FLOOR, not an equality — it is supposed to rise, and the
 probe prints a line asking for the pin to be bumped when it does. A DROP is red.
 
 **It dropped for the first time on 2026-08-10, by one, and it was NOT a
@@ -73,13 +73,21 @@ again with an EMPTY `drawnNeverOffered`. Diagnose a same-day drop by stashing,
 re-running against the old sha and diffing the BUCKETS — the movement, not the
 total, is what says which it is.
 
-**It then dropped a SECOND time, the next change, for the same reason** — so
-treat this as the instrument's normal behaviour rather than as an event. Both
-drops decomposed cleanly (the newly-finished card became reachable; a displaced
-card fell to sampling), and in both cases `GAMES=500` had an EMPTY
-`drawnNeverOffered`. **If it drops a third time, re-base the pin at `GAMES=500`
-and accept the 120s** rather than keep explaining a number whose noise floor has
-grown to the size of the signal.
+**It then dropped a SECOND time, the next change, for the same reason**, and a
+THIRD on 2026-08-11 — so the rule this file wrote after the second was applied:
+**the pin is now re-based at `GAMES=500`, and the default depth is 500.** All
+three drops decomposed cleanly (the newly-finished card became reachable; a
+displaced card fell to sampling), and all four times `GAMES=500` had an EMPTY
+`drawnNeverOffered`. A figure needing a paragraph of explanation every time it
+moves is a chore, not a regression detector.
+
+**The re-base changed what the instrument can see, not just its patience.** OGN
+went 224/248 → **228/248** at the deeper sample: four OGN cards were never drawn
+at 250 and are exercised at 500. It also expired an allowlist entry that had
+predicted exactly this — OGN-158 Volibear - Imposing was excused as "priced out
+of the format, affordable in 2 states out of 1000 games", which was a claim
+about the SAMPLE rather than the card, and twice the games found the states.
+**Treat every allowlist excuse as depth-dependent for the same reason.**
 
 **Do not read its buckets from a shallow run.** The depth is load-bearing and was
 measured: at `GAMES=40` the same probe reports 101 never-exercised and 8 cards
