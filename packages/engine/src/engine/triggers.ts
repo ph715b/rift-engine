@@ -1,4 +1,5 @@
-import type { GameState, PlayerState, TriggerChainEntry } from "../model/game-state.js";
+import type { GameState, PlayerState, TriggerChainEntry } from "../model/game-state.js";import { canonicalDefId } from "../cards/card-loader.js";
+
 import type { CardInstance, GearInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
 // effect-helpers imports dispatchOnUnitDied from here, so this is a cycle. It is
@@ -1590,7 +1591,16 @@ export function resolvePendingTrigger(state: GameState, entry: TriggerChainEntry
   if (!listener) return state; // pre-`listenerCard` entry, and nothing on the board
   const event = entry.event as GameEvent;
   if (!listensFor(trigger, event.kind)) return state;
-  return trigger.resolve(state, listener, event, entry.captured);
+  // `times` is Red Brambleback's and Blue Sentinel's "trigger an additional
+  // time", carried from the moment of the event. Absent for every other trigger
+  // in the pool, so this is a one-iteration loop unless a doubler was standing
+  // there. Karthus - Eternal's Deathknells take the identical shape one resolver
+  // down.
+  let next = state;
+  for (let i = 0; i < (entry.times ?? 1); i += 1) {
+    next = trigger.resolve(next, listener, event, entry.captured);
+  }
+  return next;
 }
 
 /**
@@ -1675,6 +1685,55 @@ function mirroredMoment(state: GameState, listener: Listener, event: GameEvent):
     : { kind: "battlefieldHeld", holderIndex: event.conquerorIndex, battlefieldId: event.battlefieldId };
 }
 
+/**
+ * Red Brambleback (UNL-029) — "Your CONQUER effects for conquering here trigger
+ * an additional time."
+ * Blue Sentinel (UNL-087) — "Your HOLD effects for holding here trigger an
+ * additional time."
+ *
+ * Two cards, one shape, and they differ only in which moment they double.
+ *
+ * # What "here" and "your" each rule out
+ *
+ * **HERE is the DOUBLER's battlefield, matched against the LISTENER's.** A
+ * Brambleback at bf1 doubles a conquer trigger belonging to a unit standing at
+ * bf1 and nothing at bf2 — so this is keyed on `listener.battlefieldId`, not on
+ * the event's. A listener in base has no battlefield and is never doubled.
+ *
+ * **YOUR is the doubler's controller, matched against the listener's owner.** An
+ * opponent conquering the same battlefield gets nothing from your Brambleback.
+ *
+ * # Why a COUNT rather than a boolean
+ *
+ * Two Bramblebacks at one battlefield trigger a conquer effect three times, not
+ * twice: each says "an additional time" about what the other leaves. That is the
+ * reading Karthus's own note already argues for his Deathknells, and the two
+ * mechanisms are deliberately identical — see `TriggerChainEntry.times`.
+ *
+ * A doubler does not exclude ITSELF. Red Brambleback prints his own "when I
+ * conquer, [Buff]" clause, and "your conquer effects" includes his own: one
+ * Brambleback conquering alone buffs twice.
+ */
+const CONQUER_DOUBLERS: Readonly<Record<string, GameEvent["kind"]>> = {
+  "UNL-029": "battlefieldConquered", // Red Brambleback
+  "UNL-087": "battlefieldHeld", // Blue Sentinel
+};
+
+/** For coverage.ts — the second clause of each doubler, whose first clause is an
+ *  ordinary trigger registered in a domain file. */
+export function triggerDoublerDefIds(): string[] {
+  return Object.keys(CONQUER_DOUBLERS);
+}
+
+function additionalTriggerCount(state: GameState, listener: Listener, event: GameEvent): number {
+  const where = listener.battlefieldId;
+  if (where === undefined) return 0; // a listener in base is not "here"
+  const bf = state.battlefields.find((b) => b.id === where);
+  if (!bf) return 0;
+  const mine = bf.units[state.players[listener.ownerIndex].id] ?? [];
+  return mine.filter((u) => CONQUER_DOUBLERS[canonicalDefId(u.defId)] === event.kind).length;
+}
+
 export function holdEventTrigger(
   state: GameState,
   event: GameEvent,
@@ -1726,9 +1785,23 @@ export function holdEventTrigger(
       // Captured against the board as it stands NOW — before any other listener in
       // this same walk has resolved, which is what makes it a snapshot of the
       // moment of the event (383) rather than of whatever the chain did next.
+      // **"Your conquer/hold effects for ...ing HERE trigger an additional
+      // time"** — Red Brambleback (UNL-029) and Blue Sentinel (UNL-087).
+      //
+      // Counted at HOLD time, not at resolution, because 383 fixes what triggered
+      // at the moment of the event: a Brambleback killed in the response window
+      // has already doubled what it doubled. The same reasoning Karthus's own
+      // note gives for counting his copies as the unit dies.
+      //
+      // Keyed on the LISTENER's battlefield rather than the event's, so it
+      // doubles only the abilities of units standing WITH the doubler — which is
+      // what "here" means, and what stops one Brambleback doubling a conquer
+      // trigger at the other end of the board.
+      const times = 1 + additionalTriggerCount(state, seenBy, seen);
       const entry = (captured: unknown): TriggerChainEntry => ({
         kind: "trigger",
         playerIndex: seenBy.ownerIndex,
+        ...(times > 1 ? { times } : {}),
         listenerInstanceId: seenBy.card.instanceId,
         // The KEY that matched, not the card's defId. `resolvePendingTrigger`
         // looks the definition back up by this field, so a granted ability

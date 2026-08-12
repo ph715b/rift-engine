@@ -384,14 +384,15 @@ describe("Blue Sentinel (UNL-087): [Add] rainbow when I hold", () => {
     return state;
   }
 
-  it("is reported HALF implemented — its second clause is unwritten", () => {
-    // The [Add] on hold works; "your hold effects trigger an additional time"
-    // does not, and a PARTIAL entry now says so.
-    expect(isCardImplemented(registry.get(BLUE_SENTINEL))).toBe(false);
-    expect(partialImplementationNote(registry.get(BLUE_SENTINEL))).toContain("additional time");
+  it("is WHOLE as of 2026-08-11 — both clauses are written", () => {
+    // The [Add] on hold worked from this wave; "your hold effects for holding
+    // here trigger an additional time" landed with `TriggerChainEntry.times`,
+    // built to match Karthus - Eternal, who prints the identical sentence.
+    expect(isCardImplemented(registry.get(BLUE_SENTINEL)), "the Sentinel is greyed again").toBe(true);
+    expect(partialImplementationNote(registry.get(BLUE_SENTINEL)), "a partial note came back").toBeUndefined();
   });
 
-  it("adds one rainbow Power when it holds, and it lands in the MAIN PHASE", () => {
+  it("adds TWO rainbow Power when it holds — its own [Add] is a hold effect here", () => {
     const state = sentinelState([realUnitInstance(BLUE_SENTINEL)]);
 
     const passed = accept(state, { type: "Pass", playerIndex: 0 });
@@ -401,7 +402,12 @@ describe("Blue Sentinel (UNL-087): [Add] rainbow when I hold", () => {
     expect(passed.players[1]!.floatingRainbowPower, "it resolved inline, in the Beginning Phase").toBe(0);
 
     const settled = resolveHeldTriggers(passed);
-    expect(settled.players[1]!.floatingRainbowPower, "no Power was added").toBe(1);
+    // **Was 1 until 2026-08-11.** His own "[Add] rainbow when I hold" IS one of
+    // "your hold effects for holding here", so the doubling applies to it — the
+    // same way Red Brambleback doubles his own conquer buff. Not a regression: a
+    // Sentinel that added only one would mean the second clause had stopped
+    // reaching his own first one.
+    expect(settled.players[1]!.floatingRainbowPower, "his own [Add] stopped doubling").toBe(2);
     expect(settled.phase, "the Power arrived outside the Main Phase").toBe("Action");
   });
 
@@ -415,7 +421,10 @@ describe("Blue Sentinel (UNL-087): [Add] rainbow when I hold", () => {
     const settled = resolveHeldTriggers(accept(state, { type: "Pass", playerIndex: 0 }));
 
     expect(settled.players[1]!.points, "only one battlefield was held, so this proves nothing").toBe(2);
-    expect(settled.players[1]!.floatingRainbowPower, "it paid for a battlefield it is not at").toBe(1);
+    // TWO, not one: the hold he is standing at doubles his own [Add]. The claim
+    // this test makes is that the OTHER held battlefield adds nothing — which is
+    // what separates 2 from 4.
+    expect(settled.players[1]!.floatingRainbowPower, "it paid for a battlefield it is not at").toBe(2);
   });
 
   it("gives the opponent nothing", () => {
@@ -435,7 +444,7 @@ describe("Blue Sentinel (UNL-087): [Add] rainbow when I hold", () => {
    * exactly one Pending Item per (listener, key) and has no multiplier. When the
    * doubling lands, this fails.
    */
-  it("PIN: it does NOT yet double another hold effect at its own battlefield", () => {
+  it("doubles ANOTHER hold effect at its own battlefield — was a pin, flipped 2026-08-11", () => {
     const state = sentinelState([realUnitInstance(BLUE_SENTINEL), realUnitInstance(AHRI_ALLURING)]);
 
     const settled = resolveHeldTriggers(accept(state, { type: "Pass", playerIndex: 0 }));
@@ -443,8 +452,10 @@ describe("Blue Sentinel (UNL-087): [Add] rainbow when I hold", () => {
     // Positive control: Ahri fired at all. Without this, "2" would also be the
     // reading for a board where nothing but the bare hold scored.
     expect(settled.players[1]!.points, "Ahri did not fire, so the pin measures nothing").toBeGreaterThan(1);
-    expect(settled.players[1]!.points, "the hold doubling is implemented — delete this pin (expect 3)").toBe(2);
-    expect(settled.players[1]!.floatingRainbowPower, "the doubling now reaches its own [Add] (expect 2)").toBe(1);
+    // Ahri's hold effect scores a point; doubled, she scores twice — so the bare
+    // hold's 1 plus her 2 is 3. The pin above predicted this exact number.
+    expect(settled.players[1]!.points, "the hold doubling stopped reaching another card's effect").toBe(3);
+    expect(settled.players[1]!.floatingRainbowPower, "the doubling stopped reaching his own [Add]").toBe(2);
   });
 });
 

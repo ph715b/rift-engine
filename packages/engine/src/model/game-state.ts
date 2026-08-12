@@ -183,6 +183,26 @@ export interface TriggerChainEntry {
    *  before the card is moved to the Trash", applied to the one attribute the UI
    *  needs. */
   listenerName: string;
+  /**
+   * How many times this ability executes when it resolves — "your conquer
+   * effects for conquering here trigger an additional time".
+   *
+   * Absent means once, which is every trigger in the pool but three. Kept on the
+   * chain entry rather than re-derived at resolution because the doubling is a
+   * fact about the board AT THE MOMENT OF THE EVENT (383): the Red Brambleback
+   * that doubled it can be killed inside the response window, and the ability it
+   * doubled still executes twice.
+   *
+   * **The same shape `HeldDeathknell.times` already had for Karthus - Eternal**,
+   * who prints the identical sentence. Deliberately consistent with him rather
+   * than more correct than him — see the divergence recorded in
+   * docs/rules-conformance.md, which covers all three cards: 383.3 places ONE
+   * chain item per trigger, so "triggers an additional time" should arguably be
+   * two items with a response window between, and this is one item executed
+   * twice. Two readings of one printed sentence would be worse than one wrong
+   * reading applied consistently.
+   */
+  times?: number;
   /** Where the listener stood when the trigger fired. Positional triggers ("when
    *  I conquer", "here") read this rather than asking the board again, since the
    *  unit may have moved or died in between. */

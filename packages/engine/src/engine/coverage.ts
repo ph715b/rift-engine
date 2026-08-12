@@ -8,7 +8,13 @@ import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
 import { grantedKeywordDefIds } from "./granted-keywords.js";
-import { deathTriggerDefIds, deathknellModifierDefIds, eventTriggerDefIds, selfTriggerDefIds } from "./triggers.js";
+import {
+  deathTriggerDefIds,
+  deathknellModifierDefIds,
+  eventTriggerDefIds,
+  selfTriggerDefIds,
+  triggerDoublerDefIds,
+} from "./triggers.js";
 import { decisionDefIds } from "./decisions.js";
 import { unitTriggerDefIds } from "./unit-triggers.js";
 import { legendAbilityDefIds } from "./legend-abilities.js";
@@ -285,6 +291,9 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "legend-abilities", defIds: legendAbilityDefIds },
   { label: "death triggers", defIds: deathTriggerDefIds },
   { label: "event triggers", defIds: eventTriggerDefIds },
+  // The "trigger an additional time" doublers, whose OTHER clause is an ordinary
+  // trigger in a domain file — so without this the second sentence claims nothing.
+  { label: "trigger doublers", defIds: triggerDoublerDefIds },
   { label: "self triggers", defIds: selfTriggerDefIds },
   { label: "pending decisions", defIds: decisionDefIds },
   { label: "effective-might", defIds: effectiveMightDefIds },
@@ -538,6 +547,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-059",
     "one of four clauses: the [Level 16] unchooseable-by-enemies works; the three [Level] COST reductions ([2][Calm], then [4][Calm][Calm], then [6][Calm][Calm][Calm] 'instead') are unwritten — they need a tiered lookup in cost-modifiers.ts applied in BOTH modifiedEnergyCost and scaledPowerDiscount, since the deepest tier replaces the shallower ones",
   ],
+  // **UNL-029 Red Brambleback and UNL-087 Blue Sentinel LEFT this map on
+  // 2026-08-11.** Both were half-written for the same missing mechanism — "your
+  // conquer/hold effects for ...ing here trigger an additional time" — and both
+  // agents refused it in the same words: `holdEventTrigger` had no `times`
+  // multiplier. It has one now, built to match Karthus - Eternal's, who prints
+  // the identical sentence.
   // **Wave 4, 2026-08-09.** Seven more cards written by halves, every one of
   // which reported DONE on its first clause before these rows landed. Each was
   // named by the agent that wrote it and pinned by a test in that agent's file.
@@ -551,10 +566,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   [
     "UNL-073",
     "half written: the 3 damage works; 'when it dies this turn, play a Gold gear token exhausted' is unwritten — a delayed trigger must outlive its subject, and the victim leaves the board before completeDeath fires unitDied",
-  ],
-  [
-    "UNL-087",
-    "half written: the [Add] rainbow on hold works; 'your hold effects for holding here trigger an additional time' is unwritten — holdEventTrigger has no `times` multiplier and the doubling would also have to reach holdBattlefieldTrigger",
   ],
   [
     "UNL-118",
@@ -625,10 +636,6 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // agent could not touch — so the row went in with this wave instead and the
   // card is whole. Recorded because the alternative was a partial entry that
   // would have gone stale the same day.
-  [
-    "UNL-029",
-    "half written: 'when I conquer, [Buff] a friendly unit' works; 'your conquer effects for conquering here trigger an additional time' is unwritten — holdEventTrigger has no `times` multiplier and the doubling must also reach holdBattlefieldTrigger, since a battlefield's own 'when you conquer here' is one too",
-  ],
   // **The four signature cards from wave 5, 2026-08-10.** All four report DONE on
   // their first clause, which is this map's whole reason to exist. UNL-191 is the
   // one to read twice: a `mightModifiers` aura and a deploy-time replacement are

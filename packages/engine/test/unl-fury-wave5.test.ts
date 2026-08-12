@@ -408,7 +408,7 @@ describe("Red Brambleback (UNL-029): when I conquer, [Buff] a friendly unit", ()
     expect(findAnywhere(settled, brambleId)!.buffed).toBe(false);
   });
 
-  it("PINS THE GAP: 'your conquer effects here trigger an additional time' is unwritten", () => {
+  it("doubles conquer effects here — was a pin, flipped 2026-08-11", () => {
     // Inviolus Vox is a SECOND conquer effect for conquering at the same
     // battlefield. With the doubling clause implemented he would pump 16; the
     // multiplier does not exist (`holdEventTrigger` pushes exactly one entry per
@@ -421,18 +421,28 @@ describe("Red Brambleback (UNL-029): when I conquer, [Buff] a friendly unit", ()
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.battlefields[0]!.units = { p1: [bramble, vox] };
 
+    // **The doubling is ONE chain item that executes twice, not two items** —
+    // deliberately matching Karthus - Eternal, who prints the identical sentence
+    // and has been implemented that way since long before this card. 383.3
+    // arguably wants two items with a response window between; that reading is
+    // recorded as a divergence in docs/rules-conformance.md covering all three
+    // cards, rather than applied to two of them and not the third.
+    //
+    // So the chain still holds ONE entry per listener — this half of the pin is
+    // UNCHANGED and is what says the implementation took the consistent route.
     const held = recordConquest(state, 0, "bf1");
     expect(
       chainDefIds(held).filter((id) => id === RED_BRAMBLEBACK),
-      "the Brambleback's own trigger was raised twice — the clause landed, so delete this pin",
+      "the doubling became two chain items — see the divergence row before changing this",
     ).toHaveLength(1);
     expect(
       chainDefIds(held).filter((id) => id === INVIOLUS_VOX),
-      "Vox's conquer effect was raised twice — the clause landed, so delete this pin",
+      "the doubling became two chain items — see the divergence row before changing this",
     ).toHaveLength(1);
 
+    // What DID change: that one entry now executes twice.
     const settled = answerDecisions(resolveHeldTriggers(held), pickCard(vox.instanceId));
-    expect(findAnywhere(settled, vox.instanceId)!.mightThisTurn, "Vox's +8 ran twice").toBe(8);
+    expect(findAnywhere(settled, vox.instanceId)!.mightThisTurn, "Vox's +8 stopped doubling").toBe(16);
   });
 
   it("is REGISTERED — which is why the gap above needs its pin and a PARTIAL entry", () => {
