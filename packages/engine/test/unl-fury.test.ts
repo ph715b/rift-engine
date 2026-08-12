@@ -146,9 +146,18 @@ describe("the eight cards this file is about are the cards the registry prints",
     // refused here because `deploy.ts` and `ACTIVATED_ABILITIES` are shared
     // files no domain agent may touch; both were implemented in the follow-up
     // primitives pass and are pinned in `test/unl-primitives.test.ts` instead.
-    // Two refusals remain, and both need state that does not exist yet: a record
-    // of Energy actually spent on a spell.
-    for (const defId of [PREPARED_NEOPHYTE, REVNA_THE_LOREKEEPER]) {
+    //
+    // **And PREPARED_NEOPHYTE left on 2026-08-11**, for the same reason and by
+    // the same route: his refusal named the missing state precisely — a record of
+    // Energy actually spent on a spell — and `maxSpellEnergySpentThisTurn` is it.
+    // He is covered by `test/spell-energy-spent.test.ts` now.
+    //
+    // One refusal remains.
+    // Asserted whole here too, so this file cannot go on describing him as
+    // refused while the pool says otherwise.
+    expect(isCardImplemented(registry.get(PREPARED_NEOPHYTE)), "the Neophyte went back to unwritten").toBe(true);
+
+    for (const defId of [REVNA_THE_LOREKEEPER]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} is implemented now — this file's REFUSED note is stale`).toBe(
         false,
       );

@@ -381,6 +381,9 @@ export function runEnd(state: GameState): GameState {
     trashUnitPlaysThisTurn: 0,
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
+    // Reset with the rest of the per-turn tallies — "this turn" is the whole of
+    // what makes the two cards reading it conditional.
+    maxSpellEnergySpentThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     // Annotated because this object is cast to a PlayerState tuple below, and a
     // bare `[]` infers `never[]`, which does not overlap `string[]`.

@@ -439,10 +439,11 @@ describe("what this wave did and did not write", () => {
     // working; what would be wrong is it moving without the note moving with it.
     [SCORCHCLAW, true],
     [SQUARE_UP, false],
-    // REFUSED — "if you've spent [4] or more to play a spell this turn". No
-    // counter exists: PlayerState carries `powerSpentThisTurn` and nothing about
-    // Energy spent on a spell, so nothing continuous can answer the condition.
-    ["UNL-004", false],
+    // **WRITTEN 2026-08-11.** The refusal was exact — "PlayerState carries
+    // `powerSpentThisTurn` and nothing about Energy spent on a spell" — and
+    // `maxSpellEnergySpentThisTurn` is that counter. A MAXIMUM over single
+    // spells, not a total, because the card asks about "a spell".
+    ["UNL-004", true],
     // REFUSED — "its controller may play this spell again for [rainbow]... 1
     // additional Bonus Damage for each time this spell has dealt damage this
     // turn". No mechanism plays a card out of the OTHER player's trash, and

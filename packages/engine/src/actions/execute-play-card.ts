@@ -337,6 +337,17 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,
+    // "If you've spent [4] or more to play a SPELL this turn" — UNL-004 Prepared
+    // Neophyte and UNL-089 Jhin - Meticulous Killer, who print it verbatim.
+    //
+    // A MAXIMUM over single spells, not a running total: the sentence asks
+    // whether some ONE spell cost that much, so two 2-Energy spells do not add up
+    // to it. `modifiedEnergy` is what was actually spent after discounts, and a
+    // card played for free from Hidden spends nothing.
+    maxSpellEnergySpentThisTurn:
+      card.kind === "Spell"
+        ? Math.max(actor.maxSpellEnergySpentThisTurn, modifiedEnergy)
+        : actor.maxSpellEnergySpentThisTurn,
     // "You may spend N XP as an additional cost" (204.2). Spent HERE, with the
     // rest of the cost, on the same reasoning the Legend exhaust below it gives:
     // a cost is paid for the PLAY, not for the payout, so it leaves even when the

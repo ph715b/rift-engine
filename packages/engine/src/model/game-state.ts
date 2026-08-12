@@ -616,6 +616,24 @@ export interface PlayerState {
    */
   powerSpentThisTurn: number;
   /**
+   * The MOST Energy spent on any ONE spell this turn — "if you've spent
+   * [4] or more to play a spell this turn".
+   *
+   * A MAXIMUM, not a total, and that is the card's wording rather than a
+   * simplification: "spent 4 to play A spell" asks whether some single spell
+   * cost that much, so two 2-Energy spells do not add up to it. Summing would
+   * make both cards fire on a turn neither describes.
+   *
+   * Counted at the moment of payment in `execute-play-card`, from the MODIFIED
+   * cost — what was actually spent, after discounts — since that is what "you've
+   * spent" means. A card played for free from Hidden spends nothing.
+   *
+   * Two cards print this sentence verbatim: UNL-004 Prepared Neophyte (+4 Might
+   * while true) and UNL-089 Jhin - Meticulous Killer (an alternative cost). One
+   * field answers both, which is why it is here rather than derived per card.
+   */
+  maxSpellEnergySpentThisTurn: number;
+  /**
    * Rally the Troops' "when a friendly unit is played THIS TURN, buff it" — a
    * DELAYED trigger, so the flag is set when the spell resolves and read at the
    * PLAY site for the rest of the turn.

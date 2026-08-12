@@ -2845,6 +2845,12 @@ const SCORCHCLAW = "UNL-016";
 const SCORCHCLAW_LEVEL = 3;
 const SCORCHCLAW_MIGHT = 1;
 
+/** Prepared Neophyte — "If you've spent [4] or more to play a spell this turn, I
+ *  have +4 [Might]." His whole printed text. */
+const PREPARED_NEOPHYTE = "UNL-004";
+const NEOPHYTE_SPELL_ENERGY = 4;
+const NEOPHYTE_MIGHT = 4;
+
 export const mightModifiers: Record<string, MightModifier> = {
   // Scorchclaw's `[Level 3]` Might half, and ONLY that half.
   //
@@ -2874,5 +2880,29 @@ export const mightModifiers: Record<string, MightModifier> = {
     defId: SCORCHCLAW,
     bonus: (state, unit, ownerIndex) =>
       unit.defId === SCORCHCLAW && state.players[ownerIndex].xp >= SCORCHCLAW_LEVEL ? SCORCHCLAW_MIGHT : 0,
+  },
+  // Prepared Neophyte — "If you've spent [4] or more to play a spell this turn,
+  // I have +4 [Might]."
+  //
+  // **Refused across two waves for a counter that did not exist**, and the
+  // refusals were exact: `PlayerState` carried `powerSpentThisTurn` and nothing
+  // about Energy spent on a spell. `maxSpellEnergySpentThisTurn` is that counter,
+  // and it answers UNL-089 Jhin's identical sentence too — which is why it is a
+  // field rather than something derived here.
+  //
+  // CONTINUOUS, like every entry in this table and for the same reason: the
+  // condition is a fact about the turn, so it turns on the moment a big spell is
+  // paid for and off again when the turn ends. A one-shot pump would be wrong in
+  // both directions.
+  //
+  // A MAXIMUM over single spells, not a total — see the field's own note. Two
+  // 2-Energy spells do not make a 4.
+  [PREPARED_NEOPHYTE]: {
+    defId: PREPARED_NEOPHYTE,
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId === PREPARED_NEOPHYTE &&
+      state.players[ownerIndex].maxSpellEnergySpentThisTurn >= NEOPHYTE_SPELL_ENERGY
+        ? NEOPHYTE_MIGHT
+        : 0,
   },
 };
