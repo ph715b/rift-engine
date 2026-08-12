@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 interface ChoiceOverlayProps {
   title: string;
@@ -10,6 +10,18 @@ interface ChoiceOverlayProps {
   /** Defaults to "Cancel" — read-only uses (browsing a trash pile) say
    *  "Close" instead, since there's nothing being backed out of. */
   cancelLabel?: string;
+  /**
+   * What makes this a DIFFERENT question from the last one, for the minimize
+   * state below.
+   *
+   * Defaults to the title, which is right for the play-time overlays (a mode
+   * choice, a trash pick) because each names its own card. A pending engine
+   * decision passes `decision.id` instead, and must: two questions in a row can
+   * share a title — Cull the Weak asks both players to kill one of their own
+   * units, in the same words — and a title-keyed reset would leave the second
+   * one collapsed behind a bar the player has already learned to ignore.
+   */
+  resetKey?: string;
   children: ReactNode;
 }
 
@@ -41,12 +53,68 @@ interface ChoiceOverlayProps {
  * (see .choice-overlay-backdrop in styles.css) so hovering a card in here
  * still shows its full art and rules text — the whole point of the panel is
  * choosing between cards, which is hard to do from a thumbnail alone.
+ *
+ * # Minimizing
+ *
+ * Requested from playtesting: *"would like to be able to minimize selection
+ * popups so that you can see boardstate before making a decision."* The panel
+ * covers the board at exactly the moment the board matters most — "kill one of
+ * your units" is unanswerable without seeing which units you have and where.
+ *
+ * **Minimizing is DISMISSAL OF THE VIEW, never of the question.** It is offered
+ * for mandatory decisions precisely because those are the ones you cannot cancel
+ * your way out of, so the restore bar is always rendered and always says what is
+ * waiting. Nothing is submitted, nothing is defaulted, and the game cannot
+ * advance while it is collapsed — the engine still has no legal action but an
+ * answer.
+ *
+ * The backdrop is dropped while minimized rather than made transparent. A
+ * transparent backdrop would still swallow every click and hover, which would
+ * leave the board visible and dead — worse than the modal, because it looks
+ * interactive.
  */
-export function ChoiceOverlay({ title, subtitle, onCancel, cancelLabel = "Cancel", children }: ChoiceOverlayProps) {
+export function ChoiceOverlay({ title, subtitle, onCancel, cancelLabel = "Cancel", resetKey, children }: ChoiceOverlayProps) {
+  const [minimized, setMinimized] = useState(false);
+  const identity = resetKey ?? title;
+
+  // **A new question always opens EXPANDED.** Without this, minimizing one
+  // decision and answering it would open the next one already collapsed — the
+  // player would be waiting on a board that looks idle, with the only clue a bar
+  // they just learned to ignore. Keyed on `identity` rather than on the children,
+  // which change on every render.
+  useEffect(() => {
+    setMinimized(false);
+  }, [identity]);
+
+  if (minimized) {
+    return (
+      <div className="choice-overlay-minimized">
+        <span className="choice-overlay-minimized-title">{title}</span>
+        <button type="button" onClick={() => setMinimized(false)}>
+          Show choices
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="choice-overlay-backdrop">
       <div className="choice-overlay-panel">
-        <div className="choice-overlay-title">{title}</div>
+        <div className="choice-overlay-header">
+          <div className="choice-overlay-title">{title}</div>
+          <button
+            type="button"
+            className="choice-overlay-minimize"
+            // Titled rather than labelled with prose: the control sits in a
+            // header whose width is the title's, and a text button there pushes
+            // long prompts onto a second line.
+            title="Minimize — see the board without answering"
+            aria-label="Minimize"
+            onClick={() => setMinimized(true)}
+          >
+            —
+          </button>
+        </div>
         {subtitle && <div className="choice-overlay-subtitle">{subtitle}</div>}
         {children}
         {onCancel && (

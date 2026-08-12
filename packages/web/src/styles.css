@@ -2628,6 +2628,75 @@ button:disabled {
   font-size: 1.05rem;
 }
 
+/* The title row, so the minimize control can sit beside the prompt rather than
+   under it. `flex: 1` on the title keeps a long prompt wrapping within its own
+   column instead of pushing the button off the panel. */
+.choice-overlay-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.choice-overlay-header .choice-overlay-title {
+  flex: 1;
+}
+
+.choice-overlay-minimize {
+  flex: 0 0 auto;
+  min-width: 1.9rem;
+  padding: 0.1rem 0.5rem;
+  line-height: 1.2;
+  font-size: 1.05rem;
+}
+
+/**
+ * The collapsed question.
+ *
+ * Requested from playtesting: "would like to be able to minimize selection
+ * popups so that you can see boardstate before making a decision."
+ *
+ * **Pinned to the bottom CENTRE, and deliberately not a corner.** The board's
+ * corners hold the piles and the point tracker, and a bar tucked into one reads
+ * as another status widget rather than as something waiting on you. The middle
+ * is where the panel itself was, so the eye is already there.
+ *
+ * z-index matches the backdrop it replaces (90), so it stays above the board and
+ * the hand fan (10) but below `.card-preview` (100) — you can still hover a unit
+ * to read it while deciding, which is the entire point of minimizing.
+ *
+ * `pointer-events` are NOT disabled anywhere: while this is showing, the board
+ * beneath is fully hoverable and clickable. The engine offers no legal action
+ * but an answer, so a stray click does nothing — which is the honest behaviour.
+ * A transparent full-screen backdrop would have looked identical and swallowed
+ * every one of those clicks.
+ */
+.choice-overlay-minimized {
+  position: fixed;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(92vw, 720px);
+  padding: 0.5rem 0.9rem;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.choice-overlay-minimized-title {
+  color: var(--color-accent);
+  font-weight: 600;
+  /* One line: the bar is a reminder of an open question, not the question. The
+     full prompt is one click away and the panel is where it belongs. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .choice-overlay-subtitle {
   color: var(--color-text-dim);
   font-size: 0.85rem;

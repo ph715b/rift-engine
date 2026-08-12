@@ -167,8 +167,21 @@ describe("a card option keeps the words that make it an answer", () => {
     // other way round.
     const { state, decision } = captainDecision();
     const { container } = renderPrompt(state, decision);
-    const buttons = [...container.querySelectorAll("button")].map((b) => b.textContent);
+    // **Scoped to the ANSWER row, not to every button on screen.** This read
+    // `container.querySelectorAll("button")` until 2026-08-11, when the panel
+    // gained a minimize control and that chrome button started reading as an
+    // answer. The premise was always "the answers are unchanged"; the query was
+    // simply wider than the premise — which only shows up when something
+    // legitimate is added next door.
+    const buttons = [...container.querySelectorAll(".choice-overlay-actions button")].map((b) => b.textContent);
     expect(buttons).toEqual(["Decline", "Draw 1"]);
+    // The other half of the same claim: panel chrome must stay OUT of the
+    // answer row, so a future control landing inside it fails here rather than
+    // quietly becoming an answer.
+    expect(
+      [...container.querySelectorAll(".choice-overlay-actions button")].map((b) => b.getAttribute("aria-label")),
+      "a chrome control is sitting in the answer row",
+    ).not.toContain("Minimize");
     cleanup();
   });
 });

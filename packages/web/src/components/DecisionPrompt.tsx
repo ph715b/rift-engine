@@ -106,6 +106,11 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
     <ChoiceOverlay
       title={promptFor(state, decision)}
       subtitle={readOnly ? "Waiting for the bot to answer." : "This has to be answered before play can continue."}
+      // The DECISION's id, not its title. Two questions running back to back can
+      // share wording — Cull the Weak asks both players to kill one of their own
+      // units, in the same words — and a title-keyed reset would leave the second
+      // one collapsed behind a bar the player has just learned to ignore.
+      resetKey={decision.id}
     >
       {cardOptions.length > 0 && (
         <div className="choice-overlay-cards">
