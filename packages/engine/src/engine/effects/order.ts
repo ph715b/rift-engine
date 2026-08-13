@@ -922,6 +922,34 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       return anyGearLeft ? parkDecision(paid, { kind: "SFD-160-kill", playerIndex: ctx.casterIndex }) : paid;
     },
   },
+  "UNL-170": {
+    // Atakhan, FIRST clause — "You may kill a friendly unit as an additional cost
+    // to play me."
+    //
+    // Only the KILL is here. The discount that kill buys — "[1] less for each
+    // Energy it costs and [Order] less for each Power it costs" — is
+    // `sacrificeCostDiscount` in cost-modifiers.ts, priced per enumerated variant
+    // because its size depends on which unit is named.
+    //
+    // Byte-identical in shape to Cruel Patron below, and paid the same way:
+    // through `destroyUnit`, so a [Deathknell] on the sacrifice still fires (808)
+    // and a death ward can still replace it (808.1.d.1), and with no
+    // `killerIndex` — spending your own unit as a price is not you "killing" it.
+    //
+    // **OPTIONAL, unlike Cruel Patron's and Stalking Wolf's.** He prints "you
+    // MAY", so a decline variant is enumerated and he stays castable at his
+    // printed 10 and 3 with nothing to sacrifice. That is also why this guards on
+    // the id being present rather than asserting it: the declined variant reaches
+    // this resolve with no unit named and must do nothing at all.
+    //
+    // His other two clauses are elsewhere and neither belongs here: `[Ganking]`
+    // is a printed keyword read through `effectiveKeywords`, and "when I attack,
+    // the defender must kill one of their units here" is a `combatBegan` listener
+    // further down this file.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
   "OGN-208": {
     // Cruel Patron — "As an additional cost to play me, kill a friendly unit."
     //

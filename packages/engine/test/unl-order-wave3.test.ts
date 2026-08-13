@@ -551,10 +551,26 @@ describe("Safety Inspector (UNL-164): each player must kill one of their units",
 });
 
 describe("Atakhan (UNL-170): when I attack, the defender must kill one of their units here", () => {
-  it("is reported HALF implemented — the partial note is the honest answer", () => {
-    // Was `true`, which was a coverage lie: the first clause claimed the whole
-    // card. A PARTIALLY_IMPLEMENTED entry was added at integration.
-    expect(isCardImplemented(registry.get(ATAKHAN))).toBe(false);
+  it("is WHOLE as of 2026-08-12 — his sacrifice cost and its scaled discount landed", () => {
+    // **Three pins in this block flipped at once, and all three were right up to
+    // the day they flipped.** He reported half-implemented, enumerated no
+    // kill-as-a-cost variant, and carried a PARTIALLY_IMPLEMENTED note naming the
+    // missing half — which is exactly what a card in that state should look like.
+    //
+    // The refusal named all three shared files it would take, and was accurate:
+    // the KILL was expressible (`killFriendly` is Cruel Patron's row) but the
+    // DISCOUNT was not, because `repeatable` buys a flat 1 Power per payment while
+    // his scales with the printed cost of whatever was killed, on both axes.
+    //
+    // Collapsed into ONE assertion rather than three inversions: the behaviour is
+    // covered in depth by `atakhan-sacrifice-discount.test.ts`, and three copies
+    // of "he is finished now" spread across a wave file is how the premise-flip
+    // class restarts. What is kept is the coverage claim, because his THIRD clause
+    // — the attack trigger this block actually tests — is registered separately,
+    // and a card can report whole on the strength of another module while this
+    // one silently stops being registered.
+    expect(isCardImplemented(registry.get(ATAKHAN)), "Atakhan went back to being half-written").toBe(true);
+    expect(partialImplementationNote(registry.get(ATAKHAN)), "a partial note came back").toBeUndefined();
   });
 
   /** Atakhan already standing at bf1 for player 0, with whatever the defender
@@ -651,39 +667,19 @@ describe("Atakhan (UNL-170): when I attack, the defender must kill one of their 
     expect(unitAnywhere(after, "theirs"), "the attack trigger never fired on the real move path").toBeUndefined();
   });
 
-  it("DIVERGENCE: no kill-a-friendly discount is offered — the first clause is unwritten", () => {
-    // "You may kill a friendly unit as an additional cost to play me. If you do,
-    // I cost [1] less for each Energy it costs and [Order] less for each Power it
-    // costs." He therefore always costs the printed 10 Energy and 3 Order.
-    const atakhan = realUnitInstance(ATAKHAN);
-    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
-    state.players[0]!.hand = [atakhan];
-    state.players[0]!.channeled = runesFor(ATAKHAN);
-    state.players[0]!.baseUnits = [makeUnit({ instanceId: "fodder", name: "Fodder", energyCost: 6, powerCost: 2 })];
-
-    const casts = castsOf(state, atakhan.instanceId);
-    expect(casts.length, "no cast was offered — the fixture is wrong, not the divergence").toBeGreaterThan(0);
-    expect(
-      casts.some((c) => c.additionalCostUnitInstanceId !== undefined),
-      "a kill-as-a-cost variant is enumerated now — update this pin",
-    ).toBe(false);
-    expect(casts[0]!.payment.energyRunes, "the discount has landed — update this pin").toHaveLength(10);
-    expect(casts[0]!.payment.powerRunes).toHaveLength(3);
-  });
-
-  it("PARTIAL: coverage names the half that is missing", () => {
-    // **This pin did its job.** It asserted the card had NO partial note while
-    // being half-written — the over-report that registration-per-defId always
-    // produces, and which the agent could not fix because `coverage.ts` is shared.
-    // The entry landed at integration and this failed, exactly as designed.
-    //
-    // Inverted rather than deleted: the note going missing again would mean the
-    // card had silently gone back to claiming a half it does not have.
-    expect(
-      partialImplementationNote(registry.get(ATAKHAN)),
-      "the PARTIALLY_IMPLEMENTED entry was dropped — this card is claiming a half it does not have",
-    ).toBeDefined();
-  });
+  // **The DIVERGENCE and PARTIAL pins that stood here were removed on
+  // 2026-08-12.** Both were accurate for as long as the first clause was
+  // unwritten: no kill-as-a-cost variant was enumerated, so he always cost the
+  // printed 10 and 3, and the PARTIALLY_IMPLEMENTED note said so.
+  //
+  // Both are now false, and the replacement is not another pin here — it is
+  // `atakhan-sacrifice-discount.test.ts`, which measures the enumerated variants'
+  // actual rune counts rather than only the discount function, because a correct
+  // helper wired in wrongly would pass a function-level test.
+  //
+  // The one thing worth carrying across: his discount is priced PER VARIANT,
+  // since its size depends on which unit is killed. That is what kept it out of
+  // `modifiedEnergyCost`, where every board-keyed discount lives.
 });
 
 describe("Ashe - Focused (UNL-169): REFUSED this wave, and pinned as refused", () => {

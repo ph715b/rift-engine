@@ -524,6 +524,68 @@ export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId:
   return 0;
 }
 
+/**
+ * Atakhan — "You may kill a friendly unit as an additional cost to play me. If
+ * you do, I cost [1] less for each Energy it costs and [Order] less for each
+ * Power it costs."
+ *
+ * The pool's first additional cost whose DISCOUNT is a function of what was
+ * spent. Every other one is a fixed number: Commander Ledros and Kraken Hunter
+ * buy a flat 1 Power per unit spent (`repeatable`), Call to Glory zeroes the
+ * cost outright (`ignoresCostWhenPaid`). This one scales with the killed unit's
+ * printed cost, on BOTH axes at once, so it is neither.
+ *
+ * # Read off the COST, not the body
+ *
+ * "For each Energy it COSTS" is the killed unit's cost — the same reading
+ * Heedless Resurrection's ceiling takes, and the rules' Defy example ("always
+ * uses its printed or copied cost"). So a pumped, damaged or buffed unit is
+ * worth exactly what it costs as a sacrifice; nothing about the body it has
+ * become on the board enters into it.
+ *
+ * A TOKEN carries 0 on both axes and therefore discounts nothing, which is the
+ * right answer for a body with no printed cost.
+ *
+ * # Per VARIANT, not per card
+ *
+ * The size depends on WHICH unit is named, so it cannot be folded into
+ * `modifiedEnergyCost` the way a board-keyed discount is: the same Atakhan is a
+ * different price under each variant the enumerator emits. Both `legal-actions`
+ * and `validate-play-card` therefore call this with the choice riding on the
+ * action they are pricing, and both feed the result through
+ * `computeEffectiveCost` rather than subtracting after it — the floating-Energy
+ * bug that path already records having made once.
+ */
+const ATAKHAN = "UNL-170";
+
+export function sacrificeCostDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string | undefined,
+  costUnitInstanceId: string | undefined,
+): { energy: number; power: number } {
+  const none = { energy: 0, power: 0 };
+  if (defId !== ATAKHAN || costUnitInstanceId === undefined) return none;
+
+  const spent = ownUnitsWithLocation(state, playerIndex).find(({ unit }) => unit.instanceId === costUnitInstanceId);
+  if (spent === undefined) return none;
+
+  // **The INSTANCE's cost, not a registry lookup**, which is this repo's
+  // convention for every "costing no more than" question — Glasc Mixologist's and
+  // Undying Loyalty's trash ceilings both read `c.energyCost` off the instance.
+  //
+  // `UnitInstance` copies `energyCost`/`powerCost` from the definition when it is
+  // created, so for a real card the two are the same number, and asking the
+  // instance means this works for a unit whose definition is not in the registry
+  // at all. A TOKEN carries 0 on both axes and so discounts nothing, which is the
+  // right answer for a body with no printed cost.
+  //
+  // The first version looked the definition up and treated anything without one
+  // as a token. That was equivalent for every real card and wrong for exactly the
+  // case a wave-4 fixture had already built.
+  return { energy: spent.unit.energyCost, power: spent.unit.powerCost };
+}
+
 const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
 const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
 
@@ -672,6 +734,11 @@ export function costModifierDefIds(): string[] {
     // unchooseable-by-enemies) is registered by target-lookup.ts, so both modules
     // claim him and coverage merges them — the same split Concentrate has.
     MASTER_YI_UNSTOPPABLE,
+    // Atakhan's scaled sacrifice discount. His attack trigger is registered in
+    // effects/order.ts and his `[Ganking]` is a printed keyword, so coverage
+    // merges this claim with that one — the same split Concentrate and Master Yi
+    // both have.
+    ATAKHAN,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about

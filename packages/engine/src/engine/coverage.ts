@@ -503,10 +503,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-168",
     "half written: the free play works; its '-[2] if you choose a Bird/Cat/Dog/Poro' discount is unwritten, so it always costs the printed 2 Energy + 1 rainbow",
   ],
-  [
-    "UNL-170",
-    "half written: the combat-began kill works; its kill-a-friendly cost and the scaled discount that cost buys are unwritten, so it always costs 10 Energy + 3 Order",
-  ],
+  // **UNL-170 Atakhan LEFT this map on 2026-08-12.** His refusal was accurate and
+  // named all three shared files it would take: the KILL was expressible
+  // (`killFriendly` is Cruel Patron's row) but the DISCOUNT was not, because
+  // `repeatable` buys a flat 1 Power per payment while his scales with the
+  // printed cost of whatever was killed, on both axes at once.
+  //
+  // That is `sacrificeCostDiscount`, and the thing that made it more than a
+  // number is that its size depends on WHICH unit a variant kills — so unlike
+  // every board-keyed discount it is priced per enumerated variant, and both
+  // pricing sites re-run it through `computeEffectiveCost` rather than
+  // subtracting after it.
   [
     "UNL-188",
     "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",

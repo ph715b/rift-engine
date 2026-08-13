@@ -887,6 +887,17 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   //
   // The DESTINATION half is not here — it is a placement grant keyed to the same
   // chosen unit; see `PLACEMENT_GRANTS` in unit-triggers.ts.
+  // Atakhan — "You MAY kill a friendly unit as an additional cost to play me. If
+  // you do, I cost [1] less for each Energy it costs and [Order] less for each
+  // Power it costs."
+  //
+  // Optional, so the decline variant is offered and he stays castable at his
+  // printed 10 and 3 with nothing to sacrifice. What is new is the DISCOUNT, not
+  // the cost: `repeatable` buys a flat 1 Power per unit, and this scales with the
+  // killed unit's printed cost on both axes — see `sacrificeCostDiscount` in
+  // cost-modifiers.ts, which both pricing sites call with the choice riding on
+  // the action.
+  "UNL-170": { kind: "killFriendly" },
   "UNL-166": {
     kind: "killFriendly",
     mandatory: true,

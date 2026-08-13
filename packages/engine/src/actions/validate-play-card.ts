@@ -19,6 +19,7 @@ import {
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
+import { sacrificeCostDiscount } from "../engine/cost-modifiers.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import {
@@ -827,6 +828,16 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // here from the SAME action the enumerator priced, so the two cannot disagree
   // about what the play costs.
   const repeatableDiscount = optionalCost?.repeatable ? (action.additionalCostUnitInstanceIds?.length ?? 0) : 0;
+  // Atakhan's SCALED sacrifice discount — the killed unit's printed Energy and
+  // Power, both taken off. Re-derived from the same action the enumerator priced
+  // and through the same shared function, which is what keeps a play the
+  // enumerator offered from being refused here.
+  const sacrificeDiscount = sacrificeCostDiscount(
+    state,
+    action.playerIndex,
+    card.defId,
+    action.additionalCostUnitInstanceId,
+  );
   const optionalPower = optionalPowerCostOf(card.defId);
   // Bard - Mercurial's "you may exhaust your legend as an additional cost".
   //
@@ -933,8 +944,13 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     : computeEffectiveCost(
         actor.floatingEnergy,
         actor.floatingPower,
-        Math.max(0, modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, inHand) - discardDiscount - targetDiscount.energy) +
-          additional.energy,
+        Math.max(
+          0,
+          modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, inHand) -
+            discardDiscount -
+            targetDiscount.energy -
+            sacrificeDiscount.energy,
+        ) + additional.energy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator
         // priced, so the two cannot disagree about what the play costs.
@@ -943,6 +959,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
           card.powerCost -
             repeatableDiscount -
             targetDiscount.power -
+            sacrificeDiscount.power -
             scaledPowerDiscount(state, action.playerIndex, card.defId) -
             // Vex - Cheerless's friendly half. Her enemy half is a rainbow
             // surcharge, checked against its own bucket further down.

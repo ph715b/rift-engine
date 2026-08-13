@@ -804,23 +804,42 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     expect(casts[0]!.payment.energyRunes, "the -[2] discount has landed — update this pin").toHaveLength(2);
   });
 
-  it("Atakhan (UNL-170) still costs its printed 10 and 3, with no friendly unit to trade", () => {
-    expect(optionalUnitCostOf(ATAKHAN), "the kill-a-friendly cost is registered now — rewrite this pin").toBeUndefined();
-    expect(partialImplementationNote(registry.get(ATAKHAN))).toMatch(/kill-a-friendly|discount/);
+  it("Atakhan (UNL-170) now trades a friendly unit for a scaled discount — this pin EXPIRED on 2026-08-12", () => {
+    // The pin that stood here asserted the opposite of every line below, and it
+    // was correct for as long as the clause was unwritten. It described the card
+    // precisely, right down to the sacrifice it built ("5 Energy and 2 Power,
+    // which the printed clause would turn into a 5-Energy 1-Order Atakhan") —
+    // which is exactly what now happens, so it is kept as the fixture and
+    // inverted rather than deleted.
+    //
+    // Full behaviour lives in `atakhan-sacrifice-discount.test.ts`. What is
+    // asserted here is only what this wave file was pinning: that the cost is
+    // registered at all and that the fan-out reaches the board.
+    expect(optionalUnitCostOf(ATAKHAN), "the kill-a-friendly cost stopped being registered").toMatchObject({
+      kind: "killFriendly",
+    });
+    expect(partialImplementationNote(registry.get(ATAKHAN)), "a partial note came back").toBeUndefined();
 
     const atakhan = realUnitInstance(ATAKHAN);
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [atakhan];
     state.players[0]!.channeled = runesFor(ATAKHAN, 32);
-    // A juicy sacrifice on the board: 5 Energy and 2 Power, which the printed
-    // clause would turn into a 5-Energy 1-Order Atakhan.
+    // The same juicy sacrifice the old pin built: 5 Energy and 2 Power.
     state.players[0]!.baseUnits = [
       makeUnit({ instanceId: "fodder", name: "Fodder", energyCost: 5, powerCost: 2, powerDomain: "Order" }),
     ];
 
     const casts = castsOf(state, atakhan.instanceId);
-    expect(casts, "Atakhan was fanned into sacrifice variants — the clause has landed").toHaveLength(1);
-    expect(casts[0]!.payment.energyRunes, "the scaled discount has landed — update this pin").toHaveLength(10);
-    expect(casts[0]!.payment.powerRunes).toHaveLength(3);
+    // Two now: the decline, and the sacrifice. "You MAY kill" — so the printed
+    // play must survive alongside the discounted one.
+    expect(casts, "the sacrifice variant is not being fanned out").toHaveLength(2);
+
+    const declined = casts.find((c) => c.additionalCostUnitInstanceId === undefined)!;
+    expect(declined.payment.energyRunes, "declining stopped costing the printed price").toHaveLength(10);
+    expect(declined.payment.powerRunes).toHaveLength(3);
+
+    const paid = casts.find((c) => c.additionalCostUnitInstanceId === "fodder")!;
+    expect(paid.payment.energyRunes, "the scaled Energy discount did not apply").toHaveLength(5);
+    expect(paid.payment.powerRunes, "the scaled Power discount did not apply").toHaveLength(1);
   });
 });

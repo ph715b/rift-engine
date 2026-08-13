@@ -12,6 +12,7 @@ import type {
   RunePayment,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "./rune-payment.js";
+import { sacrificeCostDiscount } from "./cost-modifiers.js";
 import { counterFilter, counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
@@ -1231,12 +1232,57 @@ export function legalActions(state: GameState): PlayerAction[] {
               card.powerDomainAlt,
             )
           : undefined;
+      // **Atakhan's scaled sacrifice discount, priced per VARIANT.**
+      //
+      // Its size depends on WHICH unit this variant kills, so unlike every
+      // board-keyed discount it cannot be folded into the once-per-card
+      // `effectiveCost` above. Re-run through `computeEffectiveCost` rather than
+      // subtracted from it, which is the bug the discard branch already records:
+      // taking a discount off the raw cost and stopping there skips the
+      // floating-Energy reduction the plain path applies, and enumeration then
+      // offers a payment the validator prices differently.
+      const sacrificeDiscount = sacrificeCostDiscount(state, playerIndex, card.defId, variant.additionalCostUnitInstanceId);
+      const sacrificeEffective =
+        sacrificeDiscount.energy + sacrificeDiscount.power > 0 && !fromHidden
+          ? computeEffectiveCost(
+              actor.floatingEnergy,
+              actor.floatingPower,
+              Math.max(
+                0,
+                modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) -
+                  sacrificeDiscount.energy,
+              ),
+              Math.max(
+                0,
+                card.powerCost -
+                  sacrificeDiscount.power -
+                  scaledPowerDiscount(state, playerIndex, card.defId) -
+                  combatSpellPowerDiscount(state, playerIndex, card.kind),
+              ),
+              card.powerDomain,
+              card.powerDomainAlt,
+              card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+              restrictedPowerFor(actor, card.kind),
+              actor.floatingRainbowPower,
+            )
+          : undefined;
+      const sacrificePayment = sacrificeEffective
+        ? computeAutoPayment(
+            actor.channeled,
+            sacrificeEffective.energyCost,
+            sacrificeEffective.powerCost,
+            card.powerDomain,
+            card.powerDomainAlt,
+          )
+        : undefined;
       const variantPayment =
         canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
           ? { energyRunes: [], powerRunes: [] }
-          : repeatableSpend > 0
-            ? repeatablePayment
-            : payment;
+          : sacrificePayment !== undefined
+            ? sacrificePayment
+            : repeatableSpend > 0
+              ? repeatablePayment
+              : payment;
       // **The rainbow surcharge this VARIANT owes on top.** Computed here rather
       // than beside its use below, because the discard branch immediately after
       // emits its own candidates and owes the same tax — see that branch for why
