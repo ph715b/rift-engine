@@ -97,6 +97,11 @@ export function playCardDefIds(): string[] {
     DIREWING,
     BREAKNECK_MECH,
     XIN_ZHAO_VIGILANT,
+    // Shadow's is the odd one out: every other entry here reads the BOARD, and
+    // his reads which deploy path is running. He is registered all the same,
+    // because coverage's question is "does some module implement this clause",
+    // not "which kind of question does it ask".
+    SHADOW,
     // UNL's, added 2026-08-08. Refused by the parallel card wave because this
     // file is shared; that refusal was right, and the fix is a case rather than
     // the hook the refusal asked for.
@@ -123,7 +128,26 @@ export function playCardDefIds(): string[] {
  * itself, which matters because a second Wurm shouldn't ready the first one's
  * copy on the way in.
  */
-export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: UnitInstance, acceleratePaid?: boolean): boolean {
+export function unitEntersReady(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: UnitInstance,
+  acceleratePaid?: boolean,
+  /**
+   * WHERE the unit is arriving — `"battlefield"` or `"base"`.
+   *
+   * Added for Shadow (UNL-194): "If you play me TO A BATTLEFIELD, I enter ready."
+   * Every other conditional enter-ready in this file reads the board or the
+   * player; his reads the destination, and this predicate was handed none —
+   * `playUnitToBattlefield` and `playUnitToBase` called it identically, so the
+   * condition could not even be asked.
+   *
+   * Optional, and absent means "unknown" rather than "base": the inner callers
+   * that price a play before a destination exists must not accidentally satisfy
+   * a base-only clause. Only a card that names a destination reads it.
+   */
+  destination?: "battlefield" | "base",
+): boolean {
   return (
     "Quick" in card.keywords ||
     // [Accelerate] paid as an additional cost (805): "if you do, I enter ready".
@@ -135,6 +159,9 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
     // separate because a caller that asks must not accidentally spend.
     state.players[playerIndex].nextUnitsEnterReady > 0 ||
     otherFriendlyUnitsEnterReady(state, playerIndex, card.instanceId) ||
+    // A clause conditioned on WHERE the unit landed. Asked before the board-wide
+    // grants below only for readability; every term here is an OR.
+    destinationEntersReady(card, destination) ||
     // Master Yi - Wuju Master: "[Level 11][>] Your units enter ready."
     //
     // Beside Magma Wurm rather than in `conditionalEntersReady`'s switch, and the
@@ -192,6 +219,25 @@ export function unitEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
  * pool-wide table is how a future card gets a near-duplicate function instead
  * of a case.
  */
+/**
+ * Enter-ready clauses conditioned on the DESTINATION rather than on the board.
+ *
+ * One card so far. Kept separate from `conditionalEntersReady` because that one
+ * takes `state` and answers questions about the game; this one cannot be
+ * answered from the game at all — only from which deploy path is running.
+ */
+function destinationEntersReady(card: UnitInstance, destination?: "battlefield" | "base"): boolean {
+  switch (card.defId) {
+    case SHADOW:
+      // "If you play me to a battlefield, I enter ready." A base play leaves him
+      // exhausted like any other unit (143.4.a), which is the whole point of the
+      // clause — it is a reward for the riskier placement.
+      return destination === "battlefield";
+    default:
+      return false;
+  }
+}
+
 function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: UnitInstance): boolean {
   const player = state.players[playerIndex];
   switch (card.defId) {
@@ -292,6 +338,9 @@ const BREAKNECK_MECH = "SFD-071";
 const XIN_ZHAO_VIGILANT = "SFD-176";
 /** Towering Pairofant (UNL-008) — "If a unit died this turn, I enter ready."
  *  ANY unit, either side, which is why its case sums both players' counters. */
+/** Shadow — "If you play me to a battlefield, I enter ready." The only
+ *  enter-ready clause in the pool conditioned on the DESTINATION. */
+const SHADOW = "UNL-194";
 const TOWERING_PAIROFANT = "UNL-008";
 const XIN_ZHAO_OTHER_UNITS = 2;
 /** Scorchclaw (UNL-016) — "[Level 3][>] I have +1 [Might] and enter ready."
@@ -376,7 +425,7 @@ export function playUnitToBattlefield(
   const bfIndex = state.battlefields.findIndex((bf) => bf.id === battlefieldId);
   if (bfIndex === -1) return playUnitToBase(state, playerIndex, card);
 
-  const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card) };
+  const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card, undefined, "battlefield") };
   const spent = consumeNextUnitEntersReady(state, playerIndex, card);
   const ownerId = spent.players[playerIndex].id;
   const battlefields = [...spent.battlefields];
@@ -400,7 +449,7 @@ export function playUnitToBattlefield(
 }
 
 export function playUnitToBase(state: GameState, playerIndex: 0 | 1, card: UnitInstance): GameState {
-  const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card) };
+  const deployed: UnitInstance = { ...card, exhausted: !unitEntersReady(state, playerIndex, card, undefined, "base") };
   const spent = consumeNextUnitEntersReady(state, playerIndex, card);
   const players = [...spent.players] as [PlayerState, PlayerState];
   players[playerIndex] = { ...spent.players[playerIndex], baseUnits: [...spent.players[playerIndex].baseUnits, deployed] };

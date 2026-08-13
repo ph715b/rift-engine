@@ -266,6 +266,23 @@ const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
     onBattlefieldHeld: (state, ownerIndex) =>
       parkDecision(state, { kind: "SFD-201-gold", playerIndex: ownerIndex }),
   },
+  "UNL-193": {
+    // Vex - Gloomist — "When you or an ally hold, you may exhaust me to draw 1."
+    //
+    // Renata Glasc's FIRST clause with the payout changed, and nothing else: same
+    // moment (469.2's hold, raised as `battlefieldHeld`), same optional exhaust of
+    // the Legend as the price, same parked question. She pays a Gold; this draws.
+    //
+    // The clone was confirmed BEHAVIOURALLY by a wave-8 agent rather than by
+    // reading: a real `battlefieldHeld` with Renata seated parks `SFD-201-gold`,
+    // and the same event with Vex seated parked nothing at all.
+    //
+    // "Or an ALLY" needs nothing in a two-player game — there is no ally — and is
+    // written down rather than silently relied on, because a multiplayer mode
+    // would make it load-bearing and the hook already receives only the owner.
+    onBattlefieldHeld: (state, ownerIndex) =>
+      parkDecision(state, { kind: "UNL-193-draw", playerIndex: ownerIndex }),
+  },
   "SFD-187": {
     // Rek'sai - Void Burrower — "When you conquer, you may exhaust me to reveal
     // the top 2 cards of your Main Deck. You may banish one, then play it.
@@ -594,6 +611,29 @@ export const legendDecisions: Record<string, DecisionDefinition> = {
     },
   },
 
+  "UNL-193-draw": {
+    // The decline leads, exactly as Renata's does: this is a "you MAY", so a
+    // mis-click and the AI's tie-break both land on doing nothing.
+    prompt: () => "Vex - Gloomist: exhaust her to draw 1?",
+    options: (state, d) => {
+      const options: DecisionOption[] = [{ id: "decline", label: "Decline" }];
+      if (!state.players[d.playerIndex].legend.exhausted) {
+        options.push({ id: "draw", label: "Exhaust Vex to draw 1" });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "draw") return state;
+      const owner = state.players[d.playerIndex];
+      // Re-checked at ANSWER time, not trusted from the option list: the question
+      // waits on the chain, and the Legend can be exhausted by something else
+      // while it does. Renata's entry makes the same re-check for the same reason.
+      if (owner.legend.exhausted) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      return drawCards({ ...state, players }, d.playerIndex, 1);
+    },
+  },
   "SFD-201-gold": {
     prompt: () => "Renata Glasc - Chem-Baroness: exhaust her to play a Gold gear token exhausted?",
     options: (state, d) => {

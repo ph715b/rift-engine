@@ -116,7 +116,12 @@ describe("UNL-194 Shadow: played to a battlefield, he still arrives EXHAUSTED", 
     // WRONG ANSWER, deliberately asserted. `deploy.unitEntersReady` is handed
     // `action.acceleratePaid` and nothing about WHERE the unit landed, so
     // `conditionalEntersReady` cannot ask "to a battlefield?" at all.
-    expect(landed!.exhausted, "Shadow now enters ready — close the divergence row and retire this pin").toBe(true);
+    // **INVERTED 2026-08-13.** The pin was right and its diagnosis was exact:
+    // `unitEntersReady` was handed nothing about WHERE the unit landed. It is
+    // handed a destination now, from `execute-play-card` as well as from deploy's
+    // own two functions — the executor was the site that mattered and the one a
+    // narrower fix would have missed.
+    expect(landed!.exhausted, "Shadow stopped entering ready at a battlefield").toBe(false);
   });
 
   it("POSITIVE CONTROL: the same play DOES produce a ready Shadow when the board says so", () => {
@@ -342,9 +347,12 @@ describe("UNL-193 Vex - Gloomist: the clone claim, checked through the real hold
   });
 
   it("THE PIN: the same hold with Vex as Legend parks nothing", () => {
-    expect(pendingDecision(heldWith(VEX_GLOOMIST)), "UNL-193 gained an ability — retire this pin").toBeUndefined();
+    // **INVERTED 2026-08-13.** This pin proved the clone claim BEHAVIOURALLY —
+    // Renata's hold parked a question and Vex's parked nothing — which is what
+    // made her two rows rather than an investigation.
+    expect(pendingDecision(heldWith(VEX_GLOOMIST))?.kind, "Vex stopped asking on a hold").toBe("UNL-193-draw");
     expect(legendAbilityDefIds()).toContain(RENATA_CHEM_BARONESS);
-    expect(legendAbilityDefIds()).not.toContain(VEX_GLOOMIST);
+    expect(legendAbilityDefIds()).toContain(VEX_GLOOMIST);
     // The hook Vex needs already exists and is already dispatched; nothing new
     // is required of triggers.ts or scoring.ts.
     expect(legendTriggerKeysInUse()).toContain("onBattlefieldHeld");

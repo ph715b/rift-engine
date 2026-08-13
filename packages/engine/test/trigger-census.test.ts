@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("307 held / 5 inline of 312 trigger cards", () => {
+  it("310 held / 5 inline of 315 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -184,6 +184,19 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **312 → 315 cards on 2026-08-13**, +3 held, from ONE registration — and the
+    // factor of three is the interesting part rather than a surprise.
+    //
+    // Vex - Gloomist is a LEGEND, and every UNL Legend is printed three times
+    // (plain, (Overnumbered), (Signature)). `mergeRegistries` expands an alias
+    // after merging, so registering `UNL-193` registers `UNL-232` and `UNL-232*`
+    // with it — and this census counts CARDS, so all three are counted. That is
+    // the printing-alias machinery behaving, and the same +3 will appear for every
+    // Legend finished from here.
+    //
+    // Shadow (UNL-194) landed the same day and contributes NOTHING here: his
+    // enter-ready clause is a `deploy` predicate, not a trigger.
     //
     // **311 → 312 cards on 2026-08-13 (wave 8b)**, +1 held, and it is UNL-005
     // Revna the Lorekeeper — a `spellCast` listener whose condition is the ENERGY
@@ -313,9 +326,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 307,
+      held: 310,
       inline: 5,
-      cards: 312,
+      cards: 315,
     });
   });
 

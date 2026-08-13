@@ -311,11 +311,12 @@ describe("Shadow (UNL-194): '[1][rainbow], [Exhaust]: [Stun] an enemy unit attac
     // the card to DONE while "if you play me to a battlefield, I enter ready" is
     // still missing. The row is what stops that, and this now asserts the state
     // the row creates rather than the over-report it was added to prevent.
-    expect(isCardImplemented(registry.get(SHADOW)), "Shadow claims to be finished").toBe(false);
-    expect(
-      partialImplementationNote(registry.get(SHADOW)),
-      "the PARTIALLY_IMPLEMENTED row is gone and the card is over-reporting again",
-    ).toMatch(/enter ready/);
+    // **Both halves are written as of 2026-08-13.** This asserted the row that
+    // stopped the card over-reporting while its enter-ready clause was missing;
+    // the clause landed once `unitEntersReady` was handed a destination, so the
+    // row went with it.
+    expect(isCardImplemented(registry.get(SHADOW)), "Shadow went back to being half-written").toBe(true);
+    expect(partialImplementationNote(registry.get(SHADOW)), "a partial note came back").toBeUndefined();
     // The half that IS live must still be visible, or the row would be hiding a
     // working ability rather than naming a missing one.
     expect(implementingModules(SHADOW), "the ability is not visible to coverage").toContain("activated abilities");

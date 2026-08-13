@@ -764,10 +764,15 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // narrow and real: `deploy.unitEntersReady` is handed no destination at all, and
   // `playUnitToBattlefield` and `playUnitToBase` call it identically — so the
   // condition cannot even be asked without threading a parameter from both.
-  [
-    "UNL-194",
-    "half written: the [1][rainbow] [Exhaust] stun works; 'if you play me to a battlefield, I enter ready' is unwritten — deploy.unitEntersReady is handed no destination, so the condition cannot be asked",
-  ],
+  // **UNL-194 Shadow LEFT this map on 2026-08-13.** His enter-ready clause was
+  // blocked by a genuinely narrow thing: `deploy.unitEntersReady` was handed no
+  // destination at all, and `playUnitToBattlefield` and `playUnitToBase` called
+  // it identically — so "if you play me TO A BATTLEFIELD" could not be asked,
+  // never mind answered. The parameter is threaded now.
+  //
+  // His clause lives in `destinationEntersReady` rather than beside the others
+  // in `conditionalEntersReady`: those read the game, and this one cannot be
+  // answered from the game at all — only from which deploy path is running.
 ]);
 
 /** What is still missing from a partially-implemented card, or undefined when

@@ -275,7 +275,12 @@ describe("the three cards this wave refused", () => {
     // because `allListeningPermanents` reaches the legend zone only through that
     // table's adapter. A domain file cannot register a Legend at all.
     // Delete this test when the hook is written.
-    expect(implementingModules(VEX_GLOOMIST), "Vex now works — retire this refusal").toEqual([]);
+    // **This refusal expired on 2026-08-13** and was accurate throughout: a
+    // domain file cannot register a Legend at all, and both her halves went into
+    // `legend-abilities.ts` exactly as it said. Inverted rather than deleted —
+    // a Legend hook that stopped being registered fires nothing and looks like
+    // nothing.
+    expect(implementingModules(VEX_GLOOMIST), "Vex lost her Legend registration").toContain("legend-abilities");
   });
 
   it("Shadow (UNL-194) is still unimplemented — BOTH clauses, for different reasons", () => {
@@ -299,12 +304,19 @@ describe("the three cards this wave refused", () => {
     // The enter-ready half is untouched and its reasoning above still holds
     // exactly, so this is narrowed rather than deleted: `unitEntersReady` is still
     // handed no destination.
+    // **The second half expired on 2026-08-13** and this refusal is now fully
+    // spent. Both of its diagnoses were exact: the stun needed a source-relative
+    // target restriction (solved from the other side, by withholding the ability
+    // rather than widening the target), and the enter-ready clause needed
+    // `deploy.unitEntersReady` to be handed a destination it was never given.
+    //
+    // Inverted rather than deleted, in both halves: an activated ability that
+    // stopped being registered offers nothing, and an enter-ready clause that
+    // stopped firing leaves a unit exhausted. Neither looks like an error.
     const modules = implementingModules(SHADOW);
     expect(modules, "the activated ability stopped being registered").toContain("activated abilities");
-    expect(
-      partialImplementationNote(registry.get(SHADOW)),
-      "Shadow's enter-ready half landed — retire what is left of this refusal",
-    ).toBeDefined();
+    expect(isCardImplemented(registry.get(SHADOW)), "Shadow went back to being half-written").toBe(true);
+    expect(partialImplementationNote(registry.get(SHADOW)), "a partial note came back").toBeUndefined();
   });
 
   it("Ivern - Green Father (UNL-195) is still unimplemented, and deliberately", () => {

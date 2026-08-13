@@ -418,7 +418,21 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   if (card.kind === "Unit") {
     // Ready-or-exhausted lives in engine/deploy.ts now, shared with the effects
     // that play a unit without a PlayCardAction to carry the question.
-    const deployedUnit = { ...card, exhausted: !unitEntersReady(state, action.playerIndex, card, action.acceleratePaid) };
+    // The DESTINATION is passed because a clause can be conditioned on it —
+    // Shadow's (UNL-194) "if you play me to a battlefield, I enter ready". This is
+    // the real play path, and threading it only through `deploy`'s own two
+    // functions left it unread here: the card arrived exhausted at a battlefield
+    // and the test that caught it looked exactly like the clause not working.
+    const deployedUnit = {
+      ...card,
+      exhausted: !unitEntersReady(
+        state,
+        action.playerIndex,
+        card,
+        action.acceleratePaid,
+        action.destinationBattlefieldId !== undefined ? "battlefield" : "base",
+      ),
+    };
     // Sun Disc's charge is spent on the unit that used it, and only then — see
     // consumeNextUnitEntersReady. Applied to `updatedActor` below rather than to
     // `state`, since this branch has already begun building the new player.
