@@ -163,6 +163,17 @@ export function listeningTrashCards(state: GameState, playerIndex: 0 | 1): Liste
 const TRASH_LISTENER_DEF_IDS = new Set([
   "OGN-252", // Super Mega Death Rocket! — "when you conquer, you may discard 1 to return this from your trash"
   "OGN-037", // Immortal Phoenix — "when you kill a unit with a spell, you may pay ... to play me from your trash"
+  // Deadly Flourish — "Deal 3 to an enemy unit. When it dies this turn, play a
+  // Gold gear token exhausted."
+  //
+  // The odd one out: it does NOT say "from your trash", and it is here because
+  // of WHERE it ends up rather than what it says. `execute-play-card` trashes a
+  // Spell at play time, so by the moment its victim dies the card is already in
+  // its caster's trash — and its own delayed clause fires from there.
+  //
+  // A wave-3 note had recorded the trash route as closed for exactly this card.
+  // It was not; nothing had checked.
+  "UNL-073",
 ]);
 
 /**
@@ -917,6 +928,21 @@ export type GameEvent =
    */
   | { kind: "runesRecycled"; ownerIndex: 0 | 1; count: number }
   /**
+   * A card was HIDDEN (811) — Katarina - Reckless's "when you hide a card, ready
+   * me".
+   *
+   * **811 says hiding opens no chain**, and that is not a reason for this event
+   * not to exist: a TRIGGER caused by hiding still goes on the chain under 383.3,
+   * exactly as `runesRecycled` above already does from the very same action
+   * handler. The distinction is between the hide itself (no chain) and what the
+   * hide sets off (a chain item like any other).
+   *
+   * Raised from `execute-hide-card`, which is the only place a card becomes
+   * hidden — the same siting rule `unitChosen` records: the moment has to be the
+   * action handler, because by resolution the fact is unanswerable.
+   */
+  | { kind: "cardHidden"; ownerIndex: 0 | 1 }
+  /**
    * A Buff was SPENT (702.2.b) — Fae Dragon's "when you spend a buff, play a Gold
    * gear token exhausted".
    *
@@ -1145,7 +1171,16 @@ export type GameEvent =
    * Attack Triggers are the precedent for doing both at once only when the rules
    * tie them together.
    */
-  | { kind: "spellCast"; casterIndex: 0 | 1; totalCost: number }
+  | {
+      kind: "spellCast";
+      casterIndex: 0 | 1;
+      /** The PRINTED Energy plus Power — what Lux's "costs 5 or more" reads. */
+      totalCost: number;
+      /** The ENERGY actually spent after discounts, when the spell was priced at
+       *  all. Revna the Lorekeeper's "if you spent [N] or more" reads this, and
+       *  the two figures answer genuinely different questions. */
+      energySpent?: number;
+    }
   /**
    * An ACTIVATED ABILITY was used — Prize of Progress's "when you use an
    * activated ability of a GEAR".
@@ -1203,6 +1238,7 @@ export type HeldEventKind =
   | "unitKilledBySpell"
   | "cardsRecycled"
   | "runesRecycled"
+  | "cardHidden"
   | "buffSpent"
   | "equipmentAttached"
   | "showdownBegan"

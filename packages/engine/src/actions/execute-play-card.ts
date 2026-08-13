@@ -624,6 +624,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         {
           playerIndex: action.playerIndex,
           card,
+          // What this play actually cost in Energy, after every discount — the
+          // same figure `maxSpellEnergySpentThisTurn` is maximised from three
+          // lines below, so the two can never disagree about one spell.
+          energySpent: modifiedEnergy,
           ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         // Akshan - Mischievous' enemy gear. Forwarded for the reason
         // `trashCardInstanceId` beside it carries a paragraph about: a field

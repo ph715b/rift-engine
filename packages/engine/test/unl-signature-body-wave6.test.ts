@@ -15,11 +15,16 @@ import { answerDecisions, makeState, makeUnit, realUnitInstance, resolveHeldTrig
 /**
  * Wave 6's `Body+X` dual-domain Unleashed cards — `effects/signature-body.ts`.
  *
- * Three of the four written; UNL-202 Void Assault refused outright (it needs a
- * SECOND move destination on `PlayCardAction`, which is not this file's to add),
- * and UNL-201 Kha'Zix written by two clauses of three. Both gaps are PINNED here
- * by a test that asserts the WRONG answer, so closing either fails loudly instead
- * of silently changing behaviour nobody is watching.
+ * Three of the four were written in wave 6; UNL-202 Void Assault was refused
+ * outright and UNL-201 Kha'Zix written by two clauses of three. Both gaps were
+ * PINNED here by a test asserting the WRONG answer, so closing either failed
+ * loudly instead of silently changing behaviour nobody was watching.
+ *
+ * **Both pins have now expired** — Void Assault on 2026-08-12 (wave 7) and
+ * Kha'Zix's third clause the same day (wave 8, once `ActivationCost.xp` landed).
+ * Each was turned ROUND rather than deleted: same fixture, opposite assertion. A
+ * deleted pin leaves nothing saying the gap ever closed, which is how a card
+ * quietly reverts to inert.
  *
  * **Nothing here calls a resolver closure.** Every card is driven the way a game
  * drives it — `legalActions` for the fan-out, `submit` for the action,
@@ -184,28 +189,28 @@ describe("Kha'Zix - Voidreaver (UNL-201): Spend 1 XP, [Exhaust]: [Buff] a unit",
     expect(offered, "an enemy unit was excluded — the card names no owner").toContain("theirs");
   });
 
-  it("PINNED: his 'Spend 2 XP, [Exhaust]: move an exhausted friendly home' clause is UNWRITTEN", () => {
-    // Half a card, and a refusal rather than an oversight. Two abilities on one
-    // defId must be MODES of one registry entry, and `availableWhile` is declared
-    // on the ABILITY rather than the mode — so one predicate would have to answer
-    // for both prices. `canPayActivationCost` receives a `modeId` and drops it.
+  it("RETIRED 2026-08-12: his 'Spend 2 XP, [Exhaust]: move an exhausted friendly home' clause now WORKS", () => {
+    // This used to be a pin asserting the clause was UNWRITTEN, with the note
+    // "retire when `ActivationCost.xp` exists". It exists (wave 8), the two
+    // printed abilities are now priced MODES of one entry, and the pin has been
+    // turned round rather than deleted: the same board, the opposite assertion.
     //
-    // Retire this pin when `ActivationCost.xp` exists (or when `availableWhile`
-    // takes the mode), and add the second mode.
-    //
-    // The board is deliberately the one the missing clause is FOR: an exhausted
-    // friendly standing at a battlefield, and 9 XP so price is not the reason.
+    // Kept here as well as in `unl-signature-body-wave8.test.ts` deliberately —
+    // this is the fixture the refusal was measured on, so it is the one that says
+    // the refusal is over. The wave-8 file carries the negative controls.
     const state = khazixBoard(9);
     state.battlefields[0]!.units = {
       p1: [makeUnit({ instanceId: "tired", might: 3, exhausted: true })],
       p2: [makeUnit({ instanceId: "theirs", might: 3 })],
     };
     const offered = activationsOf(state, legendId(state));
-    expect(offered.length, "no ability at all is offered — the pin measures nothing").toBeGreaterThan(0);
-    expect(
-      offered.filter((a) => a.modeId !== undefined || a.destinationBattlefieldId !== undefined),
-      "the move-home clause is now offered — retire this pin and the PARTIALLY_IMPLEMENTED row",
-    ).toEqual([]);
+    expect(offered.length, "no ability at all is offered — this measures nothing").toBeGreaterThan(0);
+    const home = offered.find((a) => a.modeId === "home" && a.targetUnitInstanceId === "tired");
+    expect(home, "the move-home clause is not offered for the unit it is printed for").toBeDefined();
+
+    const after = answerDecisions(resolveHeldTriggers(accept(state, home!)));
+    expect(after.players[0]!.baseUnits.some((u) => u.instanceId === "tired"), "the unit never went home").toBe(true);
+    expect(after.players[0]!.xp, "the printed 2-XP price was not paid").toBe(7);
   });
 
   it("is registered — both written clauses reach the composed registries", () => {

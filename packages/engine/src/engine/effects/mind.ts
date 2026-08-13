@@ -45,6 +45,7 @@ import {
   payPowerFromChanneled,
   readyRunes,
   readyUnit,
+  recordModeUsed,
   recycleUnitFromPlayToDeck,
   removeUnitAnywhere,
   returnCardFromTrash,
@@ -847,42 +848,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Deadly Flourish — "Deal 3 to an enemy unit. When it dies this turn, play a
     // Gold gear token exhausted."
     //
-    // **ONE of two sentences. The second is REFUSED, not forgotten**, and the
-    // gap is named here because registration is per defId: with this entry
-    // written the card reports finished, and this comment plus the owed
-    // `PARTIALLY_IMPLEMENTED` row are the only things that say otherwise.
-    //
-    // # Why the delayed trigger cannot be written from any domain file
-    //
-    // "When IT dies this turn" is a delayed triggered ability (359.3.f.3.a)
-    // attached to a unit that must OUTLIVE it — the ability has to survive the
-    // very death it watches for. This engine has three ways a death reaches an
-    // ability and all three were read rather than assumed:
-    //
-    //  - `deathTriggers` ([Deathknell]) is keyed by the DYING card's defId, and
-    //    `holdDeathknell` looks the definition up by `death.unit.defId`. The
-    //    victim is an arbitrary enemy card, so there is no key to register under
-    //    and no seam that grants one.
-    //  - `deathWatchTriggers` / the `unitDied` event are keyed by a LISTENER, and
-    //    `holdEventTrigger` walks `allListeningPermanents`. `destroyUnit` and
-    //    `dealDamage` both call `removeUnitAnywhere` BEFORE `killUnit`, so by the
-    //    time `completeDeath` fires the event the victim is off the board and out
-    //    of the walk. Granting the victim a key this turn — the
-    //    `UnitInstance.grantedTriggersThisTurn` seam Relentless Pursuit uses —
-    //    therefore reaches nothing. Measured by reading those three functions,
-    //    not inferred.
-    //  - a card in a TRASH can listen, but only through `TRASH_LISTENER_DEF_IDS`,
-    //    a two-entry set in triggers.ts. This spell is in its caster's trash by
-    //    the time the death happens and is not in that set.
-    //
-    // What is missing is a per-victim delayed-trigger list on `GameState` — the
-    // shape `paidDeathWardUnitInstanceIds` already has for Unlicensed Armory —
-    // plus a read of it in `completeDeath`. That is model/game-state.ts and
-    // effect-helpers.ts, neither of them this file's. Writing the clause against
-    // anything that exists today would report DONE and fire never, which is the
-    // one failure this file's doc comment exists to prevent.
-    //
-    // # The sentence that IS here
+    // # The first sentence
     //
     // "An ENEMY unit" with no location word: 355.9.a.1 makes the bare noun "an
     // object on the Board" and 355.10.a.1's Public zones name the Bases, so
@@ -890,14 +856,58 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // take two entries up. `owner: "enemy"` is printed and is the difference
     // between this and those two.
     //
-    // 3 is not lethal to much on its own; what the missing half was buying is the
-    // Gold token when it IS. So the implemented half is strictly weaker than
-    // printed, which is the safe direction, and never wrong about the board.
+    // # The second sentence: a MARK on the victim, read by a TRASH listener
+    //
+    // "When IT dies this turn" is a delayed triggered ability (390.2, and
+    // 359.3.f.3.a for when its information is referenced) that has to outlive
+    // the very death it watches for. It works now because of a route that did
+    // NOT exist when the first sentence was written alone: `execute-play-card`
+    // trashes a Spell at play time, so the Flourish is already sitting in its
+    // caster's trash while its victim is still alive, and triggers.ts's
+    // `TRASH_LISTENER_DEF_IDS` now names this card — the odd entry in that set,
+    // since it is there for WHERE it ends up rather than for saying "from your
+    // trash".
+    //
+    // The two halves are joined by a mark written onto the VICTIM before the
+    // damage, so `killUnit`'s snapshot carries it: 808.1.d.3 requires the dying
+    // card's details be noted "before the card is moved to the Trash", and
+    // `dealDamage` builds `damagedUnit` from the live unit, so a mark placed
+    // first rides `DeathContext.unit` into the trigger. Nothing else can carry
+    // it — the victim is off the board by the time `completeDeath` fires the
+    // event, so no board-keyed lookup could find it.
+    //
+    // `abilityModesUsedThisTurn` is the field, for the reason Draven's and
+    // Pyke's marks two files over already give: it is per-INSTANCE and
+    // `turn-manager`'s runEnd clears it for every unit on both sides, so "this
+    // turn" expires for free on a victim who survives.
+    //
+    // **The mark is stamped with the turn, and that is load-bearing rather than
+    // decorative.** runEnd's `expireMightThisTurn` sweeps base units and
+    // battlefield units and nothing else, so a victim that reached a NON-BOARD
+    // zone carries its mark there unswept — `returnUnitToHand` and
+    // `completeDeath` both preserve the field. Rule 124 says that object is a
+    // new one anyway ("a Game Object that changes zones to or from a Non-Board
+    // Zone becomes a new object for the purposes of tracking that object"), and
+    // 390.5.a closes the delayed ability's window with it. The stamp is what
+    // makes the stale copy fail to match on any later turn.
     targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
-    resolve: (state, ctx, event) =>
-      event.targetUnitInstanceId
-        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, DEADLY_FLOURISH_DAMAGE)
-        : state,
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (targetId === undefined) return state;
+      // A target that left play in the response window: 359.3.e makes both
+      // instructions no-ops, and marking a unit that is not there would be an
+      // invention rather than a no-op.
+      const victim = findUnitAnywhere(state, targetId);
+      if (victim === undefined) return state;
+      // Marked BEFORE the damage, because the damage is what usually kills: the
+      // whole death funnel runs inside `dealDamage`, and a mark written after it
+      // would arrive at an empty board.
+      const marked =
+        ctx.sourceCardInstanceId === undefined
+          ? state
+          : recordModeUsed(state, victim.ownerIndex, targetId, deadlyFlourishMark(state, ctx.sourceCardInstanceId));
+      return dealDamage(marked, ctx.casterIndex, targetId, DEADLY_FLOURISH_DAMAGE);
+    },
   },
   "UNL-072": {
     // Crescent Strike — "[Action] Choose a battlefield and an enemy unit there.
@@ -1733,12 +1743,112 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
   },
 };
 
+/**
+ * Deadly Flourish's delayed trigger, written onto the unit it damaged.
+ *
+ * One function rather than two literals, because the writer (the spell's
+ * resolver) and the reader (its death-watch, firing from the caster's trash) are
+ * 900 lines apart and a key that drifts is a card that pays nothing while
+ * reporting done.
+ *
+ * # What each part of the key is for
+ *
+ * The **spell instance** scopes it to ONE Flourish. Two Flourishes on one victim
+ * are two delayed abilities and pay two Gold tokens, which is what 390.2 makes
+ * them: each is its own trigger, not a re-arming of the other.
+ *
+ * The **turn** is the "this turn" in the printed text, and it has to be in the
+ * key rather than checked separately because nothing sweeps it off a victim that
+ * has left the board — see the card's own entry for the measurement.
+ * `activePlayerIndex` rides along because `turnNumber` counts ROUNDS, not turns
+ * (`turn-manager`'s runEnd bumps it only when play returns to the first player),
+ * so the number alone would let a mark survive from one player's turn into the
+ * other's.
+ *
+ * **Not exhaustive, and knowingly so:** an extra turn (Time Warp) repeats both
+ * halves of the key, so a victim that reached a non-board zone on the first of
+ * two consecutive turns and came back could still match. That needs a zone-change
+ * hook — rule 124's "becomes a new object" — which lives in effect-helpers.ts and
+ * is not this file's. Recorded in docs/rules-conformance.md rather than left in a
+ * comment.
+ */
+function deadlyFlourishMark(state: GameState, spellInstanceId: string): string {
+  return `UNL-073|${spellInstanceId}|t${state.turnNumber}|p${state.activePlayerIndex}`;
+}
+
+/**
+ * Takes Deadly Flourish's mark back off the card it paid for, wherever that card
+ * has come to rest.
+ *
+ * The trash, in practice: `completeDeath` has already filed the victim there by
+ * the time a death-watch resolves, and it preserves `abilityModesUsedThisTurn`
+ * along with everything else on the instance.
+ *
+ * **Rule 124 is why this is here at all.** A card played back out of the trash on
+ * the same turn — Last Rites grants exactly that — is "a new object for the
+ * purposes of tracking that object", so the Flourish that already paid must not
+ * pay again when the new object dies. Without this the mark would still be on the
+ * instance and would still match its own turn's key.
+ *
+ * Only THIS spell's mark is removed, so a second Flourish on the same victim
+ * keeps its own.
+ */
+function forgetDeadlyFlourishMark(state: GameState, ownerIndex: 0 | 1, unitInstanceId: string, mark: string): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const owner = players[ownerIndex]!;
+  players[ownerIndex] = {
+    ...owner,
+    trash: owner.trash.map((c) =>
+      c.instanceId === unitInstanceId && c.kind === "Unit"
+        ? { ...c, abilityModesUsedThisTurn: c.abilityModesUsedThisTurn.filter((m) => m !== mark) }
+        : c,
+    ),
+  };
+  return { ...state, players };
+}
+
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
  *  Keyed by the LISTENING card's defId. Same one-file-one-owner rule. */
 /** Listeners for someone ELSE dying ("when a buffed friendly unit dies"), keyed
  *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  "UNL-073": {
+    // Deadly Flourish's second sentence — "When it dies this turn, play a Gold
+    // gear token exhausted." The first is in `cardEffects`, which is where the
+    // whole card is explained; this end only reads the mark that one wrote.
+    //
+    // **The listener is a SPELL in a trash**, which is why `TRASH_LISTENER_DEF_IDS`
+    // had to name it: `allListeningPermanents` walks the board plus that named
+    // set, and the Flourish is in its caster's trash from the moment it was
+    // played. Nothing on the board could stand in for it — the victim itself is
+    // gone by the time `completeDeath` fires the event.
+    //
+    // The mark is read off `death.unit`, the snapshot 808.1.d.3 requires be taken
+    // "before the card is moved to the Trash", so this is a fact about the death
+    // and settles whether the ability TRIGGERED at all — the same place every
+    // other death-watch in this file and in triggers.ts puts its printed
+    // conditions. `state` is the board as the unit died, so the turn half of the
+    // key is asked against the turn the death happened on, which is exactly the
+    // printed "this turn".
+    applies: (state, listener, death) =>
+      death.unit.abilityModesUsedThisTurn.includes(deadlyFlourishMark(state, listener.card.instanceId)),
+    // The Gold goes to the FLOURISH's controller — "play a Gold gear token" with
+    // no owner word is the ability's controller playing it, and a trash listener's
+    // `ownerIndex` is whose trash it is. Exhausted, as printed, which
+    // `placeGoldTokens` already does for every Gold in the pool.
+    resolve: (state, listener, death) =>
+      placeGoldTokens(
+        forgetDeadlyFlourishMark(
+          state,
+          death.ownerIndex,
+          death.unit.instanceId,
+          deadlyFlourishMark(state, listener.card.instanceId),
+        ),
+        listener.ownerIndex,
+        1,
+      ),
+  },
   "UNL-068": {
     // Spectral Centaur — "When ANOTHER friendly unit dies, give me +2 Might this
     // turn."

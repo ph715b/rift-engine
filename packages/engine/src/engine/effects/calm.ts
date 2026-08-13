@@ -1354,6 +1354,48 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   //
   // Adding it is one field on `PlayerState` (`model/game-state.ts`), one
   // increment in the death funnel and one reset in `runEnd`. All shared.
+  //
+  // **Wave 8 measured that claim rather than re-reading it**, and it holds:
+  // `unl-calm-wave8-refusals.test.ts` runs the death funnel once in `Beginning`
+  // and once in `Action` and compares the WHOLE serialized `PlayerState`. The two
+  // are byte-identical, and the same comparison separates one death from two — so
+  // "no field records the phase" is a measurement, not a search that came up empty.
+  //
+  // # UNL-054 Tricksy Tentacles is REFUSED, and it needs LESS than it looks
+  //
+  // "Move any number of enemy units with the same controller and a total Might of
+  // 8 or less to a single location."
+  //
+  // The targeting is already expressible — `{ kind: "unitList", min: 0, owner:
+  // "enemy", scope: "anywhere", maxTotalMight: 8 }`. "With the same controller"
+  // needs nothing beyond `owner: "enemy"` in a two-player game, and `maxTotalMight`
+  // is read as EFFECTIVE Might, which is what the spec's own note requires.
+  //
+  // What is missing is the DESTINATION, and only a `MOVE_TARGET_SPELL_DEF_IDS` row
+  // (engine/card-effects.ts) — **one line, not the three a wave-7 note predicted.**
+  // Measured in `unl-calm-wave8-refusals.test.ts`: both filters `withDestinations`
+  // applies after fanning out the battlefields already return true for an
+  // `undefined` `targetUnitInstanceId`, which is exactly what a `unitList` play
+  // carries, and `validate-play-card`'s destination checks skip on the same
+  // undefined. So no enumerator change is needed for the battlefield axis.
+  //
+  // 355.4 asks for "a valid Location as the Move Destination for each Move that
+  // will be performed" — which for Void Assault means two fields and one action
+  // that carries only one. It does NOT bite here: this card prints "a SINGLE
+  // location", so one `destinationBattlefieldId` is the whole choice.
+  //
+  // **Registering the resolver WITHOUT that row would be worse than leaving the
+  // card dead**, which is Stormbringer's (OGN-250) recorded position and the
+  // reason nothing is written here: the card would be castable, the destination
+  // would always arrive undefined, and coverage would report a card that moves
+  // nobody as done.
+  //
+  // The BASE half is genuinely open. 198.1 makes a base a Location and 355.4.a
+  // makes it valid, but `withDestinations`' `toBase` branch is gated on
+  // `currentBattlefieldIndex`, derived from the single `targetUnitInstanceId` — so
+  // a `MOVE_TO_BASE_DEF_IDS` row alone would not offer it. That one is READ off
+  // legal-actions.ts rather than measured: no card in the pool reaches the path
+  // (Skyward Strike is `min: 1`, so its first slot is always filled).
 };
 
 /** Janna - Savior's "heal your units HERE" — `playerIndex`'s units at
@@ -3557,6 +3599,43 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   // `resolve` even for the costs that already carry a choice. Both halves are
   // shared-file work; writing the card against either missing piece would register
   // the defId, report DONE, and move nobody.
+  //
+  // # Wave 8 re-measured this, and the second gap DISSOLVES when the card is read
+  // # destination-first
+  //
+  // "Move a different unit you control to the location of the unit you exhausted"
+  // is equivalent to "choose a Location, exhaust a friendly ready unit standing
+  // there, move a different friendly unit to it" — the payer is at the destination
+  // BY DEFINITION, so the destination is the only thing `resolve` needs, and it
+  // already has a field. `AbilityMode.movesTarget` fans the destination out per
+  // battlefield (Yasuo - Unforgiven's `fromBase` is the working precedent) and
+  // that flag is set by the card's own definition, so this file owns it.
+  //
+  // That leaves ONE shared change rather than two: an `exhaustFriendlyUnit` flag
+  // on `ActivationCost` plus a block in `legal-actions.activationCostChoices`
+  // (which already fans out `costPermanentInstanceId` for Malzahar's kill and
+  // `costDiscardCardInstanceId` for Unlicensed Armory), a re-derivation in
+  // `validate-activate-ability`, and a branch in `payActivationCost`. The
+  // destination-first reading means NO new field on `ActivatedAbilityEvent` and no
+  // change to `execute-activate-ability`'s forwarding.
+  //
+  // **`ActivationCost` is actively growing** — it gained `xp` on 2026-08-12 for
+  // Kha'Zix - Voidreaver's third clause — so the seam is one an integrator is
+  // already touching, which is the argument for landing this next.
+  //
+  // # A THIRD gap the earlier note missed, and it is the one that would silently
+  // # narrow the card
+  //
+  // "The LOCATION of the unit you exhausted" includes a BASE (198.1), and the unit
+  // you exhaust may well be standing in yours. `ActivateAbilityAction` has NO
+  // `destinationIsBase` field at all — a Spell's action has one, an ability's does
+  // not — and `legal-actions`' ability fan-out walks `state.battlefields` only.
+  // Measured in `unl-calm-wave8-refusals.test.ts` against Yasuo, the pool's only
+  // `movesTarget` ability: every variant carries a battlefield, none a base.
+  //
+  // So even with the cost seam this card would be strictly narrower than printed
+  // unless the ability action learns a base destination. Named here because a
+  // shortfall that is discovered AFTER the cost work lands is the expensive kind.
 };
 
 

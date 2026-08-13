@@ -552,7 +552,12 @@ describe("the five cards wave 7 refused", () => {
     // Gating one `availableWhile` on 1 XP instead would offer the 2-XP move to a
     // player who cannot pay it — the exhaust is taken BEFORE `resolve` runs, so the
     // refusal would leave a Legend spent for nothing.
-    expect(isCardImplemented(registry.get(KHAZIX_VOIDREAVER))).toBe(false);
+    // **This pin expired on 2026-08-12, the day after it was written**, and is
+    // inverted rather than deleted: it named `ActivationCost.xp` as the price, the
+    // integrator landed exactly that, and his third clause went in as a second
+    // mode. A cost that silently stopped being charged looks like nothing at all —
+    // the ability simply becomes free — so the inversion is what would notice.
+    expect(isCardImplemented(registry.get(KHAZIX_VOIDREAVER)), "Kha'Zix went back to being half-written").toBe(true);
   });
 
   it("...and the two this wave DID write are registered", () => {

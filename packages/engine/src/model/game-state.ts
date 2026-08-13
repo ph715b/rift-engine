@@ -75,6 +75,26 @@ export interface SpellChainEntry {
   kind?: "spell";
   playerIndex: 0 | 1;
   card: SpellInstance;
+  /**
+   * The ENERGY actually spent to play this spell, after every discount — not
+   * its printed cost.
+   *
+   * Added for Revna the Lorekeeper (UNL-005), "when you play a spell, if you
+   * spent [N] or more...". The `spellCast` event carried `totalCost`, which is
+   * the PRINTED Energy plus Power, and no reading of it can answer a question
+   * about what was spent.
+   *
+   * **`maxSpellEnergySpentThisTurn` is not a substitute** and a wave-7 agent
+   * measured why: it is a turn MAXIMUM, so a cheap spell cast after an expensive
+   * one would satisfy a per-spell threshold it never met. That field answers
+   * Prepared Neophyte's "have you spent [4] on a spell this turn"; this one
+   * answers "did you spend [4] on THIS spell".
+   *
+   * Optional because a spell can reach the chain by paths that never priced it
+   * (`playCardIgnoringCost`), and a card asking "did you spend N" should read
+   * nothing rather than a fabricated zero.
+   */
+  energySpent?: number;
   /** Only meaningful when the resolved card's registered effect has a
    *  "unit"-kind TargetingSpec (see engine/card-effects.ts). */
   targetUnitInstanceId?: string;

@@ -301,8 +301,12 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // Inverted rather than deleted: this list is the only place a reader can see
     // which cards carry an absolute prohibition, and a card silently leaving it
     // would make a play legal that should be impossible.
+    // **UNL-147 Baron Nashor joined the list on 2026-08-12.** His "I can't be
+    // chosen by enemy spells and abilities" is Ruin Runner's shape exactly —
+    // unconditional, `() => true` — and was one of the three clauses a wave-7
+    // agent named as writable in one row. It is the row.
     expect(chooseRestrictionDefIds().sort(), "a card lost its choose restriction").toEqual(
-      ["SFD-105", "UNL-057", "UNL-059"].sort(),
+      ["SFD-105", "UNL-057", "UNL-059", "UNL-147"].sort(),
     );
   });
 });

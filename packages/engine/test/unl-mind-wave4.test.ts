@@ -169,34 +169,42 @@ describe("Deadly Flourish (UNL-073): deal 3 to an enemy unit", () => {
   });
 
   /**
-   * **PIN on the unwritten second sentence** — "When it dies this turn, play a
-   * Gold gear token exhausted."
+   * **The pin that WAS here has been closed.** It asserted the wrong answer on
+   * purpose — "the victim dies and NO Gold token arrives" — because no mechanism
+   * then carried a delayed trigger past its subject's death.
    *
-   * A 3-Might victim dies to the 3, so the delayed trigger's condition is met in
-   * the most direct way there is. No Gold token arrives, because no mechanism
-   * carries a delayed trigger past its subject's death — see the card's entry for
-   * the three registries that were read to establish that.
+   * One landed: `TRASH_LISTENER_DEF_IDS` now names this card, so the Flourish
+   * watches from its caster's trash for a death carrying a mark it wrote on the
+   * victim before the damage. The assertion is flipped rather than deleted, so
+   * the shortest path to the clause — a 3-Might victim dying to the printed 3 —
+   * stays covered here beside the damage half.
    *
-   * Asserting the WRONG answer on purpose: when the clause lands, this fails.
+   * The rest of the clause (a later death the same turn, the per-victim and
+   * per-spell scoping, the turn stamp, the strip after paying) lives in
+   * `unl-mind-wave8.test.ts`.
    */
-  it("PIN: the victim dies and NO Gold token arrives — the second sentence is unwritten", () => {
+  it("the victim dies to the 3 and a Gold gear token arrives, exhausted", () => {
     const { state, spellId } = flourishState(3);
     const cast = castsOf(state, spellId).find((a) => a.targetUnitInstanceId === "victim");
 
     const after = passUntilSettled(accept(state, cast!));
 
-    // The positive control: the death really happened, so a written clause would
-    // have had its moment.
-    expect(unitOnBoard(after, "victim"), "the victim survived, so this pins nothing").toBeUndefined();
+    // The positive control the pin already carried: the death really happened,
+    // so the delayed clause had its moment.
+    expect(unitOnBoard(after, "victim"), "the victim survived, so this proves nothing").toBeUndefined();
     expect(after.players[1]!.trash.map((c) => c.instanceId)).toContain("victim");
-    expect(after.players[0]!.activeGear, "the Gold token clause is implemented now — delete this pin").toHaveLength(0);
+    const gold = after.players[0]!.activeGear;
+    expect(gold, "the delayed Gold token never arrived").toHaveLength(1);
+    expect(gold[0]!.exhausted, "'play a Gold gear token EXHAUSTED'").toBe(true);
   });
 
-  it("coverage names the half that is missing", () => {
-    // Was a pin asserting the over-report — the damage half claimed the whole
-    // card. The PARTIAL entry the agent named landed at integration.
-    expect(isCardImplemented(registry.get(DEADLY_FLOURISH))).toBe(false);
-    expect(partialImplementationNote(registry.get(DEADLY_FLOURISH))).toContain("dies this turn");
+  it("is WHOLE — its second clause landed on 2026-08-12", () => {
+    // This pin asserted the card was half-written and that its note named the
+    // missing clause. Both were true until the trash-listener row landed, and it
+    // is inverted rather than deleted: a delayed clause that silently stopped
+    // firing pays no Gold and looks like nothing at all.
+    expect(isCardImplemented(registry.get(DEADLY_FLOURISH)), "Deadly Flourish went back to half-written").toBe(true);
+    expect(partialImplementationNote(registry.get(DEADLY_FLOURISH)), "a partial note came back").toBeUndefined();
   });
 });
 

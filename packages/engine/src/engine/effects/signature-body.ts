@@ -39,11 +39,12 @@ import {
 
 /** Kha'Zix - Voidreaver's "When you win a combat, gain 1 XP." */
 const KHAZIX_COMBAT_XP = 1;
-/** ...and his "Spend 1 XP, [Exhaust]: [Buff] a unit." His third clause ("Spend
- *  2 XP, [Exhaust]: Move an exhausted friendly unit from a battlefield to its
- *  base") is NOT written — see his `activatedAbilities` entry for why the two
- *  cannot share one registry key today. */
+/** ...and his "Spend 1 XP, [Exhaust]: [Buff] a unit." */
 const KHAZIX_BUFF_XP = 1;
+/** ...and his third clause, "Spend 2 XP, [Exhaust]: Move an exhausted friendly
+ *  unit from a battlefield to its base" — written 2026-08-12, once
+ *  `ActivationCost.xp` landed. See his `activatedAbilities` entry. */
+const KHAZIX_MOVE_HOME_XP = 2;
 
 /** Poppy - Keeper of the Hammer's "When you hold, gain 1 XP." */
 const POPPY_HOLD_XP = 1;
@@ -624,81 +625,127 @@ export const decisions: Record<string, DecisionDefinition> = {
  * Activated abilities contributed by this file — both on LEGENDS, and both
  * priced in XP.
  *
- * `ActivationCost` has no `xp` field, so the price is split the only way that
- * cannot be offered-and-then-refused: `availableWhile` asks whether the XP is
- * there (both the enumerator and the validator reach it through
- * `canPayActivationCost`), and `resolve` spends it through `spendXp`, whose
- * `undefined` is a real refusal rather than a silent floor at zero. In this
- * engine those are the same instant — `executeActivateAbility` pays, holds the
- * `abilityActivated` event and calls `resolve` inline — so nothing can move a
- * player's XP between them. Only the PLACEMENT of the cost diverges from 204.1.b
- * (which makes it a base cost paid at finalization), and that is the
- * already-recorded "an activation does not go on the chain" divergence rather
- * than one these cards introduce. Crowd Favorite, Blood Rose and Megatusk took
- * the identical route.
+ * **Two routes to that price, and the difference is not cosmetic.** Kha'Zix
+ * below uses `ActivationCost.xp`, which landed 2026-08-12; Poppy still uses the
+ * older split (`availableWhile` asks whether the XP is there, `resolve` spends
+ * it through `spendXp`). Both are sound for a card with ONE price — in this
+ * engine the check and the spend are the same instant, since
+ * `executeActivateAbility` pays, holds the `abilityActivated` event and calls
+ * `resolve` inline, so nothing can move a player's XP between them. The split
+ * fails only for a card whose MODES are priced differently, because
+ * `availableWhile` is declared on the ability and receives no `modeId` — which
+ * is precisely why Kha'Zix's third clause could not be written until the cost
+ * field existed. Poppy is left on the old route deliberately: converting her is
+ * a behaviour-neutral edit to a card this change does not otherwise touch, and
+ * the two routes standing side by side is what documents the distinction.
+ *
+ * Only the PLACEMENT of the cost diverges from 204.1.b (which makes it a base
+ * cost paid at finalization), and that is the already-recorded "an activation
+ * does not go on the chain" divergence rather than one these cards introduce.
+ * Crowd Favorite, Blood Rose and Megatusk took the identical route to Poppy's.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   "UNL-201": {
-    // Kha'Zix - Voidreaver's SECOND clause — "Spend 1 XP, [Exhaust]: [Buff] a
-    // unit."
+    // Kha'Zix - Voidreaver's SECOND and THIRD clauses — "Spend 1 XP, [Exhaust]:
+    // [Buff] a unit." and "Spend 2 XP, [Exhaust]: Move an exhausted friendly unit
+    // from a battlefield to its base." (His first is the `combatWon` listener
+    // above: three clauses, two mechanisms, all three written.)
     //
-    // # HALF A CARD, and the missing half is a refusal rather than an oversight
+    // # Why these are MODES and why that needed a shared-file change first
     //
-    // His THIRD clause — "Spend 2 XP, [Exhaust]: Move an exhausted friendly unit
-    // from a battlefield to its base" — is NOT implemented, and it cannot be
-    // until `activated-abilities.ts` grows one of two things:
+    // The registry is keyed by defId and `abilitiesAvailableTo` hands a source
+    // exactly the one ability under its own id (its three exceptions —
+    // Heimerdinger, Svellsongur, Forge of the Fluft — are hardcoded), so two
+    // printed abilities on one card have no way to be two entries. They must be
+    // two modes of one.
     //
-    //   an `ActivationCost.xp` field, checked in `canPayActivationCost` and paid
-    //   in `payActivationCost`; or
+    // That was blocked until 2026-08-12. The XP price used to be expressible only
+    // through `availableWhile`, which is declared on the ABILITY and receives no
+    // `modeId`, so one predicate would have had to answer for both prices: gating
+    // on 1 XP offers the 2-XP move to a player who cannot pay it (the exhaust is
+    // taken by `payActivationCost` BEFORE `resolve` runs, so a refusal inside
+    // `resolve` leaves a Legend spent for nothing), and gating on 2 XP makes the
+    // printed 1-XP buff unbuyable at exactly 1 XP — the commonest state this card
+    // is in, being one combat win. `ActivationCost.xp` removed the choice: the
+    // price rides the MODE, `activationCostOf(defId, modeId)` is what every
+    // pricing site goes through, and 730.2's "reduce the value of XP marked on the
+    // Player spending it" happens once, inside `payActivationCost`, through
+    // `spendXp`. So neither `resolve` below spends anything — a resolver that also
+    // charged would double-bill, which is the exact failure a per-mode price
+    // exists to make impossible.
     //
-    //   a `modeId` argument threaded into `availableWhile`, which
-    //   `canPayActivationCost` already receives and already drops.
+    // `exhaust: true` is repeated on both modes rather than left to the ability's
+    // `cost`, because a mode that names a price names the WHOLE price
+    // (`activationCostOf` overrides rather than merges). Dropping it from either
+    // would make that clause free and repeatable. The shared exhaust is also why
+    // the third clause costs nothing extra in practice: both abilities exhaust the
+    // same Legend, so at most one is usable per turn either way.
     //
-    // Two abilities on one card must be MODES of a single entry — the registry is
-    // keyed by defId, and `abilitiesAvailableTo` hands a source exactly the one
-    // ability under its own id (its three exceptions are Heimerdinger, Svellsongur
-    // and Forge of the Fluft, all hardcoded). But `availableWhile` is declared on
-    // the ABILITY, not the mode, so one predicate would have to answer for both
-    // prices. Gating on 1 XP offers the 2-XP move to a player who cannot pay it:
-    // the exhaust is taken by `payActivationCost` BEFORE `resolve` runs, so the
-    // refusal inside `resolve` would leave a Legend spent for nothing — precisely
-    // the offered-then-refused split `availableWhile` exists to prevent. Gating on
-    // 2 XP instead makes the printed 1-XP buff unbuyable at exactly 1 XP, which is
-    // the commonest state this card is in (one combat win). Neither is shippable,
-    // so the clause is left out and named.
-    //
-    // # The clause that IS here
-    //
-    // `[Exhaust]` is printed, so `cost` is omitted and takes the default
-    // `{ exhaust: true }` — the opposite call from Crowd Favorite, whose "Spend 2
-    // XP:" prints no exhaust and therefore needs an explicit `cost: {}`. The
-    // exhaust is what makes this once per turn, and it is also what makes the
-    // missing third clause cost nothing extra in practice: both abilities exhaust
-    // the same Legend, so only one of them was ever usable per turn.
-    //
-    // **"[Buff] A UNIT"** — a bare noun, so `scope: "anywhere"` and no owner
-    // (355.9.a.1: "'Unit,' 'gear,' and 'rune' refer to objects on the Board unless
-    // specified otherwise"). Base is where a unit usually waits to be grown, and
-    // buffing an ENEMY unit is a bad play rather than an illegal one — the same
-    // reading Blood Rose's "Ready a unit" and Wallop's already take.
-    //
-    // `addBuff` is the one-buff funnel (702.3.a), so buffing an already-buffed unit
-    // spends the XP and places nothing. He is not in `STACKING_BUFF_DEF_IDS`; only
-    // Lee Sin - Ascetic is.
+    // NOT `modesOncePerTurn`. That flag is Udyr's "one you've not chosen this
+    // turn"; Kha'Zix prints no such line, and the exhaust is already the brake.
     kind: "Legend",
-    targeting: { kind: "unit", scope: "anywhere" },
-    availableWhile: (state, playerIndex) => canSpendXp(state, playerIndex, KHAZIX_BUFF_XP),
-    resolve: (state, ctx, event) => {
-      if (event.targetUnitInstanceId === undefined) return state;
-      const paid = spendXp(state, ctx.casterIndex, KHAZIX_BUFF_XP);
-      // `availableWhile` already refused an unaffordable activation, so this is
-      // unreachable on the real path — written out rather than asserted, because a
-      // silent free buff is the failure mode `spendXp`'s `undefined` exists to
-      // prevent (203.3: a cost that cannot be paid means the linked effect is not
-      // executed).
-      if (paid === undefined) return state;
-      return addBuff(paid, event.targetUnitInstanceId);
-    },
+    modes: [
+      {
+        id: "buff",
+        label: "Spend 1 XP: [Buff] a unit",
+        // **"[Buff] A UNIT"** — a bare noun, so `scope: "anywhere"` and no owner
+        // (355.9.a.1: "'Unit,' 'gear,' and 'rune' refer to objects on the Board
+        // unless specified otherwise"). Base is where a unit usually waits to be
+        // grown, and buffing an ENEMY unit is a bad play rather than an illegal
+        // one — the same reading Blood Rose's "Ready a unit" and Wallop's take.
+        targeting: { kind: "unit", scope: "anywhere" },
+        cost: { exhaust: true, xp: KHAZIX_BUFF_XP },
+        // `addBuff` is the one-buff funnel (702.3.a), so buffing an already-buffed
+        // unit spends the XP and places nothing. He is not in
+        // `STACKING_BUFF_DEF_IDS`; only Lee Sin - Ascetic is.
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId === undefined ? state : addBuff(state, event.targetUnitInstanceId),
+      },
+      {
+        id: "home",
+        label: "Spend 2 XP: send an exhausted friendly unit home",
+        // Every word of "an EXHAUSTED FRIENDLY unit FROM A BATTLEFIELD" is in the
+        // spec rather than in the resolver, because by the time a resolver runs
+        // the XP and the exhaust are already gone — the offered-then-refused split
+        // `TargetingSpec.attackingOnly`'s own note records. `scope: "battlefield"`
+        // is the printed "from a battlefield" and is load-bearing here in the
+        // strong sense: without it a unit already in base would be offered, and
+        // `forceMoveToBase` would silently no-op on it (355.4.a excludes a Unit's
+        // current Location, so there is no move to make).
+        targeting: { kind: "unit", owner: "friendly", scope: "battlefield", exhaustedOnly: true },
+        cost: { exhaust: true, xp: KHAZIX_MOVE_HOME_XP },
+        // NOT `movesTarget`. That flag fans enumeration out per DESTINATION
+        // battlefield; this destination is printed ("to its base") and is the same
+        // implicit one Yasuo - Unforgiven's going-home mode has.
+        //
+        // **A MOVE, not a Recall** — 446.1, "a Permanent changing its position
+        // from any space on the Board to another space on the Board is a Move",
+        // with 198.1 making a Base one of those spaces. `forceMoveToBase` is
+        // therefore the right door and not `relocateToBaseUnchanged`: it counts
+        // `movesThisTurn`, holds the `unitMoved` events, and — the half that
+        // matters — asks `mayMoveToBaseFrom`, so Vilemaw's Lair and Minotaur
+        // Reckoner stop this clause exactly as they stop every other way home.
+        //
+        // That guard makes the activation legal-but-inert under a Reckoner rather
+        // than illegal, and that is the RULES answer rather than a shortcut: the
+        // Reckoner is a continuous effect preventing a move, not a targeting
+        // restriction, so an exhausted friendly at a battlefield still "meets all
+        // targeting restrictions" (355.9.b) and 359.3.e.11's "instructions that can
+        // be partially followed are followed as much as possible" is what is left.
+        // Contrast `voidAssaultDestinations` above, which DOES gate on
+        // `mayMoveToBaseFrom` — that one is a decision's option list, where an
+        // illegal destination would be presented as a choice.
+        //
+        // `ctx.casterIndex` is passed as `causedByIndex`, so a "when you move a
+        // unit" listener reads the seat that USED the ability. It is always the
+        // moved unit's own controller here (the target is friendly), but the two
+        // are distinct arguments and handing the wrong one over is silent.
+        resolve: (state, ctx, event) =>
+          event.targetUnitInstanceId === undefined
+            ? state
+            : forceMoveToBase(state, event.targetUnitInstanceId, ctx.casterIndex),
+      },
+    ],
   },
   "UNL-203": {
     // Poppy - Keeper of the Hammer's second clause — "Spend 3 XP, [Exhaust]:

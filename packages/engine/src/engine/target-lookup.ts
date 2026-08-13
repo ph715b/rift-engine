@@ -635,6 +635,14 @@ const UNCHOOSEABLE_BY_ENEMIES: Readonly<Record<string, (state: GameState, unitOw
   // Ruin Runner — "I can't be chosen by enemy spells and abilities." No
   // condition at all, which is why this was a Set until a conditional one landed.
   "SFD-105": () => true,
+  // Baron Nashor — "I can't be chosen by enemy spells and abilities." Byte-
+  // identical to Ruin Runner above: no condition, so it takes the same `() => true`.
+  //
+  // One of his three sentences. His +2 Might aura landed in wave 7 as a
+  // `mightModifiers` entry; his "add the Baron Pit battlefield token" is refused
+  // as SYSTEMIC rather than as a card — nothing in this engine can add a
+  // battlefield at all, which a wave-7 agent checked rather than assumed.
+  "UNL-147": () => true,
   // Master Yi - Unstoppable — "[Level 16][>] I can't be chosen by enemy spells
   // and abilities." Read LIVE off the owner's XP: 824.1.b.1 makes `[Level N][>]`
   // "while you have N or more XP", and 824.1.d turns it Inactive the moment XP

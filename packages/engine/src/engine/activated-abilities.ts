@@ -40,7 +40,7 @@ import {
   stunUnits,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
-import { destroyUnit } from "./effect-helpers.js";
+import { destroyUnit, spendXp } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { parkDecision } from "./decisions.js";
@@ -101,6 +101,20 @@ export interface ActivatedAbilityEvent {
 export interface ActivationCost {
   /** Exhaust the source. Absent means the ability does NOT exhaust. */
   exhaust?: true;
+  /**
+   * `[Spend N XP]` as part of an activation cost — Kha'Zix - Voidreaver's third
+   * ability, "Spend 2 XP, [Exhaust]: ...".
+   *
+   * XP was spendable as an ADDITIONAL cost on a PLAY (`OPTIONAL_XP_COSTS`) and
+   * as an effect, but never as part of an ACTIVATION, which is why a wave-7
+   * agent could describe Kha'Zix's third clause precisely and not write it.
+   *
+   * Paid from state through `spendXp`, exactly as Power is paid from state
+   * through `payPowerFromChanneled`: there is nothing to choose, so it needs no
+   * field on the action. `spendXp` returns undefined when the player is short,
+   * which gives the same all-or-nothing contract 416.3 gives a Recycle.
+   */
+  xp?: number;
   /** Recycle this many cards from the controller's own trash (rule 416). */
   recycleFromTrash?: number;
   /**
@@ -1963,6 +1977,9 @@ export function canPayActivationCost(
   if (ability?.availableWhile && !ability.availableWhile(state, playerIndex, card.instanceId)) return false;
   const cost = activationCostOf(abilityDefId, modeId);
   if (cost.exhaust && card.exhausted) return false;
+  // Asked through `spendXp` rather than by comparing numbers, so "can I pay"
+  // and "pay it" can never disagree about what counts as enough.
+  if (cost.xp !== undefined && spendXp(state, playerIndex, cost.xp) === undefined) return false;
   if (cost.recycleFromTrash !== undefined && state.players[playerIndex].trash.length < cost.recycleFromTrash) return false;
   // The UNIT-filtered recycle counts only units, which is the whole reason it
   // is a separate cost: a trash full of Spells cannot pay it.
@@ -2048,6 +2065,11 @@ export function payActivationCost(
 ): GameState | undefined {
   const cost = activationCostOf(defId, modeId);
   let next = state;
+  if (cost.xp !== undefined) {
+    const spent = spendXp(next, playerIndex, cost.xp);
+    if (spent === undefined) return undefined;
+    next = spent;
+  }
   if (cost.recycleFromTrash !== undefined) {
     const recycled = recycleFromTrash(next, playerIndex, cost.recycleFromTrash);
     if (recycled === undefined) return undefined;

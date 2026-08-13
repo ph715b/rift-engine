@@ -96,7 +96,15 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // HELD (383), and ONE call now covers both the unit listeners and the caster's
   // Legend — a Legend is in the listener walk, so `spellCast` reaches Lux -
   // Illuminated and Lux - Lady of Luminosity through the same event.
-  const resolved = holdEventTrigger(resolvedEffect, { kind: "spellCast", casterIndex: poppedEntry.playerIndex, totalCost });
+  const resolved = holdEventTrigger(resolvedEffect, {
+    kind: "spellCast",
+    casterIndex: poppedEntry.playerIndex,
+    totalCost,
+    // Carried from the chain entry rather than recomputed: the spell was priced
+    // once, when it was played, and re-deriving it here would read a board that
+    // has since moved.
+    ...(poppedEntry.energySpent !== undefined ? { energySpent: poppedEntry.energySpent } : {}),
+  });
   return finishChainPop(resolved, resolved.spellChain.slice(0, -1)); // pop the top (LIFO — last pushed)
 }
 

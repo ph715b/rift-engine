@@ -735,6 +735,37 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       // action, not a flag written twice.
       event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
   },
+  // # The two Calm LEGENDS this wave refused, recorded beside their signature cards
+  //
+  // Neither belongs in this table — a Legend's ability lives in
+  // `engine/legend-abilities.ts`, a shared file — but Shadow above is Vex's
+  // signature card, so this is where the next reader of Vex will actually be.
+  //
+  // **UNL-193 Vex - Gloomist** — "When you or an ally hold, you may exhaust me to
+  // draw 1." A structural CLONE of Renata Glasc - Chem-Baroness's (SFD-201) first
+  // clause: the same `onBattlefieldHeld` hook, the same `parkDecision`, the same
+  // "an exhausted Legend is not asked" guard, with `drawCards(state, index, 1)`
+  // where hers calls `placeGoldTokens`. Two entries in that one file — a
+  // `LEGEND_ABILITIES` row and a `legendDecisions` row — and nothing else anywhere.
+  //
+  // The clone claim was CHECKED rather than repeated: `unl-calm-wave8-refusals.
+  // test.ts` fires a real `battlefieldHeld` with each Legend seated and shows
+  // Renata parking `SFD-201-gold` where Vex parks nothing. "You or an ALLY" needs
+  // no extra work in a two-player game, which is the only mode this engine has.
+  //
+  // **UNL-195 Ivern - Green Father** — "When you conquer or hold, you may exhaust
+  // me to replace that battlefield with a Brush battlefield token." REFUSED
+  // systemically: this engine has no way to replace a battlefield, and no Brush
+  // exists to replace it with.
+  //
+  // A wave-7 note said "NO Brush card exists in the pool at all". Measured, that
+  // is not quite what the data says and the correction sharpens it: the word
+  // appears three times, and all three are Ivern's own printings (UNL-195 and
+  // UNL-233's two) telling you to make one. Neither
+  // `loadBattlefieldDefinitions()` nor `loadTokenDefinitions()` has a Brush —
+  // and UNL prints no Token-supertype cards at all. So the token has no printed
+  // source AND no battlefield to become, two independent blocks, and the smaller
+  // of them is a data question rather than an engine one.
 };
 
 export const mightModifiers: Record<string, MightModifier> = {

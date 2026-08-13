@@ -547,7 +547,7 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // scoring location and would move `walkout`'s pinned figures.
   [
     "UNL-147",
-    "one of three clauses: the +2 Might aura on other friendly units works; 'add the Baron Pit battlefield token to the board' is unwritten (nothing can add a battlefield — battlefieldPair builds exactly two at setup and the Pit has no card data), and 'I can't be chosen by enemy spells and abilities' is one unwritten row in target-lookup.UNCHOOSEABLE_BY_ENEMIES",
+    "two of three clauses: the +2 Might aura and 'I can't be chosen by enemy spells and abilities' both work; 'add the Baron Pit battlefield token to the board' is unwritten, and is SYSTEMIC rather than a card gap — nothing in this engine can add a battlefield at all, battlefieldPair builds exactly two at setup with ids stable for the game, and the Pit has no card data in unl.json",
   ],
   // **UNL-020 Dancing Grenade, written by HALVES in wave 7.** "Deal 2 to a unit"
   // works; "its controller may play this spell again for [rainbow]" does not.
@@ -584,10 +584,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // wrong. The fix was one `case` and one board query, beside the ones already
   // there for Leona, Vayne and Magma Wurm.
   // **Wave 6, 2026-08-10.** One card written by halves — two of three clauses.
-  [
-    "UNL-201",
-    "two of three clauses: the combat-won XP and the [Spend 1 XP] buff work; the third ability (Spend 2 XP, [Exhaust]: move an exhausted friendly unit home) is unwritten — two abilities on one defId must be modes of one entry, and canPayActivationCost receives modeId and drops it, so one predicate cannot price both",
-  ],
+  // **UNL-201 Kha'Zix - Voidreaver LEFT this map on 2026-08-12**, and his note is
+  // the cleanest example in this file of a refusal that named its own price and
+  // then got paid. It said two abilities on one defId must be modes of one entry,
+  // and that `canPayActivationCost` received `modeId` and dropped it — so one
+  // predicate could not price both.
+  //
+  // `ActivationCost` gained an `xp` field, checked in `canPayActivationCost` and
+  // paid in `payActivationCost` through `spendXp`. His entry became a two-mode
+  // ability and the wave-8 agent found a live double-bill while doing it: the buff
+  // mode's `resolve` still spent the XP the cost layer now takes.
   // **UNL-059 Master Yi - Unstoppable LEFT this map on 2026-08-12.** He was the
   // example this map's own header used — one card written by a quarter, with the
   // clause that landed being the LAST of four, so the first three were what a
@@ -615,10 +621,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-007",
     "half written: the 3 damage works; 'if it would die this turn, banish it instead' is unwritten — a turn-long death replacement needs a GameState list, a killUnit branch and a runEnd sweep",
   ],
-  [
-    "UNL-073",
-    "half written: the 3 damage works; 'when it dies this turn, play a Gold gear token exhausted' is unwritten — a delayed trigger must outlive its subject, and the victim leaves the board before completeDeath fires unitDied",
-  ],
+  // **UNL-073 Deadly Flourish LEFT this map on 2026-08-12.** Its second clause
+  // needed one line in a shared file — `TRASH_LISTENER_DEF_IDS` — and a wave-3
+  // note had recorded that route as CLOSED. It was not: `execute-play-card`
+  // trashes a Spell at play time, so the card is already in its caster's trash
+  // when its victim dies. Nothing had checked.
+  //
+  // The wave-8 agent that wrote it found the brief's own design wrong in one
+  // detail worth keeping: `turnNumber` counts ROUNDS, not turns, so a
+  // this-turn marker stamped with it alone survives into the opponent's turn.
+  // The mark carries the active player as well.
   [
     "UNL-118",
     "half written: the on-play 'up to one enemy unit at each location, deal 1' works; 'Any amount of your damage is enough to kill enemy units' is unwritten — 142.4.c needs per-marker damage (UnitInstance.damage is one unattributed number) and a Lethal Damage override",

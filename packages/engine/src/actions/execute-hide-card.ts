@@ -1,5 +1,6 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
+import { holdEventTrigger } from "../engine/triggers.js";
 import type { RuneCard } from "../model/rune.js";
 import type { HideCardAction } from "./player-action.js";
 import { validateHideCard } from "./validate-hide-card.js";
@@ -71,5 +72,9 @@ export function executeHideCard(state: GameState, action: HideCardAction): GameS
 
   // Sivir - Battle Mistress — 811's hide price is a rainbow Power, and a Power
   // payment recycles the rune that paid it.
-  return holdRunesRecycled({ ...state, players, battlefields }, action.playerIndex, recycled.length);
+  const recycledHeld = holdRunesRecycled({ ...state, players, battlefields }, action.playerIndex, recycled.length);
+  // Katarina - Reckless — "when you hide a card, ready me". HELD (383.3) like
+  // every other trigger, even though 811 opens no chain for the hide itself:
+  // the hide is not a chain item, but what it sets off is.
+  return holdEventTrigger(recycledHeld, { kind: "cardHidden", ownerIndex: action.playerIndex });
 }

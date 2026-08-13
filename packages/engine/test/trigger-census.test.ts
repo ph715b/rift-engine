@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("305 held / 5 inline of 310 trigger cards", () => {
+  it("306 held / 5 inline of 311 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -184,6 +184,15 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **310 → 311 cards on 2026-08-12 (wave 8)**, +1 held, and it is UNL-073
+    // Deadly Flourish — a `deathWatchTriggers` entry that fires from the CASTER'S
+    // TRASH. A Spell is trashed at play time, so by the moment its victim dies the
+    // card is already there; `TRASH_LISTENER_DEF_IDS` is what lets the walk find
+    // it, and a wave-3 note had recorded that route as closed without checking.
+    //
+    // The wave's other finished card, UNL-201 Kha'Zix, contributes nothing here:
+    // his third clause is an activated-ability MODE, not a trigger.
     //
     // **308 → 310 cards on 2026-08-12 (wave 7)**, +2 held, and the split is the
     // usual one: six agents finished or half-finished eight cards, and only two of
@@ -294,9 +303,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 305,
+      held: 306,
       inline: 5,
-      cards: 310,
+      cards: 311,
     });
   });
 

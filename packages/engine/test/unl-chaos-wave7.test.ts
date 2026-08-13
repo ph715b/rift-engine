@@ -217,14 +217,19 @@ describe("what is NOT written on Baron Nashor — pinned, so closing it fails lo
     return state;
   }
 
-  it("his SECOND sentence is unwritten: an enemy may still choose him", () => {
-    // "I can't be chosen by enemy spells and abilities" is one row in
-    // `target-lookup.UNCHOOSEABLE_BY_ENEMIES` — the table Ruin Runner (SFD-105) and
-    // Master Yi - Unstoppable (UNL-059) already sit in — and that file is shared.
-    // Asserted WRONG on purpose: adding the row must flip this line.
+  it("his SECOND sentence LANDED — this pin fired the same day it was written", () => {
+    // It asserted the WRONG answer on purpose: "one row in
+    // `target-lookup.UNCHOOSEABLE_BY_ENEMIES` — the table Ruin Runner (SFD-105)
+    // and Master Yi - Unstoppable (UNL-059) already sit in — and that file is
+    // shared. Adding the row must flip this line."
+    //
+    // The integrator added exactly that row, so it flipped. Inverted rather than
+    // deleted for the reason Alpha Wildclaw's own pin gives: this clause is a pure
+    // NEGATIVE, and if it silently stopped being registered nothing would look
+    // wrong — a play that should be impossible would simply become legal.
     const b = baron();
     const state = board({ p1Field: [b] });
-    expect(unitChooseableBy(state, b, 0, 1), "the protection landed — retire this pin").toBe(true);
+    expect(unitChooseableBy(state, b, 0, 1), "an enemy can choose Baron Nashor again").toBe(false);
     // ...and the half that is already right, so this pin cannot pass vacuously
     // through a `unitChooseableBy` that returns true for everything.
     expect(unitChooseableBy(state, b, 0, 0), "his own controller could not choose him").toBe(true);

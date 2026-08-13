@@ -223,7 +223,17 @@ describe("PlayCard: casting a Spell", () => {
     expect(next.chainPriority).toBe(0);
     expect(next.chainPasses).toBe(0);
     expect(next.spellChain).toHaveLength(1);
-    expect(next.spellChain[0]).toEqual({ playerIndex: 0, card: spell });
+    // `toMatchObject`, not `toEqual`: the entry gained `energySpent` on
+    // 2026-08-12 (what the play actually cost after discounts, for Revna the
+    // Lorekeeper's "if you spent [N] or more"), and this assertion is about the
+    // chain being opened with the right card by the right player — not about the
+    // entry having exactly two fields forever.
+    expect(next.spellChain[0]).toMatchObject({ playerIndex: 0, card: spell });
+    // The new field is asserted deliberately rather than waved through, so a
+    // future change that stops recording it fails here as well as in
+    // `wave8-primitives.test.ts`.
+    const entry = next.spellChain[0]!;
+    expect("card" in entry ? entry.energySpent : undefined, "the chain entry stopped recording what was spent").toBeDefined();
   });
 
   it("is castable even though it carries no [Action]/[Reaction] tag — those only gate Showdown/reaction timing, not a normal-turn cast", () => {
