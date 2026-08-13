@@ -27,6 +27,7 @@ import { isMighty } from "./granted-keywords.js";
 // [Mech], and a cost naming tags that read `unit.tags` would disagree with every
 // other tag question in the engine. Same lazily-called-arrow rule as above.
 import { effectiveTagsOf } from "./equipment.js";
+import { COMPANION_TAGS } from "./constants.js";
 import { channelRunesForcedExhausted } from "./channel-cost.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
@@ -163,7 +164,26 @@ export type TargetingSpec =
        */
       owner?: "friendly" | "enemy";
     }
-  | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell" }
+  /**
+   * A card in the caster's OWN trash, chosen as the spell is announced.
+   *
+   * 355.9.a.4 is what makes this a target rather than a question: a trash is a
+   * Public zone, so a card in it can be named at announce and sits in the
+   * response window like any other target.
+   *
+   * `maxEnergy`/`maxPower` bound the candidate's PRINTED cost — "a unit with
+   * cost no more than [2] and no more than [rainbow]". Undying Loyalty could not
+   * use this spec before they existed: it carried only `cardKind`, so it would
+   * have offered every unit in the trash regardless of cost, and a 10-Energy
+   * Atakhan played free is very much stronger than printed. A `rainbow` pip
+   * bounds the SIZE of the Power cost and not its colour, which is why
+   * `maxPower` is a number and not a domain.
+   *
+   * Both bounds are applied by `ownTrashCandidates`, which the enumerator and
+   * the validator share — a ceiling enforced on one side only is this repo's
+   * offered-then-refused split.
+   */
+  | { kind: "ownTrashCard"; cardKind?: "Unit" | "Spell"; maxEnergy?: number; maxPower?: number }
   /**
    * Two ordered target slots with a MINIMUM number that must be filled —
    * the shape the Java oracle uses for every multi-target spell
@@ -808,6 +828,31 @@ export interface UnitCostSpec {
  * where every friendly unit was already buffed — turning "you may" into "you
  * must". The decline variant is now always offered.
  */
+/**
+ * Every card in `playerIndex`'s trash this `ownTrashCard` spec may name.
+ *
+ * ONE function, called by `legal-actions` to fan the variants out and by
+ * `validate-play-card` to judge a submitted one. The two used to apply the
+ * `cardKind` filter separately, which was survivable while that was the only
+ * filter; adding cost ceilings to a duplicated check is exactly how the five
+ * enumerate/execute crashes here happened.
+ */
+export function ownTrashCandidates(
+  state: GameState,
+  playerIndex: 0 | 1,
+  spec: { cardKind?: "Unit" | "Spell"; maxEnergy?: number; maxPower?: number },
+): CardInstance[] {
+  return state.players[playerIndex].trash.filter((card) => {
+    if (spec.cardKind !== undefined && card.kind !== spec.cardKind) return false;
+    // A Legend has no cost fields at all; a bounded spec cannot name one.
+    if (spec.maxEnergy === undefined && spec.maxPower === undefined) return true;
+    if (card.kind !== "Unit" && card.kind !== "Spell" && card.kind !== "Gear") return false;
+    if (spec.maxEnergy !== undefined && card.energyCost > spec.maxEnergy) return false;
+    if (spec.maxPower !== undefined && card.powerCost > spec.maxPower) return false;
+    return true;
+  });
+}
+
 const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // SFD's two GEAR-valued costs, the first additional costs in the pool paid
   // with a permanent that is not a unit.
@@ -903,14 +948,12 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
     mandatory: true,
     candidate: (state, unit) => {
       const tags = effectiveTagsOf(state, unit);
-      return WOLF_FOOD_TAGS.some((tag) => tags.includes(tag));
+      return COMPANION_TAGS.some((tag) => tags.includes(tag));
     },
   },
 };
 
-/** The four tags Stalking Wolf will eat. Named rather than inlined so a test can
- *  assert against the same list the card is built from. */
-const WOLF_FOOD_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
+
 
 /**
  * Cards with an optional POWER additional cost — Clockwork Keeper's "you may pay

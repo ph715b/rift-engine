@@ -789,9 +789,17 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     expect(unitAnywhere(after, "mine"), "declining no longer costs a unit").toBeUndefined();
   });
 
-  it("Undying Loyalty (UNL-168) still charges full price for a Poro", () => {
-    expect(optionalUnitCostOf(UNDYING_LOYALTY)).toBeUndefined();
-    expect(partialImplementationNote(registry.get(UNDYING_LOYALTY))).toMatch(/discount|less/);
+  it("Undying Loyalty (UNL-168) now plays a Poro FREE — this pin EXPIRED on 2026-08-12", () => {
+    // The pin that stood here charged the printed 2 Energy for a Poro and was
+    // right for three waves. Its fixture is kept and only the expectation
+    // inverted, because it already built exactly the board the clause is about.
+    //
+    // The blocker was never a table: "[2] less if you CHOOSE a Bird, Cat, Dog, or
+    // Poro" needs the choice made when the card is PAID for, and this card named
+    // its trash unit at resolution through a parked question. Moving that to an
+    // announce-time target (355.4 / 355.9.a.4) is what made the discount
+    // expressible — and is the rules-correct timing besides.
+    expect(partialImplementationNote(registry.get(UNDYING_LOYALTY)), "a partial note came back").toBeUndefined();
 
     const spell = spellInstance(UNDYING_LOYALTY);
     const state = makeState({ phase: "Action" });
@@ -800,8 +808,12 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     state.players[0]!.trash = [makeUnit({ instanceId: "poro", name: "Poro", energyCost: 2, powerCost: 1, tags: ["Poro"] })];
 
     const casts = castsOf(state, spell.instanceId);
-    expect(casts, "no cast was offered — the fixture is wrong, not the refusal").toHaveLength(1);
-    expect(casts[0]!.payment.energyRunes, "the -[2] discount has landed — update this pin").toHaveLength(2);
+    expect(casts, "the trash unit stopped being fanned out as a target").toHaveLength(1);
+    expect(casts[0]!.trashCardInstanceId, "the choice is not riding the action").toBe("poro");
+    // 2 printed Energy minus the 2 the Poro buys — free on the Energy axis.
+    expect(casts[0]!.payment.energyRunes, "the -[2] discount did not apply").toHaveLength(0);
+    // "[2] less" names Energy only; the printed rainbow pip is still owed.
+    expect(casts[0]!.payment.powerRunes, "the Power pip stopped being charged").toHaveLength(1);
   });
 
   it("Atakhan (UNL-170) now trades a friendly unit for a scaled discount — this pin EXPIRED on 2026-08-12", () => {

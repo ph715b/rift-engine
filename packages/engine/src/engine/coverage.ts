@@ -499,10 +499,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // fan-out an optional POWER cost needs, and XP needs none of it — 731 makes
   // XP not a Game Object, so there is no domain, no [Deflect] tax and no
   // discount axis, and the paid variant is the plain play plus a flag.
-  [
-    "UNL-168",
-    "half written: the free play works; its '-[2] if you choose a Bird/Cat/Dog/Poro' discount is unwritten, so it always costs the printed 2 Energy + 1 rainbow",
-  ],
+  // **UNL-168 Undying Loyalty LEFT this map on 2026-08-12.** Its refusal was
+  // accurate for three waves and the blocker was never a table: the discount is
+  // '-[2] if you CHOOSE a Bird, Cat, Dog, or Poro', and a cost must be known when
+  // the card is paid for, while the card named its trash unit at RESOLUTION
+  // through a parked question. Moving that choice to an announce-time target
+  // (355.4 / 355.9.a.4) is what made the discount expressible at all.
   // **UNL-170 Atakhan LEFT this map on 2026-08-12.** His refusal was accurate and
   // named all three shared files it would take: the KILL was expressible
   // (`killFriendly` is Cruel Patron's row) but the DISCOUNT was not, because

@@ -822,11 +822,53 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Mixologist and Flame Chompers all choose a response window later.
     //
     // No decline: the card prints "Play a unit", not "you may".
-    targeting: { kind: "none" },
-    resolve: (state, ctx) =>
-      loyaltyCandidates(state, ctx.casterIndex).length === 0
-        ? state
-        : parkDecision(state, { kind: "UNL-168-play", playerIndex: ctx.casterIndex }),
+    //
+    // **Moved from a parked DECISION to an announce-time TARGET on 2026-08-12**,
+    // which is what unblocked the first clause. The discount is "[2] less if you
+    // CHOOSE a Bird, Cat, Dog, or Poro", and a cost has to be known when the card
+    // is paid for — so as long as the unit was named at resolution the discount
+    // could not exist at all.
+    //
+    // 355.4 puts a spell's choices at finalization and 355.9.a.4 makes a card in
+    // a Public trash a legal target, so this is also the rules-correct timing;
+    // the parked question was the recorded divergence, not the fix.
+    //
+    // **The Harrowing (OGN-198) deliberately did NOT move with it.** It looks
+    // like the same card and is not: it plays the trash unit "paying only its
+    // Power cost", and that payment happens at resolution out of the pool as it
+    // then stands — it cannot ride the PlayCardAction that already paid this
+    // spell's own cost. Undying Loyalty plays "IGNORING ITS COST", both halves,
+    // so its payment is empty and there is nothing to defer. That difference is
+    // the whole reason one could move and the other could not.
+    //
+    // Spectral Matron (OGN-226) is a THIRD case and neither argument reaches
+    // her: she also ignores the whole cost, but she is a Unit, so her choice
+    // belongs to a triggered ability on the chain rather than to a spell being
+    // finalized. Pinned in test/undying-loyalty.test.ts, where the first draft of
+    // this very note was wrong about her.
+    targeting: { kind: "ownTrashCard", cardKind: "Unit", maxEnergy: LOYALTY_MAX_ENERGY, maxPower: LOYALTY_MAX_POWER },
+    resolve: (state, ctx, event) => {
+      // Re-derived against the live trash rather than trusted from the action:
+      // the card is named at announce and resolves after a response window, so
+      // the unit can be gone by now (banished, or played by something else).
+      const chosen = loyaltyCandidates(state, ctx.casterIndex).find(
+        (c) => c.instanceId === event.trashCardInstanceId,
+      );
+      if (chosen === undefined) return state;
+      // Out of the trash BEFORE it is played, or the card would be in two zones
+      // at once. `cardsPlayedThisTurn` still moves, because this is a play and
+      // [Legion] counts plays rather than payments.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[ctx.casterIndex] = {
+        ...players[ctx.casterIndex],
+        trash: players[ctx.casterIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
+        cardsPlayedThisTurn: players[ctx.casterIndex].cardsPlayedThisTurn + 1,
+      };
+      // Through the shared free-play funnel, so it enters exhausted (143.4.a)
+      // unless something on the board says otherwise, both events a real play
+      // fires go off, and the caster is asked WHERE it lands.
+      return playUnitFree({ ...state, players }, ctx.casterIndex, chosen);
+    },
   },
   "UNL-175": {
     // Tactical Retreat — "[Reaction] Choose a friendly unit. The next time it
@@ -2635,42 +2677,31 @@ export const decisions: Record<string, DecisionDefinition> = {
       return chosen ? returnCardFromTrash(state, d.playerIndex, chosen.instanceId) : state;
     },
   },
-  // Undying Loyalty's "play a unit with cost no more than [2] and no more than
-  // [rainbow] from your trash, ignoring its cost".
+  // **Undying Loyalty's "UNL-168-play" was REMOVED on 2026-08-12.** It used to
+  // sit here — Spectral Matron's question with a tighter ceiling and no decline,
+  // since she prints "you may play" and that card prints "Play a unit".
   //
-  // Spectral Matron's question with a tighter ceiling and NO DECLINE: she prints
-  // "you may play", this card prints "Play a unit". The spell has already checked
-  // there is something to offer, so this is never an empty question.
-  "UNL-168-play": {
-    prompt: () => "Undying Loyalty: play a unit from your trash, ignoring its cost",
-    options: (state, d) =>
-      loyaltyCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
-    resolve: (state, d, optionId) => {
-      // Re-derived at ANSWER time against the same walk the offer came from: the
-      // trash moves while a question waits on the chain, and going through the
-      // candidate list rather than straight to the card is also what stops a stale
-      // id naming a unit ABOVE the ceiling that happens to be sitting there.
-      const chosen = loyaltyCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
-      if (chosen === undefined) return state;
-      // Out of the trash BEFORE it is played, or the card would be in two zones at
-      // once. "IGNORING ITS COST" is the whole cost, both halves — unlike
-      // Soulgorger's "you must still pay its Power cost" — so nothing is paid and
-      // nothing is discounted; the payment is EMPTY rather than small.
-      // `cardsPlayedThisTurn` still moves, because this is a play and [Legion]
-      // counts plays rather than payments. Spectral Matron's entry exactly.
-      const players = [...state.players] as [PlayerState, PlayerState];
-      players[d.playerIndex] = {
-        ...players[d.playerIndex],
-        trash: players[d.playerIndex].trash.filter((c) => c.instanceId !== chosen.instanceId),
-        cardsPlayedThisTurn: players[d.playerIndex].cardsPlayedThisTurn + 1,
-      };
-      // Through the shared free-play funnel, so it enters exhausted (143.4.a)
-      // unless something on the board says otherwise, both events a real play
-      // fires go off, and the caster is asked WHERE it lands rather than always
-      // being sent home.
-      return playUnitFree({ ...state, players }, d.playerIndex, chosen);
-    },
-  },
+  // It now names its trash unit as an announce-time target (355.4 makes a
+  // spell's choices happen at finalization, 355.9.a.4 makes a card in a Public
+  // trash a legal target) rather than parking a question, because its "[2] less
+  // if you CHOOSE a Bird, Cat, Dog, or Poro" discount has to be priced when the
+  // card is paid for. The whole handler moved into the card's own `resolve` in
+  // this file; nothing else answered this question.
+  //
+  // Its two neighbours stayed put, for two DIFFERENT reasons — worth writing
+  // down, because "why did this one move" is what a later tidy-up will ask:
+  //
+  //   - The Harrowing (OGN-198) is a SPELL, so 355.4 would put its choice at
+  //     announce too. What stops it is the PAYMENT: it plays the unit "ignoring
+  //     its Energy cost. (You must still pay its Power cost.)", and that Power is
+  //     paid at resolution out of the pool as it then stands. It cannot ride the
+  //     PlayCardAction that already paid the spell's own cost.
+  //   - Spectral Matron (OGN-226) plays "ignoring its cost" exactly as this card
+  //     does, so the payment argument does not touch her. She stays because she
+  //     is a UNIT: her choice belongs to a triggered ability on the chain rather
+  //     than to a spell being finalized, which is the separate held-trigger
+  //     divergence.
+
   // Spectral Matron's "you may play a unit ... from your trash, ignoring its
   // cost". Flame Chompers' question in every respect but the filter and who
   // asks: same decline-first shape, same out-of-trash-then-playUnitToBase path.

@@ -8,6 +8,7 @@ import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-con
 import type { UnitInstance } from "../model/card.js";
 import { isMechUnit } from "./equipment.js";
 import { deflectSurchargeForTargets } from "./granted-keywords.js";
+import { COMPANION_TAGS } from "./constants.js";
 
 /** Every unit a player controls, each with the MightContext its location
  *  implies — a base unit has no battlefield id, so a positional aura resolves it
@@ -586,6 +587,63 @@ export function sacrificeCostDiscount(
   return { energy: spent.unit.energyCost, power: spent.unit.powerCost };
 }
 
+/**
+ * Undying Loyalty — "This costs [2] less if you CHOOSE a Bird, Cat, Dog, or
+ * Poro."
+ *
+ * Priced off the TARGET, not the board, which is what kept it refused across
+ * three waves: a cost has to be known when the card is paid for, and the card's
+ * trash unit was named at RESOLUTION by a parked question. Moving that choice to
+ * an announce-time target (355.4) is what made the discount expressible at all —
+ * the missing piece was never a table.
+ *
+ * Reads the chosen card's own tags. A trash card is an instance, not a board
+ * unit, so there is no equipment to grant it anything and nothing positional to
+ * resolve — `effectiveTagsOf` would be the wrong question here, and the printed
+ * tags are the whole answer.
+ */
+const UNDYING_LOYALTY = "UNL-168";
+const UNDYING_LOYALTY_DISCOUNT = 2;
+
+export function trashChoiceDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string | undefined,
+  trashCardInstanceId: string | undefined,
+): { energy: number; power: number } {
+  const none = { energy: 0, power: 0 };
+  if (defId !== UNDYING_LOYALTY || trashCardInstanceId === undefined) return none;
+
+  const chosen = state.players[playerIndex].trash.find((c) => c.instanceId === trashCardInstanceId);
+  // `CardInstance` is a union and only the Unit arm carries tags, so the narrow
+  // is load-bearing. The card's own targeting spec is `cardKind: "Unit"` anyway,
+  // so a non-Unit here means a hand-built action rather than a legal play.
+  if (chosen === undefined || chosen.kind !== "Unit") return none;
+  return COMPANION_TAGS.some((tag) => chosen.tags.includes(tag)) ? { energy: UNDYING_LOYALTY_DISCOUNT, power: 0 } : none;
+}
+
+/**
+ * Every discount whose size depends on a CHOICE the play makes, summed.
+ *
+ * Two cards so far and they choose different things — Atakhan names a unit to
+ * kill as an additional cost, Undying Loyalty names a card in its own trash as a
+ * target — but both are priced the same way and at the same moment, so the two
+ * pricing sites take one function rather than growing a branch per card.
+ *
+ * This is the seam that cannot be `modifiedEnergyCost`: that is computed once
+ * per card, before any choice exists.
+ */
+export function variantCostDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string | undefined,
+  choices: { additionalCostUnitInstanceId?: string; trashCardInstanceId?: string },
+): { energy: number; power: number } {
+  const sacrifice = sacrificeCostDiscount(state, playerIndex, defId, choices.additionalCostUnitInstanceId);
+  const trash = trashChoiceDiscount(state, playerIndex, defId, choices.trashCardInstanceId);
+  return { energy: sacrifice.energy + trash.energy, power: sacrifice.power + trash.power };
+}
+
 const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
 const PLAY_FROM_ELSEWHERE_DISCOUNT = 2;
 
@@ -734,6 +792,11 @@ export function costModifierDefIds(): string[] {
     // unchooseable-by-enemies) is registered by target-lookup.ts, so both modules
     // claim him and coverage merges them — the same split Concentrate has.
     MASTER_YI_UNSTOPPABLE,
+    // Undying Loyalty's "-[2] if you choose a Bird, Cat, Dog, or Poro". Its free
+    // play is registered in effects/order.ts, so coverage merges both claims —
+    // and the discount only became expressible once that card's trash choice
+    // moved from a parked question to an announce-time target.
+    UNDYING_LOYALTY,
     // Atakhan's scaled sacrifice discount. His attack trigger is registered in
     // effects/order.ts and his `[Ganking]` is a printed keyword, so coverage
     // merges this claim with that one — the same split Concentrate and Master Yi

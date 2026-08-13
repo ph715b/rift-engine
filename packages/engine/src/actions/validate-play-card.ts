@@ -19,7 +19,8 @@ import {
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
 import type { UnitInstance } from "../model/card.js";
 import { computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "../engine/rune-payment.js";
-import { sacrificeCostDiscount } from "../engine/cost-modifiers.js";
+import { variantCostDiscount } from "../engine/cost-modifiers.js";
+import { ownTrashCandidates } from "../engine/card-effects.js";
 import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import {
@@ -279,6 +280,13 @@ function targetingRejection(
     }
     if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) {
       return `${cardName} can only return a ${targeting.cardKind} from your trash, not a ${trashCard.kind}`;
+    }
+    // The COST ceilings, asked through the same predicate the enumerator fanned
+    // out from. Undying Loyalty's "no more than [2] and no more than [rainbow]"
+    // is the first spec to carry them, and a bound checked on one side only
+    // would let a hand-built action play a 10-Energy unit for free.
+    if (!ownTrashCandidates(state, playerIndex, targeting).some((c) => c.instanceId === trashCard.instanceId)) {
+      return `${trashCard.name} costs more than ${cardName} allows`;
     }
   } else if (targeting.kind === "chainSpell") {
     if (!choices.targetChainCardInstanceId) {
@@ -832,12 +840,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Power, both taken off. Re-derived from the same action the enumerator priced
   // and through the same shared function, which is what keeps a play the
   // enumerator offered from being refused here.
-  const sacrificeDiscount = sacrificeCostDiscount(
-    state,
-    action.playerIndex,
-    card.defId,
-    action.additionalCostUnitInstanceId,
-  );
+  const sacrificeDiscount = variantCostDiscount(state, action.playerIndex, card.defId, {
+    ...(action.additionalCostUnitInstanceId !== undefined
+      ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+      : {}),
+    ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+  });
   const optionalPower = optionalPowerCostOf(card.defId);
   // Bard - Mercurial's "you may exhaust your legend as an additional cost".
   //

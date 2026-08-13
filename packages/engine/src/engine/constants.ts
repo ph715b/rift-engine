@@ -21,6 +21,23 @@ export const WIN_THRESHOLD_1V1 = 8;
 export const MIGHTY_THRESHOLD = 5;
 
 /**
+ * "A Bird, Cat, Dog, or Poro" — the four creature tags two Unleashed cards name
+ * as a set, word for word:
+ *
+ *   - UNL-166 Stalking Wolf — "kill a Bird, Cat, Dog, or Poro you control" (an
+ *     additional cost, so it is a `UnitCostSpec.candidate`)
+ *   - UNL-168 Undying Loyalty — "this costs [2] less if you CHOOSE a Bird, Cat,
+ *     Dog, or Poro" (a discount priced per enumerated target)
+ *
+ * Two different mechanisms reading one printed list, which is why it lives here
+ * rather than in either of them: `constants.ts` imports nothing from the engine,
+ * so both `card-effects.ts` and `cost-modifiers.ts` can take it without opening
+ * a cycle. Duplicating it would be the same class as this repo's hand-copied
+ * trigger census — wrong four times, always by copying one of the sources.
+ */
+export const COMPANION_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
+
+/**
  * Vanguard Armory's "play THREE 1 [Might] Recruit unit tokens".
  *
  * Here for exactly the reason `MIGHTY_THRESHOLD` above is, and it was not a

@@ -6,7 +6,7 @@ import { implementingModule, isCardImplemented, partialImplementationNote } from
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { destroyUnit, grantTemporary } from "../src/engine/effect-helpers.js";
 import { runBeginning } from "../src/engine/turn-manager.js";
-import { optionalUnitCostOf } from "../src/engine/card-effects.js";
+import { optionalUnitCostOf, targetingForCard } from "../src/engine/card-effects.js";
 import type { Domain } from "../src/model/domain.js";
 import type { RuneCard } from "../src/model/rune.js";
 import type { MoveUnitAction, PlayCardAction, PlayerAction } from "../src/actions/player-action.js";
@@ -325,106 +325,40 @@ describe("Shadow's Call (UNL-165): give a friendly unit [Temporary], draw 2", ()
 });
 
 describe("Undying Loyalty (UNL-168): play a cheap unit from your trash, ignoring its cost", () => {
-  it("is reported HALF implemented — the partial note is the honest answer", () => {
-    // Was `true`, which was a coverage lie: the first clause claimed the whole
-    // card. A PARTIALLY_IMPLEMENTED entry was added at integration.
-    expect(isCardImplemented(registry.get(UNDYING_LOYALTY))).toBe(false);
-  });
+  /**
+   * **This whole block was rewritten on 2026-08-12.** Five of its tests failed at
+   * once, and every one of them was correct until the day it flipped:
+   *
+   *   - it reported half-implemented, and it was;
+   *   - it carried a PARTIALLY_IMPLEMENTED note naming the missing discount;
+   *   - it charged the full printed price whatever was in the trash;
+   *   - and two tests drove the parked QUESTION it used to ask, checking that the
+   *     ceiling was enforced in the options and that an unplayable trash asked
+   *     nothing at all.
+   *
+   * The last two are the interesting casualties. They did not fail because the
+   * behaviour changed — the ceiling is still enforced and an unplayable trash
+   * still offers nothing — but because the MECHANISM did: the card now names its
+   * trash unit as an announce-time target (355.4 / 355.9.a.4) rather than parking
+   * a decision, so there is no question left to inspect. That move is what made
+   * the discount expressible at all, since a cost must be known when the card is
+   * paid for.
+   *
+   * Both behaviours are re-asserted in `undying-loyalty.test.ts` against the new
+   * mechanism, along with the discount and both sides of the enumerate/validate
+   * split. Nothing is duplicated here.
+   */
+  it("is WHOLE, and its trash choice is a target rather than a question", () => {
+    expect(isCardImplemented(registry.get(UNDYING_LOYALTY)), "Undying Loyalty went back to being half-written").toBe(
+      true,
+    );
+    expect(partialImplementationNote(registry.get(UNDYING_LOYALTY)), "a partial note came back").toBeUndefined();
 
-  /** A unit card in the trash with a chosen printed cost. `makeUnit` is a
-   *  synthetic definition, which is what keeps these fixtures from being
-   *  implemented out from under the test by a future card. */
-  const trashUnit = (name: string, energyCost: number, powerCost = 0) =>
-    makeUnit({ instanceId: name.toLowerCase(), name, energyCost, powerCost });
-
-  function loyaltyState(trash: UnitInstance[], runes = 24): { state: GameState; spellId: string } {
-    const spell = spellInstance(UNDYING_LOYALTY);
-    const state = makeState({ phase: "Action" });
-    state.players[0]!.hand = [spell];
-    state.players[0]!.channeled = runesFor(UNDYING_LOYALTY, runes);
-    state.players[0]!.trash = trash;
-    return { state, spellId: spell.instanceId };
-  }
-
-  it("plays the chosen unit out of the trash, for free", () => {
-    const { state, spellId } = loyaltyState([trashUnit("Cheap", 2, 1)]);
-    const cast = castsOf(state, spellId)[0];
-    const asked = accept(state, cast, "Undying Loyalty");
-
-    // One candidate is not a choice, and `advanceDecisions` performs it without a
-    // prompt — so the unit is already in play by the time the chain settles.
-    const after = passUntilSettled(asked);
-    expect(unitAnywhere(after, "cheap"), "the unit never left the trash").toBeDefined();
-    expect(after.players[0]!.trash.some((c) => c.instanceId === "cheap"), "it is in two zones at once").toBe(false);
-    expect(after.players[0]!.cardsPlayedThisTurn, "a free play did not count as a play").toBeGreaterThan(0);
-  });
-
-  it("offers only what is within BOTH halves of the ceiling", () => {
-    // TWO legal candidates, so there is a real question to inspect: one is not a
-    // choice and `advanceDecisions` performs it without ever showing it. They are
-    // also the positive control — "nothing was offered" can never be mistaken for
-    // "the filter worked".
-    const { state, spellId } = loyaltyState([
-      trashUnit("AtTheCeiling", 2, 1),
-      trashUnit("WellUnder", 0, 0),
-      trashUnit("TooExpensive", 3, 0),
-      trashUnit("TooMuchPower", 1, 2),
-      spellInstance(SHADOWS_CALL) as unknown as UnitInstance,
-    ]);
-    const asked = passUntilSettled(accept(state, castsOf(state, spellId)[0], "Undying Loyalty"));
-
-    expect(offered(asked).labels.sort(), "the ceiling let something through, or ate a legal card").toEqual([
-      "AtTheCeiling",
-      "WellUnder",
-    ]);
-  });
-
-  it("asks nothing at all when the trash holds nothing playable", () => {
-    const { state, spellId } = loyaltyState([trashUnit("TooExpensive", 9, 0)]);
-    const after = passUntilSettled(accept(state, castsOf(state, spellId)[0], "Undying Loyalty"));
-
-    expect(after.pendingDecisions, "a question with no answers was parked").toHaveLength(0);
-    expect(unitAnywhere(after, "tooexpensive"), "the ceiling was ignored entirely").toBeUndefined();
-  });
-
-  it("DIVERGENCE: no discount, whatever is in the trash — the first clause is unwritten", () => {
-    // "This costs [2] less if you choose a Bird, Cat, Dog, or Poro." The discount
-    // is priced per enumerated variant at announce, in files this wave does not
-    // own, so the card always costs its printed [2] and one rainbow.
-    //
-    // Asserted on the PAYMENT the enumerator built, which is the number that
-    // would move the day the clause lands — and against a Poro-tagged trash
-    // card, so this is the case the clause is actually about rather than a
-    // vacuous one.
-    const poro = makeUnit({ instanceId: "poro", name: "Poro", energyCost: 2, powerCost: 1, tags: ["Poro"] });
-    const { state, spellId } = loyaltyState([poro]);
-    const casts = castsOf(state, spellId);
-
-    expect(casts, "no cast was offered — the fixture is wrong, not the divergence").toHaveLength(1);
-    expect(casts[0]!.payment.energyRunes, "the discount clause has landed — update this pin").toHaveLength(2);
-    expect(casts[0]!.payment.powerRunes, "the printed Power pip stopped being charged").toHaveLength(1);
-    expect(
-      optionalUnitCostOf(UNDYING_LOYALTY),
-      "an additional cost is registered for it now — this pin needs rewriting",
-    ).toBeUndefined();
-  });
-
-  it("PARTIAL: coverage names the half that is missing", () => {
-    // Registration is per defId, so writing the second clause marks the whole
-    // card DONE. The `coverage.PARTIALLY_IMPLEMENTED` entry this wave owes could
-    // not be added — coverage.ts is shared — so the over-report is pinned here
-    // instead, and closing it fails loudly rather than silently.
-    // **This pin did its job.** It asserted the card had NO partial note while
-    // being half-written — the over-report that registration-per-defId always
-    // produces, and which the agent could not fix because `coverage.ts` is shared.
-    // The entry landed at integration and this failed, exactly as designed.
-    //
-    // Inverted rather than deleted: the note going missing again would mean the
-    // card had silently gone back to claiming a half it does not have.
-    expect(
-      partialImplementationNote(registry.get(UNDYING_LOYALTY)),
-      "the PARTIALLY_IMPLEMENTED entry was dropped — this card is claiming a half it does not have",
-    ).toBeDefined();
+    // The mechanism claim, which is what this file is placed to notice: if the
+    // card ever goes back to parking a question, its discount silently stops
+    // being priceable and only this assertion would say so.
+    const targeting = targetingForCard(spellInstance(UNDYING_LOYALTY));
+    expect(targeting?.kind, "the trash choice stopped being an announce-time target").toBe("ownTrashCard");
   });
 });
 

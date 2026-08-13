@@ -12,7 +12,8 @@ import type {
   RunePayment,
 } from "../actions/player-action.js";
 import { computeAutoPayment, computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "./rune-payment.js";
-import { sacrificeCostDiscount } from "./cost-modifiers.js";
+import { variantCostDiscount } from "./cost-modifiers.js";
+import { ownTrashCandidates } from "./card-effects.js";
 import { counterFilter, counterableSpells } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
@@ -920,8 +921,10 @@ export function legalActions(state: GameState): PlayerAction[] {
         effectVariants.push({ targetPermanentInstanceId: g.instanceId });
       }
     } else if (targeting.kind === "ownTrashCard") {
-      for (const trashCard of actor.trash) {
-        if (targeting.cardKind !== undefined && trashCard.kind !== targeting.cardKind) continue;
+      // Through the shared predicate rather than a local filter: the spec now
+      // carries cost ceilings as well as a kind, and a ceiling applied here but
+      // not in the validator is the offered-then-refused split.
+      for (const trashCard of ownTrashCandidates(state, playerIndex, targeting)) {
         effectVariants.push({ trashCardInstanceId: trashCard.instanceId });
       }
     } else if (targeting.kind === "chainSpell") {
@@ -1241,7 +1244,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       // taking a discount off the raw cost and stopping there skips the
       // floating-Energy reduction the plain path applies, and enumeration then
       // offers a payment the validator prices differently.
-      const sacrificeDiscount = sacrificeCostDiscount(state, playerIndex, card.defId, variant.additionalCostUnitInstanceId);
+      const sacrificeDiscount = variantCostDiscount(state, playerIndex, card.defId, {
+        ...(variant.additionalCostUnitInstanceId !== undefined
+          ? { additionalCostUnitInstanceId: variant.additionalCostUnitInstanceId }
+          : {}),
+        ...(variant.trashCardInstanceId !== undefined ? { trashCardInstanceId: variant.trashCardInstanceId } : {}),
+      });
       const sacrificeEffective =
         sacrificeDiscount.energy + sacrificeDiscount.power > 0 && !fromHidden
           ? computeEffectiveCost(
