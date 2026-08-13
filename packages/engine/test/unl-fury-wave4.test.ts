@@ -447,7 +447,9 @@ describe("what this wave did and did not write", () => {
     // `deploy.conditionalEntersReady`. The value moving twice is the mechanism
     // working; what would be wrong is it moving without the note moving with it.
     [SCORCHCLAW, true],
-    [SQUARE_UP, false],
+    // **UNL-017 flipped on 2026-08-13** — its `[Repeat] — Discard 1` is priced
+    // now, and `RepeatCostSpec` gained a non-resource cost to hold it.
+    [SQUARE_UP, true],
     // Written this wave.
     [JHIN, true],
   ])("%s reports implemented: %s", (defId, implemented) => {

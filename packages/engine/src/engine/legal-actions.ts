@@ -1664,6 +1664,24 @@ export function legalActions(state: GameState): PlayerAction[] {
         // execution: hers is a price on PLAYING an enemy spell, and a `[Repeat]`
         // is one play that executes twice. `rainbowSurchargeForPlay` adds it once
         // however long the chosen-unit list it is handed is.
+        // A Repeat priced in CARDS fans out per discardable card — Square Up's
+        // "Discard 1". Unlike Energy, one card in hand is not interchangeable
+        // with another, so WHICH is spent is a real choice and rides the action.
+        //
+        // The spell itself is excluded: it is still in hand at enumeration time
+        // and paying for a card with itself is not a cost anyone can take.
+        const repeatDiscardCost = repeatCostOf(card.defId)?.discard ?? 0;
+        const repeatDiscardable =
+          repeatDiscardCost > 0 ? actor.hand.filter((c) => c.instanceId !== card.instanceId) : [];
+        // A card cost that CANNOT be paid offers no repeat at all, which is
+        // 204.2.a — an unpayable additional cost is simply not available.
+        //
+        // **`continue` here was a bug and a test caught it.** This block sits
+        // inside the loop that also emits the PLAIN play, so skipping the
+        // iteration made Square Up entirely uncastable with a hand of one card,
+        // rather than castable-without-the-repeat. The guard has to withhold the
+        // repeat and nothing else.
+        const repeatIsPayable = repeatDiscardCost === 0 || repeatDiscardable.length > 0;
         const repeatVariant = { ...variant, repeatPaid: true as const };
         const repeatDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
           ...chosenUnitsOfPlay(repeatVariant),
@@ -1727,16 +1745,28 @@ export function legalActions(state: GameState): PlayerAction[] {
           // can afford plainly but not with the repeat simply has no paid variant,
           // the same rule the optional-Power branch above applies.
           if (paidRepeat) {
-            actions.push({
-              type: "PlayCard",
-              playerIndex,
-              card,
-              payment: paidRepeat,
-              ...variant,
-              ...hiddenFields,
-              repeatPaid: true,
-              ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
-            });
+            // One action per discardable card when the Repeat is priced in cards,
+            // and exactly one otherwise. `[undefined]` rather than a branch keeps
+            // the push itself single — a second `actions.push` here is how the
+            // surcharge got skipped on one path before.
+            const discardChoices: (string | undefined)[] = !repeatIsPayable
+              ? []
+              : repeatDiscardCost > 0
+                ? repeatDiscardable.map((c) => c.instanceId)
+                : [undefined];
+            for (const discardId of discardChoices) {
+              actions.push({
+                type: "PlayCard",
+                playerIndex,
+                card,
+                payment: paidRepeat,
+                ...variant,
+                ...hiddenFields,
+                repeatPaid: true,
+                ...(discardId !== undefined ? { repeatDiscardCardInstanceId: discardId } : {}),
+                ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
+              });
+            }
           }
         }
       }

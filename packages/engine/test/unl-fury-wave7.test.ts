@@ -439,7 +439,9 @@ describe("the nine cards this wave REFUSED", () => {
     // Asserted through `partialImplementationNote` rather than
     // `isCardImplemented` so that a note being DELETED (which would silently make
     // a half-written card report finished) fails here too.
-    for (const defId of [SMITE, SQUARE_UP, CURTAIN_CALL, DEATH_FROM_BELOW]) {
+    // **SQUARE_UP left this list on 2026-08-13** — its `[Repeat] — Discard 1` is
+    // priced now, so it is whole and carries no note.
+    for (const defId of [SMITE, CURTAIN_CALL, DEATH_FROM_BELOW]) {
       expect(partialImplementationNote(registry.get(defId)), `${defId} lost its note`).toBeDefined();
       expect(isCardImplemented(registry.get(defId))).toBe(false);
     }

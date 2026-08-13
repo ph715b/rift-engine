@@ -318,7 +318,20 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
 
   // A from-hidden card was never in hand; it comes off the battlefield instead,
   // which happens on `battlefields` further down.
-  const handAfterRemoval = actor.hand.filter((c) => c.instanceId !== card.instanceId);
+  // **The `[Repeat]` discard is paid HERE, with the card leaving hand.**
+  // 820.1.c.1 puts a Repeat cost "during the steps of playing the spell", so it
+  // is spent as the card is played rather than at resolution — the same moment
+  // the Energy for a Repeat is taken.
+  //
+  // Removed in the same filter as the played card rather than in a later pass:
+  // two sequential filters over `hand` would each rebuild it, and a card that is
+  // both the play and the discard (already refused by the validator) would
+  // silently survive one of them.
+  const repeatDiscardId = action.repeatPaid ? action.repeatDiscardCardInstanceId : undefined;
+  const repeatDiscarded = repeatDiscardId !== undefined ? actor.hand.filter((c) => c.instanceId === repeatDiscardId) : [];
+  const handAfterRemoval = actor.hand.filter(
+    (c) => c.instanceId !== card.instanceId && c.instanceId !== repeatDiscardId,
+  );
   // Jayce - Man of Progress's permission is SPENT here, and only when it was
   // actually the thing that made this Gear free. Asked through the same
   // predicate the validator and the enumerator price with, so "was it free" and
@@ -341,7 +354,14 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     hand: handAfterRemoval,
     channeled: remainingChanneled,
     freeGearPlaysThisTurn: actor.freeGearPlaysThisTurn - (usedFreeGearPlay ? 1 : 0),
-    trash: playedFromTrash ? actor.trash.filter((c) => c.instanceId !== card.instanceId) : actor.trash,
+    // The `[Repeat]` discard lands in the trash with everything else discarded
+    // (390.2). Folded into `sharedUpdates` so both exit paths below carry it —
+    // the Spell path overrides `trash` to append the played card, and appending
+    // to THIS value is what keeps the discard from being dropped there.
+    trash: [
+      ...(playedFromTrash ? actor.trash.filter((c) => c.instanceId !== card.instanceId) : actor.trash),
+      ...repeatDiscarded,
+    ],
     trashUnitPlaysThisTurn: actor.trashUnitPlaysThisTurn - (playedFromTrash ? 1 : 0),
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
@@ -615,7 +635,8 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     updatedActor = {
       ...actor,
       ...sharedUpdates,
-      trash: [...actor.trash, card],
+      // ...and onto the discard the shared updates already appended.
+      trash: [...sharedUpdates.trash, card],
     };
     nextState = {
       ...nextState,

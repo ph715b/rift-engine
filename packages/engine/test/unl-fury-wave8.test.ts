@@ -398,7 +398,10 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     ["UNL-013", "a per-unit damage doubler at combat ASSIGNMENT (465.2.c.5) as well as at dealDamage"],
     // `RepeatCostSpec` is `{ energy, power?, domain?, rainbowPower? }` — resources
     // only, and Square Up's Repeat cost is "Discard 1".
-    ["UNL-017", "RepeatCostSpec carries resources only; this Repeat cost is Discard 1"],
+    // **UNL-017 left this list on 2026-08-13.** The refusal named its blocker
+    // exactly — RepeatCostSpec carried resources only — and the spec gained a
+    // `discard`. It is one instance whose price is a card, not the
+    // multi-instance case Curtain Call still waits on.
     // 820.3 makes each printed instance separately payable; Curtain Call prints
     // three, and `REPEAT_COSTS` maps one defId to exactly one spec. Its "choose one
     // you haven't already chosen" is additionally a per-EXECUTION constraint that a

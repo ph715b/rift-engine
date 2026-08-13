@@ -131,6 +131,14 @@ export interface PlayCardAction {
    *  than one; the unchosen multi-discards (Jinx, Undercover Agent's Deathknell)
    *  go through discardCards' front-of-hand convention instead. */
   discardCardInstanceId?: string;
+  /** The card discarded to pay a `[Repeat]` whose cost is CARDS rather than
+   *  resources — Square Up's "[Repeat] — Discard 1".
+   *
+   *  Its own field rather than reusing `discardCardInstanceId` above: that one
+   *  is a discount a card BUYS with a discard (Brazen Buccaneer), and this is an
+   *  additional cost that buys a second execution. A play can owe both, and
+   *  folding them together would make one silently pay for the other. */
+  repeatDiscardCardInstanceId?: string;
   /** The unit OR gear named by a `unitOrGear`-kind targeting spec (Fading
    *  Memories). Separate from `targetUnitInstanceId` because a gear is not a
    *  unit and must never reach a reader expecting one. */

@@ -520,6 +520,28 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (action.repeatPaid && repeatCost === undefined) {
     return fail(`${card.name} does not have [Repeat]`);
   }
+  // **A `[Repeat]` priced in CARDS.** Square Up's "Discard 1" — re-derived here
+  // rather than trusted from the action, the discipline every cost in this file
+  // keeps: a hand-built action could otherwise repeat for free, or discard a card
+  // it does not hold.
+  const repeatDiscardNeeded = repeatCost?.discard ?? 0;
+  if (action.repeatPaid && repeatDiscardNeeded > 0) {
+    const named = action.repeatDiscardCardInstanceId;
+    if (named === undefined) {
+      return fail(`${card.name}'s [Repeat] costs a discard, and none was named`);
+    }
+    if (named === card.instanceId) {
+      return fail(`${card.name} cannot be discarded to pay for itself`);
+    }
+    if (!actor.hand.some((c) => c.instanceId === named)) {
+      return fail(`${card.name}'s [Repeat] discard names a card not in ${actor.name}'s hand`);
+    }
+  }
+  // ...and the other direction: a discard named for a Repeat that costs none, or
+  // was never paid, is a dropped field rather than a harmless extra.
+  if (action.repeatDiscardCardInstanceId !== undefined && !(action.repeatPaid && repeatDiscardNeeded > 0)) {
+    return fail(`${card.name} named a [Repeat] discard it does not owe`);
+  }
   // Choices for a repeat that was never paid for are not a smaller mistake than
   // paying without choosing — they would be silently ignored at resolution,
   // which is exactly the class of dropped-field bug this pipeline has shipped.

@@ -1125,6 +1125,20 @@ export function optionalXpCostDefIds(): string[] {
  */
 export interface RepeatCostSpec {
   energy: number;
+  /**
+   * A `[Repeat]` cost paid with CARDS rather than resources — Square Up's
+   * "[Repeat] — Discard 1".
+   *
+   * Every other Repeat in the pool is priced in Energy and Power, which is why
+   * this interface held nothing else and why the card was refused across three
+   * waves. 820.1.c.1 makes the Repeat cost "an Additional Cost to be paid during
+   * the steps of playing", and says nothing about what kind of cost it is.
+   *
+   * WHICH card is discarded rides the action (`repeatDiscardCardInstanceId`),
+   * because it is a real choice: unlike Energy, one card in hand is not
+   * interchangeable with another.
+   */
+  discard?: number;
   power?: number;
   /** Only meaningful when `power` is set. */
   domain?: Domain;
@@ -1153,6 +1167,11 @@ export interface RepeatCostSpec {
  * a constant and cannot live in a table. See `grantedRepeatCostFor`.
  */
 const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
+  // Square Up — "[Repeat] — Discard 1". The pool's only non-resource Repeat
+  // cost, and `energy: 0` is load-bearing rather than filler: the card asks for
+  // no Energy at all, so a variant that paid one would be charging a price the
+  // card does not print.
+  "UNL-017": { energy: 0, discard: 1 },
   "SFD-003": { energy: 1 }, // Blood Rush — [Repeat] [1]
   "SFD-023": { energy: 2, power: 1, domain: "Fury" }, // Piercing Light — [Repeat] [2][Fury]
   "SFD-031": { energy: 2 }, // Desert's Call — [Repeat] [2]; 820.1.d's own worked example

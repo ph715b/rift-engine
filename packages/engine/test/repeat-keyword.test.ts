@@ -227,7 +227,14 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
     // no field for) and UNL-182 Curtain Call prints three alternative costs
     // (820.1.c.2's multi-instance case, which the one-instance `repeatPaid`
     // boolean cannot carry).
-    expect(unpriced).toEqual(["UNL-017", "UNL-182"]);
+    // **UNL-017 Square Up left this list on 2026-08-13.** `RepeatCostSpec` gained
+    // a `discard`, which is the whole of what it needed — its cost is one
+    // instance whose price is a card, not the multi-instance case.
+    //
+    // Curtain Call remains, and it is the harder half: three alternative costs,
+    // "you may pay EACH", which is 820.1.c.2's multi-instance case and needs the
+    // table to hold a LIST rather than one spec.
+    expect(unpriced).toEqual(["UNL-182"]);
   });
 });
 

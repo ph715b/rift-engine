@@ -231,7 +231,15 @@ describe("Square Up (UNL-017): give a unit [Assault 4] this turn", () => {
     // "Discard 1", and this is the pool's first non-resource one. So no row
     // exists, the enumerator offers no repeat-paid variant, and the printed
     // keyword does nothing in play while coverage reports the card finished.
-    expect(repeatCostOf(SQUARE_UP), "the [Repeat] was priced — delete this pin and test the repeat").toBeUndefined();
+    // **PIN EXPIRED 2026-08-13**, exactly as its own message asked. The reasoning
+    // above was right in every particular: `RepeatCostSpec` really did hold only
+    // energy/power/domain/rainbowPower, and this really was the pool's first
+    // non-resource Repeat cost. It gained a `discard`.
+    //
+    // Inverted rather than deleted — an unpriced Repeat is INERT while the card
+    // still reports finished, which is precisely the silent shape this pin was
+    // built to catch, and it would look identical if the row were ever dropped.
+    expect(repeatCostOf(SQUARE_UP), "Square Up's [Repeat] lost its price").toMatchObject({ discard: 1 });
 
     const state = board();
     state.players[0]!.hand = [spellInstance(SQUARE_UP)];
@@ -438,7 +446,9 @@ describe("what this wave did and did not write", () => {
     // `deploy.conditionalEntersReady`. The value moving twice is the mechanism
     // working; what would be wrong is it moving without the note moving with it.
     [SCORCHCLAW, true],
-    [SQUARE_UP, false],
+    // **UNL-017 flipped on 2026-08-13** — its `[Repeat] — Discard 1` is priced
+    // now, and `RepeatCostSpec` gained a non-resource cost to hold it.
+    [SQUARE_UP, true],
     // **WRITTEN 2026-08-11.** The refusal was exact — "PlayerState carries
     // `powerSpentThisTurn` and nothing about Energy spent on a spell" — and
     // `maxSpellEnergySpentThisTurn` is that counter. A MAXIMUM over single

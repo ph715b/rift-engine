@@ -482,10 +482,19 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // here, because registration is per defId and the first clause claims the card.
   // Each was named by the agent that wrote it and each is pinned by a test in that
   // agent's file asserting the wrong answer, so closing the gap fails loudly.
-  [
-    "UNL-017",
-    "half written: the [Assault 4] works; its [Repeat] — Discard 1 is inert — RepeatCostSpec carries energy/power/rainbow only, so this is the pool's first NON-RESOURCE repeat cost and no table row can fix it",
-  ],
+  // **UNL-017 Square Up LEFT this map on 2026-08-13.** Its `[Repeat]` is priced
+  // in CARDS — "Discard 1" — and `RepeatCostSpec` held Energy, Power and a
+  // domain, nothing else. Every other Repeat in the pool is a resource cost,
+  // which is why the interface had never needed anything more.
+  //
+  // 820.1.c.1 makes a Repeat cost "an Additional Cost to be paid during the
+  // steps of playing" and says nothing about what KIND of cost it is, so the
+  // spec gained a `discard` and the action carries WHICH card — unlike Energy,
+  // one card in hand is not interchangeable with another.
+  //
+  // This is NOT the multi-instance Repeat work that Curtain Call and Syndra
+  // still wait on. Those need `REPEAT_COSTS` to hold a LIST payable
+  // individually (820.3); this is one instance whose price is a card.
   // **STRONGER than printed, which is the worse direction of the two.** Every other
   // entry here under-reaches; this one lets the gear be cracked the turn it lands.
   [
