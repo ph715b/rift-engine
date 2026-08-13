@@ -516,9 +516,48 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // every board-keyed discount it is priced per enumerated variant, and both
   // pricing sites re-run it through `computeEffectiveCost` rather than
   // subtracting after it.
+  // **UNL-188's note was REWRITTEN on 2026-08-12, not retired**, and the reason
+  // is the interesting part: a wave-7 agent wrote the art-only band the old note
+  // named — the conquer-with-3-excess-damage draw — and then found the card is
+  // STILL unfinished for a reason nobody had recorded anywhere.
+  //
+  // Its printed text carries a rider: "This ability's Energy cost is reduced by
+  // the Might of the unit you choose." `equipAbilities` builds ONE static
+  // `ActivationCost` per gear out of `def.equipCost`, so a cost that depends on
+  // the activation's chosen target has nowhere to live — the same shape
+  // `sacrificeCostDiscount` had to be invented for on the play path.
+  //
+  // Nothing noticed because the direction is safe: the gear is always dearer than
+  // printed, never cheaper. Verified against the card's own `text` in the
+  // registry rather than taken from the agent's report.
   [
     "UNL-188",
-    "art-only: its conquer-with-3-excess-damage draw is unwritten (only the [Equip] cost and +3 badge work)",
+    "half written: the conquer-with-3-excess-damage draw works; its PRINTED '[Equip] cost is reduced by the Might of the unit you choose' does not — equipAbilities builds one static ActivationCost per gear and no activation cost can depend on the chosen target",
+  ],
+  // **UNL-147 Baron Nashor, written by a THIRD in wave 7.** His "other friendly
+  // units have +2 [Might]" landed as this engine's first `mightModifiers` entry;
+  // his other two sentences did not, and both leave him weaker than printed.
+  //
+  // The first is systemic rather than a card gap, and was checked rather than
+  // assumed: **nothing in the engine can add a battlefield at all.**
+  // `battlefieldPair` builds exactly two at setup with ids stable for the game's
+  // lifetime, no writer appends to `state.battlefields`, and the Baron Pit has no
+  // card data in unl.json — 187.9 would have to be transcribed. 172 makes the
+  // battlefield count a property of the Mode of Play, so a third one is a third
+  // scoring location and would move `walkout`'s pinned figures.
+  [
+    "UNL-147",
+    "one of three clauses: the +2 Might aura on other friendly units works; 'add the Baron Pit battlefield token to the board' is unwritten (nothing can add a battlefield — battlefieldPair builds exactly two at setup and the Pit has no card data), and 'I can't be chosen by enemy spells and abilities' is one unwritten row in target-lookup.UNCHOOSEABLE_BY_ENEMIES",
+  ],
+  // **UNL-020 Dancing Grenade, written by HALVES in wave 7.** "Deal 2 to a unit"
+  // works; "its controller may play this spell again for [rainbow]" does not.
+  //
+  // Registration is per defId, so the half that landed would otherwise claim the
+  // whole card — and `unl-fury-wave3.test.ts` pins it as unimplemented, which is
+  // the assertion this row exists to keep true rather than to weaken.
+  [
+    "UNL-020",
+    "half written: the 2 damage works; 'its controller may play this spell again for [rainbow]' is unwritten — the replay leaves the CASTER's trash to be played by its TARGET's controller at a replaced price, and nothing tallies one spell's damage instances this turn",
   ],
   // **Two cards written by HALVES in wave 2, 2026-08-09.** Both report finished
   // without these, which is this map's whole reason to exist. Neither agent could
@@ -588,10 +627,18 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-144",
     "half written: the [Chaos] move ability works; 'I can't be readied' is unwritten — runAwaken readies by an inline map and readyUnit's only lock is per-player, so he readies every Awaken and is STRONGER than printed",
   ],
-  [
-    "UNL-095",
-    "half written: the +3 Might works; 'when it wins a combat this turn, gain 2 XP' is unwritten — a resolved Spell sits in its caster's trash and reaches no listener walk",
-  ],
+  // **UNL-095 Grim Resolve LEFT this map on 2026-08-12, and its note had been
+  // wrong about the ENGINE rather than about the card.** It argued the listener
+  // had to be the resolved Spell, which sits in its caster's trash and reaches no
+  // walk — a true observation with a false conclusion. The listener rides on the
+  // UNIT: `grantTriggerThisTurn` writes a key onto `grantedTriggersThisTurn`,
+  // `triggerKeysOn` hands it to the walk beside the card's defId, and `runEnd`
+  // sweeps it — which is exactly what "this turn" means. Relentless Pursuit
+  // (SFD-184) already worked this way.
+  //
+  // Worth keeping as the counter-example to this file's usual pattern: a refusal
+  // note that names a real mechanism can still reach the wrong verdict, so the
+  // notes are leads rather than rulings.
   // **UNL-133 Blast Cone left this map on 2026-08-09.** Its second clause was
   // refused twice, and the gap was never the clause: no effect-driven move
   // emitted an event, and `unitMoved.moverIndex` names the moved unit's
@@ -639,9 +686,24 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // unit that is silenced, which fits Ezreal - Dashing (who silences himself) and
   // cannot express "enemy units HERE with less Might than me". The agent also
   // considered and REJECTED routing it through `mightModifiers` as an
-  // outgoing-Might floor, on two grounds worth keeping: it recurses (the enemy's
-  // own Might is the input to the comparison that would modify it) and it would
-  // strip Mightiness through `isMighty`'s outgoing branch. Both are right.
+  // outgoing-Might floor, on two grounds: that it recurses, and that it would
+  // strip Mightiness through `isMighty`'s outgoing branch. This note used to end
+  // "Both are right."
+  //
+  // **Wave 7 measured both, on 2026-08-12, and neither survives as stated.**
+  //   - The RECURSION is real only if the comparison is made at
+  //     `isCombat: true`. At `{ isCombat: false }` `effectiveMight` never reads
+  //     keywords, so the modifier returns 0 on its first line and the depth is 2.
+  //     (The unbounded cycle it feared is genuine at `isCombat: true`:
+  //     `effectiveKeywords` -> a Might-dependent grant -> `isMighty` -> the
+  //     outgoing role -> back in.)
+  //   - The MIGHTINESS claim is simply false: `isMighty` takes `.some()` over
+  //     BOTH combat roles, so a penalty in one can never lower the maximum. It
+  //     now has a dedicated test saying so.
+  //
+  // Kept rather than deleted because the correction is the useful part: a
+  // refusal can name a real mechanism, reason carefully about it, and still reach
+  // the wrong verdict — which is why these notes are leads, not rulings.
   // **UNL-028 Pyke - Dockside Butcher is deliberately NOT here.** The agent that
   // wrote him reported him as owed a row, and he would have been: his on-play
   // trigger reads `optionalPowerPaid`, which nothing could ever set. The blocker
@@ -675,9 +737,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-150",
     "half written: the [Stun] works; 'they can't move it this turn' is unwritten — no per-unit movement lock exists, so a unit readied after arriving can still be moved",
   ],
+  // **UNL-060 Vilemaw LEFT this map on 2026-08-12** — his silencing clause landed
+  // as a `mightModifiers` entry, the very route the note above had rejected.
+  //
+  // **UNL-194 Shadow, written by HALVES in wave 7.** His activated ability works;
+  // "if you play me to a battlefield, I enter ready" does not, and the blocker is
+  // narrow and real: `deploy.unitEntersReady` is handed no destination at all, and
+  // `playUnitToBattlefield` and `playUnitToBase` call it identically — so the
+  // condition cannot even be asked without threading a parameter from both.
   [
-    "UNL-060",
-    "one of three clauses: 'when I hold, draw 1' works and [Ambush] is the loader's; 'enemy units here with less Might than me don't deal combat damage' is unwritten — DEALS_NO_COMBAT_DAMAGE_DEF_IDS is keyed by the silenced unit's own defId and cannot express a conditional aura over enemies",
+    "UNL-194",
+    "half written: the [1][rainbow] [Exhaust] stun works; 'if you play me to a battlefield, I enter ready' is unwritten — deploy.unitEntersReady is handed no destination, so the condition cannot be asked",
   ],
 ]);
 

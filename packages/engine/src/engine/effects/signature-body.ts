@@ -1,13 +1,14 @@
 import type { MightModifier } from "../effective-might.js";
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
-import type { DecisionDefinition } from "../decisions.js";
+import type { DecisionDefinition, DecisionOption } from "../decisions.js";
 import type { DeathWatchDefinition, DeathknellDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
 import type { EffectDefinition } from "../card-effects.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { UnitInstance } from "../../model/card.js";
 import { counterSpell, spellsOnChain } from "../counter-spell.js";
-import { parkDecision } from "../decisions.js";
+import { parkDecision, repeatDecision } from "../decisions.js";
+import { mayMoveToBaseFrom } from "../battlefield-continuous.js";
 import { findUnitAnywhere } from "../target-lookup.js";
 import {
   addBuff,
@@ -15,6 +16,7 @@ import {
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
   fileIntoNonBoardZone,
+  forceMoveToBase,
   forceMoveToBattlefield,
   gainXp,
   giveMightThisTurnToOwnUnit,
@@ -121,6 +123,79 @@ function placeUnitIntoOwnersDeck(state: GameState, unitInstanceId: string, end: 
   const arriving = fileIntoNonBoardZone<UnitInstance>([], clean);
   players[ownerIndex] = { ...owner, deck: end === "top" ? [...arriving, ...owner.deck] : [...owner.deck, ...arriving] };
   return { ...removed, players };
+}
+
+/**
+ * Void Assault's two destination questions, and the answer that means "there was
+ * nowhere to go".
+ *
+ * Written once because a resolver parks a `kind` and a registry answers to it, and
+ * a typo in either would be SILENT — the same reason Keeper's Verdict's key above
+ * is a constant. The `UNL-202-` prefix is what lets `decisionDefIds` report the
+ * card as implemented at all.
+ */
+const VOID_ASSAULT_FRIENDLY = "UNL-202-friendly-where";
+const VOID_ASSAULT_ENEMY = "UNL-202-enemy-where";
+/** Not a battlefield id and not `"base"`, so it can never collide with a real
+ *  answer. See `voidAssaultDestinations` for when it is the only option. */
+const VOID_ASSAULT_NOWHERE = "nowhere";
+/** The answer meaning "its own base" — 107.1.c makes that the only base a unit
+ *  can ever go to, so the option needs no seat on it. */
+const MOVE_HOME = "base";
+
+/**
+ * Where may `unitInstanceId` be moved right now — Void Assault's option list, for
+ * both halves of the card.
+ *
+ * **355.4.a**: "a valid Location for a Move Effect is one other than the Units'
+ * current Location where they are allowed to be present." So the battlefield it
+ * already stands at is excluded (offering it would be an answer that visibly does
+ * nothing, and `forceMoveToBattlefield` returns the state untouched for it), and
+ * **198.1** — "Locations include the Battlefields and the Bases" — puts base on the
+ * list for a unit that is not already there.
+ *
+ * The base option is gated on `mayMoveToBaseFrom`, which is Vilemaw's Lair's and
+ * Minotaur Reckoner's "units can't move to base". Asked HERE rather than left to
+ * `forceMoveToBase`'s own guard, because that guard silently no-ops: a player who
+ * picked an answer that does nothing would have spent the card's only real choice
+ * on it. This is the same reading chaos.ts's Flash-shaped moves already take.
+ *
+ * An empty list is a real state — a unit whose only battlefield is the one it
+ * stands at, with base locked — and the callers turn it into `VOID_ASSAULT_NOWHERE`
+ * rather than dropping the question, because dropping it would take the SECOND
+ * move down with it.
+ */
+function voidAssaultDestinations(state: GameState, unitInstanceId: string | undefined): DecisionOption[] {
+  if (unitInstanceId === undefined) return [];
+  const at = findUnitAnywhere(state, unitInstanceId);
+  // 359.3 — the unit was chosen when the spell was announced and may have died in
+  // the response window. Nothing to move, so nowhere to move it.
+  if (at === undefined) return [];
+  const standingAt = at.zone === "base" ? undefined : state.battlefields[at.zone.battlefieldIndex]!.id;
+  const battlefields = state.battlefields
+    .filter((bf) => bf.id !== standingAt)
+    .map((bf) => ({ id: bf.id, label: bf.name, instanceId: unitInstanceId }));
+  return standingAt !== undefined && mayMoveToBaseFrom(state, standingAt)
+    ? [...battlefields, { id: MOVE_HOME, label: "Its base", instanceId: unitInstanceId }]
+    : battlefields;
+}
+
+/**
+ * Raises Void Assault's SECOND question — "then move an enemy unit".
+ *
+ * `toFront` is `repeatDecision` versus `parkDecision`, and the two callers want
+ * different ones for the reason Call to Battle's second half records: asked from
+ * inside the first question's answer this is the continuation of one instruction
+ * and belongs at the FRONT of the queue, while asked from the spell's own resolver
+ * (because the friendly unit is already gone) nothing is queued ahead of it and the
+ * back is the ordinary place.
+ */
+function askVoidAssaultEnemy(state: GameState, casterIndex: 0 | 1, enemyInstanceId: string, toFront: boolean): GameState {
+  // 359.3 again, on the other target. "Do as much as you can" (359.3.e.11) with
+  // nothing left to do is nothing.
+  if (findUnitAnywhere(state, enemyInstanceId) === undefined) return state;
+  const seed = { kind: VOID_ASSAULT_ENEMY, playerIndex: casterIndex, targetInstanceId: enemyInstanceId };
+  return toFront ? repeatDecision(state, seed) : parkDecision(state, seed);
 }
 
 /** Who owns a unit in play, honouring a `borrowUnitInPlace` loan — the seat
@@ -248,6 +323,74 @@ export const cardEffects: Record<string, EffectDefinition> = {
       const amount = target.entry.card.energyCost;
       const countered = counterSpell(state, event.targetChainCardInstanceId);
       return giveMightThisTurnToOwnUnit(countered, ctx.casterIndex, event.targetUnitInstanceId, amount);
+    },
+  },
+  "UNL-202": {
+    // Void Assault (Body + Chaos) — "Move a friendly unit, then move an enemy
+    // unit. (If they both move to a battlefield you don't control, you're the
+    // attacker.)"
+    //
+    // # Both units are TARGETS and are announced; both DESTINATIONS are not
+    //
+    // 355.7 makes each unit a target ("when a card Chooses one or more specific
+    // Game Objects to affect, it is Targeted"), so they go on the spec and 355.8
+    // makes the card uncastable without one of each — which is the card: with no
+    // enemy on the board there is no second move to make.
+    //
+    // **The destinations are a recorded DIVERGENCE.** 355.4 is explicit — "for
+    // spells and abilities that Move one or more Units, choose a valid Location as
+    // the Move Destination **for each Move that will be performed**" — so both
+    // should be named as the spell goes on the chain, and an opponent responding to
+    // it should know where the two bodies are about to land. A `PlayCardAction`
+    // carries exactly ONE `destinationBattlefieldId`, and the card would also need a
+    // row in `MOVE_TARGET_SPELL_DEF_IDS` (engine/card-effects.ts) before the
+    // enumerator offered even that one; neither file is this one's to edit. So both
+    // destinations are parked questions instead — Call to Battle's (UNL-101) and
+    // Stare Down's (UNL-107) split, and named here for the same reason it is named
+    // there. It needs a row in docs/rules-conformance.md.
+    //
+    // The alternative — leave the card unregistered, as wave 6 did — was rejected
+    // rather than overlooked: the divergence is in WHEN a choice is made, and the
+    // two moves themselves are exactly as printed.
+    //
+    // # "A friendly unit" / "an enemy unit" are bare nouns
+    //
+    // No location word on either, so `scope: "anywhere"` (355.9.a.1) — dragging a
+    // body out of the enemy's base is the card's sharpest line, and pushing your own
+    // out of yours is its ordinary one.
+    //
+    // # The printed parenthetical falls out of the ORDER, not out of a special case
+    //
+    // The friendly moves FIRST, as printed, and `forceMoveToBattlefield` applies
+    // Contested on behalf of the MOVED unit's controller — rule **450**, "the
+    // Destination becomes Contested if it is an Uncontested Battlefield not
+    // controlled by the controller of the Unit or Units that moved". `applyContested`
+    // is a no-op on an already-Contested battlefield, so when both units land at the
+    // same uncontrolled battlefield the caster is the one who applied it and keeps
+    // Focus (345) — which is precisely "you're the attacker". Nothing here has to
+    // say so.
+    //
+    // Where they land SEPARATELY, 450 answers each destination on its own and the
+    // enemy's controller may become the attacker at theirs. That is the rule rather
+    // than the reminder, which only speaks to the both-to-one case.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2, scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const friendlyId = event.targetUnitInstanceId;
+      const enemyId = event.secondTargetUnitInstanceId;
+      if (friendlyId === undefined || enemyId === undefined) return state;
+      // A friendly that died in the response window takes its own move with it and
+      // nothing else — "then move an enemy unit" is a separate instruction and
+      // 359.3.e.11 still performs it.
+      if (findUnitAnywhere(state, friendlyId) === undefined) return askVoidAssaultEnemy(state, ctx.casterIndex, enemyId, false);
+      return parkDecision(state, {
+        kind: VOID_ASSAULT_FRIENDLY,
+        playerIndex: ctx.casterIndex,
+        targetInstanceId: friendlyId,
+        // The enemy half of the announcement, carried so the continuation knows
+        // which body the "then" is about. `cardInstanceId` is the generic id slot a
+        // decision has spare — Imposing Challenger's shove uses it the same way.
+        cardInstanceId: enemyId,
+      });
     },
   },
   "UNL-204": {
@@ -390,6 +533,69 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
  *  with the asking card's defId, which is both the ownership convention and what
  *  lets `decisionDefIds` report the card as implemented. */
 export const decisions: Record<string, DecisionDefinition> = {
+  // Void Assault's FIRST move — "move a friendly unit" — asked of the CASTER,
+  // because a move destination is the moving effect's controller's choice (355.4).
+  //
+  // The `VOID_ASSAULT_NOWHERE` fallback is what keeps the second instruction alive.
+  // An empty option list tells `advanceDecisions` a question has become moot and it
+  // is DROPPED — and this question's answer is the only thing that raises the enemy
+  // half, so a dropped one would silently swallow the rest of the card. Offering a
+  // single do-nothing answer instead means `advanceDecisions` executes it without
+  // ever showing it to anyone, and the chain continues. 359.3.e.11: "instructions
+  // that can be partially followed are followed as much as possible."
+  //
+  // NOT a "you may": the instruction is mandatory, so no decline is listed. The
+  // only reason to answer `VOID_ASSAULT_NOWHERE` is that there is genuinely no legal
+  // Location — a unit whose only other battlefield is locked behind Vilemaw's Lair
+  // or a Minotaur Reckoner.
+  [VOID_ASSAULT_FRIENDLY]: {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      return `Void Assault: move ${unit?.unit.name ?? "your unit"} where?`;
+    },
+    options: (state, d) => {
+      const destinations = voidAssaultDestinations(state, d.targetInstanceId);
+      return destinations.length > 0 ? destinations : [{ id: VOID_ASSAULT_NOWHERE, label: "Nowhere it can go" }];
+    },
+    resolve: (state, d, optionId) => {
+      const moved =
+        d.targetInstanceId === undefined || optionId === VOID_ASSAULT_NOWHERE
+          ? state
+          : optionId === MOVE_HOME
+            ? forceMoveToBase(state, d.targetInstanceId, d.playerIndex)
+            : forceMoveToBattlefield(state, d.targetInstanceId, optionId, d.playerIndex);
+      // "THEN move an enemy unit" — the second half of one instruction, so it goes
+      // to the FRONT of the queue rather than the back. Read off `moved`, not
+      // `state`: the friendly's arrival can contest a battlefield, and the enemy's
+      // own options are judged after it.
+      return d.cardInstanceId === undefined ? moved : askVoidAssaultEnemy(moved, d.playerIndex, d.cardInstanceId, true);
+    },
+  },
+  // Void Assault's SECOND move — "then move an enemy unit". Also the CASTER's
+  // choice: the card tells THEM to move it, so 355.4's destination is theirs, and
+  // dragging an enemy body somewhere unhelpful is the point of the card.
+  //
+  // No `VOID_ASSAULT_NOWHERE` here, unlike the half above: nothing is waiting on
+  // this answer, so an empty list is correctly the end of the card rather than a
+  // swallowed instruction.
+  //
+  // `d.playerIndex` is the caster and is what `forceMove*` is handed as
+  // `causedByIndex` — so "when YOU move an enemy unit" reads the right seat, which
+  // is the one thing that would be silently wrong if the moved unit's own controller
+  // were passed instead.
+  [VOID_ASSAULT_ENEMY]: {
+    prompt: (state, d) => {
+      const unit = d.targetInstanceId ? findUnitAnywhere(state, d.targetInstanceId) : undefined;
+      return `Void Assault: move ${unit?.unit.name ?? "their unit"} where?`;
+    },
+    options: (state, d) => voidAssaultDestinations(state, d.targetInstanceId),
+    resolve: (state, d, optionId) =>
+      d.targetInstanceId === undefined
+        ? state
+        : optionId === MOVE_HOME
+          ? forceMoveToBase(state, d.targetInstanceId, d.playerIndex)
+          : forceMoveToBattlefield(state, d.targetInstanceId, optionId, d.playerIndex),
+  },
   [KEEPERS_VERDICT_PLACEMENT]: {
     // Keeper's Verdict's "its owner places it on the top or bottom of their Main
     // Deck" — asked of the VICTIM, which is the whole of what makes the card

@@ -199,6 +199,23 @@ const SOUL_SWORD = "UNL-039";
 const SOUL_SWORD_LEVEL = 3;
 const SOUL_SWORD_LEVELLED_MIGHT = 1;
 
+/** Vilemaw's second clause — "Enemy units here with less Might than me don't
+ *  deal combat damage." His `[Ambush]` is the loader's and his "when I hold,
+ *  draw 1" is the `eventTriggers` entry above; this is the third and last, and it
+ *  lives at the foot of this file in `mightModifiers`. Declared HERE rather than
+ *  beside that entry for the reason effects/order.ts's Galio note records: the
+ *  table's `defId:` is evaluated at module init, so a `const` below it is in the
+ *  temporal dead zone and every import of effects/index.ts throws. */
+const VILEMAW = "UNL-060";
+/** Big enough that no sum of printed Might, auras, buffs, Equipment badges and
+ *  this-turn pumps in this pool can survive it, so `effectiveMight`'s closing
+ *  `Math.max(0, m)` always lands on 0 (143.2.b). Not a Might value — a floor
+ *  expressed in the one arithmetic this seam has. A second copy of the same
+ *  sentinel effects/order.ts declares for Galio - Indefatigable, local because
+ *  that file is not this one's to edit; consolidating the pair is the
+ *  integrator's, exactly as `BIRD_TOKEN`'s was. */
+const NO_COMBAT_DAMAGE_PENALTY = 1000;
+
 /**
  * Trevor Snoozebottom's Sprite — "a ready 3 Might Sprite unit token with
  * [Temporary]".
@@ -2493,10 +2510,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // his controller held somewhere. Ahri - Alluring and Blitzcrank - Impassive
     // read their own "when I hold" the same way, one registry up.
     //
-    // His other two clauses are NOT here. `[Ambush]` is a keyword the loader
-    // carries, and "enemy units here with less Might than me don't deal combat
-    // damage" needs `combat.outgoingMight`, which this file does not own —
-    // reported as a partial rather than approximated.
+    // His other two clauses are NOT here, and both are now written. `[Ambush]` is
+    // a keyword the loader carries, and "enemy units here with less Might than me
+    // don't deal combat damage" is the `UNL-060` entry in `mightModifiers` at the
+    // foot of this file — the seam that did not exist when the partial note on
+    // this card was written, and which reaches `outgoingMight`'s arithmetic
+    // without touching combat.ts. See that entry for the one divergence it keeps.
     on: "battlefieldHeld",
     // Both halves settled at fire time, as Ahri's are: the hold has happened and
     // the response window this opens is exactly when an opponent could move or
@@ -3631,6 +3650,88 @@ export const mightModifiers: Record<string, MightModifier> = {
         state.players[i].activeGear.some((g) => g.defId === SOUL_SWORD && g.attachedToInstanceId === unit.instanceId),
       );
       return holder !== undefined && atLevel(state, holder, SOUL_SWORD_LEVEL) ? SOUL_SWORD_LEVELLED_MIGHT : 0;
+    },
+  },
+  [VILEMAW]: {
+    // Vilemaw's SECOND clause — "Enemy units here with less Might than me don't
+    // deal combat damage."
+    //
+    // # Why this is a Might modifier and not `combat.DEALS_NO_COMBAT_DAMAGE_DEF_IDS`
+    //
+    // `coverage.PARTIALLY_IMPLEMENTED` says of this card that "the Set is keyed by
+    // the silenced unit's own defId and cannot express a conditional aura over
+    // enemies", and that is true of the Set — it is not true of the arithmetic.
+    // effects/order.ts reached the same place for Galio - Indefatigable's "I don't
+    // deal combat damage" and its entry carries the sweep: `outgoingMight` is the
+    // only site where a `combatRole: "outgoing"` Might decides anything, and
+    // `granted-keywords.isMighty` takes the HIGHER of the two roles, so a penalty
+    // in one of them can never make a unit less Mighty. **143.2.b** is what makes
+    // it exact rather than an approximation — a Might below 0 is "treated as 0 …
+    // when summing Might to be assigned as damage in the Combat Damage Step" — and
+    // `effectiveMight` ends in `Math.max(0, m)`.
+    //
+    // `remainingMight` is deliberately untouched, which is the same split the Stun
+    // rule takes (423) and Ezreal - Dashing's entry records: a silenced unit hits
+    // for nothing and is no easier to KILL for it.
+    //
+    // # "HERE" is Vilemaw's location, read from the SOURCE
+    //
+    // 359.3.f.1 names "here" as a referent taken from the ability's source. So the
+    // question is not "is this unit at a battlefield" but "is an ENEMY Vilemaw
+    // standing at THIS one", and a Vilemaw who has been moved to base reaches
+    // nothing at all — the same positional reasoning `zealotPenaltyApplies` states
+    // for Leona - Zealot's "here". Each player's Base is its own Location (198.1)
+    // and holds only its owner's units, so "enemy units here" is empty there by
+    // construction rather than by a check.
+    //
+    // # "Less Might than ME" is measured OUT of combat, and that is a DIVERGENCE
+    //
+    // Both sides of the comparison are read at `{ isCombat: false }`, so buffs,
+    // auras, Equipment badges and this-turn pumps all count and `[Assault]` /
+    // `[Shield]` do not. 807.1.c and 814.1.c make those two genuine Might ("While I
+    // am an attacker, I have +X [M]"), so an attacking 4-Might `[Assault 2]` unit
+    // has 6 Might at the moment Vilemaw is asked and this reads it as 4 — the
+    // engine silences a unit it should not when the keyword would carry it over
+    // Vilemaw's 8. **The direction is toward the printed card being stronger, so
+    // it is a real gap and not a safe one; it is recorded for the integrator to
+    // put in docs/rules-conformance.md.**
+    //
+    // It is not laziness, it is the only termination this seam has: a comparison at
+    // `isCombat: true` re-enters `effectiveKeywords`, and for a unit carrying a
+    // `dependsOnMight` conditional grant (Fiora - Victorious) that reaches
+    // `isMighty`, which calls back in at `combatRole: "outgoing"` and lands on this
+    // very modifier — an unbounded cycle, not a deep one. `isCombat: false` cannot
+    // recurse: `effectiveMight` skips the keyword read entirely on that branch, and
+    // this modifier's own first line returns 0 for it. `target-lookup`'s
+    // `unitWithinMaxMight` already measures a Might restriction the same way and
+    // says so ("auras count, [Shield]/[Assault] don't"), so this is the house
+    // reading rather than a new one.
+    //
+    // # Strictly "less", and asked per Vilemaw
+    //
+    // A tie is NOT silenced — "less Might than me" excludes equal, so an 8-Might
+    // enemy trades with him normally. Two Vilemaws at one battlefield are two
+    // abilities, so a unit under the smaller one's threshold is silenced even if
+    // the larger has been shrunk; `some` is that, not a convenience.
+    defId: VILEMAW,
+    bonus: (state, unit, ownerIndex, ctx) => {
+      if (ctx.combatRole !== "outgoing") return 0;
+      const battlefieldId = ctx.battlefieldId;
+      if (battlefieldId === undefined) return 0;
+      const enemyIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
+      const here = state.battlefields.find((b) => b.id === battlefieldId);
+      const spiders = (here?.units[state.players[enemyIndex].id] ?? []).filter((u) => u.defId === VILEMAW);
+      // A COST guard, not a rule — `some` over an empty list already answers
+      // false. It is here because `bonus` runs for every unit on every Might
+      // evaluation, and without it every combat in every game that never sees a
+      // Vilemaw pays for a second `effectiveMight` call. Labelled so nobody reads
+      // it as load-bearing; it survives mutation and should.
+      if (spiders.length === 0) return 0;
+      const mine = effectiveMight(state, unit, ownerIndex, { isCombat: false, battlefieldId });
+      const silenced = spiders.some(
+        (spider) => effectiveMight(state, spider, enemyIndex, { isCombat: false, battlefieldId }) > mine,
+      );
+      return silenced ? -NO_COMBAT_DAMAGE_PENALTY : 0;
     },
   },
 };

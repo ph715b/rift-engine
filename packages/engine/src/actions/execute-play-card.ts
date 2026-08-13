@@ -9,6 +9,7 @@ import {
   freeGearPlayApplies,
   modifiedEnergyCost,
   targetChoiceDiscount,
+  variantCostDiscount,
   scaledPowerDiscount,
   combatSpellPowerDiscount,
 } from "../engine/cost-modifiers.js";
@@ -241,6 +242,26 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   const targetDiscount = ignoresBaseCost
     ? { energy: 0, power: 0 }
     : targetChoiceDiscount(state, action.playerIndex, chosenUnitsOfPlay(action), action.targetDiscountAxis);
+  // **The CHOICE-keyed discounts, at the third site.** `variantCostDiscount`
+  // (Atakhan's sacrifice, Undying Loyalty's tagged trash choice) was wired into
+  // `legal-actions` and `validate-play-card` and NOT here — so a discounted play
+  // was offered at the right price, validated at the right price, and then burned
+  // banked Energy it no longer owed.
+  //
+  // That is the shape docs/rules-conformance.md already records against
+  // Irelia - Graceful: "a discount applied only in the validator burns floating
+  // resources the play no longer owes". Two sites of three is enough to reproduce
+  // it, which is why this file re-prices from the RAW cost rather than trusting
+  // the action's payment — the payment covers RUNES, and floating resources are
+  // spent from this arithmetic instead.
+  const variantDiscount = ignoresBaseCost
+    ? { energy: 0, power: 0 }
+    : variantCostDiscount(state, action.playerIndex, card.defId, {
+        ...(action.additionalCostUnitInstanceId !== undefined
+          ? { additionalCostUnitInstanceId: action.additionalCostUnitInstanceId }
+          : {}),
+        ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
+      });
   const modifiedEnergy = ignoresBaseCost
     ? 0
     : Math.max(
@@ -249,7 +270,8 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // the convention this whole block follows — it re-prices from the RAW
         // cost so the two halves cannot drift.
         modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, playedFromHand) -
-          targetDiscount.energy,
+          targetDiscount.energy -
+          variantDiscount.energy,
       );
   const powerToPay = ignoresBaseCost
     ? 0
@@ -257,6 +279,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         0,
         card.powerCost -
           targetDiscount.power -
+          variantDiscount.power -
           scaledPowerDiscount(state, action.playerIndex, card.defId) -
           // Vex - Cheerless's friendly half. Her enemy half is a rainbow
           // surcharge and is already in `action.payment.rainbowRunes`, which this

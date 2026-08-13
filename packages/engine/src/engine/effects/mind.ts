@@ -1922,6 +1922,88 @@ function dianaLunariReveal(state: GameState, ownerIndex: 0 | 1): GameState {
   return top.kind === "Spell" ? drawCards(revealed, ownerIndex, 1) : revealed;
 }
 
+/**
+ * Zilean - Time Mage's once-each-turn allowance, marked on HIM rather than on
+ * his controller.
+ *
+ * 371.1 caps the REPLACEMENT EFFECT ("these Replacement Effects may only be
+ * applied to the specified number of events each turn"), and a replacement
+ * effect belongs to the object printing it — so two Zileans at two battlefields
+ * control two of them and get one application each. A per-player flag would let
+ * one spend the other's.
+ *
+ * `abilityModesUsedThisTurn` is the per-unit, expires-with-the-turn marker
+ * effects/chaos.ts already uses for Draven - Audacious's "the first time I win a
+ * combat each turn", and its note there predicted this exact reuse. `runEnd`'s
+ * `expireMightThisTurn` clears it for every unit in base and at every
+ * battlefield; `activated-abilities` is the only other reader and keys off
+ * printed mode ids, which Zilean has none of — and the marker is prefixed with
+ * his defId anyway.
+ */
+const ZILEAN_DOUBLE_APPLIED = "UNL-086-doubled";
+
+/** Has this Zilean already applied his replacement this turn? Asked of the LIVE
+ *  unit, never of the listener snapshot the chain carries: two tokens played
+ *  into one window place two Pending Items (383 fixes the set at the moment of
+ *  the event), and the second must see what the first spent. */
+function zileanSpent(state: GameState, zileanInstanceId: string): boolean {
+  return findUnitAnywhere(state, zileanInstanceId)?.unit.abilityModesUsedThisTurn.includes(ZILEAN_DOUBLE_APPLIED) === true;
+}
+
+/** Writes the once-a-turn mark onto the live Zilean, wherever he stands. Both
+ *  zones, for the reason chaos.ts's `rememberCombatWinScored` walks both: the
+ *  ability requires him at a battlefield when it TRIGGERS, and a chain item can
+ *  send him home before the answer arrives. */
+function rememberZileanDoubled(state: GameState, zileanInstanceId: string): GameState {
+  const mark = (u: UnitInstance): UnitInstance =>
+    u.instanceId === zileanInstanceId
+      ? { ...u, abilityModesUsedThisTurn: [...u.abilityModesUsedThisTurn, ZILEAN_DOUBLE_APPLIED] }
+      : u;
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(mark) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(mark);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
+
+/**
+ * The `TokenSpec` that would mint an identical token — "an additional COPY of
+ * it".
+ *
+ * Read off the board rather than from a table of specs, and that is the whole
+ * reason Zilean can be written at all: `placeToken` takes a spec and the token
+ * that was just played is the only description of itself that survives the play.
+ * A registry of "which spec did which card use" would have to be updated by every
+ * future token-making card, and would be silently wrong the day one is missed.
+ *
+ * PRINTED values only. `keywords` is the token's own set, not `keywordsThisTurn`,
+ * and `might` is the base figure rather than `effectiveMight` — 143.2 makes
+ * current Might a derived value, and a copy of a pumped Sprite is still a 3
+ * [Might] Sprite. `entersReady` mirrors `exhausted` so Sprite Call's "play a
+ * READY token" copies as ready and Lillia - Fae Fawn's exhausted one does not.
+ */
+function tokenSpecOf(unit: UnitInstance): TokenSpec {
+  return {
+    name: unit.name,
+    might: unit.might,
+    // `createToken` writes exactly one tag, and derives the runtime defId from
+    // it — so this is what makes the copy the same KIND of token, not just the
+    // same stat line. `Mech` and `Sprite` are both read by aura tables.
+    tag: unit.tags[0] ?? unit.name,
+    entersReady: !unit.exhausted,
+    keywords: unit.keywords,
+  };
+}
+
+/** Where a unit is standing, as a `placeToken` destination. */
+function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDestination | undefined {
+  if (zone === "base") return "base";
+  const bf = state.battlefields[zone.battlefieldIndex];
+  return bf ? { battlefieldId: bf.id } : undefined;
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "UNL-084": {
     // Sprite Queen, second moment — "…OR at the start of your Beginning Phase,
@@ -2008,6 +2090,100 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       const scorer = event.kind === "battlefieldHeld" ? event.holderIndex : event.kind === "battlefieldConquered" ? event.conquerorIndex : undefined;
       if (scorer === undefined || scorer === listener.ownerIndex) return state;
       return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
+  "UNL-086": {
+    // Zilean - Time Mage — "Once each turn, if you would play a token unit while
+    // I'm at a battlefield, you may play that token and an additional copy of it
+    // instead."
+    //
+    // # DIVERGENCE: a REPLACEMENT effect implemented as a TRIGGER
+    //
+    // 371 makes this a Replacement Effect, and the rules use THIS CARD as their
+    // worked example under 371.2.b. This engine has no replacement layer for
+    // playing a token: `placeToken` mints and files the unit in one step, and
+    // 370.1.c requires the replacement to be applied "before any qualifying event
+    // has actually occurred". Building that is token.ts's and it is not this
+    // file's to write.
+    //
+    // What is written instead is a listener on the `cardPlayed` event
+    // `placeToken` already holds — so the first token really is played, and the
+    // copy arrives when the Pending Item resolves. Two things come apart from the
+    // printed card, both recorded in docs/rules-conformance.md:
+    //
+    //  - **The two tokens are not simultaneous.** Under the replacement both
+    //    arrive together; here the opponent has a response window in between, and
+    //    `applyContested` runs twice at a battlefield rather than once. Nothing in
+    //    this pool can tell those apart today, since a token arriving is a token
+    //    arriving either way.
+    //  - **A token killed inside that window loses its copy.** The spec is read
+    //    off the live token at resolution (see `tokenSpecOf`), so a Sprite removed
+    //    in response takes the copy with it, where the replacement would already
+    //    have played both. WEAKER than printed, which is the safe direction.
+    //
+    // # "You may", and why declining does not spend the turn's use
+    //
+    // 371.2.b: "If they do not, it has not been applied this turn", with Zilean
+    // named in the example — "they can choose not to apply the replacement effect
+    // to that event. If they do, they can choose to apply it to a later event of a
+    // token being played." So the mark is written by the DECISION's accept branch
+    // (`UNL-086-copy` below) and nowhere else. Making the trigger mandatory would
+    // have been the easy shape and is the one the rules explicitly rule out.
+    //
+    // # The four conditions
+    //
+    // `isToken` + `playedKind === "Unit"` is "a token unit" — 185 keeps a token
+    // from being a card while 185.2.a makes it played, and a Gold GEAR token is
+    // the other half this must not catch. UNL-058 Lillia (effects/calm.ts) is the
+    // pool's other positive reader of that pair.
+    //
+    // `casterIndex === listener.ownerIndex` is "if YOU would play".
+    //
+    // `listener.battlefieldId !== undefined` is "while I'm at a battlefield" —
+    // the listener walk sets it only for a unit at one (never for base, gear or a
+    // Legend), which is the same test Blue Sentinel's "when I hold" makes below.
+    //
+    // The spent check is here as well as in `resolve` so a Zilean who has already
+    // doubled this turn places NO Pending Item — an `applies` that passed would
+    // cost both players a PassFocus for an ability that resolves to nothing.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.isToken &&
+      event.playedKind === "Unit" &&
+      event.casterIndex === listener.ownerIndex &&
+      listener.battlefieldId !== undefined &&
+      !zileanSpent(state, listener.card.instanceId),
+    resolve: (state, listener, event) => {
+      // The event-shape re-checks are the convention every listener in this file
+      // follows, and MEASURED to be redundant for this card rather than assumed
+      // useful — the same labelling Sumpworks Map's re-check carries above.
+      // `cardPlayed` is a `HeldEventKind`, so `dispatchEvent`'s inline path (which
+      // does not consult `applies`) can never raise it, and nothing about the
+      // event can change while it waits on the chain. Mutations deleting these
+      // two lines survived the whole file. Kept as the guard for a future inline
+      // emitter, and labelled rather than left implying they are load-bearing.
+      if (event.kind !== "cardPlayed" || !event.isToken || event.playedKind !== "Unit") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      // THIS one is load-bearing, and the mutation run proves it: two tokens
+      // played into one window (Sprite Burst) hold two items before either
+      // resolves, so `applies` was asked of both while the mark was still
+      // unwritten. This is the line that makes "once each turn" hold for a pair.
+      if (zileanSpent(state, listener.card.instanceId)) return state;
+      // The token itself may be gone — see the divergence note above. Belt and
+      // braces: the decision's `options` already answers a vanished token with
+      // NO options, which `advanceDecisions` drops without asking, so deleting
+      // this line changes nothing measurable today. It is here so no moot
+      // question is ever RAISED, and it is reported as unexercised.
+      if (findUnitAnywhere(state, event.playedInstanceId) === undefined) return state;
+      return parkDecision(state, {
+        kind: "UNL-086-copy",
+        playerIndex: listener.ownerIndex,
+        // WHO is asking, so the mark lands on the Zilean that triggered rather
+        // than on whichever one the answer happens to find.
+        cardInstanceId: listener.card.instanceId,
+        targetInstanceId: event.playedInstanceId,
+      });
     },
   },
   "UNL-087": {
@@ -2928,6 +3104,40 @@ export const decisions: Record<string, DecisionDefinition> = {
       d.battlefieldId === undefined
         ? state
         : teemoStrategistReveal(voidHatchlingAnswer(state, d.playerIndex, optionId), d.playerIndex, d.battlefieldId),
+  },
+
+  /**
+   * Zilean - Time Mage's "you may … instead" — see his `eventTriggers` entry for
+   * the whole card and its divergences.
+   *
+   * The mark is written HERE, on accept only, because 371.2.b says a declined
+   * replacement "has not been applied this turn". That is why this is a decision
+   * with a real decline rather than a mandatory doubling.
+   */
+  "UNL-086-copy": {
+    prompt: () => "Zilean - Time Mage: play an additional copy of that token?",
+    options: (state, d) => {
+      const played = d.targetInstanceId === undefined ? undefined : findUnitAnywhere(state, d.targetInstanceId);
+      // NO options means the question has become moot and `advanceDecisions`
+      // drops it — which also leaves the turn's use unspent, correctly: a
+      // replacement that was never applied to anything was never applied.
+      if (played === undefined || !played.unit.isToken) return [];
+      return [
+        { id: "copy", label: `Play an additional ${played.unit.name}`, instanceId: played.unit.instanceId },
+        { id: "decline", label: "Decline" },
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId !== "copy" || d.targetInstanceId === undefined) return state;
+      const played = findUnitAnywhere(state, d.targetInstanceId);
+      const destination = played ? destinationOf(state, played.zone) : undefined;
+      if (played === undefined || destination === undefined) return state;
+      // MARKED BEFORE the copy is placed, and that ordering is what makes this
+      // terminate: the copy holds its own `cardPlayed`, which reaches this same
+      // Zilean, and only the mark stops him doubling his own copy forever.
+      const marked = d.cardInstanceId === undefined ? state : rememberZileanDoubled(state, d.cardInstanceId);
+      return placeToken(marked, d.playerIndex, destination, tokenSpecOf(played.unit));
+    },
   },
 
   /**

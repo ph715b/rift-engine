@@ -732,6 +732,54 @@ export const cardEffects: Record<string, EffectDefinition> = {
     resolve: (state, ctx, event) =>
       event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, SMITE_DAMAGE) : state,
   },
+  "UNL-020": {
+    // Dancing Grenade — "Deal 2 to a unit. Its controller may play this spell
+    // again for [rainbow]. If they do, this deals 1 additional Bonus Damage for
+    // each time this spell has dealt damage this turn."
+    //
+    // **ONLY THE FIRST SENTENCE IS WRITTEN, and this is a HALF.** Registration is
+    // per defId, so the 2 alone reports the whole card DONE — which is why this
+    // wave's report asks for a `coverage.PARTIALLY_IMPLEMENTED` entry and why
+    // `test/unl-fury-wave7.test.ts` pins the missing half by asserting that
+    // resolving it parks NO question for anybody.
+    //
+    // "A unit" — no owner and no location printed, so `scope: "anywhere"`
+    // (355.9.a.1's widening, "'Unit,' 'gear,' and 'rune' refer to objects on the
+    // Board unless specified otherwise" — NOT 355.9.b, which is the narrowing
+    // that makes a printed "at a battlefield" load-bearing). A unit sitting in
+    // either base is a legal choice, the same reading Square Up above takes.
+    //
+    // # Why the bounce half is refused rather than approximated
+    //
+    // Three separate things are missing and only the middle one has a precedent:
+    //
+    //  - **"ITS CONTROLLER may play this spell again"** hands the replay to the
+    //    DAMAGED unit's controller, who is usually the opponent — so the card
+    //    has to leave the caster's trash and be played by somebody who does not
+    //    own it. `playCardIgnoringCost` can resolve a Spell from inside a
+    //    resolution (play-free.ts records that divergence), but it deliberately
+    //    does not move the card out of its zone, and no zone-crossing "an
+    //    opponent plays your trashed card" path exists.
+    //  - **"for [rainbow]"** is a REPLACED cost, not a free play — the same
+    //    per-instance permission-with-a-price that UNL-186 Death from Below and
+    //    UNL-025 Undying Legion are each blocked on. `timing.mayPlayFromTrash` is
+    //    per-player, Units-only, and charges the printed price.
+    //  - **"for each time this spell has dealt damage this turn"** is a
+    //    turn-scoped tally of one CARD's damage instances. Nothing on GameState
+    //    counts it and nothing can: `maxSpellEnergySpentThisTurn` beside it is the
+    //    shape such a field takes, and adding one is a model change.
+    //
+    // The plausible fake is worth naming because it would have passed a shallow
+    // test: park a "pay [rainbow] to deal 2 more" question on the caster. That is
+    // a different card in three ways at once — wrong player, no replay (so no
+    // second `cardPlayed`, which Katarina - Reckless and Black Market Broker
+    // watch), and a fixed bonus where the printed one escalates.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId
+        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, DANCING_GRENADE_DAMAGE)
+        : state,
+  },
 };
 
 /** Right of Conquest's unconditional first card, named so the `1 +` in its
@@ -762,6 +810,10 @@ const SQUARE_UP_ASSAULT = 4;
 
 /** Smite's hit. Only the damage half of the card is written — see its entry. */
 const SMITE_DAMAGE = 3;
+
+/** Dancing Grenade's opening hit — the only half of that card that is written,
+ *  and the base the unwritten escalation would have added to. See its entry. */
+const DANCING_GRENADE_DAMAGE = 2;
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-013": {

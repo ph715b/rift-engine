@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
-import { implementingModules, isCardImplemented } from "../src/engine/coverage.js";
+import { implementingModules, isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { UnitInstance } from "../src/model/card.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -288,7 +288,23 @@ describe("the three cards this wave refused", () => {
     // "[Stun] an enemy unit ATTACKING HERE" needs a target restriction relative to
     // the ability's SOURCE, and `TargetingSpec` has none: `attackingOnly` reaches
     // every attacker on the board, which is wider than printed.
-    expect(implementingModules(SHADOW), "Shadow now works — retire this refusal").toEqual([]);
+    //
+    // **HALF of this expired on 2026-08-12.** The stun landed as an
+    // `activatedAbilities` entry — wave 7 did not solve the source-relative
+    // targeting, it chose the other side of it: `availableWhile` withholds the
+    // ability entirely while the only attacker stands elsewhere. That is NARROWER
+    // than printed rather than wider, which is the safe direction, and it is
+    // recorded as a divergence rather than hidden.
+    //
+    // The enter-ready half is untouched and its reasoning above still holds
+    // exactly, so this is narrowed rather than deleted: `unitEntersReady` is still
+    // handed no destination.
+    const modules = implementingModules(SHADOW);
+    expect(modules, "the activated ability stopped being registered").toContain("activated abilities");
+    expect(
+      partialImplementationNote(registry.get(SHADOW)),
+      "Shadow's enter-ready half landed — retire what is left of this refusal",
+    ).toBeDefined();
   });
 
   it("Ivern - Green Father (UNL-195) is still unimplemented, and deliberately", () => {

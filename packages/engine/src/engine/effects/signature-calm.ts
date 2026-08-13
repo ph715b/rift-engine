@@ -20,6 +20,7 @@ import {
   stunUnits,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
+import { attackerIndexAt, attackingUnitsAt } from "../combat-designation.js";
 import { canonicalDefId } from "../../cards/card-loader.js";
 import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { SAND_SOLDIER_TOKEN, placeToken } from "../token.js";
@@ -43,6 +44,14 @@ import {
  * that needs every card to have exactly one derivable home rather than a judgment
  * call. Shared helpers are in `signature-shared.ts`.
  */
+
+/** Shadow's activated ability prints `[1][rainbow], [Exhaust]:` — one Energy and
+ *  one Power pip of any domain. Named separately because they are paid from
+ *  different pools and are not interchangeable, the same split `ActivationCost`
+ *  keeps between `energy` and `power`. Declared here rather than in
+ *  `signature-shared.ts`, which is not this change's file to edit. */
+const SHADOW_ENERGY_COST = 1;
+const SHADOW_POWER_COST = 1;
 
 /**
  * How much damage would finish this unit off right now — effective Might minus
@@ -636,6 +645,95 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     cost: { energy: LILLIA_ENERGY_COST, exhaust: true },
     targeting: { kind: "none" },
     resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", SPRITE_TOKEN),
+  },
+  "UNL-194": {
+    // Shadow (Calm + Chaos), SECOND clause — "[Action][>] [1][rainbow],
+    // [Exhaust]: [Stun] an enemy unit attacking here."
+    //
+    // # HALF a card: his FIRST clause is refused, and coverage will not say so
+    //
+    // "If you play me to a battlefield, I enter ready" is a deploy-time
+    // REPLACEMENT, answered by `deploy.unitEntersReady` — a shared file this one
+    // does not own, and one whose predicate is handed no destination at all, so
+    // "to a battlefield" cannot be asked of it as it stands. Faking it as an
+    // on-play `readyUnit` is rejected for the three measured reasons deploy.ts's
+    // own comment lists (the unit sits exhausted through the response window, it
+    // fires `unitReadied` for a readying the rules say never happened, and
+    // Mageseeker Warden can block it). Registration is per defId, so writing this
+    // clause reports the card DONE — the missing half is in the report and needs a
+    // `coverage.PARTIALLY_IMPLEMENTED` row.
+    //
+    // # The cost is exactly what is printed
+    //
+    // `[1]` is Energy and `[rainbow]` is a Power pip of any domain, which is what
+    // `power.domain: null` has always meant here (164.2 lets one Ready Basic Rune
+    // serve both, since it prints `[E]: Add [1]` and `Recycle this: Add [C]` —
+    // the rune double-duty row in docs/rules-conformance.md). Both are re-derived
+    // by `validate-activate-ability` from `activationCostOf`, so there is nothing
+    // to keep in step by hand.
+    //
+    // # "ATTACKING HERE", and the DIVERGENCE that gets it exactly right or not at all
+    //
+    // `TargetingSpec.attackingOnly` is 464.2.c Step 1's Attacker designation and
+    // is the whole of "attacking" — but it says nothing about WHERE, and "here" is
+    // a referent read from the ability's source (359.3.f.1). No field on
+    // `TargetingSpec` relates a target to the source's location, and adding one is
+    // a card-effects.ts / target-lookup.ts / legal-actions.ts /
+    // validate-activate-ability.ts change this file cannot make.
+    //
+    // More than one Battlefield can be Contested at once — `cleanup.stage` takes
+    // them one at a time and its own comment says "a battlefield stays Contested
+    // until a Cleanup can legally stage it" — so `attackingOnly` alone would offer
+    // an attacker at a DIFFERENT battlefield, which is stronger than printed.
+    //
+    // So the restriction is moved onto `availableWhile`, which is the one hook
+    // both the enumerator and the validator pass through (`canPayActivationCost`),
+    // and it is deliberately ALL-OR-NOTHING: the ability is offered only while
+    // every enemy attacker on the board is standing at Shadow's own battlefield.
+    // In that state the set `attackingOnly` produces IS "attacking here", exactly.
+    // In the rare state where the enemy is attacking somewhere else as well, the
+    // ability is simply not available — strictly WEAKER than printed, which is the
+    // only direction this codebase ships, and never a target offered then refused.
+    //
+    // Rejected: filtering in `resolve`. By then the cost is paid, so the player
+    // would spend `[1][rainbow]` and an exhaust on nothing.
+    //
+    // # No referent re-check in `resolve`, and that is measured rather than assumed
+    //
+    // 359.3.f.2 checks a referent on execution, which would matter if the target
+    // could move between announcement and resolution. It cannot:
+    // `execute-activate-ability` runs `mode.resolve` INLINE ("an ability's effect
+    // runs inline rather than on the chain"), so there is no response window
+    // between the two.
+    //
+    // `[Action]` needs nothing — `validate-activate-ability` applies no timing
+    // check to any activation, a standing permissiveness recorded in that file.
+    //
+    // `availableWhile` carries ONLY that narrowing, and that is deliberate: "is
+    // there an enemy attacker here at all" and "is this Shadow mine" both looked
+    // like they belonged in it and are done already — the first by `attackingOnly`
+    // (an ability with no legal target is not offered), the second by
+    // `activateAbilityCandidates`, which walks the actor's own permanents. Both
+    // were written, and both SURVIVED mutation; they are gone rather than kept as
+    // lines the next reader would take for load-bearing.
+    kind: "Unit",
+    cost: { energy: SHADOW_ENERGY_COST, power: { domain: null, count: SHADOW_POWER_COST }, exhaust: true },
+    targeting: { kind: "unit", owner: "enemy", attackingOnly: true },
+    availableWhile: (state, playerIndex, sourceInstanceId) => {
+      const at = findUnitOnBattlefield(state, sourceInstanceId);
+      // A Shadow in base has no "here" for the referent to point at.
+      if (!at) return false;
+      const here = state.battlefields[at.battlefieldIndex]!.id;
+      const enemyIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
+      return !state.battlefields.some(
+        (bf) => bf.id !== here && attackerIndexAt(state, bf.id) === enemyIndex && attackingUnitsAt(state, bf.id).length > 0,
+      );
+    },
+    resolve: (state, ctx, event) =>
+      // `stunUnits` drops an already-stunned unit before the event exists, so a
+      // second Shadow aimed at the same attacker pays and re-stuns nothing — 423's
+      // action, not a flag written twice.
+      event.targetUnitInstanceId ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId]) : state,
   },
 };
 

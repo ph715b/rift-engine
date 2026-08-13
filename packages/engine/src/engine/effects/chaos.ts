@@ -65,6 +65,7 @@ import type { CardInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
 import { recordBanishedWithGear, unitsBanishedWith, wearerListener } from "../equipment.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
+import { canonicalDefId } from "../../cards/card-loader.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -121,6 +122,18 @@ const CONSCRIPTION_MAX_MIGHT = 3;
  * to fail at import.
  */
 const MADULI_MOVE = "UNL-144-move";
+
+/**
+ * Baron Nashor, whose third sentence is the `mightModifiers` entry at the foot of
+ * this file.
+ *
+ * Up HERE for the third time in this file and for the reason `MADULI_MOVE` and
+ * `CONSCRIPTION_MAX_MIGHT` both are: it is a COMPUTED KEY in the `mightModifiers`
+ * literal AND that entry's `defId`, both evaluated as the object is built at
+ * module load, so a `const` declared beside the entry would still be in its
+ * temporal dead zone and the import would throw.
+ */
+const BARON_NASHOR = "UNL-147";
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-135": {
@@ -4790,4 +4803,102 @@ function predictTwo(state: GameState, playerIndex: 0 | 1): GameState {
  * the ability off again the moment XP drops below N, so a one-shot pump is wrong
  * in both directions.
  */
-export const mightModifiers: Record<string, MightModifier> = {};
+export const mightModifiers: Record<string, MightModifier> = {
+  [BARON_NASHOR]: {
+    // Baron Nashor, THIRD sentence — "Other friendly units have +2 [Might]."
+    //
+    // # ONE of his three sentences, and the other two are refusals, not omissions
+    //
+    // His first ("As you play me, add the Baron Pit battlefield token to the board
+    // if it's not there already. If you do, I enter there") adds a THIRD
+    // BATTLEFIELD mid-game. **172** makes the number of battlefields on the board
+    // a property of the Mode of Play, and this engine builds exactly two at setup
+    // (`decks/battlefield-setup.battlefieldPair`, ids `bf-0`/`bf-1`, "stable for a
+    // game's lifetime") with no writer anywhere that appends one. **187.9** gives
+    // the token its own text — "Units can move here from anywhere" — which is a
+    // move permission `validate-move-unit.ts` already names as one of the
+    // named-card exceptions it does not implement, and **369.3** makes "I enter
+    // there" a replacement effect on his entry location, which lives in
+    // `deploy.ts`. Three shared files and a new scoring location; refused rather
+    // than approximated.
+    //
+    // His second ("I can't be chosen by enemy spells and abilities") is one row in
+    // `target-lookup.UNCHOOSEABLE_BY_ENEMIES` — the table Ruin Runner and Master
+    // Yi - Unstoppable already sit in — and that file is shared too.
+    //
+    // Both unwritten halves make him WEAKER than printed (no free battlefield, no
+    // protection), which is the direction to err. He has no unimplemented keyword
+    // to grey him and this entry claims his defId, so he needs a
+    // `coverage.PARTIALLY_IMPLEMENTED` row or he reports finished; this file may
+    // not add one.
+    //
+    // # The aura itself
+    //
+    // NO "here", so it is board-wide and not positional — the contrast is Garen -
+    // Commander and Darius - Executioner ("other friendly units have +1 Might
+    // HERE"), whose shared loop in `effective-might.continuousAuraBonus` compares
+    // locations. **141.1.a.1** is what makes a unit in base reachable by a bare
+    // "units": "Units are at one of several Locations while on the Board: a
+    // Battlefield or their Base." So a Baron standing in base buffs a unit at a
+    // battlefield and vice versa, and `ctx.battlefieldId` is deliberately unread.
+    //
+    // "FRIENDLY" is measured from the BUFFED unit's controller (`ownerIndex`), and
+    // that is the same seat Baron's controller sits in — control IS which player's
+    // list a unit is in here, so an opponent who steals him starts buffing their
+    // own board and stops buffing the one he left. Nothing extra is needed for
+    // that; it falls out of searching `ownerIndex`'s own zones.
+    //
+    // "OTHER" excludes the Baron being evaluated — by INSTANCE, not by defId. He
+    // is not a Champion (`isChampion: false`), so a deck may run three, and two
+    // Barons in play each buff the other: the count below is of Barons that are
+    // not this unit, so a lone Baron gets 0 and each of a pair gets +2 while every
+    // other friendly unit gets +4. A `unit.defId !== BARON_NASHOR` guard — the
+    // shape Garen's loop uses, where one copy at a time is the practical case —
+    // would have silently zeroed the pair.
+    //
+    // `canonicalDefId`, not a bare comparison: Baron Nashor is printed twice
+    // (UNL-147 and UNL-238 "(Ultimate)"), `mergeRegistries` aliases the second to
+    // this entry, and `card-loader`'s own note says the sites a merge cannot reach
+    // are exactly the ones comparing a defId to a literal. Without it an Ultimate
+    // Baron on the board would contribute nothing and would itself be buffed by a
+    // plain one, which is two wrong answers from one omission.
+    //
+    // No `ctx` filter. This is a flat continuous increase to the statistic
+    // **143.2** calls current Might, so it applies in every context the engine
+    // asks about — outgoing damage, remaining damage and the `[Mighty]` check
+    // alike. Galio's entry in `effects/order.ts` is the contrast: that one is a
+    // penalty that exists ONLY in the outgoing context, and says so.
+    defId: BARON_NASHOR,
+    bonus: (state, unit, ownerIndex) => BARON_NASHOR_AURA * otherBaronsControlledBy(state, ownerIndex, unit.instanceId),
+  },
+};
+
+/** Baron Nashor's aura — "Other friendly units have +2 [Might]." */
+const BARON_NASHOR_AURA = 2;
+
+/**
+ * How many Barons `ownerIndex` controls that are NOT `exceptInstanceId` — the
+ * "OTHER" in "other friendly units", counted so a second copy stacks.
+ *
+ * Both zones, because his sentence names no location (141.1.a.1).
+ *
+ * **ONE predicate walked over two zones, not two copies of it**, and that is a
+ * mutation-testing result rather than tidiness. Written as two independent loops,
+ * the FIRST mutation of the `canonicalDefId` half survived the whole suite: every
+ * test that could see the alias put its Ultimate Baron at a battlefield, so the
+ * base loop's copy was never the one being read. Sharing the predicate makes a
+ * single test kill both, which is the only reason this file can claim the check
+ * is exercised.
+ */
+function otherBaronsControlledBy(state: GameState, ownerIndex: 0 | 1, exceptInstanceId: string): number {
+  const ownerId = state.players[ownerIndex].id;
+  let count = 0;
+  const tally = (units: readonly UnitInstance[]): void => {
+    for (const u of units) {
+      if (u.instanceId !== exceptInstanceId && canonicalDefId(u.defId) === BARON_NASHOR) count++;
+    }
+  };
+  tally(state.players[ownerIndex].baseUnits);
+  for (const bf of state.battlefields) tally(bf.units[ownerId] ?? []);
+  return count;
+}

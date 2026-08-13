@@ -183,7 +183,16 @@ describe("Grim Resolve (UNL-095): +3 Might this turn to a friendly unit", () => 
     // is left and 466.3.a makes it a win.
     const fought = answerDecisions(resolveHeldTriggers(resolveShowdown(pumped, "bf1", 0)));
     expect(unitsAt(fought, "bf1", "p2"), "the fixture did not actually win the combat").toHaveLength(0);
-    expect(fought.players[0]!.xp, "the delayed XP clause fired — update this pin").toBe(0);
+    // **This pin FIRED on 2026-08-12 and is inverted rather than deleted.** It
+    // asserted 0 XP while the clause was unwritten, and drove a REAL combat to do
+    // it — which is exactly why it caught the day the clause landed.
+    //
+    // Its reasoning was sound and its conclusion wrong: a resolved Spell really
+    // does sit in its caster's trash where no listener walk reaches it, but the
+    // listener rides on the UNIT via `grantTriggerThisTurn`. Kept as an inversion
+    // because a delayed clause that silently stopped firing looks like nothing at
+    // all — no error, just no XP.
+    expect(fought.players[0]!.xp, "the delayed XP clause stopped firing").toBe(2);
   });
 });
 

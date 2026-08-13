@@ -419,15 +419,38 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     // Deliberately absent for other reasons: Hunter's Machete's art-only `[Hunt]`
     // grant IS implemented, and Shepherd's Heirloom was finished in wave 2 — the
     // note claiming its `[Equip] — Spend 1 XP` is unpriceable is gone too.
+    // **The list reached ZERO on 2026-08-12, and that is why this is no longer
+    // asserted as a list of names.** Wave 7 wrote UNL-188's band, so its note lost
+    // the "art-only" substring — and an empty `toEqual([])` here would have made
+    // the loop below vacuous, which is the shape this repo keeps finding: a test
+    // that reports green because it checked nothing.
+    //
+    // Restated as the INVARIANT the list was standing in for: whatever carries an
+    // art-only note must genuinely report unfinished. That holds at zero and at
+    // any other size, and it cannot go quietly vacuous because the filter itself
+    // is proved on a synthetic subject below.
     const owed = registry
       .all()
       .filter((d) => d.type === "Gear" && d.isEquipment === true)
       .filter((d) => (partialImplementationNote(d) ?? "").includes("art-only"))
       .map((d) => d.id)
       .sort();
-    expect(owed).toEqual(["UNL-188"]);
-    // And each really does look unfinished, which is the point of the note.
     for (const id of owed) expect(isCardImplemented(registry.get(id)), `${id} still reports implemented`).toBe(false);
+
+    // The half that rots silently. `owed` is empty today, so the loop above
+    // asserts nothing — this proves the FILTER still works, on a subject no card
+    // implementation can take away.
+    const matches = (note: string | undefined) => (note ?? "").includes("art-only");
+    expect(matches("art-only: its conquer draw is unwritten"), "the art-only filter stopped matching").toBe(true);
+    expect(matches("half written: the conquer draw works"), "the filter matches a note it should not").toBe(false);
+    expect(matches(undefined), "an absent note matched the filter").toBe(false);
+
+    // UNL-188 is the card that just left the list, and it is still UNFINISHED for
+    // a different, newly-recorded reason — its printed "[Equip] cost is reduced by
+    // the Might of the unit you choose", which no static ActivationCost can hold.
+    // Asserted here so "left the art-only list" is never mistaken for "done".
+    expect(owed, "UNL-188 went back to being art-only").not.toContain("UNL-188");
+    expect(isCardImplemented(registry.get("UNL-188")), "UNL-188 now claims to be finished").toBe(false);
   });
 
   it("and Sacred Shears has left that list", () => {

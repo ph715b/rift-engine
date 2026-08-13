@@ -309,40 +309,14 @@ describe("Vilemaw (UNL-060): when I hold, draw 1", () => {
     expect(settled.players[0]!.hand, "he drew off a hold at another battlefield").toHaveLength(0);
   });
 
-  it("PINS THE GAP: a smaller enemy unit here still DOES deal him combat damage", () => {
-    // Printed: "Enemy units here with less Might than me don't deal combat
-    // damage." The mechanism is `combat.outgoingMight`, whose
-    // `DEALS_NO_COMBAT_DAMAGE_DEF_IDS` is keyed by the SUFFERING unit's own defId
-    // — Vilemaw's is a board-conditional aura over somebody ELSE's units, so it
-    // needs a new predicate in a file this pass does not own.
-    //
-    // Measured as a DEATH rather than as `damage`, because 466 step 3c heals
-    // every unit at the end of the combat: an assertion on the damage counter
-    // after `resolveShowdown` reads 0 whether the hit landed or not, which is a
-    // measurement that lies. Vilemaw goes in with 7 of his 8 Might already gone,
-    // so the 2 from a 2-Might enemy is exactly lethal.
-    //
-    // Asserting the WRONG answer on purpose: closing the gap turns this red
-    // instead of quietly changing every combat he is in.
-    function fight(enemy: UnitInstance): { state: GameState; spider: UnitInstance } {
-      const spider = { ...realUnitInstance(VILEMAW), damage: 7 };
-      const state = makeState({ phase: "Action" });
-      state.battlefields[0]!.units = { p1: [spider], p2: [enemy] };
-      state.battlefields[0]!.controllerId = "p2";
-      state.battlefields[0]!.contestedByIndex = 0;
-      return { state: resolveShowdown(state, "bf1", 0), spider };
-    }
-
-    const hit = fight(makeUnit({ name: "Small", might: 2 }));
-    expect(find(hit.state, hit.spider.instanceId), "the gap CLOSED — delete this pin and the PARTIAL coverage entry").toBeUndefined();
-
-    // The positive control for that death: the SAME 2-Might body, stunned, deals
-    // nothing (423) and he lives. So the kill above really is that enemy's
-    // combat damage rather than the fixture's own arithmetic — which is exactly
-    // the difference the printed clause would make.
-    const stunned = fight(makeUnit({ name: "Small", might: 2, stunned: true }));
-    expect(find(stunned.state, stunned.spider.instanceId), "he died with nothing hitting him — this pin proves nothing").toBeDefined();
-  });
+  // **The Vilemaw gap pin that stood here EXPIRED on 2026-08-12.** It asserted
+  // that a smaller enemy unit at his battlefield still dealt him combat damage,
+  // and its own failure message said what to do when it fired: "the gap CLOSED —
+  // delete this pin and the PARTIAL coverage entry". Both are done.
+  //
+  // The clause is a `mightModifiers` entry now, and the coverage note that had
+  // REJECTED that route was wrong on both of its grounds — see the note where
+  // that row used to be. Coverage lives in `unl-calm-wave7.test.ts`.
 
   it("is registered on battlefieldHeld, and [Ambush] is the loader's", () => {
     expect(eventTriggerFor(VILEMAW)?.on).toBe("battlefieldHeld");

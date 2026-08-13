@@ -27,7 +27,7 @@ import {
   returnPermanentToHand,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
-import { attachEquipment, isMechUnit } from "../equipment.js";
+import { attachEquipment, isMechUnit, wearerListener } from "../equipment.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
@@ -60,6 +60,13 @@ import {
  * that needs every card to have exactly one derivable home rather than a judgment
  * call. Shared helpers are in `signature-shared.ts`.
  */
+
+/** Hextech Gauntlets' art-only band — "if you assigned 3 or more excess damage,
+ *  draw 1". Its own pair rather than Vi's `VI_EXCESS_REQUIRED` above, because
+ *  Sivir - Ambitious prints the same clause at 5: the threshold is a per-card
+ *  number and not a rule. */
+const HEXTECH_GAUNTLETS_EXCESS_REQUIRED = 3;
+const HEXTECH_GAUNTLETS_DRAW = 1;
 
 export const cardEffects: Record<string, EffectDefinition> = {
   "SFD-182": {
@@ -611,6 +618,78 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       // exactly where a Legend can be exhausted out from under it.
       if (state.players[listener.ownerIndex].legend.exhausted) return state;
       return parkDecision(state, { kind: "UNL-187-ready", playerIndex: listener.ownerIndex });
+    },
+  },
+  "UNL-188": {
+    // Hextech Gauntlets (Fury + Order) — "[Equip] [3][rainbow]" plus the ART-ONLY
+    // band: "When I conquer, if you assigned 3 or more excess damage, draw 1."
+    //
+    // **The band is not in the card data.** `unl.json` stores the `[Equip]` line
+    // and its cost rider and nothing else; the band was transcribed from the card
+    // image, and it is why this gear reported nothing while the generated equip
+    // ability registered the defId. See docs/unl-equipment-abilities.md, which
+    // carries the same transcription for the other four UNL Equipment.
+    //
+    // # "I" is the WEARER
+    //
+    // A gear conquers nothing — it is not at a battlefield and does not fight — so
+    // "when I conquer" can only be the unit wearing it. `wearerListener` rewrites
+    // this gear's listener as that unit (same owner, the unit's card, the unit's
+    // battlefield), which is what lets the ordinary positional test
+    // `listener.battlefieldId === event.battlefieldId` be asked of a gear at all.
+    // Blighted Battleaxe (UNL-019, effects/fury.ts) and the eight SFD bands are the
+    // precedent. An UNATTACHED pair of gauntlets has no "I" and does nothing.
+    //
+    // # The condition is Vi's, one card over, and it is asked at FIRE time
+    //
+    // UNL-187 above prints "if you assigned 3 or more excess damage" verbatim, so
+    // `excessAssignedBy` reads the one record the damage step writes rather than
+    // this file inventing a second reading. **383.2.a.1** puts the question in
+    // `applies` rather than in the body: "any additional conditional statement
+    // immediately after the Condition must be true in order for the Condition to be
+    // fulfilled. Such a conditional statement is part of the Trigger Condition and
+    // not the Effect."
+    //
+    // Its own constant rather than Vi's `VI_EXCESS_REQUIRED`: Sivir - Ambitious
+    // prints the same clause at 5, so the threshold is a per-card number and
+    // sharing one would silently couple two cards that merely agree today.
+    //
+    // # The draw does NOT re-derive the wearer, and that is a DELIBERATE break
+    // # from its eight siblings
+    //
+    // Warmog's Armor, Trinity Force and Boneshiver all call `wearerListener` a
+    // second time inside `resolve`, because their payouts are ABOUT the wearer
+    // (buff me, my controller's point, my controller's rune). This one's payout is
+    // "draw 1" and names nobody, so the only thing it needs is the ability's
+    // controller — which is the gear's, is stable, and is `listener.ownerIndex`.
+    //
+    // Re-deriving anyway would make the draw cancellable, and 383.2.a.1's own Sona
+    // example says it must not be: "if she is removed in reaction to the triggered
+    // ability, it will still resolve." That is reachable rather than theoretical —
+    // Angle Shot (SFD-011) is a `[Reaction]` that detaches an Equipment, and
+    // `battlefieldConquered` is a held event, so the window between the conquest and
+    // this resolution is exactly where it would be cast.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) => {
+      const wearer = wearerListener(state, listener);
+      return (
+        event.kind === "battlefieldConquered" &&
+        wearer !== undefined &&
+        event.conquerorIndex === wearer.ownerIndex &&
+        wearer.battlefieldId === event.battlefieldId && // "when *I* conquer"
+        excessAssignedBy(state, wearer.ownerIndex, event.battlefieldId) >= HEXTECH_GAUNTLETS_EXCESS_REQUIRED
+      );
+    },
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      // Re-checked because neither fact moves inside the response window — only a
+      // combat's damage step writes the excess record, and a combat cannot open
+      // mid-chain — so a mismatch here means this resolved against the wrong event
+      // rather than that the board changed. The WEARER is the one fact that CAN
+      // move, and is deliberately not re-asked; see above.
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      if (excessAssignedBy(state, listener.ownerIndex, event.battlefieldId) < HEXTECH_GAUNTLETS_EXCESS_REQUIRED) return state;
+      return drawCards(state, listener.ownerIndex, HEXTECH_GAUNTLETS_DRAW);
     },
   },
   [RELENTLESS_PURSUIT_GRANT]: {

@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "grep -qE \"(Set-Content|Out-File|Add-Content)( +-[A-Za-z]+)* +\\\"?[^ |;&\\\"]*\\.tsx?|>>? *\\\"?[^ |;&\\\"]*\\.tsx?\" && printf \"%s\" \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\", \\\"permissionDecisionReason\\\":\\\"Shell writes to a .ts file are blocked in this repo: PowerShell mojibakes every em-dash  and adds a BOM, and a bare redirect loses the CRLF the repo uses. Use the Edit tool, or a Python round-trip with explicit  utf-8 and newline='' — which this hook deliberately allows.\\\"}}\" || true",
+            "command": "grep -qE \"(Set-Content|Out-File|Add-Content)( +-[A-Za-z]+)* +\\\"?[^ |;&\\\"'+]*\\.tsx?|>>? *\\\"?[^ |;&\\\"'+]*\\.tsx?\" && printf \"%s\" \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\", \\\"permissionDecisionReason\\\":\\\"Shell writes to a .ts file are blocked in this repo: PowerShell mojibakes every em-dash  and adds a BOM, and a bare redirect loses the CRLF the repo uses. Use the Edit tool, or a Python round-trip with explicit  utf-8 and newline='' \u2014 which this hook deliberately allows.\\\"}}\" || true",
             "timeout": 10
           }
         ]

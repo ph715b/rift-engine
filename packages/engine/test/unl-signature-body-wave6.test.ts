@@ -405,18 +405,21 @@ describe("Keeper's Verdict (UNL-204): its OWNER picks top or bottom", () => {
 // ---------------------------------------------------------------------------
 
 describe("the card this wave refused", () => {
-  it("Void Assault (UNL-202) is still unimplemented, and deliberately", () => {
-    // "Move a friendly unit, then move an enemy unit." TWO units moved to two
-    // INDEPENDENTLY chosen destinations, and a `PlayCardAction` carries exactly one
-    // `destinationBattlefieldId`. It also needs an entry in
-    // `MOVE_TARGET_SPELL_DEF_IDS` (engine/card-effects.ts) before the enumerator
-    // offers a destination at all — so a `unitSlots` registration here would compile,
-    // report the card DONE, and move nobody anywhere.
-    //
-    // Delete this test when the second destination axis exists.
-    expect(isCardImplemented(registry.get(VOID_ASSAULT)), "Void Assault now works — retire this refusal").toBe(false);
-    expect(implementingModules(VOID_ASSAULT), "Void Assault is registered after all").toEqual([]);
-  });
+  // **Void Assault's refusal EXPIRED on 2026-08-12, and it was right about the
+  // engine while being wrong about the card.** Both facts it named still hold: a
+  // `PlayCardAction` carries exactly one `destinationBattlefieldId`, and
+  // `MOVE_TARGET_SPELL_DEF_IDS` is not this file's to edit.
+  //
+  // What it missed is that neither is required. Wave 7 took the parked-decision
+  // route instead — two destination questions asked in the printed order — which
+  // is the split Call to Battle (UNL-101) and Stare Down (UNL-107) already ship in
+  // the same file. That carries its own divergence from 355.4 (the opponent's
+  // response window no longer shows where the bodies will land), recorded in
+  // docs/rules-conformance.md rather than hidden.
+  //
+  // The lesson worth keeping: a refusal that correctly identifies one closed door
+  // is not proof the room has no other. Its coverage now lives in
+  // `unl-body-wave7.test.ts`.
 
   it("...and the other three ARE registered", () => {
     // The positive half, so the refusal above cannot be mistaken for the whole

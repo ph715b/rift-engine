@@ -199,12 +199,26 @@ describe("coverage reports a printing exactly as it reports its twin", () => {
     }
   });
 
-  it("a printing whose twin is UNIMPLEMENTED still reports unimplemented", () => {
-    // The negative control, and the reason this is an alias rather than a
-    // blanket "printings are fine". Baron Nashor (UNL-147) is deliberately
-    // unwritten — four clauses, none of them writable from a domain file — so
-    // its (Ultimate) print must not claim to work.
-    expect(isCardImplemented(registry.get("UNL-147")), "Baron Nashor got written — retire this control").toBe(false);
-    expect(implementingModules("UNL-238"), "an Ultimate print claims an implementation its twin lacks").toEqual([]);
+  it("every printing reports EXACTLY what its canonical twin reports", () => {
+    // **Rewritten 2026-08-12, after flipping.** This was a negative control
+    // naming Baron Nashor (UNL-147) as "deliberately unwritten" so its (Ultimate)
+    // print must report nothing. Wave 7 gave Baron his +2 Might aura, the twin
+    // started reporting `["effective-might"]`, and the control failed — correctly,
+    // but for a reason that had nothing to do with aliasing.
+    //
+    // The premise was the problem: it pinned one card's implementation status to
+    // make a point about a MECHANISM. Restated as the invariant the alias
+    // actually owes — a printing claims neither more nor less than its twin —
+    // which holds however many of them get written, and catches over-claiming in
+    // both directions rather than only the one.
+    let checked = 0;
+    for (const [alias, canonical] of printingAliases()) {
+      expect(implementingModules(alias), `${alias} disagrees with its twin ${canonical}`).toEqual(
+        implementingModules(canonical),
+      );
+      checked += 1;
+    }
+    // The "tried > 0" rule: a run that enumerated no pairs would pass silently.
+    expect(checked, "no printing pairs were checked at all — this test is blind").toBeGreaterThan(0);
   });
 });

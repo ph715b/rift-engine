@@ -120,7 +120,17 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //   `[Hunt N]`. Counting registry keys as cards would report those twelve as
     //   one, which is the opposite error and the reason this census asks the
     //   card registry rather than the trigger tables.
-    expect(syntheticKeys(knownCardIds)).toEqual(["KEYWORD-HUNT", "SFD-184-conquer-home"]);
+    //   `UNL-095-combat-xp` joined them on 2026-08-12 and is the GRANTED kind,
+    //   exactly as SFD-184's is. Grim Resolve's "when it wins a combat this turn,
+    //   gain 2 XP" is written onto the buffed UNIT via `grantTriggerThisTurn` and
+    //   swept by `runEnd` — which is what makes "this turn" true. The card whose
+    //   clause it is contributes nothing to the count above, and should not: the
+    //   Spell itself carries no trigger.
+    expect(syntheticKeys(knownCardIds)).toEqual([
+      "KEYWORD-HUNT",
+      "SFD-184-conquer-home",
+      "UNL-095-combat-xp",
+    ]);
   });
 
   it("the only event kind still resolved inline is beginningPhase", () => {
@@ -151,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("303 held / 5 inline of 308 trigger cards", () => {
+  it("305 held / 5 inline of 310 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -174,6 +184,18 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **308 → 310 cards on 2026-08-12 (wave 7)**, +2 held, and the split is the
+    // usual one: six agents finished or half-finished eight cards, and only two of
+    // them register a TRIGGER. UNL-086 Zilean - Time Mage (a `cardPlayed` listener
+    // for the token-doubling replacement) and UNL-188 Hextech Gauntlets (a
+    // `battlefieldConquered` listener on the wearer) are the two.
+    //
+    // The other six moved coverage without touching this census: Baron Nashor's
+    // aura and Vilemaw's silencing are `mightModifiers`, Shadow's stun is an
+    // `activatedAbilities` entry, Void Assault and Dancing Grenade are card
+    // effects, and Grim Resolve's delayed XP rides a GRANTED key rather than a
+    // card — it appears in `syntheticKeys` below, not in this count.
     //
     // **307 → 308 cards on 2026-08-12**, +1 held, and it is UNL-166 Stalking
     // Wolf. He registers a unit trigger for one job only — paying his additional
@@ -272,9 +294,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 303,
+      held: 305,
       inline: 5,
-      cards: 308,
+      cards: 310,
     });
   });
 

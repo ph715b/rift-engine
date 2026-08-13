@@ -18,6 +18,7 @@ import {
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
   grantKeywordThisTurn,
+  grantTriggerThisTurn,
   ownUnitsEverywhere,
   payEnergyFromPool,
   payPowerFromChanneled,
@@ -510,22 +511,31 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Grim Resolve — "[Action] Give a friendly unit +3 Might this turn. When it
     // wins a combat this turn, gain 2 XP."
     //
-    // **HALF THE CARD.** The pump is here; the delayed XP trigger is NOT, and it
-    // is not writable from this file — see the note at `GRIM_RESOLVE_MIGHT`.
+    // BOTH sentences, as of this change. The delayed half rides on the UNIT as a
+    // granted trigger rather than on the spell — see `GRIM_RESOLVE_COMBAT_GRANT`
+    // for why the previous refusal (which said the clause needed triggers.ts) was
+    // looking at the wrong listener.
     //
     // "A FRIENDLY unit" with no battlefield printed, so `scope: "anywhere"`
     // (355.9.a.1) — a body sitting at home is a legal subject, which matters because
     // the pump is most often cast on a unit about to walk out.
     //
-    // `giveMightThisTurnToOwnUnit` rather than the bare `giveMightThisTurn`, for
-    // Riposte's reason: it re-checks ownership at RESOLUTION, so a unit that
-    // changed hands in the response window is not pumped by its new owner's
-    // opponent. `[Action]` is a timing keyword and timing.ts enforces it.
+    // The ownership re-check is done ONCE here rather than being left to
+    // `giveMightThisTurnToOwnUnit`, and that is the whole reason it moved out of
+    // that helper: the two halves are one instruction, so a unit that changed hands
+    // in the response window must get NEITHER the pump nor the delayed XP. Read at
+    // RESOLUTION, Riposte's reading. `[Action]` is a timing keyword and timing.ts
+    // enforces it.
     targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
-    resolve: (state, ctx, event) =>
-      event.targetUnitInstanceId === undefined
-        ? state
-        : giveMightThisTurnToOwnUnit(state, ctx.casterIndex, event.targetUnitInstanceId, GRIM_RESOLVE_MIGHT),
+    resolve: (state, ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (unitId === undefined) return state;
+      const chosen = findUnitAnywhere(state, unitId);
+      // 359.3 — the target was chosen at announce and may have died, or been
+      // borrowed, in the response window.
+      if (chosen === undefined || chosen.ownerIndex !== ctx.casterIndex) return state;
+      return grantTriggerThisTurn(giveMightThisTurn(state, unitId, GRIM_RESOLVE_MIGHT), unitId, GRIM_RESOLVE_COMBAT_GRANT);
+    },
   },
   "UNL-101": {
     // Call to Battle — "Move a unit you control to a battlefield you control.
@@ -1104,7 +1114,97 @@ function dazzlingAuroraReveal(state: GameState, ownerIndex: 0 | 1): GameState {
   return revealedFromDeck(played, ownerIndex, revealed);
 }
 
+/**
+ * The event-trigger key Grim Resolve hangs on the unit it pumps — "when IT wins a
+ * combat this turn, gain 2 XP".
+ *
+ * # This used to be a refusal, and the refusal was wrong about the engine
+ *
+ * The note that stood at `GRIM_RESOLVE_MIGHT` said the clause needed `"UNL-095"`
+ * in `TRASH_LISTENER_DEF_IDS` (engine/triggers.ts) or a delayed-effect field on
+ * `PlayerState`, on the reasoning that a listener has to BE somewhere the walk
+ * reaches and a resolved Spell sits in its caster's trash. Both halves of that are
+ * true; the conclusion was not, because the listener does not have to be the
+ * SPELL. `grantTriggerThisTurn` (effect-helpers.ts) writes a registry key onto
+ * `UnitInstance.grantedTriggersThisTurn`, `triggers.triggerKeysOn` hands every
+ * granted key to the walk alongside the card's own defId, and `runEnd` sweeps the
+ * field — which is exactly "this turn". Relentless Pursuit (SFD-184) already
+ * grants a conquer trigger this way, so nothing was needed in any shared file.
+ *
+ * A named constant because it is written in two places that must agree — the
+ * resolver that grants it and the `eventTriggers` entry that answers to it — and a
+ * typo in either would be SILENT: the unit would simply never trigger, which reads
+ * exactly like a spell that was never cast. Relentless Pursuit's own constant
+ * records the same reason.
+ *
+ * **Not a defId**, deliberately: it is an ability granted to whatever unit the
+ * spell chose, and no defId names it. The `UNL-095-` prefix is this file's
+ * ownership convention, the same one the decision keys use.
+ *
+ * **Declared HERE rather than beside `GRIM_RESOLVE_MIGHT` with the file's other
+ * card constants**, because it is a COMPUTED KEY below: an object literal's keys
+ * are evaluated when the module loads, so a `const` further down the file would be
+ * in its temporal dead zone and throw at import. Every other constant in that block
+ * is only ever read from inside a closure, which is why none of them has this
+ * problem.
+ */
+const GRIM_RESOLVE_COMBAT_GRANT = "UNL-095-combat-xp";
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [GRIM_RESOLVE_COMBAT_GRANT]: {
+    // Grim Resolve's second sentence — "When it wins a combat this turn, gain
+    // 2 XP." Keyed by the GRANTED key rather than by a defId: the ability belongs
+    // to whichever unit the spell chose, and it is swept by `runEnd`, which is what
+    // makes "this turn" true without anything here having to check a turn number.
+    //
+    // The trigger condition is Nidalee - Cat Form's (UNL-114 above), and for the
+    // same two reasons:
+    //  - `combatWon` (466.3.a) rather than `battlefieldConquered`, because a
+    //    conquest also fires on a walk-in that never fought and a combat can be won
+    //    at a battlefield its winner already controlled. 466.3.d's No Result — both
+    //    players still standing — is not a win either, and `combat.combatWinner`
+    //    already encodes that by only firing when exactly one side is left.
+    //  - "**IT** wins" is positional AND owner-checked, 466.3.c's two halves
+    //    ("units at this battlefield inherit the same combat result as their
+    //    controllers"): the unit's controller is the winner, and the unit is
+    //    standing where it happened. A pumped unit that stayed home has no
+    //    `listener.battlefieldId` and matches nothing, which is right — a unit in
+    //    base is in no combat. That it SURVIVED needs no check of its own, since the
+    //    walk only finds permanents still in play.
+    //
+    // **The OWNER half is not independently observable, and that was measured
+    // rather than assumed.** Mutating `event.winnerIndex === listener.ownerIndex`
+    // away leaves the whole of test/unl-body-wave7.test.ts green; mutating the
+    // POSITIONAL half away fails it. 466.3.a defines the winner as "the only Player
+    // that has units remaining at this battlefield during this step", so a listener
+    // still standing at the battlefield its side LOST is a state this engine cannot
+    // reach — the survival that makes it a listener is what makes its side the
+    // winner. Kept anyway, and kept beside Nidalee - Cat Form's identical pair: the
+    // rule really does have two halves, and deleting one on the strength of a green
+    // mutation run is deleting a live rule rather than dead code (the same call
+    // `signature-calm.ts` records for its double-guarded base rule).
+    //
+    // Fires ONCE PER COMBAT WON, not once for the turn, because the grant persists
+    // until `runEnd` — a `[Ganking]` unit that wins twice banks 4 XP. That is what
+    // "when it wins a combat this turn" says, and it is the same reading the pump's
+    // own "this turn" takes.
+    //
+    // **`listener.ownerIndex` is the unit's controller, not the caster** — a
+    // recorded divergence, not an oversight. Printed, "gain 2 XP" is the spell's
+    // controller, and a granted trigger has nowhere to carry a seat: `Listener` is
+    // derived from where the unit stands. The two can only differ if the unit
+    // changes hands after the spell resolves (`borrowUnitInPlace`), and the
+    // narrower reading — refuse to fire at all — would lose the ordinary case to
+    // protect an exotic one.
+    on: "combatWon",
+    applies: (_state, listener, event) =>
+      event.kind === "combatWon" &&
+      event.winnerIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    // **730.1** — "To Gain XP, increase the value of XP marked on the Player
+    // gaining it" — through `gainXp`, the single writer.
+    resolve: (state, listener) => gainXp(state, listener.ownerIndex, GRIM_RESOLVE_XP),
+  },
   "SFD-116": {
     // Yone - Blademaster — "When I conquer a battlefield that WAS UNCONTROLLED,
     // deal damage equal to my Might to an enemy unit in a base."
@@ -3024,29 +3124,11 @@ function shovableEnemies(
 /** Concentrate's draw, as printed. */
 const CONCENTRATE_DRAW = 2;
 
-/**
- * Grim Resolve's pump — and the marker for the half of that card that is NOT
- * written.
- *
- * **"When it wins a combat this turn, gain 2 XP" is unimplemented**, and it is a
- * refusal rather than an oversight. `combatWon` (466.3.a) is a real event and
- * this file may register listeners for it, but a listener has to BE somewhere the
- * walk reaches: `allListeningPermanents` visits permanents in play plus the two
- * cards named in `TRASH_LISTENER_DEF_IDS`, and a resolved Spell is in its
- * caster's trash and in neither list. Registering an `eventTriggers["UNL-095"]`
- * would compile, report the card DONE, and never fire once.
- *
- * Nor can the trigger ride on the UNIT: `eventTriggers` is keyed by the LISTENING
- * card's defId, and the unit pumped by this spell can be any card in the pool.
- *
- * So the delayed half needs one of two things, both in files this one does not
- * own: `"UNL-095"` added to `TRASH_LISTENER_DEF_IDS` in engine/triggers.ts (plus
- * a per-unit "this turn" mark, for which `abilityModesUsedThisTurn` is the
- * existing precedent — see `LUCIAN_CONQUERED_MARK`), or a delayed-effect field on
- * `PlayerState` in model/game-state.ts, which is the shape Rally the Troops'
- * delayed clause already uses.
- */
+/** Grim Resolve's pump and its delayed payout, both as printed. The key its
+ *  delayed half is registered under is `GRIM_RESOLVE_COMBAT_GRANT`, declared
+ *  above `eventTriggers` rather than here — see the note there. */
 const GRIM_RESOLVE_MIGHT = 3;
+const GRIM_RESOLVE_XP = 2;
 
 /** Crowd Favorite's activation price, in XP. */
 const CROWD_FAVORITE_XP = 2;
