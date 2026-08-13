@@ -540,13 +540,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-201",
     "two of three clauses: the combat-won XP and the [Spend 1 XP] buff work; the third ability (Spend 2 XP, [Exhaust]: move an exhausted friendly unit home) is unwritten — two abilities on one defId must be modes of one entry, and canPayActivationCost receives modeId and drops it, so one predicate cannot price both",
   ],
-  // **2026-08-11.** One card written by a quarter, and it is the shape this map
-  // exists for: the clause that landed is the LAST of four, so the first three
-  // are what a reader would assume works.
-  [
-    "UNL-059",
-    "one of four clauses: the [Level 16] unchooseable-by-enemies works; the three [Level] COST reductions ([2][Calm], then [4][Calm][Calm], then [6][Calm][Calm][Calm] 'instead') are unwritten — they need a tiered lookup in cost-modifiers.ts applied in BOTH modifiedEnergyCost and scaledPowerDiscount, since the deepest tier replaces the shallower ones",
-  ],
+  // **UNL-059 Master Yi - Unstoppable LEFT this map on 2026-08-12.** He was the
+  // example this map's own header used — one card written by a quarter, with the
+  // clause that landed being the LAST of four, so the first three were what a
+  // reader would assume works.
+  //
+  // His note named the seam exactly ("a tiered lookup in cost-modifiers.ts
+  // applied in BOTH modifiedEnergyCost and scaledPowerDiscount, since the deepest
+  // tier replaces the shallower ones") and that is what was built. Concentrate's
+  // table was already the same shape; what Yi added was a tier discounting both
+  // halves at once, which is why the tier is now chosen by one shared helper
+  // instead of by a `find` in each function.
   // **UNL-029 Red Brambleback and UNL-087 Blue Sentinel LEFT this map on
   // 2026-08-11.** Both were half-written for the same missing mechanism — "your
   // conquer/hold effects for ...ing here trigger an additional time" — and both

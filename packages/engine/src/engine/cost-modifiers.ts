@@ -167,6 +167,45 @@ const CONCENTRATE_TIERS: readonly { readonly xp: number; readonly discount: numb
   { xp: 6, discount: 2 },
 ];
 
+/**
+ * Master Yi - Unstoppable's three `[Level]` cost tiers — "[Level 3] I cost
+ * [2][Calm] less. [Level 6] I cost [4][Calm][Calm] less INSTEAD. [Level 11] I
+ * cost [6][Calm][Calm][Calm] less INSTEAD."
+ *
+ * Concentrate's table above is the same shape and the same "instead" reading:
+ * highest tier first, `find` returns the deepest that applies, so a player at 11
+ * XP gets -6 and never also -4. 824 makes each clause active once its threshold
+ * is met, which without the printed "instead" would stack all three.
+ *
+ * **What is new is that this one discounts BOTH halves of a cost.** Concentrate
+ * is Energy-only, so a single number sufficed and it could live entirely inside
+ * `modifiedEnergyCost`. Yi's tiers move Energy AND Power together, and those are
+ * computed by two different functions — so the tier is chosen by ONE helper that
+ * both call, rather than by two `find`s that could drift apart at the boundary.
+ * Two independent lookups is exactly how a card ends up -6 Energy but only
+ * -2 Power at 11 XP, and nothing in either function would look wrong.
+ *
+ * His fourth clause, `[Level 16]`'s "I can't be chosen by enemy spells and
+ * abilities", is not here — it is a `UNCHOOSEABLE_BY_ENEMIES` row in
+ * target-lookup.ts and has worked since it landed.
+ */
+const MASTER_YI_UNSTOPPABLE = "UNL-059";
+const MASTER_YI_TIERS: readonly { readonly xp: number; readonly energy: number; readonly power: number }[] = [
+  { xp: 11, energy: 6, power: 3 },
+  { xp: 6, energy: 4, power: 2 },
+  { xp: 3, energy: 2, power: 1 },
+];
+
+/** The deepest `[Level]` tier this player has reached, or undefined below 3 XP.
+ *  The single reader of `MASTER_YI_TIERS`, so the Energy and Power halves of one
+ *  play can never come from different tiers. */
+function masterYiTier(
+  state: GameState,
+  playerIndex: 0 | 1,
+): { readonly xp: number; readonly energy: number; readonly power: number } | undefined {
+  return MASTER_YI_TIERS.find((t) => state.players[playerIndex].xp >= t.xp);
+}
+
 /** Battering Ram — "I cost [1] less for each card you've played this turn, to a
  *  minimum of [1]." Both numbers are printed, so both are named. */
 const BATTERING_RAM = "SFD-012";
@@ -473,8 +512,16 @@ const YORDLE_POWER_PER_POINT = 1;
  *  `modifiedEnergyCost`; this is what the three cost sites subtract from the
  *  printed Power, and it is one function so they cannot disagree. */
 export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId: string | undefined): number {
-  if (defId !== NEEDLESSLY_LARGE_YORDLE) return 0;
-  return state.players[playerIndex].pointsFromHoldingThisTurn * YORDLE_POWER_PER_POINT;
+  if (defId === NEEDLESSLY_LARGE_YORDLE) {
+    return state.players[playerIndex].pointsFromHoldingThisTurn * YORDLE_POWER_PER_POINT;
+  }
+  // Master Yi's [Level] tiers, POWER half — the Energy half is the matching
+  // branch in `modifiedEnergyCost`, and both take the tier from `masterYiTier`
+  // so they cannot disagree about which one applies.
+  if (defId === MASTER_YI_UNSTOPPABLE) {
+    return masterYiTier(state, playerIndex)?.power ?? 0;
+  }
+  return 0;
 }
 
 const PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS = new Set(["SFD-010", "SFD-164"]);
@@ -621,6 +668,10 @@ export function costModifierDefIds(): string[] {
     // the same split Production Surge's note below describes, except that here
     // both halves are genuinely implemented rather than one.
     CONCENTRATE,
+    // Master Yi's three [Level] cost tiers. His fourth clause ([Level 16]'s
+    // unchooseable-by-enemies) is registered by target-lookup.ts, so both modules
+    // claim him and coverage merges them — the same split Concentrate has.
+    MASTER_YI_UNSTOPPABLE,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -746,6 +797,15 @@ export function modifiedEnergyCost(
   if (defId === CONCENTRATE) {
     const tier = CONCENTRATE_TIERS.find((t) => player.xp >= t.xp);
     if (tier !== undefined) cost = Math.max(0, cost - tier.discount);
+  }
+
+  // Master Yi's [Level] tiers, ENERGY half. Same placement and same reasoning as
+  // Concentrate's directly above; the POWER half is in `scaledPowerDiscount`, and
+  // both read the tier from `masterYiTier` so one play cannot take its Energy
+  // from one tier and its Power from another.
+  if (defId === MASTER_YI_UNSTOPPABLE) {
+    const tier = masterYiTier(state, playerIndex);
+    if (tier !== undefined) cost = Math.max(0, cost - tier.energy);
   }
 
   // Raging Firebrand's charge. Applied to SPELLS only ("the next SPELL you play")

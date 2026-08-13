@@ -233,7 +233,7 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
   // and "unimplemented" alone cannot tell the day the blocker lands. So each of
   // these asserts the MECHANISM, and fails when the mechanism appears.
 
-  it("FIVE still report unimplemented — Allay, Alpha Wildclaw and Skyward Strike have left", () => {
+  it("FOUR still report unimplemented — Allay, Alpha Wildclaw, Skyward Strike and Master Yi have left", () => {
     // **ALLAY was removed from this list on 2026-08-11.** This re-audit correctly
     // measured her as blocked on a registration point rather than a mechanism —
     // "one row, structurally identical to Captain Farron's" — and the integrator
@@ -241,13 +241,22 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // its own blocker below.
     // **ALPHA_WILDCLAW left on 2026-08-11** — his refusal named the fix
     // (`unitChooseableBy` takes no state) and that fix landed, so he is whole.
-    // MASTER_YI stays: his `[Level 16]` clause landed with it, but his three
-    // `[Level]` COST reductions did not, so he is a recorded PARTIAL rather than
-    // an unwritten card — and this list asks `isCardImplemented`, which a partial
-    // correctly answers `false`.
+    // **MASTER_YI left on 2026-08-12.** He was the interesting entry here: his
+    // `[Level 16]` clause landed while his three `[Level]` COST reductions did
+    // not, so he was a recorded PARTIAL rather than an unwritten card — and this
+    // list asks `isCardImplemented`, which a partial correctly answers `false`.
+    // The tiers are written now, so he answers `true` and belongs out of the list.
+    // His refusal named the seam precisely and it needed no new plumbing:
+    // Concentrate's tier table was already the same shape, and what Yi added was
+    // a tier discounting Energy AND Power together.
     // **SKYWARD_STRIKE left on 2026-08-11** — two table rows in card-effects.ts,
     // exactly as this re-audit measured.
-    for (const id of [MONCH, SHADOW_WATCHER, SIGNPOST, TRICKSY_TENTACLES, MASTER_YI_UNSTOPPABLE]) {
+    // A counted list, not a bare loop: an id silently dropping out would shrink
+    // the sweep without failing it, which is how a refusal list rots into a green
+    // test that checks nothing. The length is asserted against the title.
+    const stillRefused = [MONCH, SHADOW_WATCHER, SIGNPOST, TRICKSY_TENTACLES];
+    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(4);
+    for (const id of stillRefused) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }
   });

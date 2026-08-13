@@ -189,17 +189,26 @@ describe("the unconditional case is untouched, and coverage is honest", () => {
     expect(unitChooseableBy(atBf1([plain]), plain, 0, 1)).toBe(true);
   });
 
-  it("Alpha Wildclaw is WHOLE; Master Yi is a quarter and says so", () => {
-    // Wildclaw's other line is `[Tank]`, a keyword, so the aura is his whole
-    // remaining text. Master Yi's three [Level] COST reductions are unwritten and
-    // the clause that landed is the LAST of four — exactly the over-report
-    // `PARTIALLY_IMPLEMENTED` exists to catch.
+  it("both cards are WHOLE, and this file owns only one clause of Master Yi", () => {
+    // **Rewritten 2026-08-12.** This used to assert Yi was a QUARTER written —
+    // his three [Level] cost reductions were unwritten and the clause that landed
+    // was the last of four, which is exactly the over-report
+    // `PARTIALLY_IMPLEMENTED` exists to catch. The tiers landed, so the premise
+    // is gone rather than the assertion weakened.
+    //
+    // What survives is the split, which is the durable fact: his unchooseable
+    // clause is registered HERE, his cost tiers in cost-modifiers.ts, and
+    // coverage merges both claims. Asserting the pair is what would catch this
+    // file's mechanism being quietly dropped while the card still reported whole
+    // on the strength of the other module.
     expect(isCardImplemented(registry.get(ALPHA_WILDCLAW)), "Wildclaw is greyed").toBe(true);
     expect(implementingModules(ALPHA_WILDCLAW)).toContain("choose restrictions");
 
-    expect(isCardImplemented(registry.get(MASTER_YI_UNSTOPPABLE)), "Master Yi claims to be finished").toBe(false);
-    expect(partialImplementationNote(registry.get(MASTER_YI_UNSTOPPABLE)), "his missing cost tiers are unrecorded").toMatch(
-      /COST reductions/,
-    );
+    expect(isCardImplemented(registry.get(MASTER_YI_UNSTOPPABLE)), "Master Yi is greyed").toBe(true);
+    expect(partialImplementationNote(registry.get(MASTER_YI_UNSTOPPABLE)), "he still names a missing half").toBeUndefined();
+
+    const yiModules = implementingModules(MASTER_YI_UNSTOPPABLE);
+    expect(yiModules, "his [Level 16] clause stopped being claimed here").toContain("choose restrictions");
+    expect(yiModules, "his [Level] cost tiers stopped being claimed").toContain("cost-modifiers");
   });
 });

@@ -367,13 +367,24 @@ describe("the cards this wave REFUSED, and why each is visible", () => {
   // call sites already had `state`) and add a board query for the aura, since it
   // is keyed by the PROTECTOR rather than the protected. He is whole; his other
   // line is `[Tank]`, a keyword.
-  for (const [defId, needs] of [
-    [MASTER_YI_UNSTOPPABLE, "his [Level 16] unchooseable clause landed 2026-08-11, but the three [Level] COST reductions did not — a tiered lookup in cost-modifiers.ts, applied in BOTH modifiedEnergyCost and scaledPowerDiscount"],
-  ] as const) {
-    it(`${defId} is still unimplemented — ${needs}`, () => {
-      expect(isCardImplemented(registry.get(defId))).toBe(false);
-    });
-  }
+  // **The refusal list is now EMPTY — Master Yi left it on 2026-08-12, and the
+  // loop went with him rather than being left to iterate over nothing.**
+  //
+  // An empty `for` generating zero `it`s is the vacuous shape this repo keeps
+  // finding: it reports a clean run while asserting literally nothing, and it
+  // would keep doing so however many cards were later refused into it.
+  //
+  // His refusal named the seam exactly — "a tiered lookup in cost-modifiers.ts,
+  // applied in BOTH modifiedEnergyCost and scaledPowerDiscount" — and that is
+  // what was built. Every card this wave refused is now written, so all three are
+  // inversions below.
+
+  it("Master Yi (UNL-059) is WRITTEN — this refusal expired on 2026-08-12", () => {
+    // Kept as an inversion for the reason Alpha Wildclaw's is: a cost reduction
+    // that silently stopped applying looks like nothing at all — the card just
+    // costs its printed 12 Energy, which is what it did for months.
+    expect(isCardImplemented(registry.get(MASTER_YI_UNSTOPPABLE)), "Master Yi is greyed again").toBe(true);
+  });
 
   it("Alpha Wildclaw (UNL-057) is WRITTEN — this refusal expired on 2026-08-11", () => {
     // Kept as an inversion rather than a deletion: his clause is a pure NEGATIVE,
