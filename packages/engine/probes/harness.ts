@@ -119,6 +119,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     pendingTriggers: [],
     declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
+    movementLockedUnitInstanceIds: [],
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],

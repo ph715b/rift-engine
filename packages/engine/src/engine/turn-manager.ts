@@ -454,6 +454,10 @@ export function runEnd(state: GameState): GameState {
     // same shape and expire the same way — a delayed effect that outlived its
     // turn would kill on a board the caster never saw.
     killDamagedUnitsThisTurn: false,
+    // Vex - Apathetic's lock is a THIS-TURN effect and expires with the turn like
+    // the rest of them — a unit still frozen on a board its jailer never saw
+    // would be the same bug the two lines above exist to prevent.
+    movementLockedUnitInstanceIds: [],
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
   });

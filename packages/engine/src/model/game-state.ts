@@ -1132,6 +1132,24 @@ export interface GameState {
    */
   killDamagedUnitsThisTurn: boolean;
   /**
+   * Units their controller may not MOVE for the rest of this turn.
+   *
+   * Vex - Apathetic (UNL-150): "[Stun] an enemy unit. They can't move it this
+   * turn." The Stun was implementable and this half was not — nothing anywhere
+   * could forbid ONE unit from moving. `validate-move-unit` gated only on the
+   * phase, the origin/destination and `[Ganking]`, and `UnitInstance.movesThisTurn`
+   * is a COUNT rather than a lock.
+   *
+   * On the STATE rather than on the unit, matching every other this-turn effect
+   * here (`killDamagedUnitsThisTurn`, `markedForDeathOnDamageInstanceIds`): a
+   * field on `UnitInstance` would travel with the unit through zones it should
+   * not survive, and `runEnd` already sweeps this shape.
+   *
+   * Instance ids, not defIds — the lock is on the body Vex pointed at, not on
+   * every copy of that card.
+   */
+  movementLockedUnitInstanceIds: string[];
+  /**
    * Whose SPELL is resolving right now, or null.
    *
    * Immortal Phoenix reads "when you kill a unit **with a spell**", and nothing

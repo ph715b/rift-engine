@@ -320,12 +320,15 @@ describe("Vex - Apathetic (UNL-150): when an opponent plays a unit while I'm at 
     const moves = legalActions(after).filter(
       (a): a is MoveUnitAction => a.type === "MoveUnit" && a.unitInstanceIds.includes(body.instanceId),
     );
-    expect(moves.length, "the movement lock now exists — flip this test").toBeGreaterThan(0);
-
-    const moved = accept(after, moves[0]!);
-    expect(
-      moved.battlefields.some((bf) => (bf.units["p2"] ?? []).some((u) => u.instanceId === body.instanceId)),
-      "the move was refused after being offered",
-    ).toBe(true);
+    // **FLIPPED on 2026-08-13, exactly as this pin's own message asked.** The
+    // lock is `GameState.movementLockedUnitInstanceIds`, written when Vex
+    // resolves and swept by `runEnd` like every other this-turn effect.
+    //
+    // The positive control above still stands and is what keeps this honest: the
+    // stunned unit arrives READY, so it could move but for the lock. Without that
+    // line, an exhausted body would satisfy this assertion for the wrong reason —
+    // which is precisely why the lock is its own field rather than more
+    // exhaustion.
+    expect(moves.length, "the stunned unit can be moved again — Vex's second clause stopped applying").toBe(0);
   });
 });

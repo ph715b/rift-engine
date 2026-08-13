@@ -118,6 +118,7 @@ function makeState(): GameState {
     pendingTriggers: [],
     declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
+    movementLockedUnitInstanceIds: [],
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],

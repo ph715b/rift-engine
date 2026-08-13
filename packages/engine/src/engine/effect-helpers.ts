@@ -30,7 +30,7 @@ import { isMighty } from "./granted-keywords.js";
 import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { applyContested } from "./cleanup.js";
 import { mayReadyPermanent } from "./board-restrictions.js";
-import { mayMoveToBaseFrom } from "./battlefield-continuous.js";
+import { unitMayMoveToBase } from "./battlefield-continuous.js";
 import { detachAllFrom } from "./equipment.js";
 import { mayGainPoints } from "./board-restrictions.js";
 
@@ -952,7 +952,7 @@ export function forceMoveToBase(state: GameState, targetInstanceId: string, caus
   if (!location) return state;
   const { unit, ownerId, ownerIndex, battlefieldIndex } = location;
   const bf = state.battlefields[battlefieldIndex]!;
-  if (!mayMoveToBaseFrom(state, bf.id)) return state;
+  if (!unitMayMoveToBase(state, unit, bf.id)) return state;
 
   const battlefields = [...state.battlefields];
   battlefields[battlefieldIndex] = {
@@ -1963,7 +1963,7 @@ export function recallUnitToBase(state: GameState, targetInstanceId: string): Ga
   // still resolves. Combat's own step-3d recall goes through
   // `relocateToBaseUnchanged` and is deliberately NOT blocked — that is a step of
   // the Combat Cleanup rather than a move a player makes.
-  if (!mayMoveToBaseFrom(state, bf.id)) return state;
+  if (!unitMayMoveToBase(state, unit, bf.id)) return state;
   const battlefields = [...state.battlefields];
   battlefields[battlefieldIndex] = {
     ...bf,

@@ -120,6 +120,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     pendingTriggers: [],
     declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
+    movementLockedUnitInstanceIds: [],
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],

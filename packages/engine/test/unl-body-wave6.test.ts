@@ -235,16 +235,17 @@ describe("PIN — Determined Sentry (UNL-111) still walks home", () => {
     return { state, sentryId: sentry.instanceId };
   }
 
-  it("is offered the retreat he prints that he cannot take, and takes it", () => {
+  it("is offered NO retreat — his one printed line, honoured", () => {
+    // **INVERTED on 2026-08-13.** This asserted the WRONG answer on purpose and
+    // said so twice in its own messages; the per-unit gate landed and both fired.
+    //
+    // What was missing was narrow: every "can this unit go home" check went
+    // through `mayMoveToBaseFrom`, which asks about the BOARD — a Minotaur
+    // anywhere, or a battlefield that blocks it — and answers the same for every
+    // unit. `unitMayMoveToBase` is the per-unit door beside it, and the four call
+    // sites now come through it.
     const { state, sentryId } = sentryAt();
-    const retreat = recallsOf(state, sentryId);
-    expect(retreat, "the retreat is already gone — delete this pin, UNL-111 is implemented").toHaveLength(1);
-
-    const after = accept(state, retreat[0]!);
-    expect(
-      after.players[0]!.baseUnits.map((u) => u.instanceId),
-      "he stayed put — delete this pin, UNL-111 is implemented",
-    ).toEqual([sentryId]);
+    expect(recallsOf(state, sentryId), "the Sentry is being offered a way home again").toHaveLength(0);
   });
 
   it("but Minotaur Reckoner's global version DOES close that same door", () => {
@@ -437,7 +438,9 @@ describe("PIN — which of wave 4's five refusals are still open", () => {
     // **UNL-120 Rengar - Trophy Hunter left this list on 2026-08-11.** This
     // re-audit measured his fix as one `PLACEMENT_GRANTS` row, "byte-identical to
     // Deadbloom Predator's", and that is exactly what it was.
-    for (const defId of [REPULSE, DETERMINED_SENTRY, ARACHNOID_HORROR]) {
+    // **DETERMINED_SENTRY left this list on 2026-08-13** — his refusal named the
+    // per-unit gate precisely and that is what was built.
+    for (const defId of [REPULSE, ARACHNOID_HORROR]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} now reports implemented`).toBe(false);
       expect(implementingModules(defId), `${defId} is claimed by a module now`).toEqual([]);
     }

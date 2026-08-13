@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { unitMayMoveThisTurn } from "../engine/battlefield-continuous.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import { hasKeyword } from "../engine/granted-keywords.js";
@@ -48,6 +49,12 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
 
     if (!unit) return fail(`Unit ${unitId} does not belong to player ${action.playerIndex} in a movable zone`);
     if (unit.exhausted) return fail(`${unit.name} is exhausted and cannot move`);
+    // Vex - Apathetic's "they can't move it this turn". Asked BESIDE exhaustion
+    // rather than folded into it: a locked unit that gets readied is still
+    // locked, which is the whole of what the clause buys her.
+    if (!unitMayMoveThisTurn(state, unit.instanceId)) {
+      return fail(`${unit.name} cannot move this turn`);
+    }
 
     if (originBattlefield) {
       if (originBattlefield.id === destination.id) {

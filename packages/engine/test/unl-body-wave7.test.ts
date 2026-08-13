@@ -490,7 +490,13 @@ describe("the five cards wave 7 refused", () => {
     // **456.3** — "a Recall cannot be prevented by actions and Game Effects that
     // restrict or block Movement" — is why combat's step-3d recall (466.1.a.2) must
     // stay unaffected, exactly as it already is for Vilemaw's Lair.
-    expect(isCardImplemented(registry.get(DETERMINED_SENTRY))).toBe(false);
+    // **This refusal expired on 2026-08-13 and every line of it was right**,
+    // including the 456.3 note: combat's step-3d recall goes through
+    // `relocateToBaseUnchanged` and calls neither predicate, so it stayed
+    // unaffected without a special case. Inverted rather than deleted — a
+    // restriction that silently stopped applying makes an illegal retreat legal
+    // and looks like nothing at all.
+    expect(isCardImplemented(registry.get(DETERMINED_SENTRY)), "the Sentry went back to unwritten").toBe(true);
   });
 
   it("Arachnoid Horror (UNL-117) — needs a new PLACEMENT_GRANTS kind and its board-wide twin", () => {

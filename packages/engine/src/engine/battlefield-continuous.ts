@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import type { Keyword } from "../model/keyword.js";
 
 /**
@@ -296,9 +297,67 @@ export function mayMoveToBaseFrom(state: GameState, battlefieldId: string | unde
 /** Minotaur Reckoner — "Units can't move to base." See `mayMoveToBaseFrom`. */
 const MINOTAUR_RECKONER = "SFD-014";
 
+/** Determined Sentry — "I can't move to base." His whole printed text. */
+const DETERMINED_SENTRY = "UNL-111";
+
+/**
+ * May THIS unit go home?
+ *
+ * `mayMoveToBaseFrom` above asks a question about the BOARD — a Minotaur
+ * anywhere, or a battlefield that blocks it — and answers the same way for every
+ * unit. Determined Sentry's "I can't move to base" is a fact about one unit, so
+ * it cannot live there, and a caller that asked only the board question would let
+ * him walk home.
+ *
+ * Both are asked here so the four call sites keep coming through ONE door, which
+ * is the argument `mayMoveToBaseFrom`'s own comment already makes: a second
+ * predicate beside it would be the fourth place to keep in step.
+ *
+ * **Combat's step-3d recall is unaffected**, exactly as it is for the Minotaur:
+ * it goes through `relocateToBaseUnchanged`, which calls neither predicate. 456.3
+ * makes that right rather than accidental — a corrective Recall is not a Move,
+ * and "can't MOVE to base" does not reach it.
+ */
+export function unitMayMoveToBase(
+  state: GameState,
+  unit: { defId: string },
+  battlefieldId: string | undefined,
+): boolean {
+  if (canonicalDefId(unit.defId) === DETERMINED_SENTRY) return false;
+  return mayMoveToBaseFrom(state, battlefieldId);
+}
+
+/**
+ * May this unit MOVE AT ALL this turn?
+ *
+ * Vex - Apathetic's "they can't move it this turn" — a lock on one body, set when
+ * she resolves and swept by `runEnd`. Distinct from exhaustion, which the mover
+ * already checks: a readied unit is still locked, which is the whole point of the
+ * clause and what made `unitsEnterReadyThisTurn` an insufficient stand-in.
+ */
+export function unitMayMoveThisTurn(state: GameState, unitInstanceId: string): boolean {
+  // **`?? []` survives on one argument only, and it is not the one it started
+  // with.** Adding the field made this predicate throw `Cannot read properties of
+  // undefined` in 35 tests that build their own state literals — but those are all
+  // fixed now, the field is REQUIRED on `GameState`, and typecheck catches any new
+  // site. So as a guard against in-repo callers it is dead.
+  //
+  // It is kept for DESERIALIZED state: `packages/web` persists games through
+  // `localStorage`, and a save written before this field existed has no list at
+  // all. An absent list means exactly "nothing is locked", which is the correct
+  // reading of an old save rather than a guess about a broken one.
+  return !(state.movementLockedUnitInstanceIds ?? []).includes(unitInstanceId);
+}
+
 /** For coverage.ts — the cards this module implements that are not battlefields. */
 export function moveRestrictionDefIds(): string[] {
-  return [MINOTAUR_RECKONER];
+  // Determined Sentry's whole printed text is "I can't move to base", so this is
+  // his only registration anywhere — exactly the case `playCardDefIds`' comment
+  // describes for a card whose text is one restriction.
+  //
+  // Vex - Apathetic is NOT here: her Stun is registered in effects/chaos.ts, and
+  // the lock is a state field she writes rather than a rule this module owns.
+  return [MINOTAUR_RECKONER, DETERMINED_SENTRY];
 }
 
 /**

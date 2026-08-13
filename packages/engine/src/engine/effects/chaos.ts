@@ -2810,8 +2810,28 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       event.casterIndex !== listener.ownerIndex &&
       event.playedKind === "Unit" &&
       listener.battlefieldId !== undefined,
-    resolve: (state, listener, event) =>
-      event.kind === "cardPlayed" ? stunUnits(state, listener.ownerIndex, [event.playedInstanceId]) : state,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      const stunned = stunUnits(state, listener.ownerIndex, [event.playedInstanceId]);
+      // **"They can't move it this turn"** — her second clause, and the half that
+      // was refused for waves because nothing could forbid ONE unit from moving.
+      // `movementLockedUnitInstanceIds` is that lock, swept by `runEnd` like every
+      // other this-turn effect.
+      //
+      // Distinct from the Stun beside it, and deliberately not folded into it: a
+      // Stun is about combat damage (423) and expires on its own terms, while this
+      // is about the MOVE action. A unit readied by something else is still
+      // locked, which is exactly the case that made `exhausted` an insufficient
+      // stand-in.
+      //
+      // The id is appended rather than assigned: two Vexes stunning two arrivals
+      // in one turn must lock both, and a `Set`-free append keeps the field's
+      // shape identical to its neighbours.
+      return {
+        ...stunned,
+        movementLockedUnitInstanceIds: [...stunned.movementLockedUnitInstanceIds, event.playedInstanceId],
+      };
+    },
   },
 };
 

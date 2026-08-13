@@ -1,7 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import type { RecallUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
-import { mayMoveToBaseFrom } from "../engine/battlefield-continuous.js";
+import { unitMayMoveThisTurn, unitMayMoveToBase } from "../engine/battlefield-continuous.js";
 
 /**
  * Validates a RecallUnit action (battlefield -> base). Mirrors
@@ -43,7 +43,17 @@ export function validateRecallUnit(state: GameState, action: RecallUnitAction): 
     }
     // Vilemaw's Lair — "units can't move from here to base". The same function
     // `legal-actions` asks, so the recall can never be offered and then refused.
-    if (!mayMoveToBaseFrom(state, originBattlefield.id)) {
+    // **A Recall IS a move to base**, so Vex - Apathetic's this-turn lock reaches
+    // it. Gating only `validate-move-unit` left this path open, and the test that
+    // caught it hand-built exactly the action a locked unit should not be able to
+    // take — the enumerator was already refusing to offer it, which is the shape
+    // that hides a validator gap.
+    if (!unitMayMoveThisTurn(state, unit.instanceId)) {
+      return fail(`${unit.name} cannot move this turn`);
+    }
+    // Through the per-UNIT door: Determined Sentry's "I can't move to base" is
+    // a fact about one unit, and the board-only predicate would let him home.
+    if (!unitMayMoveToBase(state, unit, originBattlefield.id)) {
       return fail(`${unit.name} cannot move from ${originBattlefield.name} to base`);
     }
   }

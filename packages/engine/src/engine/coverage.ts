@@ -752,10 +752,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // exhausted, and an exhausted unit cannot move. The gap only bites once
   // something has readied it — `unitsEnterReadyThisTurn`, `[Accelerate]`, or an
   // "I enter ready" clause.
-  [
-    "UNL-150",
-    "half written: the [Stun] works; 'they can't move it this turn' is unwritten — no per-unit movement lock exists, so a unit readied after arriving can still be moved",
-  ],
+  // **UNL-150 Vex - Apathetic LEFT this map on 2026-08-13.** Her missing half
+  // needed a per-UNIT movement lock, and the refusal was exact: nothing in
+  // `validate-move-unit` was per-unit at all, and `UnitInstance.movesThisTurn`
+  // is a COUNT rather than a lock.
+  //
+  // `GameState.movementLockedUnitInstanceIds` is that lock, swept by `runEnd`
+  // like every other this-turn effect. It is deliberately NOT folded into the
+  // Stun beside it: a Stun is about combat damage (423), and this is about the
+  // MOVE action — a unit readied by something else is still locked, which is
+  // the case that made exhaustion an insufficient stand-in.
   // **UNL-060 Vilemaw LEFT this map on 2026-08-12** — his silencing clause landed
   // as a `mightModifiers` entry, the very route the note above had rejected.
   //

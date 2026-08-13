@@ -86,7 +86,7 @@ import {
   deflectSurchargeForTargets,
   hasKeyword,
 } from "./granted-keywords.js";
-import { hiddenCardLimitAt, mayMoveToBaseFrom, mayPlayUnitAt } from "./battlefield-continuous.js";
+import { hiddenCardLimitAt, unitMayMoveThisTurn, unitMayMoveToBase, mayPlayUnitAt } from "./battlefield-continuous.js";
 import { effectiveMight } from "./effective-might.js";
 import { attachableEquipment, equipmentPairedWith } from "./equipment.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
@@ -2022,6 +2022,11 @@ export function legalActions(state: GameState): PlayerAction[] {
 
   for (const unit of actor.baseUnits) {
     if (unit.exhausted) continue;
+    // Vex - Apathetic's this-turn lock. **This is the SECOND move-emission site**
+    // — the battlefield loop below has its own — and gating only that one left a
+    // locked unit in BASE free to walk out, which is exactly the board Vex's own
+    // pin drives: she stuns a unit as it arrives, and it arrives in a base.
+    if (!unitMayMoveThisTurn(state, unit.instanceId)) continue;
     for (const bf of state.battlefields) {
       const move: MoveUnitAction = {
         type: "MoveUnit",
@@ -2037,10 +2042,15 @@ export function legalActions(state: GameState): PlayerAction[] {
     const unitsHere = bf.units[actor.id] ?? [];
     for (const unit of unitsHere) {
       if (unit.exhausted) continue;
+      // Vex - Apathetic's this-turn lock, asked here as well as in the validator
+      // so a locked unit is never OFFERED a move and then refused one.
+      if (!unitMayMoveThisTurn(state, unit.instanceId)) continue;
 
       // Vilemaw's Lair — the same gate `validate-recall-unit` reads, so the two
       // cannot disagree about whether a retreat from here is legal.
-      if (mayMoveToBaseFrom(state, bf.id)) {
+      // The per-UNIT door — Determined Sentry is barred from base while every
+      // other unit at the same battlefield is not.
+      if (unitMayMoveToBase(state, unit, bf.id)) {
         const recall: RecallUnitAction = { type: "RecallUnit", playerIndex, unitInstanceIds: [unit.instanceId] };
         actions.push(recall);
       }

@@ -93,6 +93,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     pendingTriggers: [],
     declaredWinnerIndex: null,
     killDamagedUnitsThisTurn: false,
+    movementLockedUnitInstanceIds: [],
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
