@@ -350,7 +350,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  *
  * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 151/224.
  */
-const PINNED_UNION = 587;
+const PINNED_UNION = 591;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

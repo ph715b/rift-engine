@@ -613,6 +613,14 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     if (optionalCost.kind === "spendBuffFriendly" && !unit.buffed) {
       return fail(`${card.name}'s additional cost requires a BUFFED friendly unit (rule 705)`);
     }
+    // The card's own restriction on WHICH unit qualifies, when it names a subset
+    // rather than "a friendly unit" — Sacrifice's "[Mighty]". The predicate is
+    // the one `legal-actions` filtered the variants with, called here on the
+    // submitted choice: an enumerator-only filter would let a hand-built or
+    // stale action pay a cost the card does not offer.
+    if (optionalCost.candidate && !optionalCost.candidate(state, unit, action.playerIndex)) {
+      return fail(`${card.name}'s additional cost cannot be paid with ${unit.name}`);
+    }
   }
 
   // A Unit may be played directly to a battlefield only if the acting

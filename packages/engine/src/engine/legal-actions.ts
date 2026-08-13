@@ -1090,12 +1090,20 @@ export function legalActions(state: GameState): PlayerAction[] {
           const own = [...actor.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? [])];
           // A READY unit and a BUFFED unit are different sets; the registry says
           // which this card wants rather than this loop guessing.
-          const eligible =
+          const byKind =
             optionalCost.kind === "exhaustReadyFriendly"
               ? own.filter((u) => !u.exhausted)
               : optionalCost.kind === "spendBuffFriendly"
                 ? own.filter((u) => u.buffed)
                 : own; // killFriendly — any unit you control can be the price
+          // ...and then the card's own restriction on WHICH unit, when it names
+          // a subset rather than "a friendly unit" — Sacrifice's "[Mighty]".
+          // `validate-play-card` applies the identical predicate; a filter that
+          // lived in only one of the two is this repo's enumerate/execute
+          // mismatch, and every instance of it so far has been a crash.
+          const eligible = optionalCost.candidate
+            ? byKind.filter((u) => optionalCost.candidate!(state, u, playerIndex))
+            : byKind;
           // A REPEATABLE cost (Kraken Hunter, Commander Ledros) is fanned out by
           // COUNT rather than by unit, and the count is capped by the printed
           // Power cost — "reduce my cost by [1 Power] for each" buys nothing once

@@ -368,6 +368,57 @@ export const cardEffects: Record<string, EffectDefinition> = {
       return drawn();
     },
   },
+  "UNL-173": {
+    // Sacrifice — "[Reaction] As an additional cost to play this, kill a
+    // friendly [Mighty] unit. Draw 2 and channel 1 rune exhausted."
+    //
+    // Placed beside Salvage because it is a SPELL; Cruel Patron (OGN-208, in the
+    // unit-triggers table below) has the same cost shape and pays it the same
+    // way: on `additionalCostUnitInstanceId`, through `destroyUnit`
+    // so [Deathknell] still fires (808) and a death ward can still replace it
+    // (808.1.d.1), and with no `killerIndex` — paying a cost with your own unit
+    // is not you "killing" it in the sense Solari Shrine asks about.
+    //
+    // # What was new, and why the card was refused twice
+    //
+    // "A friendly **[Mighty]** unit" is the first additional cost in the pool
+    // that names a SUBSET of your units rather than all of them. `UnitCostSpec`
+    // could say how a unit is spent (killed, exhausted, buff-stripped) but not
+    // which units qualify, so there was no way to write this without either a
+    // fourth `kind` per adjective or a filter that existed on only one side of
+    // the enumerate/execute split. It now carries a `candidate` predicate,
+    // applied in `legal-actions` AND `validate-play-card`; see card-effects.ts.
+    //
+    // The predicate is `isMighty`, not `might >= 5`. 708 defines Mighty on
+    // CURRENT Might, so a unit standing in a +Might aura qualifies where it
+    // stands and stops qualifying when it moves — which falls out of asking the
+    // one function that answers this, and would not fall out of reading the
+    // printed number.
+    //
+    // MANDATORY, so there is no decline: Sacrifice with nothing of yours at 5+
+    // Might is not offered at all, and the two cards are never drawn for free.
+    //
+    // # The cost is paid HERE, at resolution, which is a divergence
+    //
+    // 204 has costs paid as the card is played, and this is a Spell — so between
+    // playing and resolving, an opponent could in principle respond to a
+    // Sacrifice whose price has not yet been paid. Every unit-valued additional
+    // cost in the pool is paid this way (Cruel Patron, Call to Glory, Wallop,
+    // Wildclaw Shaman, Kraken Hunter, Commander Ledros), and moving one card out
+    // of step with the other six would be worse than the shared gap. Recorded in
+    // docs/rules-conformance.md against all seven rather than this one.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const paid = event.additionalCostUnitInstanceId
+        ? destroyUnit(state, event.additionalCostUnitInstanceId)
+        : state;
+      // "Draw 2 AND channel 1 rune exhausted" — one sentence, both halves
+      // unconditional, and the channel is EXHAUSTED so it pays for nothing this
+      // turn. Same helper Startipped Peak uses, so a player whose rune deck is
+      // short channels as many as remain (315.3.b.1) rather than throwing.
+      return channelRunesExhausted(drawCards(paid, ctx.casterIndex, 2), ctx.casterIndex, 1);
+    },
+  },
   "OGN-220": {
     // Facebreaker — "[Hidden][Action] Stun a friendly unit and an enemy unit at
     // the same battlefield."

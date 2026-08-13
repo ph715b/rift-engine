@@ -1,4 +1,4 @@
-import type { CardInstance } from "../model/card.js";
+import type { CardInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { domainCardEffects, mergeRegistries } from "./effects/index.js";
 import type { GameState, PlayerState } from "../model/game-state.js";
@@ -16,6 +16,13 @@ import {
   returnUnitToHand,
 } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
+// The ONE function that answers "is this unit Mighty" (708). It has taken two
+// fixes an inline `>= 5` would re-introduce — positional auras, and Might read
+// during a Combat Showdown — so `UnitCostSpec.candidate` asks it rather than
+// comparing a number. The import closes a cycle that already existed in both
+// directions through `effects/index`, and is only ever CALLED from inside the
+// arrow below, never at module init.
+import { isMighty } from "./granted-keywords.js";
 import { channelRunesForcedExhausted } from "./channel-cost.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
@@ -756,6 +763,31 @@ export interface UnitCostSpec {
    * must not be limited to what the AI's sampler happened to emit.
    */
   repeatable?: true;
+  /**
+   * Which of your units may be spent, when the card names a SUBSET rather than
+   * "a friendly unit".
+   *
+   *   - Sacrifice (UNL-173) — "kill a friendly **[Mighty]** unit"
+   *   - Stalking Wolf (UNL-166) — "kill a **Bird, Cat, Dog, or Poro** you
+   *     control"
+   *
+   * Until this existed the `kind` was the whole eligibility rule, and the three
+   * kinds encode a STATE (ready, buffed, any) rather than an identity — so a
+   * card naming a subset had nowhere to say so and was refused across two waves.
+   * Adding a fourth `kind` per subset would multiply the enumerator's branch by
+   * every future adjective; a predicate keeps the kinds about how the unit is
+   * paid and this about which unit qualifies.
+   *
+   * Applied on TOP of the kind's own filter, in both `legal-actions` (which
+   * variants exist) and `validate-play-card` (which submitted ones are legal) —
+   * a filter applied in only one of those is this repo's recurring
+   * enumerate/execute mismatch, which has produced five crashes.
+   *
+   * **`mandatory` plus a candidate is how a card becomes conditionally
+   * unplayable**: Sacrifice with no Mighty unit of yours is not offered at all,
+   * exactly as Cruel Patron is not offered with an empty board.
+   */
+  candidate?: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => boolean;
 }
 
 /**
@@ -821,6 +853,18 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // this way." Same shape as Kraken Hunter with a harsher price, and it is why
   // `repeatable` is a flag rather than one card's special case.
   "OGN-231": { kind: "killFriendly", repeatable: true },
+  // Sacrifice — "[Reaction] As an additional cost to play this, kill a friendly
+  // [Mighty] unit. Draw 2 and channel 1 rune exhausted."
+  //
+  // The first cost in the pool that names a SUBSET of your units, and the reason
+  // `candidate` exists. MANDATORY — no "you may" — so with nothing of yours at
+  // 5+ Might the card is not offered at all, and the draw is never free.
+  //
+  // Note this is measured through `isMighty` at ENUMERATION time, so a unit that
+  // is Mighty only because of a positional aura qualifies where it stands, and
+  // stops qualifying if it moves. That falls out of asking the live function
+  // instead of reading printed Might, and it is the behaviour 708 describes.
+  "UNL-173": { kind: "killFriendly", mandatory: true, candidate: isMighty },
 };
 
 /**

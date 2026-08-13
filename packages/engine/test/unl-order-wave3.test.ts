@@ -733,57 +733,21 @@ describe("Ashe - Focused (UNL-169): REFUSED this wave, and pinned as refused", (
   });
 });
 
-describe("Sacrifice (UNL-173): REFUSED this wave, and pinned as refused", () => {
-  /**
-   * "[Reaction] As an additional cost to play this, **kill a friendly [Mighty]
-   * unit**. Draw 2 and channel 1 rune exhausted."
-   *
-   * The payoff is three lines. The COST is what cannot be written, and it needs
-   * two things this wave does not own:
-   *
-   *   - a row in `OPTIONAL_UNIT_COSTS` (card-effects.ts): `{ kind: "killFriendly",
-   *     mandatory: true }`, Cruel Patron's shape. That table is module-private
-   *     with its readers in legal-actions.ts and validate-play-card.ts;
-   *   - a **[Mighty] restriction** on which friendly units may pay it, which
-   *     exists NOWHERE. `TargetingSpec` carries `maxMight` and no minimum, and
-   *     `UnitCostSpec` carries no filter at all.
-   *
-   * Smuggling the cost onto an ordinary `{ kind: "unit", owner: "friendly" }`
-   * target — Wildclaw Shaman's old shape — would therefore let a 1-Might Recruit
-   * buy "draw 2 and channel a rune" for one Energy, which is not the printed
-   * card in any reading. 708 is the threshold ("a unit is Mighty as long as its
-   * Might is 5 or greater") and `isMighty` already answers it; there is simply no
-   * spec field to put it in.
-   */
-  it("still reports unimplemented, with nothing registered for it", () => {
-    const def = registry.get(SACRIFICE);
-    expect(isCardImplemented(def), "someone implemented it — delete this block").toBe(false);
-    expect(implementingModule(SACRIFICE), "an effect is registered now — delete this block").toBeUndefined();
-    expect(
-      optionalUnitCostOf(SACRIFICE),
-      "the additional cost is registered now — delete this block and check the [Mighty] filter landed too",
-    ).toBeUndefined();
-  });
-
-  it("is castable and does NOTHING — measured, not assumed", () => {
-    // The behavioural half, and it is not the answer the refusal note predicts:
-    // an unregistered Spell is still ENUMERATED, so Sacrifice can be announced
-    // and paid for. What it cannot do is anything at all — no unit dies, no cards
-    // are drawn, no rune is channelled. Weaker than printed in every direction,
-    // which is the safe shape for a refusal, but it is a live 1-Energy blank
-    // rather than an uncastable card and that is worth knowing.
-    const spell = spellInstance(SACRIFICE);
-    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
-    state.players[0]!.hand = [spell];
-    state.players[0]!.channeled = runesFor(SACRIFICE);
-    state.players[0]!.deck = [makeUnit({ name: "First" }), makeUnit({ name: "Second" })];
-    state.players[0]!.baseUnits = [makeUnit({ instanceId: "mighty", name: "Mighty", might: 6 })];
-
-    const casts = castsOf(state, spell.instanceId);
-    expect(casts, "it stopped being enumerated — the note above needs updating").toHaveLength(1);
-
-    const after = passUntilSettled(accept(state, casts[0], "Sacrifice"));
-    expect(unitAnywhere(after, "mighty"), "the additional cost is being charged now — the refusal is stale").toBeDefined();
-    expect(after.players[0]!.hand, "it drew — the payoff has landed").toHaveLength(0);
-  });
-});
+// **Sacrifice (UNL-173) is no longer refused — the pinned block that stood here
+// was removed on 2026-08-12, not weakened.**
+//
+// Its refusal note named the exact blocker and was right about it: "a [Mighty]
+// restriction on which friendly units may pay the cost, which exists NOWHERE —
+// `TargetingSpec` carries `maxMight` and no minimum, and `UnitCostSpec` carries
+// no filter at all." `UnitCostSpec.candidate` is that filter, and Sacrifice is
+// the card it was built for.
+//
+// The note also predicted the failure mode to watch: smuggling the cost onto an
+// ordinary friendly-unit target "would let a 1-Might Recruit buy draw 2 and
+// channel a rune for one Energy". That is now an assertion rather than a
+// warning — see `unit-cost-candidate.test.ts`, which covers the whole card plus
+// both sides of the enumerate/execute split the filter had to land on.
+//
+// Nothing is re-asserted here. A second copy of the coverage check is how the
+// premise-flip class starts over: two files claiming the same fact, one of them
+// eventually stale.
