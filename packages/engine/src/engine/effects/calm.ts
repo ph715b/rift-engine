@@ -1390,12 +1390,22 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   // would always arrive undefined, and coverage would report a card that moves
   // nobody as done.
   //
-  // The BASE half is genuinely open. 198.1 makes a base a Location and 355.4.a
-  // makes it valid, but `withDestinations`' `toBase` branch is gated on
-  // `currentBattlefieldIndex`, derived from the single `targetUnitInstanceId` — so
-  // a `MOVE_TO_BASE_DEF_IDS` row alone would not offer it. That one is READ off
-  // legal-actions.ts rather than measured: no card in the pool reaches the path
-  // (Skyward Strike is `min: 1`, so its first slot is always filled).
+  // **The BASE half is SETTLED — project-owner ruling, 2026-08-13: "a single
+  // location" DOES include the enemy base.** That agrees with the rules the
+  // refusal had already lined up (198.1 makes a Base a Location, 355.4.a makes any
+  // Location the unit may occupy a valid destination) and with how this engine
+  // models a base per controller (107.1.c) — all the targets share a controller,
+  // so "their base" is well defined.
+  //
+  // So this card needs BOTH rows: `MOVE_TARGET_SPELL_DEF_IDS` and
+  // `MOVE_TO_BASE_DEF_IDS`. The second is NOT sufficient on its own:
+  // `withDestinations`' `toBase` branch is gated on `currentBattlefieldIndex`,
+  // derived from the single `targetUnitInstanceId` that a `unitList` play never
+  // sets, so the base would silently never be offered. That gate is READ off
+  // legal-actions.ts rather than measured — no card in the pool reaches the path
+  // today (Skyward Strike is `min: 1`, so its first slot is always filled), which
+  // is exactly why it needs measuring when the card is written rather than
+  // trusting this paragraph.
 };
 
 /** Janna - Savior's "heal your units HERE" — `playerIndex`'s units at
