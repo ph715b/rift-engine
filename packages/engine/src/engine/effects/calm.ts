@@ -896,6 +896,75 @@ export const cardEffects: Record<string, EffectDefinition> = {
         ? giveMightThisTurn(state, event.targetUnitInstanceId, friendshipTagCount(state, ctx.casterIndex))
         : state,
   },
+  "UNL-054": {
+    // Tricksy Tentacles — "Move any number of enemy units with the same
+    // controller and a total Might of 8 or less to a single location."
+    //
+    // The pool's FIRST card that both targets a LIST and names a destination, and
+    // the only new thing about it is that pairing: the group half is Fox-Fire's
+    // spec and the move half is Charm's helper.
+    //
+    // # "With the same controller" is `owner: "enemy"`, and that is a two-player
+    //   fact rather than a reading of the card
+    //
+    // The clause exists because a multiplayer game has more than one opponent; in
+    // the two-player game this engine models (`state.players` is a fixed pair)
+    // every enemy unit shares one controller, so the restriction is satisfied by
+    // construction and needs no group predicate. Stated rather than left implicit
+    // because it is the kind of silent assumption that becomes wrong the day a
+    // format changes — if a third seat ever exists this needs a `sameController`
+    // group requirement beside `maxTotalMight`.
+    //
+    // # `scope: "anywhere"` and `min: 0`
+    //
+    // "Enemy units", a bare plural with no "at a battlefield", so 355.9.a.1's
+    // widening applies and a unit sitting in the opponent's base is a legal
+    // choice. "Any number" is `min: 0` — Emperor's Divide's note, and the same
+    // consequence: the spell is castable with nothing chosen.
+    //
+    // `maxTotalMight` is a GROUP requirement checked when the card is finalized
+    // and read as EFFECTIVE Might, which is what the spec's own note requires and
+    // what the PDF's Fox-Fire example turns on.
+    //
+    // # The destination is ONE choice for the whole group, and that is printed
+    //
+    // 355.4 asks for "a valid Location as the Move Destination for each Move that
+    // will be performed". This card prints "a SINGLE location", so one destination
+    // field IS the whole answer rather than a simplification of it — the exact
+    // point on which it differs from a card that moves two units independently.
+    //
+    // `forceMoveToDestination` per chosen id, in the order chosen, so the base and
+    // battlefield halves cannot drift apart here the way seven hand-rolled
+    // branches did before that dispatcher existed. **The BASE half is written even
+    // though nothing offers it yet** (`withDestinations`' `toBase` is gated on an
+    // index derived from the singular `targetUnitInstanceId`, which a `unitList`
+    // play never sets — a `legal-actions` change this file does not own). Writing
+    // it costs nothing and is CORRECT when it arrives: `forceMoveToBase` sends a
+    // unit to its own controller's base (107.1.c), and every target here shares a
+    // controller, so "their base" is a single location exactly as printed. The
+    // project-owner ruling of 2026-08-13 says that location is a legal choice.
+    //
+    // A unit already standing at the destination is skipped by both helpers, so a
+    // group with mixed origins moves only the ones that have somewhere to go —
+    // and that is the RULED behaviour rather than a shortcut. The question ("is a
+    // set containing a unit already at the destination an illegal choice, or a
+    // partial no-op?") is the row docs/rules-conformance.md already carries against
+    // this card: **partial no-op**, project-owner ruling, on the reading that
+    // 355.4.a is a per-unit check on whether a given unit may make a given move
+    // rather than a rule about whether the Location is a usable choice. The
+    // enumerator agrees by construction — it has no single target to ask "where are
+    // you" about — so offering a destination the whole group already occupies is
+    // deliberate, not a gap. That row's "not yet implemented" note is now stale.
+    //
+    // A unit that left play between announce and resolution is skipped by the
+    // helper rather than throwing (359.3.e.12).
+    targeting: { kind: "unitList", min: 0, owner: "enemy", scope: "anywhere", maxTotalMight: 8 },
+    resolve: (state, ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce(
+        (next, id) => forceMoveToDestination(next, id, event, ctx.casterIndex),
+        state,
+      ),
+  },
 };
 
 /** Friendship's multiplier — how many of Bird/Cat/Dog/Poro appear among
@@ -1361,51 +1430,22 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   // are byte-identical, and the same comparison separates one death from two — so
   // "no field records the phase" is a measurement, not a search that came up empty.
   //
-  // # UNL-054 Tricksy Tentacles is REFUSED, and it needs LESS than it looks
+  // # UNL-054 Tricksy Tentacles is WRITTEN — see `cardEffects` above
   //
-  // "Move any number of enemy units with the same controller and a total Might of
-  // 8 or less to a single location."
+  // Wave 8's refusal stood here and its finding held exactly: the battlefield axis
+  // needed ONE `MOVE_TARGET_SPELL_DEF_IDS` row and no enumerator change at all.
+  // The row landed, the resolver is written, and
+  // `unl-054-tricksy-tentacles.test.ts` measures the group and the destination
+  // arriving on ONE action through `legalActions` -> `submit` -> chain resolution.
   //
-  // The targeting is already expressible — `{ kind: "unitList", min: 0, owner:
-  // "enemy", scope: "anywhere", maxTotalMight: 8 }`. "With the same controller"
-  // needs nothing beyond `owner: "enemy"` in a two-player game, and `maxTotalMight`
-  // is read as EFFECTIVE Might, which is what the spec's own note requires.
-  //
-  // What is missing is the DESTINATION, and only a `MOVE_TARGET_SPELL_DEF_IDS` row
-  // (engine/card-effects.ts) — **one line, not the three a wave-7 note predicted.**
-  // Measured in `unl-calm-wave8-refusals.test.ts`: both filters `withDestinations`
-  // applies after fanning out the battlefields already return true for an
-  // `undefined` `targetUnitInstanceId`, which is exactly what a `unitList` play
-  // carries, and `validate-play-card`'s destination checks skip on the same
-  // undefined. So no enumerator change is needed for the battlefield axis.
-  //
-  // 355.4 asks for "a valid Location as the Move Destination for each Move that
-  // will be performed" — which for Void Assault means two fields and one action
-  // that carries only one. It does NOT bite here: this card prints "a SINGLE
-  // location", so one `destinationBattlefieldId` is the whole choice.
-  //
-  // **Registering the resolver WITHOUT that row would be worse than leaving the
-  // card dead**, which is Stormbringer's (OGN-250) recorded position and the
-  // reason nothing is written here: the card would be castable, the destination
-  // would always arrive undefined, and coverage would report a card that moves
-  // nobody as done.
-  //
-  // **The BASE half is SETTLED — project-owner ruling, 2026-08-13: "a single
-  // location" DOES include the enemy base.** That agrees with the rules the
-  // refusal had already lined up (198.1 makes a Base a Location, 355.4.a makes any
-  // Location the unit may occupy a valid destination) and with how this engine
-  // models a base per controller (107.1.c) — all the targets share a controller,
-  // so "their base" is well defined.
-  //
-  // So this card needs BOTH rows: `MOVE_TARGET_SPELL_DEF_IDS` and
-  // `MOVE_TO_BASE_DEF_IDS`. The second is NOT sufficient on its own:
-  // `withDestinations`' `toBase` branch is gated on `currentBattlefieldIndex`,
-  // derived from the single `targetUnitInstanceId` that a `unitList` play never
-  // sets, so the base would silently never be offered. That gate is READ off
-  // legal-actions.ts rather than measured — no card in the pool reaches the path
-  // today (Skyward Strike is `min: 1`, so its first slot is always filled), which
-  // is exactly why it needs measuring when the card is written rather than
-  // trusting this paragraph.
+  // **What is still open is the BASE half, and it is NOT this file's.** The ruling
+  // (project owner, 2026-08-13) is that "a single location" includes the enemy
+  // base, and the resolver already handles a base destination correctly if one
+  // ever arrives. Nothing offers one: `withDestinations`' `toBase` branch is gated
+  // on an index derived from the singular `targetUnitInstanceId`, which a
+  // `unitList` play never sets, so a `MOVE_TO_BASE_DEF_IDS` row alone would
+  // enumerate nothing. Both halves are shared-file edits, and the test pins the
+  // current refusal in both directions so landing either alone fails loudly.
 };
 
 /** Janna - Savior's "heal your units HERE" — `playerIndex`'s units at

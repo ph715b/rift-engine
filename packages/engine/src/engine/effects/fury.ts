@@ -1801,21 +1801,52 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     },
   },
   "UNL-023": {
-    // Katarina - Reckless, SECOND clause only — "When you play a card from face
-    // down, deal 2 to an enemy unit."
+    // Katarina - Reckless — BOTH clauses: "When you hide a card, ready me. When
+    // you play a card from face down, deal 2 to an enemy unit."
     //
-    // **HER FIRST CLAUSE IS UNWRITTEN: "When you hide a card, ready me."** There
-    // is no `cardHidden` event — `execute-hide-card` fires only `runesRecycled`,
-    // and 811 is explicit that hiding "does not open a chain" and is not a play,
-    // so no existing moment stands in for it. Registration is per defId, so this
-    // card reports as DONE off the clause below; the gap is recorded in
-    // docs/rules-conformance.md and coverage.PARTIALLY_IMPLEMENTED.
+    // **Her first clause landed 2026-08-13**, when `cardHidden` arrived. Wave 7
+    // refused it on "no event exists — `execute-hide-card` fires only
+    // `runesRecycled`", and that was the whole of the blocker: `executeHideCard`
+    // is still the only place a card becomes facedown (421.1 defines Hiding as
+    // exactly that act), so one `holdEventTrigger` there covers every hide there
+    // can be. The `coverage.PARTIALLY_IMPLEMENTED` row for this defId is now owed
+    // a RETIREMENT.
     //
-    // "FROM FACE DOWN" is Black Market Broker's condition exactly (SFD-121,
-    // effects/chaos.ts), and is written against the same carried fact —
-    // `cardPlayed.fromHidden`, which `executePlayCard` sets from
-    // `action.fromHiddenBattlefieldId`. The rules gloss the two spellings as one
-    // thing: "Playing a card from facedown (or 'from Hidden')" (811).
+    // # 811.1.c.2 opens no chain; this trigger still does
+    //
+    // "Hiding a card does not open a chain" (811.1.c.2) is about the HIDE, not
+    // about what the hide sets off — a Triggered Ability goes on the Chain under
+    // 383.3 whatever moment produced it, and `runesRecycled` has always been held
+    // from this very same action handler for the same reason.
+    //
+    // # No `exhausted` gate, deliberately
+    //
+    // The neighbouring entries all narrow `applies` down to "a Pending Item that
+    // can only resolve to nothing is not worth a response window", and a READY
+    // Katarina looks like that case. It is not. 415.1.c makes readying an
+    // already-ready unit a legal no-op ("nothing additional happens") rather than
+    // an impossible instruction, so the trigger has genuinely fired; and the
+    // window the hold opens is real time in which she can become exhausted (any
+    // `[Reaction]` or exhaust-cost ability her controller uses), after which the
+    // trigger must still ready her. Gating on her state at FIRE time would
+    // silently swallow that, which is the stronger claim to be wrong about.
+    // Rejected in favour of paying the occasional empty response window.
+    //
+    // # The second clause: "FROM FACE DOWN"
+    //
+    // Black Market Broker's condition exactly (SFD-121, effects/chaos.ts), and
+    // written against the same carried fact — `cardPlayed.fromHidden`, which
+    // `executePlayCard` sets from `action.fromHiddenBattlefieldId`. The rules
+    // gloss the two spellings as one thing: "Playing a card from facedown (or
+    // 'from Hidden')" (811.1.c.3).
+    //
+    // **The two clauses are two different moments and cannot be folded.** A hide
+    // is not a play (811.1.c.1), and a facedown card is played on a LATER turn
+    // (811.1.b), so nothing fires both. A single `on` list with a branch is what
+    // this registry wants for a two-clause card — see `EventTriggerDefinition.on`,
+    // which is a list precisely because the registry is keyed by defId and two
+    // definitions would leave `resolvePendingTrigger` unable to say which half a
+    // chain entry meant.
     //
     // "YOU play" — her own controller's facedown card. Her own arrival counts if
     // she was herself played from facedown, since the event fires after the card
@@ -1825,16 +1856,32 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
     // opponent's BASE is a legal choice — 355.9.a.1's bare noun, the same reading
     // Gem Jammer's grant and Dangerous Duo's pump take. Contrast Mischievous Marai
     // (UNL-003), which prints "an enemy unit HERE" and means something narrower.
-    on: "cardPlayed",
-    applies: (state, listener, event) =>
-      event.kind === "cardPlayed" &&
-      event.fromHidden === true &&
-      event.casterIndex === listener.ownerIndex &&
-      // Nothing to shoot is nothing to ask. Unlike a cost this is not 416.3 — it
-      // is the same "a Pending Item that can only resolve to nothing is not worth
-      // a response window" call Rumble's trade and Rell's equip both make.
-      ownUnitsEverywhere(state, listener.ownerIndex === 0 ? 1 : 0).length > 0,
+    on: ["cardHidden", "cardPlayed"],
+    applies: (state, listener, event) => {
+      // "When YOU hide a card" — her own controller's hide. `cardHidden.ownerIndex`
+      // is the hider, which for this action is also the card's owner: 811.1.b lets
+      // you hide only from your OWN hand or Champion Zone, so the two cannot come
+      // apart the way `cardsRecycled`'s owner and actor can.
+      if (event.kind === "cardHidden") return event.ownerIndex === listener.ownerIndex;
+      return (
+        event.kind === "cardPlayed" &&
+        event.fromHidden === true &&
+        event.casterIndex === listener.ownerIndex &&
+        // Nothing to shoot is nothing to ask. Unlike a cost this is not 416.3 — it
+        // is the same "a Pending Item that can only resolve to nothing is not worth
+        // a response window" call Rumble's trade and Rell's equip both make.
+        ownUnitsEverywhere(state, listener.ownerIndex === 0 ? 1 : 0).length > 0
+      );
+    },
     resolve: (state, listener, event) => {
+      if (event.kind === "cardHidden") {
+        if (event.ownerIndex !== listener.ownerIndex) return state;
+        // "Ready ME" — her own body, found wherever she stands. `readyUnit` is
+        // the whole instruction: it enforces 415.1.c's no-op on an already-ready
+        // unit and raises `unitReadied` for anything watching, which an inline
+        // `exhausted: false` here would have skipped.
+        return readyUnit(state, listener.card.instanceId);
+      }
       if (event.kind !== "cardPlayed") return state;
       if (event.fromHidden !== true) return state;
       if (event.casterIndex !== listener.ownerIndex) return state;
@@ -2080,6 +2127,68 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return parkDecision(state, { kind: "UNL-029-buff", playerIndex: listener.ownerIndex });
     },
   },
+  "UNL-005": {
+    // Revna the Lorekeeper — "[Ganking] When you play a spell, if you spent [4]
+    // or more, ready me."
+    //
+    // **Written 2026-08-13 off `SpellChainEntry.energySpent`.** Wave 7 refused her
+    // and the refusal was exactly right about both wrong answers available at the
+    // time, which is why they are restated rather than left to be re-derived:
+    //
+    //  - `spellCast.totalCost` is the PRINTED Energy PLUS Power (see the event's
+    //    own comment — it is what Lux's "costs 5 or more" reads). A 2-Energy /
+    //    2-Power spell reads 4 there while spending 2 Energy, and a discounted
+    //    5-Energy spell reads 5 while spending 1. Neither figure is "you spent".
+    //  - `maxSpellEnergySpentThisTurn` is a turn MAXIMUM, so a [1] spell cast after
+    //    a [4] one would satisfy it having spent nothing like [4].
+    //
+    // Both fire on turns the card does not describe, which is the direction a
+    // partial must never take. `energySpent` is recorded per chain entry at play
+    // time (`executePlayCard`) and forwarded onto the event by `executePassFocus`,
+    // so it is this spell's own price after every discount.
+    //
+    // # Energy ONLY, and undefined reads as none
+    //
+    // The pip is `:rb_energy_4:`, so Power paid alongside is not part of the
+    // threshold — the same distinction `totalCost` exists to blur for Lux and this
+    // card exists not to. `energySpent` is optional because a spell can reach the
+    // chain by a path that never priced it (`playCardIgnoringCost`); a missing
+    // figure is read as 0 rather than as a fabricated match, which is both the
+    // weaker-than-printed direction and the true one — a spell played for free
+    // spent no Energy.
+    //
+    // # The moment is the chain POP, and that is an inherited divergence
+    //
+    // `spellCast` fires when the spell resolves and is popped, not when it is
+    // played onto the Chain; the event's own comment records this and
+    // docs/rules-conformance.md carries it for every card on this event. Nothing
+    // here makes it better or worse — Revna simply joins the family. Worth knowing
+    // for one observable consequence: a COUNTERED spell never pops, so it never
+    // readies her, even though it was played.
+    //
+    // # No `exhausted` gate, for Katarina's reason
+    //
+    // 415.1.c makes a ready Revna's resolution a no-op rather than an
+    // impossibility, and the response window between the fire and the resolution
+    // is exactly where she can become exhausted. Asked in `resolve` as well as
+    // `applies` only for the caster and the threshold, both of which are facts
+    // about the moment and cannot move (the chain entry is already popped by the
+    // time this is held).
+    //
+    // `[Ganking]` is a printed keyword read by `validate-move-unit` through
+    // `hasKeyword`; it needs nothing here.
+    on: "spellCast",
+    applies: (_state, listener, event) =>
+      event.kind === "spellCast" &&
+      event.casterIndex === listener.ownerIndex &&
+      (event.energySpent ?? 0) >= REVNA_ENERGY_REQUIRED,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "spellCast") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      if ((event.energySpent ?? 0) < REVNA_ENERGY_REQUIRED) return state;
+      return readyUnit(state, listener.card.instanceId);
+    },
+  },
 };
 
 /** Yeti Brawler's payout and its threshold, and the Battleaxe's self-inflicted 4
@@ -2088,6 +2197,12 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 const YETI_BRAWLER_EXCESS_REQUIRED = 3;
 const YETI_BRAWLER_TOKENS = 2;
 const BLIGHTED_BATTLEAXE_DAMAGE = 4;
+
+/** Revna the Lorekeeper's printed threshold — ENERGY spent on the one spell, and
+ *  never Power alongside it. Named because a bare `4` next to an `energySpent`
+ *  reads equally well as the printed-plus-Power figure this card deliberately
+ *  does not use. */
+const REVNA_ENERGY_REQUIRED = 4;
 
 /** Jhin - Murderous Artist's two printed pips — one Energy and one RAINBOW rune,
  *  named separately because they are two different pools and a single `1` beside

@@ -1191,8 +1191,20 @@ export function legalActions(state: GameState): PlayerAction[] {
           // and it is the move INSTRUCTION that is ignored on resolution. Gating
           // the enumerator would make the engine refuse a choice the rules
           // explicitly allow.
+          // **A LIST-targeting card reaches base too.** `currentBattlefieldIndex`
+          // is derived from `targetUnitInstanceId`, which a `unitList` variant
+          // never sets — so requiring it silently withheld the base from Tricksy
+          // Tentacles (UNL-054), whose "a single location" the project owner ruled
+          // on 2026-08-13 DOES include the enemy base.
+          //
+          // The index requirement is right for a SINGLE target (a unit already in
+          // base has nowhere to go, so offering base is a no-op choice) and simply
+          // does not apply to a group: the owner ruling recorded at
+          // docs/rules-conformance.md makes a destination some of the group already
+          // occupies a legal choice with a PARTIAL no-op, not an illegal one.
+          const movesAChosenList = (v.targetUnitInstanceIds?.length ?? 0) > 0;
           const toBase: Partial<PlayCardAction>[] =
-            cardMayMoveToBase(card.defId) && currentBattlefieldIndex !== undefined
+            cardMayMoveToBase(card.defId) && (currentBattlefieldIndex !== undefined || movesAChosenList)
               ? [{ ...v, destinationIsBase: true as const }]
               : [];
           return [...toBattlefields, ...toBase]

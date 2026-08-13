@@ -254,27 +254,39 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // A counted list, not a bare loop: an id silently dropping out would shrink
     // the sweep without failing it, which is how a refusal list rots into a green
     // test that checks nothing. The length is asserted against the title.
-    const stillRefused = [MONCH, SHADOW_WATCHER, SIGNPOST, TRICKSY_TENTACLES];
-    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(4);
+    // **TRICKSY_TENTACLES left on 2026-08-13.** Its refusal was the most useful in
+    // this file: it measured that the destination needed ONE shared row rather
+    // than the three predicted, and the project owner then ruled that its "single
+    // location" includes the enemy base. Both halves landed together.
+    const stillRefused = [MONCH, SHADOW_WATCHER, SIGNPOST];
+    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(3);
     for (const id of stillRefused) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }
   });
 
-  it("UNL-054 Tricksy Tentacles still has no move-destination entry; UNL-038 got its own", () => {
+  it("UNL-054 Tricksy Tentacles HAS its move-destination entry now — as does UNL-038", () => {
     // Both print "move" as their whole first instruction, and 355.4 makes the Move
     // Destination a choice made when the spell is FINALIZED — so it has to be a row
     // in `card-effects.MOVE_TARGET_SPELL_DEF_IDS`, without which the enumerator
     // never fans a destination and `event.destinationBattlefieldId` is always
     // undefined. Asking at resolution instead would be a real divergence, not a
     // shortcut: 355.4 puts the choice before the response window.
-    // **Skyward Strike left on 2026-08-11.** Its row landed and the card is
-    // written; the Tentacles' refusal is UNCHANGED and is the more interesting
-    // half, because it needs more than a row — `withDestinations` reads
-    // `targetUnitInstanceId`, and a `unitList` variant carries the plural field,
-    // so it gets no "already there" skip and never reaches the base branch.
+    // **Skyward Strike left on 2026-08-11; Tricksy Tentacles on 2026-08-13.**
+    //
+    // This pin's reasoning about the Tentacles was RIGHT and its conclusion was
+    // half wrong. `withDestinations` really does read `targetUnitInstanceId`, and
+    // a `unitList` variant really does carry only the plural field — but the
+    // consequence is not that a row is insufficient for the BATTLEFIELD axis. An
+    // undefined index means no battlefield is skipped, so all of them are offered.
+    // It only blocked the BASE branch, which was gated on that same index, and
+    // that gate moved when the owner ruled the base is a legal destination here.
+    //
+    // Inverted rather than deleted: both rows are pure enablers, and a card whose
+    // row silently disappeared would enumerate no destination while still
+    // reporting implemented.
     expect(cardMovesTarget(SKYWARD_STRIKE), "Skyward Strike lost its row").toBe(true);
-    expect(cardMovesTarget(TRICKSY_TENTACLES), "the row landed — write the card").toBe(false);
+    expect(cardMovesTarget(TRICKSY_TENTACLES), "the Tentacles lost their row").toBe(true);
   });
 
   it("UNL-045 Forgotten Signpost still has no activated ability, and the cost it needs does not exist", () => {

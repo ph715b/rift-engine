@@ -416,9 +416,13 @@ describe("the nine cards this wave REFUSED", () => {
   // red the day the mechanism lands, which is the point: a refusal that quietly
   // becomes true is a card nobody goes back to write.
   const refusals: ReadonlyArray<readonly [string, string]> = [
-    [REVNA, "spellCast carries printed totalCost; 'you spent [4]' needs this spell's ENERGY paid"],
+    // **REVNA and KATARINA_RECKLESS left this list on 2026-08-13**, and both
+    // refusals named their own price exactly. Revna needed the ENERGY actually
+    // spent on a spell rather than its printed total; Katarina needed a
+    // `cardHidden` event that nothing raised. Both landed as wave-8 primitives and
+    // both cards were written the same day. Their coverage lives in
+    // `unl-fury-wave8.test.ts`.
     [LOTUS_TRAP, "a per-unit damage doubler read at combat ASSIGNMENT (465.2.c.4.a/c.5) and at dealDamage"],
-    [KATARINA_RECKLESS, "no cardHidden event exists — executeHideCard fires runesRecycled and nothing else"],
     [UNDYING_LEGION, "a per-instance play-from-trash permission at a REPLACED price"],
     [JHIN_VIRTUOSO, "a Legend (legend-abilities.ts), the energy-spent figure, and a 'banished with me' zone"],
   ];

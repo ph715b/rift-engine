@@ -685,10 +685,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // behaviour change to a shared instrument — deliberately NOT taken here, in
   // the same change as 30 new cards. This entry is the honest stopgap: it makes
   // the one card that is genuinely half report as half.
-  [
-    "UNL-023",
-    "only the second clause is written — 'when you hide a card, ready me' is unimplemented",
-  ],
+  // **UNL-023 Katarina - Reckless LEFT this map on 2026-08-13.** Her missing
+  // clause needed an EVENT that did not exist — nothing raised "a card was
+  // hidden" — and the `cardHidden` arm landed as a wave-8 primitive.
+  //
+  // 811 says hiding opens no chain, which is not a reason the event cannot
+  // exist: a trigger CAUSED by hiding still goes on the chain under 383.3,
+  // exactly as `runesRecycled` already does from that same action handler.
+  //
+  // The mechanism note above is deliberately KEPT — it also records
+  // `decisionDefIds()` over-reporting for UNL-121 and UNL-137, which survives
+  // this card being finished.
   // **Wave 5, 2026-08-10.** One card, and its shape is worth reading because the
   // refusal behind it was argued rather than assumed. Vilemaw prints three
   // clauses; the hold-draw is written, `[Ambush]` is the loader's, and the third

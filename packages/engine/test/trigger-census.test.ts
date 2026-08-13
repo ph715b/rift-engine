@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("306 held / 5 inline of 311 trigger cards", () => {
+  it("307 held / 5 inline of 312 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -184,6 +184,16 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **311 → 312 cards on 2026-08-13 (wave 8b)**, +1 held, and it is UNL-005
+    // Revna the Lorekeeper — a `spellCast` listener whose condition is the ENERGY
+    // actually spent, which needed a new field on the chain entry and the event.
+    // The wave's other finished cards contribute nothing here: Katarina was
+    // already counted (her `on` widened to include `cardHidden` rather than adding
+    // a card), and Tricksy Tentacles is a card EFFECT, not a trigger.
+    //
+    // Measured by the agent deleting its own entry and re-running — the census
+    // went green at 306/5/311 — rather than inferred from the diff.
     //
     // **310 → 311 cards on 2026-08-12 (wave 8)**, +1 held, and it is UNL-073
     // Deadly Flourish — a `deathWatchTriggers` entry that fires from the CASTER'S
@@ -303,9 +313,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 306,
+      held: 307,
       inline: 5,
-      cards: 311,
+      cards: 312,
     });
   });
 

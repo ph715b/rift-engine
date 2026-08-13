@@ -1328,6 +1328,24 @@ export function cardPlacesTokens(defId: string): boolean {
  *  not a move, so a card here is not offered without one. */
 const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
+  // Tricksy Tentacles — "Move any number of enemy units with the same controller
+  // and a total Might of 8 or less to a single location."
+  //
+  // The first `unitList` card to carry a destination, and it needs nothing else on
+  // the enumerator side for the BATTLEFIELD axis: `withDestinations` derives its
+  // "where is it now" index from `targetUnitInstanceId`, which a list variant never
+  // sets, so the index is undefined and every battlefield is offered.
+  //
+  // 355.4's per-Move destination rule does not bite the way it does for Void
+  // Assault — this card prints "a SINGLE location", so one choice IS the printed
+  // behaviour rather than a simplification of it.
+  //
+  // **The BASE axis is settled but NOT yet wired**: owner ruling 2026-08-13 says
+  // "a single location" includes the enemy base, and `withDestinations`' `toBase`
+  // branch is gated on that same undefined index, so a `MOVE_TO_BASE_DEF_IDS` row
+  // alone would silently never offer it. That gate is a legal-actions change, and
+  // it is deliberately not made here — the row without it would enumerate nothing.
+  "UNL-054",
   // Skyward Strike — "Move an enemy unit. [Level 6][>] [Stun] an enemy unit."
   // Its FIRST slot is the moved unit, so `withDestinations` finds it under
   // `targetUnitInstanceId` exactly as it does for a single-target card; the
@@ -1442,6 +1460,18 @@ export function cardMovesTarget(defId: string): boolean {
  */
 const MOVE_TO_BASE_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
+  // Tricksy Tentacles — "…to a single location."
+  //
+  // **Project-owner ruling, 2026-08-13: "a single location" DOES include the
+  // enemy base.** 198.1 makes a Base a Location and 355.4.a makes any Location
+  // the unit may occupy a valid Move Destination; this engine models a base per
+  // controller (107.1.c), and every target of this card shares a controller, so
+  // "their base" is well defined.
+  //
+  // This row is only half of it — `withDestinations`' `toBase` branch also had to
+  // stop requiring a single-target index, since a `unitList` play never sets one.
+  // See legal-actions.ts.
+  "UNL-054",
   // Skyward Strike — "Move an enemy unit", naming no battlefield, so 355.4.a and
   // 198.1 make a base a legal destination like any other Location.
   "UNL-038",

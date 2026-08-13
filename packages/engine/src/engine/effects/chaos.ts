@@ -806,26 +806,55 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // The "you may spend 5 XP" is an Optional Additional Cost (805) paid as the
     // spell is played, so it must be a fanned-out variant on the PlayCard action
     // exactly as `[Accelerate]`, Clockwork Keeper's rune and Bard - Mercurial's
-    // Legend-exhaust already are. All three of those are rows in a table in
-    // card-effects.ts (`OPTIONAL_POWER_COSTS`, `OPTIONAL_LEGEND_EXHAUST_DEF_IDS`)
-    // plus a flag on `PlayCardAction`, and **there is no XP equivalent of either**
-    // — measured: `card-effects.ts` and `actions/player-action.ts` contain no XP
-    // cost of any kind, and `ActivationCost` has none either, which is the same
-    // gap Megatusk's entry records one registry down.
+    // Legend-exhaust already are.
     //
-    // Writing it as a MODE was considered and rejected. `CardMode` carries its own
-    // targeting, so "3 Might or less" and "any" would be two modes — but no mode
-    // has an availability gate (there is no `availableWhile` on `CardMode`, and
-    // `legal-actions` fans every mode out unconditionally), so a player with 4 XP
-    // would be offered the upgraded mode, take it, and have `spendXp` return
-    // undefined at resolution. That is 416.3's offered-then-refused shape, which
-    // this file keeps out; a card that eats its own 5 Energy and does nothing is
-    // worse than one that under-offers.
+    // **This paragraph used to end "and there is no XP equivalent of either —
+    // measured: card-effects.ts and actions/player-action.ts contain no XP cost
+    // of any kind". That was true when written and is not now.** `OPTIONAL_XP_COSTS`
+    // and `PlayCardAction.optionalXpPaid` both landed for UNL-164 Safety
+    // Inspector, and `test/unl-chaos-wave8-refusals.test.ts` drives that card
+    // through `legalActions` to prove the mechanism is live rather than merely
+    // present. Re-measured 2026-08-13 rather than re-read: a refusal that names a
+    // missing mechanism goes stale the day someone builds it, and this one had.
+    //
+    // # What it is ACTUALLY blocked on, measured through `submit`
+    //
+    // A row would be necessary and NOT sufficient, and both halves are pinned in
+    // that test file:
+    //
+    //   - NECESSARY. `validate-play-card` refuses `optionalXpPaid` outright on a
+    //     card with no row ("Conscription has no optional XP cost to pay"), so
+    //     nothing can claim the cost until the table names it.
+    //   - NOT SUFFICIENT. What the cost BUYS is a wider CHOICE, and the choice is
+    //     filtered once per card rather than once per variant. `legal-actions`
+    //     takes `targetingForAnyCard(card)` ONCE, above the optional-cost fan-out,
+    //     so every paid variant is a spread of a play whose target was already
+    //     capped at 3 Might — and `validate-play-card.targetingRejection` reads
+    //     the SAME spec a second time, so even a hand-built action naming a
+    //     5-Might enemy is refused with "can only target a unit with 3 Might or
+    //     less". Measured with the XP flag absent, so the cap is unambiguously
+    //     what refuses.
+    //
+    // So the fix is two files agreeing on a spec that depends on the VARIANT, not
+    // one table row. `[Ambush]` is the nearest precedent (its timing tier depends
+    // on the destination, so the question is asked per candidate).
+    //
+    // Writing it as a MODE was considered and rejected, and re-checked in the same
+    // pass: `CardMode` still carries `{ id, label, targeting, resolve }` and
+    // nothing else, so there is still no `availableWhile` on it and `legal-actions`
+    // still fans every mode out unconditionally. A player with 4 XP would be
+    // offered the upgraded mode, take it, and have `spendXp` return undefined at
+    // resolution. That is 416.3's offered-then-refused shape, which this file keeps
+    // out; a card that eats its own 5 Energy and does nothing is worse than one
+    // that under-offers.
     //
     // So what is written is the card WITHOUT its upgrade: the cost is never
     // offered, and the target cap therefore always stands. It UNDER-reaches, never
-    // over-reaches, which is the direction to err. Needs a
-    // `coverage.PARTIALLY_IMPLEMENTED` entry — this file may not add one.
+    // over-reaches, which is the direction to err. Its
+    // `coverage.PARTIALLY_IMPLEMENTED` entry exists and its wording needs the same
+    // correction this comment just took — it still says "the XP cost mechanism now
+    // exists ... but optional costs are fanned out inside the target loop", which
+    // is right about the loop and silent about the validator's second reading.
     //
     // # The effect, which is whole
     //
@@ -1508,6 +1537,99 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     targeting: { kind: "none" },
     resolve: (state, ctx) => parkDecision(state, { kind: "UNL-135-take", playerIndex: ctx.casterIndex }),
   },
+  // # Two Chaos units REFUSED in wave 8b, 2026-08-13, and both re-measured first
+  //
+  // Named here rather than left silent, because a refusal nothing records is
+  // indistinguishable from a card nobody looked at. Every claim below was driven
+  // through `submit` in `test/unl-chaos-wave8-refusals.test.ts` rather than read
+  // off a neighbouring comment — which is how one third of the previous wave's
+  // reasoning about these two turned out to be wrong.
+  //
+  // **UNL-122 Crescent Guardian** — "If you've played a spell this turn, you may
+  // pay [Chaos] as an additional cost to play me. If you do, I enter ready."
+  //
+  // Wave 7 named three blockers. **The third is FALSE and is retracted here:** it
+  // said "I enter ready" needs a `deploy.conditionalEntersReady` case to see
+  // `optionalPowerPaid`. It does not. The flag rides the PlayCardAction into
+  // `dispatchOnPlayUnit`, and UNL-028 Pyke - Dockside Butcher already readies
+  // himself from a plain on-play trigger that reads it — measured through
+  // `legalActions` + `submit`, with the unpaid variant as the paired control
+  // (paid: ready, unpaid: exhausted). So this half is four lines in THIS file.
+  //
+  // The DIVERGENCE that route carries is recorded rather than hidden, because it
+  // is real and it is Pyke's too: "I enter ready" is a REPLACEMENT, so a unit
+  // readied by its own on-play trigger has entered exhausted and been readied —
+  // it sits exhausted through the response window, it fires `unitReadied`, and
+  // Mageseeker Warden can stop it. `deploy.unitEntersReady` is the correct home;
+  // the trigger is the approximation the pool already ships.
+  //
+  // The other two blockers HOLD, and both are about the CONDITION rather than the
+  // payout:
+  //
+  //   - **Nothing in this engine records that a player has played a spell.** A
+  //     census of `PlayerState` finds eight spell-named fields and not one of
+  //     them counts plays; the only candidate, `maxSpellEnergySpentThisTurn`, is
+  //     a MAXIMUM over single spells, and a 0-Energy spell leaves it at 0 —
+  //     measured by playing SFD-122 Called Shot, which is the pool's only
+  //     0-Energy Spell (1 of 192) but not the only route there, since 811 makes a
+  //     `[Hidden]` play cost nothing and a discount can reach 0 from above.
+  //     `SpellChainEntry.energySpent` and `spellCast.energySpent` (both new on
+  //     2026-08-12) do not help either: they are per-ITEM, live only while the
+  //     item exists, and answer "what did THIS spell cost".
+  //     That is one required `PlayerState` field, one increment in
+  //     `execute-play-card`'s Spell branch, one reset in `runEnd` and one in
+  //     `player-setup`. All shared.
+  //   - **`OPTIONAL_POWER_COSTS` has no condition field.** Its record is
+  //     `{ domain?, count?, energy? }` and `legal-actions` offers the paid variant
+  //     whenever the runes are payable. A bare row would therefore make the cost
+  //     offerable on a turn the card forbids it — STRONGER than printed, which is
+  //     the direction this file works hardest to avoid, and the reason the
+  //     Pyke/Nami precedent (write the trigger, let the integrator add the row)
+  //     does NOT apply to this card. Enforcing the condition in the trigger
+  //     instead is worse still: the rune would be spent for nothing, which is
+  //     416.3's offered-then-refused shape wearing a different hat.
+  //
+  // **UNL-146 Syndra - Transcendent** — "While I'm in a showdown, your spells
+  // have [Repeat] [2][Chaos]."
+  //
+  // The Repeat RULING is settled and is deliberately not re-derived: 820.3 gives
+  // one extra execution per instance PAID, 820.1.c.3 caps each cost at a single
+  // payment, 820.2.a lets the choices differ per execution, and 820.3.a keeps the
+  // spell PLAYED once. Nothing about the rules blocks her.
+  //
+  // The engine does, in three places, and the shape is precise enough to build
+  // from. `card-effect-resolution` already runs a spell up to three times
+  // (`repeatPaid` then `grantedRepeatPaid`), so the EXECUTION count is not the
+  // gap. The gap is the grant:
+  //
+  //   - **The granted cost is DERIVED, not stored.** `grantedRepeatCostOf(card,
+  //     grantsArmed)` returns `{ energy: card.energyCost, power: card.powerCost }`
+  //     — Temporal Portal's "[Repeat] equal to its cost". Syndra's price is a
+  //     CONSTANT `[2][Chaos]`, and the returned record carries no `domain` at all,
+  //     so a Chaos pip could be paid with any rune. Measured: for Upstage Comedy
+  //     it returns `{ energy: 2, power: 0 }` with `domain === undefined`.
+  //   - **It is asked with no state.** The function takes exactly two parameters
+  //     and both call sites pass `actor.nextSpellRepeatGrants`, so "while I'm in a
+  //     showdown" has nowhere to be asked.
+  //   - **The one counter that exists is spent by the next spell PLAYED.** Armed
+  //     at 2 and driven through `submit`, `nextSpellRepeatGrants` is 0 after one
+  //     spell. Riding it would give Syndra one repeatable spell per arming rather
+  //     than every spell she stands in a showdown for.
+  //
+  // So the edit is `grantedRepeatCostOf` returning a LIST of `RepeatCostSpec`
+  // built from every live source — the armed counter AND a board-read aura — and
+  // the action carrying which INSTANCES were paid rather than one
+  // `grantedRepeatPaid` boolean, with a choice set per execution (820.2.a; the
+  // engine's own note on `nextSpellRepeatGrants` already records the reuse of the
+  // first execution's choices as a partial). That is card-effects.ts,
+  // player-action.ts, legal-actions.ts, validate-play-card.ts and
+  // card-effect-resolution.ts — five shared files, so it is refused rather than
+  // half-built.
+  //
+  // Worth recording for whoever takes it: Syndra beside a spell that already
+  // prints `[Repeat]` is the pool's first TWO-INSTANCE case, which is exactly
+  // what `REPEAT_COSTS`' own comment says it has no card to exercise. That
+  // comment is about PRINTED instances and remains true; hers is granted.
 };
 
 /** Angler Beast's net — "all units with 2 [Might] or less". */
@@ -4591,6 +4713,16 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     // one, and he has no unimplemented keyword to grey him, so without that entry
     // he reports finished.
     //
+    // **BOTH doors are pinned as of 2026-08-13, and only one of them was.** The
+    // wave-4 pin drives `runAwaken` directly; nothing exercised `readyUnit`, so
+    // the second half of this refusal was a reading rather than a measurement.
+    // `unl-chaos-wave8-refusals.test.ts` now plays Upstage Comedy (UNL-009,
+    // "Ready a unit", `scope: "anywhere"`) at him through `submit` and asserts
+    // the wrong answer there too, beside a control that readies an ordinary body
+    // with the same spell. Closing this clause has to flip TWO tests, which is
+    // the point — a fix that only taught `runAwaken` about him would have left a
+    // 2-Energy spell undoing the whole drawback and passed the wave-4 pin.
+    //
     // # The ability, which is whole
     //
     // `cost: { power: { domain: "Chaos", count: 1 } }` and NO exhaust — the card
@@ -4713,6 +4845,40 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     resolve: (state, ctx, _event, sourceInstanceId) =>
       parkDecision(state, { kind: "UNL-148-play", playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
   },
+  // # UNL-138 The List is REFUSED, and it is the ability half that is fine
+  //
+  // "As you play this, name a tag. [Exhaust]: Give a unit with the named tag -2
+  // [Might] this turn."
+  //
+  // The [Exhaust] half needs nothing new. A `{ kind: "none" }` ability that parks
+  // a decision whose OPTIONS are the units carrying the tag is exactly Maduli's
+  // shape three entries up, and `UnitInstance.tags` is populated from the
+  // definition, so the filter is one `.includes`.
+  //
+  // What has no home is the NAME. Measured 2026-08-13 in
+  // `test/unl-chaos-wave8-refusals.test.ts`, three ways:
+  //
+  //   - **A GearInstance has no field to write it to.** Its key set is asserted
+  //     there in full — `CardInstanceBase`'s six, the three cost fields, and
+  //     `keywords`/`isReaction`/`attachedToInstanceId` — with no generic bag, and
+  //     every optional field on the interface (`attachedThisTurn`,
+  //     `banishedInstanceIds`, `borrowedControl`) is a named card's. That is
+  //     `model/card.ts`, shared.
+  //   - **A Gear has no on-play resolution step at all.** 0 of the pool's 91 Gear
+  //     are registered in `cardEffects`, and structurally so: a Spell goes on the
+  //     chain and `card-effect-resolution` runs its `resolve`, while a Gear goes
+  //     straight into `activeGear`. Playing The List through `submit` leaves
+  //     `spellChain` empty. A held trigger is reachable (`holdQuickDrawAttach`
+  //     proves it), but 355's Make Relevant Choices step puts "as you play this"
+  //     at ANNOUNCE, not after.
+  //   - **A mode per tag is not a route.** `CardMode` is the one existing shape
+  //     carrying a per-choice `TargetingSpec`, and the pool has 111 distinct tags
+  //     — `legal-actions` fans modes out unconditionally, so a 1-Energy gear would
+  //     push 111 actions before targets are considered.
+  //
+  // Nothing weaker than printed exists to write: a List with no name is a gear
+  // that does nothing, and registering it would report the card DONE. Wave 7
+  // reached the same verdict; this is the measurement it was missing.
 };
 
 /**

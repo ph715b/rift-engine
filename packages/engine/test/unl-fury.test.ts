@@ -134,10 +134,18 @@ describe("the eight cards this file is about are the cards the registry prints",
     // measured, with her event trigger deleted. So this assertion is not
     // bookkeeping; it is the only thing standing between a half-written card and
     // a green coverage figure.
-    expect(isCardImplemented(registry.get(KATARINA_RECKLESS)), "Katarina is half-written and reports finished").toBe(
-      false,
-    );
-    expect(partialImplementationNote(registry.get(KATARINA_RECKLESS))).toMatch(/hide a card/);
+    // **Inverted on 2026-08-13.** Her missing clause needed an EVENT that did not
+    // exist — nothing raised "a card was hidden" — and the `cardHidden` arm
+    // landed as a wave-8 primitive, so both her clauses now work.
+    //
+    // The paragraph above is kept because its warning outlives the card: without a
+    // PARTIALLY_IMPLEMENTED note, `decisionDefIds()` peels her defId off the
+    // `UNL-023-shot` decision key and reports her finished on the strength of the
+    // half that IS written. That instrument defect is unchanged; what changed is
+    // that she no longer needs the note, so the over-report is no longer wrong
+    // about HER. The next half-written card with a decision key will need it.
+    expect(isCardImplemented(registry.get(KATARINA_RECKLESS)), "Katarina went back to being half-written").toBe(true);
+    expect(partialImplementationNote(registry.get(KATARINA_RECKLESS)), "a partial note came back").toBeUndefined();
     // The negative half is what keeps this test honest: it fails the moment a
     // sibling implements one of the refusals, which is exactly when this file's
     // report about them has gone stale and should be re-read.
@@ -152,16 +160,21 @@ describe("the eight cards this file is about are the cards the registry prints",
     // Energy actually spent on a spell — and `maxSpellEnergySpentThisTurn` is it.
     // He is covered by `test/spell-energy-spent.test.ts` now.
     //
-    // One refusal remains.
-    // Asserted whole here too, so this file cannot go on describing him as
+    // **And REVNA left on 2026-08-13, by the same route as the Neophyte** — her
+    // refusal named the missing state precisely, and it was NOT the field he
+    // reads. `maxSpellEnergySpentThisTurn` is a turn MAXIMUM, which answers "have
+    // you spent [4] on a spell this turn" and not "did you spend [4] on THIS
+    // spell"; the second needed `spellCast.energySpent`, added as a wave-8
+    // primitive. She is covered by `test/unl-fury-wave8.test.ts`.
+    //
+    // **The refusal list is now EMPTY**, so the loop that walked it is gone rather
+    // than left iterating over nothing — a `for` over an empty array generates no
+    // assertions and reports green forever.
+    //
+    // Both are asserted whole here so this file cannot go on describing either as
     // refused while the pool says otherwise.
     expect(isCardImplemented(registry.get(PREPARED_NEOPHYTE)), "the Neophyte went back to unwritten").toBe(true);
-
-    for (const defId of [REVNA_THE_LOREKEEPER]) {
-      expect(isCardImplemented(registry.get(defId)), `${defId} is implemented now — this file's REFUSED note is stale`).toBe(
-        false,
-      );
-    }
+    expect(isCardImplemented(registry.get(REVNA_THE_LOREKEEPER)), "Revna went back to unwritten").toBe(true);
   });
 });
 

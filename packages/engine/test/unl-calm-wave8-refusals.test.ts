@@ -72,108 +72,19 @@ const playsOf = (state: GameState, instanceId: string): PlayCardAction[] =>
 // `withDestinations` applies already tolerates an absent `targetUnitInstanceId`,
 // which is exactly what a `unitList` play carries.
 // ---------------------------------------------------------------------------
-describe("UNL-054 Tricksy Tentacles: what the destination axis actually needs", () => {
-  function tentacleState(): { state: GameState; spellId: string } {
-    const spell = spellInstance(TRICKSY_TENTACLES);
-    const s = makeState({ phase: "Action" });
-    s.players[0]!.hand = [spell];
-    s.players[0]!.channeled = runes("Calm", 8);
-    // Two enemy units at bf1, total Might 6 — a legal group for the printed
-    // "total Might of 8 or less".
-    s.battlefields[0]!.units = {
-      p2: [makeUnit({ name: "Tentacled A", instanceId: "enemy-a", might: 3 }), makeUnit({ name: "Tentacled B", instanceId: "enemy-b", might: 3 })],
-    };
-    return { state: s, spellId: spell.instanceId };
-  }
-
-  it("is unregistered, so nothing in the pool moves anything for it (the pin)", () => {
-    // The control that keeps `hasEffect` honest: Charm is registered, so a
-    // `false` below is a fact about UNL-054 and not about the lookup.
-    expect(hasEffect(CHARM)).toBe(true);
-    expect(hasEffect(TRICKSY_TENTACLES), "UNL-054 gained a resolver — retire this pin").toBe(false);
-    expect(cardMovesTarget(TRICKSY_TENTACLES), "UNL-054 gained its MOVE_TARGET_SPELL_DEF_IDS row").toBe(false);
-    expect(cardMayMoveToBase(TRICKSY_TENTACLES)).toBe(false);
-  });
-
-  it("POSITIVE CONTROL: Charm, one row over in the same Set, IS offered a destination", () => {
-    // Proves the fixture and the enumerator are alive: the same board that
-    // offers Tentacles nothing offers Charm a battlefield and a base.
-    const spell = spellInstance(CHARM);
-    const s = makeState({ phase: "Action" });
-    s.players[0]!.hand = [spell];
-    s.players[0]!.channeled = runes("Calm", 8);
-    s.battlefields[0]!.units = { p2: [makeUnit({ name: "Charmed", instanceId: "enemy-a", might: 3 })] };
-
-    const plays = playsOf(s, spell.instanceId);
-    expect(plays.length, "Charm was not enumerated at all — the fixture is broken, not the card").toBeGreaterThan(0);
-    expect(plays.every((p) => p.destinationBattlefieldId !== undefined || p.destinationIsBase === true)).toBe(true);
-    expect(plays.some((p) => p.destinationIsBase === true), "Charm's base destination (355.4.a/198.1) was not offered").toBe(true);
-
-    // ...and it is ACCEPTED through the real submit path. This is the
-    // differential that makes the refusal below mean something: the same
-    // validator, on the same board, with a destination — only the defId differs,
-    // and only because of the `MOVE_TARGET_SPELL_DEF_IDS` row.
-    const { result } = submit(s, plays.find((p) => p.destinationBattlefieldId === "bf2")!);
-    expect(result).toMatchObject({ type: "Ok" });
-  });
-
-  it("the validator REFUSES a hand-built Tentacles play carrying a destination (the pin)", () => {
-    const { state, spellId } = tentacleState();
-    const card = state.players[0]!.hand.find((c) => c.instanceId === spellId)!;
-    const action: PlayCardAction = {
-      type: "PlayCard",
-      playerIndex: 0,
-      card,
-      payment: { energyRunes: ["Calm-0", "Calm-1", "Calm-2", "Calm-3"], powerRunes: ["Calm-4"], rainbowRunes: [] },
-      targetUnitInstanceIds: ["enemy-a", "enemy-b"],
-      destinationBattlefieldId: "bf1",
-    };
-    const { result } = submit(state, action);
-    // The exact message is asserted so that a change in WHY it is refused shows
-    // up as a test failure rather than as a still-green refusal.
-    expect(result).toMatchObject({ type: "Invalid" });
-    expect(JSON.stringify(result)).toContain("cannot be played directly to a battlefield");
-  });
-
-  it("MEASURED: both `withDestinations` filters already pass an undefined single target", () => {
-    // These two are the ONLY filters `withDestinations` applies after fanning
-    // out the battlefields (legal-actions.ts). A `unitList` play carries
-    // `targetUnitInstanceIds` and no `targetUnitInstanceId`, so this is the
-    // exact call it would make — and both say yes.
-    //
-    // This is the finding that shrinks wave 7's three shared edits to one for
-    // the battlefield axis: no `withDestinations` change is needed at all.
-    const { state } = tentacleState();
-    expect(
-      secondTargetIsAtDestination(state, { kind: "unitList" }, { destinationBattlefieldId: "bf1" }),
-      "secondTargetIsAtDestination stopped tolerating a list-targeted move",
-    ).toBe(true);
-    expect(
-      moveDestinationAllowed(state, TRICKSY_TENTACLES, undefined, "bf1"),
-      "moveDestinationAllowed stopped tolerating a list-targeted move",
-    ).toBe(true);
-    // ...and that `true` is not this function's constant answer. Temptation
-    // (SFD-129) is the one card with a restricted destination, and it says NO to
-    // the same undefined target — so the yes above is about UNL-054 rather than
-    // about an unreached predicate.
-    expect(moveDestinationAllowed(state, "SFD-129", undefined, "bf1")).toBe(false);
-  });
-
-  it("the BASE axis is a separate, still-open question", () => {
-    // What is MEASURED here is only Set membership: base is offered exclusively
-    // for a card in MOVE_TO_BASE_DEF_IDS, and UNL-054 is not one.
-    //
-    // The reason a row there would NOT be enough is READ from legal-actions.ts
-    // rather than measured, and is reported as read: `toBase` in
-    // `withDestinations` is gated on `currentBattlefieldIndex !== undefined`,
-    // derived from the SINGLE `targetUnitInstanceId`, which a `unitList` play
-    // never carries. Nothing in the pool exercises that path today (Skyward
-    // Strike is `min: 1`, so its first slot is always filled), so there is no
-    // card to measure it with.
-    expect(cardMayMoveToBase(CHARM), "Charm is the control for the base axis").toBe(true);
-    expect(cardMayMoveToBase(TRICKSY_TENTACLES)).toBe(false);
-  });
-});
+// **The UNL-054 Tricksy Tentacles block that stood here was DELETED on
+// 2026-08-13 — superseded, not weakened.**
+//
+// It pinned the card as unregistered and its destination as unreachable, and it
+// was right on both counts when written. Its own measurements are what made the
+// card cheap to finish: it found the destination needed ONE shared row rather
+// than the three a wave-7 note predicted, because `withDestinations` derives its
+// "already there" index from a single-target field a `unitList` play never sets.
+//
+// The card is written and its base axis landed with it, after the project-owner
+// ruling of 2026-08-13 that "a single location" includes the enemy base. Full
+// coverage — the group move, the Might ceiling, both destination axes and an
+// inert-resolver mutation — lives in `unl-054-tricksy-tentacles.test.ts`.
 
 // ---------------------------------------------------------------------------
 // UNL-194 Shadow — "If you play me to a battlefield, I enter ready."
