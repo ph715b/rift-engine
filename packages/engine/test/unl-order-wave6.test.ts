@@ -190,48 +190,23 @@ describe("Mageseeker Investigator (UNL-163): refused, and its cost is unreachabl
   });
 });
 
-describe("Stalking Wolf (UNL-166): refused, and the gap is that he is FREE", () => {
-  /**
-   * "[Ambush] As an additional cost to play me, kill a Bird, Cat, Dog, or Poro you
-   * control. You may play me to its battlefield (even if you don't have other
-   * units there)."
-   *
-   * Two things are missing and both are in shared files:
-   *   - `OPTIONAL_UNIT_COSTS` (card-effects.ts) can express `{ kind: "killFriendly",
-   *     mandatory: true }` — Cruel Patron's row — but `UnitCostSpec` carries **no
-   *     filter**, so it cannot say "a Bird, Cat, Dog, or Poro". The same missing
-   *     field is what keeps Sacrifice (UNL-173) refused for "[Mighty]";
-   *   - the third sentence is a PLACEMENT GRANT whose destination is the unit the
-   *     cost killed, which no `PLACEMENT_GRANTS` entry (unit-triggers.ts) can name.
-   *
-   * **Not approximable as an on-play trigger**, and that is the whole reason this
-   * one cannot be written the way Sacrifice's payoff could: a mandatory additional
-   * cost is enforced by the card being UNPLAYABLE (204.2.a), and a Unit that has
-   * already arrived cannot be un-played. A resolution-time kill would leave a Wolf
-   * played with no pet costing nothing at all — the direction this codebase does
-   * not ship, and exactly what the assertion below pins.
-   */
-  it("has no additional cost registered, so he can be played with no pet to kill", () => {
-    expect(optionalUnitCostOf(STALKING_WOLF), "the additional cost landed — check the tag filter came with it").toBeUndefined();
-    expect(isCardImplemented(registry.get(STALKING_WOLF)), "someone wrote him — rewrite this pin").toBe(false);
+// **Stalking Wolf (UNL-166) is no longer refused — the pinned block that stood
+// here was removed on 2026-08-12, not weakened.**
+//
+// Its refusal named both blockers and was right about both: `UnitCostSpec`
+// carried no filter, so the cost could not say "a Bird, Cat, Dog, or Poro"; and
+// no `PLACEMENT_GRANTS` entry could name a destination defined by the unit the
+// cost killed. Both exist now — `UnitCostSpec.candidate`, and the
+// `sacrificedUnitsBattlefield` grant, which is the first placement grant that is
+// not a property of the battlefield alone.
+//
+// The pin's sharpest point is worth keeping, because it is what the new tests
+// are built around: "a mandatory additional cost is enforced by the card being
+// UNPLAYABLE (204.2.a), and a Unit that has already arrived cannot be un-played."
+// So the `mandatory` flag, not the `resolve`, is what charges him — with no
+// eligible pet he is never enumerated and never validated, and the kill in his
+// trigger is only ever reached on a play that already named its price.
+//
+// See `stalking-wolf.test.ts`. Nothing is re-asserted here: two files claiming
+// the same fact is how the premise-flip class starts over.
 
-    const wolf = realUnitInstance(STALKING_WOLF);
-    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
-    state.players[0]!.hand = [wolf];
-    state.players[0]!.channeled = runesFor(STALKING_WOLF);
-    // A friendly unit that is NOT one of the four tribes, so the board can never
-    // pay his cost even once it exists.
-    state.players[0]!.baseUnits = [makeUnit({ instanceId: "notapet", name: "Not A Pet", tags: ["Demacia"] })];
-
-    const casts = castsOf(state, wolf.instanceId);
-    expect(casts.length, "he is not enumerable at all — the fixture is wrong, not the refusal").toBeGreaterThan(0);
-
-    const { state: after, result } = submit(state, casts[0]!);
-    expect(result).toEqual({ type: "Ok" });
-    expect(
-      after.players[0]!.baseUnits.some((u) => u.instanceId === "notapet"),
-      "something of the caster's died — the additional cost is being charged now",
-    ).toBe(true);
-    expect(after.players[0]!.trash, "a unit reached the trash paying for him").toHaveLength(0);
-  });
-});

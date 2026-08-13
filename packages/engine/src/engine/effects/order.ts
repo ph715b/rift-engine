@@ -944,6 +944,36 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
     resolve: (state, _ctx, _unitId, event) =>
       event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
   },
+  "UNL-166": {
+    // Stalking Wolf — "[Ambush] As an additional cost to play me, kill a Bird,
+    // Cat, Dog, or Poro you control. You may play me to its battlefield (even if
+    // you don't have other units there)."
+    //
+    // Only the KILL is here. The card's three clauses land in three places, and
+    // that split is the card:
+    //
+    //   - `[Ambush]` — already worked, via `timing.ambushReactionAt`. It grants
+    //     Reaction TIMING into a battlefield where you DO have units.
+    //   - the destination waiver — `PLACEMENT_GRANTS["UNL-166"]` in
+    //     unit-triggers.ts, which lets him land where he has NOBODY, provided it
+    //     is where his meal was standing. The opposite direction to `[Ambush]`,
+    //     and a different mechanism.
+    //   - the cost itself — `OPTIONAL_UNIT_COSTS` names which units qualify, and
+    //     this line is what actually kills the one chosen.
+    //
+    // Paid exactly as Cruel Patron's is: through `destroyUnit`, so a [Deathknell]
+    // on the meal still fires (808) and a death ward can still replace it
+    // (808.1.d.1), and with no `killerIndex` — spending your own unit as a price
+    // is not you "killing" it in the sense Solari Shrine asks about.
+    //
+    // **Ordering note.** The Wolf is already on the board when this runs: a unit
+    // deploys, then its on-play trigger resolves. So the destination was decided
+    // while the meal was still standing there, which is what the placement grant
+    // needs, and the kill that follows cannot invalidate it.
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.additionalCostUnitInstanceId ? destroyUnit(state, event.additionalCostUnitInstanceId) : state,
+  },
   "OGN-234": {
     // Harnessed Dragon — "When you play me, kill an enemy unit."
     //

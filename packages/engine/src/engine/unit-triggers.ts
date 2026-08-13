@@ -141,7 +141,14 @@ export function unitTriggerHasVisionChoice(state: GameState, playerIndex: 0 | 1,
  * the specific drift that has bitten this codebase before (see
  * mayPlaceWithoutPresence below).
  */
-type PlacementGrant = "openBattlefield" | "occupiedEnemyBattlefield" | "attackingBattlefield";
+type PlacementGrant =
+  | "openBattlefield"
+  | "occupiedEnemyBattlefield"
+  | "attackingBattlefield"
+  /** Stalking Wolf's "you may play me to ITS battlefield" — the only grant
+   *  that names a destination relative to the unit paying the card's
+   *  additional cost rather than a property of the battlefield itself. */
+  | "sacrificedUnitsBattlefield";
 
 const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "OGN-176": "openBattlefield", // Sneaky Deckhand
@@ -156,6 +163,20 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   // into a battlefield where you DO have units, which is the other half of the
   // sentence and a different mechanism (timing.ambushReactionAt).
   "UNL-120": "occupiedEnemyBattlefield", // Rengar - Trophy Hunter
+  // Stalking Wolf — "As an additional cost to play me, kill a Bird, Cat, Dog, or
+  // Poro you control. You may play me to its battlefield (even if you don't have
+  // other units there)."
+  //
+  // Unlike every grant above it, this one is not a question about the
+  // battlefield: the SAME battlefield qualifies or not depending on which unit
+  // was chosen to pay the cost. So `mayPlaceWithoutPresence` takes the cost unit,
+  // and the two callers hand it the choice riding on the action they are judging.
+  //
+  // His `[Ambush]` is separate and already works, exactly as Rengar's is: that
+  // grants Reaction TIMING into a battlefield where you DO have units. This
+  // clause is what lets him land where he has nobody — the two halves of the card
+  // pull in opposite directions and are deliberately different mechanisms.
+  "UNL-166": "sacrificedUnitsBattlefield", // Stalking Wolf
   // SFD-093 Dauntless Vanguard — "You may play me to an occupied enemy
   // battlefield." Byte-identical to Deadbloom Predator above, which is why it
   // is one row and not a card implementation: the validator and the enumerator
@@ -230,12 +251,25 @@ export function mayPlaceWithoutPresence(
   playerIndex: 0 | 1,
   defId: string,
   battlefield: BattlefieldState,
+  /** The unit chosen to pay the card's additional cost, when the action names
+   *  one. Only `sacrificedUnitsBattlefield` reads it; every other grant is a
+   *  property of the battlefield and ignores it. */
+  costUnitInstanceId?: string,
 ): boolean {
   switch (PLACEMENT_GRANTS[defId]) {
     case "openBattlefield":
       return isOpenBattlefield(battlefield);
     case "occupiedEnemyBattlefield":
       return isOccupiedByEnemy(state, playerIndex, battlefield);
+    case "sacrificedUnitsBattlefield": {
+      // "ITS battlefield" — where the unit being killed as the cost is standing.
+      // A cost unit in BASE widens nothing: a base is not a battlefield, so the
+      // Wolf falls back to the ordinary presence rule and can still be played
+      // wherever he already has units.
+      if (costUnitInstanceId === undefined) return false;
+      const at = findUnitOnBattlefield(state, costUnitInstanceId);
+      return at !== undefined && at.ownerIndex === playerIndex && state.battlefields[at.battlefieldIndex]?.id === battlefield.id;
+    }
     case "attackingBattlefield":
       // "A battlefield you're ATTACKING" — the Attacker designation is 465 Step
       // 1's, i.e. the player who applied Contested, which is the same question

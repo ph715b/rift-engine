@@ -643,7 +643,13 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const destination = state.battlefields.find((bf) => bf.id === action.destinationBattlefieldId);
     if (!destination) return fail(`No battlefield with id ${action.destinationBattlefieldId}`);
     const hasPresence = (destination.units[actor.id]?.length ?? 0) > 0;
-    if (!hasPresence && !mayPlaceWithoutPresence(state, action.playerIndex, card.defId, destination)) {
+    // Same cost-unit argument the enumerator passes. Without it a Stalking Wolf
+    // action that enumeration legitimately offered is refused here, which is the
+    // offered-then-refused crash from the other direction.
+    if (
+      !hasPresence &&
+      !mayPlaceWithoutPresence(state, action.playerIndex, card.defId, destination, action.additionalCostUnitInstanceId)
+    ) {
       return fail(`You can only play a unit directly to a battlefield where you already have units`);
     }
   }

@@ -23,6 +23,10 @@ import { effectiveMight } from "./effective-might.js";
 // directions through `effects/index`, and is only ever CALLED from inside the
 // arrow below, never at module init.
 import { isMighty } from "./granted-keywords.js";
+// Tags as they are RIGHT NOW, not as printed — an Experimental Hexplate grants
+// [Mech], and a cost naming tags that read `unit.tags` would disagree with every
+// other tag question in the engine. Same lazily-called-arrow rule as above.
+import { effectiveTagsOf } from "./equipment.js";
 import { channelRunesForcedExhausted } from "./channel-cost.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
@@ -865,7 +869,37 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
   // stops qualifying if it moves. That falls out of asking the live function
   // instead of reading printed Might, and it is the behaviour 708 describes.
   "UNL-173": { kind: "killFriendly", mandatory: true, candidate: isMighty },
+  // Stalking Wolf — "As an additional cost to play me, kill a Bird, Cat, Dog, or
+  // Poro you control. You may play me to its battlefield (even if you don't have
+  // other units there)."
+  //
+  // The second `candidate`, and the one that shows why it is a predicate rather
+  // than a fourth `kind`: this names TAGS where Sacrifice names a Might
+  // threshold, and the two have nothing in common except being restrictions.
+  //
+  // MANDATORY, so a Wolf with none of those four in play is simply not offered —
+  // which is the whole tension of the card, since the destination clause is only
+  // worth anything when the sacrifice is standing somewhere useful.
+  //
+  // 43 units in the pool carry one of these tags, so this is a real restriction
+  // rather than a formality. He is himself a Dog, which costs nothing here: he is
+  // not in play when the cost is chosen.
+  //
+  // The DESTINATION half is not here — it is a placement grant keyed to the same
+  // chosen unit; see `PLACEMENT_GRANTS` in unit-triggers.ts.
+  "UNL-166": {
+    kind: "killFriendly",
+    mandatory: true,
+    candidate: (state, unit) => {
+      const tags = effectiveTagsOf(state, unit);
+      return WOLF_FOOD_TAGS.some((tag) => tags.includes(tag));
+    },
+  },
 };
+
+/** The four tags Stalking Wolf will eat. Named rather than inlined so a test can
+ *  assert against the same list the card is built from. */
+const WOLF_FOOD_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro"];
 
 /**
  * Cards with an optional POWER additional cost — Clockwork Keeper's "you may pay

@@ -1862,7 +1862,12 @@ export function legalActions(state: GameState): PlayerAction[] {
             // "An OPEN battlefield" is unoccupied AND uncontrolled (170.11.c), so
             // this is asked per battlefield rather than once per card. Same shared
             // predicate the validator uses.
-            if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf)) continue;
+            // The cost unit is passed because Stalking Wolf's waiver depends on
+            // WHICH unit is paying — the same battlefield qualifies under one
+            // variant and not another, so this must be asked per variant rather
+            // than once per card. Every other grant ignores the argument.
+            if (!hasPresence && !mayPlaceWithoutPresence(state, playerIndex, card.defId, bf, variant.additionalCostUnitInstanceId))
+              continue;
             // Rule 813 narrows a Unit's destinations outside a Neutral Open state to
             // your base or a battlefield you control. Checked here as well as in the
             // validator, via the same shared predicate: without it, enumeration

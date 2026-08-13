@@ -151,7 +151,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("302 held / 5 inline of 307 trigger cards", () => {
+  it("303 held / 5 inline of 308 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -174,6 +174,16 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // twice for want of an event `placeToken` never fired. She is the pool's
     // only POSITIVE reader of `cardPlayed.isToken`; the three card-reading
     // listeners are all negative on it.
+    //
+    // **307 → 308 cards on 2026-08-12**, +1 held, and it is UNL-166 Stalking
+    // Wolf. He registers a unit trigger for one job only — paying his additional
+    // cost by killing the pet named on the action — the same shape Cruel Patron
+    // has carried since OGN. His other two clauses register nothing here:
+    // `[Ambush]` is timing, and his placement waiver is a PLACEMENT_GRANTS row.
+    //
+    // Sacrifice (UNL-173) landed in the same change and does NOT appear, which is
+    // the contrast this file keeps making: it is a Spell, so its kill is a card
+    // effect rather than a trigger. Two cards finished, the census moves by one.
     //
     // **306 → 307 cards on 2026-08-11**, and this one is fully attributable —
     // unlike the wave above it, which is worth the contrast.
@@ -262,9 +272,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 302,
+      held: 303,
       inline: 5,
-      cards: 307,
+      cards: 308,
     });
   });
 
