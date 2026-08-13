@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -qE \"pdftotext[^\\\"]*-layout\" && printf \"%s\" \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\", \\\"permissionDecisionReason\\\":\\\"pdftotext -layout puts rule numbers in a column that does not line up with their text,  and every wrong rule citation in this repo came from reading it anyway.  Use -raw instead: pdftotext -q -raw <pdf> - | grep -n <the sentence you mean>\\\"}}\" || true",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "grep -qE \"(Set-Content|Out-File|Add-Content)( +-[A-Za-z]+)* +\\\"?[^ |;&\\\"]*\\.tsx?|>>? *\\\"?[^ |;&\\\"]*\\.tsx?\" && printf \"%s\" \"{\\\"hookSpecificOutput\\\":{\\\"hookEventName\\\":\\\"PreToolUse\\\",\\\"permissionDecision\\\":\\\"deny\\\", \\\"permissionDecisionReason\\\":\\\"Shell writes to a .ts file are blocked in this repo: PowerShell mojibakes every em-dash  and adds a BOM, and a bare redirect loses the CRLF the repo uses. Use the Edit tool, or a Python round-trip with explicit  utf-8 and newline='' — which this hook deliberately allows.\\\"}}\" || true",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "D=\"${CLAUDE_PROJECT_DIR:-.}\"; if [ -f \"$D/packages/engine/dist/index.js\" ] && [ -n \"$(find \"$D/packages/engine/src\" -type f -newer \"$D/packages/engine/dist/index.js\" -print -quit 2>/dev/null)\" ]; then printf \"%s\" \"{\\\"systemMessage\\\":\\\"engine src/ is newer than dist/ - @rift-engine/web and every probe read dist, so an engine change is invisible to both until: npm run build --workspace=@rift-engine/engine\\\"}\"; fi",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
