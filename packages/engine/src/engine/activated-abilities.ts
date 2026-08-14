@@ -91,6 +91,19 @@ export interface ActivatedAbilityEvent {
    *  gives: the rainbow bucket also holds a `[Deflect]` surcharge, and the two
    *  must never be confused. */
   xAmount?: number;
+  /**
+   * The permanent the COST named — Malzahar - Fanatic's kill, Forgotten
+   * Signpost's exhaust.
+   *
+   * **The event carried nothing about the cost until 2026-08-14**, and that was
+   * the second of the two gaps UNL-045 Forgotten Signpost was refused on: "move
+   * a different unit you control to the location of the unit you exhausted TO
+   * PAY FOR THIS ABILITY" cannot be resolved without knowing who paid. Forwarded
+   * by `execute-activate-ability` from the action field of the same name, so it
+   * is the same choice the enumerator fanned out and the validator re-derived —
+   * not a fourth reading of it.
+   */
+  costPermanentInstanceId?: string;
 }
 
 /**
@@ -220,6 +233,23 @@ export interface ActivationCost {
    */
   killFriendlyPermanent?: true;
   /**
+   * Exhaust a friendly UNIT to pay — Forgotten Signpost's "Exhaust a unit you
+   * control, [Exhaust]:", where the second symbol is the source's own exhaust.
+   *
+   * A separate field from `killFriendlyPermanent` above rather than a mode of
+   * it, because it does something entirely different to what it names: that one
+   * KILLS, and this one leaves the unit standing. They ride the SAME action field
+   * (`costPermanentInstanceId`, "the permanent the cost named") because no card
+   * prints both and the question is the same one.
+   *
+   * UNITS only, not gear — the card says "a unit you control", and a gear's
+   * exhaust is a different resource. Ready only, since 416 has nothing to take
+   * from an already-exhausted unit; `exhaustableFriendlyUnits` is the one walk
+   * that decides this, shared by the enumerator, the affordability check, the
+   * validator and the payment.
+   */
+  exhaustFriendlyUnit?: true;
+  /**
    * Discard cards from hand to pay — Unlicensed Armory's "Discard 1, Exhaust:".
    *
    * A count rather than a boolean, matching `recycleFromTrash` above. WHICH card
@@ -250,6 +280,26 @@ export interface AbilityMode {
    * (going home) has an implicit destination and must not be fanned out.
    */
   movesTarget?: true;
+  /**
+   * This mode moves its target to wherever the COST PAYER is standing —
+   * UNL-045 Forgotten Signpost, "move a different unit you control to the
+   * location of the unit you exhausted to pay for this ability".
+   *
+   * **Not `movesTarget`, and the difference is the whole reason this card was
+   * refused twice.** `movesTarget` means the destination is a THIRD choice the
+   * player makes, fanned out per battlefield. Here the destination is not chosen
+   * at all: it is wherever the payer already stands, which is why the card needs
+   * no base-destination field on `ActivateAbilityAction` (the gap a wave-8 note
+   * predicted would sink this) and why SFD-050 Azir's swap, not Yasuo's move, is
+   * the working precedent.
+   *
+   * Two pairings follow from the printed text and are enforced by
+   * `costPayerPairingAllowed`, which the enumerator and the validator both call:
+   * the payer is not the target ("a DIFFERENT unit"), and the target is not
+   * already standing where the payer is (a move that moves nobody, which the
+   * player would have paid an exhaust for).
+   */
+  movesTargetToCostPayer?: true;
   /**
    * This mode ATTACHES an Equipment to the unit it targets, so enumeration fans
    * out per Equipment as well as per unit — Jax - Grandmaster At Arms.
@@ -338,6 +388,11 @@ export interface ActivatedAbilityDefinition {
    *  TargetingSpec so legal-actions' existing fan-out and the web UI's existing
    *  target picker both apply unchanged. */
   targeting?: TargetingSpec;
+  /** A NON-modal ability that moves its target to the cost payer — UNL-045
+   *  Forgotten Signpost. Carried onto the synthetic sole mode by `modesOf`, the
+   *  same way `attachesEquipment` is, so the axis is declared once whether or
+   *  not the ability has modes. */
+  movesTargetToCostPayer?: true;
   /** A NON-modal ability that attaches an Equipment — Forge of the Fluft's
    *  grant. Carried onto the synthetic sole mode by `modesOf`, so the axis is
    *  declared in one place whether or not the ability has modes. */
@@ -2022,6 +2077,73 @@ export function killableFriendlyPermanents(
   ].filter((p) => p.instanceId !== sourceInstanceId);
 }
 
+/**
+ * The friendly units an ability could EXHAUST to pay — UNL-045 Forgotten
+ * Signpost's "Exhaust a unit you control".
+ *
+ * Units only, and READY ones only. Both narrowings are the printed text rather
+ * than caution: a gear is not "a unit you control", and 416 has nothing to take
+ * from a unit that is already exhausted — offering one would be the cost that
+ * cannot be completed, which 416.3 says is not a cost you may choose to pay.
+ *
+ * Base AND battlefields, because the card names neither and 355.9.a.1 widens a
+ * bare "unit" to every unit on the Board. That is load-bearing here rather than
+ * incidental: the payer's location is the destination, so a payer standing in
+ * base is the only way this card pulls a unit home.
+ *
+ * ONE walk, called by `activationCostChoices`, `canPayActivationCost`, the
+ * validator's re-derivation and `payActivationCost` — the four sites that have
+ * disagreed about a cost five times in this engine's history.
+ */
+export function exhaustableFriendlyUnits(state: GameState, playerIndex: 0 | 1): UnitInstance[] {
+  const owner = state.players[playerIndex];
+  return [
+    ...owner.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? []),
+  ].filter((u) => !u.exhausted);
+}
+
+/**
+ * Is this action's COST PAYER a legal partner for what it TARGETS?
+ *
+ * Vacuously true for every ability but the one that declares
+ * `movesTargetToCostPayer`, where the printed text constrains the pair rather
+ * than either choice alone: "move a DIFFERENT unit you control to the LOCATION
+ * of the unit you exhausted".
+ *
+ * **It has to be a pair check, and that is why it is a function rather than two
+ * filters.** `activationCostChoices` fans the payer out once per MODE, before
+ * any target is known, and the enumerator then crosses the two axes — so the
+ * cross is the first place both halves exist at once. Called there and re-derived
+ * in `validate-activate-ability`, so a hand-built action cannot exhaust the very
+ * unit it is moving, or pay an exhaust to move a unit to where it already stands.
+ */
+export function costPayerPairingAllowed(
+  state: GameState,
+  mode: Pick<AbilityMode, "movesTargetToCostPayer">,
+  action: { targetUnitInstanceId?: string; costPermanentInstanceId?: string },
+): boolean {
+  if (!mode.movesTargetToCostPayer) return true;
+  const { targetUnitInstanceId: target, costPermanentInstanceId: payer } = action;
+  if (target === undefined || payer === undefined) return false;
+  const from = findUnitAnywhere(state, target);
+  const to = findUnitAnywhere(state, payer);
+  if (!from || !to) return false;
+  // **The location comparison is BOTH constraints**, which is not obvious and is
+  // why it is written down: a unit is trivially in the same location as itself,
+  // so "a DIFFERENT unit you control" falls out of "not already standing where
+  // the payer is". A first version stated the two separately; mutating the
+  // `target === payer` line away changed nothing in the whole suite, because this
+  // line had already refused every pair it would have.
+  return placeKeyOf(state, from.zone) !== placeKeyOf(state, to.zone);
+}
+
+/** A zone as a comparable place — "base" or a battlefield id. Both units here
+ *  are the same player's, so one base key cannot conflate two players' bases. */
+function placeKeyOf(state: GameState, zone: { battlefieldIndex: number } | "base"): string {
+  return zone === "base" ? "base" : state.battlefields[zone.battlefieldIndex]!.id;
+}
+
 export function canPayActivationCost(
   state: GameState,
   playerIndex: 0 | 1,
@@ -2071,10 +2193,13 @@ export function canPayActivationCost(
   // rule 702.2.b.1: only a buffed unit can spend one, so an unbuffed Udyr is simply
   // not offered rather than offered and refused.
   if (cost.spendBuff && !("buffed" in card && card.buffed === true)) return false;
-  // The two costs that carry a CHOICE. Affordability is "is there anything to
+  // The three costs that carry a CHOICE. Affordability is "is there anything to
   // choose", asked here so an ability with nothing to pay with is never offered
   // — 416.3's "a cost that cannot be completed is not one you may choose to pay".
   if (cost.killFriendlyPermanent && killableFriendlyPermanents(state, playerIndex, card.instanceId).length === 0) return false;
+  // A board of nothing but EXHAUSTED units cannot pay this, which is the whole
+  // reason `exhaustableFriendlyUnits` filters rather than the caller.
+  if (cost.exhaustFriendlyUnit && exhaustableFriendlyUnits(state, playerIndex).length === 0) return false;
   if (cost.discard !== undefined && state.players[playerIndex].hand.length < cost.discard) return false;
   // `killSelf` needs no check here: the source was found in play by
   // resolveActivation before this was called, and unlike an exhaust there is no
@@ -2203,7 +2328,22 @@ export function payActivationCost(
     // effect that is about to read them.
     next = banishCard(next, playerIndex, instanceId);
   }
-  // The two costs that carry a CHOICE, paid from what the action named.
+  // The three costs that carry a CHOICE, paid from what the action named.
+  if (cost.exhaustFriendlyUnit) {
+    if (!chosen?.costPermanentInstanceId) return undefined;
+    // Re-checked against the SAME walk the enumerator fanned out from rather than
+    // exhausting whatever was named: an already-exhausted unit is not a payment,
+    // and neither is an opponent's.
+    const payer = exhaustableFriendlyUnits(next, playerIndex).find((u) => u.instanceId === chosen.costPermanentInstanceId);
+    if (!payer) return undefined;
+    // `exhaustActivated`, which is the exhaust funnel this file already owns and
+    // already walks every zone a unit can stand in — base and battlefields both.
+    // Its name says "the activated permanent" because until now that was its only
+    // caller; what it actually does is exhaust one of `playerIndex`'s permanents
+    // by id, which is exactly this. A second hand-rolled exhaust would be a second
+    // place to forget the battlefield walk, which is the bug it was written after.
+    next = exhaustActivated(next, playerIndex, payer.instanceId);
+  }
   if (cost.killFriendlyPermanent) {
     if (!chosen?.costPermanentInstanceId) return undefined;
     const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === chosen.costPermanentInstanceId);
@@ -2508,6 +2648,7 @@ export function modesOf(abilityDefId: string): readonly AbilityMode[] {
       targeting: definition.targeting ?? { kind: "none" },
       ...(definition.attachesEquipment ? { attachesEquipment: definition.attachesEquipment } : {}),
       ...(definition.attachesFromTargetToSelf ? { attachesFromTargetToSelf: definition.attachesFromTargetToSelf } : {}),
+      ...(definition.movesTargetToCostPayer ? { movesTargetToCostPayer: definition.movesTargetToCostPayer } : {}),
       resolve: definition.resolve,
     },
   ];

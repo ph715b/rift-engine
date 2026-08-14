@@ -120,6 +120,16 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
       // field above it: enumerated, validated, and then dropped on this hop
       // would leave Hextech Anomaly exhausting itself to add nothing.
       ...(action.xAmount !== undefined ? { xAmount: action.xAmount } : {}),
+      // The permanent the COST named — UNL-045 Forgotten Signpost moves its
+      // target to "the location of the unit you exhausted to pay for this
+      // ability", so the payer IS the destination and dropping it here would
+      // leave the card exhausting two units and moving nobody. Forwarded for
+      // every cost that names one, not just this card's: `costPermanentInstanceId`
+      // is one question ("which permanent did the cost name") whichever cost
+      // asked it, and a resolver that does not care simply never reads it.
+      ...(action.costPermanentInstanceId !== undefined
+        ? { costPermanentInstanceId: action.costPermanentInstanceId }
+        : {}),
     },
     action.permanentInstanceId,
   );

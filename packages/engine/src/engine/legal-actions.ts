@@ -67,7 +67,10 @@ import {
   availableModes,
   activationCostFor,
   canPayActivationCost,
+  costPayerPairingAllowed,
+  exhaustableFriendlyUnits,
   killableFriendlyPermanents,
+  type AbilityMode,
 } from "./activated-abilities.js";
 import {
   ACCELERATE_ENERGY,
@@ -188,7 +191,11 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
       // and the `continue`s above it (a `unitOrGear` mode, a target-less one)
       // jumped straight past the registration — Malzahar - Fanatic lost his
       // kill-choice axis entirely, which his own test caught.
-      const variants: { action: ActivateAbilityAction; costChoices: Partial<ActivateAbilityAction>[] }[] = [];
+      // `mode` rides along for the same reason `costChoices` does: the cross
+      // below runs OUTSIDE the mode loop, and the pair check it applies is a
+      // property of the mode. Reading it from a variable that has moved on is
+      // precisely the bug the `costChoices` comment below was written after.
+      const variants: { action: ActivateAbilityAction; costChoices: Partial<ActivateAbilityAction>[]; mode: AbilityMode }[] = [];
 
       // One candidate per MODE still available — Udyr's four are four separate
       // choices, and one he has already taken this turn is not offered again.
@@ -241,7 +248,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // permanent he kills to pay, Unlicensed Armory WHICH card it discards. A
         // single `[{}]` for every other ability, so their actions are unchanged.
         const costChoices = activationCostChoices(state, playerIndex, permanent.instanceId, cost);
-        const push = (action: ActivateAbilityAction) => variants.push({ action, costChoices });
+        const push = (action: ActivateAbilityAction) => variants.push({ action, costChoices, mode });
         // `modeId` is omitted for a plain ability's single unnamed mode, so an
         // ordinary activation's action is exactly what it always was.
         const withMode = mode.id === "" ? base : { ...base, modeId: mode.id };
@@ -326,7 +333,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         }
       }
 
-      for (const { action: variant, costChoices } of variants) {
+      for (const { action: variant, costChoices, mode } of variants) {
         // **[Deflect] on what this variant CHOSE.** Priced per variant for the
         // same reason a Spell's is: the price depends on the target, so one
         // variant can be affordable while another is not, and a single payment
@@ -341,7 +348,16 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // An unpayable surcharge is not an offer. Same rule as the Spell path,
         // and the same reason: never enumerate what the validator will refuse.
         if (taxed === undefined) continue;
-        for (const choice of costChoices) out.push({ ...taxed, ...choice });
+        for (const choice of costChoices) {
+          const candidate = { ...taxed, ...choice };
+          // The one constraint that spans the cost axis and the target axis at
+          // once — UNL-045's "a DIFFERENT unit", and its refusal to move a unit
+          // to where it already stands. Vacuously true for every other ability,
+          // and re-derived by `validate-activate-ability` from the same function
+          // so a pair offered here and a pair accepted there cannot come apart.
+          if (!costPayerPairingAllowed(state, mode, candidate)) continue;
+          out.push(candidate);
+        }
       }
     }
   }
@@ -435,6 +451,20 @@ function activationCostChoices(
   if (cost.killFriendlyPermanent) {
     choices = choices.flatMap((c) =>
       killableFriendlyPermanents(state, playerIndex, sourceInstanceId).map((p) => ({ ...c, costPermanentInstanceId: p.instanceId })),
+    );
+  }
+  // UNL-045 Forgotten Signpost's "Exhaust a unit you control". The SAME action
+  // field as the kill above, because no card prints both and both answer "which
+  // permanent did the cost name" — and the same walk `payActivationCost` and the
+  // validator use, so the four sites cannot disagree about what is exhaustable.
+  //
+  // **This axis is not independent of the target**, unlike every other choice in
+  // this function: the payer must not BE the target and must not stand where the
+  // target already is. Neither can be checked here — the target does not exist
+  // yet — so the pair is filtered at the cross, by `costPayerPairingAllowed`.
+  if (cost.exhaustFriendlyUnit) {
+    choices = choices.flatMap((c) =>
+      exhaustableFriendlyUnits(state, playerIndex).map((u) => ({ ...c, costPermanentInstanceId: u.instanceId })),
     );
   }
   if (cost.discard !== undefined) {

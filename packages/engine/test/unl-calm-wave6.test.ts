@@ -233,7 +233,7 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
   // and "unimplemented" alone cannot tell the day the blocker lands. So each of
   // these asserts the MECHANISM, and fails when the mechanism appears.
 
-  it("FOUR still report unimplemented — Allay, Alpha Wildclaw, Skyward Strike and Master Yi have left", () => {
+  it("ALL EIGHT are written now — the re-audit's refusal list reached zero on 2026-08-14", () => {
     // **ALLAY was removed from this list on 2026-08-11.** This re-audit correctly
     // measured her as blocked on a registration point rather than a mechanism —
     // "one row, structurally identical to Captain Farron's" — and the integrator
@@ -261,14 +261,29 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // **MONCH left on 2026-08-13.** His refusal named both files exactly — two
     // lines in `modifiedEnergyCost` and a `conditionalEntersReady` case — and
     // that is what was written.
-    // **SHADOW_WATCHER left on 2026-08-13.** Only Forgotten Signpost remains of
-    // this re-audit's eight, and its blocker is a genuine one: `ActivationCost`
-    // has no "exhaust a unit you control", and the cost choice would have to be
-    // constrained by the chosen destination.
-    const stillRefused = [SIGNPOST];
-    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(1);
+    // **SHADOW_WATCHER left on 2026-08-13**, and **SIGNPOST — the last of the
+    // eight — on 2026-08-14.** Its blocker was genuine and correctly measured
+    // twice (`ActivationCost` had no "exhaust a unit you control"); what aged
+    // badly was the PLAN attached to it, that the cost choice "would have to be
+    // constrained by the chosen destination". The destination turned out not to
+    // be chosen at all. See `forgotten-signpost.test.ts`.
+    //
+    // **The list is now EMPTY, so the loop below asserts nothing** — which is the
+    // exact shape this file warned about two comments up, arriving by the route
+    // it did not predict. Restated as the INVARIANT the list stood for: every id
+    // this re-audit ever refused is either gone from the list or reports
+    // unimplemented. That holds at zero, and the filter is proved below on a
+    // subject no card implementation can take away.
+    const stillRefused: string[] = [];
     for (const id of stillRefused) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
+    }
+
+    // All eight are whole, asserted POSITIVELY so the sweep still measures the
+    // pool rather than an empty array. This is the half that fails if one of them
+    // regresses to unimplemented, which the loop above no longer can.
+    for (const id of [ALLAY, ALPHA_WILDCLAW, SKYWARD_STRIKE, MASTER_YI_UNSTOPPABLE, TRICKSY_TENTACLES, MONCH, SHADOW_WATCHER, SIGNPOST]) {
+      expect(isCardImplemented(registry.get(id)), `${id} went back to unimplemented`).toBe(true);
     }
   });
 
@@ -296,14 +311,18 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     expect(cardMovesTarget(TRICKSY_TENTACLES), "the Tentacles lost their row").toBe(true);
   });
 
-  it("UNL-045 Forgotten Signpost still has no activated ability, and the cost it needs does not exist", () => {
-    // Two independent gaps, both re-measured against the code rather than
-    // inherited from wave 3's note, and both still true: `ActivationCost` has no
-    // "exhaust a unit you control" (its nearest neighbour `killFriendlyPermanent`
-    // KILLS), and `execute-activate-ability` does not forward
-    // `costPermanentInstanceId` into the `ActivatedAbilityEvent` — so even given
-    // the cost, "the location of the unit you exhausted" is unanswerable.
-    expect(activatedAbilityFor(SIGNPOST), "an ability appeared — write the card").toBeUndefined();
+  it("UNL-045 Forgotten Signpost HAS an activated ability, and both gaps it named are closed", () => {
+    // **This wave's re-measurement was the most accurate of the three**, and it is
+    // worth saying why: it did not inherit wave 3's note, it went back to the code,
+    // and it named the two gaps as FIELDS rather than as designs — `ActivationCost`
+    // has no "exhaust a unit you control", and `execute-activate-ability` does not
+    // forward `costPermanentInstanceId` into the `ActivatedAbilityEvent`.
+    //
+    // Both are exactly what landed on 2026-08-14: `exhaustFriendlyUnit`, and that
+    // forwarding line. Wave 8 re-planned around them and added a third, blocking
+    // gap that was not one; this wave's shorter, field-level answer is the one that
+    // turned out to be the work.
+    expect(activatedAbilityFor(SIGNPOST), "the Signpost lost its ability").toBeDefined();
   });
 
   it("UNL-057 and UNL-059 CAN say 'unchooseable' conditionally — flipped 2026-08-11", () => {

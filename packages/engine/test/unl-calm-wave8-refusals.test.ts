@@ -174,21 +174,32 @@ describe("UNL-194 Shadow: played to a battlefield, he still arrives EXHAUSTED", 
 // exhausted to pay for this ability."
 // ---------------------------------------------------------------------------
 describe("UNL-045 Forgotten Signpost: the cost seam, measured", () => {
-  it("THE PIN: no activated ability is registered for it", () => {
-    // Shadow's stun IS registered, through the same lookup — so the undefined
-    // below is the Signpost's, not a broken accessor.
+  it("THE PIN THAT CLOSED: the ability IS registered now", () => {
+    // **Asserted the opposite until 2026-08-14.** Shadow's stun is kept beside it
+    // as the control it always was: both come through the same lookup, so this
+    // pair says the accessor works and the Signpost's entry is real.
     expect(activatedAbilityFor(SHADOW)).toBeDefined();
-    expect(activatedAbilityFor(FORGOTTEN_SIGNPOST)).toBeUndefined();
+    expect(activatedAbilityFor(FORGOTTEN_SIGNPOST), "the Signpost lost its registration").toBeDefined();
   });
 
-  it("MEASURED: an ability's move fan-out offers battlefields and NEVER a base", () => {
+  it("MEASURED, AND STILL TRUE: an ability's move fan-out offers battlefields and NEVER a base", () => {
     // Yasuo - Unforgiven's `fromBase` mode is the pool's only `movesTarget`
-    // ability, so it is the whole of what an activated move can express today.
+    // ability, so it is the whole of what an activated move-to-a-CHOSEN-place can
+    // express — and it still cannot say "base".
     //
-    // This is the gap wave 7 did not name: the Signpost's "the location of the
-    // unit you exhausted" includes a BASE (198.1), and `ActivateAbilityAction`
-    // has no `destinationIsBase` field at all — so the card would be silently
-    // narrower than printed even with a cost seam.
+    // **This measurement was right and its conclusion was wrong**, which is worth
+    // keeping both halves of. It was written as the third, blocking gap on the
+    // Signpost: "the location of the unit you exhausted" includes a BASE (198.1),
+    // `ActivateAbilityAction` has no `destinationIsBase`, so the card would be
+    // silently narrower than printed even given a cost seam.
+    //
+    // The card landed without widening the action at all, because its destination
+    // is not CHOSEN — it is wherever the cost payer stands, so the resolver reads
+    // a location instead of the action carrying one, exactly as SFD-050 Azir's
+    // swap already did. `forgotten-signpost.test.ts` pins the base case working.
+    //
+    // So this stays as a measurement of `movesTarget`, which is a real limit for
+    // the next card that needs a chosen base — just not the one it was filed as.
     const s = makeState({ phase: "Action" });
     s.players[0]!.legend = { ...s.players[0]!.legend, defId: YASUO_UNFORGIVEN, name: "Yasuo - Unforgiven" };
     s.players[0]!.channeled = runes("Fury", 6);
@@ -199,9 +210,6 @@ describe("UNL-045 Forgotten Signpost: the cost seam, measured", () => {
     );
     expect(moves.length, "Yasuo's move mode was not offered — the control is dead, not the claim").toBeGreaterThan(0);
     expect(moves.every((m) => m.destinationBattlefieldId !== undefined)).toBe(true);
-    // The action type has no base field, so this can only ever be undefined —
-    // asserted anyway, because a widening of the action is exactly the change
-    // that should make this file fail.
     expect(moves.some((m) => (m as { destinationIsBase?: true }).destinationIsBase === true)).toBe(false);
   });
 });

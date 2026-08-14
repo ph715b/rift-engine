@@ -3610,6 +3610,67 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
       return { ...state, players };
     },
   },
+  "UNL-045": {
+    // Forgotten Signpost — "[Action][>] Exhaust a unit you control, [Exhaust]:
+    // Move a different unit you control to the location of the unit you exhausted
+    // to pay for this ability."
+    //
+    // **Refused in waves 3, 6 and 8, and the third refusal's design was the one
+    // that was over-built.** All three agreed on the first gap and it was real:
+    // `ActivationCost` had no "exhaust a unit you control", and its nearest
+    // neighbour `killFriendlyPermanent` KILLS. That is now `exhaustFriendlyUnit`,
+    // riding the same `costPermanentInstanceId` the kill already rides.
+    //
+    // The three then split on the second gap, "the resolver cannot learn WHICH
+    // unit paid". Wave 8 dissolved it by reading the card DESTINATION-first —
+    // "choose a Location, exhaust a friendly unit standing there, move a different
+    // unit to it" — which needs no new event field but does need `movesTarget`,
+    // a base destination on `ActivateAbilityAction` (which does not exist; wave 8
+    // named that as a third gap), and a payer-at-destination pair check.
+    //
+    // **Re-measured on 2026-08-14 and the PAYER-first reading is strictly
+    // smaller**, so that is what is written. SFD-050 Azir - Ascendant is the
+    // precedent, not Yasuo: he moves between arbitrary locations INCLUDING a base
+    // with no destination field on his action at all, because his destination is
+    // another unit's location. Here it is the payer's. That costs one field on
+    // `ActivatedAbilityEvent` and one forwarding line, and it makes the third gap
+    // moot rather than blocking — the base case works because
+    // `forceMoveToDestination` already dispatches on it.
+    //
+    // Two pair constraints come off the printed text and are enforced by
+    // `costPayerPairingAllowed` at BOTH the enumerator's cross and the validator:
+    // "a DIFFERENT unit" (payer is not the target) and no move to where the target
+    // already stands. Neither can be a filter on one axis alone, because the payer
+    // is fanned out per MODE before any target exists.
+    //
+    // `[Action][>]` needs nothing: UNL-161 and UNL-194 print it on abilities that
+    // already work, so it is the ordinary activation timing rather than a mode.
+    kind: "Gear",
+    cost: { exhaust: true, exhaustFriendlyUnit: true },
+    // "A unit you control" names no battlefield, so `anywhere` — 355.9.a.1. The
+    // base is load-bearing on BOTH axes here: a unit at home is a legal thing to
+    // move, and a payer at home is the only way this card pulls somebody back.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    movesTargetToCostPayer: true,
+    resolve: (state, ctx, event) => {
+      if (event.targetUnitInstanceId === undefined || event.costPermanentInstanceId === undefined) return state;
+      // The payer was exhausted to pay, not removed, so it is still standing where
+      // the card points at. Read at RESOLUTION rather than at announce: the
+      // activation went on the Chain, and 383.3 makes what happens in between
+      // somebody else's business — if a reaction moved the payer, the card's own
+      // words send the target to where it is NOW.
+      const anchor = findUnitAnywhere(state, event.costPermanentInstanceId);
+      if (anchor === undefined) return state;
+      return forceMoveToDestination(
+        state,
+        event.targetUnitInstanceId,
+        anchor.zone === "base"
+          ? { destinationIsBase: true }
+          : { destinationBattlefieldId: state.battlefields[anchor.zone.battlefieldIndex]!.id },
+        ctx.casterIndex,
+      );
+    },
+  },
   // **The one Calm card that prints an activated ability and must NOT be
   // registered here.**
   //
@@ -3628,64 +3689,20 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   // `mightModifiers` at the foot of this file, which is the seam that did not
   // exist when this note was written.
   //
-  // # UNL-045 Forgotten Signpost is REFUSED, and it is this registry's card
+  // # UNL-045 Forgotten Signpost was refused HERE three times, and is now written
+  // # above — the reasoning is in its own entry
   //
-  // "[Action][>] Exhaust a unit you control, [Exhaust]: Move a DIFFERENT unit you
-  // control to the location of the unit you exhausted to pay for this ability."
+  // Kept as a pointer rather than deleted outright, because the shape of the three
+  // refusals is worth more than the refusals were. Every one of them named the
+  // same first gap correctly (`ActivationCost` could not say "exhaust a unit you
+  // control") and then priced the SECOND gap against a design that was never the
+  // only one available. Wave 8's destination-first reading needed a base
+  // destination on `ActivateAbilityAction` and called that a third, blocking gap;
+  // the payer-first reading it did not consider needed neither, and SFD-050 Azir
+  // had been the working precedent for it since SFD landed.
   //
-  // `ActivationCost` has no way to say "exhaust a unit you control". Every field
-  // it does have is paid from state (an exhaust of the SOURCE, a Recycle, a
-  // Power, a Buff, a `killSelf`/`banishSelf`) or rides a choice the action already
-  // carries — `killFriendlyPermanent` is the closest, and it KILLS. Adding
-  // `exhaustFriendlyUnit` is a change to `engine/activated-abilities.ts` plus the
-  // per-candidate fan-out in `engine/legal-actions.ts` and the re-derivation in
-  // the activation validator, none of which this file owns.
-  //
-  // And a second, independent gap: even given the cost, the effect names "the
-  // location of the unit you exhausted TO PAY FOR THIS ABILITY", so the resolver
-  // has to know WHICH unit paid. `ActivatedAbilityEvent` carries
-  // `targetUnitInstanceId`, `targetPermanentInstanceId`, `destinationBattlefieldId`
-  // and `xAmount` — nothing about the cost — so the cost payer is invisible to
-  // `resolve` even for the costs that already carry a choice. Both halves are
-  // shared-file work; writing the card against either missing piece would register
-  // the defId, report DONE, and move nobody.
-  //
-  // # Wave 8 re-measured this, and the second gap DISSOLVES when the card is read
-  // # destination-first
-  //
-  // "Move a different unit you control to the location of the unit you exhausted"
-  // is equivalent to "choose a Location, exhaust a friendly ready unit standing
-  // there, move a different friendly unit to it" — the payer is at the destination
-  // BY DEFINITION, so the destination is the only thing `resolve` needs, and it
-  // already has a field. `AbilityMode.movesTarget` fans the destination out per
-  // battlefield (Yasuo - Unforgiven's `fromBase` is the working precedent) and
-  // that flag is set by the card's own definition, so this file owns it.
-  //
-  // That leaves ONE shared change rather than two: an `exhaustFriendlyUnit` flag
-  // on `ActivationCost` plus a block in `legal-actions.activationCostChoices`
-  // (which already fans out `costPermanentInstanceId` for Malzahar's kill and
-  // `costDiscardCardInstanceId` for Unlicensed Armory), a re-derivation in
-  // `validate-activate-ability`, and a branch in `payActivationCost`. The
-  // destination-first reading means NO new field on `ActivatedAbilityEvent` and no
-  // change to `execute-activate-ability`'s forwarding.
-  //
-  // **`ActivationCost` is actively growing** — it gained `xp` on 2026-08-12 for
-  // Kha'Zix - Voidreaver's third clause — so the seam is one an integrator is
-  // already touching, which is the argument for landing this next.
-  //
-  // # A THIRD gap the earlier note missed, and it is the one that would silently
-  // # narrow the card
-  //
-  // "The LOCATION of the unit you exhausted" includes a BASE (198.1), and the unit
-  // you exhaust may well be standing in yours. `ActivateAbilityAction` has NO
-  // `destinationIsBase` field at all — a Spell's action has one, an ability's does
-  // not — and `legal-actions`' ability fan-out walks `state.battlefields` only.
-  // Measured in `unl-calm-wave8-refusals.test.ts` against Yasuo, the pool's only
-  // `movesTarget` ability: every variant carries a battlefield, none a base.
-  //
-  // So even with the cost seam this card would be strictly narrower than printed
-  // unless the ability action learns a base destination. Named here because a
-  // shortfall that is discovered AFTER the cost work lands is the expensive kind.
+  // The lesson is this repo's standing one, in a new place: a refusal's BLOCKER is
+  // a measurement and ages well, and a refusal's PLAN is a guess and does not.
 };
 
 

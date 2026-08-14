@@ -4,6 +4,8 @@ import {
   activationCostOf,
   activationCostFor,
   canPayActivationCost,
+  costPayerPairingAllowed,
+  exhaustableFriendlyUnits,
   killableFriendlyPermanents,
   resolveActivation,
   resolveMode,
@@ -155,9 +157,18 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     }
   }
 
-  // The two costs that carry a CHOICE, re-derived from the same walks the
+  // The three costs that carry a CHOICE, re-derived from the same walks the
   // enumerator fans out from — a hand-built action could otherwise kill an
-  // ENEMY unit "to pay", or discard a card it does not hold.
+  // ENEMY unit "to pay", exhaust one that is already exhausted, or discard a card
+  // it does not hold.
+  if (cost.exhaustFriendlyUnit) {
+    const legal = exhaustableFriendlyUnits(state, action.playerIndex);
+    if (!legal.some((u) => u.instanceId === action.costPermanentInstanceId)) {
+      return fail(
+        `${card.name}'s ability must exhaust a ready friendly unit to pay, and ${action.costPermanentInstanceId ?? "nothing"} is not one`,
+      );
+    }
+  }
   if (cost.killFriendlyPermanent) {
     const legal = killableFriendlyPermanents(state, action.playerIndex, action.permanentInstanceId);
     if (!legal.some((p) => p.instanceId === action.costPermanentInstanceId)) {
@@ -228,6 +239,14 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     if (!worn.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
       return fail(`${action.targetPermanentInstanceId} is not an Equipment worn by that unit`);
     }
+  }
+
+  // The pair check — UNL-045's "a DIFFERENT unit you control" and its refusal to
+  // move a unit to where it already stands. Asked LAST, after both halves have
+  // been checked individually, and through the very function the enumerator's
+  // cross calls so an offered pair and an accepted pair cannot come apart.
+  if (!costPayerPairingAllowed(state, mode, action)) {
+    return fail(`${card.name}'s ability cannot exhaust that unit to move this one — they must differ and be in different locations`);
   }
 
   // A mode that moves its target needs somewhere to move it, and it must be a

@@ -475,6 +475,15 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // dropped his `partialImplementationNote`, which is what had been keeping him out
 // of `deck-generator`'s seating — so he was seated, drawn, and offered in the same
 // run. No re-base or bucket diff was needed.
+//
+// **625 -> 625 on 2026-08-14 for UNL-045 Forgotten Signpost**, a NET ZERO, and
+// worth recording precisely because the total not moving is the least legible
+// outcome of the three. The bucket diff against the previous sha decomposes it
+// exactly: UNL-045 left `neverSeated` (implementing it made `deck-generator` seat
+// it) and UNL-083 Smoke and Mirrors took its place in the fixed-size covering
+// deck, landing in `offeredNeverTaken` — still ENUMERATED, just not chosen by the
+// AI in this sample. Displacement, the same mechanism as the three drops above,
+// and the reason a flat total is not evidence that a change did nothing.
 const PINNED_UNION = 625;
 const PINNED_AT_GAMES = 500;
 

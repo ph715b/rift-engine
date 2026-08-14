@@ -551,18 +551,23 @@ describe("the two UNL Calm cards this wave REFUSED, asserted rather than left si
     expect(isCardImplemented(registry.get(ALLAY)), "Allay is greyed again").toBe(true);
   });
 
-  it("Forgotten Signpost (UNL-045) has no 'exhaust a unit you control' activation cost", () => {
+  it("Forgotten Signpost (UNL-045) HAS its 'exhaust a unit you control' cost now", () => {
     // "[Action][>] Exhaust a unit you control, [Exhaust]: Move a different unit
     // you control to the location of the unit you exhausted to pay for this
     // ability."
     //
-    // TWO independent gaps, both in `engine/activated-abilities.ts`: `ActivationCost`
-    // has no `exhaustFriendlyUnit` (its nearest neighbour, `killFriendlyPermanent`,
-    // KILLS), and `ActivatedAbilityEvent` carries nothing about the cost, so even
-    // given the cost the resolver could not learn WHICH unit paid — which is the
-    // whole of "the location of the unit you exhausted".
-    expect(activatedAbilityFor(SIGNPOST), "an ability appeared — write the card").toBeUndefined();
-    expect(implementingModule(SIGNPOST)).toBeUndefined();
-    expect(isCardImplemented(registry.get(SIGNPOST))).toBe(false);
+    // **This wave named TWO gaps and both were real, and it was still 2026-08-14
+    // before either was closed.** `ActivationCost` had no `exhaustFriendlyUnit`
+    // (its nearest neighbour, `killFriendlyPermanent`, KILLS), and
+    // `ActivatedAbilityEvent` carried nothing about the cost, so the resolver
+    // could not learn WHICH unit paid — the whole of "the location of the unit
+    // you exhausted". Both fields exist now, and the card is registered in
+    // `effects/calm.ts` rather than in the shared file this wave could not touch.
+    //
+    // Behaviour is pinned in `forgotten-signpost.test.ts`; what stays here is the
+    // registration, which is what this wave was actually measuring.
+    expect(activatedAbilityFor(SIGNPOST), "the Signpost lost its ability").toBeDefined();
+    expect(implementingModule(SIGNPOST), "it is no longer claimed by a module").toBeDefined();
+    expect(isCardImplemented(registry.get(SIGNPOST))).toBe(true);
   });
 });
