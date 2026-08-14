@@ -543,8 +543,13 @@ describe("the five cards wave 7 refused", () => {
     // His on-play half IS written ("choose up to one enemy unit at each location,
     // deal 1 to them"), which is why this is a PARTIALLY_IMPLEMENTED row rather than
     // an absent card.
-    expect(isCardImplemented(registry.get(ELDER_DRAGON))).toBe(false);
-    expect(implementingModules(ELDER_DRAGON), "the on-play half is not registered either").not.toEqual([]);
+    // **Inverted 2026-08-13.** The refusal named a Lethal Damage override — right,
+    // and that is `damage-modifiers.anyDamageIsLethalTo`, read at `dealDamage`'s
+    // lethal test and at `combat.remainingMight`. It also named per-marker damage
+    // attribution, and that turned out to be unnecessary: both sites already know
+    // who dealt the damage, so `UnitInstance.damage` is untouched.
+    expect(isCardImplemented(registry.get(ELDER_DRAGON))).toBe(true);
+    expect(implementingModules(ELDER_DRAGON), "the passive is not claimed").toContain("damage-modifiers");
   });
 
   it("Kha'Zix - Voidreaver (UNL-201) — his third clause needs an XP price on ActivationCost", () => {

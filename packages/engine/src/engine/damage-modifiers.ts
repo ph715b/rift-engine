@@ -28,8 +28,60 @@ const RAVENBORN_TOME = "OGN-032";
 const KAYN_UNLEASHED = "OGN-189";
 const KAYN_MOVES_REQUIRED = 2;
 
+/**
+ * Elder Dragon — "Any amount of your damage is enough to kill enemy units."
+ *
+ * **Rule 142.4.c names this card by hand**, which is why the reading needs no
+ * interpretation: "Some effects may alter this amount. These effects will refer
+ * to the amount of damage needed to kill a unit. Example: Elder Dragon's passive
+ * ability reads 'Any amount of your damage is enough to kill enemy units.' This
+ * alters the Lethal Damage value for enemy units that have damage marked by
+ * you."
+ *
+ * So it changes LETHAL DAMAGE (142.4.a — "the amount of marked Damage that will
+ * cause a unit to die"), not the damage dealt. That distinction is what keeps it
+ * out of `modifiedDamageAmount` below: a Dragon does not make a 1 into a 5, it
+ * makes 1 enough.
+ */
+const ELDER_DRAGON = "UNL-118";
+
 export function damageModifierDefIds(): string[] {
-  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN];
+  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN, ELDER_DRAGON];
+}
+
+/**
+ * Is ANY amount of damage lethal to this unit — i.e. does the player opposing
+ * its owner control an Elder Dragon?
+ *
+ * `ownerIndex` is whose unit is being asked about, so the Dragon is looked for on
+ * the OTHER side: "enemy units" is measured from the Dragon's seat.
+ *
+ * # Why this needs no per-marker damage attribution
+ *
+ * 142.4.c qualifies it as "enemy units that have damage marked BY YOU", and the
+ * refusal that stood on this card read that as needing `UnitInstance.damage` —
+ * one unattributed number — to remember who marked each point. Measured, both
+ * sites that ask already know:
+ *
+ *  - `dealDamage` is handed the `casterIndex` dealing it, and kills at the moment
+ *    of marking, so "marked by you" is the call itself.
+ *  - Combat damage to one side comes from the other by construction, so
+ *    `remainingMight(state, unit, ownerIndex, ...)` asking about the opposing
+ *    seat IS the attribution.
+ *
+ * **The one case that does need memory is unreachable here and is recorded as a
+ * divergence**: a Dragon arriving AFTER its controller had already marked damage
+ * should make that unit die at the next cleanup (142.4.a). This engine kills at
+ * damage time rather than sweeping in a cleanup — a pre-existing property of the
+ * damage model, not of this card — so there is no sweep for it to happen in.
+ */
+export function anyDamageIsLethalTo(state: GameState, ownerIndex: 0 | 1): boolean {
+  const enemyIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
+  const enemy = state.players[enemyIndex];
+  return (
+    enemy.baseUnits.some((u) => u.defId === ELDER_DRAGON) ||
+    state.battlefields.some((bf) => (bf.units[enemy.id] ?? []).some((u) => u.defId === ELDER_DRAGON))
+  );
 }
 
 /**

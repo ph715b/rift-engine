@@ -2,7 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
-import { takesNoDamage } from "./damage-modifiers.js";
+import { anyDamageIsLethalTo, takesNoDamage } from "./damage-modifiers.js";
 import { hasKeyword } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
@@ -57,6 +57,21 @@ function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, 
  *  minus Fiora - Peerless's multiplier and Prevent (no printed card grants
  *  Prevent in this pool yet per Card.Unit.preventValue's own doc comment). */
 function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, battlefieldId: string, isAttackingSide: boolean): number {
+  // Elder Dragon — "any amount of your damage is enough to kill enemy units"
+  // (142.4.c). LETHAL DAMAGE becomes 1, so what remains is 1 minus what is
+  // already marked rather than Might minus it.
+  //
+  // **This one function covers both halves of combat, which is why the override
+  // belongs here and not at the call sites.** `distribute` fills each target up
+  // to `remainingMight` when ASSIGNING, and `removeDefeated` asks the same
+  // function of the DAMAGED unit to decide who died. Overriding only the
+  // assignment would hand every enemy exactly 1 damage and then rule them all
+  // survivors.
+  //
+  // The attribution 142.4.c asks for ("damage marked by you") is structural in
+  // combat: damage to one side comes from the other, so asking about the seat
+  // opposing `ownerIndex` IS the question.
+  if (anyDamageIsLethalTo(state, ownerIndex)) return Math.max(0, 1 - unit.damage);
   return Math.max(0, effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "remaining", battlefieldId }) - unit.damage);
 }
 

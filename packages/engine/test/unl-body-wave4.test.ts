@@ -166,14 +166,29 @@ describe("Elder Dragon (UNL-118): choose up to one enemy unit at each location, 
 
   const damageOf = (state: GameState, instanceId: string) => unitAnywhere(state, instanceId)?.damage;
 
+  /**
+   * **His own 1 damage now KILLS, because his passive landed on 2026-08-13.**
+   *
+   * "Any amount of your damage is enough to kill enemy units" (142.4.c, which
+   * names this card) makes every unit his on-play sweep touches die rather than
+   * sit on 1 damage. These tests were written while that half was refused and
+   * read `damage === 1`; they now read the death, which is the same claim about
+   * the sweep — WHICH locations, up-to-one, one body per location — measured
+   * through what the card actually does.
+   *
+   * `damageOf` survives for the DECLINE cases, where the right answer is still a
+   * living unit on 0.
+   */
+  const sweptAway = (state: GameState, instanceId: string) => unitAnywhere(state, instanceId) === undefined;
+
   it("hits one enemy at EVERY location, including the enemy base", () => {
     const { state, dragonId } = armed();
     const after = play(state, dragonId, (options) => options.find((o) => o.id !== "decline")!.id);
 
-    expect(damageOf(after, "at-bf1"), "the battlefield-1 enemy took nothing").toBe(1);
-    expect(damageOf(after, "at-bf2"), "the battlefield-2 enemy took nothing").toBe(1);
+    expect(sweptAway(after, "at-bf1"), "the battlefield-1 enemy took nothing").toBe(true);
+    expect(sweptAway(after, "at-bf2"), "the battlefield-2 enemy took nothing").toBe(true);
     // 198.1's Bases-are-Locations half. Without it this is a two-battlefield card.
-    expect(damageOf(after, "at-base"), "the enemy BASE was never swept").toBe(1);
+    expect(sweptAway(after, "at-base"), "the enemy BASE was never swept").toBe(true);
   });
 
   it("never offers a FRIENDLY unit, and the enemy beside it proves the list was built", () => {
@@ -194,11 +209,13 @@ describe("Elder Dragon (UNL-118): choose up to one enemy unit at each location, 
       d.battlefieldId === "bf1" ? "decline" : options.find((o) => o.id !== "decline")!.id,
     );
 
+    // The declined location keeps a LIVING unit on 0 — which is now the sharper
+    // assertion of the two, since everywhere he does hit, the unit is gone.
     expect(damageOf(after, "at-bf1"), "declining still dealt damage").toBe(0);
     // The two positive halves: declining ONE location must not end the sweep, which
     // is exactly what a `repeatDecision`-style continuation would have done.
-    expect(damageOf(after, "at-bf2"), "declining at bf1 cancelled the rest of the sweep").toBe(1);
-    expect(damageOf(after, "at-base"), "declining at bf1 cancelled the rest of the sweep").toBe(1);
+    expect(sweptAway(after, "at-bf2"), "declining at bf1 cancelled the rest of the sweep").toBe(true);
+    expect(sweptAway(after, "at-base"), "declining at bf1 cancelled the rest of the sweep").toBe(true);
   });
 
   it("takes only ONE unit per location, however many stand there", () => {
@@ -213,11 +230,11 @@ describe("Elder Dragon (UNL-118): choose up to one enemy unit at each location, 
 
     const after = play(state, dragonId, (options) => options.find((o) => o.id !== "decline")!.id);
 
-    const hit = ["first", "second"].filter((id) => damageOf(after, id) === 1);
+    const hit = ["first", "second"].filter((id) => sweptAway(after, id));
     expect(hit, "the sweep hit both bodies at one location").toHaveLength(1);
     // ...and it did fire at all, which "exactly one of two" would also read like if
-    // the whole question had been dropped and something else damaged a unit.
-    expect(damageOf(after, "at-bf2"), "nothing fired anywhere").toBe(1);
+    // the whole question had been dropped and something else killed a unit.
+    expect(sweptAway(after, "at-bf2"), "nothing fired anywhere").toBe(true);
   });
 
   it("asks nothing at a location with no enemy on it", () => {
@@ -490,16 +507,22 @@ describe("the Body clauses this wave REFUSED, and the two timing divergences", (
     expect(after.players[0]!.xp).toBe(0);
   });
 
-  it("Elder Dragon's 1 damage does NOT kill a bigger enemy — his passive is unwritten", () => {
-    // **PIN.** "Any amount of your damage is enough to kill enemy units" is 142.4.c
-    // by name, and it needs two things outside effects/body.ts: per-marker damage
-    // (142.3.a — `UnitInstance.damage` is one unattributed number, model/card.ts)
-    // and a Lethal Damage override at `effect-helpers.dealDamage`'s inline
-    // `effectiveMight - damage <= 0`.
+  it("Elder Dragon's 1 damage KILLS a bigger enemy — PIN flipped 2026-08-13", () => {
+    // **Was a PIN asserting the wrong answer on purpose, and it fired exactly as
+    // designed.** "Any amount of your damage is enough to kill enemy units" is
+    // 142.4.c by name.
     //
-    // Asserts the WRONG answer on purpose: with the clause written, the 4-Might
-    // body below dies to the Dragon's own 1 damage and this test fails loudly
-    // instead of the gap being closed silently.
+    // Its scoping was HALF right, and the half it got wrong is worth keeping. It
+    // named two things: a Lethal Damage override at `dealDamage`'s inline
+    // `effectiveMight - damage <= 0` — correct, and that is
+    // `damage-modifiers.anyDamageIsLethalTo` — and per-marker damage attribution,
+    // which turned out NOT to be needed. Both sites that ask already know who
+    // dealt it: `dealDamage` is handed the caster, and combat damage to one side
+    // comes from the other by construction. `UnitInstance.damage` is untouched.
+    //
+    // Kept and inverted rather than deleted: this drives the whole card through
+    // a real `submit` and the question queue, which the focused tests in
+    // `test/elder-dragon-lethal.test.ts` deliberately do not.
     const dragon = realUnitInstance(ELDER_DRAGON);
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [dragon];
@@ -512,13 +535,18 @@ describe("the Body clauses this wave REFUSED, and the two timing divergences", (
       (options) => options.find((o) => o.instanceId === "survivor")!.id,
     );
 
-    // The positive half first: the damage was really dealt, so the survival below
-    // is about lethality rather than about a strike that never happened.
-    expect(unitAnywhere(after, "survivor")?.damage, "the Dragon's strike never landed").toBe(1);
+    // He is GONE, not on 1 damage. Asserted through the battlefield's unit list
+    // rather than through `damage`, because a dead unit has no damage to read —
+    // which is what made the old positive half ("the strike really landed") read
+    // as a failure the moment the passive worked.
     expect(
       unitsAt(after, "bf1", "p2").map((u) => u.instanceId),
-      "the enemy DIED to 1 damage — Elder Dragon's passive is implemented, so delete this pin",
-    ).toEqual(["survivor"]);
+      "a 4-Might enemy survived the Dragon's 1 damage",
+    ).toEqual([]);
+    expect(
+      after.players[1]!.trash.map((c) => c.instanceId),
+      "he died but never reached the trash",
+    ).toContain("survivor");
   });
 
   it("Rengar - Trophy Hunter CAN be played to an occupied enemy battlefield", () => {

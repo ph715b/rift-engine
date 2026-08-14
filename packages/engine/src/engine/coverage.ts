@@ -665,10 +665,15 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // detail worth keeping: `turnNumber` counts ROUNDS, not turns, so a
   // this-turn marker stamped with it alone survives into the opponent's turn.
   // The mark carries the active player as well.
-  [
-    "UNL-118",
-    "half written: the on-play 'up to one enemy unit at each location, deal 1' works; 'Any amount of your damage is enough to kill enemy units' is unwritten — 142.4.c needs per-marker damage (UnitInstance.damage is one unattributed number) and a Lethal Damage override",
-  ],
+  // **UNL-118 Elder Dragon LEFT this map on 2026-08-13**, and its note was half
+  // right in an instructive way. The Lethal Damage override was needed and is
+  // `damage-modifiers.anyDamageIsLethalTo`, read at `dealDamage`'s lethal test
+  // and at `combat.remainingMight`. Per-marker damage attribution was NOT: both
+  // sites already know who is dealing it — `dealDamage` is handed the caster, and
+  // combat damage to one side comes from the other by construction. The one case
+  // that would need memory (a Dragon arriving after the damage was marked) is
+  // unreachable because this engine kills at damage time rather than sweeping in
+  // a cleanup, and that is recorded in docs/rules-conformance.md.
   // **UNL-144 Maduli the Gatekeeper LEFT this map on 2026-08-13, and it was the
   // only entry that had to be fixed rather than merely finished** — the note
   // says so in its own last clause: he was STRONGER than printed, so this was a

@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
-import { modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
+import { anyDamageIsLethalTo, modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import {
   ZHONYAS_HOURGLASS,
@@ -364,7 +364,20 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // damage), and one that survives must still be killed.
   const sentenced =
     state.killDamagedUnitsThisTurn || state.markedForDeathOnDamageInstanceIds.includes(targetInstanceId);
-  const isLethal = sentenced || effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
+  // Elder Dragon — "any amount of your damage is enough to kill enemy units"
+  // (142.4.c, which names the card). A LETHAL-DAMAGE override, so it sits in the
+  // lethal test rather than in `modifiedDamageAmount` above: the Dragon does not
+  // turn a 1 into a 5, it makes 1 enough.
+  //
+  // Both halves are checked. `casterIndex !== ownerIndex` is "ENEMY units",
+  // measured from the Dragon's seat — his controller's own units are unaffected,
+  // which also stops a Dragon making his side's damage lethal to itself. And
+  // `modifiedAmount > 0` is "any AMOUNT": a prevented or zeroed hit marks
+  // nothing, and 142.4.b's own floor is "a non-zero amount".
+  const dragonKills =
+    modifiedAmount > 0 && casterIndex !== ownerIndex && anyDamageIsLethalTo(state, ownerIndex);
+  const isLethal =
+    sentenced || dragonKills || effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
 
   if (isLethal) {
     const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
