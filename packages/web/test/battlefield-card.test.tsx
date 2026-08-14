@@ -11,10 +11,10 @@ import { battlefieldCard } from "../src/battlefield-cards.js";
  * images visible so we can see what the abilities are". Both halves are real and
  * they are different problems:
  *
- *  - The abilities genuinely are NOT implemented. `BattlefieldState` carries a
- *    name, a controller and units, and no ability at all; `card-loader`'s
- *    `shouldSkip` excludes Battlefield-type cards from ever becoming a
- *    `CardDefinition`. That is tracked in docs/battlefields-and-ui-prompt.md.
+ *  - The abilities genuinely were NOT implemented when this was reported:
+ *    `BattlefieldState` carried a name, a controller and units, and no ability
+ *    at all. **All 24 have since been implemented** in the engine's
+ *    `battlefield-abilities.ts`, gated by `battlefieldAbilityDefIds()`.
  *  - But the art and text were already loadable and simply never shown outside the
  *    deck builder, which is what made the first half unanswerable from a game.
  *

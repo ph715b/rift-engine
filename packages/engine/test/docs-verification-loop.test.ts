@@ -98,13 +98,13 @@ describe("no doc prescribes a stale verification loop", () => {
 
   it("every docs/*.md loop either matches it or is bannered as historical", () => {
     const offenders: string[] = [];
-    let checked = 0;
+    let scanned = 0;
 
     for (const name of readdirSync(DOCS).filter((f) => f.endsWith(".md"))) {
       const text = readFileSync(join(DOCS, name), "utf8");
+      scanned += 1;
       const lists = probeNames(text);
       if (lists.length === 0) continue;
-      checked += 1;
       const bannered = hasBanner(text);
       for (const list of lists) {
         const matches = JSON.stringify(list) === JSON.stringify(canonical);
@@ -114,7 +114,23 @@ describe("no doc prescribes a stale verification loop", () => {
 
     // Positive control on the sweep itself — a check that scanned nothing would
     // report a clean bill of health.
-    expect(checked, "no doc names a probe list at all — has the sweep stopped reaching docs/?").toBeGreaterThan(0);
+    //
+    // **The control used to be `carryingALoop > 0`, and it FLIPPED on
+    // 2026-08-13** when the ten finished prompt docs were deleted: every
+    // surviving doc links to `CLAUDE.md` instead of copying it, so nothing in
+    // `docs/` names a probe list any more. That is this file's GOAL, not its
+    // blindness — the count went 9 → 0 and the old control read the success as
+    // a broken sweep.
+    //
+    // So the control now guards what it was really for: that `docs/` is being
+    // READ. Zero copies is allowed; an unreachable directory is not. The
+    // detector's own "it does something" half is proved on a SYNTHETIC doc in
+    // the test below, which no deletion can take away.
+    //
+    // Deliberately NOT asserting that the copy count stays 0: this file's own
+    // header permits a bannered historical copy, so pinning it to zero would
+    // outlaw the escape hatch and flip this test a third time.
+    expect(scanned, "no docs/*.md was read at all — has the sweep stopped reaching docs/?").toBeGreaterThan(0);
     expect(
       offenders,
       "a doc prescribes a loop that disagrees with CLAUDE.md and does not say it is superseded. " +

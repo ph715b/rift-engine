@@ -18,9 +18,11 @@ import { loadBattlefieldDefinitions, type BattlefieldDefinition } from "@rift-en
  *
  * Keyed by NAME because that is the only handle the state offers. Safe today:
  * `loadBattlefieldDefinitions` already de-duplicates by name, and
- * `validateDeckList` picks from this same list. The day `BattlefieldState` gains a
- * `defId` this should key off that instead — see docs/battlefields-and-ui-prompt.md,
- * where giving it one is step 2.
+ * `validateDeckList` picks from this same list. **`BattlefieldState` now HAS a
+ * `defId`** (`battlefield-defid.test.ts` pins that every name the engine can put
+ * into play resolves to one), so keying off that instead is available and would
+ * be strictly better — the name lookup survives only because de-duplication
+ * makes it currently unambiguous.
  */
 const byName = new Map<string, BattlefieldDefinition>(loadBattlefieldDefinitions().map((def) => [def.name, def]));
 

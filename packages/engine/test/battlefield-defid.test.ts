@@ -18,8 +18,10 @@ import { LEGACY_BATTLEFIELDS } from "../src/decks/deck-list.js";
  * to key off, without making a battlefield a playable card (it is not one — it is
  * never in a deck, never drawn and never played).
  *
- * All 24 printed battlefields carry real rules text. None of it is implemented
- * yet; see docs/battlefields-and-ui-prompt.md for the clusters.
+ * All 24 printed battlefields carry real rules text, and all 24 are now
+ * implemented in `battlefield-abilities.ts` — `battlefieldAbilityDefIds()` is
+ * the coverage gate, and it is the only instrument that can see them (a
+ * battlefield is never drawn or played, so `reachability` cannot).
  */
 describe("a battlefield in play carries its printed card id", () => {
   it("resolves every name the engine can actually put into play", () => {
