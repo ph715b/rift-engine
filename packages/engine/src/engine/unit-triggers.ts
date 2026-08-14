@@ -23,7 +23,7 @@ import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
 import { effectiveMight } from "./effective-might.js";
 import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
-import { grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
+import { grantsEnemyAlonePlacement, grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
 import { attackerIndexAt, isAttackingAt, isStillHere } from "./combat-designation.js";
@@ -145,6 +145,22 @@ type PlacementGrant =
   | "openBattlefield"
   | "occupiedEnemyBattlefield"
   | "attackingBattlefield"
+  /**
+   * Arachnoid Horror's "an occupied battlefield **if an enemy unit is alone
+   * there**".
+   *
+   * Distinct from `occupiedEnemyBattlefield` above by a COUNT, and the rules
+   * define the word rather than leaving it to reading: **740.2.a** — "A unit is
+   * alone when there are no other FRIENDLY units at the same location", with
+   * 740.1.a making "friendly" mean sharing a controller. So this asks whether the
+   * OPPONENT has exactly one unit there, and says nothing about how many the
+   * player being asked has.
+   *
+   * The obvious reading — "the only unit at the battlefield at all" — is
+   * STRICTER than printed and would have refused legal plays wherever the caster
+   * already had a body there.
+   */
+  | "enemyUnitAloneBattlefield"
   /** Stalking Wolf's "you may play me to ITS battlefield" — the only grant
    *  that names a destination relative to the unit paying the card's
    *  additional cost rather than a property of the battlefield itself. */
@@ -177,6 +193,15 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   // clause is what lets him land where he has nobody — the two halves of the card
   // pull in opposite directions and are deliberately different mechanisms.
   "UNL-166": "sacrificedUnitsBattlefield", // Stalking Wolf
+  // Arachnoid Horror — "I can be played to an occupied battlefield if an enemy
+  // unit is alone there. FRIENDLY UNITS can be played to an occupied battlefield
+  // if an enemy unit is alone there."
+  //
+  // TWO clauses with one condition, and they need the two different mechanisms
+  // this file already keeps apart: the first is a property of the card being
+  // played (this row), the second is a property of the BOARD while he is in play
+  // (`grantsEnemyAlonePlacement`, the shape Miss Fortune - Buccaneer has).
+  "UNL-117": "enemyUnitAloneBattlefield", // Arachnoid Horror
   // SFD-093 Dauntless Vanguard — "You may play me to an occupied enemy
   // battlefield." Byte-identical to Deadbloom Predator above, which is why it
   // is one row and not a card implementation: the validator and the enumerator
@@ -208,6 +233,25 @@ function anyUnitMayTakeOpenBattlefield(state: GameState, playerIndex: 0 | 1, def
  *  battlefield" — occupancy by the enemy specifically, not occupancy in general,
  *  so a battlefield holding only your own units is not a legal destination for
  *  it (that case is already covered by the ordinary presence rule anyway). */
+/**
+ * Is an enemy unit **alone** at this battlefield — i.e. does the opponent have
+ * exactly ONE unit here?
+ *
+ * **740.2.a is the definition and it is not the obvious one**: "A unit is alone
+ * when there are no other friendly units at the same location", where 740.1.a
+ * makes two objects friendly if they share a controller. So "alone" is measured
+ * against the unit's OWN side only — the asking player's units at the same
+ * battlefield are irrelevant, and a reading that required the enemy to be the
+ * only unit present would refuse legal plays.
+ *
+ * "Occupied" in the card's own wording needs no separate test: a battlefield
+ * with an enemy unit standing on it is occupied by definition.
+ */
+function enemyUnitIsAloneAt(state: GameState, playerIndex: 0 | 1, battlefield: BattlefieldState): boolean {
+  const opponentId = state.players[1 - playerIndex]!.id;
+  return (battlefield.units[opponentId]?.length ?? 0) === 1;
+}
+
 function isOccupiedByEnemy(state: GameState, playerIndex: 0 | 1, battlefield: BattlefieldState): boolean {
   const opponentId = state.players[1 - playerIndex]!.id;
   return (battlefield.units[opponentId]?.length ?? 0) > 0;
@@ -261,6 +305,8 @@ export function mayPlaceWithoutPresence(
       return isOpenBattlefield(battlefield);
     case "occupiedEnemyBattlefield":
       return isOccupiedByEnemy(state, playerIndex, battlefield);
+    case "enemyUnitAloneBattlefield":
+      return enemyUnitIsAloneAt(state, playerIndex, battlefield);
     case "sacrificedUnitsBattlefield": {
       // "ITS battlefield" — where the unit being killed as the cost is standing.
       // A cost unit in BASE widens nothing: a base is not a battlefield, so the
@@ -285,7 +331,14 @@ export function mayPlaceWithoutPresence(
       // place keeps getting that one — Deadbloom Predator wants an OCCUPIED
       // enemy battlefield, and her grant must not quietly widen him to open ones
       // as well.
-      return anyUnitMayTakeOpenBattlefield(state, playerIndex, defId) && isOpenBattlefield(battlefield);
+      // Arachnoid Horror's SECOND clause rides here for the same reason hers does
+      // — "friendly units can be played to..." is a property of the board, not of
+      // the card arriving. An OR of the two board-wide grants, each against its
+      // own battlefield test, so neither widens the other.
+      return (
+        (anyUnitMayTakeOpenBattlefield(state, playerIndex, defId) && isOpenBattlefield(battlefield)) ||
+        (grantsEnemyAlonePlacement(state, playerIndex) && enemyUnitIsAloneAt(state, playerIndex, battlefield))
+      );
   }
 }
 

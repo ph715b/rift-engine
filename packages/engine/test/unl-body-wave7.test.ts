@@ -499,7 +499,7 @@ describe("the five cards wave 7 refused", () => {
     expect(isCardImplemented(registry.get(DETERMINED_SENTRY)), "the Sentry went back to unwritten").toBe(true);
   });
 
-  it("Arachnoid Horror (UNL-117) — needs a new PLACEMENT_GRANTS kind and its board-wide twin", () => {
+  it("Arachnoid Horror (UNL-117) — LANDED 2026-08-13, exactly as this refusal scoped it", () => {
     // Two sentences, two shared tables:
     //   1. "I can be played to an occupied battlefield if an enemy unit is ALONE
     //      there" — a `PlacementGrant` kind in unit-triggers.ts. **740.2.a**: "a unit
@@ -516,7 +516,15 @@ describe("the five cards wave 7 refused", () => {
     // Its `[Hunt 2]` already works — that is the keyword's single registry entry —
     // which is why the card is not wholly inert today even though it reports
     // unimplemented.
-    expect(isCardImplemented(registry.get(ARACHNOID_HORROR))).toBe(false);
+    // **Inverted rather than deleted, because the scoping above was right in
+    // every particular** and is the clearest statement of the card in the repo:
+    // both mechanisms landed where it said, the `740.2.a` reading is the one
+    // implemented, and `enemyUnitAloneBattlefield` is its own row precisely
+    // because it is `=== 1` where Deadbloom Predator is `>= 1`.
+    //
+    // His coverage is `test/arachnoid-horror.test.ts`, which asserts both
+    // sentences separately and pins the "alone" reading against the naive one.
+    expect(isCardImplemented(registry.get(ARACHNOID_HORROR))).toBe(true);
   });
 
   it("Elder Dragon (UNL-118) — its passive needs damage to remember who marked it", () => {

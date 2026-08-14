@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 180/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 182/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -437,7 +437,15 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // Two of the four (UNL-019, UNL-103) are the same cards that came IN when Poppy
 // seated one commit earlier, which is the clearest evidence available that these
 // are marginal AI choices oscillating with the deck, not behaviour.
-const PINNED_UNION = 616;
+// **616 -> 618 on 2026-08-13 for UNL-117 Arachnoid Horror**, decomposed:
+// himself (newly seated, UNL 207 -> 208) plus UNL-019 Blighted Battleaxe
+// returning — the same card that oscillated out one commit earlier when
+// Crescent Guardian seated. Newly-unexercised was EMPTY and
+// `drawnNeverOffered` stayed empty, so nothing traded places.
+//
+// Three commits running have now moved UNL-019 in, out and in again on deck
+// reshuffles alone. It is a marginal AI choice, not a signal.
+const PINNED_UNION = 618;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

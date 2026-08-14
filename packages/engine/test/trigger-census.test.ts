@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("310 held / 5 inline of 315 trigger cards", () => {
+  it("311 held / 5 inline of 316 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -207,6 +207,22 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //
     // Measured by the agent deleting its own entry and re-running — the census
     // went green at 306/5/311 — rather than inferred from the diff.
+    //
+    // **315 → 316 cards on 2026-08-13**, +1 held, and it is UNL-117 Arachnoid
+    // Horror — who carries NO trigger at all.
+    //
+    // He is here because `unitTriggerDefIds` deliberately includes
+    // `PLACEMENT_GRANTS` alongside the three dispatch tables, so a card whose
+    // whole contribution is "I may be played to a battlefield of this shape"
+    // counts as a trigger CARD for this census even though nothing about it
+    // triggers. That is worth stating rather than quietly bumping: the number
+    // measures "cards this file's registries claim", and a reader who takes it
+    // as "cards with a triggered ability" will be off by however many placement
+    // grants exist.
+    //
+    // Re-derived by running the test and reading the actual figures, not by
+    // adding one to the old ones — CLAUDE.md records this census being wrong
+    // four times, every time from hand-copying.
     //
     // **310 → 311 cards on 2026-08-12 (wave 8)**, +1 held, and it is UNL-073
     // Deadly Flourish — a `deathWatchTriggers` entry that fires from the CASTER'S
@@ -326,9 +342,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 310,
+      held: 311,
       inline: 5,
-      cards: 315,
+      cards: 316,
     });
   });
 

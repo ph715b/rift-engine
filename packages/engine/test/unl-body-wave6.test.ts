@@ -258,12 +258,16 @@ describe("PIN — Determined Sentry (UNL-111) still walks home", () => {
   });
 });
 
-describe("PIN — Arachnoid Horror (UNL-117) cannot reach a lone enemy", () => {
+describe("Arachnoid Horror (UNL-117) reaches a lone enemy — PIN inverted 2026-08-13", () => {
   /**
-   * **PIN.** Both of its sentences are play PERMISSIONS, which live at gates rather
+   * **This was a PIN and both of its tests are now INVERTED**, which is exactly
+   * what it was built for. Its scoping was right in every particular, so it is
+   * kept below — it is the clearest statement of this card in the repo.
+   *
+   * Both of its sentences are play PERMISSIONS, which live at gates rather
    * than in a resolver: `unit-triggers.PLACEMENT_GRANTS` for "I can be played
    * to…" and `board-restrictions.ts` for the board-wide "friendly units can be
-   * played to…" (Miss Fortune - Buccaneer's shape). Neither file is this wave's.
+   * played to…" (Miss Fortune - Buccaneer's shape). Neither file was this wave's.
    *
    * **740.2.a settles what "alone" means, and it is not the naive reading**: "a
    * unit is alone when there are no OTHER FRIENDLY units at the same location". So
@@ -272,6 +276,15 @@ describe("PIN — Arachnoid Horror (UNL-117) cannot reach a lone enemy", () => {
    * makes the grant strictly NARROWER than Deadbloom Predator's `isOccupiedByEnemy`
    * (`>= 1`), not a synonym for it — which is why it needs its own grant kind
    * rather than the existing `"occupiedEnemyBattlefield"` row.
+   *
+   * All of that is what landed: `enemyUnitAloneBattlefield` is its own grant kind
+   * (`=== 1`, not `>= 1`), and `board-restrictions.grantsEnemyAlonePlacement` is
+   * the board-wide twin, read inside `mayPlaceWithoutPresence` at exactly the
+   * point `anyUnitMayTakeOpenBattlefield` is. Full coverage lives in
+   * `test/arachnoid-horror.test.ts`; these two stay because their CONTROLS —
+   * Deadbloom Predator reaching the same battlefield, and an ordinary reinforce
+   * doing so — are what prove the assertions are about the grant and not about
+   * cost, timing or the board.
    */
   function horrorFixture(enemiesAtBf1: number): { state: GameState; horrorId: string; predatorId: string } {
     const horror = realUnitInstance(ARACHNOID_HORROR);
@@ -286,14 +299,14 @@ describe("PIN — Arachnoid Horror (UNL-117) cannot reach a lone enemy", () => {
     return { state, horrorId: horror.instanceId, predatorId: predator.instanceId };
   }
 
-  it("is refused a battlefield where one enemy stands alone — while Deadbloom Predator is not", () => {
+  it("reaches a battlefield where one enemy stands alone, as Deadbloom Predator does", () => {
     const { state, horrorId, predatorId } = horrorFixture(1);
 
     // The positive control comes first: he IS castable here, just only to base, so
     // an empty destination list would mean the fixture cannot afford him.
     const horrorDestinations = destinationsFor(state, horrorId);
     expect(horrorDestinations, "he is not playable at all — this pin measures nothing").toContain(undefined);
-    expect(horrorDestinations, "the lone-enemy grant landed — delete this pin").not.toContain("bf1");
+    expect(horrorDestinations, "the lone-enemy grant does not reach bf1").toContain("bf1");
 
     // The second control: the SAME battlefield, the SAME hand, the SAME resources.
     // Deadbloom Predator's `"occupiedEnemyBattlefield"` row reaches it, so bf1 is a
@@ -305,7 +318,7 @@ describe("PIN — Arachnoid Horror (UNL-117) cannot reach a lone enemy", () => {
     ).toContain("bf1");
   });
 
-  it("and its second sentence grants nothing to other friendly units either", () => {
+  it("and its second sentence grants the same destination to other friendly units", () => {
     // "Friendly units can be played to an occupied battlefield if an enemy unit is
     // alone there" — asserted with a Horror already ON THE BOARD, since the clause
     // is a continuous permission from a unit in play and not part of his entry.
@@ -316,8 +329,8 @@ describe("PIN — Arachnoid Horror (UNL-117) cannot reach a lone enemy", () => {
 
     expect(
       destinationsFor(state, sentry.instanceId),
-      "a friendly unit reached the lone enemy — delete this pin",
-    ).not.toContain("bf1");
+      "the board-wide grant did not reach an ordinary friendly unit",
+    ).toContain("bf1");
 
     // Positive control: bf1 is reachable by an ordinary reinforce, so the refusal
     // above is about the permission and not about cost, timing or the battlefield.
@@ -430,17 +443,24 @@ describe("PIN — Repulse (UNL-106) counters nothing", () => {
 });
 
 describe("PIN — which of wave 4's five refusals are still open", () => {
-  it("THREE still report unimplemented; two were written all along", () => {
+  it("ONE still reports unimplemented; the other four were written or landed", () => {
     // One place that says where the set stands, so closing any of them flips
     // exactly one line here rather than being noticed by nobody. The reasons
-    // differ and the distinction is the point: four are genuinely unwritten, and
-    // Master Yi is written and unclaimed (see his own pin above).
+    // differ and the distinction is the point.
     // **UNL-120 Rengar - Trophy Hunter left this list on 2026-08-11.** This
     // re-audit measured his fix as one `PLACEMENT_GRANTS` row, "byte-identical to
     // Deadbloom Predator's", and that is exactly what it was.
     // **DETERMINED_SENTRY left this list on 2026-08-13** — his refusal named the
     // per-unit gate precisely and that is what was built.
-    for (const defId of [REPULSE, ARACHNOID_HORROR]) {
+    // **ARACHNOID_HORROR left it the same day**, and his refusal was the most
+    // precisely scoped of the five: a new `PlacementGrant` kind (`=== 1`, not
+    // Deadbloom Predator's `>= 1`) plus the board-wide twin in
+    // `board-restrictions.ts`. Both landed exactly there.
+    //
+    // Repulse is the last one standing, and its blocker is unchanged: a
+    // constraint BETWEEN a `chainSpellAndUnit`'s two targets, which the spec
+    // cannot express.
+    for (const defId of [REPULSE]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} now reports implemented`).toBe(false);
       expect(implementingModules(defId), `${defId} is claimed by a module now`).toEqual([]);
     }

@@ -34,6 +34,13 @@ const MAGESEEKER_WARDEN = "OGN-070";
  *  holds, and this widens it to the whole board while she is in play. */
 const MISS_FORTUNE_BUCCANEER = "OGN-193";
 
+/** Arachnoid Horror: "I can be played to an occupied battlefield if an enemy
+ *  unit is alone there. Friendly units can be played to an occupied battlefield
+ *  if an enemy unit is alone there." The SECOND sentence is this module's — the
+ *  first is the per-card grant `PLACEMENT_GRANTS` holds, exactly the split Miss
+ *  Fortune - Buccaneer above has. */
+const ARACHNOID_HORROR = "UNL-117";
+
 /** The cards this module implements, for coverage.ts — they live at gates rather
  *  than in an effect registry, so nothing else would report them. */
 const TIANNA_CROWNGUARD = "SFD-060";
@@ -230,6 +237,27 @@ export function mayGainPoints(state: GameState, playerIndex: 0 | 1): boolean {
 
 export function grantsOpenBattlefieldPlacement(state: GameState, playerIndex: 0 | 1): boolean {
   return inPlayFor(state, playerIndex, MISS_FORTUNE_BUCCANEER);
+}
+
+/**
+ * Arachnoid Horror's SECOND sentence — "Friendly units can be played to an
+ * occupied battlefield if an enemy unit is alone there."
+ *
+ * The board-wide twin of his own placement grant, and it lives here rather than
+ * in `PLACEMENT_GRANTS` for exactly the reason Miss Fortune's does: that table is
+ * keyed on the card BEING PLAYED, and this is a fact about the board while he
+ * stands on it. Keying it there would have meant a row per card in the pool.
+ *
+ * **NOT positional.** His text names no battlefield for himself — unlike the
+ * Mageseeker Warden's two sentences, which say "while I'm at a battlefield" — so
+ * he grants it from base as well. Same reading Miss Fortune takes.
+ *
+ * The battlefield half of the question (`enemyUnitIsAloneAt`, 740.2.a) is asked
+ * by the caller in `unit-triggers`, beside the open-battlefield test hers is
+ * paired with.
+ */
+export function grantsEnemyAlonePlacement(state: GameState, playerIndex: 0 | 1): boolean {
+  return inPlayFor(state, playerIndex, ARACHNOID_HORROR);
 }
 
 /**
