@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 21
+# Finishing Unleashed — the last 20
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,13 +26,16 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three, so **21 remain** — 7 triaged (a `partialImplementationNote` names the
-precise shared-file edit) and 14 untouched, with no note and mostly zero mentions
-in `src/`. That second group is ordinary card work, not blocked work; it just has
-no handoff and needs the printed text read first.
+three and Maduli made four, so **20 remain**: **7 triaged** (a
+`partialImplementationNote` names the precise shared-file edit) and **13
+untouched**.
 
-Re-measured 2026-08-13 after Block 1: **26 unimplemented UNL ids = 21 distinct
-cards** once the alias printings are folded.
+The 13 are no longer unread — see Block 5, which triages every one of them. They
+were never "ordinary card work" as a group: three look small because an existing
+seam already takes them, and three are systemic.
+
+Re-measured 2026-08-13 after Block 1 and Maduli: **25 unimplemented UNL ids = 20
+distinct cards** once the alias printings are folded.
 
 ### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
 
