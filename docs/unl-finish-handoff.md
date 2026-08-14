@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 18
+# Finishing Unleashed — the last 17
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,17 +26,17 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three; Maduli, Poppy and Crescent Guardian made six, so **18 remain**: **7
-triaged** (a `partialImplementationNote` names the precise shared-file edit) and
-**11 untouched**.
+three; Maduli, Poppy, Crescent Guardian and Arachnoid Horror made seven, so **17
+remain**: **7 triaged** (a `partialImplementationNote` names the precise
+shared-file edit) and **10 untouched**.
 
 The untouched group is no longer unread — see Block 5, which triages every one.
 It was never "ordinary card work" as a group: **two of the three it called
 "likely small" have since landed** (Poppy, Crescent Guardian) at roughly the
 predicted cost, and three of the rest are systemic.
 
-Re-measured 2026-08-13 after Block 1 and Maduli: **25 unimplemented UNL ids = 20
-distinct cards** once the alias printings are folded.
+Re-measured 2026-08-13, latest: **22 unimplemented UNL ids = 17 distinct cards**
+once the alias printings are folded.
 
 ### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
 
@@ -177,7 +177,7 @@ not an implementation plan — re-read the code before believing any line of it.
 | card | text | the seam |
 |---|---|---|
 | UNL-178 Poppy | **DONE 2026-08-13.** The table row grew an `energyDiscount` read at all three cost sites, and the XP became a variant DIMENSION — which also fixed a pre-existing gap where a Unit's XP variant reached base and no battlefield. |
-| UNL-117 Arachnoid Horror (first clause) | "I can be played to an occupied battlefield if an enemy unit is alone there" | one `PLACEMENT_GRANTS` row + one predicate, beside `openBattlefield` / `occupiedEnemyBattlefield`. **His SECOND clause is the bigger half** — it grants the same to ALL friendly units, which is board-conditional and belongs with Miss Fortune - Buccaneer's `inPlayFor` shape, not in the per-card table. |
+| UNL-117 Arachnoid Horror | **DONE 2026-08-13, BOTH clauses.** One `PLACEMENT_GRANTS` row (`enemyUnitAloneBattlefield`) plus the board-wide twin in `board-restrictions.ts`. **740.2.a** defines "alone" as "no other FRIENDLY units at the same location", so it is `=== 1` on the OPPONENT's count — the naive "only unit present" reading is stricter than printed. |
 | UNL-122 Crescent Guardian | **DONE 2026-08-13.** `spellsPlayedThisTurn` (the ninth spell-named field; the census test that flipped is kept), a `condition` on the cost table so the OFFER itself is gated, and `deploy.unitEntersReady` for the payout — a replacement (369.3), not a trigger. |
 
 **Medium — a real but bounded new mechanism:**
