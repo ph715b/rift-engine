@@ -50,6 +50,9 @@ are `Unverified`, not `Conformant`.
 | Rule | Behaviour | Rule # | Code |
 |---|---|---|---|
 | Damage healing timing | Heals at two moments only: end of each player's turn, and Combat Cleanup | 143.3 / 317.2 / 466.1 | `turn-manager.runEnd`, `combat.resolveShowdown` |
+| "You may play me for [Cost]" replaces the BASE cost | A replacement, not a discount, so it may be DEARER than the print — UNL-025 Undying Legion's trash price is his printed 3 Energy **plus** a Fury pip. Implemented as a swapped base handed to the same pricing path the printed cost takes, at all THREE cost sites. `powerDomain: null` in a replacement is the `[rainbow]` pip and reuses `matchesPowerDomain`'s existing "any domain" reading | 356.1.a | `engine/replaced-costs.ts`; consumed in `legal-actions`, `validate-play-card`, `execute-play-card` |
+| A replaced cost is a passive that only applies in the zone it names | The permission does not exist while the card is elsewhere, so `replacedCostFor` checks zone membership itself rather than leaving it to its three callers. 366.1 works UNL-025 by name as its own example; 366.2.a is why a from-HAND replacement (UNL-089 Jhin - Meticulous Killer) is an ordinary cost alteration needing no 419.3.a exception | 366.1 / 366.2.a | `engine/replaced-costs.replacedCostFor` |
+| Two trash-play permissions, only one of which is spent | Last Rites' `trashUnitPlaysThisTurn` grants a FULL-COST play of any unit and is consumed; a card's own printed "play me from your trash for [Cost]" grants a price with the zone and is not. Both can hold at once, so the action's `replacedCostPaid` decides which was used and the charge survives a replaced-cost play | 419.3.a / 356.1.a | `timing.mayPlayFromTrash` (the zone question) vs `timing.mayPlayFromTrashOnCharge` (the counter); split spent in `execute-play-card.usedTrashCharge` |
 | Healing scope | Global — Combat Cleanup step 3c is literally "Heal all Units", not just combatants | 466 step 3c | `effect-helpers.healAllUnits` |
 | A card naming two targets of different KINDS | “Choose a friendly unit **and a spell**” (Riposte) announces both, so 355.8 makes the card **uncastable with no friendly unit** on the board rather than castable-and-half-inert — and because both sit on the chain entry while it waits, an opponent responding to it already knows which unit it will grow | 355.8 / 355.9.b | `card-effects.TargetingSpec`'s `chainSpellAndUnit` kind, fanned out as a CROSS PRODUCT by `legal-actions`, validated in `validate-play-card`, gated in `target-lookup.hasAnyLegalEffectChoice`. The unit's `scope: "anywhere"` is 355.9.b's bare-noun reading — “a friendly unit” carries no location word, so base counts |
 | A token's entry state, and what overrides it | **Gear tokens default to READY** (149.1); a token-making effect may print a state only "if that state is contrary to the default for the token's type" (184.1), which is the sole reason all sixteen SFD Gold cards print "exhausted". A "your tokens enter ready" ability is a REPLACEMENT EFFECT (369.3, worked through with Master Yi, Honed: "the event of him entering exhausted is replaced by one where he enters ready"), and 375's second example ignores a generating-effect modification that "cannot apply". So Renata Glasc - Industrialist **overrides the printed "exhausted"**, and 185.2.d's "tokens have a type" makes an unqualified "your tokens" reach GEAR tokens too | 149.1 / 184.1 / 185.2.d / 369.3 / 375 | `board-restrictions.tokensEnterReady`, applied at `token.placeToken` and `token.placeGearToken` |
@@ -419,6 +422,20 @@ Two more worth recording, both found only by running the thing:
 
 Everything else, including all 93 oracle-mirrored behaviours. Highest-value
 targets for the next pass, by blast radius:
+
+0. **OPEN, raised 2026-08-13 — in what ORDER does a replaced base cost compose
+   with a base-cost reduction?** 356.1 says "Apply base cost modifications in any
+   order" and 356.1.a makes "play this for [Cost]" one of them — but replacement
+   and subtraction do not commute, so "any order" cannot be taken literally when
+   both apply. This engine replaces FIRST and then reduces, which is the reading
+   that makes a reduction still worth something on a replaced cost; the other
+   reading (reduce the print, then discard it for the replacement) makes the
+   reduction inert. **No card in the pool reaches the case**: the two cards with
+   replaced costs (UNL-025, UNL-089) are untouched by every discount currently
+   written, so the choice is presently unobservable and is recorded here rather
+   than pinned by a test that would assert an invented interaction. Revisit when
+   a third card makes it reachable. `engine/replaced-costs.ts` states the choice
+   at its `ReplacedCost` doc comment.
 
 1. **SETTLED 2026-08-06 — all three SFD rules calls are closed, and all three cards
    are implemented.** Raised by the agents that refused to write them rather than

@@ -422,8 +422,12 @@ describe("the nine cards this wave REFUSED", () => {
     // `cardHidden` event that nothing raised. Both landed as wave-8 primitives and
     // both cards were written the same day. Their coverage lives in
     // `unl-fury-wave8.test.ts`.
+    // **UNDYING_LEGION left this list on 2026-08-13**, and his refusal named the
+    // mechanism precisely: "a per-instance play-from-trash permission at a
+    // REPLACED price". That is what landed — `engine/replaced-costs.ts`, rule
+    // 356.1.a's "replace the card's Base Costs with [Cost]" — wired through all
+    // THREE cost sites. His coverage lives in `test/replaced-costs.test.ts`.
     [LOTUS_TRAP, "a per-unit damage doubler read at combat ASSIGNMENT (465.2.c.4.a/c.5) and at dealDamage"],
-    [UNDYING_LEGION, "a per-instance play-from-trash permission at a REPLACED price"],
     [JHIN_VIRTUOSO, "a Legend (legend-abilities.ts), the energy-spent figure, and a 'banished with me' zone"],
   ];
 

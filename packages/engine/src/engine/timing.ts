@@ -4,6 +4,7 @@ import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
 import { mayPlaySpells, mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./board-restrictions.js";
+import { replacedCostFor } from "./replaced-costs.js";
 
 /**
  * Who may act right now.
@@ -230,7 +231,8 @@ export function playRestrictionDefIds(): string[] {
 }
 
 /**
- * Is this card one `playerIndex` may play FROM THEIR TRASH right now?
+ * Is this card one `playerIndex` may play from their trash ON A LAST RITES
+ * CHARGE — the permission that is SPENT by using it?
  *
  * Last Rites' permission (`trashUnitPlaysThisTurn`), and the one predicate the
  * validator, the enumerator and the executor all ask — the split
@@ -245,11 +247,40 @@ export function playRestrictionDefIds(): string[] {
  * zone, so this is the exception that needs a permission behind it — which is
  * why it asks the counter rather than merely asking whether the card is in a
  * trash.
+ *
+ * **Named for the CHARGE, not for the zone**, since a second trash permission
+ * now exists that is not a charge and must not spend one. `mayPlayFromTrash`
+ * below is the zone question; this is "and is a charge what pays for it".
  */
-export function mayPlayFromTrash(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+export function mayPlayFromTrashOnCharge(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
   if (card.kind !== "Unit") return false;
   const player = state.players[playerIndex]!;
   return player.trashUnitPlaysThisTurn > 0 && player.trash.some((c) => c.instanceId === card.instanceId);
+}
+
+/**
+ * May `playerIndex` play this card from a trash at all, by ANY permission?
+ *
+ * The ZONE question — 419.3.a's "hand or Chosen Champion zone only" exception —
+ * and the one the enumerator and validator ask, because they care whether the
+ * card is reachable rather than which permission reached it.
+ *
+ * Two permissions answer it and they are deliberately not merged:
+ *
+ *  - **A Last Rites charge** (`mayPlayFromTrashOnCharge`), Units only, at the
+ *    PRINTED price, and consumed by being used.
+ *  - **A card's own "play me from your trash for [Cost]"** (356.1.a), which is
+ *    not consumed, is not Units-only, and carries a REPLACED price. UNL-025
+ *    Undying Legion is the first.
+ *
+ * The executor keeps them apart for a reason worth stating: a player holding a
+ * banked Last Rites charge who plays Undying Legion on ITS OWN permission must
+ * not have the charge burnt. Both predicates can be true at once, and the
+ * action's `replacedCostPaid` is what says which one the player chose.
+ */
+export function mayPlayFromTrash(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+  if (mayPlayFromTrashOnCharge(state, playerIndex, card)) return true;
+  return replacedCostFor(state, playerIndex, card)?.zone === "trash";
 }
 
 export function mayPlayUnitToBattlefield(

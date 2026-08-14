@@ -413,7 +413,13 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // `timing.mayPlayFromTrash` is `card.kind === "Unit"` AND a per-PLAYER counter
     // (`trashUnitPlaysThisTurn`), and it charges the printed price. Both cards need
     // a per-INSTANCE permission with a cost OVERRIDE, and UNL-186 is a Spell.
-    ["UNL-025", "mayPlayFromTrash is per-player and charges printed"],
+    // **UNL-025 left this list on 2026-08-13.** The per-card half landed as
+    // `engine/replaced-costs.ts` (356.1.a): `mayPlayFromTrash` is now the ZONE
+    // question and `mayPlayFromTrashOnCharge` the per-player counter that gets
+    // spent, so a card may bring its own trash permission and its own price.
+    // UNL-186 stays — its permission is GRANTED at resolution to a specific
+    // instance rather than printed as a standing passive, which the table-driven
+    // half does not reach.
     ["UNL-186", "mayPlayFromTrash is Units-only, per-player, and charges printed"],
     // `equipAbilities()` builds one static `ActivationCost` per gear; no activation
     // cost in this engine can depend on the target chosen for it.

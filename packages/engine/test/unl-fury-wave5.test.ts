@@ -44,7 +44,9 @@ import {
  *     with the wave; the pin that asserted the enumeration absent went red on the
  *     first root run and is now flipped to assert both variants are offered and
  *     that only the paid one readies and pumps.
- *   - **UNL-025 Undying Legion** — refused, and asserted unimplemented.
+ *   - **UNL-025 Undying Legion** — refused by this wave, and LANDED 2026-08-13.
+ *     His refusal block was deleted rather than inverted; see the tombstone at
+ *     the foot of this file and `test/replaced-costs.test.ts` for his coverage.
  *
  * Everything that CAN go through a real funnel does: `legalActions` to build the
  * action, `submit` to take it, focus passes to settle the chain, and
@@ -64,7 +66,7 @@ function unitDef(defId: string) {
   return def;
 }
 
-const UNDYING_LEGION = "UNL-025"; // [Legion][>] play me from your trash for [3][Fury] — REFUSED
+const UNDYING_LEGION = "UNL-025"; // [Legion][>] play me from your trash for [3][Fury] — LANDED 2026-08-13, see test/replaced-costs.test.ts
 const PYKE_BUTCHER = "UNL-028"; // optional [Fury] cost -> ready me and +2 Might
 const RED_BRAMBLEBACK = "UNL-029"; // [Accelerate]; conquer effects here twice; when I conquer, [Buff]
 const VI_HOTHEADED = "UNL-030"; // [Deflect]; [2][Fury]: double my Might this turn
@@ -538,31 +540,21 @@ describe("Pyke - Dockside Butcher (UNL-028): if you paid the additional cost, re
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-describe("Undying Legion (UNL-025) was REFUSED, and stays visible as such", () => {
-  it("is not implemented", () => {
-    // "[Legion][>] You may play me from your trash for [3][Fury]" is a passive that
-    // applies only while he is IN THE TRASH (366.1, which works this exact card as
-    // its example). The engine's only trash-play permission is Last Rites'
-    // `trashUnitPlaysThisTurn` counter, read by `timing.mayPlayFromTrash` — a
-    // per-PLAYER allowance for ANY unit at its ordinary cost, not a per-card
-    // permission with a price of its own. Making it his would need `timing.ts`,
-    // `legal-actions.ts` and `validate-play-card.ts`, all shared files.
-    expect(
-      isCardImplemented(registry.get(UNDYING_LEGION)),
-      "Undying Legion landed — delete this refusal test",
-    ).toBe(false);
-  });
-
-  it("and the permission he would need is not one the engine hands out by default", () => {
-    // The positive control for the refusal: with no Last Rites in play there is no
-    // trash-play at all, so nothing about him is quietly working already.
-    const state = makeState({ phase: "Action", activePlayerIndex: 0 });
-    state.players[0]!.trash = [spellInstance(UNDYING_LEGION)];
-    state.players[0]!.channeled = runes(9);
-    expect(state.players[0]!.trashUnitPlaysThisTurn).toBe(0);
-    expect(
-      legalActions(state).filter((a) => a.type === "PlayCard" && a.card.defId === UNDYING_LEGION),
-      "he is playable from the trash now — the refusal is stale",
-    ).toHaveLength(0);
-  });
-});
+// **Undying Legion (UNL-025) LANDED on 2026-08-13, and his refusal block was
+// deleted rather than inverted.** It lived here and asserted `isCardImplemented`
+// was false, plus a positive control that he was unreachable in the trash.
+//
+// His tests are now `test/replaced-costs.test.ts`, alongside UNL-089 Jhin -
+// Meticulous Killer, who prints the same sentence from hand. A second file
+// claiming a fact about the same card is how the premise-flip class starts over,
+// so this is a pointer and not a re-assertion.
+//
+// **The refusal named the blocker exactly and the fix is shaped by it**: the
+// engine's only trash-play permission was Last Rites' `trashUnitPlaysThisTurn`,
+// a per-PLAYER allowance for ANY unit at its ordinary cost. It is now joined by
+// a per-CARD permission carrying a price of its own (rule 356.1.a), and the two
+// are deliberately kept apart in `timing.ts` — `mayPlayFromTrashOnCharge` is the
+// one that gets SPENT.
+//
+// The refusal's 366.1 citation was checked against `pdftotext -raw` and is
+// exactly right: that rule works this very card as its example.

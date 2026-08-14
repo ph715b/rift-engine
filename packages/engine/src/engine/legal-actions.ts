@@ -75,10 +75,12 @@ import {
   ambushHasAnyDestination,
   mayPlayCardNow,
   mayPlayFromTrash,
+  mayPlayFromTrashOnCharge,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
+import { replacedCostFor } from "./replaced-costs.js";
 import {
   chosenUnitsOfActivation,
   chosenUnitsOfPlay,
@@ -634,9 +636,24 @@ export function legalActions(state: GameState): PlayerAction[] {
   // champion that also has copies in hand would make an identity search answer
   // for the wrong object. Void Drone and Drag Under read it — see
   // `PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS`.
-  const playableSources: { card: CardInstance; fromHiddenBattlefieldId?: string; fromHand: boolean }[] = [
-    ...actor.hand.map((card) => ({ card, fromHand: true })),
-    ...(actor.championZone ? [{ card: actor.championZone as CardInstance, fromHand: false }] : []),
+  //
+  // `printedPriceAvailable` is the second thing a source carries, and it is
+  // false for exactly one shape: a card reachable in the trash ONLY by its own
+  // "play me from your trash for [Cost]" permission (356.1.a). Last Rites grants
+  // a FULL-COST play, so its units keep the printed price; UNL-025 Undying
+  // Legion's permission grants a price along with the zone, and offering it at
+  // the print as well would sell a 3-Energy-plus-[Fury] card for 3 Energy —
+  // cheaper than casting it from hand, which is the opposite of what it prints.
+  const playableSources: {
+    card: CardInstance;
+    fromHiddenBattlefieldId?: string;
+    fromHand: boolean;
+    printedPriceAvailable: boolean;
+  }[] = [
+    ...actor.hand.map((card) => ({ card, fromHand: true, printedPriceAvailable: true })),
+    ...(actor.championZone
+      ? [{ card: actor.championZone as CardInstance, fromHand: false, printedPriceAvailable: true }]
+      : []),
     // Last Rites' trash units. The FIRST full-cost play from a non-hand zone in
     // this engine, and the reason `fromHand: false` above stopped being reachable
     // only through the Champion Zone: Void Drone's and Drag Under's "[2] less to
@@ -648,18 +665,27 @@ export function legalActions(state: GameState): PlayerAction[] {
     // Spell is never offered — the card says "a unit".
     ...actor.trash
       .filter((card) => mayPlayFromTrash(state, playerIndex, card))
-      .map((card) => ({ card, fromHand: false })),
+      .map((card) => ({
+        card,
+        fromHand: false,
+        printedPriceAvailable: mayPlayFromTrashOnCharge(state, playerIndex, card),
+      })),
     ...state.battlefields.flatMap((bf) =>
       bf.hiddenCards
         // The battlefield is passed so Noxus Saboteur's "can't be revealed HERE"
         // is asked at enumeration too — the validator asks the same question of
         // the same function, so a blocked card is never offered and then refused.
         .filter((h) => h.ownerIndex === playerIndex && hiddenCardIsPlayable(state, h, bf.id))
-        .map((h) => ({ card: h.card, fromHiddenBattlefieldId: bf.id, fromHand: false })),
+        .map((h) => ({
+          card: h.card,
+          fromHiddenBattlefieldId: bf.id,
+          fromHand: false,
+          printedPriceAvailable: true,
+        })),
     ),
   ];
 
-  for (const { card, fromHiddenBattlefieldId, fromHand } of playableSources) {
+  for (const { card, fromHiddenBattlefieldId, fromHand, printedPriceAvailable } of playableSources) {
     if (card.kind === "Legend") continue;
     const fromHidden = fromHiddenBattlefieldId !== undefined;
     // The per-card timing gate, and the whole reason this loop now runs in every
@@ -722,13 +748,21 @@ export function legalActions(state: GameState): PlayerAction[] {
         // kind check, and a Unit may be bought with it.
         actor.floatingRainbowPower,
       );
-    const payment = computeAutoPayment(
-      actor.channeled,
-      effectiveCost.energyCost,
-      effectiveCost.powerCost,
-      card.powerDomain,
-      card.powerDomainAlt,
-    );
+    // Null when the card has no printed-price play to offer at all — a trash
+    // card reachable only by its own "for [Cost]" permission. Nulled HERE rather
+    // than at each emission site because every printed-price branch below
+    // (plain, discarded, accelerated, repeated) already skips on a null payment,
+    // so one binding closes all of them; a per-site check is how the enumerator
+    // and the validator start disagreeing.
+    const payment = printedPriceAvailable
+      ? computeAutoPayment(
+          actor.channeled,
+          effectiveCost.energyCost,
+          effectiveCost.powerCost,
+          card.powerDomain,
+          card.powerDomainAlt,
+        )
+      : null;
     /**
      * The axes worth pricing an OPTIONAL-ADDITIONAL-COST variant at.
      *
@@ -753,7 +787,7 @@ export function legalActions(state: GameState): PlayerAction[] {
     // earlier version bailed out here on the plain payment alone and so never
     // offered the discounted play at all, which is the whole point of the card.
     const discountedEffective =
-      discardChoice?.energyDiscount !== undefined && !fromHidden
+      discardChoice?.energyDiscount !== undefined && !fromHidden && printedPriceAvailable
         ? computeEffectiveCost(
             actor.floatingEnergy,
             actor.floatingPower,
@@ -782,15 +816,69 @@ export function legalActions(state: GameState): PlayerAction[] {
     // Bailing here on the printed cost would have made that variant unreachable
     // exactly when it matters most — the same mistake the discount path already
     // records having made with Brazen Buccaneer.
-    const canIgnoreCost = optionalUnitCostOf(card.defId)?.ignoresCostWhenPaid === true;
+    const canIgnoreCost = printedPriceAvailable && optionalUnitCostOf(card.defId)?.ignoresCostWhenPaid === true;
     // A REPEATABLE cost can make an otherwise-unaffordable card castable —
     // Commander Ledros prints 4 Power and can be played for none of it by killing
     // four units. Bailing on the printed price here would have made exactly the
     // variants the card exists for unreachable, which is the mistake this line
     // already records making twice (Brazen Buccaneer's discount, Call to Glory's
     // ignore).
-    const canDiscountByRepeating = optionalUnitCostOf(card.defId)?.repeatable === true;
-    if (!payment && !discountedPayment && !canIgnoreCost && !canDiscountByRepeating) continue; // can't afford it any way
+    const canDiscountByRepeating = printedPriceAvailable && optionalUnitCostOf(card.defId)?.repeatable === true;
+    /**
+     * "You may play me for [Cost]" (356.1.a) — priced ALONGSIDE the printed cost
+     * rather than instead of it, because the card says "may".
+     *
+     * Both variants stay on offer wherever both are legal. UNL-089 Jhin -
+     * Meticulous Killer is cheaper in Energy and dearer in Power than his print,
+     * so neither dominates and a player with the wrong runes channeled can
+     * afford exactly one of the two. Offering only the replacement would remove
+     * plays the rules give; offering only the print would make the permission
+     * unreachable.
+     *
+     * **Above the affordability bail rather than beside `accelerated`**, and for
+     * the reason the discount path and Call to Glory's ignore each already
+     * record having got wrong: a card can be affordable ONLY in its variant, and
+     * bailing on the printed price first is what makes exactly the variant the
+     * card exists for unreachable. Undying Legion in the trash is the sharpest
+     * case — its printed price is not merely unaffordable there, it is not a
+     * legal play at all.
+     */
+    const replacedCost = fromHidden ? null : replacedCostFor(state, playerIndex, card);
+    const replacedEffective = replacedCost
+      ? computeEffectiveCost(
+          actor.floatingEnergy,
+          actor.floatingPower,
+          modifiedEnergyCost(state, playerIndex, card.kind, replacedCost.energyCost, card.defId, fromHand),
+          Math.max(
+            0,
+            replacedCost.powerCost -
+              scaledPowerDiscount(state, playerIndex, card.defId) -
+              combatSpellPowerDiscount(state, playerIndex, card.kind),
+          ),
+          replacedCost.powerDomain,
+          // No alt domain: the replacement names its own pip, and the card's
+          // hybrid second domain does not survive it — see the executor's and
+          // the validator's matching bindings.
+          undefined,
+          card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+          restrictedPowerFor(actor, card.kind),
+          actor.floatingRainbowPower,
+        )
+      : null;
+    const replacedPayment =
+      replacedCost && replacedEffective
+        ? computeAutoPayment(
+            actor.channeled,
+            replacedEffective.energyCost,
+            replacedEffective.powerCost,
+            replacedCost.powerDomain,
+            undefined,
+          )
+        : null;
+    if (!printedPriceAvailable && !replacedPayment) continue; // the only price it has, and it can't be paid
+    if (printedPriceAvailable && !payment && !discountedPayment && !canIgnoreCost && !canDiscountByRepeating && !replacedPayment) {
+      continue; // can't afford it any way
+    }
 
     // [Accelerate] (805) is an OPTIONAL additional cost, so it is a second
     // candidate rather than a replacement — declining must stay available even
@@ -819,7 +907,7 @@ export function legalActions(state: GameState): PlayerAction[] {
      * a stale price, but a price built by arithmetic on an already-reduced number.
      */
     const acceleratedEffective =
-      hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden
+      hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden && printedPriceAvailable
         ? computeEffectiveCost(
             actor.floatingEnergy,
             actor.floatingPower,
@@ -1223,7 +1311,37 @@ export function legalActions(state: GameState): PlayerAction[] {
         })
       : variantsWithLegend;
 
-    for (const variant of withDestinations) {
+    /**
+     * The REPLACED-COST dimension (356.1.a), folded in as another variant rather
+     * than pushed as a standalone candidate.
+     *
+     * **This has to ride the variant loop, not sit beside it.** A Unit's
+     * destinations — the base play and every reinforce battlefield — are decided
+     * INSIDE that loop, and a lone `actions.push` outside it produced a base play
+     * and nothing else, silently withholding every battlefield the card may
+     * legally be played to. Carrying the flag on the variant means `...variant`
+     * spreads it onto each of those pushes for free, which is the same mechanism
+     * `exhaustLegendPaid` and the targeting fan-out already use.
+     *
+     * The printed variants are kept when `printedPriceAvailable`; when it is
+     * false (a trash card reachable only by its own permission) the replaced ones
+     * are all there is.
+     */
+    const withPricing: Partial<PlayCardAction>[] = replacedPayment
+      ? [
+          ...(printedPriceAvailable ? withDestinations : []),
+          ...withDestinations.map((v) => ({ ...v, replacedCostPaid: true as const })),
+        ]
+      : withDestinations;
+
+    for (const variant of withPricing) {
+      // Every price-modifying branch below prices the card's PRINTED base, so a
+      // replaced-cost variant takes none of them: the replacement IS the base
+      // (356.1.a), and nothing in this pool combines one with an optional
+      // additional cost. Each such branch is gated on this rather than being
+      // skipped wholesale, so the printed variants keep behaving exactly as they
+      // did — a replaced-cost card is additive to this function, not a mode of it.
+      const usingReplacedCost = variant.replacedCostPaid === true;
       // fromHiddenBattlefieldId rides on EVERY variant this card produces — it is
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.
@@ -1295,8 +1413,9 @@ export function legalActions(state: GameState): PlayerAction[] {
             card.powerDomainAlt,
           )
         : undefined;
-      const variantPayment =
-        canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
+      const variantPayment = usingReplacedCost
+        ? replacedPayment
+        : canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
           ? { energyRunes: [], powerRunes: [] }
           : sacrificePayment !== undefined
             ? sacrificePayment
@@ -1328,7 +1447,10 @@ export function legalActions(state: GameState): PlayerAction[] {
       // met a Pouty Poro — the third instance of this file's offered-then-refused
       // bug, after Maddened Marauder's reinforce variant and Brazen Buccaneer's
       // floating-Energy mispricing.
-      if (discardChoice && discountedPayment) {
+      // `!usingReplacedCost`: a discard that BUYS a discount reduces the printed
+      // base, and a replaced base is not the printed one — see the pricing
+      // dimension's own note. No card in this pool prints both.
+      if (discardChoice && discountedPayment && !usingReplacedCost) {
         // The discounted cost when a discount applies, the printed one otherwise —
         // whichever `discountedPayment` itself was derived from.
         const discardBase = discountedEffective ?? effectiveCost;
@@ -1652,7 +1774,10 @@ export function legalActions(state: GameState): PlayerAction[] {
       // that, so this is a real (if unreachable) simplification — no card in
       // the pool prints both [Hidden] and [Repeat], asserted in the table test.
       const repeatCost = repeatCostOf(card.defId);
-      if (repeatCost && !fromHidden) {
+      // `!usingReplacedCost` for the reason the discard branch above gives: a
+      // `[Repeat]` is an optional ADDITIONAL cost priced on top of the printed
+      // base, and a replaced base is not that. No card prints both.
+      if (repeatCost && !fromHidden && !usingReplacedCost) {
         // **The `[Deflect]` tax is owed by BOTH executions** (project-owner
         // ruling, 2026-08-06 — the same unit chosen twice owes twice). This
         // variant repeats the SAME choices, so its taxable set is the first
@@ -1782,7 +1907,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // neither, either, or both, at four different prices for three different
       // execution counts.
       const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
-      if (grantedCost && !fromHidden) {
+      if (grantedCost && !fromHidden && !usingReplacedCost) {
         const pricedGranted = new Set<string>();
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
           for (const axis of additionalCostAxes) {
@@ -1868,7 +1993,8 @@ export function legalActions(state: GameState): PlayerAction[] {
       // is not on the board, and this then prices exactly the one candidate it
       // always did — including the `accelerated` shortcut, which stays the
       // payment used whenever nothing about the variant changes the price.
-      const canAccelerate = hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden;
+      const canAccelerate =
+        hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden && printedPriceAvailable && !usingReplacedCost;
       const pricedAccelerated = new Set<string>();
       for (const axis of canAccelerate ? additionalCostAxes : []) {
         const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);

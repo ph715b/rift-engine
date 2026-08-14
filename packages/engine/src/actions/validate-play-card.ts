@@ -59,11 +59,13 @@ import {
   acceleratePowerDomain,
   hasAccelerate,
   mayPlayFromTrash,
+  mayPlayFromTrashOnCharge,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
   timingRejection,
 } from "../engine/timing.js";
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
+import { replacedCostFor } from "../engine/replaced-costs.js";
 import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
 import { counterFilter, counterableSpells } from "../engine/counter-spell.js";
 import { equipmentPairedWith } from "../engine/equipment.js";
@@ -452,6 +454,29 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // hiddenPlayRejection above has already confirmed it's really there.
   if (!fromHidden && !inHand && !isChampion && !fromTrash) {
     return fail(`${card.name} is not in ${actor.name}'s hand or Champion Zone`);
+  }
+  // **The two trash permissions grant different things, and this is the half
+  // that refuses the play the enumerator declines to offer.**
+  //
+  // A Last Rites charge grants a FULL-COST play; UNL-025 Undying Legion's own
+  // permission grants a price ALONG WITH the zone, and is the only thing making
+  // it reachable in the trash at all. So a trash play that does not claim the
+  // replaced cost needs a charge behind it — without this check, Undying Legion
+  // would be playable out of the trash for its printed 3 Energy, dropping the
+  // [Fury] pip its trash price adds and making it strictly cheaper there than
+  // from hand.
+  //
+  // `mayPlayFromTrashOnCharge` rather than the counter, so this asks the same
+  // question `legal-actions`' `printedPriceAvailable` asks of the same function.
+  if (
+    fromTrash &&
+    !inHand &&
+    !isChampion &&
+    !fromHidden &&
+    !action.replacedCostPaid &&
+    !mayPlayFromTrashOnCharge(state, action.playerIndex, card)
+  ) {
+    return fail(`${card.name} may only be played from the trash for its replaced cost`);
   }
 
   if (card.kind === "Legend") {
@@ -854,6 +879,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // rule 811 gives a from-hidden play, and gated on the additional cost having
   // ACTUALLY been named, since declining leaves the printed cost standing.
   const costIgnored = optionalCost?.ignoresCostWhenPaid === true && action.additionalCostUnitInstanceId !== undefined;
+  // "You may play me for [Cost]" (356.1.a) — the SECOND of the three cost sites.
+  //
+  // Re-derived from the board rather than trusted from the action, and REFUSED
+  // when the flag names a price the board does not offer. A forged action is the
+  // direction this check exists for: without it, `replacedCostPaid` on a card
+  // with no such permission would quietly re-price the play at whatever the
+  // enumerator never offered.
+  const replacedCost = costIgnored ? null : replacedCostFor(state, action.playerIndex, card);
+  if (action.replacedCostPaid && replacedCost === null) {
+    return fail(`${card.name} may not be played for a replaced cost right now`);
+  }
+  const usingReplacedCost = action.replacedCostPaid === true && replacedCost !== null;
+  const baseEnergyCost = usingReplacedCost ? replacedCost.energyCost : card.energyCost;
+  const basePowerCost = usingReplacedCost ? replacedCost.powerCost : card.powerCost;
+  // The replacement names its own domain (or `null` for `[rainbow]`), and drops
+  // the card's hybrid second pip with it — see the executor's matching binding.
+  const basePowerDomain = usingReplacedCost ? replacedCost.powerDomain : card.powerDomain;
+  const basePowerDomainAlt = usingReplacedCost ? undefined : card.powerDomainAlt;
   // A REPEATABLE cost takes 1 Power off per unit spent, floored at 0 — re-derived
   // here from the SAME action the enumerator priced, so the two cannot disagree
   // about what the play costs.
@@ -976,7 +1019,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         actor.floatingPower,
         Math.max(
           0,
-          modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, inHand) -
+          modifiedEnergyCost(state, action.playerIndex, card.kind, baseEnergyCost, card.defId, inHand) -
             discardDiscount -
             targetDiscount.energy -
             sacrificeDiscount.energy,
@@ -986,7 +1029,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
         // priced, so the two cannot disagree about what the play costs.
         Math.max(
           0,
-          card.powerCost -
+          basePowerCost -
             repeatableDiscount -
             targetDiscount.power -
             sacrificeDiscount.power -
@@ -1005,8 +1048,8 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
           ? optionalPower.domain
           : action.acceleratePaid
             ? acceleratePowerDomain(card)
-            : card.powerDomain,
-        card.powerDomainAlt,
+            : basePowerDomain,
+        basePowerDomainAlt,
         card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
         restrictedPowerFor(actor, card.kind),
         actor.floatingRainbowPower,
@@ -1035,12 +1078,20 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const rune = channeledById.get(id);
     if (!rune) return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
     // Mirrors ActionExecutor.matchesPowerDomain (engine/ActionExecutor.java:1841-1843):
-    // a Power cost must be paid with runes of the exact domain it requires
-    // (card.powerDomain is only ever null when powerCost is 0, in which
-    // case this loop never runs) — or, for a confirmed handful of genuinely
-    // hybrid-pip cards (card.powerDomainAlt), runes of that second domain too.
-    if (!matchesPowerDomain(rune, card.powerDomain, card.powerDomainAlt)) {
-      const required = card.powerDomainAlt !== undefined ? `${card.powerDomain} or ${card.powerDomainAlt}` : `${card.powerDomain}`;
+    // a Power cost must be paid with runes of the exact domain it requires — or,
+    // for a confirmed handful of genuinely hybrid-pip cards (powerDomainAlt),
+    // runes of that second domain too.
+    //
+    // **Asked of the REPLACED base, not the printed one** (356.1.a), which is
+    // what makes a `[rainbow]` price payable at all: a replacement carries its
+    // own domain, and `null` there is the rainbow pip rather than the old
+    // "powerDomain is only null when powerCost is 0" invariant this loop used to
+    // rely on. `matchesPowerDomain` already reads null as "any domain", so the
+    // rainbow needs no new machinery — but pricing it against `card.powerDomain`
+    // would have demanded the card's PRINTED domain for a pip the replacement
+    // says may be any, refusing legal plays.
+    if (!matchesPowerDomain(rune, basePowerDomain, basePowerDomainAlt)) {
+      const required = basePowerDomainAlt !== undefined ? `${basePowerDomain} or ${basePowerDomainAlt}` : `${basePowerDomain}`;
       return fail(`Rune ${id} is ${rune.domain}, but ${card.name}'s Power cost requires ${required}`);
     }
   }

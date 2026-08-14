@@ -23,7 +23,8 @@ import { holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
 import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
-import { mayPlayFromTrash } from "../engine/timing.js";
+import { mayPlayFromTrash, mayPlayFromTrashOnCharge } from "../engine/timing.js";
+import { replacedCostFor } from "../engine/replaced-costs.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -262,6 +263,26 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           : {}),
         ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
       });
+  // **"Play me for [Cost]" at the THIRD site** (356.1.a). Re-derived here rather
+  // than trusted from `action.replacedCostPaid` alone, for the reason this whole
+  // block exists: an action arrives from outside the engine, so the flag says
+  // which price the player CHOSE and this says what that price actually is.
+  //
+  // A swapped BASE rather than a subtracted discount, which is what lets
+  // UNL-025 Undying Legion's replacement be DEARER than its print. Everything
+  // below prices from these four bindings instead of from `card.*`, so the base
+  // cost modifications (356.1's "in any order") still apply on top — a replaced
+  // cost reaches `modifiedEnergyCost` exactly where the printed one did.
+  const replacedCost = ignoresBaseCost ? null : replacedCostFor(state, action.playerIndex, card);
+  const usingReplacedCost = action.replacedCostPaid === true && replacedCost !== null;
+  const baseEnergyCost = usingReplacedCost ? replacedCost.energyCost : card.energyCost;
+  const basePowerCost = usingReplacedCost ? replacedCost.powerCost : card.powerCost;
+  const basePowerDomain = usingReplacedCost ? replacedCost.powerDomain : card.powerDomain;
+  // The card's hybrid second pip does not survive a replacement: the replaced
+  // cost names its own domain (or rainbow), and carrying `powerDomainAlt` over
+  // would let a Death from Below-shaped `[rainbow]` price be paid in a domain
+  // the replacement never offered.
+  const basePowerDomainAlt = usingReplacedCost ? undefined : card.powerDomainAlt;
   const modifiedEnergy = ignoresBaseCost
     ? 0
     : Math.max(
@@ -269,7 +290,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // `inHand` is re-derived here rather than trusted from the validator,
         // the convention this whole block follows — it re-prices from the RAW
         // cost so the two halves cannot drift.
-        modifiedEnergyCost(state, action.playerIndex, card.kind, card.energyCost, card.defId, playedFromHand) -
+        modifiedEnergyCost(state, action.playerIndex, card.kind, baseEnergyCost, card.defId, playedFromHand) -
           targetDiscount.energy -
           variantDiscount.energy,
       );
@@ -277,7 +298,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     ? 0
     : Math.max(
         0,
-        card.powerCost -
+        basePowerCost -
           targetDiscount.power -
           variantDiscount.power -
           scaledPowerDiscount(state, action.playerIndex, card.defId) -
@@ -295,8 +316,8 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // though the combined *total* doesn't).
   const remainingAfterFloat = modifiedEnergy - floatingEnergySpent;
   const restrictedSpent = card.kind === "Spell" ? Math.min(actor.restrictedSpellEnergy, remainingAfterFloat) : 0;
-  const primaryAvailable = card.powerDomain !== null ? (actor.floatingPower[card.powerDomain] ?? 0) : 0;
-  const altAvailable = card.powerDomainAlt !== undefined ? (actor.floatingPower[card.powerDomainAlt] ?? 0) : 0;
+  const primaryAvailable = basePowerDomain !== null ? (actor.floatingPower[basePowerDomain] ?? 0) : 0;
+  const altAvailable = basePowerDomainAlt !== undefined ? (actor.floatingPower[basePowerDomainAlt] ?? 0) : 0;
   const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, powerToPay);
   const primarySpent = Math.min(primaryAvailable, floatingPowerSpent);
   const altSpent = floatingPowerSpent - primarySpent;
@@ -350,6 +371,16 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // reason (a Spell trashes itself on play) and cannot collide: `mayPlayFromTrash`
   // offers Units only.
   const playedFromTrash = mayPlayFromTrash(state, action.playerIndex, card);
+  // **Which permission paid for the zone**, and the reason the two are asked
+  // separately at all. A player holding a banked Last Rites charge who plays
+  // Undying Legion on its OWN "play me from your trash for [3][Fury]" must not
+  // have the charge burnt: both predicates are true at once, and the action's
+  // `replacedCostPaid` is the only thing that says which one the player took.
+  //
+  // Read here rather than trusted from the validator, the convention this whole
+  // block follows.
+  const usedTrashCharge =
+    playedFromTrash && !action.replacedCostPaid && mayPlayFromTrashOnCharge(state, action.playerIndex, card);
   const sharedUpdates = {
     hand: handAfterRemoval,
     channeled: remainingChanneled,
@@ -362,7 +393,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(playedFromTrash ? actor.trash.filter((c) => c.instanceId !== card.instanceId) : actor.trash),
       ...repeatDiscarded,
     ],
-    trashUnitPlaysThisTurn: actor.trashUnitPlaysThisTurn - (playedFromTrash ? 1 : 0),
+    trashUnitPlaysThisTurn: actor.trashUnitPlaysThisTurn - (usedTrashCharge ? 1 : 0),
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
@@ -375,8 +406,8 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       floatingPowerSpent > 0
         ? {
             ...actor.floatingPower,
-            ...(primarySpent > 0 && card.powerDomain !== null ? { [card.powerDomain]: primaryAvailable - primarySpent } : {}),
-            ...(altSpent > 0 && card.powerDomainAlt !== undefined ? { [card.powerDomainAlt]: altAvailable - altSpent } : {}),
+            ...(primarySpent > 0 && basePowerDomain !== null ? { [basePowerDomain]: primaryAvailable - primarySpent } : {}),
+            ...(altSpent > 0 && basePowerDomainAlt !== undefined ? { [basePowerDomainAlt]: altAvailable - altSpent } : {}),
           }
         : actor.floatingPower,
     cardsPlayedThisTurn: actor.cardsPlayedThisTurn + 1,

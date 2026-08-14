@@ -28,6 +28,7 @@ import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefiel
 import { turnManagerDefIds } from "./turn-manager.js";
 import { chooseRestrictionDefIds } from "./target-lookup.js";
 import { accelerateGrantDefIds, playRestrictionDefIds } from "./timing.js";
+import { replacedCostDefIds } from "./replaced-costs.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -342,6 +343,13 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // the destination gate, and needs its own claim for the same reason Minotaur
   // Reckoner and Ruin Runner do.
   { label: "play restrictions", defIds: playRestrictionDefIds },
+  // UNL-089 Jhin - Meticulous Killer and UNL-025 Undying Legion are cards whose
+  // printed text is a PRICE and nothing else — "you may play me for [Cost]"
+  // (356.1.a). Neither has an effect, a trigger or a keyword to register, so
+  // neither would be claimed by any source above; the replacement itself is the
+  // whole card. Same reason Perched Grimwyrm's restriction and Ruin Runner's
+  // negative each need their own claim.
+  { label: "replaced costs", defIds: replacedCostDefIds },
 ];
 
 /**

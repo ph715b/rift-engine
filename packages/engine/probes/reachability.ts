@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 151/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 176/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -368,7 +368,20 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // **The lesson worth keeping: a card with a mandatory additional cost can lose
 // reachability when its ENABLER is displaced, without anything about the card
 // changing.** Expect this again as the set finishes.
-const PINNED_UNION = 610;
+//
+// **Re-pinned UP to 612 on 2026-08-13**, and this one decomposes to exactly the
+// two cards finished in the same change: UNL-089 Jhin - Meticulous Killer and
+// UNL-025 Undying Legion, the first two "you may play me for [Cost]" replaced
+// base costs (356.1.a, `engine/replaced-costs.ts`). UNL alone moved, 174 -> 176;
+// OGN 228, OGS 20 and SFD 188 are all unchanged, which is what says the shared
+// cost-site edits did not disturb the other three sets.
+//
+// A RISE needs no decomposition to be safe, but it is recorded here anyway
+// because the displacement mechanism above cuts both ways: two newly-seated
+// cards could have pushed two others out and held the total flat. It did not —
+// the total moved by exactly the number of cards finished, and `drawnNeverOffered`
+// was empty.
+const PINNED_UNION = 612;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

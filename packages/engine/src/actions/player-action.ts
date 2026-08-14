@@ -144,6 +144,23 @@ export interface PlayCardAction {
    *  unit and must never reach a reader expecting one. */
   targetPermanentInstanceId?: string;
   acceleratePaid?: true;
+  /**
+   * This play uses the card's "you may play me for [Cost]" price instead of its
+   * printed one — rule 356.1.a, "replace the card's Base Costs with [Cost]".
+   *
+   * **A flag rather than the cost itself**, so the three cost sites re-derive
+   * the price from `replacedCostFor` rather than trusting a number that arrived
+   * from outside the engine. An action carrying its own price would let a forged
+   * one name any price it liked, and the executor's convention is already to
+   * re-price from the raw cost rather than trust the validator.
+   *
+   * Its OWN field rather than `acceleratePaid`: that one is an optional
+   * ADDITIONAL cost that adds to the base (805), and this one replaces the base.
+   * A play can never owe both — a replaced cost is not a discount to accelerate
+   * on top of — but folding them together would make the enumerator unable to
+   * say which of the two it had priced.
+   */
+  replacedCostPaid?: true;
   /** Clockwork Keeper's "you may pay [1 Calm] as an additional cost to play me" —
    *  whether the caster took the option. Its OWN field rather than
    *  `acceleratePaid`, which additionally means "enters ready". */
