@@ -2,7 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
-import { anyDamageIsLethalTo, takesNoDamage } from "./damage-modifiers.js";
+import { anyDamageIsLethalTo, damageIsDoubledFor, takesNoDamage } from "./damage-modifiers.js";
 import { hasKeyword } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
@@ -73,6 +73,39 @@ function remainingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1,
   // opposing `ownerIndex` IS the question.
   if (anyDamageIsLethalTo(state, ownerIndex)) return Math.max(0, 1 - unit.damage);
   return Math.max(0, effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "remaining", battlefieldId }) - unit.damage);
+}
+
+/**
+ * How much damage must be ASSIGNED to this unit to reach lethal.
+ *
+ * Ordinarily that is `remainingMight`. It differs only for a unit under UNL-013
+ * Lotus Trap, and **465.2.c.5 is explicit about why**: "When assigning damage in
+ * this way, replacement effects that would apply to the resulting damage are
+ * considered to apply to the assignment instead", worked through with this card's
+ * own text —
+ *
+ * > "The attacking player is assigning their 3 [M] worth of damage to two
+ * > defending units with 2 [M] each. One of the units has a delayed replacement
+ * > effect applied to it that reads 'Double all damage that would be dealt to it
+ * > this turn.' ... when assigning damage to the unit with the delayed
+ * > replacement effect they assign 2 damage to it; 1 damage that doubles to 2
+ * > damage as it is assigned to the unit. When that damage is dealt, it doesn't
+ * > get doubled again."
+ *
+ * So a doubled unit costs the attacker HALF the assignment, rounded up — and
+ * `applyCombatDamage` below doubles what lands, rather than `dealDamage`'s
+ * multiplier applying a second time. Combat never routes through `dealDamage`,
+ * which is what keeps the two from compounding.
+ */
+function assignmentNeeded(
+  state: GameState,
+  unit: UnitInstance,
+  ownerIndex: 0 | 1,
+  battlefieldId: string,
+  isAttackingSide: boolean,
+): number {
+  const lethal = remainingMight(state, unit, ownerIndex, battlefieldId, isAttackingSide);
+  return damageIsDoubledFor(state, unit.instanceId) ? Math.ceil(lethal / 2) : lethal;
 }
 
 /**
@@ -204,7 +237,7 @@ function distribute(
   let remaining = pool;
   for (const target of order) {
     if (remaining <= 0) break;
-    const lethal = remainingMight(state, target, ownerIndex, battlefieldId, isAttackingSide);
+    const lethal = assignmentNeeded(state, target, ownerIndex, battlefieldId, isAttackingSide);
     const hit = Math.min(remaining, lethal);
     pending.set(target.instanceId, (pending.get(target.instanceId) ?? 0) + hit);
     remaining -= hit;
@@ -242,14 +275,19 @@ function excessAssigned(
   return Math.max(0, pool - totalLethalNeed);
 }
 
-function applyDamage(units: readonly UnitInstance[], pending: Map<string, number>): UnitInstance[] {
+function applyDamage(state: GameState, units: readonly UnitInstance[], pending: Map<string, number>): UnitInstance[] {
   return units.map((u) => {
     const dmg = pending.get(u.instanceId);
     // Kayn - Unleashed after his second move takes none of what was assigned to
     // him — assignment above is untouched, so he still absorbs a lethal
     // allocation and shields whoever is behind him. See `takesNoDamage`.
     if (dmg && takesNoDamage(u)) return u;
-    return dmg ? { ...u, damage: u.damage + dmg } : u;
+    // Lotus Trap's doubling lands HERE, on the halved assignment
+    // `assignmentNeeded` handed out — 465.2.c.5's "1 damage that doubles to 2
+    // damage as it is assigned". It is applied once: combat never routes through
+    // `dealDamage`, whose own multiplier is the non-combat half of the same card.
+    const landed = dmg !== undefined && damageIsDoubledFor(state, u.instanceId) ? dmg * 2 : dmg;
+    return landed ? { ...u, damage: u.damage + landed } : u;
   });
 }
 
@@ -439,8 +477,8 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   const excessToDefenders = excessAssigned(state, attackerPool, defenderUnits, defenderIndex, battlefieldId);
   const damageToAttackers = distribute(state, defenderPool, assignmentOrder(state, attackerUnits, attackerIndex), attackerIndex, battlefieldId, true);
 
-  const survivingAttackers = removeDefeated(state, applyDamage(attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
-  const survivingDefenders = removeDefeated(state, applyDamage(defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);
+  const survivingAttackers = removeDefeated(state, applyDamage(state, attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
+  const survivingDefenders = removeDefeated(state, applyDamage(state, defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);
 
   const defeatedAttackers = attackerUnits.filter((u) => !survivingAttackers.some((s) => s.instanceId === u.instanceId));
   const defeatedDefenders = defenderUnits.filter((u) => !survivingDefenders.some((s) => s.instanceId === u.instanceId));

@@ -92,6 +92,39 @@ import {
 const DETONATE_DRAW = 2;
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "UNL-013": {
+    // Lotus Trap — "[Hidden][Reaction] Choose a unit. Double all damage that
+    // would be dealt to it this turn."
+    //
+    // A Replacement Effect (369.1's "would"), armed for the TURN on one unit —
+    // the shape `deathWardedUnitInstanceIds` and Smite's banish list already
+    // have, and it joins them as `damageDoubledUnitInstanceIds`.
+    //
+    // # 465.2.c.5 works THIS CARD by name, and it is why combat differs
+    //
+    // "When assigning damage in this way, replacement effects that would apply to
+    // the resulting damage are considered to apply to the assignment instead",
+    // with the rules' own example quoting this card's text verbatim: the attacker
+    // assigns 1, "1 damage that doubles to 2 damage as it is assigned to the
+    // unit. When that damage is dealt, it doesn't get doubled again."
+    //
+    // So the doubling has TWO homes and they are not the same rule:
+    // `dealDamage` multiplies what it deals, and `combat.assignmentNeeded` halves
+    // what a doubled unit costs to kill while `applyDamage` restores it. They
+    // cannot compound, because combat never routes through `dealDamage`.
+    //
+    // "A unit" — no owner and no location printed, so `scope: "anywhere"`
+    // (355.9.a.1's widening). Doubling damage to a FRIENDLY unit is a bad play
+    // rather than an illegal one, and the card offers it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      return state.damageDoubledUnitInstanceIds.includes(targetId)
+        ? state
+        : { ...state, damageDoubledUnitInstanceIds: [...state.damageDoubledUnitInstanceIds, targetId] };
+    },
+  },
   "SFD-011": {
     // Angle Shot — "[Reaction] Choose a unit and an Equipment with the same
     // controller. Attach that Equipment to that unit or detach that Equipment

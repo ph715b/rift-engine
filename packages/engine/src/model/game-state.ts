@@ -1375,6 +1375,23 @@ export interface GameState {
    */
   banishOnDeathUnitInstanceIds: string[];
   /**
+   * Units taking DOUBLE damage for the rest of this turn — UNL-013 Lotus Trap's
+   * "choose a unit. Double all damage that would be dealt to it this turn."
+   *
+   * Per-instance and turn-scoped, the shape the two lists above already have.
+   *
+   * **465.2.c.5 makes this behave differently in combat than out of it**, and the
+   * rules work this exact card in their own example: "replacement effects that
+   * would apply to the resulting damage are considered to apply to the ASSIGNMENT
+   * instead ... When that damage is dealt, it doesn't get doubled again — the
+   * doubling is considered to have already happened during damage assignment."
+   *
+   * So combat assigns HALF what it would need (rounded up) and the doubling turns
+   * it back into lethal, while a spell simply deals twice. Both halves are read
+   * from this one list; see `combat.assignmentNeeded` and `dealDamage`.
+   */
+  damageDoubledUnitInstanceIds: string[];
+  /**
    * Units carrying Unlicensed Armory's ward — the same "next time it would die
    * this turn" window as the list above, but the replacement is OPTIONAL and
    * costs 1 Fury Power, so it stops to ask rather than simply happening.

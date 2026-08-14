@@ -62,6 +62,7 @@ function buildInitialGameState(): GameState {
     lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     banishOnDeathUnitInstanceIds: [],
+    damageDoubledUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     unitsAwaitingFreePlacement: [],

@@ -129,6 +129,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     banishOnDeathUnitInstanceIds: [],
+    damageDoubledUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     unitsAwaitingFreePlacement: [],

@@ -445,10 +445,13 @@ describe("what this wave did and did not write", () => {
     // PLACEMENT_GRANTS + timing.ts). Inferna is keyword-only besides.
     [INFERNA, true], // [Ambush] landed 2026-08-09
     [GRIM_APOTHECARY, true], // [Ambush] landed 2026-08-09
-    // REFUSED — "double all damage that would be dealt to it this turn" needs a
-    // per-unit multiplier on UnitInstance read at both `dealDamage`
-    // (effect-helpers.ts) and combat's `applyDamage` (combat.ts).
-    [LOTUS_TRAP, false],
+    // **Flipped 2026-08-13.** The refusal named "a per-unit multiplier read at
+    // both `dealDamage` and combat's `applyDamage`", which was right about the two
+    // sites and understated the second: 465.2.c.5 puts the doubling on the
+    // ASSIGNMENT in combat, so `assignmentNeeded` halves what the unit costs to
+    // kill and `applyDamage` restores it. It lives on `GameState`, not on
+    // `UnitInstance`.
+    [LOTUS_TRAP, true],
     // Wave 3's two halves, each carrying a PARTIALLY_IMPLEMENTED entry.
     // **`true` as of 2026-08-10**, and this row has now been both. It was `true`
     // when only the Might half existed (a coverage lie), `false` once a
@@ -466,10 +469,11 @@ describe("what this wave did and did not write", () => {
     expect(isCardImplemented(registry.get(defId as string))).toBe(implemented);
   });
 
-  it("Lotus Trap is genuinely unregistered — nothing here made it look finished", () => {
-    // The check above would also pass if the card were registered and merely carried
-    // a partial note, which is a different (and much worse) state for a card whose
-    // whole text is the one clause that was refused.
+  it("Lotus Trap is genuinely WHOLE — not registered-with-a-note", () => {
+    // Kept and inverted. The roll-up above would read `true` just as well for a
+    // card registered with a PARTIALLY_IMPLEMENTED entry, which for a card whose
+    // whole text is one clause would be a coverage lie rather than a finished
+    // card. Its coverage is `test/lotus-trap.test.ts`.
     expect(partialImplementationNote(registry.get(LOTUS_TRAP))).toBeUndefined();
     expect(unimplementedKeywordsOn(registry.get(LOTUS_TRAP)), "its keywords are implemented").toEqual([]);
   });

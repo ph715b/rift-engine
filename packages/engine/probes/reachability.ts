@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 186/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 188/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -457,7 +457,19 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // UNL-107 came IN one commit earlier when Frigid Jewel seated and has gone out
 // again here. It joins UNL-019 in the small set of cards that oscillate on deck
 // reshuffles alone; `drawnNeverOffered` is EMPTY, so the engine still offers it.
-const PINNED_UNION = 622;
+// **622 -> 624 on 2026-08-13 for UNL-013 Lotus Trap.** Net +2: Lotus Trap
+// itself (newly seated, UNL 211 -> 212), UNL-118 Elder Dragon finally drawn
+// one commit after he was seated, and UNL-107 back again — against UNL-166
+// Stalking Wolf leaving.
+//
+// **`drawnNeverOffered` is NON-EMPTY again and it is Stalking Wolf, which is
+// the case this file already documents twice.** His additional cost is
+// MANDATORY (204.2.a), so seating another card into a fixed-size covering
+// deck can displace the Birds/Cats/Dogs/Poros he needs and leave him drawn,
+// offered by nothing, and correctly so. He has now moved out and back twice
+// on seating alone. Read the bucket before calling a future drop sampling —
+// but this occupant is the known one.
+const PINNED_UNION = 624;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

@@ -149,6 +149,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     lastShowdownExcessDamage: null,
     deathWardedUnitInstanceIds: [],
     banishOnDeathUnitInstanceIds: [],
+    damageDoubledUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     unitsAwaitingDeathReplacement: [],
     unitsAwaitingFreePlacement: [],

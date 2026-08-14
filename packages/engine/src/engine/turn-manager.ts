@@ -536,6 +536,8 @@ export function runEnd(state: GameState): GameState {
     // Smite's banish-instead-of-dying, beside the ward and for the same reason:
     // "this turn" is what bounds it, so it must not outlive the turn.
     banishOnDeathUnitInstanceIds: [],
+    // Lotus Trap's doubling — "this turn", so it goes with the two above.
+    damageDoubledUnitInstanceIds: [],
     paidDeathWardUnitInstanceIds: [],
     // Imperial Decree's sweep and Noxian Guillotine's death sentences are the
     // same shape and expire the same way — a delayed effect that outlived its

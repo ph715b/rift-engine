@@ -107,7 +107,7 @@ function fallingStarBoard(): GameState {
     chainOpen: true, chainPriority: 0, chainPasses: 0, chainOpenedByTrigger: false, spellChain: [],
     pendingTriggers: [], declaredWinnerIndex: null, killDamagedUnitsThisTurn: false, spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [], extraTurns: 0, extraTurnsForIndex: 0, lastShowdownExcessDamage: null,
-    deathWardedUnitInstanceIds: [], banishOnDeathUnitInstanceIds: [], paidDeathWardUnitInstanceIds: [], unitsAwaitingDeathReplacement: [],
+    deathWardedUnitInstanceIds: [], banishOnDeathUnitInstanceIds: [], damageDoubledUnitInstanceIds: [], paidDeathWardUnitInstanceIds: [], unitsAwaitingDeathReplacement: [],
     unitsAwaitingFreePlacement: [], pendingDecisions: [],
   } as unknown as GameState;
   state.players[0].hand = [instance(FALLING_STAR)];

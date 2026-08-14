@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
-import { anyDamageIsLethalTo, modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
+import { anyDamageIsLethalTo, damageIsDoubledFor, modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import {
   ZHONYAS_HOURGLASS,
@@ -261,6 +261,10 @@ export function fileIntoNonBoardZone<T extends { isToken?: boolean }>(zone: read
   return arriving.isToken === true ? [...zone] : [...zone, arriving];
 }
 
+/** Lotus Trap doubles. Named so the multiplier is not a bare 2 beside an
+ *  additive modifier that reads similarly. */
+const LOTUS_TRAP_MULTIPLIER = 2;
+
 export function completeDeath(state: GameState, death: PendingDeath): GameState {
   const { unit, ownerIndex } = death;
   // "When you kill a unit WITH A SPELL" — the one event about HOW a death
@@ -347,7 +351,17 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // The DAMAGED unit's battlefield, for Void Gate — the first damage modifier
   // that is about where the target stands rather than about the caster.
   const targetBattlefieldId = zone === "base" ? undefined : state.battlefields[zone.battlefieldIndex]!.id;
-  const modifiedAmount = modifiedDamageAmount(state, casterIndex, amount, targetBattlefieldId);
+  // Lotus Trap doubles LAST, after every additive bonus — "double all damage that
+  // would be dealt to it", where "all damage" is what the hit had become by the
+  // time it lands. Doubling the printed number first would make Annie's +1 worth
+  // 1 instead of 2.
+  //
+  // This is the NON-combat half. `combat.assignmentNeeded` carries the other and
+  // is deliberately different, because 465.2.c.5 moves the replacement onto the
+  // assignment there.
+  const modifiedAmount =
+    modifiedDamageAmount(state, casterIndex, amount, targetBattlefieldId) *
+    (damageIsDoubledFor(state, targetInstanceId) ? LOTUS_TRAP_MULTIPLIER : 1);
 
   const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + modifiedAmount };
   // A base unit has no battlefield id — continuous auras keyed on location

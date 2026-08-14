@@ -75,6 +75,21 @@ export function damageModifierDefIds(): string[] {
  * damage time rather than sweeping in a cleanup — a pre-existing property of the
  * damage model, not of this card — so there is no sweep for it to happen in.
  */
+/**
+ * Is damage to this unit DOUBLED — UNL-013 Lotus Trap's "double all damage that
+ * would be dealt to it this turn"?
+ *
+ * A replacement effect (369.1's "would"), which is why it is asked at the two
+ * places damage is applied rather than registered as a listener. **465.2.c.5
+ * works this card by name** and makes the two places behave differently: out of
+ * combat the amount doubles as it is dealt, and IN combat "replacement effects
+ * that would apply to the resulting damage are considered to apply to the
+ * assignment instead", so the assignment halves and the doubling restores it.
+ */
+export function damageIsDoubledFor(state: GameState, unitInstanceId: string): boolean {
+  return state.damageDoubledUnitInstanceIds.includes(unitInstanceId);
+}
+
 export function anyDamageIsLethalTo(state: GameState, ownerIndex: 0 | 1): boolean {
   const enemyIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
   const enemy = state.players[enemyIndex];

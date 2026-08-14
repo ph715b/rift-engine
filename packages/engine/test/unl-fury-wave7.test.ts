@@ -427,7 +427,9 @@ describe("the nine cards this wave REFUSED", () => {
     // REPLACED price". That is what landed — `engine/replaced-costs.ts`, rule
     // 356.1.a's "replace the card's Base Costs with [Cost]" — wired through all
     // THREE cost sites. His coverage lives in `test/replaced-costs.test.ts`.
-    [LOTUS_TRAP, "a per-unit damage doubler read at combat ASSIGNMENT (465.2.c.4.a/c.5) and at dealDamage"],
+    // **LOTUS_TRAP left this list on 2026-08-13**, and its blocker was the most
+    // precisely stated of the nine: "a per-unit damage doubler read at combat
+    // ASSIGNMENT (465.2.c.4.a/c.5) and at dealDamage" is exactly what was built.
     [JHIN_VIRTUOSO, "a Legend (legend-abilities.ts), the energy-spent figure, and a 'banished with me' zone"],
   ];
 

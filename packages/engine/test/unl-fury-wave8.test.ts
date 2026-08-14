@@ -407,7 +407,9 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // damage ASSIGNMENT, ordered against prevention by the defender's controller.
     // `modifiedDamageAmount` is additive and does not take the target UNIT, and the
     // combat half lives in combat.ts.
-    ["UNL-013", "a per-unit damage doubler at combat ASSIGNMENT (465.2.c.5) as well as at dealDamage"],
+    // **UNL-013 left this list on 2026-08-13.** The 465.2.c.5 citation was right
+    // and load-bearing: in combat the doubling moves onto the ASSIGNMENT, so
+    // `assignmentNeeded` halves the requirement and `applyDamage` restores it.
     // `RepeatCostSpec` is `{ energy, power?, domain?, rainbowPower? }` — resources
     // only, and Square Up's Repeat cost is "Discard 1".
     // **UNL-017 left this list on 2026-08-13.** The refusal named its blocker
