@@ -718,25 +718,23 @@ describe("Rift Herald (UNL-179): a look on arrival, and a free body when he dies
 // ── The four refusals ───────────────────────────────────────────────────────
 
 describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
-  it("Poppy - Defender of the Meek (UNL-178) has NOTHING written: its only text is an XP additional cost", () => {
-    // "You may spend 3 XP as an additional cost to play me. If you do, I cost [3]
-    // less." `PlayCardAction` has no XP field and `OPTIONAL_POWER_COSTS` /
-    // `OPTIONAL_UNIT_COSTS` are paid with runes and with permanents respectively —
-    // all in card-effects.ts, actions/player-action.ts, legal-actions.ts and
-    // validate-play-card.ts. 204.1.b/204.2.a make it a real cost, and 205 names XP
-    // among the things an instruction can require be spent.
+  it("Poppy - Defender of the Meek (UNL-178) CAN buy her discount — this refusal expired 2026-08-13", () => {
+    // **Was a refusal pin, and it is INVERTED rather than deleted**, exactly as
+    // Safety Inspector's below was. The refusal was right about everything it
+    // named: 204.1.b/204.2.a make it a real cost, `[Tank]` and `[Ambush]` were
+    // already live, and the XP clause was the only thing greying the card.
     //
-    // [Tank] and [Ambush] both work now — the keyword landed 2026-08-09 — so the
-    // ONLY thing still greying this card is its unwritten XP additional cost,
-    // which is what this pin is actually about. That is a stronger pin than it
-    // was: it can no longer pass on the strength of an unrelated keyword.
-    expect(optionalUnitCostOf(POPPY_DEFENDER), "an additional cost is registered now — rewrite this pin").toBeUndefined();
-    expect(unimplementedKeywordsOn(registry.get(POPPY_DEFENDER)), "a keyword is greying it instead of the cost").toEqual([]);
-    expect(isCardImplemented(registry.get(POPPY_DEFENDER)), "the XP cost landed — rewrite this pin").toBe(false);
-    expect(isCardImplemented(registry.get(POPPY_DEFENDER))).toBe(false);
+    // What it could not see — and what `unl-order-wave7.test.ts` did see — is that
+    // the table entry alone would have made her WORSE than printed: the paid
+    // variant was a flag on the plain play, so she would have cost 3 XP AND her
+    // full 6 Energy. The entry therefore carries an `energyDiscount` and the three
+    // cost sites read it. Her coverage is `test/poppy-xp-discount.test.ts`.
+    expect(unimplementedKeywordsOn(registry.get(POPPY_DEFENDER)), "a keyword is greying her").toEqual([]);
+    expect(isCardImplemented(registry.get(POPPY_DEFENDER)), "she reports unfinished").toBe(true);
 
-    // The discount is the observable half: he costs his printed 6 Energy and one
-    // Order however much XP his controller is sitting on.
+    // The discount is the observable half, and it is measured as the DIFFERENCE
+    // between the two variants rather than as an absolute — the pin used to assert
+    // a bare 6 Energy, and the honest replacement is that paying the XP takes 3 off.
     const poppy = realUnitInstance(POPPY_DEFENDER);
     const state = makeState({ phase: "Action" });
     state.players[0]!.hand = [poppy];
@@ -744,9 +742,13 @@ describe("wave 4's refusals, pinned so they cannot go stale silently", () => {
     state.players[0]!.xp = 9;
 
     const casts = castsOf(state, poppy.instanceId);
-    expect(casts, "no cast was offered — the fixture is wrong, not the refusal").toHaveLength(1);
-    expect(casts[0]!.payment.energyRunes, "the XP discount has landed — update this pin").toHaveLength(6);
-    expect(casts[0]!.payment.powerRunes).toHaveLength(1);
+    const plain = casts.find((a) => a.optionalXpPaid === undefined);
+    const paid = casts.find((a) => a.optionalXpPaid === true);
+    expect(plain, "her plain variant stopped being offered").toBeDefined();
+    expect(paid, "no XP variant was offered — the discount is not reachable").toBeDefined();
+    expect(plain!.payment.energyRunes, "her printed price moved").toHaveLength(6);
+    expect(paid!.payment.energyRunes, "the XP bought no discount").toHaveLength(3);
+    expect(paid!.payment.powerRunes, "the discount ate her Order pip").toHaveLength(1);
   });
 
   it("Safety Inspector (UNL-164) CAN buy out of his own kill — this refusal expired 2026-08-10", () => {

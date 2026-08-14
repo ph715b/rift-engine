@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 178/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 181/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -405,7 +405,23 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // this probe's "seated" are different questions, and a partial note silently
 // separates them. Expect a finished half-card to move this pin by more than the
 // one card it looks like.
-const PINNED_UNION = 614;
+//
+// **614 -> 617 on 2026-08-13 for UNL-178 Poppy**, and the +3 for one card
+// decomposes to something worth recording: `drawnNeverOffered` is now EMPTY for
+// the first time since it started being reported.
+//
+//  - **UNL-178 Poppy** — the card implemented, newly seated (205 -> 206).
+//  - **UNL-166 Stalking Wolf** — the card this file's own note above calls the
+//    first drop that was NOT sampling: his additional cost is MANDATORY ("kill a
+//    Bird, Cat, Dog, or Poro you control"), and finishing cards had displaced his
+//    enablers out of a fixed-size covering deck, so he was drawn and correctly
+//    never offered. Seating Poppy reshuffled that deck and his enablers came
+//    back. **The displacement mechanism runs both ways**, which the earlier note
+//    only ever saw taking cards away.
+//  - **UNL-103 Disposal Order** — a `[Reaction]` spell, ordinary sampling.
+//
+// Newly-unexercised was EMPTY, so nothing traded places for any of it.
+const PINNED_UNION = 617;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

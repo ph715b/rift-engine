@@ -235,99 +235,34 @@ describe("Mageseeker Investigator (UNL-163): REFUSED — a Standard Move has no 
   });
 });
 
-describe("Poppy - Defender of the Meek (UNL-178): REFUSED — the XP cost exists, the discount it buys does not", () => {
+describe("Poppy - Defender of the Meek (UNL-178): LANDED 2026-08-13", () => {
   /**
-   * "You may spend 3 XP as an additional cost to play me. If you do, I cost
-   * :rb_energy_3: less."
+   * **This block was five refusal tests, and its diagnosis was exactly right —
+   * which is why the implementation looks the way it does.**
    *
-   * **204.2** is the additional cost ("Additional Costs must be paid to finalize
-   * the spell or ability, in addition to the base cost" — 204.2.a) and
-   * `OPTIONAL_XP_COSTS` in card-effects.ts already expresses exactly that shape,
-   * for UNL-164 Safety Inspector. Adding `"UNL-178": 3` to it would compile and
-   * would report the card DONE.
+   * It predicted the trap in one sentence: adding `"UNL-178": 3` to
+   * `OPTIONAL_XP_COSTS` "would compile and would report the card DONE. It would
+   * also be a strictly WORSE card than printed, because the enumerator's paid
+   * variant is `actions.push({ ...play, optionalXpPaid: true })` — the plain play
+   * plus a flag, with the plain play's payment. The caster would pay 3 XP and 6
+   * Energy for a 6-Energy unit."
    *
-   * It would also be a strictly WORSE card than printed, because the enumerator's
-   * paid variant is `actions.push({ ...play, optionalXpPaid: true })` — the plain
-   * play plus a flag, with the plain play's payment. Safety Inspector's cost buys
-   * a change to what his TRIGGER does, which a flag expresses exactly; Poppy's
-   * buys a change to what she COSTS, which a flag cannot express at all. The
-   * caster would pay 3 XP and 6 Energy for a 6-Energy unit.
+   * So the table entry grew an `energyDiscount`, the three cost sites read it,
+   * and the paid variant became a real second PAYMENT rather than a flag on the
+   * first. Her coverage is `test/poppy-xp-discount.test.ts`.
    *
-   * That is the same "the cost buys something the variant cannot carry" shape the
-   * table's own comment already records refusing UNL-140 Conscription for, one
-   * step further along: Conscription's paid variant carries the wrong TARGET
-   * filter, Poppy's would carry the wrong PRICE.
+   * **Its "PROVES the flag cannot carry a discount" measurement is kept below**,
+   * inverted. It was made on Safety Inspector precisely because Poppy was not in
+   * the table, and it is still the sharpest statement of the difference between
+   * the two cards — his XP buys a resolution-time exemption and moves no price,
+   * hers buys the price. Now it asserts that his payments still match, which is
+   * what says the discount did not leak onto the card that does not print one.
    */
-  it("is reported unimplemented, with nothing registered for it", () => {
-    expect(isCardImplemented(registry.get(POPPY)), "someone implemented her — delete this block").toBe(false);
-    expect(implementingModule(POPPY), "an effect is registered now — delete this block").toBeUndefined();
-  });
-
-  it("is not in OPTIONAL_XP_COSTS, and Safety Inspector still is", () => {
-    expect(optionalXpCostOf(POPPY), "the table row landed — check the discount landed with it").toBeUndefined();
-    // The control on the check: `optionalXpCostOf` genuinely answers for a card
-    // that IS listed, so `undefined` above is a fact about Poppy and not about a
-    // lookup that never works.
-    expect(optionalXpCostOf(SAFETY_INSPECTOR), "the table itself stopped answering").toBe(3);
-  });
-
-  /** Poppy in hand, plenty of XP to pay a 3-XP cost with, and enough Order runes
-   *  for her printed 6 Energy + 1 Order Power. */
-  function poppyBoard(xp = 5): { state: GameState; poppy: UnitInstance } {
-    const poppy = realUnitInstance(POPPY);
-    const state = makeState({ phase: "Action", activePlayerIndex: 0, turnState: "Neutral", chainOpen: true });
-    state.players[0]!.hand = [poppy];
-    state.players[0]!.xp = xp;
-    state.players[0]!.channeled = orderRunes(12);
-    return { state, poppy };
-  }
-
-  it("costs the full printed 6 Energy + 1 Power however much XP you have, and no XP variant is offered", () => {
-    const { state, poppy } = poppyBoard();
-    const casts = castsOf(state, poppy.instanceId);
-    expect(casts.length, "she was never offered at all — the fixture is wrong").toBeGreaterThan(0);
-
-    for (const cast of casts) {
-      expect(cast.optionalXpPaid, "an XP variant is being offered — the refusal is stale").toBeUndefined();
-      expect(cast.payment.energyRunes, "she is not being priced at her printed 6 Energy").toHaveLength(6);
-      expect(cast.payment.powerRunes, "she is not being priced at her printed 1 Power").toHaveLength(1);
-    }
-  });
-
-  it("spends no XP when actually played, through submit", () => {
-    // The behavioural half, so "unimplemented" is a fact about the game and not
-    // only about a coverage table: 5 XP in, 5 XP out.
-    const { state, poppy } = poppyBoard();
-    const toBase = castsOf(state, poppy.instanceId).find((a) => a.destinationBattlefieldId === undefined);
-    const after = accept(state, toBase, "playing Poppy to base");
-
-    expect(after.players[0]!.xp, "XP moved — either the cost landed or something else spent it").toBe(5);
-    // And she really was paid for at full price. Six runes cover 6 Energy + 1
-    // Order Power, not seven, and that is **164.2**: a Basic Rune has TWO
-    // abilities, `[E]: Add [1]` and `Recycle this: Add [C]`, so one Ready rune
-    // exhausts for the Energy and then recycles for the Power. The recycled one
-    // leaves `channeled` (416.1.b), the other five are Exhausted.
-    const channeled = after.players[0]!.channeled;
-    expect(channeled, "a rune was recycled for her Power, so one should have left the pool").toHaveLength(11);
-    expect(channeled.filter((r) => r.state === "Exhausted"), "she was not paid for in full").toHaveLength(5);
-  });
-
-  it("has no XP variant even at 3 XP exactly, the boundary the enumerator gates on", () => {
-    // `legal-actions` offers the paid variant only when `actor.xp >= optionalXp`.
-    // At exactly 3 a listed card WOULD be offered one, so this is the sharpest
-    // point at which her absence from the table is visible.
-    const { state, poppy } = poppyBoard(3);
-    expect(castsOf(state, poppy.instanceId).some((a) => a.optionalXpPaid === true)).toBe(false);
-  });
-
-  it("PROVES the flag cannot carry a discount: Safety Inspector's paid variant pays identical runes", () => {
-    // **This is the measurement the refusal rests on**, and it is made on the one
-    // card already in the table rather than on Poppy — because Poppy is not in it
-    // and so cannot demonstrate anything about it.
-    //
-    // Safety Inspector is 5 Energy + 1 Order Power. Both variants exist; if the
-    // paid one were priced separately the two payments could differ. They cannot:
-    // the paid variant is a spread of the unpaid one.
+  it("Safety Inspector's paid variant still pays IDENTICAL runes — the discount did not leak", () => {
+    // Unchanged from the refusal except in what it means. Then: proof a flag
+    // could not carry a discount, so Poppy was unwritable. Now: proof that
+    // teaching the flag to carry one for Poppy left the card whose XP buys
+    // something else alone.
     const inspector = realUnitInstance(SAFETY_INSPECTOR);
     const state = makeState({ phase: "Action", activePlayerIndex: 0, turnState: "Neutral", chainOpen: true });
     state.players[0]!.hand = [inspector];
@@ -343,7 +278,7 @@ describe("Poppy - Defender of the Meek (UNL-178): REFUSED — the XP cost exists
     // Same destination on both sides, so the comparison is about the cost and not
     // about where he is going.
     const toBase = (a: PlayCardAction) => a.destinationBattlefieldId === undefined;
-    expect(paid.find(toBase)!.payment, "an XP variant is now priced separately — Poppy may be writable").toEqual(
+    expect(paid.find(toBase)!.payment, "the XP discount leaked onto Safety Inspector").toEqual(
       unpaid.find(toBase)!.payment,
     );
   });

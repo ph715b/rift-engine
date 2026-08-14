@@ -44,6 +44,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalXpCostOf,
+  optionalXpEnergyDiscountOf,
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
@@ -1022,7 +1023,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
           modifiedEnergyCost(state, action.playerIndex, card.kind, baseEnergyCost, card.defId, inHand) -
             discardDiscount -
             targetDiscount.energy -
-            sacrificeDiscount.energy,
+            sacrificeDiscount.energy -
+            // Poppy's "if you do, I cost [3] less" — the SECOND cost site, keyed
+            // to the same flag the enumerator priced and re-derived from the same
+            // table rather than trusted from the action. 0 for Safety Inspector,
+            // whose XP buys a resolution-time exemption rather than a price.
+            (action.optionalXpPaid === true ? optionalXpEnergyDiscountOf(card.defId) : 0),
         ) + additional.energy,
         // The optional Power cost is ADDED, unlike the repeatable discount above
         // which is subtracted — re-derived from the same action the enumerator

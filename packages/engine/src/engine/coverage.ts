@@ -3,7 +3,7 @@ import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
 import { activatedAbilityDefIds, borrowedAbilityDefIds } from "./activated-abilities.js";
 import { canonicalDefId, loaderHandledDefIds, printingAliases } from "../cards/card-loader.js";
 import { playCardDefIds } from "./deploy.js";
-import { cardEffectDefIds } from "./card-effects.js";
+import { cardEffectDefIds, optionalXpCostDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
@@ -350,6 +350,12 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // whole card. Same reason Perched Grimwyrm's restriction and Ruin Runner's
   // negative each need their own claim.
   { label: "replaced costs", defIds: replacedCostDefIds },
+  // The optional XP additional cost. `optionalXpCostDefIds` has existed since
+  // UNL-164 Safety Inspector but was never wired in here — he reports finished
+  // through his on-play trigger, so nothing missed it. UNL-178 Poppy - Defender
+  // of the Meek has no effect at all: her text is `[Ambush]`, `[Tank]` and the XP
+  // cost, so this source is the only thing that can claim her.
+  { label: "optional XP costs", defIds: optionalXpCostDefIds },
 ];
 
 /**

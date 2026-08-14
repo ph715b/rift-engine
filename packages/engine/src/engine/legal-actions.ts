@@ -51,6 +51,7 @@ import {
   hasXRainbowCost,
   optionalPowerCostOf,
   optionalXpCostOf,
+  optionalXpEnergyDiscountOf,
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
@@ -825,6 +826,61 @@ export function legalActions(state: GameState): PlayerAction[] {
     // ignore).
     const canDiscountByRepeating = printedPriceAvailable && optionalUnitCostOf(card.defId)?.repeatable === true;
     /**
+     * Poppy - Defender of the Meek's "spend 3 XP ... I cost [3] less".
+     *
+     * **Priced out here, above the affordability bail, for the reason this file
+     * has now recorded getting wrong three times** — Brazen Buccaneer's discard,
+     * Call to Glory's ignore, and the replaced costs. She prints 6 Energy and
+     * costs 3 with the XP paid, so a caster holding 4 runes can afford ONLY the
+     * paid variant; bailing on her printed price first makes exactly the variant
+     * the card exists for unreachable.
+     *
+     * Gated on affording the XP itself, like the emission branch further down:
+     * a caster short of XP has no paid variant at all rather than one the
+     * validator would refuse.
+     */
+    const xpEnergyDiscount = optionalXpEnergyDiscountOf(card.defId);
+    // The `actor.xp` term here is MEASURED-REDUNDANT with `canPayOptionalXp`
+    // below, which gates the emission: for a discount card an unaffordable XP
+    // already leaves `xpDiscountedPayment` null, so deleting either check alone
+    // changes no behaviour. Kept because this binding's job is "should I price
+    // this variant at all", and pricing a payment the caster can never claim is
+    // work with no consumer. Labelled rather than deleted so the next reader is
+    // not left wondering which of the two is load-bearing — both are, for
+    // different cards.
+    const xpDiscountApplies =
+      xpEnergyDiscount > 0 &&
+      !fromHidden &&
+      printedPriceAvailable &&
+      actor.xp >= (optionalXpCostOf(card.defId) ?? 0);
+    const xpDiscountedEffective = xpDiscountApplies
+      ? computeEffectiveCost(
+          actor.floatingEnergy,
+          actor.floatingPower,
+          Math.max(0, modifiedEnergyCost(state, playerIndex, card.kind, card.energyCost, card.defId, fromHand) - xpEnergyDiscount),
+          Math.max(
+            0,
+            card.powerCost -
+              scaledPowerDiscount(state, playerIndex, card.defId) -
+              combatSpellPowerDiscount(state, playerIndex, card.kind),
+          ),
+          card.powerDomain,
+          card.powerDomainAlt,
+          card.kind === "Spell" ? actor.restrictedSpellEnergy : 0,
+          restrictedPowerFor(actor, card.kind),
+          actor.floatingRainbowPower,
+        )
+      : null;
+    const xpDiscountedPayment = xpDiscountedEffective
+      ? computeAutoPayment(
+          actor.channeled,
+          xpDiscountedEffective.energyCost,
+          xpDiscountedEffective.powerCost,
+          card.powerDomain,
+          card.powerDomainAlt,
+        )
+      : null;
+    /**
      * "You may play me for [Cost]" (356.1.a) — priced ALONGSIDE the printed cost
      * rather than instead of it, because the card says "may".
      *
@@ -876,7 +932,15 @@ export function legalActions(state: GameState): PlayerAction[] {
           )
         : null;
     if (!printedPriceAvailable && !replacedPayment) continue; // the only price it has, and it can't be paid
-    if (printedPriceAvailable && !payment && !discountedPayment && !canIgnoreCost && !canDiscountByRepeating && !replacedPayment) {
+    if (
+      printedPriceAvailable &&
+      !payment &&
+      !discountedPayment &&
+      !canIgnoreCost &&
+      !canDiscountByRepeating &&
+      !replacedPayment &&
+      !xpDiscountedPayment
+    ) {
       continue; // can't afford it any way
     }
 
@@ -1327,12 +1391,46 @@ export function legalActions(state: GameState): PlayerAction[] {
      * false (a trash card reachable only by its own permission) the replaced ones
      * are all there is.
      */
-    const withPricing: Partial<PlayCardAction>[] = replacedPayment
+    const withReplacedPricing: Partial<PlayCardAction>[] = replacedPayment
       ? [
           ...(printedPriceAvailable ? withDestinations : []),
           ...withDestinations.map((v) => ({ ...v, replacedCostPaid: true as const })),
         ]
       : withDestinations;
+
+    /**
+     * The optional-XP dimension, folded in for the same reason the replaced cost
+     * is — and this one FIXES A PRE-EXISTING GAP rather than only serving a new
+     * card.
+     *
+     * The XP variant used to be a lone `actions.push({ ...play, optionalXpPaid })`
+     * further down, and `play` is the BASE-play candidate. So for a UNIT the paid
+     * variant was offered only into base: UNL-164 Safety Inspector has been
+     * unplayable-with-XP to any battlefield for as long as he has existed, and
+     * nothing noticed because his XP buys a resolution-time exemption rather than
+     * a price, so no assertion about cost could see it.
+     *
+     * UNL-178 Poppy makes it impossible to leave: she prints `[Ambush]`, whose
+     * entire purpose is playing her to a battlefield as a Reaction, and her XP
+     * buys the discount that makes that affordable.
+     *
+     * Riding the variant means `...variant` spreads the flag onto the base push
+     * AND every reinforce destination, exactly as it does for the replaced cost.
+     * Deliberately crossed with NOTHING else — the price-modifying branches below
+     * are gated off for an XP variant, so this adds destinations rather than
+     * inventing combinations no card prints.
+     */
+    const canPayOptionalXp =
+      optionalXpCostOf(card.defId) !== undefined &&
+      !fromHidden &&
+      printedPriceAvailable &&
+      actor.xp >= (optionalXpCostOf(card.defId) ?? 0) &&
+      // A card whose XP buys a DISCOUNT needs that discounted payment to exist;
+      // one whose XP buys an exemption reuses the plain payment and needs nothing.
+      (xpEnergyDiscount === 0 || xpDiscountedPayment !== null);
+    const withPricing: Partial<PlayCardAction>[] = canPayOptionalXp
+      ? [...withReplacedPricing, ...withReplacedPricing.map((v) => ({ ...v, optionalXpPaid: true as const }))]
+      : withReplacedPricing;
 
     for (const variant of withPricing) {
       // Every price-modifying branch below prices the card's PRINTED base, so a
@@ -1342,6 +1440,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       // skipped wholesale, so the printed variants keep behaving exactly as they
       // did — a replaced-cost card is additive to this function, not a mode of it.
       const usingReplacedCost = variant.replacedCostPaid === true;
+      // An XP variant takes none of the price-modifying branches below, for the
+      // same reason a replaced-cost one does not: it is a fixed alternative
+      // pricing of this card, and no card in the pool prints an XP cost beside a
+      // `[Repeat]`, an `[Accelerate]` or a discard discount. Gating rather than
+      // crossing keeps the enumeration to plays a card can actually make.
+      const usingOptionalXp = variant.optionalXpPaid === true;
       // fromHiddenBattlefieldId rides on EVERY variant this card produces — it is
       // what tells the validator to ignore the base cost, use Reaction timing and
       // look for the card at a battlefield rather than in hand.
@@ -1415,7 +1519,9 @@ export function legalActions(state: GameState): PlayerAction[] {
         : undefined;
       const variantPayment = usingReplacedCost
         ? replacedPayment
-        : canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
+        : usingOptionalXp && xpEnergyDiscount > 0
+          ? xpDiscountedPayment
+          : canIgnoreCost && variant.additionalCostUnitInstanceId !== undefined
           ? { energyRunes: [], powerRunes: [] }
           : sacrificePayment !== undefined
             ? sacrificePayment
@@ -1450,7 +1556,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // `!usingReplacedCost`: a discard that BUYS a discount reduces the printed
       // base, and a replaced base is not the printed one — see the pricing
       // dimension's own note. No card in this pool prints both.
-      if (discardChoice && discountedPayment && !usingReplacedCost) {
+      if (discardChoice && discountedPayment && !usingReplacedCost && !usingOptionalXp) {
         // The discounted cost when a discount applies, the printed one otherwise —
         // whichever `discountedPayment` itself was derived from.
         const discardBase = discountedEffective ?? effectiveCost;
@@ -1710,13 +1816,12 @@ export function legalActions(state: GameState): PlayerAction[] {
       // Gated on affording it, exactly as the optional-Power branch is — a caster
       // short of XP simply has no paid variant, rather than being offered one the
       // validator would refuse. That split is this file's recurring crash class.
-      const optionalXp = optionalXpCostOf(card.defId);
-      if (optionalXp !== undefined && !fromHidden && actor.xp >= optionalXp) {
-        // Spreads the plain `play` rather than rebuilding it, so the two cannot
-        // drift: the paid variant IS the plain one plus a flag, and that is the
-        // whole claim being made about an XP cost.
-        actions.push({ ...play, optionalXpPaid: true });
-      }
+      // **The optional-XP variant is no longer pushed here.** It was a lone
+      // `actions.push({ ...play, optionalXpPaid: true })`, and `play` is the
+      // BASE-play candidate — so a UNIT's paid variant reached base and no
+      // battlefield. It is now a dimension on `withPricing` above, which spreads
+      // it onto the base push and every reinforce destination alike. See that
+      // binding for the gap this closed.
       // Irelia - Graceful — "your spells that choose me cost [1] OR [rainbow]
       // less." TWO candidates, one per axis, because the "or" is a real choice
       // and neither resource substitutes for the other.
@@ -1777,7 +1882,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // `!usingReplacedCost` for the reason the discard branch above gives: a
       // `[Repeat]` is an optional ADDITIONAL cost priced on top of the printed
       // base, and a replaced base is not that. No card prints both.
-      if (repeatCost && !fromHidden && !usingReplacedCost) {
+      if (repeatCost && !fromHidden && !usingReplacedCost && !usingOptionalXp) {
         // **The `[Deflect]` tax is owed by BOTH executions** (project-owner
         // ruling, 2026-08-06 — the same unit chosen twice owes twice). This
         // variant repeats the SAME choices, so its taxable set is the first
@@ -1907,7 +2012,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // neither, either, or both, at four different prices for three different
       // execution counts.
       const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
-      if (grantedCost && !fromHidden && !usingReplacedCost) {
+      if (grantedCost && !fromHidden && !usingReplacedCost && !usingOptionalXp) {
         const pricedGranted = new Set<string>();
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
           for (const axis of additionalCostAxes) {
@@ -1994,7 +2099,11 @@ export function legalActions(state: GameState): PlayerAction[] {
       // always did — including the `accelerated` shortcut, which stays the
       // payment used whenever nothing about the variant changes the price.
       const canAccelerate =
-        hasAccelerate(card, state, playerIndex, fromHand) && !fromHidden && printedPriceAvailable && !usingReplacedCost;
+        hasAccelerate(card, state, playerIndex, fromHand) &&
+        !fromHidden &&
+        printedPriceAvailable &&
+        !usingReplacedCost &&
+        !usingOptionalXp;
       const pricedAccelerated = new Set<string>();
       for (const axis of canAccelerate ? additionalCostAxes : []) {
         const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);

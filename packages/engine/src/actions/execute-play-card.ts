@@ -14,7 +14,7 @@ import {
   combatSpellPowerDiscount,
 } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
-import { optionalXpCostOf } from "../engine/card-effects.js";
+import { optionalXpCostOf, optionalXpEnergyDiscountOf } from "../engine/card-effects.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -292,7 +292,13 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // cost so the two halves cannot drift.
         modifiedEnergyCost(state, action.playerIndex, card.kind, baseEnergyCost, card.defId, playedFromHand) -
           targetDiscount.energy -
-          variantDiscount.energy,
+          variantDiscount.energy -
+          // Poppy's "if you do, I cost [3] less" at the THIRD site. Without it
+          // this half deducts floating Energy against her UNDISCOUNTED 6 and
+          // burns three the play no longer owes — precisely the shape recorded
+          // against Irelia - Graceful, and the reason this file re-prices from
+          // the raw cost rather than trusting the validator.
+          (action.optionalXpPaid === true ? optionalXpEnergyDiscountOf(card.defId) : 0),
       );
   const powerToPay = ignoresBaseCost
     ? 0

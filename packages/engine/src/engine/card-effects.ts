@@ -1069,10 +1069,48 @@ export function optionalPowerCostOf(defId: string): { domain?: Domain; count?: n
  * `spendXp`/`canSpendXp` (730.2) already exist; this is only the table saying
  * which cards ask, and how much.
  */
-const OPTIONAL_XP_COSTS: Readonly<Record<string, number>> = {
+/**
+ * What an optional XP cost costs, and what paying it buys.
+ *
+ * A record rather than a bare number since 2026-08-13, when a second card joined
+ * and bought something the first did not. The two shapes are genuinely
+ * different and the difference is where the payout is READ:
+ *
+ *  - **Safety Inspector (UNL-164)** buys an exemption from his own kill, read at
+ *    RESOLUTION. A flag on the action expresses that exactly, and the enumerator
+ *    can reuse the plain payment unchanged — the price does not move.
+ *  - **Poppy - Defender of the Meek (UNL-178)** buys "I cost [3] less", read at
+ *    PRICING time. The price does move, so the paid variant is a different
+ *    payment and has to be enumerated, validated and executed as one.
+ *
+ * `energyDiscount` is therefore not decoration on the first card's mechanism; it
+ * is what makes the second reach the three cost sites at all.
+ */
+interface OptionalXpCostSpec {
+  xp: number;
+  /**
+   * Energy taken off the BASE cost when the XP is paid — 356.1's "base cost
+   * modifications", the same step a `[Legion]` discount lands in.
+   *
+   * Absent when the XP buys something that is not a price.
+   */
+  energyDiscount?: number;
+}
+
+const OPTIONAL_XP_COSTS: Readonly<Record<string, OptionalXpCostSpec>> = {
   // Safety Inspector — "You may spend 3 XP as an additional cost to play me",
   // which buys an EXEMPTION from his own symmetrical kill.
-  "UNL-164": 3,
+  "UNL-164": { xp: 3 },
+  // Poppy - Defender of the Meek — "You may spend 3 XP as an additional cost to
+  // play me. If you do, I cost [3] less."
+  //
+  // 6 Energy printed, 3 with the XP paid, and the Power pip is untouched — she
+  // says "[3]", which is Energy. **The discount is what makes her paid variant
+  // affordable when the plain one is not**, so `legal-actions` has to price it
+  // BEFORE the affordability bail; that file already records making the opposite
+  // mistake three times (Brazen Buccaneer's discard, Call to Glory's ignore, and
+  // the replaced costs).
+  "UNL-178": { xp: 3, energyDiscount: 3 },
   // **UNL-140 Conscription is deliberately NOT here, and the reason is the
   // shape of what its cost BUYS.** Safety Inspector's XP changes what his
   // trigger does at resolution, which a flag on the action expresses exactly.
@@ -1090,9 +1128,26 @@ const OPTIONAL_XP_COSTS: Readonly<Record<string, number>> = {
   // targeting filter has to be asked per variant, not once per card.
 };
 
-/** How much XP this card offers to take as an additional cost, if it does. */
+/** How much XP this card offers to take as an additional cost, if it does.
+ *
+ *  Signature deliberately unchanged when the table grew a record: every existing
+ *  caller asks only "how much", and widening the return type would have touched
+ *  the enumerator, the validator and the executor for a field none of them
+ *  wanted. */
 export function optionalXpCostOf(defId: string): number | undefined {
-  return OPTIONAL_XP_COSTS[defId];
+  return OPTIONAL_XP_COSTS[defId]?.xp;
+}
+
+/**
+ * What paying this card's optional XP cost takes OFF its Energy — Poppy's "if
+ * you do, I cost [3] less", and 0 for a card whose XP buys something else.
+ *
+ * Its own accessor rather than a second return value, so the three cost sites
+ * ask exactly the question they need and Safety Inspector's pricing is
+ * byte-for-byte what it was.
+ */
+export function optionalXpEnergyDiscountOf(defId: string): number {
+  return OPTIONAL_XP_COSTS[defId]?.energyDiscount ?? 0;
 }
 
 /** For coverage: the cards whose printed additional cost this table implements. */
