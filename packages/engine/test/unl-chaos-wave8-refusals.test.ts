@@ -303,7 +303,21 @@ describe("UNL-122 Crescent Guardian: has this player played a spell this turn?",
 // this. Choose an enemy unit at a battlefield with 3 [Might] or less. If you
 // paid the additional cost, choose any enemy unit at a battlefield instead."
 // ---------------------------------------------------------------------------
-describe("UNL-140 Conscription: what the XP variant is actually blocked on", () => {
+/**
+ * **This block was a refusal and is now the card's wave-level coverage** — the
+ * three assertions that said "no XP variant exists" are inverted, and the two
+ * CONTROLS that made them mean something are kept exactly as they were.
+ *
+ * Its diagnosis was right in both halves and shaped the implementation: a table
+ * row was NECESSARY (the validator refuses `optionalXpPaid` outright without
+ * one) and NOT SUFFICIENT (the targeting spec is read once per CARD, above the
+ * cost fan-out). It even named the fix — "`targetingForAnyCard` would have to
+ * take the variant's flags in `legal-actions` AND in
+ * `validate-play-card.targetingRejection`" — which is what landed.
+ *
+ * The focused coverage is `test/conscription-xp-target.test.ts`.
+ */
+describe("UNL-140 Conscription: what the XP variant buys", () => {
   /** Conscription in player 0's hand, `xp` banked, and a 5-Might enemy plus a
    *  2-Might enemy standing at bf1. */
   function conscriptionState(xp: number): { state: GameState; spell: CardInstance; big: UnitInstance; small: UnitInstance } {
@@ -330,18 +344,33 @@ describe("UNL-140 Conscription: what the XP variant is actually blocked on", () 
     expect(playsOf(state, inspector.instanceId).some((a) => a.optionalXpPaid === true)).toBe(true);
   });
 
-  it("Conscription is not in the table, so no XP variant is offered even with the XP banked", () => {
-    expect(optionalXpCostDefIds()).not.toContain(CONSCRIPTION);
+  it("is in the table now, and an XP variant IS offered with the XP banked", () => {
+    expect(optionalXpCostDefIds()).toContain(CONSCRIPTION);
     const { state, spell } = conscriptionState(5);
-    expect(playsOf(state, spell.instanceId).some((a) => a.optionalXpPaid === true)).toBe(false);
+    expect(playsOf(state, spell.instanceId).some((a) => a.optionalXpPaid === true)).toBe(true);
   });
 
-  it("...and the enumerator offers only the 3-Might-capped target — the cap is per CARD, not per variant", () => {
+  it("...and the enumerator offers the 5-Might target too — the cap is per VARIANT now", () => {
     const { state, spell, big, small } = conscriptionState(5);
-    const targets = playsOf(state, spell.instanceId).map((a) => a.targetUnitInstanceId);
+    const plays = playsOf(state, spell.instanceId);
+    const targets = plays.map((a) => a.targetUnitInstanceId);
 
     expect(targets, "the 2-Might enemy is not reachable, so this fixture proves nothing").toContain(small.instanceId);
-    expect(targets).not.toContain(big.instanceId);
+    expect(targets, "the widened target is still capped away").toContain(big.instanceId);
+    // And it is reachable ONLY on a paid variant, which is the whole point of
+    // fanning the wide targets with the flag already on them.
+    expect(
+      plays.filter((a) => a.targetUnitInstanceId === big.instanceId).every((a) => a.optionalXpPaid === true),
+      "the 5-Might enemy was offered without paying",
+    ).toBe(true);
+  });
+
+  it("...and WITHOUT the XP, the cap still stands", () => {
+    // The paired control on the fixture above, one number apart. 4 XP cannot pay
+    // a 5-XP cost, so the widened fan-out is not offered at all.
+    const { state, spell, big } = conscriptionState(4);
+    const targets = playsOf(state, spell.instanceId).map((a) => a.targetUnitInstanceId);
+    expect(targets, "the cap was lifted without the XP").not.toContain(big.instanceId);
   });
 
   it("PINNED: the VALIDATOR re-derives the cap independently, so a table row alone cannot lift it", () => {
@@ -375,25 +404,22 @@ describe("UNL-140 Conscription: what the XP variant is actually blocked on", () 
     expect(submit(state, legal).result, "the fixture cannot cast the spell at all").toMatchObject({ type: "Ok" });
   });
 
-  it("...and the flag is refused too, so the row is necessary AND not sufficient", () => {
-    // `validate-play-card` refuses `optionalXpPaid` on a card with no
-    // `OPTIONAL_XP_COSTS` row ("Enforced HERE rather than trusted from the
-    // enumerator, in both directions"). So the row is genuinely required —
-    // and the previous test says it is not enough on its own, because the
-    // targeting spec is still asked once per CARD.
+  it("...and the flag is ACCEPTED now, because the row exists", () => {
+    // **Inverted.** This asserted "no optional XP cost to pay", which was the
+    // NECESSARY half of the refusal: `validate-play-card` refuses
+    // `optionalXpPaid` outright on a card with no `OPTIONAL_XP_COSTS` row, so
+    // nothing could claim the cost until the table named it.
     //
-    // The fix is therefore two files agreeing on a spec that depends on the
-    // variant, not one row: `targetingForAnyCard` would have to take the
-    // variant's flags in `legal-actions.variantsForTargeting` AND in
-    // `validate-play-card.targetingRejection`. `[Ambush]`'s
-    // destination-dependent timing tier is the nearest precedent.
+    // The row exists, so the claim is legal — and this is also the shape the
+    // enumerator deliberately does NOT offer (paying 5 XP for a target the free
+    // play already had). Legal but strictly worse; the under-offer is recorded in
+    // `test/conscription-xp-target.test.ts` rather than being enforced as a rule,
+    // because the rules permit it.
     const { state, spell, small } = conscriptionState(5);
     const plain = playsOf(state, spell.instanceId)[0]!;
     const forged: PlayCardAction = { ...plain, optionalXpPaid: true, targetUnitInstanceId: small.instanceId };
 
-    const { result } = submit(state, forged);
-    expect(result.type).toBe("Invalid");
-    expect(JSON.stringify(result)).toContain("has no optional XP cost to pay");
+    expect(submit(state, forged).result, "the validator still refuses a legal XP claim").toMatchObject({ type: "Ok" });
   });
 });
 

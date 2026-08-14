@@ -52,6 +52,7 @@ import {
   optionalPowerCostOf,
   optionalXpCostOf,
   optionalXpEnergyDiscountOf,
+  xpWidenedTargetingFor,
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
@@ -1169,11 +1170,39 @@ export function legalActions(state: GameState): PlayerAction[] {
       return effectVariants;
     };
 
+    /**
+     * UNL-140 Conscription — "if you paid the additional cost, choose ANY enemy
+     * unit at a battlefield instead".
+     *
+     * **The WIDE-ONLY targets are fanned as variants carrying `optionalXpPaid`
+     * FROM BIRTH**, which is exactly what its three-wave refusal asked for: "the
+     * targeting filter has to be asked per variant, not once per card". Fanning
+     * them here rather than letting the generic XP dimension copy them later is
+     * the whole point — that dimension runs BELOW the target fan-out, so a paid
+     * variant built there would carry a target already capped at 3 Might and sell
+     * the XP for nothing.
+     *
+     * Only the targets the XP actually unlocks are paired with it. A player may
+     * legally pay 5 XP and then choose a 3-Might unit; that is strictly worse for
+     * them and is deliberately not offered — the under-offer this file errs
+     * toward everywhere else.
+     */
+    const xpWidened = xpWidenedTargetingFor(card.defId);
+    const xpWidenedAffordable =
+      xpWidened !== undefined && !fromHidden && actor.xp >= (optionalXpCostOf(card.defId) ?? 0);
+    const narrowVariants = variantsForTargeting(targeting);
     const effectVariants: Partial<PlayCardAction>[] = isModal
       ? cardModes.flatMap((mode) =>
           variantsForTargeting(targetingForAnyCard(card, mode.id)).map((v) => ({ ...v, modeId: mode.id })),
         )
-      : variantsForTargeting(targeting);
+      : xpWidened !== undefined && xpWidenedAffordable
+        ? [
+            ...narrowVariants,
+            ...variantsForTargeting(xpWidened)
+              .filter((v) => !narrowVariants.some((n) => n.targetUnitInstanceId === v.targetUnitInstanceId))
+              .map((v) => ({ ...v, optionalXpPaid: true as const })),
+          ]
+        : narrowVariants;
 
     // A UNIT's targeting comes from its on-play TRIGGER, and a trigger with
     // no legal choice simply does nothing — it never makes the unit itself
@@ -1422,6 +1451,12 @@ export function legalActions(state: GameState): PlayerAction[] {
      */
     const canPayOptionalXp =
       optionalXpCostOf(card.defId) !== undefined &&
+      // A card whose XP widens its TARGETING already carries the flag on the
+      // variants that need it (see `xpWidened` above). Copying every variant
+      // again here would offer "pay 5 XP, choose a 3-Might unit" — legal,
+      // strictly worse, and a variant the validator must then agree with for
+      // nothing.
+      xpWidenedTargetingFor(card.defId) === undefined &&
       !fromHidden &&
       printedPriceAvailable &&
       actor.xp >= (optionalXpCostOf(card.defId) ?? 0) &&

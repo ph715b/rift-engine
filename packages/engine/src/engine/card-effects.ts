@@ -1189,22 +1189,59 @@ const OPTIONAL_XP_COSTS: Readonly<Record<string, OptionalXpCostSpec>> = {
   // mistake three times (Brazen Buccaneer's discard, Call to Glory's ignore, and
   // the replaced costs).
   "UNL-178": { xp: 3, energyDiscount: 3 },
-  // **UNL-140 Conscription is deliberately NOT here, and the reason is the
-  // shape of what its cost BUYS.** Safety Inspector's XP changes what his
-  // trigger does at resolution, which a flag on the action expresses exactly.
-  // Conscription's changes what may be CHOSEN — "choose any enemy unit at a
-  // battlefield INSTEAD" lifts a `maxMight` cap that lives in its
-  // `TargetingSpec` — and the enumerator fans optional costs out INSIDE the
-  // target loop, so a paid variant built there still carries a target already
-  // filtered to 3 Might or less.
+  // UNL-140 Conscription — "You may spend 5 XP as an additional cost to play
+  // this." What it buys is a WIDER TARGET, which is `XP_WIDENED_TARGETING` above
+  // rather than anything in this record: no discount, and nothing read at
+  // resolution. The row is what makes `validate-play-card` stop refusing the
+  // claim outright ("has no optional XP cost to pay").
+  "UNL-140": { xp: 5 },
+  // **UNL-140 joined this table on 2026-08-13, and the note that kept it out for
+  // three waves was right about everything except that it was unfixable.** It
+  // said: listing it alone "would sell 5 XP for nothing: the caster pays and the
+  // cap still stands", because the enumerator fans optional costs out INSIDE the
+  // target loop. True — a row here is necessary and not sufficient.
   //
-  // Listing it would therefore sell 5 XP for nothing: the caster pays and the
-  // cap still stands. That is strictly worse than under-offering, which is the
-  // direction this engine errs on everywhere else. It is the same
-  // choice-depends-on-a-variant shape `[Ambush]` needed (where the timing tier
-  // depends on the destination) and it wants the same kind of fix — the
-  // targeting filter has to be asked per variant, not once per card.
+  // It also named the fix exactly: "the targeting filter has to be asked per
+  // variant, not once per card", the same choice-depends-on-a-variant shape
+  // `[Ambush]` needed. That is `XP_WIDENED_TARGETING` below: the wide-only
+  // targets are fanned as variants that carry `optionalXpPaid` from birth, so the
+  // flag and the target that needs it can never come apart.
 };
+
+/**
+ * Cards whose optional XP cost buys a WIDER CHOICE rather than a different
+ * resolution — the spec that replaces the printed one when the XP is paid.
+ *
+ * UNL-140 Conscription is the first and only: "choose an enemy unit at a
+ * battlefield with 3 [Might] or less. If you paid the additional cost, choose ANY
+ * enemy unit at a battlefield instead."
+ *
+ * **This is the seam its refusal named, and it is a real one.** Every other
+ * optional cost in this pool buys something read at RESOLUTION (Safety
+ * Inspector's exemption) or at PRICING (Poppy's discount), and both of those are
+ * a flag on an action whose targets were already chosen. This one changes WHICH
+ * TARGETS EXIST, and the target fan-out happens above the cost fan-out — so a
+ * paid variant built the ordinary way would carry a target already filtered to 3
+ * Might and sell the XP for nothing.
+ *
+ * Both readers therefore ask for the spec with the flag: `legal-actions` fans the
+ * WIDE-ONLY targets as variants that carry `optionalXpPaid` from birth, and
+ * `validate-play-card.targetingRejection` re-derives the same spec from the same
+ * table. Keeping the two on one function is what stops a wide target being
+ * offered and then refused.
+ */
+const XP_WIDENED_TARGETING: Readonly<Record<string, TargetingSpec>> = {
+  // The printed spec minus the `maxMight: 3` cap. "At a battlefield" survives —
+  // the XP lifts the Might restriction and nothing else, so `scope` is left at
+  // its default exactly as the narrow spec leaves it.
+  "UNL-140": { kind: "unit", owner: "enemy" },
+};
+
+/** The targeting this card gets when its optional XP cost is PAID, or undefined
+ *  when its XP buys something that is not a choice. */
+export function xpWidenedTargetingFor(defId: string): TargetingSpec | undefined {
+  return XP_WIDENED_TARGETING[defId];
+}
 
 /** How much XP this card offers to take as an additional cost, if it does.
  *

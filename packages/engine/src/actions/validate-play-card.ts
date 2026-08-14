@@ -496,7 +496,10 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // resolution — the dropped-field shape this pipeline keeps producing.
     return fail(`${card.name} is not modal`);
   }
-  const targeting = targetingForAnyCard(card, action.modeId);
+  // The XP flag rides through, so Conscription's widened choice is judged by
+  // the same spec the enumerator offered it under. Re-derived from the table
+  // rather than trusted: the flag itself is checked for affordability above.
+  const targeting = targetingForAnyCard(card, action.modeId, action.optionalXpPaid);
 
   // A Unit's targeting belongs to its on-play TRIGGER, which does as much as
   // it can and no more: with nothing legal to point at, the unit is still

@@ -1,7 +1,7 @@
 import type { TriggerChainEntry, BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
 import type { CardInstance, UnitInstance } from "../model/card.js";
 import { contextFor, type EffectContext } from "./effect-context.js";
-import { targetingForCard, type TargetingSpec } from "./card-effects.js";
+import { targetingForCard, xpWidenedTargetingFor, type TargetingSpec } from "./card-effects.js";
 import {
   giveMightThisTurnToOwnUnit,
   channelRunesExhausted,
@@ -480,7 +480,23 @@ export function unitTriggerDefIds(): string[] {
  *  the ONE place that branches on card.kind to pick the right one, reused
  *  by validate-play-card.ts, legal-actions.ts, and the web UI, instead of
  *  each re-deriving the same branch independently. */
-export function targetingForAnyCard(card: CardInstance, modeId?: string): TargetingSpec {
+export function targetingForAnyCard(
+  card: CardInstance,
+  modeId?: string,
+  /**
+   * Whether this play PAID its optional XP cost — UNL-140 Conscription's "if you
+   * paid the additional cost, choose ANY enemy unit at a battlefield instead".
+   *
+   * The only optional cost in the pool that changes what may be CHOSEN rather
+   * than what happens at resolution, and the reason this function takes an
+   * argument at all: both readers (the enumerator's fan-out and
+   * `validate-play-card.targetingRejection`) must derive the same spec from the
+   * same flag, or a wide target is offered and then refused.
+   */
+  optionalXpPaid?: boolean,
+): TargetingSpec {
+  const widened = optionalXpPaid === true ? xpWidenedTargetingFor(card.defId) : undefined;
+  if (widened) return widened;
   // A Unit's targeting is its on-play TRIGGER's and has no modes; only a
   // Spell/Gear effect can be modal, which is why the mode goes only to the
   // second branch.

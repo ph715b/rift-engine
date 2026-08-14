@@ -518,10 +518,13 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // individually (820.3); this is one instance whose price is a card.
   // **STRONGER than printed, which is the worse direction of the two.** Every other
   // entry here under-reaches; this one lets the gear be cracked the turn it lands.
-  [
-    "UNL-140",
-    "half written: the take-control works; its optional 'spend 5 XP' cost is deliberately not offered — the XP cost mechanism now exists (OPTIONAL_XP_COSTS), but this card's cost buys a WIDER TARGET and optional costs are fanned out inside the target loop, so a paid variant would still carry a 3-Might-capped target and sell the XP for nothing",
-  ],
+  // **UNL-140 Conscription LEFT this map on 2026-08-13.** Its note was correct
+  // that the XP row alone was "necessary and NOT sufficient" — what the cost buys
+  // is a WIDER CHOICE, and the target fan-out runs above the cost fan-out. The fix
+  // is the one the note itself named: "the targeting filter has to be asked per
+  // variant, not once per card". `XP_WIDENED_TARGETING` holds the paid spec, and
+  // the wide-only targets are enumerated as variants carrying `optionalXpPaid`
+  // from birth, so the flag and the target that needs it cannot come apart.
   // **UNL-164 Safety Inspector LEFT this map on 2026-08-10.** Its note named
   // four shared files and was right about all four; `OPTIONAL_XP_COSTS` plus
   // `optionalXpPaid` is what they became. Worth recording that the refusal

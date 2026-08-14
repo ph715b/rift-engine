@@ -456,15 +456,26 @@ describe("Conscription (UNL-140): take control of it, exhaust it, and recall it"
    * same whether the cost is missing or the fixture simply has no castable spell.
    *
    * Closing this should FLIP the second expectation, not delete it.
+   *
+   * **FLIPPED 2026-08-13, exactly as instructed.** The paragraph above was true
+   * when written and is now stale in every particular: `OPTIONAL_XP_COSTS`,
+   * `PlayCardAction.optionalXpPaid` and an `ActivationCost.xp` all exist, and
+   * Conscription is in the first of them. The wide-only targets are fanned as
+   * variants carrying the flag from birth (`XP_WIDENED_TARGETING`), so a 4-Might
+   * enemy IS offered at 5 XP.
    */
-  it("offers no upgraded target at 5 XP — the optional XP cost is unimplemented", () => {
+  it("offers the upgraded target at 5 XP", () => {
     expect(plays(conscriptState(3, 5).state, CONSCRIPTION).length, "the control board offered nothing either").toBeGreaterThan(0);
 
     const { state } = conscriptState(4, 5);
 
-    // 1-or-more under 805. 0 is what this engine does, and what this pin records.
-    expect(plays(state, CONSCRIPTION), "the XP additional cost is implemented now — flip this pin").toHaveLength(0);
-    expect(state.players[0]!.xp, "XP moved without a cost to pay it on").toBe(5);
+    // 1-or-more under 805, which is what this engine now does.
+    expect(plays(state, CONSCRIPTION), "the XP additional cost stopped being offered").not.toHaveLength(0);
+    expect(
+      plays(state, CONSCRIPTION).every((a) => a.optionalXpPaid === true),
+      "a 4-Might enemy was offered without paying the XP",
+    ).toBe(true);
+    expect(state.players[0]!.xp, "XP moved at enumeration time — it is spent on execution").toBe(5);
   });
 });
 

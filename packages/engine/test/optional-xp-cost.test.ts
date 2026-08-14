@@ -162,19 +162,31 @@ describe("Safety Inspector (UNL-164): paying buys an exemption from his own kill
   });
 });
 
-describe("Conscription (UNL-140) deliberately does NOT offer its XP cost", () => {
-  it("prints one, is not in the table, and says why in coverage", () => {
-    // **The interesting refusal of this change.** Its 5 XP buys "choose any enemy
-    // unit at a battlefield INSTEAD" — a wider TARGET, and optional costs are
-    // fanned out INSIDE the target loop, so a paid variant built there would
-    // still carry a target already filtered to 3 Might or less. Offering it would
-    // sell the XP for nothing, which is worse than under-offering.
+describe("Conscription (UNL-140) offers its XP cost only where the XP buys something", () => {
+  it("prints one, is in the table, and carries no partial note", () => {
+    // **Was the interesting refusal of the change that added this file**, and its
+    // reasoning shaped the fix rather than being discarded: the 5 XP buys "choose
+    // any enemy unit at a battlefield INSTEAD" — a wider TARGET — and optional
+    // costs are fanned out INSIDE the target loop, so a paid variant built THERE
+    // would still carry a target filtered to 3 Might or less and sell the XP for
+    // nothing.
+    //
+    // The answer was to fan the wide-only targets ABOVE that loop, already
+    // carrying `optionalXpPaid`. See `XP_WIDENED_TARGETING`.
     expect((registry.get(CONSCRIPTION).text ?? "").includes("spend 5 XP"), "the card stopped printing the cost").toBe(true);
-    expect(optionalXpCostOf(CONSCRIPTION), "Conscription was added to the table without widening its target").toBeUndefined();
-    expect(partialImplementationNote(registry.get(CONSCRIPTION)), "the reason is no longer recorded").toMatch(/WIDER TARGET/);
+    expect(optionalXpCostOf(CONSCRIPTION), "Conscription lost its table row").toBe(5);
+    expect(partialImplementationNote(registry.get(CONSCRIPTION)), "a partial note came back").toBeUndefined();
   });
 
-  it("no paid variant is enumerated for it at any XP", () => {
+  it("no paid variant is enumerated when the XP would buy NOTHING", () => {
+    // **Unchanged and now sharper.** The board holds a single 1-Might enemy, which
+    // the free play already reaches — so there is no wide-only target to pair the
+    // flag with and the deliberate under-offer means no paid variant at all. It
+    // asserted the same thing when the card was refused; now it asserts the
+    // narrowing rather than the absence.
+  });
+
+  it("really enumerates no paid variant on that board", () => {
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.players[0]!.hand = [spellInstance(CONSCRIPTION)];
     state.players[0]!.channeled = Array.from({ length: 9 }, (_, i) => ({ id: `c${i}`, domain: "Chaos", state: "Ready" }) as RuneCard);
@@ -188,8 +200,8 @@ describe("Conscription (UNL-140) deliberately does NOT offer its XP cost", () =>
 });
 
 describe("coverage", () => {
-  it("the Inspector is whole; Conscription is still half", () => {
+  it("both are whole — Conscription joined the Inspector on 2026-08-13", () => {
     expect(isCardImplemented(registry.get(INSPECTOR)), "the Inspector is greyed again").toBe(true);
-    expect(isCardImplemented(registry.get(CONSCRIPTION)), "Conscription reads finished without its upgrade").toBe(false);
+    expect(isCardImplemented(registry.get(CONSCRIPTION)), "Conscription reads unfinished").toBe(true);
   });
 });
