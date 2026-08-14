@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 176/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 178/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -381,7 +381,31 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // cards could have pushed two others out and held the total flat. It did not —
 // the total moved by exactly the number of cards finished, and `drawnNeverOffered`
 // was empty.
-const PINNED_UNION = 612;
+//
+// **Re-pinned UP to 614 later the same day**, for UNL-186 Death from Below's
+// granted trash recursion — and decomposed against the old sha rather than
+// assumed, because +2 for ONE card finished did not add up on its own. It does:
+//
+//  - **UNL-186 itself**, which had been reporting `isCardImplemented` TRUE the
+//    whole time while never being seated. A `partialImplementationNote` REMOVES a
+//    card from generated decks, so a half-written card is invisible to this probe
+//    even though coverage calls it done. Retiring the note put it in a deck for
+//    the first time: `neverSeated` lost it and
+//    `unwrittenInSetUnderConstruction` fell 31 -> 30.
+//  - **UNL-019 Blighted Battleaxe**, which was already seated and is reached by
+//    the reshuffled covering deck that the new seat produces. Nothing about the
+//    card changed.
+//
+// Diffed as buckets against the stashed baseline, which is the discipline
+// CLAUDE.md asks for on a DROP and which is worth the four minutes on a rise
+// whose arithmetic is surprising: the newly-unexercised set was EMPTY, so
+// nothing traded places.
+//
+// **The lesson worth keeping is the first bullet**: coverage's "implemented" and
+// this probe's "seated" are different questions, and a partial note silently
+// separates them. Expect a finished half-card to move this pin by more than the
+// one card it looks like.
+const PINNED_UNION = 614;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

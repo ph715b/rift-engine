@@ -1,4 +1,4 @@
-import type { GameState } from "../model/game-state.js";
+import type { GameState, GrantedReplacedCostPlay, PlayerState } from "../model/game-state.js";
 import type { CardInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { legionActive } from "./effect-helpers.js";
@@ -197,6 +197,13 @@ export function replacedCostFor(
   playerIndex: 0 | 1,
   card: CardInstance,
 ): ReplacedCost | null {
+  // A GRANTED permission is asked first, and wins if both somehow exist: it was
+  // bought by something that happened this turn, while a printed one is always
+  // available and so loses nothing by being deferred to. No card in this pool
+  // has both, and the order is stated rather than incidental.
+  const granted = grantedReplacedCostFor(state, playerIndex, card);
+  if (granted !== null) return granted;
+
   const printed = PRINTED_REPLACED_COSTS[card.defId];
   if (printed === undefined) return null;
   if (!printed.available(state, playerIndex)) return null;
@@ -208,4 +215,71 @@ export function replacedCostFor(
   }
   const { energyCost, powerCost, powerDomain, zone } = printed;
   return { energyCost, powerCost, powerDomain, zone };
+}
+
+/**
+ * The GRANTED half — a permission `playerIndex` was handed for this specific
+ * card instance, from `PlayerState.replacedCostPlays`.
+ *
+ * **Zone membership is re-checked here, exactly as the printed half re-checks
+ * it**, and it is what makes granting safe at a moment when the card is not yet
+ * in the trash: UNL-186 Death from Below grants the permission during its own
+ * resolution, and a Spell does not reach its owner's trash until
+ * `execute-play-card` finishes. So the grant is recorded eagerly and this
+ * answers `null` until the card actually lands.
+ *
+ * The trash searched is the grant's `fromPlayerIndex`, not the holder's — those
+ * differ for UNL-020 Dancing Grenade, whose replay is offered to the TARGET's
+ * controller while the spell sits in the CASTER's trash.
+ */
+function grantedReplacedCostFor(state: GameState, playerIndex: 0 | 1, card: CardInstance): ReplacedCost | null {
+  const grant = state.players[playerIndex].replacedCostPlays.find((g) => g.instanceId === card.instanceId);
+  if (grant === undefined) return null;
+  if (!state.players[grant.fromPlayerIndex].trash.some((c) => c.instanceId === card.instanceId)) return null;
+  return {
+    energyCost: grant.energyCost,
+    powerCost: grant.powerCost,
+    powerDomain: grant.powerDomain,
+    zone: "trash",
+  };
+}
+
+/**
+ * Record a granted "you may play THIS for [Cost]" permission.
+ *
+ * Additive and duplicate-tolerant by instance: a second grant for a card that
+ * already has one replaces nothing, because the two would be identical — the
+ * price comes from the granting card's printed text, and the same card granting
+ * twice grants the same price. Filtering first keeps the list from growing
+ * without bound across a long turn.
+ */
+export function grantReplacedCostPlay(
+  state: GameState,
+  playerIndex: 0 | 1,
+  grant: GrantedReplacedCostPlay,
+): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const holder = players[playerIndex];
+  players[playerIndex] = {
+    ...holder,
+    replacedCostPlays: [...holder.replacedCostPlays.filter((g) => g.instanceId !== grant.instanceId), grant],
+  };
+  return { ...state, players };
+}
+
+/**
+ * Does `playerIndex` hold a GRANTED permission for this exact card instance?
+ *
+ * The question `execute-play-card` asks to decide whether a play SPENT one —
+ * 419.3.b's window is one play, and a permission that survived its own use would
+ * let a single [rainbow] buy Death from Below out of the trash again every turn
+ * until the game ended.
+ *
+ * Deliberately separate from `replacedCostFor`, which answers "what does this
+ * cost": reading a price must never consume a permission, or the enumerator
+ * would burn one every time it priced a card. The same split `mayPlayFromTrash`
+ * keeps from the charge it does not spend.
+ */
+export function holdsGrantedReplacedCost(state: GameState, playerIndex: 0 | 1, instanceId: string): boolean {
+  return state.players[playerIndex].replacedCostPlays.some((g) => g.instanceId === instanceId);
 }

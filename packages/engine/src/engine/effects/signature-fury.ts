@@ -27,6 +27,7 @@ import {
   returnPermanentToHand,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
+import { grantReplacedCostPlay } from "../replaced-costs.js";
 import { attachEquipment, isMechUnit, wearerListener } from "../equipment.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -65,6 +66,9 @@ import {
  *  draw 1". Its own pair rather than Vi's `VI_EXCESS_REQUIRED` above, because
  *  Sivir - Ambitious prints the same clause at 5: the threshold is a per-card
  *  number and not a rule. */
+/** Death from Below's "if it had 3 [Might] or less" — the recursion's gate. */
+const DEATH_FROM_BELOW_MIGHT_CAP = 3;
+
 const HEXTECH_GAUNTLETS_EXCESS_REQUIRED = 3;
 const HEXTECH_GAUNTLETS_DRAW = 1;
 
@@ -287,18 +291,12 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Death from Below (Fury + Chaos) — "Kill a unit at a battlefield. Then, if it
     // had 3 [Might] or less, you may play this from your trash for [rainbow]."
     //
-    // **HALF a card, and the half that is missing is named rather than
-    // approximated.** The kill is written; the recursion is not, because "play
-    // THIS from your trash" is a per-INSTANCE play permission with a REPLACED
-    // cost, and this engine's only trash-play permission (`timing.mayPlayFromTrash`)
-    // is per-player, Units-only and charges the printed price. Both halves of that
-    // would have to change in timing.ts plus a field on PlayerState — see the
-    // report accompanying this change.
-    //
-    // Registering the kill alone is deliberate and the trade is stated because
-    // registration is per defId: this card will report DONE. The alternative was
-    // leaving a hard removal spell inert for the sake of a clause that fires at
-    // most once per copy.
+    // **WHOLE as of 2026-08-13.** The kill was written first and the recursion
+    // refused, because "play THIS from your trash" is a per-INSTANCE play
+    // permission with a REPLACED cost. Both halves of that now exist: rule
+    // 356.1.a's cost replacement lives in `engine/replaced-costs.ts`, and the
+    // GRANTED half is `PlayerState.replacedCostPlays` — see that field for why it
+    // is not `trashUnitPlaysThisTurn` widened.
     //
     // `scope` left at its default, so "a unit AT A BATTLEFIELD" is enforced by the
     // targeting and a unit sheltering in either base is out of reach (355.9.b's
@@ -308,9 +306,55 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // makes "when you kill a unit" (Solari Shrine) and "killed with a spell"
     // (Immortal Phoenix) see this death, the same reading Noxian Guillotine's
     // [Legion] half takes above.
+    //
+    // # "If it HAD 3 [Might] or less" is measured BEFORE the kill
+    //
+    // Past tense, and about a unit that no longer exists by the time the clause
+    // is read — so the figure is captured while it is still standing rather than
+    // recovered afterwards. `effectiveMight` (143.2's "current Might"), not the
+    // printed number: a 2-Might unit pumped to 4 is a 4-Might unit when it dies,
+    // and a 5-Might unit debuffed to 3 is worth the recursion.
+    //
+    // The `[Deflect]`-shaped alternative — reading `might` off the instance — was
+    // rejected for the reason `chaos.ts` records against exactly that mistake:
+    // the printed field is not what "Might" means anywhere in these rules.
+    //
+    // # The permission is granted even though the card is not in the trash yet
+    //
+    // A Spell trashes itself as part of being played, and that happens in
+    // `execute-play-card` AFTER this resolver runs. So the grant names an
+    // instance that is still mid-flight — which is safe because `replacedCostFor`
+    // re-checks trash membership at every ask, and simply answers null until the
+    // card lands. Granting here rather than trying to sequence around the trash
+    // move keeps this resolver ignorant of zone plumbing it does not own.
     targeting: { kind: "unit" },
-    resolve: (state, ctx, event) =>
-      event.targetUnitInstanceId ? destroyUnit(state, event.targetUnitInstanceId, ctx.casterIndex) : state,
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const location = findUnitAnywhere(state, targetId);
+      if (!location) return state; // it left play between announce and resolution
+      const might = effectiveMight(
+        state,
+        location.unit,
+        location.ownerIndex,
+        location.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id },
+      );
+      const killed = destroyUnit(state, targetId, ctx.casterIndex);
+      if (might > DEATH_FROM_BELOW_MIGHT_CAP || ctx.sourceCardInstanceId === undefined) return killed;
+      return grantReplacedCostPlay(killed, ctx.casterIndex, {
+        instanceId: ctx.sourceCardInstanceId,
+        // "for [rainbow]" — no Energy and one Power pip of any domain. `null` is
+        // the rainbow domain everywhere in this engine.
+        energyCost: 0,
+        powerCost: 1,
+        powerDomain: null,
+        // Its OWN trash: "play this from YOUR trash", and a Spell goes to its
+        // owner's trash, who is the caster here.
+        fromPlayerIndex: ctx.casterIndex,
+      });
+    },
   },
   "UNL-184": {
     // Thrill of the Hunt (Fury + Body) — "[Reaction] Banish a friendly unit, then

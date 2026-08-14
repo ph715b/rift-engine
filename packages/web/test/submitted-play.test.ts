@@ -83,7 +83,7 @@ function player(id: string) {
     scoredBattlefieldsThisTurn: [], unitsEnterReadyThisTurn: false, restrictedSpellEnergy: 0,
     restrictedSpellPower: 0, nextUnitsEnterReady: 0, unitsLostThisTurn: 0, nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0, cannotPlayCardsThisTurn: false, hideIgnoresCostThisTurn: false,
-    preventsSpellDamageThisTurn: false,
+    preventsSpellDamageThisTurn: false, replacedCostPlays: [],
   };
 }
 

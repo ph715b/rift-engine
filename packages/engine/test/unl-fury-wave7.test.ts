@@ -445,7 +445,11 @@ describe("the nine cards this wave REFUSED", () => {
     // a half-written card report finished) fails here too.
     // **SQUARE_UP left this list on 2026-08-13** — its `[Repeat] — Discard 1` is
     // priced now, so it is whole and carries no note.
-    for (const defId of [SMITE, CURTAIN_CALL, DEATH_FROM_BELOW]) {
+    // **DEATH_FROM_BELOW left it the same day**: its note named "a per-instance
+    // permission with a REPLACED cost" and both halves landed
+    // (`engine/replaced-costs.ts` + `PlayerState.replacedCostPlays`). Its coverage
+    // is `test/replaced-costs.test.ts`.
+    for (const defId of [SMITE, CURTAIN_CALL]) {
       expect(partialImplementationNote(registry.get(defId)), `${defId} lost its note`).toBeDefined();
       expect(isCardImplemented(registry.get(defId))).toBe(false);
     }

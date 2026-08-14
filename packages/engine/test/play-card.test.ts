@@ -50,6 +50,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     nextUnitsEnterReady: 0,
     freeGearPlaysThisTurn: 0,
     trashUnitPlaysThisTurn: 0,
+    replacedCostPlays: [],
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,

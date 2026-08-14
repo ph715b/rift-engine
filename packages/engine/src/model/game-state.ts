@@ -327,6 +327,30 @@ export function isSpellChainEntry(entry: ChainEntry): entry is SpellChainEntry {
  * effect was implemented. None of those are needed yet — add each when the
  * card that needs it is implemented, not preemptively.
  */
+/**
+ * One granted "you may play THIS card for [Cost]" permission — see
+ * `PlayerState.replacedCostPlays` for why it is a list of these rather than a
+ * counter, and `engine/replaced-costs.ts` for the rule (356.1.a) it implements.
+ *
+ * The price is stored rather than looked up from the granting card, because the
+ * card that grants it and the card it is granted FOR are the same object here
+ * but need not be — and because `replacedCostFor` must be able to answer from
+ * the permission alone, at all three cost sites, without a registry lookup.
+ */
+export interface GrantedReplacedCostPlay {
+  /** The one card instance this permits. Not a defId: a second copy of the same
+   *  card in the same trash is a different object and was not granted anything. */
+  instanceId: string;
+  energyCost: number;
+  powerCost: number;
+  /** `null` is the RAINBOW pip — the same reading `computeAutoPayment` and
+   *  `matchesPowerDomain` already give a null domain. */
+  powerDomain: Domain | null;
+  /** WHOSE trash the card is taken from. Usually the holder's own; UNL-020
+   *  Dancing Grenade is the case where it is not. */
+  fromPlayerIndex: 0 | 1;
+}
+
 export interface PlayerState {
   id: string;
   name: string;
@@ -614,6 +638,40 @@ export interface PlayerState {
    * not. Cleared at runEnd with the rest of the turn.
    */
   trashUnitPlaysThisTurn: number;
+  /**
+   * Per-INSTANCE permissions to play one specific card at a REPLACED price —
+   * UNL-186 Death from Below's "you may play this from your trash for
+   * [rainbow]", granted to the caster when the unit it killed had 3 Might or
+   * less.
+   *
+   * **Deliberately NOT `trashUnitPlaysThisTurn` widened**, and the difference is
+   * the whole reason this is a second field. That counter is a per-PLAYER
+   * allowance to play ANY unit from the trash at its PRINTED cost; this names a
+   * particular instance and carries the price with it. Merging them would make
+   * one card's recursion pay for another card's play.
+   *
+   * **Also not `replaced-costs.ts`'s printed table**, which answers from the card
+   * alone: UNL-025 Undying Legion's permission is a standing passive that is
+   * true whenever he is in a trash and `[Legion]` holds, so it needs no memory.
+   * This one is GRANTED by something that happened — a specific kill, by a
+   * specific spell — and nothing about the card in the trash can re-derive it.
+   *
+   * `fromPlayerIndex` is which trash to take the card from, and it is not always
+   * the holder's own: UNL-020 Dancing Grenade grants the replay to its TARGET's
+   * controller while the spell sits in the CASTER's trash.
+   *
+   * **DIVERGENCE, recorded in docs/rules-conformance.md, and the same one
+   * `trashUnitPlaysThisTurn` above already carries.** 419.3.b makes this a
+   * Limited Play Effect that happens INSIDE the resolution; this engine cannot
+   * play a card mid-resolution (a play needs a RunePayment, and
+   * `AnswerDecisionAction` carries only an `optionId`), so the resolution grants
+   * a permission the normal play path spends. That holds the window open until
+   * end of turn rather than closing it when the spell finishes. Cleared at
+   * `runEnd` with the rest of the turn, and CONSUMED when used — 419.3.b's
+   * window is one play, so a permission that survived its own use would let one
+   * [rainbow] buy the card again every turn.
+   */
+  replacedCostPlays: readonly GrantedReplacedCostPlay[];
   /**
    * Points scored FROM HOLDING this turn — Needlessly Large Yordle's "I cost
    * [2][Calm] less for each point you scored from holding this turn".

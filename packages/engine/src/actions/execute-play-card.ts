@@ -24,7 +24,7 @@ import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
 import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
 import { mayPlayFromTrash, mayPlayFromTrashOnCharge } from "../engine/timing.js";
-import { replacedCostFor } from "../engine/replaced-costs.js";
+import { holdsGrantedReplacedCost, replacedCostFor } from "../engine/replaced-costs.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -367,9 +367,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // apart — the split `usedFreeGearPlay` above keeps, for the same reason.
   //
   // A trash play is the one case where the card leaves a zone this file was not
-  // otherwise touching. The Spell branch further down owns `trash` for its own
-  // reason (a Spell trashes itself on play) and cannot collide: `mayPlayFromTrash`
-  // offers Units only.
+  // otherwise touching. The Spell branch further down also owns `trash` (a Spell
+  // trashes itself on play), and since UNL-186 Death from Below the two really do
+  // meet: a Spell replayed out of its own trash is REMOVED here and APPENDED
+  // there, which is the correct round trip and not a collision. The old note here
+  // said `mayPlayFromTrash` offers Units only, which stopped being true when the
+  // granted permission landed.
   const playedFromTrash = mayPlayFromTrash(state, action.playerIndex, card);
   // **Which permission paid for the zone**, and the reason the two are asked
   // separately at all. A player holding a banked Last Rites charge who plays
@@ -381,6 +384,12 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // block follows.
   const usedTrashCharge =
     playedFromTrash && !action.replacedCostPaid && mayPlayFromTrashOnCharge(state, action.playerIndex, card);
+  // The GRANTED permission's twin of the line above: read to decide the spend,
+  // never spent by being read. 419.3.b's window is ONE play, so a permission that
+  // outlived its own use would let one [rainbow] buy Death from Below back out of
+  // the trash every turn for the rest of the game.
+  const usedGrantedReplacedCost =
+    action.replacedCostPaid === true && holdsGrantedReplacedCost(state, action.playerIndex, card.instanceId);
   const sharedUpdates = {
     hand: handAfterRemoval,
     channeled: remainingChanneled,
@@ -394,6 +403,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...repeatDiscarded,
     ],
     trashUnitPlaysThisTurn: actor.trashUnitPlaysThisTurn - (usedTrashCharge ? 1 : 0),
+    // Spent by instance, so a second copy of the same card in the same trash —
+    // which was never granted anything — keeps whatever it holds.
+    replacedCostPlays: usedGrantedReplacedCost
+      ? actor.replacedCostPlays.filter((g) => g.instanceId !== card.instanceId)
+      : actor.replacedCostPlays,
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,

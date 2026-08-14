@@ -9,7 +9,8 @@ import type { GameState } from "../src/model/game-state.js";
 import type { UnitInstance } from "../src/model/card.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
-import { makeState, realUnitInstance } from "./fixtures.js";
+import { runEnd } from "../src/engine/turn-manager.js";
+import { makeState, makeUnit, realUnitInstance, resolveHeldTriggers, spellInstance } from "./fixtures.js";
 
 /**
  * **"You may play me for [Cost]" — rule 356.1.a, the REPLACED base cost.**
@@ -60,6 +61,10 @@ const JHIN_SPELL_THRESHOLD = 4;
 /** Undying Legion: 3 Energy, 0 Power printed; [3][Fury] from the trash. */
 const LEGION = "UNL-025";
 const LEGION_PRINTED_ENERGY = 3;
+
+/** Death from Below: the GRANTED permission, capped at the victim's Might. */
+const DEATH_FROM_BELOW = "UNL-186";
+const DFB_MIGHT_CAP = 3;
 
 const rune = (id: string, domain: RuneCard["domain"]): RuneCard => ({ id, domain, state: "Ready" });
 
@@ -341,6 +346,235 @@ describe("UNL-025 Undying Legion — a trash play at a DEARER replaced price", (
     const { state: after, result } = submit(state, printedVariant(plays)!);
     expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
     expect(after.players[0]!.trashUnitPlaysThisTurn, "the charge play did not spend the charge").toBe(0);
+  });
+});
+
+describe("UNL-186 Death from Below — a GRANTED per-instance permission", () => {
+  // "Kill a unit at a battlefield. Then, if it had 3 [Might] or less, you may
+  // play this from your trash for [rainbow]."
+  //
+  // The other half of this module: Jhin's and Undying Legion's permissions are
+  // PRINTED and re-derivable from the card, while this one is granted by
+  // something that HAPPENED — a specific kill, by a specific spell — and lives on
+  // `PlayerState.replacedCostPlays` because nothing about the card in the trash
+  // can re-derive it.
+  function dfbState(victimMight: number): { state: GameState; cardId: string } {
+    const card = spellInstance(DEATH_FROM_BELOW);
+    const state = board(["Fury"]);
+    state.players[0]!.hand = [card];
+    state.players[0]!.floatingEnergy = 6;
+    state.battlefields[0]!.units = { p2: [makeUnit({ instanceId: "victim", might: victimMight })] };
+    return { state, cardId: card.instanceId };
+  }
+
+  const castAt = (state: GameState, cardId: string): GameState => {
+    const play = playsOf(state, cardId).find((a) => a.targetUnitInstanceId === "victim");
+    expect(play, "no play variant targeted the unit at the battlefield").toBeDefined();
+    const { state: next, result } = submit(state, play!);
+    expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+    return resolveHeldTriggers(next);
+  };
+
+  it("grants the replay when the killed unit had 3 Might or less, and prices it at [rainbow]", () => {
+    // **A SECOND unit is left standing on purpose.** Death from Below needs a
+    // target at a battlefield, so killing the board's only unit leaves the replay
+    // with no legal choice and 355.8 makes it uncastable — correctly, but that
+    // would test the targeting rather than the permission. `big` is over the cap
+    // so the replay cannot re-grant and muddy what is being measured.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const after = castAt(state, cardId);
+
+    expect(after.players[0]!.trash.map((c) => c.instanceId), "the spell never reached the trash").toContain(cardId);
+    expect(after.players[0]!.replacedCostPlays.length, "no permission was granted").toBe(1);
+    const replays = playsOf(after, cardId);
+    expect(replays.length, "the trash replay was not offered").toBeGreaterThan(0);
+    expect(priceOf(replays[0]!), "the replay is not [rainbow] — 0 Energy, 1 Power of any domain").toEqual({
+      energy: 0,
+      power: 1,
+    });
+    expect(replays.every((a) => a.replacedCostPaid === true), "a printed-price replay was offered too").toBe(true);
+  });
+
+  it("a [rainbow] pip is paid by a rune of ANY domain", () => {
+    // The point of the rainbow, and the half a Fury-only pool cannot show. The
+    // permission prices in `powerDomain: null`, which `matchesPowerDomain` reads
+    // as any domain — so a Mind rune buys the replay even though the spell prints
+    // Fury-or-Chaos.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const after = castAt(state, cardId);
+    // Nothing but Mind left in the pool — no Fury or Chaos rune could pay.
+    const mindOnly = {
+      ...after,
+      players: [
+        { ...after.players[0]!, channeled: [rune("m0", "Mind")], floatingEnergy: 0 },
+        after.players[1]!,
+      ] as typeof after.players,
+    };
+
+    const replays = playsOf(mindOnly, cardId);
+    expect(replays.length, "a Mind rune could not pay a [rainbow] pip").toBeGreaterThan(0);
+    expect(replays[0]!.payment.powerRunes, "the Mind rune was not the thing spent").toEqual(["m0"]);
+  });
+
+  it("does NOT grant it when the killed unit was bigger", () => {
+    // **`replacedCostPlays` is asserted directly, and a bystander is left on the
+    // board.** Reading this through "is a replay offered" alone is VACUOUS, which
+    // mutation testing caught: killing the board's only unit leaves the replay
+    // with no legal target, so it is absent whether or not the permission was
+    // granted, and moving the Might cap to 4 changed nothing.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP + 1);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP + 1 }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const after = castAt(state, cardId);
+
+    expect(after.players[0]!.trash.map((c) => c.instanceId), "the spell never reached the trash").toContain(cardId);
+    expect(after.players[0]!.replacedCostPlays, "a 4-Might kill granted the recursion").toEqual([]);
+    expect(playsOf(after, cardId), "the replay was offered without a permission").toEqual([]);
+  });
+
+  it("measures the CURRENT Might, not the printed one", () => {
+    // "If it HAD 3 [Might] or less" is 143.2's current Might. A 2-Might unit
+    // pumped to 4 is a 4-Might unit when it dies, so the recursion is denied —
+    // and an implementation reading `unit.might` off the instance grants it.
+    //
+    // Same two precautions as the test above, and for the same measured reason.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP - 1);
+    state.battlefields[0]!.units = {
+      p2: [
+        makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP - 1, mightThisTurn: 2 }),
+        makeUnit({ instanceId: "big", might: 9 }),
+      ],
+    };
+    const after = castAt(state, cardId);
+
+    expect(after.players[0]!.trash.map((c) => c.instanceId)).toContain(cardId);
+    expect(after.players[0]!.replacedCostPlays, "a unit pumped over the cap still granted the recursion").toEqual([]);
+    expect(playsOf(after, cardId), "the replay was offered without a permission").toEqual([]);
+  });
+
+  it("the permission dies with the card — a spell banished out of the trash is not playable", () => {
+    // `replacedCostFor` re-checks zone membership on every ask rather than
+    // trusting the grant, which is what makes it safe to record one eagerly. The
+    // shape 359.3.e.12 describes: a check on something no longer available
+    // answers null.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const after = castAt(state, cardId);
+    expect(playsOf(after, cardId).length, "nothing was offered to take away").toBeGreaterThan(0);
+
+    const spell = after.players[0]!.trash.find((c) => c.instanceId === cardId)!;
+    const banished = {
+      ...after,
+      players: [
+        {
+          ...after.players[0]!,
+          trash: after.players[0]!.trash.filter((c) => c.instanceId !== cardId),
+          banished: [...after.players[0]!.banished, spell],
+        },
+        after.players[1]!,
+      ] as typeof after.players,
+    };
+
+    expect(banished.players[0]!.replacedCostPlays.length, "the grant should still be recorded").toBe(1);
+    expect(playsOf(banished, cardId), "a banished spell was playable on a trash permission").toEqual([]);
+
+    // **And the VALIDATOR refuses it too**, which is the half that actually
+    // needs the zone check. Mutation testing showed the enumerator's own
+    // `actor.trash` walk already hides a banished card, so deleting the check in
+    // `replacedCostFor` left the assertion above green — the rule only bites on a
+    // forged action, exactly like the printed-price trash play above.
+    const stillOffered = playsOf(after, cardId)[0]!;
+    expect(
+      validatePlayCard(banished, stillOffered).ok,
+      "the validator let a banished spell be played out of the trash",
+    ).toBe(false);
+  });
+
+  it("names an INSTANCE — a second copy in the same trash was granted nothing", () => {
+    // The permission is per-instance, not per-defId, and a trash holding two
+    // copies is the only thing that can tell the difference. Without this a
+    // lookup that took the first grant in the list would pass everything else
+    // here.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const after = castAt(state, cardId);
+
+    const secondCopy = spellInstance(DEATH_FROM_BELOW);
+    const twoCopies = {
+      ...after,
+      players: [
+        { ...after.players[0]!, trash: [...after.players[0]!.trash, secondCopy] },
+        after.players[1]!,
+      ] as typeof after.players,
+    };
+
+    expect(playsOf(twoCopies, cardId).length, "the granted copy stopped being playable").toBeGreaterThan(0);
+    expect(playsOf(twoCopies, secondCopy.instanceId), "an ungranted second copy was playable").toEqual([]);
+  });
+
+  it("SPENDS the permission — one [rainbow] does not buy it back forever", () => {
+    // 419.3.b's window is ONE play. Without the spend, a single grant makes the
+    // spell re-castable out of the trash every turn for the rest of the game.
+    //
+    // The replay is aimed at a SECOND victim that is over the cap, so the replay
+    // cannot re-grant and what is measured is the original permission being
+    // consumed rather than immediately replaced.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    state.battlefields[0]!.units = {
+      p2: [makeUnit({ instanceId: "victim", might: DFB_MIGHT_CAP }), makeUnit({ instanceId: "big", might: 9 })],
+    };
+    const afterFirst = castAt(state, cardId);
+    expect(afterFirst.players[0]!.replacedCostPlays.length, "nothing was granted — the rest proves nothing").toBe(1);
+
+    const replay = playsOf(afterFirst, cardId).find((a) => a.targetUnitInstanceId === "big");
+    expect(replay, "the replay could not be aimed at the second unit").toBeDefined();
+    const { state: afterReplay, result } = submit(afterFirst, replay!);
+    expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+    const settled = resolveHeldTriggers(afterReplay);
+
+    expect(settled.players[0]!.replacedCostPlays, "the permission survived its own use").toEqual([]);
+    expect(settled.players[0]!.trash.map((c) => c.instanceId), "the spell should be back in the trash").toContain(
+      cardId,
+    );
+    expect(playsOf(settled, cardId), "the spell is still replayable — the permission was never spent").toEqual([]);
+  });
+
+  it("expires with the turn, like every other window this engine holds open", () => {
+    // The recorded DIVERGENCE: 419.3.b makes this a Limited Play Effect resolved
+    // INSIDE the spell, and this engine cannot play a card mid-resolution — so
+    // the permission is held open until end of turn instead, exactly as Last
+    // Rites' `trashUnitPlaysThisTurn` is. It must not outlive that.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    const after = castAt(state, cardId);
+    expect(after.players[0]!.replacedCostPlays.length, "nothing was granted").toBe(1);
+
+    const ended = runEnd({ ...after, phase: "Action" });
+    expect(ended.players[0]!.replacedCostPlays, "the permission outlived the turn").toEqual([]);
+  });
+
+  it("is not offered to the OPPONENT, who was granted nothing", () => {
+    // The permission is per-player as well as per-instance. The spell sits in
+    // player 0's trash and player 1 holds no grant for it.
+    const { state, cardId } = dfbState(DFB_MIGHT_CAP);
+    const after = castAt(state, cardId);
+
+    expect(after.players[1]!.replacedCostPlays, "the opponent was granted something").toEqual([]);
+    const opponentTurn = { ...after, activePlayerIndex: 1 as const };
+    const theirs = legalActions(opponentTurn).filter(
+      (a): a is PlayCardAction => a.type === "PlayCard" && a.card.instanceId === cardId,
+    );
+    expect(theirs, "the opponent could play a card out of another player's trash").toEqual([]);
   });
 });
 

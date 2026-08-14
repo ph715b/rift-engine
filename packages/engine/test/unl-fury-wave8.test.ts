@@ -417,10 +417,11 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // `engine/replaced-costs.ts` (356.1.a): `mayPlayFromTrash` is now the ZONE
     // question and `mayPlayFromTrashOnCharge` the per-player counter that gets
     // spent, so a card may bring its own trash permission and its own price.
-    // UNL-186 stays — its permission is GRANTED at resolution to a specific
-    // instance rather than printed as a standing passive, which the table-driven
-    // half does not reach.
-    ["UNL-186", "mayPlayFromTrash is Units-only, per-player, and charges printed"],
+    // **UNL-186 left this list on 2026-08-13 too**, in the same change. Its
+    // permission is GRANTED at resolution to a specific instance rather than
+    // printed as a standing passive, so the table-driven half could not reach it;
+    // `PlayerState.replacedCostPlays` is the granted half, and it is spent by use
+    // and cleared at runEnd (419.3.b, recorded as a divergence).
     // `equipAbilities()` builds one static `ActivationCost` per gear; no activation
     // cost in this engine can depend on the target chosen for it.
     ["UNL-188", "an [Equip] cost that is a function of the chosen unit's Might"],

@@ -489,21 +489,27 @@ describe("Death from Below (UNL-186): kill a unit at a battlefield", () => {
     expect(offered, "nothing was offered at all — the negative above proves nothing").toContain("victim");
   });
 
-  it("PINNED: the 'play this from your trash for [rainbow]' clause is UNWRITTEN", () => {
-    // Half a card. The victim is 2 Might, so the printed condition ("3 or less")
-    // is MET and the replay should be on offer. Delete this pin when a
-    // per-instance trash-play permission with a replaced cost exists.
-    const { state, cardId } = dfbState();
-    state.battlefields[0]!.units = { p2: [makeUnit({ instanceId: "victim", might: 2 })] };
-    const after = playAndSettle(state, playsOf(state, cardId).find((a) => a.targetUnitInstanceId === "victim")!);
+  // **The "the replay is UNWRITTEN" pin was deleted on 2026-08-13, not
+  // inverted.** It set a 2-Might victim, cast, and asserted `playsOf(after,
+  // cardId).length` was 0. Both halves it was waiting for landed —
+  // `engine/replaced-costs.ts` for rule 356.1.a's replaced base cost, and
+  // `PlayerState.replacedCostPlays` for the granted per-instance permission — so
+  // the clause is now covered in `test/replaced-costs.test.ts` alongside the rest
+  // of that seam. A second file asserting the same fact is how the premise-flip
+  // class starts over.
+  //
+  // Worth carrying over from the pin, because it was nearly a trap: its fixture
+  // killed the board's ONLY unit, and Death from Below needs a target at a
+  // battlefield. So "the replay is not offered" was true there for two reasons at
+  // once, and the new tests leave a bystander standing to tell them apart.
 
-    expect(after.players[0]!.trash.map((c) => c.instanceId), "the spell is not in the trash — fixture is wrong").toContain(cardId);
-    expect(playsOf(after, cardId).length, "the trash replay now works — retire this pin").toBe(0);
-  });
-
-  it("is reported as implemented by coverage", () => {
+  it("is reported as implemented by coverage, and carries no partial note", () => {
     expect(implementingModules(DEATH_FROM_BELOW), "the kill is not registered at all").not.toEqual([]);
-    expect(partialImplementationNote(registry.get(DEATH_FROM_BELOW)), "the trash-play gap closed — retire this and the coverage row").toContain("trash");
+    expect(isCardImplemented(registry.get(DEATH_FROM_BELOW)), "the card reports unfinished").toBe(true);
+    expect(
+      partialImplementationNote(registry.get(DEATH_FROM_BELOW)),
+      "a partial note came back — the card is whole",
+    ).toBeUndefined();
   });
 });
 

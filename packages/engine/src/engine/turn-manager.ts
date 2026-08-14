@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { GameState, GrantedReplacedCostPlay, PlayerState } from "../model/game-state.js";
 import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
@@ -430,6 +430,20 @@ export function runEnd(state: GameState): GameState {
     // held open only because this engine cannot play a card mid-resolution, so
     // it must not outlive the turn that opened it.
     trashUnitPlaysThisTurn: 0,
+    // Death from Below's granted recursion, for exactly the reason above: it is
+    // a window held open only because this engine cannot play a card
+    // mid-resolution (419.3.b), so it must not outlive the turn that opened it.
+    //
+    // Annotated, like `conqueredBattlefieldsThisTurn` below and for a subtler
+    // version of the same reason. This object is CAST to a PlayerState tuple, and
+    // a cast needs assignability in one direction or the other; the array-to-tuple
+    // direction already fails on length, so the whole cast rests on PlayerState
+    // being assignable to this literal's inferred type. A bare `[]` infers
+    // `never[]`, and a `readonly GrantedReplacedCostPlay[]` is assignable to
+    // neither `never[]` nor any mutable array — so the annotation has to carry the
+    // `readonly` too. Writing `as GrantedReplacedCostPlay[]` breaks the cast just
+    // as surely as omitting it.
+    replacedCostPlays: [] as readonly GrantedReplacedCostPlay[],
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     // Reset with the rest of the per-turn tallies — "this turn" is the whole of

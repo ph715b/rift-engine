@@ -758,10 +758,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-182",
     "the four modes work; its THREE [Repeat]s are not modelled — RepeatCostSpec expresses exactly one Repeat instance (its own comment says so), and 820.1.c.2 needs each payable individually with a per-EXECUTION mode re-choice, where modeId is currently chosen once per action",
   ],
-  [
-    "UNL-186",
-    "half written: the kill works; 'play this from your trash for [rainbow]' is unwritten — timing.mayPlayFromTrash is per-player, Units-only, and charges the printed price, so a per-instance permission with a REPLACED cost needs timing.ts plus a PlayerState field",
-  ],
+  // **UNL-186 Death from Below LEFT this map on 2026-08-13**, and its note named
+  // the price exactly: "a per-instance permission with a REPLACED cost needs
+  // timing.ts plus a PlayerState field". Both landed — `engine/replaced-costs.ts`
+  // for the cost (356.1.a), `PlayerState.replacedCostPlays` for the grant, and
+  // `mayPlayFromTrash` split from `mayPlayFromTrashOnCharge` so a Spell can be
+  // reached in the trash without the Units-only charge.
   // **UNL-190 Lilting Lullaby LEFT this map on 2026-08-13.** Its refusal named
   // the shape exactly: `cannotPlayCardsThisTurn` stops CARDS, which is wider
   // than printed, and a spells-only twin was needed.
