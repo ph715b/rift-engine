@@ -101,8 +101,26 @@ it today:
 - It is gated on a COUNTER (`nextSpellRepeatGrants`); hers is a continuous,
   positional condition — while she is in a showdown.
 
-So she is a pricing-source change on an existing seam, not a rewrite of it. Do
-her separately from, and probably before, Curtain Call.
+**Measured further on 2026-08-13, and she is NOT cheap after all** — the
+correction above stands (she is not multi-instance) but the replacement
+conclusion was wrong. Her real blocker is that **her pip is in a domain the
+card does not print**:
+
+- `RepeatCostSpec.domain` is DEAD DATA — grep it; neither pricing site reads
+  it. Both fold the repeat's Power into `card.powerCost` and pay the total in
+  `card.powerDomain`. That works only because all fourteen printed Repeats
+  are in their own card's domain.
+- She grants `[2][Chaos]` to **"your spells"**, so beside a Fury spell the
+  play owes a Fury pip AND a Chaos pip. `RunePayment` has three buckets —
+  `energyRunes`, domain-checked `powerRunes`, any-domain `rainbowRunes` — and
+  none is "a pip in another named domain".
+- Folding it into `powerRunes` refuses legal plays; routing it through
+  `rainbowRunes` accepts any rune for a Chaos pip.
+
+So she needs a FOURTH payment bucket mirroring `rainbowRunes` — 17 sites
+across 10 files. The tractable subset (spells with no printed pip, plus Chaos
+spells) is a coverage LIE: it reports her DONE while silently withholding the
+grant everywhere else. Refused, with the full note at `effects/chaos.ts`.
 
 `RepeatCostSpec` expresses exactly one instance and its own comment says so.
 Curtain Call needs: a LIST payable individually, the action carrying WHICH

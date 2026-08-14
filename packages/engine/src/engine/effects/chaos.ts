@@ -1616,20 +1616,48 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   //     spell. Riding it would give Syndra one repeatable spell per arming rather
   //     than every spell she stands in a showdown for.
   //
-  // So the edit is `grantedRepeatCostOf` returning a LIST of `RepeatCostSpec`
-  // built from every live source — the armed counter AND a board-read aura — and
-  // the action carrying which INSTANCES were paid rather than one
-  // `grantedRepeatPaid` boolean, with a choice set per execution (820.2.a; the
-  // engine's own note on `nextSpellRepeatGrants` already records the reuse of the
-  // first execution's choices as a partial). That is card-effects.ts,
-  // player-action.ts, legal-actions.ts, validate-play-card.ts and
-  // card-effect-resolution.ts — five shared files, so it is refused rather than
-  // half-built.
+  // **RE-MEASURED 2026-08-13, and the blocker is smaller in one place and much
+  // bigger in another than this note said.** Corrected in place rather than
+  // re-derived a third time.
   //
-  // Worth recording for whoever takes it: Syndra beside a spell that already
-  // prints `[Repeat]` is the pool's first TWO-INSTANCE case, which is exactly
-  // what `REPEAT_COSTS`' own comment says it has no card to exercise. That
-  // comment is about PRINTED instances and remains true; hers is granted.
+  // SMALLER: the two-instance case is NOT the problem. `legal-actions` already
+  // crosses a granted instance with a printed one — `for (const alsoPrinted of
+  // repeatCost ? [false, true] : [false])` — and the action already carries
+  // `repeatPaid` and `grantedRepeatPaid` as SEPARATE booleans, which is exactly
+  // "which instances were paid" for the two-source case. A list is needed only
+  // for two GRANTED instances at once (Syndra beside an armed Temporal Portal),
+  // which is a rarer case than the note implied and can be under-offered.
+  //
+  // BIGGER, and this is the real refusal: **her pip is in a domain the card does
+  // not print, and no payment shape in this engine can express that.**
+  //
+  //   - `RepeatCostSpec.domain` is DEAD DATA. Grep it: nothing in
+  //     `legal-actions` or `validate-play-card` reads it. Both fold the repeat's
+  //     Power into `card.powerCost` and pay the total with `card.powerDomain`.
+  //     That is correct today only because all fourteen printed Repeats are in
+  //     their own card's domain — `repeat-cost-table.test.ts` asserts it card by
+  //     card, which is why nobody has noticed the field is unused.
+  //   - Syndra grants `[2][Chaos]` to **"your spells"**, so the first Fury spell
+  //     she is played beside owes one Fury pip and one Chaos pip on the same
+  //     play. `RunePayment` has exactly three buckets — `energyRunes`,
+  //     `powerRunes` (checked against the CARD's domain) and `rainbowRunes` (any
+  //     domain) — and none of them is "a pip in some other named domain".
+  //   - Folding it into `powerRunes` demands Fury for a Chaos pip (refuses legal
+  //     plays); routing it through `rainbowRunes` accepts ANY rune for it
+  //     (STRONGER than printed, the direction this file works hardest to avoid).
+  //
+  // So the edit is a FOURTH payment bucket, mirroring what `rainbowRunes`
+  // already does for `[Deflect]` — 17 sites across 10 files
+  // (`player-action.ts`, `rune-payment.ts`, `legal-actions.ts`,
+  // `validate-play-card.ts`, `execute-play-card.ts` and the activated-ability
+  // pair). It is refused rather than half-built because the tractable subset is
+  // a coverage LIE: her grant CAN be expressed for a spell with no printed Power
+  // pip (pass "Chaos" as the whole domain) and for a Chaos spell, and those two
+  // cases would make the card report DONE while silently never offering the
+  // grant on any other spell.
+  //
+  // **`RepeatCostSpec.domain` being unread is worth fixing whoever takes this**,
+  // independently of Syndra: it is a field that looks like it works.
 };
 
 /** Angler Beast's net — "all units with 2 [Might] or less". */
