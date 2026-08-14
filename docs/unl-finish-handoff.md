@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 20
+# Finishing Unleashed — the last 18
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,13 +26,14 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three and Maduli made four, so **20 remain**: **7 triaged** (a
-`partialImplementationNote` names the precise shared-file edit) and **13
-untouched**.
+three; Maduli, Poppy and Crescent Guardian made six, so **18 remain**: **7
+triaged** (a `partialImplementationNote` names the precise shared-file edit) and
+**11 untouched**.
 
-The 13 are no longer unread — see Block 5, which triages every one of them. They
-were never "ordinary card work" as a group: three look small because an existing
-seam already takes them, and three are systemic.
+The untouched group is no longer unread — see Block 5, which triages every one.
+It was never "ordinary card work" as a group: **two of the three it called
+"likely small" have since landed** (Poppy, Crescent Guardian) at roughly the
+predicted cost, and three of the rest are systemic.
 
 Re-measured 2026-08-13 after Block 1 and Maduli: **25 unimplemented UNL ids = 20
 distinct cards** once the alias printings are folded.
@@ -175,9 +176,9 @@ not an implementation plan — re-read the code before believing any line of it.
 
 | card | text | the seam |
 |---|---|---|
-| UNL-178 Poppy | "spend 3 XP as an additional cost; if you do, I cost [3] less" | `OPTIONAL_XP_COSTS` already exists and already enumerates `optionalXpPaid`. Unlike Conscription, the payoff is a plain DISCOUNT, not a wider target — so it wants a cost reduction keyed to the flag at the three cost sites. **Price it before the affordability bail**, exactly as the replaced cost had to be: 6E→3E means a player can afford only the paid variant. |
+| UNL-178 Poppy | **DONE 2026-08-13.** The table row grew an `energyDiscount` read at all three cost sites, and the XP became a variant DIMENSION — which also fixed a pre-existing gap where a Unit's XP variant reached base and no battlefield. |
 | UNL-117 Arachnoid Horror (first clause) | "I can be played to an occupied battlefield if an enemy unit is alone there" | one `PLACEMENT_GRANTS` row + one predicate, beside `openBattlefield` / `occupiedEnemyBattlefield`. **His SECOND clause is the bigger half** — it grants the same to ALL friendly units, which is board-conditional and belongs with Miss Fortune - Buccaneer's `inPlayFor` shape, not in the per-card table. |
-| UNL-122 Crescent Guardian | "if you've played a spell this turn, you may pay [Chaos] as an additional cost; if you do, I enter ready" | `OPTIONAL_POWER_COSTS` covers the cost and "enter ready" is well-trodden. The gap is the CONDITION: nothing counts spells played. `cannotPlaySpellsThisTurn` does not close it (a ban is not a record) and `maxSpellEnergySpentThisTurn` is not a substitute either — a spell played for 0 spends nothing. Needs a `spellsPlayedThisTurn` counter. |
+| UNL-122 Crescent Guardian | **DONE 2026-08-13.** `spellsPlayedThisTurn` (the ninth spell-named field; the census test that flipped is kept), a `condition` on the cost table so the OFFER itself is gated, and `deploy.unitEntersReady` for the payout — a replacement (369.3), not a trigger. |
 
 **Medium — a real but bounded new mechanism:**
 
