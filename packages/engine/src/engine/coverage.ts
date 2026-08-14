@@ -25,6 +25,7 @@ import { hideCostDefIds } from "./hidden.js";
 import { topOfDeckDefIds } from "./top-of-deck.js";
 import { battlefieldAbilityDefIds, beginningPhaseBattlefieldDefIds } from "./battlefield-abilities.js";
 import { continuousBattlefieldDefIds, moveRestrictionDefIds } from "./battlefield-continuous.js";
+import { turnManagerDefIds } from "./turn-manager.js";
 import { chooseRestrictionDefIds } from "./target-lookup.js";
 import { accelerateGrantDefIds, playRestrictionDefIds } from "./timing.js";
 
@@ -301,6 +302,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "play-card rules", defIds: playCardDefIds },
   { label: "damage-modifiers", defIds: damageModifierDefIds },
   { label: "cost-modifiers", defIds: costModifierDefIds },
+  { label: "turn-manager", defIds: turnManagerDefIds },
   { label: "activated abilities", defIds: activatedAbilityDefIds },
   { label: "borrowed abilities", defIds: borrowedAbilityDefIds },
   { label: "card-loader keywords", defIds: loaderHandledDefIds },

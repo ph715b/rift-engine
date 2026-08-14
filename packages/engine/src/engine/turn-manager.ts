@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
@@ -112,14 +113,46 @@ export function runAwaken(state: GameState): GameState {
  * Multiple instances are redundant (817.1.a), which is free here: the keyword is
  * a presence check, not a count.
  */
+/** LeBlanc - Everywhere At Once — "your [Temporary] effects at my battlefield
+ *  don't happen". The only card that spares a [Temporary] permanent. */
+const LEBLANC_EVERYWHERE = "UNL-090";
+
+/**
+ * For coverage.ts — cards this module implements.
+ *
+ * The first one, and it needs its own source because nothing else could claim
+ * her: her shelter is a branch inside the `[Temporary]` sweep, not a registry
+ * entry, and her other clause is the printed `[Backline]` keyword that
+ * `combat.assignmentOrder` already reads. Without this she reports inert while
+ * working.
+ */
+export function turnManagerDefIds(): string[] {
+  return [LEBLANC_EVERYWHERE];
+}
+
 function killTemporaryPermanents(state: GameState): GameState {
   const controller = state.activePlayerIndex;
   const owner = state.players[controller];
 
   const isTemporary = (u: UnitInstance) => "Temporary" in u.keywords;
+  /**
+   * LeBlanc - Everywhere At Once (UNL-090) — "Your [Temporary] effects at my
+   * battlefield don't happen."
+   *
+   * A per-BATTLEFIELD reprieve, so the walk below cannot flatten the board the
+   * way it used to: it has to know which battlefield each doomed unit is
+   * standing at. Her own controller's units only — "YOUR [Temporary] effects" —
+   * and the sweep already runs per controller, so that falls out.
+   *
+   * A unit in BASE is never spared: she names a battlefield, and a base is not
+   * one (198.1). Gear is unaffected either way — an attached Equipment is
+   * already spared by 718.2, and an unattached one has no location at all.
+   */
+  const shelters = (bf: (typeof state.battlefields)[number]) =>
+    (bf.units[owner.id] ?? []).some((u) => canonicalDefId(u.defId) === LEBLANC_EVERYWHERE);
   const doomed = [
     ...owner.baseUnits.filter(isTemporary),
-    ...state.battlefields.flatMap((bf) => (bf.units[owner.id] ?? []).filter(isTemporary)),
+    ...state.battlefields.flatMap((bf) => (shelters(bf) ? [] : (bf.units[owner.id] ?? []).filter(isTemporary))),
   ].map((u) => u.instanceId);
 
   // Route through destroyUnit, not a hand-rolled removal: a Temporary unit that

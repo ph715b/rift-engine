@@ -141,64 +141,16 @@ describe("UNL-194 Shadow: played to a battlefield, he still arrives EXHAUSTED", 
 // UNL-035 Monch — "If an opponent controls a stunned unit, I cost [2] less and
 // enter ready."
 // ---------------------------------------------------------------------------
-describe("UNL-035 Monch: neither clause is reachable", () => {
-  function monchState(): GameState {
-    const s = makeState({ phase: "Action" });
-    // The condition the card names, satisfied as hard as it can be.
-    s.battlefields[0]!.units = { p2: [makeUnit({ name: "Stunned enemy", instanceId: "stunned", stunned: true })] };
-    return s;
-  }
-
-  it("THE PIN: the discount never applies", () => {
-    const s = monchState();
-    // `CardDefinition` is a union and the cost lives on the Unit arm — the narrow
-    // is load-bearing, and vitest does not typecheck, so this only surfaced at the
-    // integrator's `npm run typecheck` exactly as this agent predicted.
-    const monchDef = registry.get(MONCH);
-    if (monchDef.type !== "Unit") throw new Error("Monch is not a Unit definition");
-    const printed = monchDef.energyCost;
-    expect(printed).toBe(6);
-    expect(modifiedEnergyCost(s, 0, "Unit", printed, MONCH), "Monch gained a cost-modifiers row").toBe(6);
-  });
-
-  it("POSITIVE CONTROL: a card that IS in the table moves under the same call", () => {
-    // Spoils of War — "costs [2] less if an enemy unit has died this turn".
-    // Same function, same state, a different defId: proves `modifiedEnergyCost`
-    // is live here and the 6 above is a missing row, not a dead call.
-    const s = monchState();
-    const spoilsDef = registry.get(SPOILS_OF_WAR);
-    if (spoilsDef.type !== "Spell") throw new Error("Spoils of War is not a Spell definition");
-    const printed = spoilsDef.energyCost;
-    const before = modifiedEnergyCost(s, 0, "Spell", printed, SPOILS_OF_WAR);
-    s.players[1]!.unitsLostThisTurn = 1;
-    const after = modifiedEnergyCost(s, 0, "Spell", printed, SPOILS_OF_WAR);
-    expect(after, "the control card's cost did not move — this whole comparison is vacuous").toBeLessThan(before);
-  });
-
-  /** Plays Monch to base and returns him as he landed. */
-  function playMonch(s: GameState) {
-    const monch = realUnitInstance(MONCH);
-    s.players[0]!.hand = [monch];
-    s.players[0]!.channeled = runes("Calm", 10);
-    const play = playsOf(s, monch.instanceId).find((p) => p.destinationBattlefieldId === undefined);
-    expect(play, "no base play of Monch was enumerated").toBeDefined();
-    const { state: next, result } = submit(s, play!);
-    expect(result).toMatchObject({ type: "Ok" });
-    return next.players[0]!.baseUnits.find((u) => u.defId === MONCH)!;
-  }
-
-  it("THE PIN: he also enters exhausted beside a stunned enemy", () => {
-    expect(playMonch(monchState()).exhausted, "Monch now enters ready — retire this pin").toBe(true);
-  });
-
-  it("POSITIVE CONTROL: the same play produces a READY Monch when the board says so", () => {
-    // Without this the pin above is vacuous: 143.4.a's default IS exhausted, so
-    // `true` proves nothing until the same fixture is shown producing `false`.
-    const s = monchState();
-    s.players[0]!.unitsEnterReadyThisTurn = true;
-    expect(playMonch(s).exhausted).toBe(false);
-  });
-});
+// **The UNL-035 Monch block that stood here was DELETED on 2026-08-13 —
+// superseded, not weakened.**
+//
+// It pinned BOTH halves as unreachable and measured each: `modifiedEnergyCost`
+// returned 6 beside a stunned enemy, and he landed exhausted through a real
+// `submit`. Both were true, and its measurements are what made the card cheap —
+// it named the two files and the shape of each edit.
+//
+// Both halves landed together, reading one shared predicate so a discounted
+// Monch can never arrive exhausted. Coverage lives in `monch-leblanc.test.ts`.
 
 // ---------------------------------------------------------------------------
 // UNL-037 Shadow Watcher — "If a friendly unit died during your Beginning Phase

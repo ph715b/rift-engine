@@ -191,8 +191,16 @@ describe("the keyword no longer greys any card", () => {
     for (const defId of [PROMOTER, EVELYNN, PYKE_RETURNED]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} did not come whole`).toBe(true);
     }
-    expect(isCardImplemented(registry.get(LEBLANC)), "LeBlanc's own text got written by accident").toBe(false);
-    expect(partialImplementationNote(registry.get(LEBLANC)), "LeBlanc is being blamed on something").toBeUndefined();
+    // **LeBlanc's own text landed on 2026-08-13.** Her second clause — "your
+    // [Temporary] effects at my battlefield don't happen" — is a branch inside
+    // `killTemporaryPermanents`, and the sweep had to stop flattening the board
+    // to know which battlefield each doomed unit stands at.
+    //
+    // She needed her own coverage source (`turnManagerDefIds`) because nothing
+    // else could claim her: the shelter is not a registry entry, and `[Backline]`
+    // is a printed keyword the combat code already reads.
+    expect(isCardImplemented(registry.get(LEBLANC)), "LeBlanc went back to unimplemented").toBe(true);
+    expect(partialImplementationNote(registry.get(LEBLANC)), "she gained a partial note").toBeUndefined();
   });
 });
 

@@ -258,8 +258,11 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // this file: it measured that the destination needed ONE shared row rather
     // than the three predicted, and the project owner then ruled that its "single
     // location" includes the enemy base. Both halves landed together.
-    const stillRefused = [MONCH, SHADOW_WATCHER, SIGNPOST];
-    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(3);
+    // **MONCH left on 2026-08-13.** His refusal named both files exactly — two
+    // lines in `modifiedEnergyCost` and a `conditionalEntersReady` case — and
+    // that is what was written.
+    const stillRefused = [SHADOW_WATCHER, SIGNPOST];
+    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(2);
     for (const id of stillRefused) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }

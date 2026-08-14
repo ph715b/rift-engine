@@ -608,7 +608,11 @@ describe("the two cards this wave REFUSED", () => {
   const SHADOW_WATCHER = "UNL-037"; // "If a friendly unit died during your Beginning Phase this turn, I enter ready."
 
   it("are registered nowhere, and report unimplemented", () => {
-    for (const id of [MONCH, SHADOW_WATCHER]) {
+    // **MONCH left this pair on 2026-08-13** — his two halves went into
+    // cost-modifiers.ts and deploy.ts, asking one shared predicate so a
+    // discounted Monch can never arrive exhausted. Shadow Watcher still needs a
+    // Beginning-Phase death counter that nothing records.
+    for (const id of [SHADOW_WATCHER]) {
       expect(implementingModules(id), `${id} was implemented — delete this test`).toHaveLength(0);
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented while doing nothing`).toBe(false);
     }
@@ -626,7 +630,11 @@ describe("the two cards this wave REFUSED", () => {
     const played = play(state, MONCH);
     const monch = ownUnitNamed(played, registry.get(MONCH).name);
     expect(monch, "Monch was never played — this proves nothing").toBeDefined();
-    expect(monch!.exhausted, "Monch entered ready — the gap closed, delete this test").toBe(true);
+    // **INVERTED 2026-08-13**, exactly as this pin asked. Both his halves read
+    // `opponentControlsStunnedUnit`, so the enter-ready and the discount cannot
+    // come apart — which is the failure a card priced on one reading of a
+    // condition and deployed on another would produce.
+    expect(monch!.exhausted, "Monch stopped entering ready beside a stunned enemy").toBe(false);
   });
 });
 

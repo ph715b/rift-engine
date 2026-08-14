@@ -98,6 +98,19 @@ function legionDiscountDefIds(): string[] {
 const FIND_YOUR_CENTER = "OGN-047";
 const FIND_YOUR_CENTER_DISCOUNT = 2;
 
+/** Monch — "If an opponent controls a stunned unit, I cost [2] less and enter
+ *  ready." Two halves in two files; see `conditionalEntersReady` for the other. */
+const MONCH = "UNL-035";
+const MONCH_DISCOUNT = 2;
+
+/** Does the OPPONENT of `playerIndex` control a stunned unit, anywhere? Shared
+ *  by both of Monch's halves so the discount and the enter-ready can never
+ *  disagree about the condition they are both reading. */
+export function opponentControlsStunnedUnit(state: GameState, playerIndex: 0 | 1): boolean {
+  const foe = state.players[playerIndex === 0 ? 1 : 0];
+  return [...foe.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[foe.id] ?? [])].some((u) => u.stunned);
+}
+
 /** Spoils of War: "If an enemy unit has died this turn, this costs 2 Energy
  *  less." Read from the OPPONENT's `unitsLostThisTurn`, which the death funnel
  *  bumps — a replaced or warded death never reaches it, and neither should
@@ -855,6 +868,17 @@ export function modifiedEnergyCost(
     cost = Math.max(0, cost - FIND_YOUR_CENTER_DISCOUNT);
   }
 
+  // Monch — "If an opponent controls a stunned unit, I cost [2] less and enter
+  // ready." The DISCOUNT half; the enter-ready half is a `conditionalEntersReady`
+  // case in deploy.ts, and both are needed or the card is half-priced or
+  // half-ready.
+  //
+  // "An OPPONENT controls" — the opponent's units wherever they stand, base
+  // included, since the card names no location. Read live, so a unit that stops
+  // being stunned before the card is paid for stops discounting it.
+  if (defId === MONCH && opponentControlsStunnedUnit(state, playerIndex)) {
+    cost = Math.max(0, cost - MONCH_DISCOUNT);
+  }
   if (defId === SPOILS_OF_WAR && state.players[playerIndex === 0 ? 1 : 0].unitsLostThisTurn > 0) {
     cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);
   }

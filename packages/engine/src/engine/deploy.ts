@@ -1,4 +1,5 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
+import { opponentControlsStunnedUnit } from "./cost-modifiers.js";
 import type { UnitInstance } from "../model/card.js";
 import { dispatchOnPlayUnit } from "./unit-triggers.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
@@ -97,6 +98,9 @@ export function playCardDefIds(): string[] {
     DIREWING,
     BREAKNECK_MECH,
     XIN_ZHAO_VIGILANT,
+    // Monch's enter-ready half. His DISCOUNT half registers him in
+    // cost-modifiers.ts too, and coverage merges the two claims.
+    MONCH,
     // Shadow's is the odd one out: every other entry here reads the BOARD, and
     // his reads which deploy path is running. He is registered all the same,
     // because coverage's question is "does some module implement this clause",
@@ -295,6 +299,16 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // anywhere, which is why `playCardDefIds()` must name him or coverage would
       // report a finished card inert.
       return player.xp >= BANDLE_SOLDIER_LEVEL;
+    case MONCH:
+      // UNL — "If an opponent controls a stunned unit, I cost [2] less and enter
+      // ready." The enter-ready half; the discount is a branch in
+      // `cost-modifiers.modifiedEnergyCost`.
+      //
+      // Both halves ask ONE shared predicate, `opponentControlsStunnedUnit`, so
+      // a Monch that was discounted can never arrive exhausted — a card priced
+      // on one reading of a condition and deployed on another is the shape this
+      // file's own Leona note warns about.
+      return opponentControlsStunnedUnit(state, playerIndex);
     default:
       return false;
   }
@@ -341,6 +355,10 @@ const XIN_ZHAO_VIGILANT = "SFD-176";
 /** Shadow — "If you play me to a battlefield, I enter ready." The only
  *  enter-ready clause in the pool conditioned on the DESTINATION. */
 const SHADOW = "UNL-194";
+/** Monch — "If an opponent controls a stunned unit, I cost [2] less and enter
+ *  ready." The enter-ready half; see cost-modifiers.ts for the price. */
+const MONCH = "UNL-035";
+
 const TOWERING_PAIROFANT = "UNL-008";
 const XIN_ZHAO_OTHER_UNITS = 2;
 /** Scorchclaw (UNL-016) — "[Level 3][>] I have +1 [Might] and enter ready."
