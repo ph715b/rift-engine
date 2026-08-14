@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 17
+# Finishing Unleashed — the last 16
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,16 +26,16 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three; Maduli, Poppy, Crescent Guardian and Arachnoid Horror made seven, so **17
-remain**: **7 triaged** (a `partialImplementationNote` names the precise
-shared-file edit) and **10 untouched**.
+three; Maduli, Poppy, Crescent Guardian, Arachnoid Horror and Frigid Jewel made
+eight, so **16 remain**: **7 triaged** (a `partialImplementationNote` names the
+precise shared-file edit) and **9 untouched**.
 
 The untouched group is no longer unread — see Block 5, which triages every one.
 It was never "ordinary card work" as a group: **two of the three it called
 "likely small" have since landed** (Poppy, Crescent Guardian) at roughly the
 predicted cost, and three of the rest are systemic.
 
-Re-measured 2026-08-13, latest: **22 unimplemented UNL ids = 17 distinct cards**
+Re-measured 2026-08-13, latest: **21 unimplemented UNL ids = 16 distinct cards**
 once the alias printings are folded.
 
 ### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
@@ -186,8 +186,10 @@ not an implementation plan — re-read the code before believing any line of it.
   turn". A per-UNIT, this-turn damage multiplier; `damage-modifiers.ts` is the
   home and `dealDamage` already routes through it, but combat ASSIGNMENT is a
   second reader.
-- **UNL-074 Frigid Jewel** — "when you draw your SECOND card each turn". Needs a
-  per-turn draw counter and a trigger on the boundary, not on every draw.
+- **UNL-074 Frigid Jewel** — **DONE 2026-08-13.** A new `cardDrawn` event
+  carrying `nthThisTurn`, raised per card from inside `drawCards`. The ordinal
+  rides the EVENT because the trigger is held — a listener re-reading the counter
+  fires three times or none on a single draw-three.
 - **UNL-106 Repulse** — a counter with a targeting CONDITION ("chooses it and no
   other friendly unit"). `counter-spell.ts` exists; the condition needs the chain
   item's chosen set.
