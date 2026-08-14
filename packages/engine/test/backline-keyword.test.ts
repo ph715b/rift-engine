@@ -221,9 +221,9 @@ describe("two more tables that already existed, and the cards that were not in t
     // shipped with the trigger written and the cost unenumerable. Asserted as a
     // PAIR so the next one is checked against this table before being called
     // blocked.
-    expect(optionalPowerCostOf("UNL-052"), "Nami's [Stun] can still never fire").toEqual({ domain: "Calm", count: 1 });
-    expect(optionalPowerCostOf("UNL-028"), "Pyke's row regressed").toEqual({ domain: "Fury", count: 1 });
-    expect(optionalPowerCostOf("UNL-043"), "an unrelated card gained an optional cost").toBeUndefined();
+    expect(optionalPowerCostOf(makeState({}), 0, "UNL-052"), "Nami's [Stun] can still never fire").toEqual({ domain: "Calm", count: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, "UNL-028"), "Pyke's row regressed").toEqual({ domain: "Fury", count: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, "UNL-043"), "an unrelated card gained an optional cost").toBeUndefined();
   });
 });
 

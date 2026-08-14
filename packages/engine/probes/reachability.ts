@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 181/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 180/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -421,7 +421,23 @@ const GAMES = Number(process.env.GAMES ?? 500);
 //  - **UNL-103 Disposal Order** — a `[Reaction]` spell, ordinary sampling.
 //
 // Newly-unexercised was EMPTY, so nothing traded places for any of it.
-const PINNED_UNION = 617;
+//
+// **617 -> 616 on 2026-08-13 for UNL-122 Crescent Guardian — a DROP, decomposed
+// against the previous run rather than accepted.** Net -1, from a much larger
+// churn: seating her (UNL 206 -> 207) reshuffled the fixed-size covering deck,
+// three cards came IN (UNL-061, UNL-070, UNL-122 herself) and four went OUT
+// (UNL-019, UNL-032, UNL-103, UNL-107).
+//
+// **All four that left are in `offeredNeverTaken`**, which is what settles it:
+// the engine still ENUMERATES them and the 1-ply AI declined them in this
+// sample. A card broken by an enumeration change lands in `drawnNeverOffered`,
+// and that bucket is EMPTY — as it has been since Poppy landed. `invalid: 0` in
+// every run, and every instrument control is true.
+//
+// Two of the four (UNL-019, UNL-103) are the same cards that came IN when Poppy
+// seated one commit earlier, which is the clearest evidence available that these
+// are marginal AI choices oscillating with the deck, not behaviour.
+const PINNED_UNION = 616;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

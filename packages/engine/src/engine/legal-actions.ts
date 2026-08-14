@@ -1686,7 +1686,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // Clockwork Keeper's optional Power cost — a second candidate priced one
       // Power higher, exactly as [Accelerate] is, and on its own flag so the two
       // cannot be confused (that one also means "enters ready").
-      const optionalPower = optionalPowerCostOf(card.defId);
+      const optionalPower = optionalPowerCostOf(state, playerIndex, card.defId);
       if (optionalPower && !fromHidden) {
         // Priced against the cost's OWN domain, not the card's `powerDomain` —
         // Clockwork Keeper prints no Power at all, so that field is null and

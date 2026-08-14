@@ -473,6 +473,10 @@ export function runEnd(state: GameState): GameState {
     // Reset with the rest of the per-turn tallies — "this turn" is the whole of
     // what makes the two cards reading it conditional.
     maxSpellEnergySpentThisTurn: 0,
+    // Crescent Guardian's "if you've played a spell this turn" — a per-turn
+    // tally like every field here, and it must not outlive the turn that
+    // filled it or her additional cost becomes permanently offerable.
+    spellsPlayedThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     // Annotated because this object is cast to a PlayerState tuple below, and a
     // bare `[]` infers `never[]`, which does not overlap `string[]`.

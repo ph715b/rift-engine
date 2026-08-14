@@ -500,11 +500,17 @@ describe("coverage", () => {
     expect(batch.filter((id) => !isCardImplemented(registry.get(id)))).toEqual([]);
   });
 
-  it("does NOT claim Crescent Guardian (UNL-122), which is refused", () => {
-    // Its optional additional cost, the "you've played a spell this turn"
-    // condition on that cost, and the "if you do, I enter ready" that reads the
-    // flag all live in files this wave does not own. A coverage claim without
-    // them would report a card that does nothing.
-    expect(isCardImplemented(registry.get("UNL-122"))).toBe(false);
+  it("claims Crescent Guardian (UNL-122) — refused by this wave, landed 2026-08-13", () => {
+    // **Inverted, not deleted.** The refusal named all three things that lived in
+    // files this wave did not own, and all three were built: the optional
+    // additional cost is `OPTIONAL_POWER_COSTS`, the "you've played a spell this
+    // turn" condition is a new `condition` on that table reading a new
+    // `PlayerState.spellsPlayedThisTurn`, and "if you do, I enter ready" is
+    // `deploy.unitEntersReady` reading `optionalPowerPaid` beside the
+    // `acceleratePaid` it already read.
+    //
+    // Her coverage is `test/crescent-guardian.test.ts`; this stays as the
+    // wave-level assertion that the claim exists at all.
+    expect(isCardImplemented(registry.get("UNL-122"))).toBe(true);
   });
 });

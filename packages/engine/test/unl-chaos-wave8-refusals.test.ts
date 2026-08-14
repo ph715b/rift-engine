@@ -176,29 +176,37 @@ describe("UNL-122 Crescent Guardian: has this player played a spell this turn?",
     expect(zeroEnergySpells).toEqual([CALLED_SHOT]);
   });
 
-  it("PINNED: EVERY spell-named PlayerState field, and not one of them counts plays", () => {
-    // The completeness half, and the thing that flips the day somebody adds
-    // `spellsPlayedThisTurn`. A census rather than a search that came up empty:
-    // `makePlayer` has to name every REQUIRED field of `PlayerState` or the
-    // fixture stops typechecking, so this list is the type's, not the fixture's.
+  it("the spell-named PlayerState census — and one of them NOW counts plays", () => {
+    // **This is the test flipping exactly as designed.** Its own note said it was
+    // "the thing that flips the day somebody adds `spellsPlayedThisTurn`", and
+    // that day was 2026-08-13. The census is KEPT rather than deleted: it is a
+    // completeness invariant over the type, not a claim about one card, and it
+    // has now done its job twice (it caught `cannotPlaySpellsThisTurn` arriving
+    // and made someone rule on whether a BAN answers "have you played one" — it
+    // does not).
     //
-    // Read against `-raw`: none of the eight is a play counter. Three are
-    // restricted pools, two are one-shot charges, one is a grant counter, one is
-    // a per-battlefield list, and `maxSpellEnergySpentThisTurn` is the maximum
-    // the two tests above already refute.
+    // A census rather than a search that came up empty: `makePlayer` has to name
+    // every REQUIRED field of `PlayerState` or the fixture stops typechecking, so
+    // this list is the type's, not the fixture's.
+    //
+    // Of the nine, exactly one is a play counter. Three are restricted pools, two
+    // are one-shot charges, one is a grant counter, one is a per-battlefield list,
+    // one is a ban, and `maxSpellEnergySpentThisTurn` is the maximum the two
+    // tests above refute — which is why the ninth had to be added rather than
+    // derived from any of them.
     expect(
       Object.keys(makeState().players[0]!)
         .filter((k) => /spell/i.test(k))
         .sort(),
-      "a new spell-named PlayerState field exists — if it counts plays, this refusal is closed",
+      "a new spell-named PlayerState field exists — check what it answers",
     ).toEqual([
-      // **`cannotPlaySpellsThisTurn` joined on 2026-08-13** and does NOT close
-      // this refusal — it is Lilting Lullaby's BAN, a fact about what a player
-      // may do, not a record of what they have done. Crescent Guardian still
-      // needs "have you played a spell this turn", which nothing counts.
+      // **`cannotPlaySpellsThisTurn` joined on 2026-08-13** and did NOT close the
+      // refusal — it is Lilting Lullaby's BAN, a fact about what a player may do,
+      // not a record of what they have done.
       //
-      // The census did exactly its job: it noticed a new field and made someone
-      // answer the question rather than absorbing it silently.
+      // **`spellsPlayedThisTurn` joined later the same day and DID close it.**
+      // That is the ninth entry below, and it is the only one that answers "have
+      // you played a spell this turn".
       "cannotPlaySpellsThisTurn",
       "maxSpellEnergySpentThisTurn",
       "nextSpellBonusDamage",
@@ -208,21 +216,30 @@ describe("UNL-122 Crescent Guardian: has this player played a spell this turn?",
       "restrictedSpellEnergy",
       "restrictedSpellPower",
       "spellChoiceDrawnBattlefieldIds",
+      "spellsPlayedThisTurn",
     ]);
   });
 
-  it("...and playing one moves only fields that a Gear or a Unit moves too", () => {
-    // The other half of the same claim, driven through `submit`: after a real
-    // Spell play the only scalars that moved are the universal card counter and
-    // the payment. `floatingEnergy` RISES because paying a Power pip exhausts a
-    // rune, which yields Energy as well — nothing about it names a Spell.
+  it("...and playing one now moves a field that ONLY a Spell moves", () => {
+    // The behavioural half of the same census, driven through `submit`, and it
+    // has flipped with its twin. It used to assert that a Spell play moved only
+    // things a Gear or a Unit moves too — the universal card counter and the
+    // payment — which was the refutation.
+    //
+    // `spellsPlayedThisTurn` is now in the delta and is the whole point: it is
+    // the one scalar a Spell moves and a Unit does not.
+    // `test/crescent-guardian.test.ts` proves the negative half on the same
+    // board, by playing a UNIT and watching it stay put.
+    //
+    // `floatingEnergy` RISES because paying a Power pip exhausts a rune, which
+    // yields Energy as well (164.2) — nothing about it names a Spell.
     const { state, card } = holding(CALLED_SHOT);
     const after = accept(state, playsOf(state, card.instanceId)[0]!);
 
     expect(
       scalarDelta(state.players[0]!, after.players[0]!),
       "a new PlayerState field moved on a spell play — check whether it counts spells",
-    ).toEqual(["cardsPlayedThisTurn", "floatingEnergy"]);
+    ).toEqual(["cardsPlayedThisTurn", "floatingEnergy", "spellsPlayedThisTurn"]);
   });
 
   it("WAVE-7 CORRECTION: 'I enter ready' needs no deploy.ts change — an on-play trigger readies", () => {

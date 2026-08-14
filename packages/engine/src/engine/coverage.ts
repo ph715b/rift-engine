@@ -3,7 +3,7 @@ import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
 import { activatedAbilityDefIds, borrowedAbilityDefIds } from "./activated-abilities.js";
 import { canonicalDefId, loaderHandledDefIds, printingAliases } from "../cards/card-loader.js";
 import { playCardDefIds } from "./deploy.js";
-import { cardEffectDefIds, optionalXpCostDefIds } from "./card-effects.js";
+import { cardEffectDefIds, optionalPowerCostDefIds, optionalXpCostDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
@@ -356,6 +356,11 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // of the Meek has no effect at all: her text is `[Ambush]`, `[Tank]` and the XP
   // cost, so this source is the only thing that can claim her.
   { label: "optional XP costs", defIds: optionalXpCostDefIds },
+  // The optional POWER additional cost, added for the same reason as the XP one
+  // above: UNL-122 Crescent Guardian's whole printed text is that cost and what
+  // paying it buys, so no effect or trigger source can claim her. The other four
+  // cards in the table are claimed elsewhere and simply gain a merged claim.
+  { label: "optional power costs", defIds: optionalPowerCostDefIds },
 ];
 
 /**

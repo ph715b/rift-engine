@@ -730,6 +730,32 @@ export interface PlayerState {
    */
   maxSpellEnergySpentThisTurn: number;
   /**
+   * SPELLS this player has played this turn — UNL-122 Crescent Guardian's "if
+   * you've played a spell this turn".
+   *
+   * **A census found eight spell-named fields on this interface and not one of
+   * them answers it**, which is why a ninth is here rather than a derivation:
+   *
+   *  - `cardsPlayedThisTurn` counts CARDS, so a Unit or a Gear satisfies it.
+   *    That is `[Legion]`'s question (812) and a different one.
+   *  - `maxSpellEnergySpentThisTurn` beside it is the near miss and is explicitly
+   *    NOT a substitute: it is a MAXIMUM over single spells, so a spell that cost
+   *    nothing leaves it at 0. Measured against SFD-122 Called Shot, the pool's
+   *    only 0-Energy Spell — but not the only route there, since 811 makes a
+   *    `[Hidden]` play cost nothing and a discount can reach 0 from above.
+   *  - `SpellChainEntry.energySpent` and `spellCast.energySpent` are per-ITEM and
+   *    live only while the chain item does; they answer "what did THIS spell
+   *    cost", not "did one happen".
+   *  - `cannotPlaySpellsThisTurn` is a BAN — what a player may do, not a record
+   *    of what they have done.
+   *
+   * Incremented beside `cardsPlayedThisTurn` in `execute-play-card`'s shared
+   * updates rather than in its Spell branch, so it counts every route a Spell is
+   * played by and cannot be missed by one that skips that branch. Cleared at
+   * `runEnd` with the rest of the turn.
+   */
+  spellsPlayedThisTurn: number;
+  /**
    * Rally the Troops' "when a friendly unit is played THIS TURN, buff it" — a
    * DELAYED trigger, so the flag is set when the spell resolves and read at the
    * PLAY site for the rest of the turn.

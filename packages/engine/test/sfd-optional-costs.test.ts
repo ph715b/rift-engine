@@ -54,11 +54,11 @@ const victim = (state: GameState) =>
 
 describe("the table can express all three shapes", () => {
   it("Energy AND a rune, a rune alone, and Energy alone", () => {
-    expect(optionalPowerCostOf(BLAST_CORPS_CADET)).toEqual({ energy: 1, domain: "Fury", count: 1 });
-    expect(optionalPowerCostOf(FROSTCOAT_CUB)).toEqual({ domain: "Mind", count: 1 });
-    expect(optionalPowerCostOf(SEA_MONKEY)).toEqual({ energy: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, BLAST_CORPS_CADET)).toEqual({ energy: 1, domain: "Fury", count: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, FROSTCOAT_CUB)).toEqual({ domain: "Mind", count: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, SEA_MONKEY)).toEqual({ energy: 1 });
     // Clockwork Keeper, the card the table was built for, is unchanged.
-    expect(optionalPowerCostOf("OGN-044")).toEqual({ domain: "Calm", count: 1 });
+    expect(optionalPowerCostOf(makeState({}), 0, "OGN-044")).toEqual({ domain: "Calm", count: 1 });
   });
 
   it("all three report implemented", () => {

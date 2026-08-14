@@ -87,6 +87,7 @@ function makePlayer(id: string): PlayerState {
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,
+    spellsPlayedThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,

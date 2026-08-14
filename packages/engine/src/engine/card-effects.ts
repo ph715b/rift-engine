@@ -975,8 +975,51 @@ const OPTIONAL_UNIT_COSTS: Record<string, UnitCostSpec> = {
  * offered to a player holding nothing but Fury. The domain the pip shows is the
  * card's own, and the only place that survives a 0-Power printing is a table.
  */
-const OPTIONAL_POWER_COSTS: Readonly<Record<string, { domain?: Domain; count?: number; energy?: number }>> = {
+/**
+ * An optional additional cost paid in resources, and — since UNL-122 Crescent
+ * Guardian — the CONDITION under which the card offers it at all.
+ *
+ * **The condition is not decoration.** Her text is "IF YOU'VE PLAYED A SPELL
+ * THIS TURN, you may pay [Chaos] as an additional cost to play me", so the
+ * offer itself is conditional. A bare row would make the cost payable on a turn
+ * the card forbids it — STRONGER than printed, which is the direction this
+ * engine works hardest to avoid. Enforcing it in the payout instead is worse
+ * still: the rune would be spent for nothing, which is the offered-then-refused
+ * shape wearing a different hat.
+ *
+ * Asked by `optionalPowerCostOf`, which returns `undefined` when it fails — so
+ * the enumerator, the validator and every future caller get the gate for free
+ * rather than each having to remember it.
+ */
+interface OptionalPowerCostSpec {
+  domain?: Domain;
+  count?: number;
+  energy?: number;
+  /** Absent means "always offered", which is every card but Crescent Guardian. */
+  condition?: (state: GameState, playerIndex: 0 | 1) => boolean;
+}
+
+const OPTIONAL_POWER_COSTS: Readonly<Record<string, OptionalPowerCostSpec>> = {
   "OGN-044": { domain: "Calm", count: 1 }, // Clockwork Keeper — "you may pay [1 Calm] as an additional cost"
+  // UNL-122 Crescent Guardian — "If you've played a spell this turn, you may pay
+  // [Chaos] as an additional cost to play me. If you do, I enter ready."
+  //
+  // The pool's first CONDITIONAL optional cost, and the condition needed a new
+  // `PlayerState` field: see `spellsPlayedThisTurn` for why none of the eight
+  // existing spell-named fields answers "have you played a spell", including the
+  // near-miss `maxSpellEnergySpentThisTurn`, which a 0-Energy spell leaves at 0.
+  //
+  // The payout — "I enter ready" — is `deploy.unitEntersReady` reading the same
+  // flag it already reads `acceleratePaid` from, rather than an on-play trigger.
+  // That matters: a trigger would make her ENTER exhausted and then ready, which
+  // is observable (she would sit exhausted through the response window and fire
+  // `unitReadied`). 369.3 makes "I enter ready" a replacement describing how she
+  // enters, and `unitEntersReady` is where this engine models that.
+  "UNL-122": {
+    domain: "Chaos",
+    count: 1,
+    condition: (state, playerIndex) => state.players[playerIndex].spellsPlayedThisTurn > 0,
+  },
   // SFD's three, and between them they are why every field above is optional.
   // The table was Power-only because Clockwork Keeper is; these print an Energy
   // pip beside the rune, or instead of it.
@@ -1040,14 +1083,49 @@ export function costExhaustsLegend(defId: string): boolean {
   return OPTIONAL_LEGEND_EXHAUST_DEF_IDS.has(defId);
 }
 
+/**
+ * For coverage: the cards whose printed optional additional cost this table
+ * implements.
+ *
+ * Added with UNL-122 Crescent Guardian, who is the first card in the table whose
+ * WHOLE printed text is the cost and its payout — the other four all have a
+ * trigger or an effect claiming them elsewhere, which is why the table has gone
+ * this long without a coverage source of its own.
+ */
+export function optionalPowerCostDefIds(): string[] {
+  return Object.keys(OPTIONAL_POWER_COSTS);
+}
+
 /** Does this card ask the caster for an X of rainbow Power? */
 export function hasXRainbowCost(defId: string): boolean {
   return X_RAINBOW_COST_DEF_IDS.has(defId);
 }
 
-/** What extra Power this card MAY be played for, or undefined. */
-export function optionalPowerCostOf(defId: string): { domain?: Domain; count?: number; energy?: number } | undefined {
-  return OPTIONAL_POWER_COSTS[defId];
+/**
+ * What extra Power this card MAY be played for right now, or undefined.
+ *
+ * **Takes state since 2026-08-13**, so a conditional offer (Crescent Guardian's
+ * "if you've played a spell this turn") simply is not there on a turn the card
+ * forbids it. Both existing call sites — the enumerator and the validator — get
+ * the gate without changing, which is why the condition lives here rather than
+ * in a predicate each of them has to remember to ask.
+ */
+export function optionalPowerCostOf(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string,
+): { domain?: Domain; count?: number; energy?: number } | undefined {
+  const spec = OPTIONAL_POWER_COSTS[defId];
+  if (spec === undefined) return undefined;
+  if (spec.condition !== undefined && !spec.condition(state, playerIndex)) return undefined;
+  // Rebuilt by conditional spread rather than destructured, because
+  // `exactOptionalPropertyTypes` is on: `spec.domain` is `Domain | undefined`
+  // and the return type says `domain?: Domain`, which are not the same thing.
+  return {
+    ...(spec.domain !== undefined ? { domain: spec.domain } : {}),
+    ...(spec.count !== undefined ? { count: spec.count } : {}),
+    ...(spec.energy !== undefined ? { energy: spec.energy } : {}),
+  };
 }
 
 /**

@@ -912,7 +912,20 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
       : {}),
     ...(action.trashCardInstanceId !== undefined ? { trashCardInstanceId: action.trashCardInstanceId } : {}),
   });
-  const optionalPower = optionalPowerCostOf(card.defId);
+  const optionalPower = optionalPowerCostOf(state, action.playerIndex, card.defId);
+  // **The forged-claim refusal, and it was missing entirely.** Nothing here
+  // refused `optionalPowerPaid` on a card with no optional cost: the pricing
+  // below reads `optionalPower?.energy ?? 0` and `?.count ?? 0`, so a hand-built
+  // action claiming the flag was priced at the PLAIN cost and collected the
+  // payout for free.
+  //
+  // Harmless while every optional cost was unconditional and every payout rode
+  // the same flag the price did. Crescent Guardian ends that: her flag buys
+  // "I enter ready", and her cost is only offered on a turn she has seen a
+  // spell — so without this a forged flag readies her for nothing on any turn.
+  if (action.optionalPowerPaid === true && optionalPower === undefined) {
+    return fail(`${card.name} has no optional additional cost to pay right now`);
+  }
   // Bard - Mercurial's "you may exhaust your legend as an additional cost".
   //
   // Re-derived from the board rather than trusted from the action, the discipline

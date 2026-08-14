@@ -442,6 +442,15 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       card.kind === "Spell"
         ? Math.max(actor.maxSpellEnergySpentThisTurn, modifiedEnergy)
         : actor.maxSpellEnergySpentThisTurn,
+    // "If you've played a SPELL this turn" — UNL-122 Crescent Guardian. Counted
+    // here beside the maximum above rather than in the Spell branch further down,
+    // so it sees every route a Spell reaches play by; the field's own note says
+    // why none of the eight existing spell-named fields could answer it.
+    //
+    // A COUNT rather than a boolean, matching `cardsPlayedThisTurn` beside it: no
+    // card asks "how many" yet, but a counter cannot be wrong for a card that
+    // later does, and it costs nothing.
+    spellsPlayedThisTurn: actor.spellsPlayedThisTurn + (card.kind === "Spell" ? 1 : 0),
     // "You may spend N XP as an additional cost" (204.2). Spent HERE, with the
     // rest of the cost, on the same reasoning the Legend exhaust below it gives:
     // a cost is paid for the PLAY, not for the payout, so it leaves even when the
@@ -502,6 +511,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         card,
         action.acceleratePaid,
         action.destinationBattlefieldId !== undefined ? "battlefield" : "base",
+        action.optionalPowerPaid,
       ),
     };
     // Sun Disc's charge is spent on the unit that used it, and only then — see

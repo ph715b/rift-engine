@@ -152,6 +152,17 @@ export function unitEntersReady(
    * a base-only clause. Only a card that names a destination reads it.
    */
   destination?: "battlefield" | "base",
+  /**
+   * Whether this play paid its OPTIONAL POWER additional cost — UNL-122 Crescent
+   * Guardian's "if you do, I enter ready".
+   *
+   * A second action-derived flag beside `acceleratePaid`, and deliberately not
+   * folded into it: `[Accelerate]` is a keyword whose payment readies ANY unit
+   * that has it, so it is a bare OR below. Hers is card-keyed — the flag alone
+   * must not ready Clockwork Keeper, Sea Monkey or the Cadet, all of which print
+   * the same kind of cost and buy something else with it.
+   */
+  optionalPowerPaid?: boolean,
 ): boolean {
   return (
     "Quick" in card.keywords ||
@@ -167,6 +178,11 @@ export function unitEntersReady(
     // A clause conditioned on WHERE the unit landed. Asked before the board-wide
     // grants below only for readability; every term here is an OR.
     destinationEntersReady(card, destination) ||
+    // Crescent Guardian, whose enter-ready is bought by an additional cost
+    // rather than by a keyword or a board state. CARD-KEYED, unlike
+    // `acceleratePaid` above: three other cards print an optional Power cost
+    // and none of them readies.
+    (card.defId === CRESCENT_GUARDIAN && optionalPowerPaid === true) ||
     // Master Yi - Wuju Master: "[Level 11][>] Your units enter ready."
     //
     // Beside Magma Wurm rather than in `conditionalEntersReady`'s switch, and the
@@ -231,6 +247,10 @@ export function unitEntersReady(
  * takes `state` and answers questions about the game; this one cannot be
  * answered from the game at all — only from which deploy path is running.
  */
+/** UNL-122 Crescent Guardian — "if you do, I enter ready", where "you do" is
+ *  paying her optional [Chaos] additional cost. */
+const CRESCENT_GUARDIAN = "UNL-122";
+
 function destinationEntersReady(card: UnitInstance, destination?: "battlefield" | "base"): boolean {
   switch (card.defId) {
     case SHADOW:

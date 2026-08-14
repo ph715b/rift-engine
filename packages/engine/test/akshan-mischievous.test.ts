@@ -72,14 +72,14 @@ const gearOf = (state: GameState, playerIndex: 0 | 1) => state.players[playerInd
 
 describe("Akshan - Mischievous: the additional cost that was said to already exist", () => {
   it("has a registered [Body][Body] optional cost", () => {
-    expect(optionalPowerCostOf(AKSHAN)).toEqual({ domain: "Body", count: 2 });
+    expect(optionalPowerCostOf(makeState({}), 0, AKSHAN)).toEqual({ domain: "Body", count: 2 });
   });
 
   it("is the pool's first optional cost of TWO runes", () => {
     // Every other one is a single pip, which is why `count` had never been
     // exercised above 1 — worth pinning, because a table read as "one rune, a
     // domain" would price him at half.
-    expect(optionalPowerCostOf(AKSHAN)!.count).toBe(2);
+    expect(optionalPowerCostOf(makeState({}), 0, AKSHAN)!.count).toBe(2);
   });
 
   it("offers both a paid and a declined variant", () => {
