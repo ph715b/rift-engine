@@ -1,7 +1,9 @@
-# Finishing Unleashed — the last 24
+# Finishing Unleashed — the last 21
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
-`feat/unleashed-xp`.
+`feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
+updated in place** — see that section for what landed, what it cost, and the two
+things the block taught that generalise beyond it.
 
 **The verification loop is in `CLAUDE.md` and is NOT restated here.** Six prior
 handoffs in this folder each wrote their own copy, they drifted, and the copy in
@@ -23,30 +25,58 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 
 ## What actually remains
 
-**9 are triaged** — a `partialImplementationNote` names the precise shared-file
-edit. **15 are untouched**, with no note and mostly zero mentions in `src/`.
-That second group is ordinary card work, not blocked work; it just has no
-handoff and needs the printed text read first.
+**As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
+three, so **21 remain** — 7 triaged (a `partialImplementationNote` names the
+precise shared-file edit) and 14 untouched, with no note and mostly zero mentions
+in `src/`. That second group is ordinary card work, not blocked work; it just has
+no handoff and needs the printed text read first.
 
-### Block 1 — replaced costs (4 cards, the recommended start)
+Re-measured 2026-08-13 after Block 1: **26 unimplemented UNL ids = 21 distinct
+cards** once the alias printings are folded.
 
-The largest shared seam, and two of the four also need the same second thing.
+### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
 
-| card | what it needs |
+Landed as `engine/replaced-costs.ts`. **Rule 356.1.a is the sentence**: "if an
+ability or instruction allows you to play a card 'for [Cost]', replace the card's
+Base Costs with [Cost]" — so it is the sibling of the existing `ignoresBaseCost`
+(356.1.b), not a discount. Tests: `test/replaced-costs.test.ts`.
+
+| card | outcome |
 |---|---|
-| UNL-089 Jhin - Meticulous Killer | untriaged; an alternative cost |
-| UNL-025 Undying Legion | trash price **ADDS** a Fury pip — cheaper-than-printed is the bug to avoid |
-| UNL-186 Death from Below | "play from your trash for [rainbow]" — `timing.mayPlayFromTrash` is per-player, **Units-only**, and charges the PRINTED price |
-| UNL-020 Dancing Grenade (half) | replay from the CASTER's trash, played by the TARGET's controller, at a replaced price |
+| UNL-089 Jhin - Meticulous Killer | **done** — printed table; needed NO new state (`maxSpellEnergySpentThisTurn` already existed for UNL-004) |
+| UNL-025 Undying Legion | **done** — printed table; his trash price is DEARER than his print, which is what proves this is a replacement and not a discount |
+| UNL-186 Death from Below | **done** — the GRANTED form, `PlayerState.replacedCostPlays`, keyed by instanceId and spent by use |
+| UNL-020 Dancing Grenade | **still refused, for a NEW reason** — see below |
 
-An alternative cost is a **replacement**, not a discount. The last two need
-`mayPlayFromTrash` to become a per-INSTANCE permission carrying a replaced cost,
-plus a `PlayerState` field.
+**Two of the four needed no new state at all**, against a prediction that all
+four would. Both conditions were already recorded facts. Re-read the code before
+believing any note, including this one.
+
+**Dancing Grenade's blocker is not the one that was written.** Its replaced cost
+now exists; what blocks it is that "ITS controller may play this spell again"
+grants to the DAMAGED unit's controller, and the permission workaround for
+419.3.b only reaches the ACTIVE player — `mayPlayCardNow` opens with
+`playerIndex !== actingPlayerIndex(state)`, the card is Default-timed, and the
+grant clears at `runEnd`. A `fromPlayerIndex` field was built for it and REMOVED
+the same day when mutation testing showed it unreachable against all 4748 tests.
 
 **There are THREE cost sites, not two**: `legal-actions`, `validate-play-card`
 and **`execute-play-card`**, which re-prices from raw cost to decide floating
-spend. Missing the third shipped a real bug this month (recorded against Irelia -
-Graceful in `rules-conformance.md`) — it was found by an agent, not by the suite.
+spend. All three now swap the base through `replacedCostFor`. Missing the third
+shipped a real bug this month (recorded against Irelia - Graceful in
+`rules-conformance.md`) — it was found by an agent, not by the suite.
+
+**Two things this block taught that the rest of the set will hit:**
+
+- **A replaced cost must ride the VARIANT loop in `legal-actions`, not sit beside
+  it.** A standalone `actions.push` produced a base play and silently withheld
+  every battlefield the card could be reinforced to. Carry the flag on the
+  variant and `...variant` spreads it onto each destination.
+- **`isCardImplemented` and "seated in a generated deck" are DIFFERENT
+  questions**, and a `partialImplementationNote` silently separates them: a
+  half-written card reports DONE to coverage and is invisible to `reachability`.
+  Retiring UNL-186's note moved the pin by two for one card. Expect that whenever
+  a half-card is finished.
 
 ### Block 2 — multi-instance `[Repeat]` (2 cards)
 
@@ -90,13 +120,17 @@ Adjacent, not identical — don't merge them into one edit.
   paid variant still carries the 3-Might-capped target and sells the XP for
   nothing. A targeting seam, not an XP seam.
 
-### Block 5 — untouched, no notes (15)
+### Block 5 — untouched, no notes (13, was 15)
 
 UNL-013 Lotus Trap, UNL-045 Forgotten Signpost, UNL-074 Frigid Jewel, UNL-106
 Repulse, UNL-117 Arachnoid Horror, UNL-122 Crescent Guardian, UNL-138 The List,
 UNL-163 Mageseeker Investigator, UNL-169 Ashe - Focused, UNL-178 Poppy, UNL-181
-Jhin - Virtuoso, UNL-195 Ivern - Green Father (+ UNL-025, UNL-089, UNL-146 listed
-above).
+Jhin - Virtuoso, UNL-195 Ivern - Green Father (+ UNL-146 listed above).
+
+**UNL-025 and UNL-089 left this list on 2026-08-13** — both turned out to be
+cards whose entire printed text is a PRICE, which is why neither had an effect to
+write and neither needed new state. Worth knowing before reading the remaining
+thirteen: "untouched, no note" does not mean "big".
 
 Known from earlier waves: **Crescent Guardian** wants a "played a spell this
 turn" counter — and `cannotPlaySpellsThisTurn`, added 2026-08-13, does **NOT**
