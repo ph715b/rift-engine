@@ -78,15 +78,34 @@ shipped a real bug this month (recorded against Irelia - Graceful in
   Retiring UNL-186's note moved the pin by two for one card. Expect that whenever
   a half-card is finished.
 
-### Block 2 — multi-instance `[Repeat]` (2 cards)
+### Block 2 — multi-instance `[Repeat]` — **ONE card, not two**
 
-UNL-182 Curtain Call, UNL-146 Syndra - Transcendent.
+**UNL-182 Curtain Call. UNL-146 Syndra - Transcendent does NOT belong here** —
+corrected 2026-08-13 by reading her printed text, which this file and the
+project-status memory had both been paraphrasing from the block title:
+
+> "While I'm in a showdown, your spells have [Repeat] :rb_energy_2::rb_rune_chaos:."
+
+She GRANTS a Repeat to other spells. She has no multiple instances of her own,
+and `RepeatCostSpec` expressing one instance does not block her. The
+granted-Repeat machinery already exists and is already fanned out in
+`legal-actions` (`grantedRepeatCostOf`, `action.grantedRepeatPaid`, crossed with
+the printed instance). Two things separate her from Temporal Portal, which uses
+it today:
+
+- `grantedRepeatCostOf` prices the grant at **the spell's own cost** (Temporal
+  Portal's "repeat it, paying its cost again"); hers is a FIXED `[2][Chaos]`.
+- It is gated on a COUNTER (`nextSpellRepeatGrants`); hers is a continuous,
+  positional condition — while she is in a showdown.
+
+So she is a pricing-source change on an existing seam, not a rewrite of it. Do
+her separately from, and probably before, Curtain Call.
 
 `RepeatCostSpec` expresses exactly one instance and its own comment says so.
-Needs: a LIST payable individually, the action carrying WHICH instances were paid
-rather than a boolean, and a per-EXECUTION mode re-choice (`modeId` is currently
-chosen once per action). Curtain Call additionally enforces "choose one you
-haven't already chosen" ACROSS executions.
+Curtain Call needs: a LIST payable individually, the action carrying WHICH
+instances were paid rather than a boolean, and a per-EXECUTION mode re-choice
+(`modeId` is currently chosen once per action), plus "choose one you haven't
+already chosen" ACROSS executions.
 
 **The rulings are settled — do not re-derive them.** 820.3, 820.1.c.2,
 820.1.c.3, 820.2.a, 820.3.a, all in `docs/rules-conformance.md`. The project
@@ -109,9 +128,13 @@ Adjacent, not identical — don't merge them into one edit.
 
 ### Block 4 — narrow singles, each already named
 
-- **UNL-144 Maduli** — "I can't be readied". `runAwaken` readies by an inline
-  map; `readyUnit`'s only lock is per-player. **He is currently STRONGER than
-  printed**, so this one is a live divergence, not just an absence.
+- **UNL-144 Maduli** — **DONE 2026-08-13.** `board-restrictions.unitMayBeReadied`,
+  asked at THREE sites: `runAwaken`'s two inline maps, `readyUnit`, and the
+  `awakened` capture that raises `unitReadied` events (a unit that stayed down
+  must not announce a readying). **315.1.b.1 is the rule and it had the answer
+  all along** — "the Turn Player readies all Game Objects they control *that are
+  able to be readied*". Both divergence pins flipped red on the first root run,
+  which is what they were for.
 - **UNL-188 Hextech Gauntlets** — `[Equip]` cost reduced by the chosen unit's
   Might. `equipAbilities` builds one static `ActivationCost` per gear; no
   activation cost can depend on the chosen target.
@@ -120,7 +143,59 @@ Adjacent, not identical — don't merge them into one edit.
   paid variant still carries the 3-Might-capped target and sells the XP for
   nothing. A targeting seam, not an XP seam.
 
-### Block 5 — untouched, no notes (13, was 15)
+### Block 5 — READ 2026-08-13, and they are not one group
+
+All 13 were measured from the registry (printed text, cost, keywords) and each
+was checked against the mechanism it would need. **They split three ways, and the
+top group is much cheaper than "untouched, no note" suggests.** This is a triage,
+not an implementation plan — re-read the code before believing any line of it.
+
+**Likely small — an existing seam takes them:**
+
+| card | text | the seam |
+|---|---|---|
+| UNL-178 Poppy | "spend 3 XP as an additional cost; if you do, I cost [3] less" | `OPTIONAL_XP_COSTS` already exists and already enumerates `optionalXpPaid`. Unlike Conscription, the payoff is a plain DISCOUNT, not a wider target — so it wants a cost reduction keyed to the flag at the three cost sites. **Price it before the affordability bail**, exactly as the replaced cost had to be: 6E→3E means a player can afford only the paid variant. |
+| UNL-117 Arachnoid Horror (first clause) | "I can be played to an occupied battlefield if an enemy unit is alone there" | one `PLACEMENT_GRANTS` row + one predicate, beside `openBattlefield` / `occupiedEnemyBattlefield`. **His SECOND clause is the bigger half** — it grants the same to ALL friendly units, which is board-conditional and belongs with Miss Fortune - Buccaneer's `inPlayFor` shape, not in the per-card table. |
+| UNL-122 Crescent Guardian | "if you've played a spell this turn, you may pay [Chaos] as an additional cost; if you do, I enter ready" | `OPTIONAL_POWER_COSTS` covers the cost and "enter ready" is well-trodden. The gap is the CONDITION: nothing counts spells played. `cannotPlaySpellsThisTurn` does not close it (a ban is not a record) and `maxSpellEnergySpentThisTurn` is not a substitute either — a spell played for 0 spends nothing. Needs a `spellsPlayedThisTurn` counter. |
+
+**Medium — a real but bounded new mechanism:**
+
+- **UNL-013 Lotus Trap** — "double all damage that would be dealt to it this
+  turn". A per-UNIT, this-turn damage multiplier; `damage-modifiers.ts` is the
+  home and `dealDamage` already routes through it, but combat ASSIGNMENT is a
+  second reader.
+- **UNL-074 Frigid Jewel** — "when you draw your SECOND card each turn". Needs a
+  per-turn draw counter and a trigger on the boundary, not on every draw.
+- **UNL-106 Repulse** — a counter with a targeting CONDITION ("chooses it and no
+  other friendly unit"). `counter-spell.ts` exists; the condition needs the chain
+  item's chosen set.
+- **UNL-045 Forgotten Signpost** — an activated ability whose cost is "exhaust a
+  unit you control" AND self-exhaust, whose effect then reads WHICH unit paid.
+  `sacrificedUnitsBattlefield` is the nearest precedent for a cost-unit-dependent
+  effect.
+- **UNL-163 Mageseeker Investigator** — taxes moving MULTIPLE units to her
+  battlefield at once. Check first whether the engine has a simultaneous
+  multi-unit move at all; if it does not, the card is near-inert and should be
+  refused rather than approximated.
+- **UNL-169 Ashe - Focused** — banish a card from a revealed hand, return it when
+  they hold. A delayed trigger with per-instance memory across zones.
+
+**Systemic — refuse, or scope on purpose:**
+
+- **UNL-195 Ivern - Green Father** — "replace that battlefield with a Brush
+  battlefield token". **The same blocker as Baron Nashor**, which is already
+  recorded as systemic: nothing in this engine can add or replace a battlefield,
+  `battlefieldPair` builds exactly two at setup with ids stable for the game.
+  Two cards now want it, which is the argument for scoping it deliberately rather
+  than refusing it twice.
+- **UNL-181 Jhin - Virtuoso** — a Legend needing a "banished with me" zone and a
+  four-card threshold. The energy-spent figure it also needs now EXISTS
+  (`SpellChainEntry.energySpent`, added in wave 8), so that half is no longer a
+  blocker — the zone is.
+- **UNL-138 The List** — "name a tag". `parkDecision` could carry the choice; the
+  question is whether an option set of every tag in the pool is acceptable.
+
+### Block 5 — the original list (13, was 15)
 
 UNL-013 Lotus Trap, UNL-045 Forgotten Signpost, UNL-074 Frigid Jewel, UNL-106
 Repulse, UNL-117 Arachnoid Horror, UNL-122 Crescent Guardian, UNL-138 The List,
