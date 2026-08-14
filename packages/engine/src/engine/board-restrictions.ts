@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import { selfNearVictory } from "./constants.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 
 /**
  * Static restrictions a permanent imposes on the OPPONENT — and one grant it
@@ -84,7 +85,11 @@ const RENATA_INDUSTRIALIST = "SFD-171";
 const RENATA_CHEM_BARONESS = "SFD-201";
 
 export function boardRestrictionDefIds(): string[] {
-  return [TIANNA_CROWNGUARD, RENATA_INDUSTRIALIST, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER];
+  // Maduli's "I can't be readied" is a pure NEGATIVE with no effect behind it,
+  // so it lives here beside the other restrictions. Coverage MERGES this claim
+  // with the two his [Chaos] move ability already makes (pending decisions,
+  // activated abilities) — the same split Concentrate and Master Yi have.
+  return [TIANNA_CROWNGUARD, RENATA_INDUSTRIALIST, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER, MADULI_THE_GATEKEEPER];
 }
 
 /** Is `defId` in play for `playerIndex`, AT A BATTLEFIELD? The positional test
@@ -154,6 +159,46 @@ export function mayPlayUnitToBattlefieldUnderRestrictions(state: GameState, play
 export function mayReadyPermanent(state: GameState, ownerIndex: 0 | 1): boolean {
   const opponentIndex: 0 | 1 = ownerIndex === 0 ? 1 : 0;
   return !atOwnBattlefield(state, opponentIndex, MAGESEEKER_WARDEN);
+}
+
+/**
+ * UNL-144 Maduli the Gatekeeper — "I can't be readied."
+ *
+ * **Per UNIT, which is why it cannot ride `mayReadyPermanent` above.** That one
+ * asks a question about a SEAT (is an enemy Mageseeker Warden standing at a
+ * battlefield), so it answers the same for every permanent that player controls.
+ * Maduli's sentence is about one card, and no amount of parameterising a
+ * per-player lock expresses it.
+ *
+ * **Both readying sources have to ask, and the Awaken half has a rule written
+ * for exactly this.** 415.1 defines Readying once and 415.3 lists the two ways
+ * it happens (415.3.a the Awakening Phase, 415.3.b effects and spells), so a
+ * restriction on being Readied binds both. But the sharper citation for the
+ * Awaken is **315.1.b.1**, which carries the qualifier in its own sentence:
+ *
+ * > "The Turn Player readies all Game Objects they control **that are able to be
+ * > readied**."
+ *
+ * That clause is the hook — the Awaken is not "ready everything", it is "ready
+ * everything that can be". Read against `pdftotext -raw`; the refusal pin in
+ * `unl-chaos-wave4.test.ts` had already found this number and it checks out.
+ *
+ * That is what made this a LIVE DIVERGENCE rather than an absence: the engine's
+ * two sites are `runAwaken`'s inline maps and `readyUnit`, `mayReadyPermanent`
+ * covers only the second, and nothing covered him at all — so he readied every
+ * Awaken and was strictly STRONGER than printed. `mayReadyPermanent`'s own
+ * comment records the Awaken exemption as "structural", which is correct for the
+ * Warden (a spells-and-abilities lock) and is exactly what must NOT be inherited
+ * here.
+ *
+ * Takes the unit rather than an id: both call sites already hold the object, and
+ * `runAwaken`'s map has no id to look up without re-walking the board it is
+ * rebuilding.
+ */
+const MADULI_THE_GATEKEEPER = "UNL-144";
+
+export function unitMayBeReadied(unit: { defId: string }): boolean {
+  return canonicalDefId(unit.defId) !== MADULI_THE_GATEKEEPER;
 }
 
 /**

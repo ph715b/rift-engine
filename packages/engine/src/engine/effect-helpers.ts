@@ -29,7 +29,7 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { isMighty } from "./granted-keywords.js";
 import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { applyContested } from "./cleanup.js";
-import { mayReadyPermanent } from "./board-restrictions.js";
+import { mayReadyPermanent, unitMayBeReadied } from "./board-restrictions.js";
 import { unitMayMoveToBase } from "./battlefield-continuous.js";
 import { detachAllFrom } from "./equipment.js";
 import { mayGainPoints } from "./board-restrictions.js";
@@ -2006,6 +2006,10 @@ export function readyUnit(state: GameState, targetInstanceId: string): GameState
   // spell, an ability or a trigger. The survey said this needed source
   // attribution across the call sites; measured, it does not.
   if (!mayReadyPermanent(state, location.ownerIndex)) return state;
+  // Maduli the Gatekeeper — "I can't be readied." The 415.3.b half; `runAwaken`
+  // asks the same predicate for 415.3.a. Per-UNIT, so it is asked of the unit
+  // rather than of its controller like the Warden's lock above.
+  if (!unitMayBeReadied(location.unit)) return state;
   const readied = updateUnitAnywhere(state, targetInstanceId, (u) => ({ ...u, exhausted: false }));
   return holdEventTrigger(readied, { kind: "unitReadied", ownerIndex: location.ownerIndex, unitInstanceId: targetInstanceId });
 }

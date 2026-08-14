@@ -7,6 +7,7 @@ import { destroyUnit, drawCards, healAllUnits, returnBorrowedUnits } from "./eff
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
+import { unitMayBeReadied } from "./board-restrictions.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -41,7 +42,9 @@ function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) =
  *  their pool; reset their per-turn conquest tracking. Mirrors
  *  TurnManager.runAwaken (engine/TurnManager.java:65-84) plus
  *  ScoringSystem.onTurnStart (engine/ScoringSystem.java:30-32, called from
- *  runAwaken), minus UnitAbilities.cannotBeReadied (no card grants that yet). */
+ *  runAwaken) — INCLUDING the oracle's UnitAbilities.cannotBeReadied, which this
+ *  comment said "no card grants yet" until UNL-144 Maduli the Gatekeeper was
+ *  finished on 2026-08-13. It is `board-restrictions.unitMayBeReadied`. */
 export function runAwaken(state: GameState): GameState {
   if (state.phase !== "Awaken") {
     throw new Error(`runAwaken requires Awaken phase, currently: ${state.phase}`);
@@ -53,24 +56,45 @@ export function runAwaken(state: GameState): GameState {
   // unit a no-op, so a unit that was standing Ready must NOT produce a
   // `unitReadied` event. Ids rather than units: each of the holds below reads a
   // board this function has already rebuilt.
+  // **Maduli the Gatekeeper — "I can't be readied" — is asked at all THREE
+  // places below, and the third is the one that is easy to miss.**
+  //
+  // **315.1.b.1 writes the qualifier into the step itself**: "The Turn Player
+  // readies all Game Objects they control THAT ARE ABLE TO BE READIED." So the
+  // Awaken is not "ready everything" and never was; this map was simply missing
+  // the clause. Before it, Maduli stood up every turn and was strictly STRONGER
+  // than printed. (415.3.b is the other door, `readyUnit`.)
+  //
+  // The `awakened` capture matters as much as the two maps: it is what produces
+  // the `unitReadied` events, and a unit that did not actually ready must not
+  // announce that it did — Pirate's Haven would otherwise pump a unit for a
+  // readying that never happened.
+  //
+  // `mayReadyPermanent`'s comment calls the Awaken exemption "structural", which
+  // is true of the WARDEN (a spells-and-abilities lock) and is exactly what must
+  // not be inherited here.
+  const readiesAtAwaken = (u: UnitInstance) => u.exhausted && unitMayBeReadied(u);
+
   const awakened = [
     ...state.players[active].baseUnits,
     ...state.battlefields.flatMap((bf) => bf.units[state.players[active].id] ?? []),
   ]
-    .filter((u) => u.exhausted)
+    .filter(readiesAtAwaken)
     .map((u) => u.instanceId);
 
   const battlefields = state.battlefields.map((bf) => ({
     ...bf,
     units: {
       ...bf.units,
-      [state.players[active].id]: (bf.units[state.players[active].id] ?? []).map((u) => ({ ...u, exhausted: false })),
+      [state.players[active].id]: (bf.units[state.players[active].id] ?? []).map((u) =>
+        unitMayBeReadied(u) ? { ...u, exhausted: false } : u,
+      ),
     },
   }));
 
   const next = updatePlayer({ ...state, battlefields }, active, (p) => ({
     ...p,
-    baseUnits: p.baseUnits.map((u) => ({ ...u, exhausted: false })),
+    baseUnits: p.baseUnits.map((u) => (unitMayBeReadied(u) ? { ...u, exhausted: false } : u)),
     activeGear: p.activeGear.map((g) => ({ ...g, exhausted: false })),
     legend: { ...p.legend, exhausted: false },
     channeled: p.channeled.map((r) => (r.state === "Exhausted" ? { ...r, state: "Ready" as const } : r)),

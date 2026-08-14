@@ -411,19 +411,30 @@ describe("UNL-144 Maduli: the second ready door, through a real spell", () => {
     expect(readyWith(state, spell, other.instanceId).players[0]!.baseUnits.find((u) => u.instanceId === other.instanceId)!.exhausted).toBe(false);
   });
 
-  it("DIVERGENCE: it readies Maduli too, though he prints 'I can't be readied'", () => {
-    // `readyUnit`'s only lock is `mayReadyPermanent(state, ownerIndex)` —
-    // Mageseeker Warden's "spells and abilities can't ready ENEMY units", which
-    // is per-PLAYER and cannot carry a restriction belonging to one body.
-    // 315.1.b.1 puts the Awaken half elsewhere; this half is a second site, and
-    // implementing the clause must flip BOTH this and the wave-4 pin.
+  it("a real spell does not ready him either — he prints 'I can't be readied'", () => {
+    // **FLIPPED 2026-08-13.** This was a PIN OF A KNOWN DIVERGENCE asserting the
+    // WRONG answer on purpose, and its instruction — "implementing the clause
+    // must flip BOTH this and the wave-4 pin" — is exactly what happened: both
+    // went red on the first root run after `board-restrictions.unitMayBeReadied`
+    // landed.
+    //
+    // Its diagnosis was right too, and shaped the fix. `readyUnit`'s only lock
+    // was `mayReadyPermanent(state, ownerIndex)` — the Mageseeker Warden's, which
+    // is per-PLAYER and "cannot carry a restriction belonging to one body". The
+    // new predicate is per-UNIT for that reason and is asked at both doors.
+    //
+    // Worth keeping pointed the right way rather than deleting, because this one
+    // drives a REAL SPELL through `legalActions`/`submit` — the wave-4 pin calls
+    // `runAwaken` directly, and `test/maduli-cannot-be-readied.test.ts` calls
+    // `readyUnit` directly. This is the only one that proves the lock survives
+    // the whole play path.
     const { state, spell, maduli } = maduliState();
     const after = readyWith(state, spell, maduli.instanceId);
 
     expect(
       after.players[0]!.baseUnits.find((u) => u.instanceId === maduli.instanceId)!.exhausted,
-      "PIN: he stayed exhausted — 'I can't be readied' is implemented now, so flip this to true",
-    ).toBe(false);
+      "a spell readied Maduli",
+    ).toBe(true);
   });
 });
 

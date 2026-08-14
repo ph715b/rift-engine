@@ -657,10 +657,17 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-118",
     "half written: the on-play 'up to one enemy unit at each location, deal 1' works; 'Any amount of your damage is enough to kill enemy units' is unwritten — 142.4.c needs per-marker damage (UnitInstance.damage is one unattributed number) and a Lethal Damage override",
   ],
-  [
-    "UNL-144",
-    "half written: the [Chaos] move ability works; 'I can't be readied' is unwritten — runAwaken readies by an inline map and readyUnit's only lock is per-player, so he readies every Awaken and is STRONGER than printed",
-  ],
+  // **UNL-144 Maduli the Gatekeeper LEFT this map on 2026-08-13, and it was the
+  // only entry that had to be fixed rather than merely finished** — the note
+  // says so in its own last clause: he was STRONGER than printed, so this was a
+  // live divergence in shipped behaviour, not an absence.
+  //
+  // The refusal named both halves of the fix exactly. `runAwaken` readies by
+  // inline maps (415.3.a) and `readyUnit`'s only lock was per-player (415.3.b),
+  // so "I can't be readied" needed a per-UNIT predicate asked at both —
+  // `board-restrictions.unitMayBeReadied`. The third site the note did NOT name
+  // is the `awakened` capture that raises `unitReadied` events, and it matters
+  // for the same reason: a unit that did not ready must not announce that it did.
   // **UNL-095 Grim Resolve LEFT this map on 2026-08-12, and its note had been
   // wrong about the ENGINE rather than about the card.** It argued the listener
   // had to be the resolved Spell, which sits in its caster's trash and reaches no

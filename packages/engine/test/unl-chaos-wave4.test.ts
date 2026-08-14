@@ -169,19 +169,26 @@ describe("Maduli the Gatekeeper (UNL-144): [Chaos]: move me to an occupied enemy
   });
 
   /**
-   * **PIN OF A KNOWN DIVERGENCE — this asserts the WRONG answer on purpose.**
+   * **FLIPPED 2026-08-13, which is what this pin was built to make happen.**
    *
-   * Maduli prints "I can't be readied", and **315.1.b.1** puts that restriction in
-   * the Awaken step: "The Turn Player readies all Game Objects they control **that
-   * are able to be readied**." `turn-manager.runAwaken` readies the whole board
-   * with an inline map and `effect-helpers.readyUnit` is the other door; both are
-   * shared files this wave may not edit, so the restriction is unwritten and he is
-   * STRONGER than printed.
+   * It was a PIN OF A KNOWN DIVERGENCE asserting the WRONG answer on purpose —
+   * that he readied — and its own instructions were "implementing it must FLIP
+   * this test rather than quietly changing what an untested card does". The
+   * restriction landed as `board-restrictions.unitMayBeReadied`, so the
+   * expectation is now `true` and the card matches its print.
    *
-   * Implementing it must FLIP this test — change the expectation to `true` and
-   * delete this comment — rather than quietly changing what an untested card does.
+   * **Its 315.1.b.1 citation was right**, and re-checked against `pdftotext -raw`
+   * before being relied on: "The Turn Player readies all Game Objects they
+   * control **that are able to be readied**." The Awaken always had the
+   * qualifier; the inline map was missing it.
+   *
+   * Kept here rather than deleted, unlike the refusal blocks elsewhere in this
+   * set: this one asserts BEHAVIOUR through `runAwaken` and is a real regression
+   * test now that it points the right way. The full treatment — both readying
+   * doors, the phantom-event site, and the per-card predicate — is
+   * `test/maduli-cannot-be-readied.test.ts`.
    */
-  it("DIVERGENCE: readies in Awaken, though he prints 'I can't be readied'", () => {
+  it("does NOT ready in Awaken — he prints 'I can't be readied'", () => {
     const { state, maduli } = maduliState([]);
     const exhausted: GameState = {
       ...state,
@@ -191,10 +198,7 @@ describe("Maduli the Gatekeeper (UNL-144): [Chaos]: move me to an occupied enemy
 
     const awakened = runAwaken(exhausted);
 
-    expect(
-      awakened.players[0]!.baseUnits[0]!.exhausted,
-      "PIN: he stayed exhausted — 'I can't be readied' is implemented now, so flip this to true",
-    ).toBe(false);
+    expect(awakened.players[0]!.baseUnits[0]!.exhausted, "Maduli readied at Awaken").toBe(true);
   });
 });
 
