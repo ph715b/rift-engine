@@ -261,8 +261,12 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // **MONCH left on 2026-08-13.** His refusal named both files exactly — two
     // lines in `modifiedEnergyCost` and a `conditionalEntersReady` case — and
     // that is what was written.
-    const stillRefused = [SHADOW_WATCHER, SIGNPOST];
-    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(2);
+    // **SHADOW_WATCHER left on 2026-08-13.** Only Forgotten Signpost remains of
+    // this re-audit's eight, and its blocker is a genuine one: `ActivationCost`
+    // has no "exhaust a unit you control", and the cost choice would have to be
+    // constrained by the chosen destination.
+    const stillRefused = [SIGNPOST];
+    expect(stillRefused, "the refusal list changed size — update the title and say which card left").toHaveLength(1);
     for (const id of stillRefused) {
       expect(isCardImplemented(registry.get(id)), `${id} reports implemented — delete its refusal`).toBe(false);
     }

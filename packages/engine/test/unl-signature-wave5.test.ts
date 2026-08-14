@@ -580,15 +580,24 @@ describe("Lilting Lullaby (UNL-190): counter a spell", () => {
 
     const theirSecondRay = after.players[1]!.hand[0]!;
     expect(theirSecondRay, "the fixture left them no second spell").toBeDefined();
+    // **INVERTED 2026-08-13, as this pin's own message asked.** The lockout is a
+    // `cannotPlaySpellsThisTurn` ban, armed on the Lullaby's RESOLUTION so it
+    // survives her leaving play — a fact about the turn, not a continuous
+    // ability, exactly as Brynhir Thundersong's wider ban is.
     expect(
       playsOf(after, theirSecondRay.instanceId).length,
-      "the countered player is now locked out — retire this pin",
-    ).toBeGreaterThan(0);
+      "the countered player can cast again — the lockout stopped applying",
+    ).toBe(0);
   });
 
   it("is reported as implemented by coverage", () => {
     expect(implementingModules(LILTING_LULLABY), "the counter is not registered at all").not.toEqual([]);
-    expect(partialImplementationNote(registry.get(LILTING_LULLABY)), "the spell-lock gap closed — retire this and the coverage row").toContain("can't play spells");
+    // The row went with the gap. Asserted as ABSENT rather than deleted, because
+    // a partial note reappearing would mean the lockout had been un-written.
+    expect(
+      partialImplementationNote(registry.get(LILTING_LULLABY)),
+      "a partial note came back — the spell lockout was un-written",
+    ).toBeUndefined();
   });
 });
 

@@ -3,7 +3,7 @@ import { mayPlayUnitAt } from "./battlefield-continuous.js";
 import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
-import { mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./board-restrictions.js";
+import { mayPlaySpells, mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./board-restrictions.js";
 
 /**
  * Who may act right now.
@@ -165,6 +165,10 @@ export function mayPlayCardNow(
   // card however it is timed — including a [Reaction], which is the whole point
   // of a card that shuts a turn down.
   if (!mayPlayCardsAtAll(state, playerIndex)) return false;
+  // Lilting Lullaby's narrower ban. Beside Brynhir's rather than folded into it,
+  // and for the same reason it is placed here: it bars a SPELL however it is
+  // timed, including a [Reaction], which is the point of shutting spells down.
+  if (card.kind === "Spell" && !mayPlaySpells(state, playerIndex)) return false;
 
   const ambushed =
     destinationBattlefieldId !== undefined && ambushReactionAt(state, playerIndex, card, destinationBattlefieldId);

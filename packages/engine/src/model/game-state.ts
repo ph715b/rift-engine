@@ -701,6 +701,27 @@ export interface PlayerState {
    *  ability, so it survives her death — killing her in response must not undo
    *  it — and `runEnd` clears it with the rest. */
   cannotPlayCardsThisTurn: boolean;
+  /**
+   * Lilting Lullaby's "its controller can't play SPELLS this turn" — the
+   * spells-only twin of the field above.
+   *
+   * A separate field rather than a mode on that one, because the two are
+   * genuinely different bans and a card may owe both: Brynhir Thundersong stops
+   * everything, and this stops one kind. Folding them together would make the
+   * wider ban unreadable once the narrower one was set.
+   */
+  cannotPlaySpellsThisTurn: boolean;
+  /**
+   * How many of this player's units died during THEIR OWN Beginning Phase this
+   * turn — Shadow Watcher's "if a friendly unit died during your Beginning Phase
+   * this turn, I enter ready".
+   *
+   * `unitsLostThisTurn` beside it is strictly wider and cannot stand in: the
+   * difference is reachable rather than theoretical, because `[Temporary]`'s
+   * sweep and hold-scoring both kill in the Beginning Phase, and a unit lost in
+   * combat later the same turn must not satisfy this.
+   */
+  unitsLostInBeginningPhaseThisTurn: number;
   /** Guerilla Warfare's "you can hide cards ignoring costs this turn" — the
    *  flat 1 rainbow Power a Hide normally costs (811) is waived. A this-turn
    *  flag rather than a charge: it says "cards", plural, so it is not spent by

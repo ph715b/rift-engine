@@ -101,6 +101,7 @@ export function playCardDefIds(): string[] {
     // Monch's enter-ready half. His DISCOUNT half registers him in
     // cost-modifiers.ts too, and coverage merges the two claims.
     MONCH,
+    SHADOW_WATCHER,
     // Shadow's is the odd one out: every other entry here reads the BOARD, and
     // his reads which deploy path is running. He is registered all the same,
     // because coverage's question is "does some module implement this clause",
@@ -299,6 +300,14 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // anywhere, which is why `playCardDefIds()` must name him or coverage would
       // report a finished card inert.
       return player.xp >= BANDLE_SOLDIER_LEVEL;
+    case SHADOW_WATCHER:
+      // UNL — "If a friendly unit died during your Beginning Phase this turn, I
+      // enter ready." His whole printed text.
+      //
+      // `unitsLostThisTurn` is strictly wider and cannot stand in: the gap is
+      // reachable, because [Temporary]'s sweep and hold-scoring both kill in the
+      // Beginning Phase while a combat death later the same turn must not count.
+      return player.unitsLostInBeginningPhaseThisTurn > 0;
     case MONCH:
       // UNL — "If an opponent controls a stunned unit, I cost [2] less and enter
       // ready." The enter-ready half; the discount is a branch in
@@ -357,6 +366,11 @@ const XIN_ZHAO_VIGILANT = "SFD-176";
 const SHADOW = "UNL-194";
 /** Monch — "If an opponent controls a stunned unit, I cost [2] less and enter
  *  ready." The enter-ready half; see cost-modifiers.ts for the price. */
+/** Shadow Watcher — "If a friendly unit died during your Beginning Phase this
+ *  turn, I enter ready." His whole printed text, so this is his only
+ *  registration. */
+const SHADOW_WATCHER = "UNL-037";
+
 const MONCH = "UNL-035";
 
 const TOWERING_PAIROFANT = "UNL-008";

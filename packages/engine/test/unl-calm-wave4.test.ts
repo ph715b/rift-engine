@@ -612,10 +612,14 @@ describe("the two cards this wave REFUSED", () => {
     // cost-modifiers.ts and deploy.ts, asking one shared predicate so a
     // discounted Monch can never arrive exhausted. Shadow Watcher still needs a
     // Beginning-Phase death counter that nothing records.
-    for (const id of [SHADOW_WATCHER]) {
-      expect(implementingModules(id), `${id} was implemented — delete this test`).toHaveLength(0);
-      expect(isCardImplemented(registry.get(id)), `${id} reports implemented while doing nothing`).toBe(false);
-    }
+    // **SHADOW_WATCHER left on 2026-08-13, and this wave's refusal list is now
+    // EMPTY.** Its note named the missing fact exactly — a Beginning-Phase death
+    // is recorded nowhere — and a later wave proved it by whole-state diff.
+    //
+    // The loop is gone with it rather than left iterating over nothing: a `for`
+    // over an empty array generates no assertions and reports green forever.
+    expect(isCardImplemented(registry.get(SHADOW_WATCHER)), "Shadow Watcher went back to unwritten").toBe(true);
+    expect(isCardImplemented(registry.get(MONCH)), "Monch went back to unwritten").toBe(true);
   });
 
   it("and neither enters ready today", () => {

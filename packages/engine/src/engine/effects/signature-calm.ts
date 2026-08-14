@@ -418,8 +418,22 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // second finds nothing, which is a real case rather than defensive padding
     // (see `counterSpell`'s own note).
     targeting: { kind: "chainSpell" },
-    resolve: (state, _ctx, event) =>
-      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+    resolve: (state, ctx, event) => {
+      if (!event.targetChainCardInstanceId) return state;
+      // The countered spell's CONTROLLER is read off the chain entry before the
+      // counter clears it — afterwards there is nothing left to ask.
+      const entry = state.spellChain.find(
+        (e) => "card" in e && e.card.instanceId === event.targetChainCardInstanceId,
+      );
+      const victim = entry !== undefined && "playerIndex" in entry ? entry.playerIndex : ctx.opponentIndex;
+      const countered = counterSpell(state, event.targetChainCardInstanceId);
+      // **"Its controller can't play spells this turn."** Armed here rather than
+      // as a continuous ability, so it survives the Lullaby leaving play — a ban
+      // on the turn, not on the card, exactly as Brynhir Thundersong's is.
+      const players = [...countered.players] as [PlayerState, PlayerState];
+      players[victim] = { ...players[victim], cannotPlaySpellsThisTurn: true };
+      return { ...countered, players };
+    },
   },
   "UNL-192": {
     // Alpha Strike (Calm + Body) — "[Action] Choose a friendly unit. It deals

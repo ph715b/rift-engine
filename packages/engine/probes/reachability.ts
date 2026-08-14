@@ -350,7 +350,25 @@ const GAMES = Number(process.env.GAMES ?? 500);
  *
  * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 151/224.
  */
-const PINNED_UNION = 611;
+// **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
+//
+// The drop is ONE card and the probe named it: `drawnNeverOffered` reported
+// UNL-166 Stalking Wolf, which is the bucket CLAUDE.md says was EMPTY on all
+// four previous legitimate drops — so this one is NOT the usual sampling story
+// and was worth reading.
+//
+// It is still a displacement, of a shape not seen before. His additional cost
+// is MANDATORY — "kill a Bird, Cat, Dog, or Poro you control" — so 204.2.a
+// makes him unplayable with none of those in play. UNL seating rose 182 -> 201
+// as this session finished cards, and `deck-generator` seats on
+// `isCardImplemented` into a FIXED-SIZE covering deck: the newly-finished cards
+// displaced his enablers out of the deck he is seated in, so he is drawn and
+// correctly never offered.
+//
+// **The lesson worth keeping: a card with a mandatory additional cost can lose
+// reachability when its ENABLER is displaced, without anything about the card
+// changing.** Expect this again as the set finishes.
+const PINNED_UNION = 610;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

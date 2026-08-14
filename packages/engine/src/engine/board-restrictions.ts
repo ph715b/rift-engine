@@ -115,6 +115,19 @@ export function mayPlayCardsAtAll(state: GameState, playerIndex: 0 | 1): boolean
 }
 
 /**
+ * Lilting Lullaby's "its controller can't play spells this turn".
+ *
+ * Its own predicate beside `mayPlayCardsAtAll` rather than a parameter on it:
+ * the two bans are different widths and a player may be under both, so a caller
+ * has to be able to ask each. Armed on the Lullaby's RESOLUTION and cleared by
+ * `runEnd`, exactly as Brynhir's is — the ban is a fact about the turn, so
+ * killing the caster in response must not undo it.
+ */
+export function mayPlaySpells(state: GameState, playerIndex: 0 | 1): boolean {
+  return !state.players[playerIndex].cannotPlaySpellsThisTurn;
+}
+
+/**
  * Mageseeker Warden's first sentence — "opponents can only play units to their
  * BASE" while she stands at a battlefield.
  *

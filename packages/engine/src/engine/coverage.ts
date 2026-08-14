@@ -754,10 +754,14 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-186",
     "half written: the kill works; 'play this from your trash for [rainbow]' is unwritten — timing.mayPlayFromTrash is per-player, Units-only, and charges the printed price, so a per-instance permission with a REPLACED cost needs timing.ts plus a PlayerState field",
   ],
-  [
-    "UNL-190",
-    "half written: the counter works; 'its controller can't play spells this turn' is unwritten — PlayerState.cannotPlayCardsThisTurn stops CARDS, which is wider than printed, and a spells-only twin needs game-state.ts, board-restrictions.ts, player-setup.ts and turn-manager.ts",
-  ],
+  // **UNL-190 Lilting Lullaby LEFT this map on 2026-08-13.** Its refusal named
+  // the shape exactly: `cannotPlayCardsThisTurn` stops CARDS, which is wider
+  // than printed, and a spells-only twin was needed.
+  //
+  // A separate field rather than a mode on the existing one, because a player
+  // may be under BOTH bans — Brynhir Thundersong stops everything and this
+  // stops one kind, and folding them together would make the wider ban
+  // unreadable once the narrower was set.
   // Vex's missing clause is NARROWER than it reads, and the narrowing is the
   // reason this note says "rarely" rather than "never": a played unit arrives
   // exhausted, and an exhausted unit cannot move. The gap only bites once

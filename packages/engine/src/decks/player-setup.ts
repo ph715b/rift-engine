@@ -115,6 +115,8 @@ export function buildPlayerFromDeckList(
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    cannotPlaySpellsThisTurn: false,
+    unitsLostInBeginningPhaseThisTurn: 0,
     hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
   };

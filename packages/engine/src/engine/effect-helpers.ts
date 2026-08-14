@@ -251,6 +251,14 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
     ...p,
     trash: fileIntoNonBoardZone(p.trash, trashed),
     unitsLostThisTurn: p.unitsLostThisTurn + 1,
+    // Shadow Watcher reads deaths in the OWNER's own Beginning Phase, so both
+    // halves are checked: the phase, and that the dying unit's controller is the
+    // active player. A unit of yours dying in the opponent's Beginning Phase is
+    // not what the card describes.
+    unitsLostInBeginningPhaseThisTurn:
+      state.phase === "Beginning" && state.activePlayerIndex === ownerIndex
+        ? p.unitsLostInBeginningPhaseThisTurn + 1
+        : p.unitsLostInBeginningPhaseThisTurn,
   }));
   // HELD (383): the [Deathknell] and every death-watch listener are placed
   // together at the moment of the death, and resolve a chain-pop later.

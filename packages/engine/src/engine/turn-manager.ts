@@ -445,6 +445,12 @@ export function runEnd(state: GameState): GameState {
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    // Lilting Lullaby's narrower ban expires with the turn exactly as Brynhir's
+    // wider one does, and Shadow Watcher's counter with them — a Beginning-Phase
+    // death that survived into the next turn would ready a unit on a board where
+    // nothing had died.
+    cannotPlaySpellsThisTurn: false,
+    unitsLostInBeginningPhaseThisTurn: 0,
     hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];

@@ -101,6 +101,8 @@ function makePlayer(id: string, overrides: Partial<PlayerState> = {}): PlayerSta
     nextSpellEnergyDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
+    cannotPlaySpellsThisTurn: false,
+    unitsLostInBeginningPhaseThisTurn: 0,
     hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false,
     ...overrides,

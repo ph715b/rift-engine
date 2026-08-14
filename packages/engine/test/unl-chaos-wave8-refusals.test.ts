@@ -192,6 +192,14 @@ describe("UNL-122 Crescent Guardian: has this player played a spell this turn?",
         .sort(),
       "a new spell-named PlayerState field exists — if it counts plays, this refusal is closed",
     ).toEqual([
+      // **`cannotPlaySpellsThisTurn` joined on 2026-08-13** and does NOT close
+      // this refusal — it is Lilting Lullaby's BAN, a fact about what a player
+      // may do, not a record of what they have done. Crescent Guardian still
+      // needs "have you played a spell this turn", which nothing counts.
+      //
+      // The census did exactly its job: it noticed a new field and made someone
+      // answer the question rather than absorbing it silently.
+      "cannotPlaySpellsThisTurn",
       "maxSpellEnergySpentThisTurn",
       "nextSpellBonusDamage",
       "nextSpellEnergyDiscount",

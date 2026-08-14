@@ -156,44 +156,17 @@ describe("UNL-194 Shadow: played to a battlefield, he still arrives EXHAUSTED", 
 // UNL-037 Shadow Watcher — "If a friendly unit died during your Beginning Phase
 // this turn, I enter ready."
 // ---------------------------------------------------------------------------
-describe("UNL-037 Shadow Watcher: nothing in the engine distinguishes WHEN a unit died", () => {
-  /** The whole player record after `deaths` friendly deaths in `phase`. */
-  function afterDeathIn(phase: GameState["phase"], deaths = 1): string {
-    const s = makeState({ phase });
-    s.players[0]!.baseUnits = Array.from({ length: deaths }, (_, i) => makeUnit({ name: `Doomed ${i}`, instanceId: `doomed-${i}` }));
-    let next = s;
-    for (let i = 0; i < deaths; i += 1) next = destroyUnit(next, `doomed-${i}`, 1);
-    return JSON.stringify(next.players[0]);
-  }
-
-  it("MEASURED: a Beginning-Phase death and an Action-Phase death leave IDENTICAL player state", () => {
-    const beginning = afterDeathIn("Beginning");
-    const action = afterDeathIn("Action");
-    // If any field anywhere on PlayerState recorded the phase, these two strings
-    // would differ. They do not — which is the entire reason the card cannot be
-    // written against existing state, and is a stronger statement than "I looked
-    // and did not find a field".
-    expect(beginning).toEqual(action);
-    // ...and the comparison is SENSITIVE. Two identical strings would also come
-    // out of a stringify that dropped everything interesting, so a change the
-    // record DOES carry has to separate them.
-    expect(afterDeathIn("Action", 2)).not.toEqual(action);
-  });
-
-  it("POSITIVE CONTROL: the death funnel really did run in both", () => {
-    // Guards `tried > 0`: two identical strings would also be produced by a
-    // `destroyUnit` that did nothing at all.
-    const s = makeState({ phase: "Beginning" });
-    s.players[0]!.baseUnits = [makeUnit({ name: "Doomed", instanceId: "doomed" })];
-    const next = destroyUnit(s, "doomed", 1);
-    expect(next.players[0]!.unitsLostThisTurn).toBe(1);
-    expect(next.players[0]!.baseUnits).toHaveLength(0);
-  });
-
-  it("THE PIN: he is unregistered", () => {
-    expect(hasEffect(SHADOW_WATCHER)).toBe(false);
-  });
-});
+// **The UNL-037 Shadow Watcher block that stood here was DELETED on 2026-08-13
+// — superseded, not weakened.**
+//
+// It proved the gap by WHOLE-STATE DIFF: one death in the Beginning Phase and
+// one in the Action Phase left byte-identical serialized `PlayerState`. That is
+// a stronger measurement than "I looked for a field", and it is what made the
+// edit obvious — `unitsLostInBeginningPhaseThisTurn` beside the wider counter,
+// written only when the phase AND the seat both match.
+//
+// Coverage lives in `shadow-watcher-lullaby.test.ts`, where the seat half is
+// pinned by a test that mutation caught being vacuous first.
 
 // ---------------------------------------------------------------------------
 // UNL-045 Forgotten Signpost — "[Action][>] Exhaust a unit you control,
