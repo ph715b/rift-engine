@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("311 held / 5 inline of 316 trigger cards", () => {
+  it("312 held / 5 inline of 317 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -207,6 +207,16 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //
     // Measured by the agent deleting its own entry and re-running — the census
     // went green at 306/5/311 — rather than inferred from the diff.
+    //
+    // **316 → 317 cards on 2026-08-13**, +1 held, and this one IS a trigger:
+    // UNL-074 Frigid Jewel, on a new `cardDrawn` event. She is the pool's first
+    // listener on drawing at all — the event had no producer before, and
+    // `drawCards` is the single funnel every draw in the engine goes through,
+    // including the Draw Phase's.
+    //
+    // Contrast the entry immediately below, which moved this number for a card
+    // carrying no trigger whatever. Both are correct; the census counts what
+    // these registries CLAIM, not what triggers.
     //
     // **315 → 316 cards on 2026-08-13**, +1 held, and it is UNL-117 Arachnoid
     // Horror — who carries NO trigger at all.
@@ -342,9 +352,9 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 311,
+      held: 312,
       inline: 5,
-      cards: 316,
+      cards: 317,
     });
   });
 

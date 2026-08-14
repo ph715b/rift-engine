@@ -113,6 +113,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,
     spellsPlayedThisTurn: 0,
+    cardsDrawnThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,

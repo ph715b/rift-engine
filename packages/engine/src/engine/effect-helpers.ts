@@ -1545,9 +1545,27 @@ export function drawCards(state: GameState, playerIndex: 0 | 1, count: number): 
       if (player.trash.length === 0) return next;
       next = burnOut(next, playerIndex);
     }
+    // **The ordinal is incremented in the same update that moves the card**, and
+    // needs no "did anything happen" guard after it — one was written and DELETED
+    // as unreachable when mutation testing showed removing it changed nothing.
+    //
+    // By this line the deck cannot be empty: the block above either returned
+    // (deck AND trash empty, so there is no card and no way to make one) or ran
+    // `burnOut`, which moves a non-empty trash into the deck. So `top` is always
+    // defined here, and the `: p` fallback is a type narrowing rather than a live
+    // branch. That is also what makes the "impossible draw does not count" case
+    // hold — the early return does it, not anything here.
     next = updatePlayer(next, playerIndex, (p) => {
       const [top, ...rest] = p.deck;
-      return top ? { ...p, deck: rest, hand: [...p.hand, top] } : p;
+      return top ? { ...p, deck: rest, hand: [...p.hand, top], cardsDrawnThisTurn: p.cardsDrawnThisTurn + 1 } : p;
+    });
+    // HELD like every other event (383). Raised per CARD, so "draw 3" crosses the
+    // second-card boundary exactly once, and carrying the ordinal is what lets a
+    // listener that resolves LATER still know which draw it was.
+    next = holdEventTrigger(next, {
+      kind: "cardDrawn",
+      ownerIndex: playerIndex,
+      nthThisTurn: next.players[playerIndex].cardsDrawnThisTurn,
     });
   }
   return next;

@@ -477,6 +477,9 @@ export function runEnd(state: GameState): GameState {
     // tally like every field here, and it must not outlive the turn that
     // filled it or her additional cost becomes permanently offerable.
     spellsPlayedThisTurn: 0,
+    // Frigid Jewel's "your SECOND card EACH TURN" — the ordinal restarts, or
+    // she would fire once in the game and never again.
+    cardsDrawnThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     // Annotated because this object is cast to a PlayerState tuple below, and a
     // bare `[]` infers `never[]`, which does not overlap `string[]`.

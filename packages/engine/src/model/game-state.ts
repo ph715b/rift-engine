@@ -756,6 +756,23 @@ export interface PlayerState {
    */
   spellsPlayedThisTurn: number;
   /**
+   * Cards this player has DRAWN this turn — UNL-074 Frigid Jewel's "when you draw
+   * your SECOND card each turn".
+   *
+   * An ordinal, not a flag, and that is the card: the trigger fires on the second
+   * draw and on no other. A boolean could say "has drawn" but not "which one this
+   * is", and a listener that fired on every draw would pump a unit per card.
+   *
+   * Counted inside `drawCards`' per-card loop rather than once per call, because
+   * a single "draw 3" must cross the boundary exactly once — the second card of
+   * that batch is the second card of the turn.
+   *
+   * `drawCards` is the ONE funnel every draw goes through, including the Draw
+   * Phase's (turn-manager calls it too), so this cannot miss a route. Cleared at
+   * `runEnd` with the rest of the turn.
+   */
+  cardsDrawnThisTurn: number;
+  /**
    * Rally the Troops' "when a friendly unit is played THIS TURN, buff it" — a
    * DELAYED trigger, so the flag is set when the spell resolves and read at the
    * PLAY site for the rest of the turn.

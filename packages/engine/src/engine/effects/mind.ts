@@ -55,6 +55,7 @@ import {
 import { playUnitToBase } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision, repeatDecision } from "../decisions.js";
+import { eligibleTargets } from "../target-lookup.js";
 import { isOpenBattlefield } from "../unit-triggers.js";
 import { mayPlayUnitAt } from "../battlefield-continuous.js";
 import {
@@ -138,6 +139,12 @@ const KEEPER_REFLECTION_TOKEN: TokenSpec = {
   tag: "Reflection",
   keywords: { Temporary: 1, Hidden: 1 },
 };
+
+/** Frigid Jewel fires on the SECOND draw of each turn, and pumps by 2. Named
+ *  because both are printed numbers that would otherwise sit as bare literals
+ *  inside a predicate and a resolver. */
+const FRIGID_JEWEL_NTH = 2;
+const FRIGID_JEWEL_MIGHT = 2;
 
 const FRIGID_TOUCH_MIGHT = 2;
 const BELLOWS_BREATH_DAMAGE = 1;
@@ -2115,6 +2122,37 @@ function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDe
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "UNL-074": {
+    // Frigid Jewel — "When you draw your SECOND card each turn, give a friendly
+    // unit +2 [Might] this turn."
+    //
+    // # The ordinal is the card, and it is carried on the EVENT
+    //
+    // `cardDrawn.nthThisTurn` says which draw this was. A listener re-reading
+    // `PlayerState.cardsDrawnThisTurn` instead would be wrong in a way that only
+    // shows on a multi-card draw: the trigger is HELD (383), so by the time it
+    // resolves the count has moved on and every held instance would see the same
+    // final number — three draws would fire three times, or none.
+    //
+    // # Why a GEAR can listen at all
+    //
+    // `allListeningPermanents` walks `activeGear`, which is how OGN-143 Pirate's
+    // Haven works. Nothing here is new; the Jewel needs no attachment and no
+    // wearer.
+    //
+    // # "EACH turn", not "the first time this game"
+    //
+    // The ordinal restarts at `runEnd`, so she fires once per turn for as long as
+    // she is in play. Both halves are asserted: the second draw of a turn pumps,
+    // the third does not, and the second draw of the NEXT turn pumps again.
+    on: "cardDrawn",
+    // "WHEN YOU draw" — her controller's draws only. Asked here rather than in
+    // `resolve` so an opponent's draw never costs both players a PassFocus for a
+    // question that would resolve to nothing.
+    applies: (_state, listener, event) =>
+      event.kind === "cardDrawn" && event.ownerIndex === listener.ownerIndex && event.nthThisTurn === FRIGID_JEWEL_NTH,
+    resolve: (state, listener) => parkDecision(state, { kind: "UNL-074-pump", playerIndex: listener.ownerIndex }),
+  },
   "UNL-084": {
     // Sprite Queen, second moment — "…OR at the start of your Beginning Phase,
     // play a ready 3 [Might] Sprite unit token with [Temporary] to your base."
@@ -3198,6 +3236,33 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Frigid Jewel's "give a FRIENDLY unit +2 [Might] this turn", asked on the
+   * second draw of each of her controller's turns.
+   *
+   * **FRIENDLY, unlike Rengar - Pridestalker's otherwise identical question**,
+   * which says "a unit" and offers both sides. Hers prints the word, so the
+   * option list is `eligibleTargets(..., "friendly", ...)` — and that is a real
+   * difference rather than a nicety: on a board where the only unit is the
+   * opponent's, "give a unit +2" has exactly one answer and it is not the one you
+   * want.
+   *
+   * `"anywhere"`, because she names no location — 355.9.a.1's bare noun is the
+   * whole board, base included.
+   *
+   * No decline: the card prints none, so with one friendly unit on the board
+   * `advanceDecisions` auto-resolves it without a prompt.
+   */
+  "UNL-074-pump": {
+    prompt: () => "Frigid Jewel: give a friendly unit +2 Might this turn",
+    options: (state, d) =>
+      eligibleTargets(state, d.playerIndex, "friendly", "anywhere").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, _d, optionId) => giveMightThisTurn(state, optionId, FRIGID_JEWEL_MIGHT),
+  },
   /**
    * Void Hatchling's look, before Teemo - Strategist's reveal.
    *

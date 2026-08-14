@@ -810,6 +810,21 @@ export type GameEvent =
    */
   | { kind: "unitReadied"; ownerIndex: 0 | 1; unitInstanceId: string }
   /**
+   * `ownerIndex` DREW a card — UNL-074 Frigid Jewel's "when you draw your SECOND
+   * card each turn".
+   *
+   * `nthThisTurn` is the whole reason this event exists rather than a bare
+   * "a card was drawn": the Jewel fires on the second and on no other, so a
+   * listener has to be able to tell which draw this is. Carried on the event
+   * rather than re-read from `PlayerState` by the listener, because a HELD
+   * trigger resolves later — by then the count has moved on, and every listener
+   * would see the same final number.
+   *
+   * Raised once per CARD, from inside `drawCards`' loop, so a "draw 3" crosses
+   * the boundary exactly once.
+   */
+  | { kind: "cardDrawn"; ownerIndex: 0 | 1; nthThisTurn: number }
+  /**
    * `holderIndex` HELD `battlefieldId` in their Beginning Phase — Ahri -
    * Alluring's "when I hold, you score 1 point".
    *
@@ -1234,6 +1249,7 @@ export type HeldEventKind =
   | "unitMoved"
   | "endOfTurn"
   | "unitReadied"
+  | "cardDrawn"
   | "battlefieldHeld"
   | "unitKilledBySpell"
   | "cardsRecycled"

@@ -67,6 +67,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,
     spellsPlayedThisTurn: 0,
+    cardsDrawnThisTurn: 0,
     buffUnitsPlayedThisTurn: 0,
     conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,
