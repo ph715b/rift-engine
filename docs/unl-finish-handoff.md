@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 15
+# Finishing Unleashed — the last 12
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,16 +26,17 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three; Maduli, Poppy, Crescent Guardian, Arachnoid Horror, Frigid Jewel and
-Smite made nine, so **15 remain**: **6 triaged** (a `partialImplementationNote`
-names the precise shared-file edit) and **9 untouched**.
+three; then Maduli, Poppy, Crescent Guardian, Arachnoid Horror, Frigid Jewel,
+Smite, Elder Dragon, Lotus Trap and Conscription — twelve in all, so **12
+remain**: **3 triaged** (a `partialImplementationNote` names the precise
+shared-file edit) and **9 untouched**.
 
 The untouched group is no longer unread — see Block 5, which triages every one.
 It was never "ordinary card work" as a group: **two of the three it called
 "likely small" have since landed** (Poppy, Crescent Guardian) at roughly the
 predicted cost, and three of the rest are systemic.
 
-Re-measured 2026-08-13, latest: **20 unimplemented UNL ids = 15 distinct cards**
+Re-measured 2026-08-13, latest: **17 unimplemented UNL ids = 12 distinct cards**
 once the alias printings are folded.
 
 ### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
@@ -144,9 +145,9 @@ explicitly where it stops short of this block.
   ("would die this turn" covers the spell's own kill, and arming after inverts the
   card), and the branch sits BELOW the death ward because **372** gives the dying
   unit's controller the ordering.
-- **UNL-118 Elder Dragon** — "any amount of your damage kills": 142.4.c needs
-  per-marker damage attribution, and `UnitInstance.damage` is one unattributed
-  number. Plus a Lethal Damage override.
+- **UNL-118 Elder Dragon** — **DONE 2026-08-13.** The Lethal Damage override was
+  needed; the per-marker attribution was NOT. Both sites that ask already know who
+  dealt the damage, so `UnitInstance.damage` is untouched.
 
 Adjacent, not identical — don't merge them into one edit.
 
@@ -162,10 +163,10 @@ Adjacent, not identical — don't merge them into one edit.
 - **UNL-188 Hextech Gauntlets** — `[Equip]` cost reduced by the chosen unit's
   Might. `equipAbilities` builds one static `ActivationCost` per gear; no
   activation cost can depend on the chosen target.
-- **UNL-140 Conscription** — the XP-cost mechanism EXISTS (`OPTIONAL_XP_COSTS`).
-  The real blocker is that optional costs fan out INSIDE the target loop, so a
-  paid variant still carries the 3-Might-capped target and sells the XP for
-  nothing. A targeting seam, not an XP seam.
+- **UNL-140 Conscription** — **DONE 2026-08-13.** It was a targeting seam, as the
+  note said: `XP_WIDENED_TARGETING` holds the paid spec and the wide-only targets
+  are fanned as variants carrying `optionalXpPaid` from birth, above the cost
+  fan-out.
 
 ### Block 5 — READ 2026-08-13, and they are not one group
 
@@ -184,10 +185,11 @@ not an implementation plan — re-read the code before believing any line of it.
 
 **Medium — a real but bounded new mechanism:**
 
-- **UNL-013 Lotus Trap** — "double all damage that would be dealt to it this
-  turn". A per-UNIT, this-turn damage multiplier; `damage-modifiers.ts` is the
-  home and `dealDamage` already routes through it, but combat ASSIGNMENT is a
-  second reader.
+- **UNL-013 Lotus Trap** — **DONE 2026-08-13.** The second reader is the
+  interesting one: **465.2.c.5** puts the doubling on the combat ASSIGNMENT, so
+  `assignmentNeeded` halves what a doubled unit costs and `applyDamage` restores
+  it. The halving is only observable when a doubled unit frees pool for ANOTHER
+  target — a one-defender test cannot see it.
 - **UNL-074 Frigid Jewel** — **DONE 2026-08-13.** A new `cardDrawn` event
   carrying `nthThisTurn`, raised per card from inside `drawCards`. The ordinal
   rides the EVENT because the trigger is held — a listener re-reading the counter
