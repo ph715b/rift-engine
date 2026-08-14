@@ -751,23 +751,52 @@ export const cardEffects: Record<string, EffectDefinition> = {
     //
     // # Why the bounce half is refused rather than approximated
     //
-    // Three separate things are missing and only the middle one has a precedent:
+    // **RE-TRIAGED 2026-08-13, and two of the three original blockers are now
+    // GONE.** The refusal stands, but for a reason that got sharper rather than
+    // for the reasons first written, so the old list is corrected here rather
+    // than left to be re-measured a fourth time:
     //
-    //  - **"ITS CONTROLLER may play this spell again"** hands the replay to the
-    //    DAMAGED unit's controller, who is usually the opponent — so the card
-    //    has to leave the caster's trash and be played by somebody who does not
-    //    own it. `playCardIgnoringCost` can resolve a Spell from inside a
-    //    resolution (play-free.ts records that divergence), but it deliberately
-    //    does not move the card out of its zone, and no zone-crossing "an
-    //    opponent plays your trashed card" path exists.
-    //  - **"for [rainbow]"** is a REPLACED cost, not a free play — the same
-    //    per-instance permission-with-a-price that UNL-186 Death from Below and
-    //    UNL-025 Undying Legion are each blocked on. `timing.mayPlayFromTrash` is
-    //    per-player, Units-only, and charges the printed price.
-    //  - **"for each time this spell has dealt damage this turn"** is a
-    //    turn-scoped tally of one CARD's damage instances. Nothing on GameState
-    //    counts it and nothing can: `maxSpellEnergySpentThisTurn` beside it is the
-    //    shape such a field takes, and adding one is a model change.
+    //  - ~~"for [rainbow]" needs a replaced cost~~ — **BUILT.** Rule 356.1.a's
+    //    cost replacement is `engine/replaced-costs.ts`, and the per-instance
+    //    GRANTED form is `PlayerState.replacedCostPlays`. UNL-186 Death from
+    //    Below uses exactly this and is whole.
+    //  - ~~no zone-crossing play-from-a-trash path~~ — a trash play at a replaced
+    //    price now exists and `mayPlayFromTrash` is no longer Units-only.
+    //
+    // **What actually blocks it is the TIMING of the grantee, and it is
+    // structural.** "ITS controller may play this spell again" hands the replay
+    // to the DAMAGED unit's controller — usually the opponent. This engine cannot
+    // play a card mid-resolution (419.3.b; the divergence recorded against Last
+    // Rites and Death from Below), so a replay has to become a PERMISSION the
+    // ordinary play path spends. That workaround only works when the grantee is
+    // the ACTIVE player:
+    //
+    //  - `timing.mayPlayCardNow` opens with
+    //    `if (playerIndex !== actingPlayerIndex(state)) return false;`
+    //  - Dancing Grenade is Default-timed (`isReaction` and `isAction` are both
+    //    false, measured), so it additionally needs `chainOpen && turnState ===
+    //    "Neutral"` — the active player's own open state.
+    //  - The permission is cleared at `runEnd`, so it cannot survive to the
+    //    opponent's turn either.
+    //
+    // So the opponent has no window in which to hold it. **A cross-seat grant is
+    // not merely unwritten here, it is unusable** — which is why the
+    // `fromPlayerIndex` field built for this card was removed again the same day
+    // after mutation testing showed it unreachable against the whole suite. See
+    // `GrantedReplacedCostPlay`.
+    //
+    // The third clause is still a genuine gap and is now the SMALLER one: **"for
+    // each time this spell has dealt damage this turn"** is a turn-scoped tally
+    // of one card INSTANCE's damage instances. `dealDamage` takes no source card,
+    // so the count would be kept by this resolver rather than plumbed through it
+    // — a GameState field keyed by instanceId and cleared at `runEnd`.
+    //
+    // **The half that WOULD work was considered and declined.** When the caster
+    // targets their OWN unit they are the controller, the grantee is the active
+    // player, and every piece above lines up. That would make the card correct in
+    // the minority case and silently inert in the majority, with a new GameState
+    // field carried for it — a worse trade than a refusal that names its blocker,
+    // since a card reporting DONE is a card nobody goes back to.
     //
     // The plausible fake is worth naming because it would have passed a shallow
     // test: park a "pay [rainbow] to deal 2 more" question on the caster. That is

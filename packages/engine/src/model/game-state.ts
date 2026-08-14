@@ -346,9 +346,27 @@ export interface GrantedReplacedCostPlay {
   /** `null` is the RAINBOW pip — the same reading `computeAutoPayment` and
    *  `matchesPowerDomain` already give a null domain. */
   powerDomain: Domain | null;
-  /** WHOSE trash the card is taken from. Usually the holder's own; UNL-020
-   *  Dancing Grenade is the case where it is not. */
-  fromPlayerIndex: 0 | 1;
+  /**
+   * **There is deliberately no `fromPlayerIndex` here, and it was REMOVED rather
+   * than never written.**
+   *
+   * UNL-020 Dancing Grenade needs one — "its controller may play this spell
+   * again" hands the replay to the DAMAGED unit's controller while the spell sits
+   * in the caster's trash — so the field was added speculatively with that card
+   * named. Mutation testing against the whole engine suite then showed it
+   * UNREACHABLE-as-distinct: replacing every read of it with the holder's own
+   * index left all 4748 tests green, because no card can set it to anything else.
+   *
+   * The reason is structural and is recorded against Dancing Grenade itself:
+   * `mayPlayCardNow` opens with `playerIndex !== actingPlayerIndex(state)` and
+   * the card is Default-timed, so the opponent has no window to use a permission
+   * during the caster's turn — and a grant cleared at `runEnd` never survives to
+   * theirs. A cross-seat grant is not merely unwritten, it is unusable until the
+   * engine can play a card mid-resolution (419.3.b).
+   *
+   * So the trash searched is always the HOLDER's own. Add the field back with the
+   * card that can reach it.
+   */
 }
 
 export interface PlayerState {
@@ -656,9 +674,9 @@ export interface PlayerState {
    * This one is GRANTED by something that happened — a specific kill, by a
    * specific spell — and nothing about the card in the trash can re-derive it.
    *
-   * `fromPlayerIndex` is which trash to take the card from, and it is not always
-   * the holder's own: UNL-020 Dancing Grenade grants the replay to its TARGET's
-   * controller while the spell sits in the CASTER's trash.
+   * The card is always taken from the HOLDER's own trash — see
+   * `GrantedReplacedCostPlay` for why the cross-seat case (UNL-020 Dancing
+   * Grenade) is not merely unwritten but unusable.
    *
    * **DIVERGENCE, recorded in docs/rules-conformance.md, and the same one
    * `trashUnitPlaysThisTurn` above already carries.** 419.3.b makes this a

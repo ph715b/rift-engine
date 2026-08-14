@@ -228,14 +228,13 @@ export function replacedCostFor(
  * `execute-play-card` finishes. So the grant is recorded eagerly and this
  * answers `null` until the card actually lands.
  *
- * The trash searched is the grant's `fromPlayerIndex`, not the holder's — those
- * differ for UNL-020 Dancing Grenade, whose replay is offered to the TARGET's
- * controller while the spell sits in the CASTER's trash.
+ * The trash searched is the HOLDER's own. A grant naming somebody else's trash
+ * was built and then removed as unreachable — see `GrantedReplacedCostPlay`.
  */
 function grantedReplacedCostFor(state: GameState, playerIndex: 0 | 1, card: CardInstance): ReplacedCost | null {
   const grant = state.players[playerIndex].replacedCostPlays.find((g) => g.instanceId === card.instanceId);
   if (grant === undefined) return null;
-  if (!state.players[grant.fromPlayerIndex].trash.some((c) => c.instanceId === card.instanceId)) return null;
+  if (!state.players[playerIndex].trash.some((c) => c.instanceId === card.instanceId)) return null;
   return {
     energyCost: grant.energyCost,
     powerCost: grant.powerCost,

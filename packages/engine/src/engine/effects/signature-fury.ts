@@ -350,9 +350,6 @@ export const cardEffects: Record<string, EffectDefinition> = {
         energyCost: 0,
         powerCost: 1,
         powerDomain: null,
-        // Its OWN trash: "play this from YOUR trash", and a Spell goes to its
-        // owner's trash, who is the caster here.
-        fromPlayerIndex: ctx.casterIndex,
       });
     },
   },

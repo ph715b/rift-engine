@@ -576,7 +576,10 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // the assertion this row exists to keep true rather than to weaken.
   [
     "UNL-020",
-    "half written: the 2 damage works; 'its controller may play this spell again for [rainbow]' is unwritten — the replay leaves the CASTER's trash to be played by its TARGET's controller at a replaced price, and nothing tallies one spell's damage instances this turn",
+    // **Re-triaged 2026-08-13**: the replaced-cost half of the old note is BUILT
+    // (356.1.a, engine/replaced-costs.ts) and no longer the blocker. What remains
+    // is the grantee's timing, which is structural.
+    "half written: the 2 damage works; 'its controller may play this spell again for [rainbow]' is unwritten — the replay is granted to the DAMAGED unit's controller, and a permission is only usable by the ACTIVE player (mayPlayCardNow refuses a non-acting player, this card is Default-timed, and the grant clears at runEnd), so a cross-seat replay needs the mid-resolution play 419.3.b describes and this engine lacks; the escalating bonus additionally needs a per-instance tally of one spell's damage instances this turn",
   ],
   // **Two cards written by HALVES in wave 2, 2026-08-09.** Both report finished
   // without these, which is this map's whole reason to exist. Neither agent could
