@@ -1,4 +1,4 @@
-# Finishing Unleashed — the last 16
+# Finishing Unleashed — the last 15
 
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
@@ -26,16 +26,16 @@ printings carry different names (`Jhin - Virtuoso (Overnumbered)`, `(Signature)`
 ## What actually remains
 
 **As first written: 24 cards, 9 triaged and 15 untouched.** Block 1 finished
-three; Maduli, Poppy, Crescent Guardian, Arachnoid Horror and Frigid Jewel made
-eight, so **16 remain**: **7 triaged** (a `partialImplementationNote` names the
-precise shared-file edit) and **9 untouched**.
+three; Maduli, Poppy, Crescent Guardian, Arachnoid Horror, Frigid Jewel and
+Smite made nine, so **15 remain**: **6 triaged** (a `partialImplementationNote`
+names the precise shared-file edit) and **9 untouched**.
 
 The untouched group is no longer unread — see Block 5, which triages every one.
 It was never "ordinary card work" as a group: **two of the three it called
 "likely small" have since landed** (Poppy, Crescent Guardian) at roughly the
 predicted cost, and three of the rest are systemic.
 
-Re-measured 2026-08-13, latest: **21 unimplemented UNL ids = 16 distinct cards**
+Re-measured 2026-08-13, latest: **20 unimplemented UNL ids = 15 distinct cards**
 once the alias printings are folded.
 
 ### Block 1 — replaced costs — **DONE 2026-08-13 (3 of 4; the 4th is refused)**
@@ -139,9 +139,11 @@ explicitly where it stops short of this block.
 
 ### Block 3 — death and damage modification (2 cards)
 
-- **UNL-007 Smite** — "if it would die this turn, banish it instead": a turn-long
-  death REPLACEMENT. Needs a `GameState` list, a `killUnit` branch, a `runEnd`
-  sweep.
+- **UNL-007 Smite** — **DONE 2026-08-13**, and its note was a to-do list followed
+  exactly. The two things worth carrying: the rider is armed BEFORE the damage
+  ("would die this turn" covers the spell's own kill, and arming after inverts the
+  card), and the branch sits BELOW the death ward because **372** gives the dying
+  unit's controller the ordering.
 - **UNL-118 Elder Dragon** — "any amount of your damage kills": 142.4.c needs
   per-marker damage attribution, and `UnitInstance.damage` is one unattributed
   number. Plus a Lethal Damage override.
