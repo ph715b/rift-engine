@@ -109,6 +109,7 @@ export function makePlayer(id: string, overrides: Partial<PlayerState> = {}): Pl
     freeGearPlaysThisTurn: 0,
     trashUnitPlaysThisTurn: 0,
     replacedCostPlays: [],
+    banishedUntilHold: [],
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,

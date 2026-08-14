@@ -63,6 +63,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     freeGearPlaysThisTurn: 0,
     trashUnitPlaysThisTurn: 0,
     replacedCostPlays: [],
+    banishedUntilHold: [],
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,

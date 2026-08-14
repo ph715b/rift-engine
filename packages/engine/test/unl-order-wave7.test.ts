@@ -30,12 +30,14 @@ import { makeState, makeUnit, realUnitInstance, spellInstance } from "./fixtures
  *     discount, and the enumerator's paid variant is literally `{...play, flag}` —
  *     the same runes as the unpaid one. Listing her without the other half would
  *     sell 3 XP for nothing, which is the direction this engine never errs in.
- *   - **UNL-169 Ashe - Focused** was refused in wave 3 and all three of that
- *     refusal's blockers still hold. Her coverage is NOT re-asserted here —
+ *   - **UNL-169 Ashe - Focused** was refused in wave 3, re-measured here as still
+ *     blocked, and WRITTEN on 2026-08-14. Her coverage is NOT re-asserted here —
  *     `unl-order-wave3.test.ts` owns that pin, and a second copy is how the
- *     premise-flip class starts over. What IS asserted here is the one blocker
- *     that is a fact about a shared mechanism rather than about her: a card that
- *     has left the board is reachable by no listener walk.
+ *     premise-flip class starts over; her behaviour is in `ashe-focused.test.ts`.
+ *     What IS asserted here is the one measurement that was about a shared
+ *     mechanism rather than about her — a card that has left the board is
+ *     reachable by no listener walk — which is still true and was never what
+ *     stood in her way. See the block itself.
  *
  * A refusal recorded only in prose goes stale silently; each pin below fails the
  * moment the card is implemented, which is what a pin is for.
@@ -334,39 +336,49 @@ describe("Poppy - Defender of the Meek (UNL-178): LANDED 2026-08-13", () => {
   });
 });
 
-describe("Ashe - Focused (UNL-169): still refused, and the blocker that is a shared mechanism", () => {
+describe("Ashe - Focused (UNL-169): the measurement that outlived the refusal", () => {
   /**
-   * Wave 3 refused her and named three blockers. **All three still hold**, and its
-   * pin in `unl-order-wave3.test.ts` is NOT duplicated here — one file owns that
-   * coverage claim. What this block adds is the third blocker measured directly,
-   * because it is a fact about `triggers.ts` rather than about her:
+   * Wave 3 refused her on three blockers, this wave re-measured all three as still
+   * holding, and she was written on 2026-08-14. Her coverage claim lives in
+   * `unl-order-wave3.test.ts` and her behaviour in `ashe-focused.test.ts`. What
+   * stays HERE is the measurement below, unchanged and still true:
    *
-   *   1. a DELAYED trigger armed by a resolved ability — still no general
-   *      mechanism; both delayed effects in the engine are a field on state read
-   *      by their firing site (`killDamagedUnitsThisTurn`,
-   *      `buffUnitsPlayedThisTurn`), and `GameState`/`PlayerState` have gained no
-   *      generic queue;
-   *   2. PER-INSTANCE memory of WHICH card was banished — the only such memory in
-   *      the model is `GearInstance.banishedInstanceIds` (The Zero Drive), which is
-   *      on the wrong instance type and in model/card.ts;
-   *   3. "**even if I'm no longer on the board**" — asserted below.
+   *   1. a DELAYED trigger armed by a resolved ability — the real blocker, and it
+   *      is `engine/delayed-triggers.ts` plus `TriggerChainEntry.source ===
+   *      "delayed"` now. Note what this comment said the alternative was: a field
+   *      on state read inline by the firing site, like `killDamagedUnitsThisTurn`.
+   *      That is what was NOT built, because hers is an ABILITY and 383.3 puts one
+   *      on the Chain with a response window;
+   *   2. PER-INSTANCE memory of WHICH card was banished — `PlayerState
+   *      .banishedUntilHold`. This block was right that
+   *      `GearInstance.banishedInstanceIds` was on the wrong instance type; the
+   *      answer was that it belongs on neither instance, because the memory is the
+   *      ABILITY's and the ability outlives every card involved;
+   *   3. "**even if I'm no longer on the board**" — asserted below, **still true,
+   *      and never the blocker**. A dead Ashe really is in no listener walk, and
+   *      three waves read that as "so the card cannot be written". She is not
+   *      written by getting her into a walk. Her delayed ability has no listener at
+   *      all, so the walk's silence about her is the printed behaviour rather than
+   *      an obstacle to it.
    *
    * "When they hold" is **469.2** ("Hold: A player maintains Control of a
    * Battlefield they did not yet Score this turn during their Beginning Phase"),
    * which this engine raises as `battlefieldHeld` — so the EVENT she needs already
-   * exists. It is the listener, not the moment, that is missing.
+   * existed. This block always said only the listener was missing; the answer
+   * turned out to be that no listener was needed.
    */
-  it("cannot listen from anywhere she can go: a dead Ashe is in no listener walk", () => {
+  it("STILL cannot listen from anywhere she can go, and does not need to", () => {
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     const ashe = realUnitInstance(ASHE_FOCUSED);
     // Both places "no longer on the board" can put her.
     state.players[0]!.trash = [ashe];
     state.players[0]!.banished = [{ ...ashe, instanceId: "ashe-banished" }];
 
-    // `listeningTrashCards` is a NAMED two-card set, and she is not in it.
+    // `listeningTrashCards` is a NAMED set and she is not in it — she was never
+    // added to it, because that was the wrong fix rather than an unfinished one.
     expect(
       listeningTrashCards(state, 0),
-      "she can listen from the trash now — blocker 3 has moved, re-check the wave-3 refusal",
+      "she was added to the trash listener set — that is not how she works, re-read her entry",
     ).toHaveLength(0);
 
     // And nothing walks the banished zone at all.

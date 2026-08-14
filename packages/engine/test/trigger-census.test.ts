@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("312 held / 5 inline of 317 trigger cards", () => {
+  it("313 held / 5 inline of 318 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -348,13 +348,25 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // number typed to make a test pass — which is the failure this file exists to
     // prevent, and the reason none of the six was permitted to bump it.
     //
+    // **312/5/317 → 313/5/318 on 2026-08-14**, one card: UNL-169 Ashe - Focused's
+    // on-play trigger. Her card has TWO abilities and only this one is counted
+    // here, which is correct rather than an undercount — the second is a DELAYED
+    // ability with no listener and no registry entry (`source: "delayed"`, armed
+    // on `PlayerState.banishedUntilHold`), so there is nothing keyed by defId for
+    // this census to walk. It is still HELD on the chain; it is simply not a
+    // registered trigger card.
+    //
+    // Worth stating because the next delayed ability will move the two numbers
+    // apart again, and a census that silently missed a chain item would be the
+    // instrument defect this file exists to prevent.
+    //
     // `inline` did not move and must not — it is `beginningPhase` alone, three
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 312,
+      held: 313,
       inline: 5,
-      cards: 317,
+      cards: 318,
     });
   });
 

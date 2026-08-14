@@ -300,8 +300,18 @@ export interface TriggerChainEntry {
    * It shares the non-`event` sources' rule for the same reason a Legend does,
    * only more strongly: a battlefield is in play from setup to the end of the
    * game and cannot leave, so there is no "it has gone" case at all.
+   *
+   * `"delayed"` is a DELAYED triggered ability, created by an effect that has
+   * already resolved and owned by nothing on the board — UNL-169 Ashe - Focused's
+   * "when they hold, return it to their hand (**even if I'm no longer on the
+   * board**)". It is the only source with no listener at all: `listenerDefId`
+   * names the card whose text created it, purely so the chain viewer can say what
+   * the item is, and resolution reads `PlayerState.banishedUntilHold` rather than
+   * looking anything up. It takes the non-`event` sources' rule to its limit — a
+   * source that has left play is not merely tolerated here, it is the printed
+   * case.
    */
-  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger" | "deathknell" | "battlefield";
+  source?: "event" | "unitOnPlay" | "unitOnMove" | "selfTrigger" | "deathknell" | "battlefield" | "delayed";
 }
 
 /** One item waiting on the chain: a played Spell, or a triggered ability. */
@@ -690,6 +700,35 @@ export interface PlayerState {
    * [rainbow] buy the card again every turn.
    */
   replacedCostPlays: readonly GrantedReplacedCostPlay[];
+  /**
+   * Instance ids in THIS player's `banished` that come back to THIS player's hand
+   * the next time they hold — UNL-169 Ashe - Focused's "choose a card revealed
+   * this way and banish it. When they hold, return it to their hand (even if I'm
+   * no longer on the board)."
+   *
+   * **A DELAYED TRIGGERED ABILITY, held on state rather than on a card, and that
+   * is the rules-correct model rather than a workaround.** The parenthetical is
+   * the whole point of the field: the ability is created when Ashe's on-play
+   * effect RESOLVES and from then on it exists independently of her, so a design
+   * that kept her as the listener would have to find her in a trash, in a banish
+   * pile, back in a hand or shuffled into a deck. Three waves refused this card
+   * partly on that hunt.
+   *
+   * Owned by the CARD's owner, not by Ashe's controller, because both halves of
+   * the sentence are about them: "when THEY hold, return it to THEIR hand". So
+   * the firing site in `scoring.ts` reads the holder's own list and needs to know
+   * nothing about who banished what.
+   *
+   * IDs, not card copies — the card itself is really in `banished` and must stay
+   * there, or anything counting banished cards would see it twice. Same choice
+   * `GearInstance.banishedInstanceIds` (The Zero Drive) already makes.
+   *
+   * NOT cleared at `runEnd`: "when they hold" names no turn, and an opponent who
+   * never holds never gets the card back. That is the one field here whose
+   * lifetime is the GAME rather than the turn, which is why it sits beside the
+   * turn-scoped ones with this said out loud.
+   */
+  banishedUntilHold: readonly string[];
   /**
    * Points scored FROM HOLDING this turn — Needlessly Large Yordle's "I cost
    * [2][Calm] less for each point you scored from holding this turn".

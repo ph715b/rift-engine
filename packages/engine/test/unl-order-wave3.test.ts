@@ -616,50 +616,56 @@ describe("Atakhan (UNL-170): when I attack, the defender must kill one of their 
   // `modifiedEnergyCost`, where every board-keyed discount lives.
 });
 
-describe("Ashe - Focused (UNL-169): REFUSED this wave, and pinned as refused", () => {
+describe("Ashe - Focused (UNL-169): refused this wave, WRITTEN on 2026-08-14", () => {
   /**
    * "When you play me, choose an opponent. They reveal their hand. Choose a card
    * revealed this way and banish it. **When they hold, return it to their hand
    * (even if I'm no longer on the board).**"
    *
-   * The first two sentences are writable today — `banishCard` (effect-helpers) is
-   * a real writer of `PlayerState.banished`, and a parked decision over the
-   * opponent's hand is both the reveal and the choice. The last sentence is not,
-   * and it is the whole card:
+   * This wave named three blockers and the scoreboard is 2/3 — which is a good
+   * refusal, and the one that missed is the instructive one:
    *
-   *   - it is a DELAYED trigger, armed by a resolved ability, with no general
-   *     mechanism here. Both existing delayed effects are a FIELD on state that
-   *     the firing site reads (Imperial Decree's `killDamagedUnitsThisTurn`,
-   *     Rally the Troops' `buffUnitsPlayedThisTurn`), which means game-state.ts
-   *     and the firing site — shared files;
-   *   - it needs PER-INSTANCE MEMORY of WHICH card was banished, which no
-   *     registry here can carry: `eventTriggers` is keyed by defId and handed a
-   *     `Listener`, not a per-arming record;
-   *   - "**even if I'm no longer on the board**" defeats the listener walk
-   *     outright. `battlefieldHeld` listeners are found by walking permanents in
-   *     play, so a dead Ashe stops listening — which is exactly the case the
-   *     card calls out.
+   *   - "a DELAYED trigger armed by a resolved ability, with no general mechanism
+   *     here" — RIGHT, and it stayed right through waves 6 and 7. It is
+   *     `engine/delayed-triggers.ts` and `TriggerChainEntry.source === "delayed"`
+   *     now, a real Chain item rather than the inline boolean the two delayed
+   *     effects this comment names still use;
+   *   - "PER-INSTANCE MEMORY of WHICH card was banished, which no registry here
+   *     can carry" — RIGHT, and it is `PlayerState.banishedUntilHold`. The reason
+   *     no registry could carry it is exactly why: it is not the card's memory,
+   *     it is the ability's, and the ability outlives the card;
+   *   - "'even if I'm no longer on the board' defeats the listener walk outright"
+   *     — a correct MEASUREMENT with the wrong conclusion drawn from it, and all
+   *     three waves drew it. She never enters the listener walk. The delayed
+   *     ability exists independently of her from the moment her on-play effect
+   *     resolves, which is what the parenthetical is telling you.
    *
-   * Implementing only the banish would be strictly STRONGER than printed
-   * (permanent exile instead of a loan), which is the one direction this
-   * codebase does not ship. So: nothing is registered.
+   * The judgement that held the card back was right and worth keeping: banishing
+   * without the return would have been STRICTLY STRONGER than printed (permanent
+   * exile instead of a loan), which is the one direction this codebase does not
+   * ship. Behaviour is pinned in `ashe-focused.test.ts`.
    */
-  it("still reports unimplemented, with nothing registered for it", () => {
+  it("reports implemented, with an effect registered for her", () => {
     const def = registry.get(ASHE_FOCUSED);
-    expect(isCardImplemented(def), "someone implemented her — delete this block").toBe(false);
-    expect(implementingModule(ASHE_FOCUSED), "an effect is registered now — delete this block").toBeUndefined();
+    expect(isCardImplemented(def), "she went back to unimplemented").toBe(true);
+    expect(implementingModule(ASHE_FOCUSED), "she lost her registration").toBeDefined();
   });
 
-  it("banishes nothing when she is played", () => {
-    // The behavioural half, so "unimplemented" is a fact about the board and not
-    // just about a coverage table.
+  it("banishes on play — the behavioural half this wave asserted the absence of", () => {
+    // **The same fixture the refusal used, with both assertions inverted.** A
+    // one-card hand is deliberately kept: `advanceDecisions` auto-answers a
+    // question with a single option, so the whole card runs here without an
+    // `AnswerDecision` and the effect is visible on the board immediately —
+    // which is what makes this the direct counterpart of "she banished nothing".
     const ashe = realUnitInstance(ASHE_FOCUSED);
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.players[1]!.hand = [makeUnit({ instanceId: "theirs", name: "Theirs" })];
 
     const after = playUnitTrigger(state, ashe, 0, "base");
-    expect(after.players[1]!.banished, "she banished something — the refusal is stale").toHaveLength(0);
-    expect(after.players[1]!.hand, "their hand moved").toHaveLength(1);
+    expect(after.players[1]!.banished.map((c) => c.instanceId), "she banished nothing").toEqual(["theirs"]);
+    expect(after.players[1]!.hand, "the card is still in their hand").toHaveLength(0);
+    // The delayed half is armed by the same resolution — the loan, not an exile.
+    expect(after.players[1]!.banishedUntilHold, "the return was not armed").toEqual(["theirs"]);
   });
 });
 

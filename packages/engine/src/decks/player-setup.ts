@@ -107,6 +107,7 @@ export function buildPlayerFromDeckList(
     freeGearPlaysThisTurn: 0,
     trashUnitPlaysThisTurn: 0,
     replacedCostPlays: [],
+    banishedUntilHold: [],
     pointsFromHoldingThisTurn: 0,
     powerSpentThisTurn: 0,
     maxSpellEnergySpentThisTurn: 0,

@@ -484,7 +484,27 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // deck, landing in `offeredNeverTaken` — still ENUMERATED, just not chosen by the
 // AI in this sample. Displacement, the same mechanism as the three drops above,
 // and the reason a flat total is not evidence that a change did nothing.
-const PINNED_UNION = 625;
+// **625 -> 624 on 2026-08-14 for UNL-169 Ashe - Focused, and this one is a
+// RE-BASE rather than an accepted regression.** Decomposed twice before moving
+// it, because a drop is the thing this instrument exists to catch:
+//
+//   - against the previous sha at the same depth: UNL-169 left `neverSeated`
+//     (+1) while UNL-107 Stare Down fell to `offeredNeverTaken` and UNL-168
+//     Undying Loyalty to `drawnNeverOffered` (-2). Net -1.
+//   - at `GAMES=1000`, the union is **625 with Ashe included** and UNL-107 is
+//     exercised again. Nothing was lost; 500 games is simply no longer enough to
+//     reach him.
+//
+// UNL-168 joins UNL-166 Stalking Wolf in `drawnNeverOffered` and for the same
+// documented reason: both need a Bird/Cat/Dog/Poro, seating a new implemented
+// card into a fixed-size covering deck can displace the ones they need, and a
+// card drawn with its mandatory cost unpayable is correctly offered by nothing.
+// The note above already names that family as the known occupant of this bucket.
+//
+// So the FLOOR moves to what 500 games actually reaches. The alternative was a
+// pin that goes red every time a card is finished, for a reason the operator
+// already knows — which is the chore this file re-based to avoid once before.
+const PINNED_UNION = 624;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

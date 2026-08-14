@@ -4,6 +4,7 @@ import { closeShowdown } from "../engine/combat.js";
 import { resolveCardEffect } from "../engine/card-effect-resolution.js";
 import { resolveHeldOnMoveTrigger, resolveHeldOnPlayTrigger } from "../engine/unit-triggers.js";
 import { resolveHeldBattlefieldTrigger } from "../engine/battlefield-abilities.js";
+import { resolveHeldDelayedReturn } from "../engine/delayed-triggers.js";
 import type { PassFocusAction } from "./player-action.js";
 import { validatePassFocus } from "./validate-pass-focus.js";
 
@@ -58,7 +59,7 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
   // an ordinary turn with a Pirate's Haven on the board comes through this line
   // once per unit that Awakened.
   if (!isSpellChainEntry(poppedEntry)) {
-    // SIX registries can produce a held trigger now, and `source` says which —
+    // SEVEN registries can produce a held trigger now, and `source` says which —
     // an EventTrigger-registry ability (a bystander watching the board), a unit's
     // own "when you play me" / "when I move", a card's ability about ITSELF, a
     // dying card's `[Deathknell]`, or the BATTLEFIELD's own printed ability.
@@ -77,7 +78,9 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
               ? resolveHeldDeathknell(state, poppedEntry)
               : poppedEntry.source === "battlefield"
                 ? resolveHeldBattlefieldTrigger(state, poppedEntry)
-                : resolvePendingTrigger(state, poppedEntry);
+                : poppedEntry.source === "delayed"
+                  ? resolveHeldDelayedReturn(state, poppedEntry)
+                  : resolvePendingTrigger(state, poppedEntry);
     const remaining = afterTrigger.spellChain.slice(0, -1);
     return finishChainPop(afterTrigger, remaining);
   }

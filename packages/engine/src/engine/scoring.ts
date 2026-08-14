@@ -2,6 +2,7 @@ import type { BattlefieldState, GameState, PlayerState } from "../model/game-sta
 import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
+import { holdDelayedReturnTrigger } from "./delayed-triggers.js";
 import { gainPoints } from "./effect-helpers.js";
 import { mayScoreAt } from "./battlefield-continuous.js";
 
@@ -100,7 +101,14 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
     // The BATTLEFIELD's own "when you hold here" (Grove of the God-Willow, The
     // Grand Plaza, five more), placed after the permanents so it resolves before
     // them under LIFO — see holdBattlefieldTrigger.
-    return holdBattlefieldTrigger(withPermanents, "hold", battlefieldId, playerIndex);
+    const withBattlefield = holdBattlefieldTrigger(withPermanents, "hold", battlefieldId, playerIndex);
+    // A DELAYED ability waiting on this player's hold — UNL-169 Ashe - Focused's
+    // "when they hold, return it to their hand". It belongs to no card on the
+    // board, so no listener walk can reach it and it has to be asked for here,
+    // beside the two walks that can. Last, so it resolves FIRST under LIFO: the
+    // returned card is in hand before anything a permanent's hold trigger does
+    // with a hand, which is the order the printed sentence reads in.
+    return holdDelayedReturnTrigger(withBattlefield, playerIndex, battlefieldId);
   }, scored);
 }
 

@@ -33,6 +33,7 @@ import { killGear } from "../triggers.js";
 import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec, BIRD_TOKEN, SAND_SOLDIER_TOKEN } from "../token.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
+import { banishFromHandUntilHold } from "../delayed-triggers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
@@ -911,6 +912,39 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "UNL-169": {
+    // Ashe - Focused — "When you play me, choose an opponent. They reveal their
+    // hand. Choose a card revealed this way and banish it. When they hold, return
+    // it to their hand (even if I'm no longer on the board)."
+    //
+    // **Refused in waves 3, 6 and 7 on three blockers.** Two of them dissolved on
+    // re-measurement and one was real but pointed at the wrong fix:
+    //
+    //   1. "no general mechanism for a delayed trigger armed by a resolved
+    //      ability" — TRUE, and now there is one: `engine/delayed-triggers.ts`
+    //      plus `TriggerChainEntry.source === "delayed"`. It is a real Chain item
+    //      with a real response window, not the inline boolean the engine's two
+    //      earlier delayed effects use, because this one is an ABILITY (383.3).
+    //   2. "no per-instance memory of WHICH card was banished" — TRUE, and it is
+    //      `PlayerState.banishedUntilHold`, a list of ids on the CARD's OWNER.
+    //   3. "even if I'm no longer on the board / she is in no listener walk" —
+    //      accurate as a measurement and a dead end as a plan. Three waves went
+    //      looking for a way to make a dead Ashe listen from a trash or a banish
+    //      pile. She never listens: the delayed ability exists independently of
+    //      her the moment this resolves, which is what the parenthetical SAYS.
+    //
+    // "Choose an opponent" is settled by the game being two-handed. "They reveal
+    // their hand" is INFORMATION and this engine has no hidden-information model
+    // for the caster, so it needs no state — the same reading Sabotage (OGN-156)
+    // and Scuttle Crab already take, and recorded with them.
+    //
+    // The CHOICE is the caster's and the HAND is the opponent's, exactly Sabotage's
+    // shape. No filter on what may be chosen: Ashe says "a card", where Sabotage
+    // says "a non-unit card". An empty hand asks nothing rather than asking a fake
+    // question — `advanceDecisions` drops a question with no answers.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: "UNL-169-banish", playerIndex: ctx.casterIndex }),
+  },
   "OGN-231": {
     // Commander Ledros — "As you play me, you may kill ANY NUMBER of friendly
     // units as an additional cost. Reduce my cost by [1 Order] for each killed
@@ -2324,6 +2358,20 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  "UNL-169-banish": {
+    // Ashe - Focused. Chooser is the caster; the hand, the banish zone and the
+    // hand it comes back to are all the opponent's.
+    prompt: () => "Ashe - Focused: choose a card from the revealed hand to banish",
+    options: (state, d) =>
+      state.players[d.playerIndex === 0 ? 1 : 0].hand.map((c) => ({
+        id: c.instanceId,
+        label: c.name,
+        instanceId: c.instanceId,
+      })),
+    // No decline: "choose a card revealed this way and banish it" is not "you
+    // may". An empty hand produces no options and the question is dropped whole.
+    resolve: (state, d, optionId) => banishFromHandUntilHold(state, d.playerIndex === 0 ? 1 : 0, optionId),
+  },
   "SFD-160-kill": {
     // Zaun Punk's payoff — "kill a gear", unqualified, so either side's.
     prompt: () => "Zaun Punk: kill a gear",
