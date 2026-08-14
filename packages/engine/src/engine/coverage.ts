@@ -563,10 +563,12 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // Nothing noticed because the direction is safe: the gear is always dearer than
   // printed, never cheaper. Verified against the card's own `text` in the
   // registry rather than taken from the agent's report.
-  [
-    "UNL-188",
-    "half written: the conquer-with-3-excess-damage draw works; its PRINTED '[Equip] cost is reduced by the Might of the unit you choose' does not — equipAbilities builds one static ActivationCost per gear and no activation cost can depend on the chosen target",
-  ],
+  // **UNL-188 Hextech Gauntlets LEFT this map on 2026-08-13.** Its note named the
+  // blocker exactly — "equipAbilities builds one static ActivationCost per gear
+  // and no activation cost can depend on the chosen target" — and that is what
+  // `activationCostFor` changes: the cost is derived per TARGET at all three
+  // sites (enumerator, validator, executor), the same three-site discipline the
+  // PlayCard path keeps.
   // **UNL-147 Baron Nashor, written by a THIRD in wave 7.** His "other friendly
   // units have +2 [Might]" landed as this engine's first `mightModifiers` entry;
   // his other two sentences did not, and both leave him weaker than printed.

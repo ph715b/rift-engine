@@ -65,6 +65,7 @@ import {
   activationCostOf,
   activationPayment,
   availableModes,
+  activationCostFor,
   canPayActivationCost,
   killableFriendlyPermanents,
 } from "./activated-abilities.js";
@@ -203,9 +204,27 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // only the registry knows which this ability has.
         if (!canPayActivationCost(state, playerIndex, permanent, abilityDefId, mode.id)) continue;
 
-        const cost = activationCostOf(abilityDefId, mode.id);
+        // Priced with NO target, which for every ability but one is the only
+        // price there is. UNL-188 Hextech Gauntlets reduces its Energy by the
+        // chosen unit's Might, and `activationCostFor` answers the BEST case
+        // here on purpose: this gate runs before any target exists, and pricing
+        // the un-reduced cost would withhold the Gauntlets entirely whenever the
+        // player could afford them only with the discount. Each candidate is
+        // re-priced against its own target in the fan-out below.
+        const cost = activationCostFor(state, playerIndex, abilityDefId, mode.id);
         const payment = cost.energy !== undefined ? activationPayment(state, playerIndex, cost) : undefined;
         if (cost.energy !== undefined && payment === undefined) continue;
+        /** This ability's action for a chosen target, re-priced when the cost
+         *  depends on it. Returns undefined when that target's price is
+         *  unpayable, so a candidate is never offered and then refused. */
+        const pricedFor = (action: ActivateAbilityAction, targetUnitInstanceId: string): ActivateAbilityAction | undefined => {
+          const targeted = activationCostFor(state, playerIndex, abilityDefId, mode.id, targetUnitInstanceId);
+          if (targeted.energy === undefined) return action;
+          if (targeted.energy === cost.energy) return action; // nothing target-dependent moved
+          const repriced = activationPayment(state, playerIndex, targeted);
+          if (repriced === undefined) return undefined;
+          return { ...action, payment: repriced };
+        };
 
         const base: ActivateAbilityAction = {
           type: "ActivateAbility",
@@ -265,7 +284,11 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
           // against. A unit with nothing attachable to it is simply not offered.
           if (mode.attachesEquipment) {
             for (const gear of attachableEquipment(state, playerIndex, mode.attachesEquipment, target.instanceId)) {
-              push({ ...withMode, targetUnitInstanceId: target.instanceId, targetPermanentInstanceId: gear.instanceId });
+              const priced = pricedFor(
+                { ...withMode, targetUnitInstanceId: target.instanceId, targetPermanentInstanceId: gear.instanceId },
+                target.instanceId,
+              );
+              if (priced) push(priced);
             }
             continue;
           }
@@ -285,7 +308,10 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
             continue;
           }
           if (!mode.movesTarget) {
-            push({ ...withMode, targetUnitInstanceId: target.instanceId });
+            // The Gauntlets' `[Equip]` is a plain unit-targeting ability, so this
+            // is the branch their per-target price is actually taken at.
+            const priced = pricedFor({ ...withMode, targetUnitInstanceId: target.instanceId }, target.instanceId);
+            if (priced) push(priced);
             continue;
           }
           // A mode that MOVES its target needs a destination too, so the fan-out

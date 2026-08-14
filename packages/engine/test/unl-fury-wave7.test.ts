@@ -346,68 +346,52 @@ describe("Hextech Gauntlets (UNL-188): when I conquer with 3+ excess damage, dra
     expect(handSize(resolveHeldTriggers(detached), 0), "detaching cancelled a trigger that had already fired").toBe(1);
   });
 
-  it("PIN (DIVERGENCE): the [Equip] cost is charged FLAT, not reduced by the chosen unit's Might", () => {
-    // Asserting the WRONG answer on purpose, and this one was NOT previously
-    // recorded anywhere — the card's PRINTED text (not the art band) reads "[Equip]
-    // [3][rainbow]. This ability's Energy cost is reduced by the Might of the unit
-    // you choose", and `activated-abilities.equipAbilities` builds one static
-    // `ActivationCost` per gear from `def.equipCost`. A cost that depends on WHICH
-    // unit the activation targets has no expression there — the same shape
-    // `sacrificeCostDiscount` had to be invented for.
+  it("the [Equip] cost IS reduced by the chosen unit's Might — the pin that closed", () => {
+    // **This asserted the opposite until 2026-08-14, and the flip is the point.**
+    // The card's PRINTED text (not the art band) reads "[Equip] [3][rainbow]. This
+    // ability's Energy cost is reduced by the Might of the unit you choose", and
+    // `equipAbilities` builds one static `ActivationCost` per gear from
+    // `def.equipCost` — a cost that depends on WHICH unit the activation targets
+    // had no expression there. The pin asserted the flat charge and said to delete
+    // it when the reduction landed.
     //
-    // The direction is the SAFE one (the gear is always more expensive than
-    // printed, never cheaper), which is precisely why nothing else would notice.
-    // `CardDefinition` is a union and only the Gear arm carries `equipCost`, so
-    // the narrow is load-bearing rather than defensive — without it this file
-    // does not typecheck, which is how it was caught.
+    // It landed as `activationCostFor`, a function in FRONT of the table rather
+    // than a change to the table: it returns `activationCostOf` unchanged for every
+    // ability but this one. The full behaviour lives in `hextech-gauntlets.test.ts`;
+    // what stays here is the exact scenario the pin measured, inverted.
+    //
+    // `CardDefinition` is a union and only the Gear arm carries `equipCost`, so the
+    // narrow is load-bearing rather than defensive — without it this file does not
+    // typecheck, which is how it was caught.
     const def = registry.get(HEXTECH_GAUNTLETS);
     expect(def.type, "Hextech Gauntlets stopped being Gear").toBe("Gear");
     expect(
       def.type === "Gear" ? def.equipCost : undefined,
-      "the equip cost stopped parsing — re-read this pin",
+      "the equip cost stopped parsing — re-read this test",
     ).toMatchObject({ energy: 3 });
 
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     const beefy = makeUnit({ instanceId: "beefy", might: 8 });
     state.battlefields[0]!.units = { p1: [beefy] };
     state.players[0]!.activeGear = [realGearInstance(HEXTECH_GAUNTLETS)];
-    // Two Energy is one short of the flat 3 and far short of nothing at all: a
-    // Might-8 unit would reduce the Energy half to 0, so an implementation of the
-    // rider would make this activation legal.
+    // Two Energy is one short of the flat 3. A Might-8 unit reduces the Energy half
+    // to 0, so the activation is legal at a price the flat cost could never reach.
     state.players[0]!.channeled = runes(2);
 
-    const equips = legalActions(state).filter(
-      (a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === "beefy",
-    );
-    expect(equips, "the Might reduction LANDED — delete this pin and record it").toHaveLength(0);
-
-    // POSITIVE CONTROL on the instrument: with the flat price in the pool the same
-    // activation IS offered, so the empty list above is a measurement rather than
-    // an enumerator that never offers an equip.
-    state.players[0]!.channeled = runes(6);
     expect(
-      legalActions(state).filter((a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === "beefy").length,
-      "the equip is not enumerable at any price — this pin measures nothing",
-    ).toBeGreaterThan(0);
+      legalActions(state).filter((a) => a.type === "ActivateAbility" && a.targetUnitInstanceId === "beefy"),
+      "the reduction stopped applying — the divergence came back",
+    ).toHaveLength(1);
   });
 
-  it("still reports UNFINISHED, and the reason has CHANGED", () => {
-    // The card keeps its `coverage.PARTIALLY_IMPLEMENTED` row but the row's TEXT is
-    // now wrong, which is why this asserts the stable half rather than the wording.
-    //
-    // The row says "art-only: its conquer-with-3-excess-damage draw is unwritten
-    // (only the [Equip] cost and +3 badge work)". That band is written above. What
-    // is unwritten is the rider in the card's own PRINTED text — "this ability's
-    // Energy cost is reduced by the Might of the unit you choose" — which no
-    // earlier wave recorded anywhere, and which the pin above measures.
-    //
-    // **The rewrite has a second site**: `equipment-wearer-moments.test.ts` builds
-    // its owed-list by filtering notes containing "art-only" and asserts it equals
-    // `["UNL-188"]`. A rewritten note drops that substring, so that expectation
-    // becomes `[]` in the same change — the same way it moved from three entries to
-    // one when the Battleaxe and Soul Sword bands were written.
-    expect(partialImplementationNote(registry.get(HEXTECH_GAUNTLETS)), "the row was dropped entirely").toBeDefined();
-    expect(isCardImplemented(registry.get(HEXTECH_GAUNTLETS))).toBe(false);
+  it("reports FINISHED — the second reason it was unfinished closed too", () => {
+    // The card was unfinished twice over. Wave 7 wrote the art band (the
+    // conquer-with-3-excess-damage draw asserted above), which retired the
+    // "art-only" note, and the Might-reduced `[Equip]` cost was recorded as the
+    // remaining blocker in its place. That closed on 2026-08-14 and the
+    // `PARTIALLY_IMPLEMENTED` row went with it.
+    expect(partialImplementationNote(registry.get(HEXTECH_GAUNTLETS)), "a partial note came back").toBeUndefined();
+    expect(isCardImplemented(registry.get(HEXTECH_GAUNTLETS))).toBe(true);
   });
 });
 

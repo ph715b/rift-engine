@@ -2,6 +2,7 @@ import type { GameState } from "../model/game-state.js";
 import type { ActivateAbilityAction } from "./player-action.js";
 import {
   activationCostOf,
+  activationCostFor,
   canPayActivationCost,
   killableFriendlyPermanents,
   resolveActivation,
@@ -99,7 +100,10 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
   // offered-then-refused failure this file's own comment above exists to prevent.
   // It was unreachable until OGN-242 became the first ability to combine `energy`
   // with `power`, and the first test to drive that path through `submit` found it.
-  const cost = activationCostOf(abilityDefId, mode.id);
+  // Priced against the TARGET this action names — UNL-188's Energy is reduced
+  // by the chosen unit's Might, so a cost read without it would refuse the very
+  // payment the enumerator offered.
+  const cost = activationCostFor(state, action.playerIndex, abilityDefId, mode.id, action.targetUnitInstanceId);
   if (cost.energy !== undefined) {
     const afterPower = cost.power
       ? (payPowerFromChanneled(state, action.playerIndex, cost.power.domain, cost.power.count) ?? state)

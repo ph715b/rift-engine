@@ -42,7 +42,8 @@ import {
 import { placeRecruitToken } from "./token.js";
 import { destroyUnit, spendXp } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
-import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
+import { canonicalDefId } from "../cards/card-loader.js";
+import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { parkDecision } from "./decisions.js";
 import { offerTopOfDeckBanish } from "./top-of-deck.js";
 import { killGear } from "./triggers.js";
@@ -1930,6 +1931,68 @@ export function activationCostOf(defId: string, modeId?: string): ActivationCost
 }
 
 /**
+ * UNL-188 Hextech Gauntlets — "[Equip] [3][rainbow]. **This ability's Energy
+ * cost is reduced by the Might of the unit you choose.**"
+ *
+ * The pool's first activation cost that depends on WHICH target was chosen, and
+ * the reason `activationCostOf` above could not answer on its own: it is handed a
+ * defId and a mode, and the target is picked afterwards.
+ */
+const EQUIP_ENERGY_REDUCED_BY_TARGET_MIGHT = new Set(["UNL-188"]);
+
+/**
+ * This ability's cost for a play that chose `targetUnitInstanceId`.
+ *
+ * Identical to `activationCostOf` for every ability but one, so an ordinary
+ * activation is priced exactly as it always was.
+ *
+ * **With no target named it returns the BEST case — the largest reduction any
+ * legal target could give.** That is deliberate and it is a fidelity rule rather
+ * than an optimisation: `canPayActivationCost` is asked once per ability, before
+ * any target exists, and a gate that priced the un-reduced cost there would
+ * refuse to offer the Gauntlets at all whenever the player could afford them
+ * only with the discount. Withholding a legal play is the one thing this engine
+ * must not do; the per-target checks below then price each candidate exactly.
+ *
+ * Uses `effectiveMight` (143.2), not the printed number — a pumped unit really
+ * does pay for more of the attach.
+ */
+export function activationCostFor(
+  state: GameState,
+  playerIndex: 0 | 1,
+  defId: string,
+  modeId?: string,
+  targetUnitInstanceId?: string,
+): ActivationCost {
+  const cost = activationCostOf(defId, modeId);
+  if (!EQUIP_ENERGY_REDUCED_BY_TARGET_MIGHT.has(canonicalDefId(defId)) || cost.energy === undefined) return cost;
+  const reduction =
+    targetUnitInstanceId !== undefined
+      ? mightOfTarget(state, targetUnitInstanceId)
+      : Math.max(
+          0,
+          ...eligibleTargets(state, playerIndex, "friendly", "anywhere").map((u) =>
+            mightOfTarget(state, u.instanceId),
+          ),
+        );
+  return { ...cost, energy: Math.max(0, cost.energy - reduction) };
+}
+
+/** A unit's CURRENT Might (143.2), or 0 if it is no longer anywhere. */
+function mightOfTarget(state: GameState, instanceId: string): number {
+  const found = findUnitAnywhere(state, instanceId);
+  if (!found) return 0;
+  return effectiveMight(
+    state,
+    found.unit,
+    found.ownerIndex,
+    found.zone === "base"
+      ? { isCombat: false }
+      : { isCombat: false, battlefieldId: state.battlefields[found.zone.battlefieldIndex]!.id },
+  );
+}
+
+/**
  * Can `playerIndex` pay this ability's cost right now?
  *
  * Both halves are real refusals, not do-as-much-as-you-can: an exhausted source
@@ -1975,7 +2038,15 @@ export function canPayActivationCost(
   // `availableWhile`. Checked here so the enumerator and the validator, which
   // both come through this function, cannot disagree about whether it is legal.
   if (ability?.availableWhile && !ability.availableWhile(state, playerIndex, card.instanceId)) return false;
-  const cost = activationCostOf(abilityDefId, modeId);
+  // **No `targetUnitInstanceId`, deliberately.** UNL-188 Hextech Gauntlets is the
+  // one cost that depends on the chosen unit, and it depends on it only through
+  // `energy` — which nothing below reads. A first version threaded the target in
+  // here for symmetry with the other two cost sites; mutating it away changed
+  // nothing, in the whole suite, because the Energy half is decided by
+  // `activationPayment` in the enumerator and by the re-derivation in
+  // `validate-activate-ability`. Priced with no target, which for every check
+  // this function actually makes is the only price there is.
+  const cost = activationCostFor(state, playerIndex, abilityDefId, modeId);
   if (cost.exhaust && card.exhausted) return false;
   // Asked through `spendXp` rather than by comparing numbers, so "can I pay"
   // and "pay it" can never disagree about what counts as enough.
@@ -2062,8 +2133,11 @@ export function payActivationCost(
   chosen?: { costPermanentInstanceId?: string; costDiscardCardInstanceId?: string; xAmount?: number },
   /** The mode being paid for — see `activationCostOf`. */
   modeId?: string,
+  /** The unit this activation chose, for a cost that depends on it (UNL-188).
+   *  Re-derived here rather than trusted, the convention every cost site keeps. */
+  targetUnitInstanceId?: string,
 ): GameState | undefined {
-  const cost = activationCostOf(defId, modeId);
+  const cost = activationCostFor(state, playerIndex, defId, modeId, targetUnitInstanceId);
   let next = state;
   if (cost.xp !== undefined) {
     const spent = spendXp(next, playerIndex, cost.xp);

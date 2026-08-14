@@ -436,9 +436,12 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // printed as a standing passive, so the table-driven half could not reach it;
     // `PlayerState.replacedCostPlays` is the granted half, and it is spent by use
     // and cleared at runEnd (419.3.b, recorded as a divergence).
-    // `equipAbilities()` builds one static `ActivationCost` per gear; no activation
-    // cost in this engine can depend on the target chosen for it.
-    ["UNL-188", "an [Equip] cost that is a function of the chosen unit's Might"],
+    // **UNL-188 left this list on 2026-08-14.** The refusal was accurate about the
+    // shape — `equipAbilities()` does build one static `ActivationCost` per gear —
+    // but the fix was not to make the TABLE target-aware, it was to put a function
+    // in front of it: `activationCostFor(state, player, defId, modeId, target)`
+    // returns `activationCostOf` unchanged for every ability but this one, and all
+    // three cost sites now ask it instead. See `hextech-gauntlets.test.ts`.
   ];
 
   for (const [defId, blocker] of refusals) {

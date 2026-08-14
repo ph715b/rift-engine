@@ -469,7 +469,13 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // offered by nothing, and correctly so. He has now moved out and back twice
 // on seating alone. Read the bucket before calling a future drop sampling —
 // but this occupant is the known one.
-const PINNED_UNION = 624;
+// **624 -> 625 on 2026-08-14 for UNL-188 Hextech Gauntlets**, and this one is the
+// clean shape rather than the displacement shape the notes above keep describing:
+// a NET +1 with no card falling out, UNL alone moving 188 -> 189. Finishing him
+// dropped his `partialImplementationNote`, which is what had been keeping him out
+// of `deck-generator`'s seating — so he was seated, drawn, and offered in the same
+// run. No re-base or bucket diff was needed.
+const PINNED_UNION = 625;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

@@ -49,6 +49,9 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
       ...(action.xAmount !== undefined ? { xAmount: action.xAmount } : {}),
     },
     mode.id,
+    // UNL-188 Hextech Gauntlets prices its Energy off the unit being attached
+    // to, so the THIRD cost site needs the choice as much as the other two.
+    action.targetUnitInstanceId,
   );
   if (paid === undefined) throw new Error(`${found.card.name}'s activation cost cannot be paid`);
 

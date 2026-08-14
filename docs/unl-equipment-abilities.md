@@ -23,15 +23,26 @@ below the rules box, which is where a keyword or a triggered ability is printed.
 
 | card | badge | the band | state |
 |---|---|---|---|
-| **UNL-019** Blighted Battleaxe | **+4** | "At the end of your turn, if I didn't conquer this turn, unattach this and deal 4 to me." | badge done; ability **unwritten** |
-| **UNL-039** Soul Sword | **+1** | `[LEVEL 3]` "I have an additional +1 :might:. (While you have 3+ XP, get the effect.)" | badge done; ability **unwritten**, and it is a `[Level]` card |
+| **UNL-019** Blighted Battleaxe | **+4** | "At the end of your turn, if I didn't conquer this turn, unattach this and deal 4 to me." | **both done** (2026-08-09) |
+| **UNL-039** Soul Sword | **+1** | `[LEVEL 3]` "I have an additional +1 :might:. (While you have 3+ XP, get the effect.)" | **both done** (2026-08-09) — and it is a `[Level]` card |
 | **UNL-096** Hunter's Machete | **+2** | `[HUNT]` "(When I conquer or hold, gain 1 XP.)" | **both done** — the Hunt is an `EQUIP_GRANTED_KEYWORDS` entry |
-| **UNL-158** Shepherd's Heirloom | **+2** | (flavour text only) | badge done; the card is blocked on its `[Equip] — Spend 1 XP` cost |
-| **UNL-188** Hextech Gauntlets | **+3** | "When I conquer, if you assigned 3 or more excess damage, draw 1." | badge done; ability **unwritten** |
+| **UNL-158** Shepherd's Heirloom | **+2** | (flavour text only) | **both done** — its `[Equip] — Spend 1 XP` cost landed in wave 2 |
+| **UNL-188** Hextech Gauntlets | **+3** | "When I conquer, if you assigned 3 or more excess damage, draw 1." | **both done** — band in wave 7, and the printed Might-reduced `[Equip]` cost on 2026-08-14 |
 
 Badges are in `card-loader.EQUIP_MIGHT_BONUS`. The Machete's keyword is in
-`equipment.EQUIP_GRANTED_KEYWORDS`. The three unwritten abilities are named in
-`coverage.PARTIALLY_IMPLEMENTED`, so none of them reports finished.
+`equipment.EQUIP_GRANTED_KEYWORDS`.
+
+**The unwritten list reached ZERO on 2026-08-14** and none of these five carries a
+`coverage.PARTIALLY_IMPLEMENTED` row any more. The state column above was measured
+against `isCardImplemented`, not carried forward — it had been stale on four of the
+five rows, each since the wave that wrote them, because a doc table is not something
+any gate can see. `equipment-wearer-moments.test.ts` is what watches this now: it
+asserts the INVARIANT (anything carrying an art-only note reports unfinished) rather
+than a list of names, so it cannot go vacuous as the list empties.
+
+The Gauntlets' printed rider — "this ability's Energy cost is reduced by the Might of
+the unit you choose" — is not a band at all and was invisible to this table for that
+reason. It lives in `activated-abilities.activationCostFor`.
 
 ## What this cost, and the lesson that is not about Equipment
 

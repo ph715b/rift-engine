@@ -445,12 +445,15 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     expect(matches("half written: the conquer draw works"), "the filter matches a note it should not").toBe(false);
     expect(matches(undefined), "an absent note matched the filter").toBe(false);
 
-    // UNL-188 is the card that just left the list, and it is still UNFINISHED for
-    // a different, newly-recorded reason — its printed "[Equip] cost is reduced by
-    // the Might of the unit you choose", which no static ActivationCost can hold.
-    // Asserted here so "left the art-only list" is never mistaken for "done".
+    // UNL-188 is the card that left the art-only list in wave 7, and it then sat
+    // unfinished for a SECOND reason — its printed "[Equip] cost is reduced by the
+    // Might of the unit you choose", which no static `ActivationCost` could hold.
+    // **That closed on 2026-08-14**, so what this asserts flipped with it: it is
+    // finished, carries no note at all, and is out of `owed` for the reason a
+    // finished card is rather than because a note was quietly reworded.
     expect(owed, "UNL-188 went back to being art-only").not.toContain("UNL-188");
-    expect(isCardImplemented(registry.get("UNL-188")), "UNL-188 now claims to be finished").toBe(false);
+    expect(isCardImplemented(registry.get("UNL-188")), "UNL-188 reports unfinished again").toBe(true);
+    expect(partialImplementationNote(registry.get("UNL-188")), "a partial note came back").toBeUndefined();
   });
 
   it("and Sacred Shears has left that list", () => {
