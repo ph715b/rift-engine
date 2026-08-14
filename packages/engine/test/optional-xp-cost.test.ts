@@ -162,7 +162,7 @@ describe("Safety Inspector (UNL-164): paying buys an exemption from his own kill
   });
 });
 
-describe("Conscription (UNL-140) offers its XP cost only where the XP buys something", () => {
+describe("Conscription (UNL-140) offers its XP cost wherever the rules allow it", () => {
   it("prints one, is in the table, and carries no partial note", () => {
     // **Was the interesting refusal of the change that added this file**, and its
     // reasoning shaped the fix rather than being discarded: the 5 XP buys "choose
@@ -178,15 +178,18 @@ describe("Conscription (UNL-140) offers its XP cost only where the XP buys somet
     expect(partialImplementationNote(registry.get(CONSCRIPTION)), "a partial note came back").toBeUndefined();
   });
 
-  it("no paid variant is enumerated when the XP would buy NOTHING", () => {
-    // **Unchanged and now sharper.** The board holds a single 1-Might enemy, which
-    // the free play already reaches — so there is no wide-only target to pair the
-    // flag with and the deliberate under-offer means no paid variant at all. It
-    // asserted the same thing when the card was refused; now it asserts the
-    // narrowing rather than the absence.
-  });
-
-  it("really enumerates no paid variant on that board", () => {
+  it("offers the paid variant even where the XP buys NOTHING extra", () => {
+    // **This asserted the opposite twice, for two different reasons, and both are
+    // worth recording.** While the card was refused it read "no paid variant is
+    // enumerated" because there was no mechanism at all. It was then briefly kept
+    // as a deliberate under-offer: the board holds a single 1-Might enemy the free
+    // play already reaches, so paying 5 XP buys nothing.
+    //
+    // The project owner's standing ruling settles it — this engine is a digital
+    // version of the PAPER game, and paying an optional cost for no benefit is
+    // legal there. The engine offers it; the player declines it. Withholding a
+    // legal play because no reasonable person would take it is not the engine's
+    // call to make.
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.players[0]!.hand = [spellInstance(CONSCRIPTION)];
     state.players[0]!.channeled = Array.from({ length: 9 }, (_, i) => ({ id: `c${i}`, domain: "Chaos", state: "Ready" }) as RuneCard);
@@ -195,7 +198,9 @@ describe("Conscription (UNL-140) offers its XP cost only where the XP buys somet
 
     const plays = playsOf(state, CONSCRIPTION);
     expect(plays.length, "Conscription was not playable at all — the fixture measures nothing").toBeGreaterThan(0);
-    expect(plays.some((a) => a.optionalXpPaid === true), "a paid variant appeared that buys nothing").toBe(false);
+    expect(plays.some((a) => a.optionalXpPaid === true), "a legal play was withheld from the player").toBe(true);
+    // ...and declining is still on offer, so the cost stays optional.
+    expect(plays.some((a) => a.optionalXpPaid === undefined), "the free play disappeared").toBe(true);
   });
 });
 

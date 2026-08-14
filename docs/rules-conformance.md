@@ -47,6 +47,23 @@ are `Unverified`, not `Conformant`.
 
 ## Verified
 
+**Standing ruling from the project owner, 2026-08-14: this engine is a digital
+version of the PAPER game, and "done" means every card implemented.** Two things
+follow that this table should be read against.
+
+**A legal play is never withheld.** If the rules let a player do it, the
+enumerator offers it and the player decides whether it is sensible. This is NOT
+the same as the engine's long-standing "if uncertain whether it is legal, do not
+offer it" rule, which stands and which every offered-then-refused crash here
+argues for. The distinction is uncertainty versus substituting our judgement for
+the player's. UNL-140 Conscription's "pay 5 XP for a target you already had" was
+withheld on the second grounds for about an hour and is now offered.
+
+**Every Divergent row below is a debt, not a decision.** Nothing is out of scope
+for being systemic — the battlefield-replacement mechanism, a fourth payment
+bucket for a foreign-domain pip, and mid-resolution play under 419.3.b are all
+in, however many files they touch.
+
 | Rule | Behaviour | Rule # | Code |
 |---|---|---|---|
 | Damage healing timing | Heals at two moments only: end of each player's turn, and Combat Cleanup | 143.3 / 317.2 / 466.1 | `turn-manager.runEnd`, `combat.resolveShowdown` |

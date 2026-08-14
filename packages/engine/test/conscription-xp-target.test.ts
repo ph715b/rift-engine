@@ -128,16 +128,20 @@ describe("with the XP, the choice widens — and only on the paid variant", () =
     expect(targetsOf(playsOf(state, spellId)), "nothing widened at all").toContain("big");
   });
 
-  it("does not sell the XP for a target it already had", () => {
-    // The deliberate UNDER-offer, stated so it is a decision rather than a gap: a
-    // player may legally pay 5 XP and then choose the 3-Might unit. It is strictly
-    // worse for them and is not enumerated, which is the direction this engine
-    // errs everywhere else.
+  it("DOES offer the legal-but-pointless play: pay 5 XP for a target you already had", () => {
+    // **This test was the exact opposite for about an hour, and the correction is
+    // the point.** Paying 5 XP and then choosing the 3-Might unit is legal in the
+    // paper game — pointless, but legal — so the engine offers it and the player
+    // decides. Withholding a legal play because no reasonable person would take
+    // it is not this engine's call to make.
+    //
+    // Distinct from "if uncertain, do not offer", which is about never
+    // enumerating a play that might be ILLEGAL and which still stands.
     const { state, spellId } = board(CONSCRIPTION_XP);
     const paidSmall = playsOf(state, spellId).filter(
       (a) => a.targetUnitInstanceId === "small" && a.optionalXpPaid === true,
     );
-    expect(paidSmall, "the enumerator offered 5 XP for nothing").toEqual([]);
+    expect(paidSmall.length, "a legal play was withheld from the player").toBeGreaterThan(0);
   });
 });
 

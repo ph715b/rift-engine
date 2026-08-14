@@ -1182,10 +1182,19 @@ export function legalActions(state: GameState): PlayerAction[] {
      * variant built there would carry a target already capped at 3 Might and sell
      * the XP for nothing.
      *
-     * Only the targets the XP actually unlocks are paired with it. A player may
-     * legally pay 5 XP and then choose a 3-Might unit; that is strictly worse for
-     * them and is deliberately not offered — the under-offer this file errs
-     * toward everywhere else.
+     * **EVERY target is offered in both states, including the ones the XP does
+     * not unlock.** Paying 5 XP and then choosing a 3-Might unit is legal in the
+     * paper game — pointless, but legal — and the project owner's standing
+     * ruling is that this engine is a digital version of that game. Offering
+     * what the rules offer and letting the PLAYER decide what is sensible is the
+     * job; withholding a legal play because no reasonable person would take it is
+     * not.
+     *
+     * This is deliberately NOT the same as this file's "if uncertain, do not
+     * offer" rule, which is about never enumerating a play that might be
+     * ILLEGAL. That one stands — every offered-then-refused crash here argues
+     * for it. The difference is uncertainty versus substituting our judgement
+     * for the player's.
      */
     const xpWidened = xpWidenedTargetingFor(card.defId);
     const xpWidenedAffordable =
@@ -1198,9 +1207,9 @@ export function legalActions(state: GameState): PlayerAction[] {
       : xpWidened !== undefined && xpWidenedAffordable
         ? [
             ...narrowVariants,
-            ...variantsForTargeting(xpWidened)
-              .filter((v) => !narrowVariants.some((n) => n.targetUnitInstanceId === v.targetUnitInstanceId))
-              .map((v) => ({ ...v, optionalXpPaid: true as const })),
+            // The paid state of EVERY target the widened spec allows — which
+            // includes the ones the free play already reached.
+            ...variantsForTargeting(xpWidened).map((v) => ({ ...v, optionalXpPaid: true as const })),
           ]
         : narrowVariants;
 
