@@ -696,41 +696,54 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // Smite — "[Action] Deal 3 to a unit at a battlefield. If it would die this
     // turn, banish it instead."
     //
-    // **ONLY THE FIRST SENTENCE IS WRITTEN, and this is a HALF.** Registration is
-    // per defId, so the damage alone reports the whole card DONE — which is why
-    // the wave's report asks for a `coverage.PARTIALLY_IMPLEMENTED` entry and why
-    // `test/unl-fury-wave4.test.ts` pins the missing half by asserting a Smitten
-    // unit lands in the TRASH.
+    // **WHOLE as of 2026-08-13.** The refusal that stood here was right about
+    // everything, including the shape of the wrong answer, so its reasoning is
+    // kept and only its conclusion changed.
     //
     // "AT A BATTLEFIELD" is printed, so the default `scope` stands (355.9.b's
     // narrowing, "it meets all targeting restrictions" — NOT 355.9.a.1, which is
     // the widening that a bare "a unit" would take). A unit parked in base is out
     // of reach, the line Incinerate already draws.
     //
-    // # Why the banish rider is refused rather than approximated
+    // # The rider is ARMED FOR THE TURN, not applied to this damage
     //
     // "If it WOULD die this turn ... INSTEAD" is a Replacement Effect by 369.1's
-    // own identifiers ("as", "would", "instead"), and it is armed for the TURN
-    // rather than for this instruction: a unit Smitten for 3 that survives, and
-    // then dies to combat an hour later, is still banished. Nothing in this file
-    // can express that. Every death replacement in this engine is consumed inside
-    // `killUnit` (effect-helpers.ts) off a list on `GameState`
-    // (`deathWardedUnitInstanceIds`, `paidDeathWardUnitInstanceIds`), swept by
-    // `runEnd`. A fourth list is a model change plus a `killUnit` branch plus a
-    // sweep — three shared files — so it is named here and left undone.
+    // own identifiers ("as", "would", "instead"), armed for the TURN rather than
+    // for this instruction: a unit Smitten for 3 that survives, and then dies to
+    // combat an hour later, is still banished. So this adds the target to
+    // `GameState.banishOnDeathUnitInstanceIds` — the shape
+    // `deathWardedUnitInstanceIds` already has — and `killUnit` consumes it.
     //
-    // The plausible fake is worth naming because it would have passed a shallow
-    // test: banish the target HERE when this damage happens to be lethal. That is
-    // wrong in both directions — it misses every later death the card is armed
-    // for, and it would banish through the replacement chain (Zhonya's, Guardian
-    // Angel, a death ward) that 369/370 say gets to apply first.
+    // **The plausible fake the refusal named**: banish the target HERE when this
+    // damage happens to be lethal. Wrong in both directions — it misses every
+    // later death the card is armed for, and it would banish PAST the replacement
+    // chain (Zhonya's, Guardian Angel, a death ward) that 369/370 let apply
+    // first. The list is checked inside `killUnit`, below the ward, so the chain
+    // is intact; 372 is why below rather than above.
     //
-    // The difference is observable and not cosmetic: 808.1.d.1 makes a REPLACED
-    // death not a death, so a banished unit fires no [Deathknell] and reaches no
-    // trash-recursion. Today it dies normally and does both.
+    // # The arming happens BEFORE the damage, and that ordering is the card
+    //
+    // The 3 may itself be lethal, and "if it would die THIS TURN" covers that
+    // death as much as a later one. Arming after `dealDamage` would let the very
+    // death this spell causes reach the trash, so the card would banish every
+    // unit it did NOT kill and none that it did — the exact inversion of what it
+    // prints, and invisible to any test that only checks a survivor.
+    //
+    // 808.1.d.1 makes a replaced death not a death, so a banished unit fires no
+    // `[Deathknell]` and reaches no trash-recursion. That is the observable
+    // difference and it is asserted.
     targeting: { kind: "unit" },
-    resolve: (state, ctx, event) =>
-      event.targetUnitInstanceId ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, SMITE_DAMAGE) : state,
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const armed: GameState = {
+        ...state,
+        banishOnDeathUnitInstanceIds: state.banishOnDeathUnitInstanceIds.includes(targetId)
+          ? state.banishOnDeathUnitInstanceIds
+          : [...state.banishOnDeathUnitInstanceIds, targetId],
+      };
+      return dealDamage(armed, ctx.casterIndex, targetId, SMITE_DAMAGE);
+    },
   },
   "UNL-020": {
     // Dancing Grenade — "Deal 2 to a unit. Its controller may play this spell

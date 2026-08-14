@@ -449,7 +449,10 @@ describe("the nine cards this wave REFUSED", () => {
     // permission with a REPLACED cost" and both halves landed
     // (`engine/replaced-costs.ts` + `PlayerState.replacedCostPlays`). Its coverage
     // is `test/replaced-costs.test.ts`.
-    for (const defId of [SMITE, CURTAIN_CALL]) {
+    // **SMITE left this list on 2026-08-13.** Its note was a to-do list — "a
+    // GameState list, a killUnit branch and a runEnd sweep" — and all three
+    // landed exactly there. Curtain Call is the last one standing.
+    for (const defId of [CURTAIN_CALL]) {
       expect(partialImplementationNote(registry.get(defId)), `${defId} lost its note`).toBeDefined();
       expect(isCardImplemented(registry.get(defId))).toBe(false);
     }

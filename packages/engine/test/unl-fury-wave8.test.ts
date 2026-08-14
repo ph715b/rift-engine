@@ -364,7 +364,16 @@ describe("coverage: what this wave finished and what it did not", () => {
   it("NEGATIVE CONTROL on the instrument: an untouched refusal still reports unfinished", () => {
     // Without this the row above passes just as well if `isCardImplemented`
     // returned true for everything.
-    expect(isCardImplemented(registry.get("UNL-007")), "Smite reports finished — the gate is broken").toBe(false);
+    // **Was UNL-007 Smite until 2026-08-13**, when he was finished and this
+    // control stopped controlling anything. Swapped for UNL-182 Curtain Call,
+    // whose blocker is the multi-instance `[Repeat]` seam and is the largest
+    // thing left in the set — so it will outlive most rows here. A negative
+    // control has to be a card that is actually refused, and picking one that
+    // is about to be written just moves the problem.
+    expect(
+      isCardImplemented(registry.get("UNL-182")),
+      "Curtain Call reports finished — the gate is broken, or pick another refusal",
+    ).toBe(false);
   });
 });
 
@@ -390,7 +399,10 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // `death-ward.ts` models "would die -> revive", not "would die -> banish", and
     // its two lists are both revival lists. A turn-long banish-instead needs a new
     // GameState list, a killUnit branch and a runEnd sweep.
-    ["UNL-007", "a turn-long death REPLACEMENT that banishes rather than revives"],
+    // **UNL-007 Smite left this list on 2026-08-13.** The blocker named here was
+    // exactly right and exactly what was built: a turn-long death replacement,
+    // armed on `GameState` and consumed in `killUnit` BELOW the death ward,
+    // because 372 gives the dying unit's controller the ordering.
     // 465.2.c.5's worked example names this card: the doubling is a replacement on
     // damage ASSIGNMENT, ordered against prevention by the defender's controller.
     // `modifiedDamageAmount` is additive and does not take the target UNIT, and the

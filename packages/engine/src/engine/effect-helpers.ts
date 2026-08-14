@@ -144,6 +144,31 @@ export function killUnit(
     return reviveWithDeathWard(state, unit, ownerIndex);
   }
 
+  // UNL-007 Smite — "if it would die this turn, banish it instead."
+  //
+  // **Below the ward deliberately, and 372 is why rather than a simplification.**
+  // "If more than one Replacement Effect applies to the same event being
+  // executed, then the controller of the object being acted on determines the
+  // order" — and the object here is the dying unit, whose controller would
+  // always choose the ward that saves it over a banish that does not. So
+  // ward-first IS the controller's choice, not a coin flip this file resolved.
+  //
+  // **A banish is NOT a death** (808.1.d.1, the same rule the offers below cite),
+  // so this returns before `completeDeath` and nothing downstream of it happens:
+  // no `[Deathknell]`, no death-watch, no `unitsLostThisTurn`, and the card goes
+  // to `banished` rather than to the trash. A version that trashed it and then
+  // moved it would fire all of that on the way past.
+  //
+  // The Equipment detach at the top of this function has already run, which is
+  // correct for a banish as much as for a death: the wearer has left the board
+  // either way.
+  if (state.banishOnDeathUnitInstanceIds.includes(unit.instanceId)) {
+    return updatePlayer(state, ownerIndex, (p) => ({
+      ...p,
+      banished: fileIntoNonBoardZone(p.banished, unit),
+    }));
+  }
+
   // Zhonya's Hourglass: "If a friendly unit would die, kill this instead. Heal
   // that unit, exhaust it, and recall it."
   //

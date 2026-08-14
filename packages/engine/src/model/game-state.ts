@@ -1356,6 +1356,25 @@ export interface GameState {
   lastShowdownExcessDamage: { battlefieldId: string; attackerIndex: 0 | 1; amount: number } | null;
   deathWardedUnitInstanceIds: string[];
   /**
+   * Units that will be BANISHED instead of dying, for the rest of this turn —
+   * UNL-007 Smite's "if it would die this turn, banish it instead".
+   *
+   * **Armed in advance and per INSTANCE, which is `deathWardedUnitInstanceIds`'
+   * shape above rather than `PendingDeath`'s.** The distinction that list's own
+   * neighbours already draw: a replacement OFFERED at the moment of death needs
+   * a holding pen, and one armed ahead of time needs only a set of ids. Smite's
+   * is mandatory and armed, so it is the cheaper kind.
+   *
+   * **NOT consumed by use, unlike the ward.** Highlander's is "the NEXT time it
+   * would die this turn"; Smite prints no such limit, so the entry stands for the
+   * turn. In practice a banished unit cannot die twice, which is why the
+   * difference is invisible in play and stated here rather than tested.
+   *
+   * Cleared at `runEnd` beside the ward — "this turn" is the whole of what
+   * bounds it.
+   */
+  banishOnDeathUnitInstanceIds: string[];
+  /**
    * Units carrying Unlicensed Armory's ward — the same "next time it would die
    * this turn" window as the list above, but the replacement is OPTIONAL and
    * costs 1 Fury Power, so it stops to ask rather than simply happening.

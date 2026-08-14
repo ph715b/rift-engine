@@ -154,23 +154,28 @@ describe("Smite (UNL-007): deal 3 to a unit at a battlefield", () => {
     expect(targets, "a unit in the opponent's base was offered").not.toContain("theirHomebody");
   });
 
-  it("PIN (DIVERGENCE): 'if it would die this turn, banish it instead' is UNWRITTEN — it dies to the TRASH", () => {
-    // Asserting the WRONG answer on purpose. The rider is a Replacement Effect
-    // (369.1's "would ... instead") armed for the whole TURN, and every death
-    // replacement in this engine is consumed inside `killUnit` off a list on
-    // `GameState` that `runEnd` sweeps — a model field, a `killUnit` branch and a
-    // sweep, all in shared files this wave may not edit.
+  it("'if it would die this turn, banish it instead' — the spell's own kill BANISHES", () => {
+    // **This was a PIN asserting the wrong answer on purpose, and it flipped on
+    // the day the rider landed** — which is what it was for. Its scoping was
+    // exactly right: "a model field, a `killUnit` branch and a sweep", and that is
+    // `GameState.banishOnDeathUnitInstanceIds`, a branch below the death ward, and
+    // a `runEnd` clear.
     //
-    // It matters rather than being cosmetic: 808.1.d.1 makes a replaced death not a
-    // death, so a banished unit fires no [Deathknell] and reaches no
-    // trash-recursion. Landing the rider fails here loudly instead of quietly.
+    // Kept and inverted rather than deleted, because it drives the SPELL through
+    // `castAt` — the turn-scoped half and the ordering against the ward are
+    // covered in `test/smite-banish-replacement.test.ts`, but neither of those
+    // proves the cast path arms anything.
+    //
+    // It matters rather than being cosmetic: 808.1.d.1 makes a replaced death not
+    // a death, so a banished unit fires no [Deathknell] and reaches no
+    // trash-recursion.
     const after = castAt(board(3), "enemy");
 
-    expect(unitOnBoard(after, "enemy"), "the 3 was not lethal — this pin is measuring nothing").toBeUndefined();
-    expect(after.players[1]!.trash.map((c) => c.instanceId), "it left the trash — has the banish rider landed?").toContain(
+    expect(unitOnBoard(after, "enemy"), "the 3 was not lethal — this test is measuring nothing").toBeUndefined();
+    expect(after.players[1]!.trash.map((c) => c.instanceId), "it reached the trash — the rider did not fire").not.toContain(
       "enemy",
     );
-    expect(after.players[1]!.banished.map((c) => c.instanceId), "the banish rider landed — delete this pin").toEqual([]);
+    expect(after.players[1]!.banished.map((c) => c.instanceId), "it was not banished").toContain("enemy");
   });
 
   it("coverage names the half that is missing", () => {
@@ -181,11 +186,16 @@ describe("Smite (UNL-007): deal 3 to a unit at a battlefield", () => {
     //
     // Inverted rather than deleted: the note going missing again would mean the
     // card had silently gone back to claiming a clause it does not have.
+    // **Inverted a second time, on 2026-08-13.** It was a pin (the note is
+    // missing), then inverted to "the note is present", and now the card is WHOLE
+    // so the note is correctly gone again. The assertion tracks the card rather
+    // than the note's mere existence, which is what lets it mean something in
+    // both directions.
     expect(
       partialImplementationNote(registry.get(SMITE)),
-      "the PARTIAL entry was dropped — Smite claims a banish clause it does not have",
-    ).toBeDefined();
-    expect(isCardImplemented(registry.get(SMITE))).toBe(false);
+      "a PARTIAL entry came back — Smite is whole",
+    ).toBeUndefined();
+    expect(isCardImplemented(registry.get(SMITE))).toBe(true);
   });
 });
 

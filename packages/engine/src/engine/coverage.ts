@@ -650,10 +650,11 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   //
   // UNL-144 is the one to read twice: it is STRONGER than printed, not weaker.
   // Every other entry here under-reaches.
-  [
-    "UNL-007",
-    "half written: the 3 damage works; 'if it would die this turn, banish it instead' is unwritten — a turn-long death replacement needs a GameState list, a killUnit branch and a runEnd sweep",
-  ],
+  // **UNL-007 Smite LEFT this map on 2026-08-13**, and its note was a to-do list
+  // that was followed exactly: a `GameState` list
+  // (`banishOnDeathUnitInstanceIds`), a `killUnit` branch, and a `runEnd` sweep.
+  // The branch sits BELOW the death ward because 372 gives the dying unit's
+  // controller the ordering, and they would always take the save.
   // **UNL-073 Deadly Flourish LEFT this map on 2026-08-12.** Its second clause
   // needed one line in a shared file — `TRASH_LISTENER_DEF_IDS` — and a wave-3
   // note had recorded that route as CLOSED. It was not: `execute-play-card`

@@ -348,7 +348,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
  * sampled at 250 and are exercised at 500, which is the clearest statement of
  * what the shallower depth was costing.
  *
- * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 185/224.
+ * Per set at this depth: OGN 228/248, OGS 20/22, SFD 188/198, UNL 186/224.
  */
 // **Re-pinned DOWN to 610 on 2026-08-13, and decomposed rather than accepted.**
 //
@@ -449,7 +449,15 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // seated, UNL 208 -> 209) plus UNL-017 Square Up and UNL-107, both of which
 // the reshuffled covering deck reached. Newly-unexercised EMPTY,
 // `drawnNeverOffered` EMPTY.
-const PINNED_UNION = 621;
+// **621 -> 622 on 2026-08-13 for UNL-007 Smite.** Net +1 from a churn of three:
+// Smite himself (newly SEATED, UNL 209 -> 210 — he had reported implemented
+// all along and a `partialImplementationNote` was keeping him out of generated
+// decks) and UNL-200 in, UNL-107 out.
+//
+// UNL-107 came IN one commit earlier when Frigid Jewel seated and has gone out
+// again here. It joins UNL-019 in the small set of cards that oscillate on deck
+// reshuffles alone; `drawnNeverOffered` is EMPTY, so the engine still offers it.
+const PINNED_UNION = 622;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();
