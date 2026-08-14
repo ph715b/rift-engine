@@ -103,6 +103,10 @@ function resolveChainPass(state: GameState, action: PassFocusAction): GameState 
     kind: "spellCast",
     casterIndex: poppedEntry.playerIndex,
     totalCost,
+    // WHICH spell — Jhin - Virtuoso banishes it. Read off the chain entry's own
+    // card, which is the copy that was played, rather than looked up by defId:
+    // two copies of one spell are two cards, and he later counts four of them.
+    spellInstanceId: poppedEntry.card.instanceId,
     // Carried from the chain entry rather than recomputed: the spell was priced
     // once, when it was played, and re-deriving it here would read a board that
     // has since moved.

@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("313 held / 5 inline of 318 trigger cards", () => {
+  it("316 held / 5 inline of 321 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -360,13 +360,25 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // apart again, and a census that silently missed a chain item would be the
     // instrument defect this file exists to prevent.
     //
+    // **313/5/318 → 316/5/321 the same day, and it is ONE card: UNL-181 Jhin -
+    // Virtuoso.** The other two are UNL-226 and UNL-226*, his Overnumbered and
+    // Signature printings, which `printingAliases` maps onto his defId — so a
+    // single registry entry legitimately becomes three keys here.
+    //
+    // Recorded because +3 for one card looks exactly like a miscount, and the
+    // first reading of it was that something had gone wrong. It was diagnosed by
+    // diffing `eventTriggerDefIds()` against the previous sha rather than by
+    // reasoning about it, which is the same method the reachability probe's notes
+    // insist on. **Any future Legend or reprinted card will move this by more
+    // than one for the same reason.**
+    //
     // `inline` did not move and must not — it is `beginningPhase` alone, three
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 313,
+      held: 316,
       inline: 5,
-      cards: 318,
+      cards: 321,
     });
   });
 

@@ -26,6 +26,13 @@ import { makeState, makeUnit, realGearInstance, resolveHeldTriggers, spellInstan
  *    than this spell's price. Both readings fire on turns the card does not
  *    describe, which is the stronger-than-printed direction. Jhin is additionally
  *    a Legend (legend-abilities.ts) and needs a "banished with me" zone.
+ *    **Revna landed 2026-08-13 and Jhin 2026-08-14, both off `energySpent`, and
+ *    this paragraph's warning is what both were built against** — it is quoted
+ *    in Revna's registry entry and asserted as a boundary in
+ *    `jhin-virtuoso.test.ts` on a 2-Energy/2-Power spell, the exact case named
+ *    here. The one clause that turned out to cost nothing is the last: being a
+ *    Legend needed no `legend-abilities.ts` work at all, because
+ *    `listeningPermanents` has ended with `owner.legend` throughout.
  *  - **UNL-007 Smite**'s turn-long "banish it instead" and **UNL-017 Square Up**'s
  *    `[Repeat] — Discard 1` were refused in waves 3 and 4 and are pinned there.
  *  - **UNL-013 Lotus Trap** is named IN THE RULES (465.2.c.5's worked example), and
@@ -414,7 +421,18 @@ describe("the nine cards this wave REFUSED", () => {
     // **LOTUS_TRAP left this list on 2026-08-13**, and its blocker was the most
     // precisely stated of the nine: "a per-unit damage doubler read at combat
     // ASSIGNMENT (465.2.c.4.a/c.5) and at dealDamage" is exactly what was built.
-    [JHIN_VIRTUOSO, "a Legend (legend-abilities.ts), the energy-spent figure, and a 'banished with me' zone"],
+    // **JHIN_VIRTUOSO left this list on 2026-08-14, the last of the nine.** Two of
+    // his three named blockers were real and are exactly what was built — the
+    // energy-spent figure (`spellCast.energySpent`, which Revna landed a day
+    // earlier and he reuses) and the "banished with me" zone
+    // (`LegendInstance.banishedInstanceIds`). The third, "a Legend
+    // (legend-abilities.ts)", cost nothing: `listeningPermanents` has ended with
+    // `owner.legend` throughout, which is how Lux - Illuminated already heard this
+    // very event. His coverage lives in `test/jhin-virtuoso.test.ts`.
+    //
+    // **The list is now EMPTY**, so the loop below asserts nothing. Restated as
+    // the invariant plus a positive sweep, the same fix `unl-calm-wave6` took the
+    // day before for the same reason.
   ];
 
   for (const [defId, blocker] of refusals) {
@@ -422,6 +440,31 @@ describe("the nine cards this wave REFUSED", () => {
       expect(isCardImplemented(registry.get(defId)), `${defId} was implemented — delete this row`).toBe(false);
     });
   }
+
+  it("EIGHT of the nine are whole, and the ninth is a recorded PARTIAL", () => {
+    // The positive sweep the empty `refusals` list above can no longer be. The
+    // loop is vacuous at zero, and a regression to unimplemented would otherwise
+    // pass in silence.
+    for (const defId of [
+      REVNA,
+      SMITE,
+      LOTUS_TRAP,
+      SQUARE_UP,
+      KATARINA_RECKLESS,
+      UNDYING_LEGION,
+      JHIN_VIRTUOSO,
+      DEATH_FROM_BELOW,
+    ]) {
+      expect(isCardImplemented(registry.get(defId)), `${defId} went back to unimplemented`).toBe(true);
+    }
+
+    // **Curtain Call is deliberately NOT in that list**, and asserting it here as
+    // "false" would be the mistake this file warns about — a partial reads false
+    // for a reason that has nothing to do with being unwritten. Its four modes
+    // work; what is outstanding is the multi-instance `[Repeat]` (820.1.c.2), and
+    // the note is what says so. The block below owns that claim in full.
+    expect(partialImplementationNote(registry.get(CURTAIN_CALL)), "Curtain Call's Repeat gap closed").toContain("Repeat");
+  });
 
   it("the four HALF-WRITTEN cards still carry their PARTIALLY_IMPLEMENTED note", () => {
     // Smite, Square Up, Curtain Call and Death from Below were each written by an

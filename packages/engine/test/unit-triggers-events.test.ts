@@ -6,7 +6,9 @@ import { beginCombatAt, makeState, makeUnit, moveUnitTrigger, realUnitInstance, 
 /** A resolved Spell of `casterIndex`'s, held and settled — `spellCast` is a Chain
  *  Pending Item now, so there is no dispatcher to call. */
 const castSpell = (state: GameState, casterIndex: 0 | 1, totalCost: number) =>
-  resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost }));
+  resolveHeldTriggers(
+    holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost, spellInstanceId: "cast-spell" }),
+  );
 
 /**
  * These used to call `dispatchOnAttack` directly. There is no such dispatcher any

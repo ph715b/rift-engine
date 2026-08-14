@@ -504,7 +504,17 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // So the FLOOR moves to what 500 games actually reaches. The alternative was a
 // pin that goes red every time a card is finished, for a reason the operator
 // already knows — which is the chore this file re-based to avoid once before.
-const PINNED_UNION = 624;
+//
+// **624 -> 625 on 2026-08-14 for UNL-181 Jhin - Virtuoso, and it is the cleanest
+// movement this file has recorded.** A NET +1 with nothing displaced, and the
+// bucket he left is `startsInPlayNeverActed` rather than `neverSeated` — he is a
+// LEGEND, so he was always on the board and always drawn, and what changed is
+// that he now DOES something. No seating, no displacement, no sampling.
+//
+// Worth keeping beside the three drops above precisely because it is the
+// exception: a Legend cannot displace anything, so finishing one moves this
+// figure by exactly one, every time.
+const PINNED_UNION = 625;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

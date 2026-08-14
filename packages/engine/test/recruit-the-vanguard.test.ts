@@ -107,7 +107,7 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
     const state = makeState();
     state.players[0]!.baseUnits = [lux];
 
-    const next = resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4 + 1 }));
+    const next = resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4 + 1, spellInstanceId: "cast-spell" }));
 
     expect(next.players[0]!.baseUnits[0]!.mightThisTurn).toBe(3);
   });
@@ -118,7 +118,7 @@ describe("'costs 5 or more' counts Energy PLUS Power", () => {
     state.players[0]!.baseUnits = [lux];
 
     expect(
-      resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4 })).players[0]!.baseUnits[0]!
+      resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex: 0, totalCost: 4, spellInstanceId: "cast-spell" })).players[0]!.baseUnits[0]!
         .mightThisTurn,
     ).toBe(0);
   });

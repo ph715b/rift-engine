@@ -389,13 +389,16 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
    * the row is retired, this test goes red and names the card.
    */
   const refusals: ReadonlyArray<readonly [string, string]> = [
-    // `spellCast` carries `casterIndex`/`totalCost`/`energySpent` and NO card
-    // identity, so "you may banish IT" cannot name the spell it is about; and
-    // `PlayerState.banished` is a flat array with no association to a Legend, so
-    // "four spells banished WITH ME" has nothing to count. Both are shared-file
-    // edits (triggers.ts + execute-pass-focus.ts, game-state.ts), and he is a
-    // Legend besides.
-    ["UNL-181", "spellCast carries no card identity, and there is no 'banished with me' zone"],
+    // **UNL-181 Jhin - Virtuoso left this list on 2026-08-14**, and its two named
+    // blockers were both exactly right and exactly what was built: `spellCast`
+    // carried no card identity (it now carries `spellInstanceId`), and
+    // `PlayerState.banished` is a flat array with no association to a Legend (it
+    // is `LegendInstance.banishedInstanceIds` now, the field `GearInstance`
+    // already carried for The Zero Drive). The files named were the files edited.
+    //
+    // The trailing "and he is a Legend besides" was the one part that cost
+    // nothing: `listeningPermanents` has ended with `owner.legend` since before he
+    // was refused, which is how Lux - Illuminated hears this very event.
     // `death-ward.ts` models "would die -> revive", not "would die -> banish", and
     // its two lists are both revival lists. A turn-long banish-instead needs a new
     // GameState list, a killUnit branch and a runEnd sweep.

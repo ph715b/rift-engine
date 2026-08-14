@@ -1195,6 +1195,22 @@ export type GameEvent =
        *  all. Revna the Lorekeeper's "if you spent [N] or more" reads this, and
        *  the two figures answer genuinely different questions. */
       energySpent?: number;
+      /**
+       * WHICH spell — UNL-181 Jhin - Virtuoso's "you may banish IT".
+       *
+       * **The event carried no card identity until 2026-08-14**, and that was one
+       * of the two blockers Jhin was refused on: every listener on this event so
+       * far reads only a PRICE (Lux's "costs 5 or more", Revna's "you spent 4 or
+       * more"), so nothing needed to know which card it was. A trigger that acts
+       * ON the spell does.
+       *
+       * The instance, not the defId: Jhin banishes the copy that was just played
+       * and later counts four of them, and two copies of one spell are two cards.
+       * By the time this fires the spell is already in its caster's TRASH —
+       * `execute-play-card` files a Spell there at play time — so a reader looks
+       * for it there rather than on any board.
+       */
+      spellInstanceId: string;
     }
   /**
    * An ACTIVATED ABILITY was used — Prize of Progress's "when you use an

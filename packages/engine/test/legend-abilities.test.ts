@@ -27,7 +27,9 @@ function withLegend(state: GameState, playerIndex: 0 | 1, defId: string): GameSt
 
 /** A resolved Spell of `casterIndex`'s, held and settled. */
 const castSpell = (state: GameState, casterIndex: 0 | 1, totalCost: number) =>
-  resolveHeldTriggers(holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost }));
+  resolveHeldTriggers(
+    holdEventTrigger(state, { kind: "spellCast", casterIndex, totalCost, spellInstanceId: "cast-spell" }),
+  );
 
 function runes(specs: ("R" | "E")[]) {
   return specs.map((s, i) => ({ id: `r${i}`, domain: "Fury" as const, state: s === "R" ? ("Ready" as const) : ("Exhausted" as const) }));

@@ -771,13 +771,19 @@ describe("Curtain Call (UNL-182): choose one of four", () => {
 // ---------------------------------------------------------------------------
 
 describe("the two cards this wave refused", () => {
-  it("Jhin - Virtuoso (UNL-181) is still unimplemented, and deliberately", () => {
-    // "If there are four spells banished WITH ME" needs a per-source attachment
-    // zone: `PlayerState.banished` is one flat list and cannot say which spells
-    // are Jhin's, and every other writer of it (Arcane Shift, Void Rush, Time
-    // Warp) would poison the count. That is a field on PlayerState, which this
-    // file does not own. Delete this test when the zone exists.
-    expect(isCardImplemented(registry.get(JHIN_VIRTUOSO)), "Jhin now works — retire this refusal").toBe(false);
+  it("Jhin - Virtuoso (UNL-181) WORKS now — the zone this wave asked for exists", () => {
+    // **The refusal was right about the mechanism and precise about why.** "If
+    // there are four spells banished WITH ME" needs a per-source attachment zone,
+    // `PlayerState.banished` is one flat list, and every other writer of it
+    // (Arcane Shift, Void Rush, Time Warp) would poison a count taken from it.
+    //
+    // Closed on 2026-08-14 as `LegendInstance.banishedInstanceIds` — one field
+    // lower than this wave guessed. It is not on `PlayerState` at all, because
+    // "with me" is an attachment to a permanent rather than a fact about a
+    // player; `GearInstance` had carried exactly the same field for The Zero
+    // Drive since SFD. Behaviour is pinned in `jhin-virtuoso.test.ts`, including
+    // the flat-zone poisoning this comment predicted.
+    expect(isCardImplemented(registry.get(JHIN_VIRTUOSO)), "Jhin went back to unimplemented").toBe(true);
   });
 
   it("...and every other card in this wave IS registered", () => {
@@ -805,7 +811,10 @@ describe("the two cards this wave refused", () => {
     for (const defId of registered) {
       expect(implementingModules(defId), `${defId} is not registered`).not.toEqual([]);
     }
-    // The partition: the refused card is on the other side of the same question.
-    expect(implementingModules(JHIN_VIRTUOSO), "Jhin is registered after all").toEqual([]);
+    // **Jhin joined them on 2026-08-14**, so this list is now the whole wave and
+    // the partition it used to prove is gone. Asserted positively rather than
+    // deleted: a card silently losing its registration is exactly what this
+    // question was asked to catch, and that risk did not go away when he landed.
+    expect(implementingModules(JHIN_VIRTUOSO), "Jhin lost his registration").not.toEqual([]);
   });
 });

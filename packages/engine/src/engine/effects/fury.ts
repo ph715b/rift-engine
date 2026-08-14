@@ -13,6 +13,7 @@ import type {
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
+  banishCard,
   dealDamage,
   completeDeath,
   discardCards,
@@ -2264,6 +2265,54 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
       return readyUnit(state, listener.card.instanceId);
     },
   },
+  "UNL-181": {
+    // Jhin - Virtuoso — "When you play a spell, if you spent [4] or more, you may
+    // banish it. Then, if there are four spells banished with me, put each in its
+    // trash, channel 4 runes, and draw 1."
+    //
+    // **Refused in waves 5, 7 and 8 on two blockers, and both are closed here.**
+    // Registered BESIDE Revna deliberately: they read the same clause off the same
+    // event, and the reasoning her entry above records about `energySpent` versus
+    // `totalCost` versus `maxSpellEnergySpentThisTurn` is his too, in full. He does
+    // not restate it.
+    //
+    //   1. "`spellCast` carries no card identity" — true, because every listener
+    //      before him read only a PRICE. The event carries `spellInstanceId` now.
+    //   2. "there is no 'banished with me' zone" — true, and the refusal was
+    //      precise about why a count off `PlayerState.banished` would be wrong:
+    //      Arcane Shift, Void Rush and Time Warp all write that list and would
+    //      poison it. `LegendInstance.banishedInstanceIds` is the attachment, the
+    //      same field `GearInstance` already carries for The Zero Drive.
+    //
+    // **He is a Legend and that needed nothing.** Wave 7's note added "Jhin is
+    // additionally a Legend (legend-abilities.ts)" as if that were a third
+    // blocker; `listeningPermanents` has ended with `owner.legend` since before he
+    // was refused, which is how Lux - Illuminated hears this very event.
+    //
+    // "You MAY banish it" is a parked decision, because it is a real choice with
+    // no right answer: banishing pushes toward the payout and gives up a card in
+    // the trash that recursion could still use.
+    on: "spellCast",
+    applies: (_state, listener, event) =>
+      event.kind === "spellCast" &&
+      event.casterIndex === listener.ownerIndex &&
+      (event.energySpent ?? 0) >= JHIN_ENERGY_REQUIRED,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "spellCast") return state;
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      if ((event.energySpent ?? 0) < JHIN_ENERGY_REQUIRED) return state;
+      // Re-derived at RESOLUTION, not captured: the spell sat in the trash through
+      // the response window and anything could have moved it. A spell no longer
+      // there is 359.3.e.12's "check on something no longer available" and the
+      // question is simply not asked.
+      if (!state.players[listener.ownerIndex].trash.some((c) => c.instanceId === event.spellInstanceId)) return state;
+      return parkDecision(state, {
+        kind: "UNL-181-banish",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: event.spellInstanceId,
+      });
+    },
+  },
 };
 
 /** Yeti Brawler's payout and its threshold, and the Battleaxe's self-inflicted 4
@@ -2278,6 +2327,77 @@ const BLIGHTED_BATTLEAXE_DAMAGE = 4;
  *  reads equally well as the printed-plus-Power figure this card deliberately
  *  does not use. */
 const REVNA_ENERGY_REQUIRED = 4;
+
+/** Jhin - Virtuoso's printed figures. The threshold is the same 4 Revna reads and
+ *  means the same thing (ENERGY spent on this one spell); the other three are the
+ *  payout, and all four are named because his card is four bare 4s in a row. */
+const JHIN_ENERGY_REQUIRED = 4;
+const JHIN_SPELLS_REQUIRED = 4;
+const JHIN_RUNES_CHANNELED = 4;
+const JHIN_CARDS_DRAWN = 1;
+
+/** Local, matching this file's own idiom — it spreads `state.players` inline in
+ *  a dozen resolvers, and `updatePlayer` is module-private in every engine file
+ *  that has one. */
+function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  players[index] = update(players[index]);
+  return { ...state, players };
+}
+
+/**
+ * Jhin's "banish it, and then cash in if that made four" — the whole of what his
+ * decision does when the answer is yes.
+ *
+ * One function rather than lines in the decision's `resolve` because the two
+ * halves are one printed sentence joined by "Then": the count is taken AFTER the
+ * banish, so a version that checked first would need three banished spells to
+ * fire and would be silently one short forever.
+ *
+ * "Put each in ITS trash" — the owner's, which for a spell banished out of its
+ * caster's own trash is the same player. Written as a filter over that player's
+ * banish zone rather than a per-card owner lookup for that reason, and noted here
+ * because a card banished with him that he did not banish could not arise: the
+ * only writer of this list is the line above.
+ */
+function jhinBanishWithLegend(state: GameState, playerIndex: 0 | 1, spellInstanceId: string): GameState {
+  const banished = banishCard(state, playerIndex, spellInstanceId);
+  const legend = banished.players[playerIndex].legend;
+  const withSpell = [...(legend.banishedInstanceIds ?? []), spellInstanceId];
+  const attached = updatePlayer(banished, playerIndex, (p) => ({
+    ...p,
+    legend: { ...p.legend, banishedInstanceIds: withSpell },
+  }));
+  if (withSpell.length < JHIN_SPELLS_REQUIRED) return attached;
+
+  // The payout. `withSpell` is emptied in the same write that returns the cards,
+  // so a fifth spell starts a fresh set of four rather than firing every time.
+  const cashed = updatePlayer(attached, playerIndex, (p) => ({
+    ...p,
+    trash: [...p.trash, ...p.banished.filter((c) => withSpell.includes(c.instanceId))],
+    banished: p.banished.filter((c) => !withSpell.includes(c.instanceId)),
+    legend: { ...p.legend, banishedInstanceIds: [] },
+  }));
+  return drawCards(channelRunesReady(cashed, playerIndex, JHIN_RUNES_CHANNELED), playerIndex, JHIN_CARDS_DRAWN);
+}
+
+/**
+ * "Channel 4 runes" — READY, like Obelisk of Power's and unlike Startipped
+ * Peak's "channel 1 rune exhausted".
+ *
+ * Its own three lines for the reason `battlefield-abilities`' copy records: the
+ * one shared helper (`channelRunesExhausted`) bakes the exhaust in for the card
+ * that asks for it, and a parameter would be a flag on a function whose whole
+ * name is the answer. Same "as many as possible if fewer remain" behaviour as
+ * `runChannel` (315.3.b.1).
+ */
+function channelRunesReady(state: GameState, playerIndex: 0 | 1, count: number): GameState {
+  return updatePlayer(state, playerIndex, (p) => {
+    if (count <= 0 || p.runeDeck.length === 0) return p;
+    const taken = p.runeDeck.slice(0, count).map((r) => ({ ...r, state: "Ready" as const }));
+    return { ...p, runeDeck: p.runeDeck.slice(taken.length), channeled: [...p.channeled, ...taken] };
+  });
+}
 
 /** Jhin - Murderous Artist's two printed pips — one Energy and one RAINBOW rune,
  *  named separately because they are two different pools and a single `1` beside
@@ -2499,6 +2619,23 @@ function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  "UNL-181-banish": {
+    // Jhin - Virtuoso's "you MAY banish it".
+    prompt: () => "Jhin - Virtuoso: banish that spell with me?",
+    // Declining first, so a mis-click and the AI's tie-break both land on doing
+    // nothing — the convention every "you may" here follows. The banish option is
+    // only offered while the spell is still in the trash, rebuilt from live state
+    // like every option list, so a spell recurred out of it during the response
+    // window leaves a bare decline rather than an offer that cannot be honoured.
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].trash
+        .filter((c) => c.instanceId === d.cardInstanceId)
+        .map((c) => ({ id: c.instanceId, label: `Banish ${c.name} with Jhin`, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" ? state : jhinBanishWithLegend(state, d.playerIndex, optionId),
+  },
   /**
    * Void Hatchling's look, before Blind Fury's reveal.
    *

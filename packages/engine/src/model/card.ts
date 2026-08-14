@@ -29,6 +29,23 @@ export interface CardInstanceBase {
 export interface LegendInstance extends CardInstanceBase {
   kind: "Legend";
   championTag: string;
+  /**
+   * Cards banished WITH THIS LEGEND — UNL-181 Jhin - Virtuoso's "if there are
+   * four spells banished with me".
+   *
+   * The same field, meaning the same thing, that `GearInstance` already carries
+   * for The Zero Drive, and it exists here for the same reason it exists there:
+   * `PlayerState.banished` is ONE flat list, and every other writer of it
+   * (Arcane Shift, Void Rush, Time Warp) would poison a count taken from it.
+   * "With me" is an attachment, and this is where the attachment lives.
+   *
+   * Ids, not copies — the cards really are in `PlayerState.banished`, and
+   * duplicating them would make anything counting the banish zone see them twice.
+   *
+   * Optional so every existing legend construction site is unaffected; absent
+   * reads as "nothing banished with me", which is true of every other Legend.
+   */
+  banishedInstanceIds?: readonly string[];
 }
 
 export interface UnitInstance extends CardInstanceBase {
