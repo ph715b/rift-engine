@@ -483,6 +483,30 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // instances should check whether the granted ones can share it, and delete
     // that divergence rather than leaving it to be rediscovered.
     //
+    // # The action shape, settled by reading the code rather than guessed
+    //
+    // Step 1 landed: `REPEAT_COSTS` holds a list and `repeatCostsOf` is the
+    // accessor. The next step is the ACTION, and the shape to use is ONE field
+    // carrying the whole truth:
+    //
+    //     repeatExecutions?: readonly { instance: number; choices?: RepeatChoices }[]
+    //
+    // — one entry per PAID instance, `instance` indexing `repeatCostsOf(defId)`.
+    // `RepeatChoices` already carries everything an execution needs INCLUDING
+    // `modeId` (820.1.d's Rocket Barrage example put it there), so the
+    // per-execution mode re-choice needs no new type; "one you haven't already
+    // chosen" is a DISTINCTNESS check across the entries plus the base mode.
+    //
+    // **Do NOT add a second parallel list.** `repeatPaid` (26 readers in src, 11
+    // test files) should stay as the derived "any printed instance was paid"
+    // view, set alongside — two fields that each hold part of the truth is the
+    // drift this repo keeps paying for, and one field plus a derived boolean is
+    // not that.
+    //
+    // The bound belongs on the ENUMERATOR, not on the model: every subset of the
+    // instances times every distinct mode ordering is 8 x up to 4! before
+    // targets, and the AI evaluates everything it is offered.
+    //
     // # The modes
     //
     // The two damage modes differ ONLY in where they may point, and the printed
