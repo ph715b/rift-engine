@@ -524,6 +524,7 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // NO floor on the debuff. Smoke Screen and Siphon Power print "to a minimum of
     // 1 [M]" and this does not, so `giveMightThisTurn` is called without one — a
     // 4-Might unit taken to 0 dies to the next point of damage, which is the card.
+    distinctModesPerExecution: true,
     modes: [
       {
         id: "draw",

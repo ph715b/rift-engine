@@ -48,6 +48,7 @@ import {
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostsOf,
+  cardRequiresDistinctModes,
   slotScope,
   costNamesGear,
   type OptionalUnitCost,
@@ -666,6 +667,29 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     const repeatTargeting = targetingForAnyCard(card, repeatModeId ?? action.modeId);
     const repeatError = targetingRejection(state, action.playerIndex, card.name, repeatTargeting, execution.choices);
     if (repeatError !== null) return fail(`${card.name}'s [Repeat] execution: ${repeatError}`);
+  }
+
+  // **"Choose one you haven't already chosen"** — UNL-182 Curtain Call, and the
+  // only card in the pool whose modes constrain each other ACROSS executions.
+  // 820.2.a's default is the opposite ("they may choose the same mode or a
+  // different one"), so this reads a flag on the card rather than inferring the
+  // rule from the card printing several `[Repeat]`s.
+  //
+  // An execution that names NO mode is refused rather than defaulted: absent
+  // means "the same choices again" everywhere else in this file, and the same
+  // choice again is precisely the one already chosen.
+  if (cardRequiresDistinctModes(card)) {
+    const chosenModes: string[] = action.modeId !== undefined ? [action.modeId] : [];
+    for (const execution of executions) {
+      const modeId = execution.choices?.modeId;
+      if (modeId === undefined) {
+        return fail(`${card.name}'s [Repeat] execution must choose a mode it has not already chosen`);
+      }
+      if (chosenModes.includes(modeId)) {
+        return fail(`${card.name} already chose "${modeId}", and its text forbids choosing it again`);
+      }
+      chosenModes.push(modeId);
+    }
   }
 
   // Board-aware, and it must stay the SAME question `legal-actions` asks: a

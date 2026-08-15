@@ -4,6 +4,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type CardInstance, type UnitInstance } from "../src/model/card.js";
+import type { CardDefinition } from "../src/model/card-definition.js";
 import { isSpellChainEntry, type GameState } from "../src/model/game-state.js";
 import type { HideCardAction, PlayCardAction, PlayerAction } from "../src/actions/player-action.js";
 import type { RuneCard } from "../src/model/rune.js";
@@ -361,18 +362,27 @@ describe("coverage: what this wave finished and what it did not", () => {
     expect(isCardImplemented(registry.get(REVNA))).toBe(true);
   });
 
-  it("NEGATIVE CONTROL on the instrument: an untouched refusal still reports unfinished", () => {
+  it("NEGATIVE CONTROL on the instrument: a card nothing can implement still reports unfinished", () => {
     // Without this the row above passes just as well if `isCardImplemented`
     // returned true for everything.
-    // **Was UNL-007 Smite until 2026-08-13**, when he was finished and this
-    // control stopped controlling anything. Swapped for UNL-182 Curtain Call,
-    // whose blocker is the multi-instance `[Repeat]` seam and is the largest
-    // thing left in the set — so it will outlive most rows here. A negative
-    // control has to be a card that is actually refused, and picking one that
-    // is about to be written just moves the problem.
+    //
+    // **This control has now been swapped TWICE for the same reason** — it named
+    // UNL-007 Smite until 2026-08-13 and UNL-182 Curtain Call until 2026-08-14,
+    // and each time the card it depended on being refused got written. Picking a
+    // third real card would just schedule the same failure, which is what
+    // CLAUDE.md means by proving the 'it does something' half on a SYNTHETIC
+    // subject that cannot be implemented out from under it.
+    //
+    // So the subject is a definition with a defId no registry entry can ever
+    // claim. `isCardImplemented` ends in `registeredDefIds().has(def.id)`, so a
+    // gate that answered true for everything fails HERE and keeps failing.
+    const unimplementable: CardDefinition = {
+      ...registry.get("UNL-182"),
+      id: "UNL-000-NOT-A-CARD",
+    };
     expect(
-      isCardImplemented(registry.get("UNL-182")),
-      "Curtain Call reports finished — the gate is broken, or pick another refusal",
+      isCardImplemented(unimplementable),
+      "the coverage gate reports an unregistered defId as finished — it is broken",
     ).toBe(false);
   });
 });
@@ -419,11 +429,13 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // exactly — RepeatCostSpec carried resources only — and the spec gained a
     // `discard`. It is one instance whose price is a card, not the
     // multi-instance case Curtain Call still waits on.
-    // 820.3 makes each printed instance separately payable; Curtain Call prints
-    // three, and `REPEAT_COSTS` maps one defId to exactly one spec. Its "choose one
-    // you haven't already chosen" is additionally a per-EXECUTION constraint that a
-    // single `modeId` cannot express.
-    ["UNL-182", "three Repeat instances (820.3) and a per-execution mode re-choice"],
+    // **UNL-182 Curtain Call left this list on 2026-08-14**, and its refusal named
+    // both blockers exactly: `REPEAT_COSTS` mapped one defId to one spec, and a
+    // single `modeId` could not express "choose one you haven't already chosen".
+    // The table's value type is `RepeatCostSpec | RepeatCostSpec[]`,
+    // `PlayCardAction.repeatExecutions` names which instances were paid and carries
+    // each execution's own choices, and `distinctModesPerExecution` is the
+    // per-execution constraint. See `test/curtain-call-repeat.test.ts`.
     // The replay leaves the CASTER's trash to be played by the TARGET's controller
     // at a replaced price, and nothing tallies one spell's damage instances.
     ["UNL-020", "a cross-player play-from-trash permission at a replaced price"],

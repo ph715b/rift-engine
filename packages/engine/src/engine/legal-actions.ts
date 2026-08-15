@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import type { GameState, PlayerState, RepeatChoices, RepeatExecution } from "../model/game-state.js";
 import type {
   ActivateAbilityAction,
   FloatRuneAction,
@@ -56,6 +56,8 @@ import {
   optionalUnitCostOf,
   grantedRepeatCostOf,
   repeatCostOf,
+  repeatCostsOf,
+  cardRequiresDistinctModes,
   slotOwner,
   slotScope,
   costNamesGear,
@@ -209,6 +211,61 @@ function nonEmptySubsets(units: readonly UnitInstance[]): UnitInstance[][] {
  *  `MAX_GROUPED_MOVERS` draws, exported so a test can pin both sides of it. */
 export function groupedMoveTruncated(moverCount: number): boolean {
   return moverCount > MAX_GROUPED_MOVERS;
+}
+
+/**
+ * The most PRINTED `[Repeat]` instances this file will fan out over — the same
+ * kind of stated bound `MAX_GROUPED_MOVERS` is, and here for the same reason.
+ *
+ * 820.1.c.2 makes every subset of a card's instances a distinct play at a
+ * distinct price, so the honest enumeration is 2^n, and the AI evaluates every
+ * action it is offered. UNL-182 Curtain Call prints exactly three, so at this
+ * value nothing is truncated today; the bound exists so that a card printing
+ * five does not silently turn one turn into a hang. Above the line only the
+ * SINGLETONS and the all-in plan are offered, which is the same "keep the two
+ * plays anyone makes, drop the middle" shape the mover bound takes.
+ *
+ * `repeatSubsetsTruncated` is the predicate, exported so a test can pin the
+ * boundary from both sides rather than restating the comparison.
+ */
+const MAX_ENUMERATED_REPEAT_INSTANCES = 3;
+
+/** Whether a card with this many printed `[Repeat]` instances is enumerated
+ *  exhaustively. */
+export function repeatSubsetsTruncated(instanceCount: number): boolean {
+  return instanceCount > MAX_ENUMERATED_REPEAT_INSTANCES;
+}
+
+/** Every non-empty subset of `[0, count)`, smallest first, bounded as above. */
+function repeatInstanceSubsets(count: number): number[][] {
+  const all = Array.from({ length: count }, (_, i) => i);
+  if (count === 0) return [];
+  if (repeatSubsetsTruncated(count)) return [...all.map((i) => [i]), [...all]];
+  const out: number[][] = [];
+  for (let mask = 1; mask < 1 << count; mask += 1) {
+    out.push(all.filter((i) => (mask & (1 << i)) !== 0));
+  }
+  return out.sort((a, b) => a.length - b.length);
+}
+
+/** Every `size`-element subset of `modes`, in printed order within each. */
+function modeSubsetsOfSize<T>(modes: readonly T[], size: number): T[][] {
+  if (size === 0) return [[]];
+  if (size > modes.length) return [];
+  const out: T[][] = [];
+  const walk = (start: number, picked: T[]): void => {
+    if (picked.length === size) {
+      out.push([...picked]);
+      return;
+    }
+    for (let i = start; i < modes.length; i += 1) {
+      picked.push(modes[i]!);
+      walk(i + 1, picked);
+      picked.pop();
+    }
+  };
+  walk(0, []);
+  return out;
 }
 
 /**
@@ -1652,6 +1709,108 @@ export function legalActions(state: GameState): PlayerAction[] {
       ? [...withReplacedPricing, ...withReplacedPricing.map((v) => ({ ...v, optionalXpPaid: true as const }))]
       : withReplacedPricing;
 
+    /**
+     * One `RepeatChoices` per mode, with that mode's target SAMPLED.
+     *
+     * **The sample is this branch's whole bound on the target axis, and it is
+     * the rule this file already applies to every other `[Repeat]`**: the second
+     * execution may name different targets (820.2.a), so the complete
+     * enumeration is the cross product of the executions' choice sets — for
+     * Curtain Call, up to three additional executions each aiming at any unit on
+     * the board, which is cubic in the board before the subset and mode axes are
+     * even counted. So one target per mode is offered and `validate-play-card`
+     * accepts any legal set, exactly as it does for the single-instance cards.
+     *
+     * What the AI still sees in full is every MODE in every position, because
+     * the base execution's mode and target are fanned out by `effectVariants`
+     * above — so "deal 2 to that unit" is offered pointed at each unit in turn,
+     * just not simultaneously with an independently-aimed second execution.
+     *
+     * `undefined` for a mode with no legal target: that mode cannot be an
+     * execution at all, which is 355.8 rather than a sampling decision.
+     */
+    const sampledRepeatChoices = new Map<string, RepeatChoices | undefined>();
+    const sampleChoicesForMode = (modeId: string): RepeatChoices | undefined => {
+      if (sampledRepeatChoices.has(modeId)) return sampledRepeatChoices.get(modeId);
+      const options = variantsForTargeting(targetingForAnyCard(card, modeId));
+      const first = options[0];
+      // Only the fields `RepeatChoices` declares — a repeat execution varies
+      // targets, not the play's costs, and copying a `Partial<PlayCardAction>`
+      // wholesale would smuggle a cost field into a choice set.
+      const sampled: RepeatChoices | undefined =
+        first === undefined
+          ? undefined
+          : {
+              modeId,
+              ...(first.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: first.targetUnitInstanceId } : {}),
+              ...(first.secondTargetUnitInstanceId !== undefined
+                ? { secondTargetUnitInstanceId: first.secondTargetUnitInstanceId }
+                : {}),
+              ...(first.targetUnitInstanceIds !== undefined ? { targetUnitInstanceIds: first.targetUnitInstanceIds } : {}),
+              ...(first.targetBattlefieldId !== undefined ? { targetBattlefieldId: first.targetBattlefieldId } : {}),
+              ...(first.targetChainCardInstanceId !== undefined
+                ? { targetChainCardInstanceId: first.targetChainCardInstanceId }
+                : {}),
+              ...(first.targetPermanentInstanceId !== undefined
+                ? { targetPermanentInstanceId: first.targetPermanentInstanceId }
+                : {}),
+              ...(first.destinationBattlefieldId !== undefined
+                ? { destinationBattlefieldId: first.destinationBattlefieldId }
+                : {}),
+              ...(first.destinationIsBase === true ? { destinationIsBase: true as const } : {}),
+            };
+      sampledRepeatChoices.set(modeId, sampled);
+      return sampled;
+    };
+
+    /**
+     * Every combination of PAID `[Repeat]` instances this variant can offer, each
+     * with its executions' choices already settled.
+     *
+     * For a card printing ONE instance this is the single plan `[{ instance: 0 }]`
+     * and the branch below emits exactly the action it always did — no
+     * `repeatExecutions` field, no extra candidate, no change of any kind.
+     *
+     * For a MULTI-instance card it is the subset fan-out (820.1.c.2, bounded by
+     * `MAX_ENUMERATED_REPEAT_INSTANCES`) crossed with the modes those executions
+     * choose. Curtain Call's "Choose one you haven't already chosen" is what
+     * makes the mode assignment part of the plan rather than a free choice: the
+     * modes are drawn from those the base execution did NOT take, and they are
+     * assigned to the paid instances in printed order.
+     *
+     * **Mode SETS, not orderings.** k paid instances take a k-subset of the
+     * remaining modes rather than a k-permutation, which is 6 assignments where
+     * the full ordering would be 24. Order between additional executions is
+     * observable only when one kills what another would have hit, and with the
+     * targets sampled anyway the distinction buys nothing the validator does not
+     * already accept from a client that wants it.
+     */
+    const repeatPlansFor = (
+      variant: Partial<PlayCardAction>,
+      instanceCount: number,
+    ): (readonly RepeatExecution[])[] => {
+      if (instanceCount <= 1) return [[{ instance: 0 }]];
+      const distinct = cardRequiresDistinctModes(card);
+      if (!distinct) {
+        // No card prints this shape today. The honest offer is "the same choices
+        // again" for each paid instance, which is what an absent `choices` means
+        // and what every single-instance Repeat is already sampled as.
+        return repeatInstanceSubsets(instanceCount).map((subset) => subset.map((instance) => ({ instance })));
+      }
+      const remaining = cardModes.filter((m) => m.id !== variant.modeId);
+      const plans: (readonly RepeatExecution[])[] = [];
+      for (const subset of repeatInstanceSubsets(instanceCount)) {
+        for (const modeSet of modeSubsetsOfSize(remaining, subset.length)) {
+          const choices = modeSet.map((mode) => sampleChoicesForMode(mode.id));
+          // A mode with no legal target cannot be one of these executions —
+          // 355.8, the same rule that makes a spell with no target uncastable.
+          if (choices.some((c) => c === undefined)) continue;
+          plans.push(subset.map((instance, i) => ({ instance, choices: choices[i]! })));
+        }
+      }
+      return plans;
+    };
+
     for (const variant of withPricing) {
       // Every price-modifying branch below prices the card's PRINTED base, so a
       // replaced-cost variant takes none of them: the replacement IS the base
@@ -2098,11 +2257,30 @@ export function legalActions(state: GameState): PlayerAction[] {
       // 811 ignores a hidden card's BASE cost and an additional cost is not
       // that, so this is a real (if unreachable) simplification — no card in
       // the pool prints both [Hidden] and [Repeat], asserted in the table test.
-      const repeatCost = repeatCostOf(card.defId);
+      //
+      // # A card printing SEVERAL instances fans out over WHICH ones it pays
+      //
+      // 820.1.c.2 makes each instance separately payable, and UNL-182 Curtain
+      // Call prints three at three different prices — so "how many" does not
+      // price the play and the subset itself is a dimension. `repeatPlans` below
+      // is that fan-out; for the twenty single-instance cards it is the one plan
+      // `[{ instance: 0 }]` and everything past it is byte-for-byte what it was.
+      const repeatCosts = repeatCostsOf(card.defId);
+      const repeatCost = repeatCosts[0];
       // `!usingReplacedCost` for the reason the discard branch above gives: a
       // `[Repeat]` is an optional ADDITIONAL cost priced on top of the printed
       // base, and a replaced base is not that. No card prints both.
       if (repeatCost && !fromHidden && !usingReplacedCost && !usingOptionalXp) {
+        for (const plan of repeatPlansFor(variant, repeatCosts.length)) {
+        // The costs this plan actually buys, in the order it lists them.
+        const planCosts = plan.map((execution) => repeatCosts[execution.instance]!);
+        // Only a MULTI-instance card carries the list on the action; a
+        // single-instance one keeps the `repeatPaid` spelling every card in the
+        // pool and every existing test already uses. `repeatExecutionsOf`
+        // normalises both, so this is a choice about what the action READS like
+        // rather than about what it means.
+        const planFields =
+          repeatCosts.length > 1 ? { repeatExecutions: plan as readonly RepeatExecution[] } : {};
         // **The `[Deflect]` tax is owed by BOTH executions** (project-owner
         // ruling, 2026-08-06 — the same unit chosen twice owes twice). This
         // variant repeats the SAME choices, so its taxable set is the first
@@ -2120,7 +2298,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         //
         // The spell itself is excluded: it is still in hand at enumeration time
         // and paying for a card with itself is not a cost anyone can take.
-        const repeatDiscardCost = repeatCostOf(card.defId)?.discard ?? 0;
+        const repeatDiscardCost = planCosts.reduce((sum, c) => sum + (c.discard ?? 0), 0);
         const repeatDiscardable =
           repeatDiscardCost > 0 ? actor.hand.filter((c) => c.instanceId !== card.instanceId) : [];
         // A card cost that CANNOT be paid offers no repeat at all, which is
@@ -2132,7 +2310,7 @@ export function legalActions(state: GameState): PlayerAction[] {
         // rather than castable-without-the-repeat. The guard has to withhold the
         // repeat and nothing else.
         const repeatIsPayable = repeatDiscardCost === 0 || repeatDiscardable.length > 0;
-        const repeatVariant = { ...variant, repeatPaid: true as const };
+        const repeatVariant = { ...variant, repeatPaid: true as const, ...planFields };
         const repeatDeflected = rainbowSurchargeForPlay(state, playerIndex, card.kind, [
           ...chosenUnitsOfPlay(repeatVariant),
           ...chosenUnitsOfRepeat(repeatVariant),
@@ -2145,13 +2323,21 @@ export function legalActions(state: GameState): PlayerAction[] {
         const priced = new Set<string>();
         for (const axis of additionalCostAxes) {
           const own = targetChoiceDiscount(state, playerIndex, chosenUnitsOfPlay(variant), axis);
-          const additional = discountedOptionalCosts(state, playerIndex, axis, [
-            {
-              energy: modifiedRepeatEnergy(state, playerIndex, repeatCost.energy),
-              power: repeatCost.power ?? 0,
-              rainbow: repeatCost.rainbowPower ?? 0,
-            },
-          ]);
+          // ONE BUNDLE PER PAID INSTANCE — each is its own Optional Additional
+          // Cost (820.1.c.2) and the 2026-08-08 ruling gives each its own Ezreal
+          // pip, which is the same shape the granted-instance branch below built
+          // for exactly that reason. `validate-play-card` prices from the same
+          // list, so the two cannot disagree about what the play costs.
+          const additional = discountedOptionalCosts(
+            state,
+            playerIndex,
+            axis,
+            planCosts.map((c) => ({
+              energy: modifiedRepeatEnergy(state, playerIndex, c.energy),
+              power: c.power ?? 0,
+              rainbow: c.rainbowPower ?? 0,
+            })),
+          );
           // **Re-priced through `computeEffectiveCost` from the PRINTED cost, not
           // by adding the Repeat to the already-float-reduced `effectiveCost`.**
           // Floating Energy reduces the TOTAL a play costs, additional costs
@@ -2213,11 +2399,13 @@ export function legalActions(state: GameState): PlayerAction[] {
                 ...variant,
                 ...hiddenFields,
                 repeatPaid: true,
+                ...planFields,
                 ...(discardId !== undefined ? { repeatDiscardCardInstanceId: discardId } : {}),
                 ...(axis !== undefined ? { targetDiscountAxis: axis } : {}),
               });
             }
           }
+        }
         }
       }
       // Temporal Portal's GRANTED `[Repeat]`, priced from the card's PRINTED cost

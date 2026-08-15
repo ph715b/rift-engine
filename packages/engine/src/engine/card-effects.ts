@@ -703,6 +703,25 @@ export interface EffectDefinition {
   resolve?: (state: GameState, ctx: EffectContext, event: ResolveEvent) => GameState;
   /** The options, for a modal card. Mutually exclusive with the pair above. */
   modes?: readonly CardMode[];
+  /**
+   * "Choose one YOU HAVEN'T ALREADY CHOSEN" — UNL-182 Curtain Call, the pool's
+   * only card that says it.
+   *
+   * A property of the card rather than of a mode, because it constrains the modes
+   * against EACH OTHER across the executions of one play: 820.2 gives each
+   * execution its own Make Relevant Choices step, and this word makes those steps
+   * dependent where every other modal card's are independent. The ordinary modal
+   * default is 820.2.a's Rocket Barrage example — "they may choose the same mode
+   * or a different one" — so this is the exception and has to be written down
+   * rather than assumed from the card printing several `[Repeat]`s.
+   *
+   * Read by the validator (which refuses a repeated mode, and refuses an
+   * execution that names no mode at all — "the same choices again" IS choosing
+   * one already chosen) and by the enumerator (which offers only distinct
+   * assignments). Two readers, one field, so the offer and the refusal cannot
+   * drift.
+   */
+  distinctModesPerExecution?: true;
 }
 
 /** The synthetic id a non-modal card's single mode carries. Never appears on an
@@ -728,6 +747,17 @@ export function cardModesOf(card: CardInstance): readonly CardMode[] {
       resolve: definition.resolve,
     },
   ];
+}
+
+/**
+ * Does this card's text forbid choosing a mode it has already chosen — Curtain
+ * Call's "Choose one you haven't already chosen"?
+ *
+ * False for every other card, including the other modal ones: 820.2.a's default
+ * is explicitly that a repeat "may choose the same mode or a different one".
+ */
+export function cardRequiresDistinctModes(card: CardInstance): boolean {
+  return effectForCard(card)?.distinctModesPerExecution === true;
 }
 
 /** The mode an action named, or the sole mode when the card has one. Returns
@@ -1347,12 +1377,17 @@ export interface RepeatCostSpec {
  * silently under-price a card rather than fail. Fourteen entries is cheaper to
  * read than the grammar that would replace them.
  *
- * **Each of these prints exactly ONE instance of Repeat**, checked across the
- * set. 820.1.c.2/c.3 ("if a spell or ability has more than one instance of
- * Repeat, each Cost may be paid or not paid individually... each Repeat Cost can
- * be paid only a single time") therefore has no card to exercise it here, so
- * this models one instance and `repeat-cost-table.test.ts` asserts the premise —
- * the day a set prints two, that test fails and this shape is what changes.
+ * **All but one of these prints exactly ONE instance of Repeat.** UNL-182
+ * Curtain Call prints THREE, which is what 820.1.c.2/c.3 ("if a spell or ability
+ * has more than one instance of Repeat, each Cost may be paid or not paid
+ * individually... each Repeat Cost can be paid only a single time") were waiting
+ * for, and is why the value type is `RepeatCostSpec | RepeatCostSpec[]`.
+ * `repeatCostsOf` is the accessor; nothing should read this map directly.
+ *
+ * The premise test in `repeat-keyword.test.ts` predicted this exactly — "the day
+ * a set prints two, that test fails and this shape is what changes" — and it
+ * did. It now asserts that the TABLE and the printed text agree on the count,
+ * per card, which is a check that cannot flip again.
  *
  * Temporal Portal (SFD-078) is absent on purpose: it GRANTS Repeat "equal to its
  * cost" to another spell rather than printing one of its own, so its cost is not
@@ -1393,6 +1428,20 @@ const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec | readonly RepeatCost
   "UNL-032": { energy: 2 }, // Double Trouble — [Repeat] [2]
   "UNL-061": { energy: 2 }, // Downstage Dramatics — [Repeat] [2]
   "UNL-134": { energy: 2 }, // Existential Dread — [Repeat] [2]
+  // **Curtain Call — the pool's only multi-instance [Repeat].** Printed
+  // "[Repeat] — :rb_energy_1: / :rb_rune_rainbow: / :rb_energy_1::rb_rune_rainbow:",
+  // three costs separated by slashes, and 820.1.c.2 makes each payable or not
+  // payable on its own. Paying all three executes the spell FOUR times (820.3:
+  // "an additional time on resolution for each instance of Repeat that is paid
+  // for"), which with "choose one you haven't already chosen" is exactly its four
+  // printed modes.
+  //
+  // The middle instance has NO Energy at all, the same shape Called Shot's
+  // `[Repeat] [Chaos]` has — `energy: 0` is the price, not a placeholder. And
+  // both pips are RAINBOW rather than the card's own Fury/Mind: the printed
+  // glyph is `:rb_rune_rainbow:`, which is why they ride `rainbowPower` instead
+  // of `power` + `domain` (see Danger Zone, which is where that field came from).
+  "UNL-182": [{ energy: 1 }, { energy: 0, rainbowPower: 1 }, { energy: 1, rainbowPower: 1 }],
 };
 
 /** What this card's `[Repeat]` costs, or undefined if it has none. */

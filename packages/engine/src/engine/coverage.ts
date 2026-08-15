@@ -800,10 +800,16 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // one to read twice: a `mightModifiers` aura and a deploy-time replacement are
   // different tables, so half a Legend is the natural failure here rather than an
   // unusual one.
-  [
-    "UNL-182",
-    "the four modes work; its THREE [Repeat]s are not modelled — RepeatCostSpec expresses exactly one Repeat instance (its own comment says so), and 820.1.c.2 needs each payable individually with a per-EXECUTION mode re-choice, where modeId is currently chosen once per action",
-  ],
+  // **UNL-182 Curtain Call LEFT this map on 2026-08-14**, and its note was a
+  // to-do list followed in order. It read: "the four modes work; its THREE
+  // [Repeat]s are not modelled — RepeatCostSpec expresses exactly one Repeat
+  // instance (its own comment says so), and 820.1.c.2 needs each payable
+  // individually with a per-EXECUTION mode re-choice, where modeId is currently
+  // chosen once per action." All three landed: `REPEAT_COSTS` holds a LIST,
+  // `PlayCardAction.repeatExecutions` names WHICH instances were paid and carries
+  // each execution's own choices, and `EffectDefinition.distinctModesPerExecution`
+  // is the card's "choose one you haven't already chosen".
+  //
   // **UNL-186 Death from Below LEFT this map on 2026-08-13**, and its note named
   // the price exactly: "a per-instance permission with a REPLACED cost needs
   // timing.ts plus a PlayerState field". Both landed — `engine/replaced-costs.ts`

@@ -441,7 +441,7 @@ describe("the nine cards this wave REFUSED", () => {
     });
   }
 
-  it("EIGHT of the nine are whole, and the ninth is a recorded PARTIAL", () => {
+  it("ALL NINE are whole — the last of them on 2026-08-14", () => {
     // The positive sweep the empty `refusals` list above can no longer be. The
     // loop is vacuous at zero, and a regression to unimplemented would otherwise
     // pass in silence.
@@ -454,19 +454,19 @@ describe("the nine cards this wave REFUSED", () => {
       UNDYING_LEGION,
       JHIN_VIRTUOSO,
       DEATH_FROM_BELOW,
+      // **Curtain Call joined this list on 2026-08-14**, and until then it was
+      // deliberately excluded with a note explaining that a PARTIAL reads false
+      // for a reason that has nothing to do with being unwritten. Its outstanding
+      // half was the multi-instance `[Repeat]` (820.1.c.2), which landed as
+      // `repeatCostsOf` + `PlayCardAction.repeatExecutions`. Its coverage is
+      // `test/curtain-call-repeat.test.ts`.
+      CURTAIN_CALL,
     ]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} went back to unimplemented`).toBe(true);
     }
-
-    // **Curtain Call is deliberately NOT in that list**, and asserting it here as
-    // "false" would be the mistake this file warns about — a partial reads false
-    // for a reason that has nothing to do with being unwritten. Its four modes
-    // work; what is outstanding is the multi-instance `[Repeat]` (820.1.c.2), and
-    // the note is what says so. The block below owns that claim in full.
-    expect(partialImplementationNote(registry.get(CURTAIN_CALL)), "Curtain Call's Repeat gap closed").toContain("Repeat");
   });
 
-  it("the four HALF-WRITTEN cards still carry their PARTIALLY_IMPLEMENTED note", () => {
+  it("NONE of the four half-written cards carries a PARTIALLY_IMPLEMENTED note any more", () => {
     // Smite, Square Up, Curtain Call and Death from Below were each written by an
     // earlier wave down to a named blocker, and each blocker is still standing.
     // Asserted through `partialImplementationNote` rather than
@@ -480,10 +480,19 @@ describe("the nine cards this wave REFUSED", () => {
     // is `test/replaced-costs.test.ts`.
     // **SMITE left this list on 2026-08-13.** Its note was a to-do list — "a
     // GameState list, a killUnit branch and a runEnd sweep" — and all three
-    // landed exactly there. Curtain Call is the last one standing.
-    for (const defId of [CURTAIN_CALL]) {
-      expect(partialImplementationNote(registry.get(defId)), `${defId} lost its note`).toBeDefined();
-      expect(isCardImplemented(registry.get(defId))).toBe(false);
+    // landed exactly there.
+    // **CURTAIN CALL left it on 2026-08-14**, the last of the four, and its note
+    // was a to-do list followed in order as well.
+    //
+    // **The assertion is INVERTED rather than emptied.** An empty loop asserts
+    // nothing, and the thing worth keeping is the direction this file cares
+    // about: a note that comes BACK means a card went half-written again, and a
+    // note that never existed is how a half-written card reports finished. So
+    // all four are asserted whole and noteless, which is a claim that cannot go
+    // vacuous as the list shrinks — it has stopped shrinking.
+    for (const defId of [SMITE, SQUARE_UP, CURTAIN_CALL, DEATH_FROM_BELOW]) {
+      expect(partialImplementationNote(registry.get(defId)), `${defId} grew a partial note back`).toBeUndefined();
+      expect(isCardImplemented(registry.get(defId)), `${defId} went back to unimplemented`).toBe(true);
     }
   });
 

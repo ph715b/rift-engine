@@ -720,49 +720,36 @@ describe("Curtain Call (UNL-182): choose one of four", () => {
     expect(effectiveMight(after, hit, 1, { isCombat: false, battlefieldId: "bf1" })).toBe(0);
   });
 
-  it("PINNED: its three [Repeat] costs are NOT modelled", () => {
-    // 820.1.c.2 — "if a spell or ability has more than one instance of Repeat,
-    // each Cost may be paid or not paid individually". `RepeatCostSpec` is one
-    // cost, so no row in card-effects.ts's table can express this card. Every
-    // offered play is therefore the printed 4 Energy with no repeat variant.
-    //
-    // **This assertion was VACUOUS as first written, and its first repair was
-    // WRONG** — both worth recording, because they failed in opposite ways.
-    //
-    // As written it read `a.payment?.energyRuneIds?.length ?? 0` and compared the
-    // set to `{0}`. `RunePayment` has no `energyRuneIds` (the field is
-    // `energyRunes`), so the expression was `undefined ?? 0` for every play, the
-    // set was always `{0}`, and the pin would have passed just as happily on a
-    // build that DID offer a repeat variant. Invisible to the agent that wrote it
-    // because the engine's `build` tsconfig excludes tests while `typecheck`
-    // includes them, and the brief asked only for the former.
-    //
-    // The obvious repair — spell the field correctly and expect the printed 4 —
-    // then failed, and failing was the useful part: `energyRunes` is EMPTY here,
-    // because Energy is paid from `floatingEnergy` and only Power comes from
-    // runes. Counting runes was never a proxy for what this pin means.
-    //
-    // `repeatPaid` is the flag `[Repeat]` actually sets on a `PlayCardAction`, so
-    // the pin now asks the question directly instead of inferring it from a price.
+  /**
+   * **The pin that used to sit here was retired on 2026-08-14, and it did its
+   * job.** It asserted the WRONG answer — that no repeat-paying variant of this
+   * card was ever offered — because `RepeatCostSpec` expressed exactly one
+   * instance and no row in the table could hold three. It went red the moment
+   * `REPEAT_COSTS` learned to hold a list, which is precisely what a pin on a
+   * known gap is for.
+   *
+   * The whole of the multi-instance behaviour now lives in
+   * `test/curtain-call-repeat.test.ts` — all seven payable subsets, the three
+   * prices, the four executions, and "choose one you haven't already chosen".
+   * What stays HERE is the modal half this wave wrote, plus the coverage claim.
+   */
+  it("now offers repeat-paying variants, and every one of them names which instances it paid", () => {
     const { state, cardId } = curtainState();
-    const plays = playsOf(state, cardId);
-    expect(plays.length, "Curtain Call was not playable at all — the pin measures nothing").toBeGreaterThan(0);
+    const paid = playsOf(state, cardId).filter((a) => a.repeatPaid === true);
 
-    // An empty-array assertion is vacuous if nothing ever sets the flag, so the
-    // discrimination was checked rather than assumed: `legal-actions.ts` sets
-    // `repeatPaid: true` at three sites for the cards in `REPEAT_COSTS`, and
-    // `test/repeat-keyword.test.ts` exercises that path end to end. This pin is
-    // therefore measuring Curtain Call's absence from that table, not the absence
-    // of the mechanism.
-    expect(
-      plays.filter((a) => a.repeatPaid === true),
-      "a repeat-paid variant is now offered — retire this pin and the PARTIALLY_IMPLEMENTED row",
-    ).toEqual([]);
+    expect(paid.length, "no repeat-paying variant is offered at all").toBeGreaterThan(0);
+    for (const play of paid) {
+      expect(play.repeatExecutions, `${play.modeId} paid a [Repeat] without saying which`).toBeDefined();
+      expect(play.repeatExecutions!.length).toBeGreaterThan(0);
+    }
   });
 
   it("is reported as implemented by coverage", () => {
     expect(implementingModules(CURTAIN_CALL), "the four modes are not registered at all").not.toEqual([]);
-    expect(partialImplementationNote(registry.get(CURTAIN_CALL)), "the [Repeat] gap closed — retire this and the coverage row").toContain("Repeat");
+    expect(
+      partialImplementationNote(registry.get(CURTAIN_CALL)),
+      "a partial note came back — this card is whole as of 2026-08-14",
+    ).toBeUndefined();
   });
 });
 

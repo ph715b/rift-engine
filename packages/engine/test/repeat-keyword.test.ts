@@ -3,7 +3,7 @@ import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
-import { repeatCostOf, repeatCostDefIds } from "../src/engine/card-effects.js";
+import { repeatCostOf, repeatCostsOf, repeatCostDefIds } from "../src/engine/card-effects.js";
 import { COMPLETE_SETS } from "../src/engine/coverage.js";
 import { modifiedRepeatEnergy } from "../src/engine/cost-modifiers.js";
 import { effectiveMight } from "../src/engine/effective-might.js";
@@ -113,17 +113,22 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
    * records: a printed cost and an additional cost are two different pips.
    *
    * The pricing then adds the Repeat's Power to the card's OWN power bucket,
-   * which is only sound while the two domains agree. They do for all fourteen —
-   * so this asserts it card by card instead of leaving it as a comment. The day
-   * a set prints a Repeat cost in a domain the card itself does not, this fails
-   * and the pricing has to grow a third bucket.
+   * which is only sound while the two domains agree. They do for every printed
+   * instance — so this asserts it instance by instance instead of leaving it as a
+   * comment. The day a set prints a Repeat cost in a domain the card itself does
+   * not, this fails and the pricing has to grow a third bucket.
+   *
+   * **Every INSTANCE, not just the first.** Read through `repeatCostOf` this
+   * checked one spec per card, which was the same answer only while every card
+   * printed one; Curtain Call's three would have had two of them unchecked.
    */
   it("every Repeat Power cost is in the card's own printed domain", () => {
     for (const defId of repeatCostDefIds()) {
-      const spec = repeatCostOf(defId)!;
-      if (spec.power === undefined) continue;
       const def = registry.get(defId);
-      expect(spec.domain, `${defId} (${def.name}) Repeat domain`).toBe(def.powerDomain);
+      for (const [i, spec] of repeatCostsOf(defId).entries()) {
+        if (spec.power === undefined) continue;
+        expect(spec.domain, `${defId} (${def.name}) Repeat instance ${i} domain`).toBe(def.powerDomain);
+      }
     }
   });
 
@@ -132,15 +137,28 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
    * each Cost may be paid or not paid individually... each Repeat Cost can be
    * paid only a single time."
    *
-   * No card in this pool prints two, so the engine models ONE instance. That is
-   * a premise, not an assumption: this fails the day a set prints two, which is
-   * the day `repeatPaid` has to stop being a boolean.
+   * **The premise this used to assert was "no card prints two", and it was
+   * retired on 2026-08-14 rather than weakened.** It counted `[Repeat]` tokens in
+   * the printed text, and UNL-182 Curtain Call would have passed it forever: the
+   * card prints the keyword ONCE and then three slash-separated costs. So the
+   * check was measuring the wrong thing, and it would have gone on reporting a
+   * one-instance pool while the pool held a three-instance card.
+   *
+   * What replaces it is an invariant that cannot go vacuous: the REMINDER TEXT
+   * says which case a card is, in the printed words "you may pay **each**
+   * additional cost" versus "you may pay **the** additional cost", and the table
+   * must agree with it card by card. A new multi-instance card whose row holds
+   * one spec fails here, and so does a row that invents instances a card does not
+   * print.
    */
-  it("no card prints two instances of [Repeat] — the premise the one-instance model rests on", () => {
+  it("the table's instance count agrees with each card's printed reminder text", () => {
     for (const defId of repeatCostDefIds()) {
       const def = registry.get(defId);
-      const instances = (def.text ?? "").match(/\[Repeat\]/g) ?? [];
-      expect(instances.length, `${defId} (${def.name}) prints ${instances.length} [Repeat]`).toBe(1);
+      const printsSeveral = (def.text ?? "").includes("pay each additional cost");
+      expect(
+        repeatCostsOf(defId).length > 1,
+        `${defId} (${def.name}) prints ${printsSeveral ? "several" : "one"} [Repeat] cost but the table holds ${repeatCostsOf(defId).length}`,
+      ).toBe(printsSeveral);
     }
   });
 
@@ -231,10 +249,18 @@ describe("the [Repeat] cost table matches what the cards actually print", () => 
     // a `discard`, which is the whole of what it needed — its cost is one
     // instance whose price is a card, not the multi-instance case.
     //
-    // Curtain Call remains, and it is the harder half: three alternative costs,
-    // "you may pay EACH", which is 820.1.c.2's multi-instance case and needs the
-    // table to hold a LIST rather than one spec.
-    expect(unpriced).toEqual(["UNL-182"]);
+    // **UNL-182 Curtain Call left it on 2026-08-14, and the list is now EMPTY.**
+    // It was the harder half — three alternative costs, "you may pay EACH", which
+    // is 820.1.c.2's multi-instance case — and it is what made the table's value
+    // type `RepeatCostSpec | RepeatCostSpec[]` and the action carry
+    // `repeatExecutions` instead of a boolean. See
+    // `test/curtain-call-repeat.test.ts`.
+    //
+    // Empty is not the same as retired: this list is what an UNPRICED [Repeat]
+    // in a set under construction looks like, and it is invisible in play —
+    // the enumerator simply never offers the repeat variant and the card looks
+    // like it works. It stays so the next set's landing says so out loud.
+    expect(unpriced).toEqual([]);
   });
 });
 
