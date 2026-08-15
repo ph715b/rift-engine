@@ -4,6 +4,8 @@ import type { UnitInstance } from "../model/card.js";
 import { legendMightBonus } from "./legend-abilities.js";
 import { effectiveKeywords } from "./granted-keywords.js";
 import { battlefieldMightBonusAt } from "./battlefield-continuous.js";
+import { BRUSH_MIGHT, BRUSH_TAGS, isBrush } from "./battlefield-tokens.js";
+import { effectiveTagsOf } from "./equipment.js";
 import { equipmentMightBonusFor } from "./equipment.js";
 import { isMechDef } from "./constants.js";
 import { sivirConditionMet } from "./granted-keywords.js";
@@ -549,6 +551,21 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // The parenthetical is free here — the bonus is unconditional, so it lands in
   // the outgoing-damage context as well as the remaining one.
   bonus += battlefieldMightBonusAt(state, ctx.battlefieldId);
+
+  // **The Brush token's aura, and it is TAG-filtered where the War Camp's is
+  // not** — "Bird, Cat, Dog, Poro, and Ivern units have +1 [Might] in Brush". So
+  // it cannot be a `mightBonusHere` row: that field is a flat bonus to every unit
+  // standing there on both sides, and this one reads the unit.
+  //
+  // Both sides all the same. The reminder text names TAGS and no owner, so an
+  // opponent's Poro standing in your Brush is pumped too — the same reading
+  // Trifarian War Camp takes for the same absence of an owner word.
+  //
+  // `effectiveTagsOf` rather than `unit.tags`, so a tag granted by an Equipment
+  // counts exactly as a printed one does.
+  if (isBrush(state, ctx.battlefieldId) && effectiveTagsOf(state, unit).some((t) => BRUSH_TAGS.includes(t))) {
+    bonus += BRUSH_MIGHT;
+  }
 
   // The owner's LEGEND can grant a continuous bonus too (Master Yi - Wuju
   // Bladesman's defend-alone +2). Kept in its own registry rather than

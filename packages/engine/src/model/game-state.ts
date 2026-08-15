@@ -1068,6 +1068,19 @@ export interface BattlefieldState {
    * and a single slot would have to silently drop one.
    */
   hiddenCards: HiddenCard[];
+  /**
+   * What this battlefield WAS, before a token replaced it — UNL-195 Ivern - Green
+   * Father's "replace that battlefield with a Brush battlefield token", whose own
+   * reminder text adds "it can be swapped back when scored".
+   *
+   * A battlefield's identity in this engine is its `name` and its `defId`, and a
+   * replacement overwrites both — so after the swap nothing else on the board
+   * remembers the original and the swap-back would have nothing to restore.
+   *
+   * Absent for every battlefield that has never been replaced, which is all of
+   * them in a game without an Ivern.
+   */
+  swappedFrom?: { name: string; defId?: string };
 }
 
 /**

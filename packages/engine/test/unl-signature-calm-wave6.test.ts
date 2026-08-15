@@ -319,11 +319,24 @@ describe("the three cards this wave refused", () => {
     expect(partialImplementationNote(registry.get(SHADOW)), "a partial note came back").toBeUndefined();
   });
 
-  it("Ivern - Green Father (UNL-195) is still unimplemented, and deliberately", () => {
-    // A Legend hook (see Vex above) AND a mechanism that does not exist: replacing
-    // a battlefield in play with a "Brush battlefield token" that grants +1 Might
-    // to five unit types and can be swapped back when scored.
-    expect(implementingModules(IVERN_GREEN_FATHER), "Ivern now works — retire this refusal").toEqual([]);
+  it("Ivern - Green Father (UNL-195) WORKS now — this refusal is fully spent", () => {
+    // **It named two blockers and both diagnoses were exact.** A Legend hook (see
+    // Vex above), and a mechanism that did not exist: replacing a battlefield in
+    // play with a "Brush battlefield token" that grants +1 Might to five unit
+    // types and can be swapped back when scored.
+    //
+    // The Legend hook was Rengar's shape — an `eventTriggers` entry keyed by a
+    // Legend's defId, found by the ordinary listener walk. The mechanism is
+    // `engine/battlefield-tokens.ts`: a replacement swaps the two fields that say
+    // WHICH battlefield this is and keeps the id, so the units standing there never
+    // move. The Brush itself has no card data in any set file — that half of the
+    // refusal was right and still is — so its text is authored from the reminder
+    // text printed on Ivern. Behaviour is pinned in `test/ivern-brush.test.ts`.
+    //
+    // Inverted rather than deleted: a Legend trigger that stopped being registered
+    // simply never fires, which does not look like an error.
+    expect(implementingModules(IVERN_GREEN_FATHER), "Ivern stopped being registered").toContain("event triggers");
+    expect(isCardImplemented(registry.get(IVERN_GREEN_FATHER)), "Ivern went back to unimplemented").toBe(true);
   });
 
   it("...and the card this wave DID write is registered", () => {

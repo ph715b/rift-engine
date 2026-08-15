@@ -7,6 +7,8 @@ import type { DeathWatchDefinition, DeathknellDefinition, EventTriggerDefinition
 import type { GameState, PlayerState } from "../../model/game-state.js";
 import type { TokenDestination } from "../token.js";
 import { counterSpell } from "../counter-spell.js";
+import { parkDecision } from "../decisions.js";
+import { BRUSH, isBrush, replaceBattlefieldWithToken } from "../battlefield-tokens.js";
 import {
   dealDamage,
   destroyUnit,
@@ -838,5 +840,114 @@ export const mightModifiers: Record<string, MightModifier> = {
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
 export const deathTriggers: Record<string, DeathknellDefinition> = {};
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
-export const eventTriggers: Record<string, EventTriggerDefinition> = {};
-export const decisions: Record<string, DecisionDefinition> = {};
+export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "UNL-195": {
+    // Ivern - Green Father (Calm + Order) — "When you conquer or hold, you may
+    // exhaust me to replace that battlefield with a Brush battlefield token."
+    //
+    // # A LEGEND registered in a domain file, the shape UNL-183 Rengar landed
+    //
+    // `Listener.zone` has a `"legend"` case and `listeningPermanents` ends with
+    // `owner.legend`, so an entry keyed by a Legend's defId is found by the
+    // ordinary listener walk and held as an ordinary Chain Pending Item (383). The
+    // `zone === "legend"` check below makes that explicit rather than incidental,
+    // the same way Super Mega Death Rocket asserts `zone === "trash"`.
+    //
+    // # "When you conquer OR HOLD" is two events, and both are the player's
+    //
+    // A Legend stands at no battlefield, so there is no "here" for this to be at —
+    // it is the player's conquest, not a unit's, which is why `applies` compares
+    // the event's actor to the listener's owner and never a location. The
+    // battlefield the token replaces is "THAT battlefield", so it rides the event
+    // rather than being re-derived.
+    //
+    // # The exhaust is a COST, so it gates the offer
+    //
+    // "You MAY exhaust me to" — 204.2's optional additional cost shape, and 416.3
+    // makes an unpayable cost no option at all. An already-exhausted Ivern is
+    // therefore not asked, checked here so the question never reaches the chain
+    // rather than being parked and then found empty. Renata Glasc's gold offer in
+    // this same file takes the identical guard for the identical reason.
+    //
+    // A battlefield that is ALREADY a Brush is skipped too: replacing a Brush with
+    // a Brush is a cost paid for nothing, and it would overwrite the memory of what
+    // the battlefield originally was.
+    on: ["battlefieldConquered", "battlefieldHeld"],
+    applies: (state, listener, event) => {
+      if (listener.zone !== "legend") return false;
+      const battlefieldId = ivernBattlefieldFor(listener.ownerIndex, event);
+      if (battlefieldId === undefined) return false;
+      if (state.players[listener.ownerIndex].legend.exhausted) return false;
+      return !isBrush(state, battlefieldId);
+    },
+    resolve: (state, listener, event) => {
+      const battlefieldId = ivernBattlefieldFor(listener.ownerIndex, event);
+      if (battlefieldId === undefined) return state;
+      if (state.players[listener.ownerIndex].legend.exhausted) return state;
+      if (isBrush(state, battlefieldId)) return state;
+      return parkDecision(state, {
+        kind: IVERN_BRUSH,
+        playerIndex: listener.ownerIndex,
+        battlefieldId,
+      });
+    },
+  },
+};
+
+/**
+ * The battlefield THIS player just conquered or held, or undefined when the event
+ * is not theirs.
+ *
+ * One function for both events rather than two branches at each of the two call
+ * sites, because `applies` and `resolve` have to agree exactly about which
+ * battlefield is meant — and a question parked for one battlefield and resolved
+ * against another is the dropped-field shape this repo keeps recording.
+ */
+function ivernBattlefieldFor(
+  ownerIndex: 0 | 1,
+  event: { kind: string; conquerorIndex?: 0 | 1; holderIndex?: 0 | 1; battlefieldId?: string },
+): string | undefined {
+  if (event.kind === "battlefieldConquered" && event.conquerorIndex === ownerIndex) return event.battlefieldId;
+  if (event.kind === "battlefieldHeld" && event.holderIndex === ownerIndex) return event.battlefieldId;
+  return undefined;
+}
+
+/** Ivern's question, named so the trigger and the registry cannot spell it
+ *  differently. */
+const IVERN_BRUSH = "UNL-195-brush";
+
+export const decisions: Record<string, DecisionDefinition> = {
+  [IVERN_BRUSH]: {
+    prompt: (state, d) =>
+      `Ivern - Green Father: exhaust him to replace ${battlefieldName(state, d.battlefieldId)} with a Brush?`,
+    // Declining leads, the convention every "you may" in this engine follows. The
+    // offer is withheld — not merely declined — once the cost cannot be paid or the
+    // battlefield is already a Brush, both re-checked here because the option list
+    // is rebuilt from live state and a response window sits between the trigger and
+    // this question.
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.battlefieldId !== undefined &&
+      !state.players[d.playerIndex].legend.exhausted &&
+      !isBrush(state, d.battlefieldId)
+        ? [{ id: "brush", label: `Exhaust Ivern and replace ${battlefieldName(state, d.battlefieldId)} with a Brush` }]
+        : []),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.battlefieldId === undefined) return state;
+      // Re-paid here rather than trusted from the option list, which was built
+      // against the state one question ago — the convention `payPowerFromChanneled`
+      // and `spendBuff` share. An Ivern exhausted in the window buys nothing.
+      const owner = state.players[d.playerIndex];
+      if (owner.legend.exhausted) return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = { ...owner, legend: { ...owner.legend, exhausted: true } };
+      return replaceBattlefieldWithToken({ ...state, players }, d.battlefieldId, BRUSH);
+    },
+  },
+};
+
+/** A battlefield's name for a prompt, or a neutral word when it has gone. */
+function battlefieldName(state: GameState, battlefieldId: string | undefined): string {
+  return state.battlefields.find((bf) => bf.id === battlefieldId)?.name ?? "that battlefield";
+}

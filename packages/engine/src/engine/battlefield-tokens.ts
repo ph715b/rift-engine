@@ -60,7 +60,98 @@ export const BARON_PIT: BattlefieldTokenDefinition = {
   text: "Units can move here from anywhere.",
 };
 
-const BATTLEFIELD_TOKENS: readonly BattlefieldTokenDefinition[] = [BARON_PIT];
+export const BRUSH: BattlefieldTokenDefinition = {
+  defId: "TOKEN-BRUSH",
+  // **No fixed id, unlike the Pit.** The Brush REPLACES a battlefield in place —
+  // it does not arrive as a new location — so it takes over the id of whatever it
+  // replaced, and the units, control and Contested status standing there are
+  // untouched. `id` is therefore never used for it; it is here because the shape
+  // is shared, and `replaceBattlefieldWithToken` ignores it.
+  id: "bf-token-brush",
+  name: "Brush",
+  // UNL-195 Ivern - Green Father's reminder text, verbatim.
+  text: "Bird, Cat, Dog, Poro, and Ivern units have +1 [Might] in Brush. It can be swapped back when scored.",
+};
+
+/** The tags Brush pumps — "Bird, Cat, Dog, Poro, and Ivern units", printed. */
+export const BRUSH_TAGS: readonly string[] = ["Bird", "Cat", "Dog", "Poro", "Ivern"];
+/** ...by how much. */
+export const BRUSH_MIGHT = 1;
+
+const BATTLEFIELD_TOKENS: readonly BattlefieldTokenDefinition[] = [BARON_PIT, BRUSH];
+
+/**
+ * Replaces the battlefield at `battlefieldId` with a token, remembering what it
+ * was.
+ *
+ * **In place, keeping the id.** A battlefield's id is what every action, every
+ * chain entry and every unit's location references, and the units standing there
+ * do not move because the ground under them changed — so this swaps the two
+ * fields that say WHICH battlefield this is (`name`, `defId`) and nothing else.
+ * Control, Contested status, hidden cards and both sides' units are untouched,
+ * which is what "replace THAT battlefield" means rather than "remove it and add
+ * another".
+ *
+ * `swappedFrom` is what makes "it can be swapped back when scored" possible at
+ * all. It is captured here rather than re-derived, because after the swap nothing
+ * on the board remembers the original — the name and the defId are the whole of a
+ * battlefield's identity in this engine.
+ *
+ * Already-a-Brush is a no-op with the memory left alone: swapping a Brush for a
+ * Brush would otherwise overwrite `swappedFrom` with "Brush" and strand the
+ * original for good.
+ */
+export function replaceBattlefieldWithToken(
+  state: GameState,
+  battlefieldId: string,
+  token: BattlefieldTokenDefinition,
+): GameState {
+  const index = state.battlefields.findIndex((bf) => bf.id === battlefieldId);
+  if (index === -1) return state;
+  const bf = state.battlefields[index]!;
+  if (bf.defId === token.defId) return state;
+  const battlefields = [...state.battlefields];
+  battlefields[index] = {
+    ...bf,
+    name: token.name,
+    defId: token.defId,
+    swappedFrom: { name: bf.name, ...(bf.defId !== undefined ? { defId: bf.defId } : {}) },
+  };
+  return { ...state, battlefields };
+}
+
+/**
+ * Puts a swapped battlefield back — the Brush's "it can be swapped back when
+ * scored".
+ *
+ * A no-op for a battlefield that was never swapped, so the caller can ask it of
+ * every scoring without a branch.
+ *
+ * The original may have had NO `defId` (a deck naming a battlefield no card
+ * matches), so the field is deleted rather than set to undefined — `defId` is
+ * optional and "absent means no printed ability", which an explicit `undefined`
+ * would satisfy structurally but not under `exactOptionalPropertyTypes`.
+ */
+export function revertSwappedBattlefield(state: GameState, battlefieldId: string): GameState {
+  const index = state.battlefields.findIndex((bf) => bf.id === battlefieldId);
+  if (index === -1) return state;
+  const bf = state.battlefields[index]!;
+  if (bf.swappedFrom === undefined) return state;
+  const { swappedFrom: _dropped, defId: _alsoDropped, ...rest } = bf;
+  const battlefields = [...state.battlefields];
+  battlefields[index] = {
+    ...rest,
+    name: bf.swappedFrom.name,
+    ...(bf.swappedFrom.defId !== undefined ? { defId: bf.swappedFrom.defId } : {}),
+  };
+  return { ...state, battlefields };
+}
+
+/** Is this battlefield currently a Brush? */
+export function isBrush(state: GameState, battlefieldId: string | undefined): boolean {
+  if (battlefieldId === undefined) return false;
+  return state.battlefields.find((b) => b.id === battlefieldId)?.defId === BRUSH.defId;
+}
 
 /** For `coverage-drift`'s reality check, which asks three sources whether a
  *  defId names a real card. This is the third. */

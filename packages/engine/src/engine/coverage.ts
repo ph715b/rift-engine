@@ -940,7 +940,14 @@ export function setCodeOf(defId: string): string {
  * What did NOT change: the gates still name the cards. A count or a percentage
  * would be cheaper to compute and useless to act on.
  */
-export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD"];
+/**
+ * **UNL joined this list on 2026-08-14**, and the gate that told it to is the one
+ * this comment describes: `coverageBySet` flags a set that is fully implemented
+ * but still undeclared, and `set-coverage.test.ts` went red naming UNL the moment
+ * the last card landed. Finishing a set is what tells you to promote it, and it
+ * did.
+ */
+export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD", "UNL"];
 
 /**
  * Sets whose BATTLEFIELDS are all implemented — a separate list, and it has to

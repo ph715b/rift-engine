@@ -79,11 +79,13 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **625, against an observed 629–631** of 692 cards
+`reachability` is pinned at **625, against an observed 633–639** of 692 cards
 needing code ever exercised, at its default **500 games per mode**, which takes
-**~244s** (it was ~120s before `legal-actions` learned 144.3's group move; the
-AI evaluates every action it is offered, so the move fan-out's width is this
-probe's runtime, and `MAX_GROUPED_MOVERS` is the dial).
+**~290s** (it was ~120s before `legal-actions` learned 144.3's group move, and
+~244s before UNL-147 Baron Nashor put a THIRD battlefield on the board — the
+move fan-out loops over destinations, so a third one widens every turn's action
+space. The AI evaluates every action it is offered, so that fan-out's width is
+this probe's runtime, and `MAX_GROUPED_MOVERS` is the dial).
 
 A FLOOR, not an equality — it is supposed to rise, and the probe prints a line
 asking for the pin to be bumped when it does.

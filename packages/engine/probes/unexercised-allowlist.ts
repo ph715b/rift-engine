@@ -61,6 +61,32 @@ export const UNEXERCISED_ALLOWLIST: Readonly<Record<string, string>> = {
     "Lucian - Purifier: a continuous keyword grant ('your Equipment each give [Assault]') in " +
     "engine/equipment.ts. Same shape as OGS-019. Covered by test/lucian-purifier.test.ts.",
 
+  // **Master Yi - Wuju Master, all THREE printings, added 2026-08-14** when UNL
+  // joined `COMPLETE_SETS` and this gate started holding the set. He is the fifth
+  // entry of the same family and the clearest of them: BOTH his clauses are
+  // continuous, so there is no moment for any of the three signals to record.
+  //
+  // The three printings are listed separately rather than collapsed to the
+  // canonical id, because `reachability`'s alias rule excuses an alternate
+  // printing only when the CANONICAL one was exercised — and his never is, by
+  // construction. Collapsing them here would make this file quietly depend on
+  // that rule and stop naming what it is excusing.
+  "UNL-191":
+    "Master Yi - Wuju Master: BOTH clauses are continuous, so nothing about him is ever an action, a " +
+    "Chain item or an event. '[Level 6][>] Your units have +1 [Might]' is a `mightModifiers` entry read " +
+    "during a Might calculation (engine/effects/signature-calm.ts), the same shape as OGS-019 one entry " +
+    "up; '[Level 11][>] Your units enter ready' is a deploy-time replacement in engine/deploy.ts, which " +
+    "produces a READY unit rather than a readying. Covered by test/level-enters-ready.test.ts and " +
+    "test/unl-signature-calm-wave6.test.ts.",
+
+  "UNL-231":
+    "Master Yi - Wuju Master (Overnumbered): the same registry entry as UNL-191 via mergeRegistries, and " +
+    "so the same blind spot. It cannot be excused by reachability's alias rule, because that rule needs " +
+    "the canonical printing to have been exercised and this one never can be.",
+
+  "UNL-231*":
+    "Master Yi - Wuju Master (Signature): as UNL-231.",
+
   // ---------------------------------------------------------------------------
   // Reachable, but priced out of the format. Measured, not assumed.
   // ---------------------------------------------------------------------------

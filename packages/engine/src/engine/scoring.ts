@@ -1,4 +1,5 @@
 import type { BattlefieldState, GameState, PlayerState } from "../model/game-state.js";
+import { revertSwappedBattlefield } from "./battlefield-tokens.js";
 import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
@@ -204,6 +205,21 @@ export function recordConquest(
   // the same reason the permanents are: "when you conquer" is about taking the
   // battlefield, not about the point.
   next = holdBattlefieldTrigger(next, "conquer", battlefieldId, playerIndex);
+
+  // **The Brush swaps back when the battlefield is SCORED** — UNL-195 Ivern - Green
+  // Father's token, whose own reminder text says "it can be swapped back when
+  // scored".
+  //
+  // Here rather than beside the Conquer triggers above, and the distinction is the
+  // one this function already draws twice: taking a battlefield and SCORING for it
+  // are different facts. A conquest whose scoring is blocked (Forgotten Monument)
+  // or whose point is withheld (Tianna Crownguard) has not scored, so the Brush
+  // stays. `alreadyScored` covers both of those and the once-per-turn lockout, so
+  // this sits immediately before the early return that reads it.
+  //
+  // A no-op on any battlefield that was never swapped, which is all of them in a
+  // game without an Ivern — so no branch is needed at the call site.
+  if (!alreadyScored) next = revertSwappedBattlefield(next, battlefieldId);
 
   // Already scored here this turn — the battlefield changed hands, and the
   // Conquer trigger above still fired, but no second point.

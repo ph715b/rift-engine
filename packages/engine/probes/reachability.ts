@@ -61,7 +61,7 @@
  *    the SFD-0% failure, generalised: a set arrives, no mode reaches it, and the
  *    report stays cheerfully green about a set nobody has ever played.
  */
-import { COMPLETE_SETS, defaultCardRegistry, setCodeOf } from "@rift-engine/engine";
+import { COMPLETE_SETS, canonicalDefId, defaultCardRegistry, setCodeOf } from "@rift-engine/engine";
 import { report } from "./harness.ts";
 import { poolFacts } from "./pool-facts.ts";
 import { PRESETS, runControls, runExercise, type ExerciseRun } from "./exercise-run.ts";
@@ -715,7 +715,27 @@ const staleAllowlist = Object.keys(UNEXERCISED_ALLOWLIST)
  * forbids. What it declines to prove is that the card's EFFECT is correct, which
  * is a unit test's job and never was self-play's.
  */
-const unaccounted = never.filter((id) => !unionOffered.has(id) && UNEXERCISED_ALLOWLIST[id] === undefined);
+const unaccounted = never.filter(
+  (id) =>
+    !unionOffered.has(id) &&
+    UNEXERCISED_ALLOWLIST[id] === undefined &&
+    // **An ALTERNATE PRINTING whose canonical printing was exercised.**
+    //
+    // `mergeRegistries` aliases the two, so `UNL-226` (Jhin - Virtuoso
+    // (Overnumbered)) and `UNL-181` are the SAME registry entry — observing one
+    // act exercises the other's code by construction, and there is nothing left
+    // for a self-play run to prove about it. A Legend is printed three times and
+    // only one printing can be seated per deck, so waiting for all three to fire
+    // is waiting on the shuffler.
+    //
+    // **This is TIGHTER than it looks, not a loosening**, and the 2026-08-10
+    // finding is why: the bug then was that the alias did NOT exist — "draft the
+    // Signature Rengar and you got a Legend with no ability". With no alias,
+    // `canonicalDefId` returns the id unchanged, `never` already excludes an
+    // exercised card, and the printing is still unaccounted for right here. This
+    // clause can only ever excuse a printing whose aliasing is real.
+    !unionExercised.has(canonicalDefId(id)),
+);
 /**
  * Split by whether the card's set is HARD-GATED, because the two mean opposite
  * things and only one of them is a finding.
