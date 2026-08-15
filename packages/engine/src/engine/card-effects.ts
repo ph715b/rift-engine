@@ -1358,7 +1358,7 @@ export interface RepeatCostSpec {
  * cost" to another spell rather than printing one of its own, so its cost is not
  * a constant and cannot live in a table. See `grantedRepeatCostFor`.
  */
-const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec>> = {
+const REPEAT_COSTS: Readonly<Record<string, RepeatCostSpec | readonly RepeatCostSpec[]>> = {
   // Square Up — "[Repeat] — Discard 1". The pool's only non-resource Repeat
   // cost, and `energy: 0` is load-bearing rather than filler: the card asks for
   // no Energy at all, so a variant that paid one would be charging a price the
@@ -1419,8 +1419,36 @@ export function grantedRepeatCostOf(
   return { energy: card.energyCost, power: card.powerCost };
 }
 
+/**
+ * Every `[Repeat]` instance this card prints, in printed order — empty when it
+ * prints none.
+ *
+ * **The canonical accessor since 2026-08-14.** The table's value became
+ * `RepeatCostSpec | RepeatCostSpec[]` for UNL-182 Curtain Call, which prints
+ * THREE (`[1]` / `[rainbow]` / `[1][rainbow]`) and is the card 820.1.c.2 was
+ * waiting for. Every other row is one instance and normalises to a one-element
+ * list here, so nothing about them changes.
+ *
+ * `repeatCostOf` below is the single-instance view and is kept for the callers
+ * that genuinely mean "the one cost" — it returns the FIRST instance, which is
+ * the same answer it always gave for every card in the table today.
+ */
+export function repeatCostsOf(defId: string): readonly RepeatCostSpec[] {
+  const entry = REPEAT_COSTS[defId];
+  if (entry === undefined) return [];
+  return Array.isArray(entry) ? entry : [entry as RepeatCostSpec];
+}
+
+/**
+ * This card's FIRST `[Repeat]` cost, or undefined if it prints none.
+ *
+ * Unchanged for every card in the table, all of which print exactly one. A card
+ * printing several is under-read here by construction, which is why the
+ * multi-instance work migrates its callers to `repeatCostsOf` rather than
+ * widening this.
+ */
 export function repeatCostOf(defId: string): RepeatCostSpec | undefined {
-  return REPEAT_COSTS[defId];
+  return repeatCostsOf(defId)[0];
 }
 
 /** Every defId printing `[Repeat]` — for the table test, and for the coverage
