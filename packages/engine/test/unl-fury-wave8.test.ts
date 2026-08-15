@@ -436,9 +436,14 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
     // `PlayCardAction.repeatExecutions` names which instances were paid and carries
     // each execution's own choices, and `distinctModesPerExecution` is the
     // per-execution constraint. See `test/curtain-call-repeat.test.ts`.
-    // The replay leaves the CASTER's trash to be played by the TARGET's controller
-    // at a replaced price, and nothing tallies one spell's damage instances.
-    ["UNL-020", "a cross-player play-from-trash permission at a replaced price"],
+    // **UNL-020 Dancing Grenade left this list on 2026-08-14**, and its refusal
+    // was right about the blocker and wrong about the fix — the third time this
+    // week that pattern held. A cross-player play PERMISSION really is unusable
+    // (`mayPlayCardNow` refuses a non-acting player), and the answer was to not
+    // use one: a parked decision is answered by whoever it names, and
+    // `payPowerFromChanneled` has paid a Power cost mid-resolution since Flame
+    // Chompers. The tally it also named was real —
+    // `GameState.damageInstancesByCardThisTurn`. See `test/dancing-grenade.test.ts`.
     // `timing.mayPlayFromTrash` is `card.kind === "Unit"` AND a per-PLAYER counter
     // (`trashUnitPlaysThisTurn`), and it charges the printed price. Both cards need
     // a per-INSTANCE permission with a cost OVERRIDE, and UNL-186 is a Spell.
@@ -464,4 +469,29 @@ describe("the nine cards this wave REFUSED, re-measured against the current engi
       expect(isCardImplemented(registry.get(defId)), `${defId} was implemented — delete this row`).toBe(false);
     });
   }
+
+  /**
+   * **The positive sweep the empty `refusals` list above can no longer be**, and
+   * it is not optional bookkeeping: vitest FAILS a describe block with no tests in
+   * it, so emptying the list turned this suite red for a reason that had nothing
+   * to do with any card. `unl-fury-wave7` took the same fix the day before, for
+   * the same reason.
+   *
+   * Every card this wave refused now reports whole. A regression to unimplemented
+   * would otherwise pass in silence.
+   */
+  it("all nine are whole now — the last of them on 2026-08-14", () => {
+    for (const defId of [
+      "UNL-007", // Smite
+      "UNL-013", // Lotus Trap
+      "UNL-017", // Square Up
+      "UNL-020", // Dancing Grenade
+      "UNL-025", // Undying Legion
+      "UNL-182", // Curtain Call
+      "UNL-186", // Death from Below
+      "UNL-188", // Hextech Gauntlets
+    ]) {
+      expect(isCardImplemented(registry.get(defId)), `${defId} went back to unimplemented`).toBe(true);
+    }
+  });
 });

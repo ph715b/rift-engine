@@ -598,19 +598,18 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
     "UNL-147",
     "two of three clauses: the +2 Might aura and 'I can't be chosen by enemy spells and abilities' both work; 'add the Baron Pit battlefield token to the board' is unwritten, and is SYSTEMIC rather than a card gap — nothing in this engine can add a battlefield at all, battlefieldPair builds exactly two at setup with ids stable for the game, and the Pit has no card data in unl.json",
   ],
-  // **UNL-020 Dancing Grenade, written by HALVES in wave 7.** "Deal 2 to a unit"
-  // works; "its controller may play this spell again for [rainbow]" does not.
+  // **UNL-020 Dancing Grenade LEFT this map on 2026-08-14**, and its note is worth
+  // keeping because it was RIGHT about the blocker and WRONG about the fix — twice
+  // over, having already been re-triaged once. It read: the replay is granted to
+  // the DAMAGED unit's controller, a permission is only usable by the ACTIVE
+  // player, so a cross-seat replay needs the mid-resolution play 419.3.b describes
+  // and this engine lacks.
   //
-  // Registration is per defId, so the half that landed would otherwise claim the
-  // whole card — and `unl-fury-wave3.test.ts` pins it as unimplemented, which is
-  // the assertion this row exists to keep true rather than to weaken.
-  [
-    "UNL-020",
-    // **Re-triaged 2026-08-13**: the replaced-cost half of the old note is BUILT
-    // (356.1.a, engine/replaced-costs.ts) and no longer the blocker. What remains
-    // is the grantee's timing, which is structural.
-    "half written: the 2 damage works; 'its controller may play this spell again for [rainbow]' is unwritten — the replay is granted to the DAMAGED unit's controller, and a permission is only usable by the ACTIVE player (mayPlayCardNow refuses a non-acting player, this card is Default-timed, and the grant clears at runEnd), so a cross-seat replay needs the mid-resolution play 419.3.b describes and this engine lacks; the escalating bonus additionally needs a per-instance tally of one spell's damage instances this turn",
-  ],
+  // Every clause of that is true of the PERMISSION path, and the answer was to
+  // not take it: a parked decision is answered by whoever it names, and
+  // `payPowerFromChanneled` has paid a Power cost mid-resolution since Flame
+  // Chompers. The only genuinely new thing the card needed was its tally,
+  // `GameState.damageInstancesByCardThisTurn`. See `test/dancing-grenade.test.ts`.
   // **Two cards written by HALVES in wave 2, 2026-08-09.** Both report finished
   // without these, which is this map's whole reason to exist. Neither agent could
   // add its own entry — coverage.ts is shared and six of them were writing at

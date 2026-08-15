@@ -31,9 +31,11 @@ import { makeState, makeUnit, realGearInstance, realUnitInstance, resolveHeldTri
  *    condition is unanswerable from a domain file.
  *  - **UNL-012 Lord Broadmane** was written in wave 2; only his `[Ambush]` is
  *    outstanding, and `unl-fury-wave2.test.ts` already pins that.
- *  - **UNL-020 Dancing Grenade** needs the target's controller to play a spell
- *    out of the CASTER's trash, and a per-spell tally of damage instances this
- *    turn. Neither exists.
+ *  - **UNL-020 Dancing Grenade** was refused here for needing the target's
+ *    controller to play a spell out of the CASTER's trash, and a per-spell tally
+ *    of damage instances this turn. **Both exist as of 2026-08-14** — the first
+ *    as a parked decision rather than the play permission this note assumed, the
+ *    second as `GameState.damageInstancesByCardThisTurn`.
  *
  * Everything below goes through a real funnel — `legalActions`/`submit`,
  * `recordConquest`, `runEnd`, `effectiveMight` — never a resolver imported by
@@ -454,11 +456,13 @@ describe("what this wave did and did not write", () => {
     // `maxSpellEnergySpentThisTurn` is that counter. A MAXIMUM over single
     // spells, not a total, because the card asks about "a spell".
     ["UNL-004", true],
-    // REFUSED — "its controller may play this spell again for [rainbow]... 1
-    // additional Bonus Damage for each time this spell has dealt damage this
-    // turn". No mechanism plays a card out of the OTHER player's trash, and
-    // nothing tallies one spell's damage instances.
-    ["UNL-020", false],
+    // **DONE 2026-08-14, and the refusal here was right about the blocker and
+    // wrong about the fix.** It said no mechanism plays a card out of the OTHER
+    // player's trash — true of the play-PERMISSION path, and the answer was a
+    // parked decision, which is answered by whoever it names. The tally it also
+    // named was real and is `GameState.damageInstancesByCardThisTurn`. Its
+    // coverage is `test/dancing-grenade.test.ts`.
+    ["UNL-020", true],
   ])("%s reports implemented: %s", (defId, implemented) => {
     expect(isCardImplemented(registry.get(defId as string))).toBe(implemented);
   });

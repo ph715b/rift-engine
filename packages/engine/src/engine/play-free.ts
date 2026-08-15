@@ -57,6 +57,19 @@ export function playCardIgnoringCost(
    * (**359.3.e.11**, "do as much as you can").
    */
   choices?: ResolveEvent,
+  /**
+   * Whose trash a played SPELL lands in, when that is not the player playing it —
+   * UNL-020 Dancing Grenade, whose "ITS controller may play this spell again"
+   * hands the replay to the DAMAGED unit's controller while the card stays the
+   * caster's.
+   *
+   * A card goes to its OWNER's trash, not its controller's (Cleanup 3b: "placed
+   * in their owners' Trash"), and for every caller before this one the two are
+   * the same player, so it defaults to `playerIndex` and nothing about them
+   * changes. Naming it is what keeps that an observation rather than an
+   * assumption.
+   */
+  spellTrashOwnerIndex?: 0 | 1,
 ): GameState {
   if (card.kind === "Unit") {
     return destinationBattlefieldId === undefined
@@ -64,7 +77,8 @@ export function playCardIgnoringCost(
       : playUnitToBattlefield(state, playerIndex, card as UnitInstance, destinationBattlefieldId);
   }
   if (card.kind === "Gear") return playGear(state, playerIndex, card as GearInstance);
-  if (card.kind === "Spell") return playSpellImmediately(state, playerIndex, card as SpellInstance, choices);
+  if (card.kind === "Spell")
+    return playSpellImmediately(state, playerIndex, card as SpellInstance, choices, spellTrashOwnerIndex ?? playerIndex);
   // A Legend is never in a deck or a trash, so nothing can reach here — and a
   // silent no-op is the right answer rather than a throw, since every caller
   // takes whatever the zone handed it.
@@ -92,7 +106,13 @@ function playGear(state: GameState, playerIndex: 0 | 1, card: GearInstance): Gam
  * resolution (Rhasa's cost, Dr. Mundo's Might) therefore sees the same trash a
  * normal cast would have shown it — one card larger.
  */
-function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellInstance, choices?: ResolveEvent): GameState {
+function playSpellImmediately(
+  state: GameState,
+  playerIndex: 0 | 1,
+  card: SpellInstance,
+  choices: ResolveEvent | undefined,
+  trashOwnerIndex: 0 | 1,
+): GameState {
   const played = firePlayed(state, playerIndex, card);
   // No mode either: `cardModeOf(card, undefined)` gives the sole mode of an
   // ordinary card and NOTHING for a modal one, which is the same "as much as
@@ -110,7 +130,9 @@ function playSpellImmediately(state: GameState, playerIndex: 0 | 1, card: SpellI
   // played resolved against nothing.
   const resolved = effect ? effect.resolve(played, contextFor(playerIndex, card.instanceId), choices ?? {}) : played;
   const players = [...resolved.players] as [PlayerState, PlayerState];
-  players[playerIndex] = { ...players[playerIndex], trash: [...players[playerIndex].trash, card] };
+  // The OWNER's trash, which is `playerIndex` for every caller but Dancing
+  // Grenade — see `spellTrashOwnerIndex`.
+  players[trashOwnerIndex] = { ...players[trashOwnerIndex], trash: [...players[trashOwnerIndex].trash, card] };
   return { ...resolved, players };
 }
 

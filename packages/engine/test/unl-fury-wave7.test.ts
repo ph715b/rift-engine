@@ -3,6 +3,7 @@ import { isCardImplemented, partialImplementationNote } from "../src/engine/cove
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { recordConquest } from "../src/engine/scoring.js";
+import { pendingDecision } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { GearInstance, UnitInstance } from "../src/model/card.js";
@@ -170,55 +171,37 @@ describe("Dancing Grenade (UNL-020): deal 2 to a unit", () => {
     expect(unitOnBoard(after, "enemy")!.damage).toBe(0);
   });
 
-  it("PIN (HALF-WRITTEN): the replay is UNWRITTEN — nothing is offered to anybody", () => {
-    // Asserting the WRONG answer on purpose. "Its controller may play this spell
-    // again for [rainbow]. If they do, this deals 1 additional Bonus Damage for
-    // each time this spell has dealt damage this turn" needs three things this
-    // wave could not build: the card leaving the CASTER's trash to be played by
-    // its target's controller, a per-instance permission with a REPLACED price
-    // (`timing.mayPlayFromTrash` is per-player, Units-only, printed price), and a
-    // turn-scoped tally of one card's damage instances.
+  it("the replay IS written now, and the offer goes to the DAMAGED unit's controller", () => {
+    // **The pin that stood here was retired on 2026-08-14, and it had already gone
+    // VACUOUS by the time it was.** It asserted `pendingDecisions` was empty after
+    // a cast — and the implementation parks a question whose only option, against
+    // this fixture's runeless opponent, is a decline that `advanceDecisions`
+    // executes without prompting. So the pin passed against a working card.
     //
-    // Measured as "no question was parked for either player, and the spell is in
-    // the trash rather than back in a hand" — the two observable shapes any
-    // implementation of the clause would have to produce.
-    const after = castAt(board(), "enemy");
+    // That is the failure mode CLAUDE.md warns about, and the fix is the one it
+    // names: assert the thing the card DOES, on a board where it can do it. The
+    // full behaviour lives in `test/dancing-grenade.test.ts`; what stays here is
+    // the claim this file's pin was really about — the question exists and it is
+    // put to the OPPONENT, which is what the four refusals said was impossible.
+    const state = board();
+    // The opponent needs a rune, or the offer is unpayable and never made (416.3).
+    state.players[1]!.channeled = [{ id: "enemyRune", domain: "Chaos", state: "Ready" }];
 
-    expect(after.pendingDecisions, "a question was parked — has the replay landed? delete this pin").toEqual([]);
-    expect(
-      after.players[0]!.trash.some((c) => c.defId === DANCING_GRENADE),
-      "the Grenade did not reach the trash — this pin is measuring the wrong zone",
-    ).toBe(true);
-    // The damage is a flat 2 with no escalation, because nothing counted a first
-    // instance. Re-stated as the number rather than as an absence, so a bonus
-    // arriving from anywhere fails here.
+    const after = castAt(state, "enemy");
+    const decision = pendingDecision(after);
+
+    expect(decision, "no replay question was parked").toBeDefined();
+    expect(decision!.playerIndex, "the offer went to the caster").toBe(1);
     expect(unitOnBoard(after, "enemy")!.damage).toBe(2);
   });
 
-  it("coverage must name the half that is missing", () => {
-    // **THIS TEST IS RED UNTIL A ROW LANDS IN coverage.PARTIALLY_IMPLEMENTED, AND
-    // THAT IS THE POINT.** Registration is per defId, so the damage half above
-    // claims the whole card, and this wave could not edit coverage.ts (five agents
-    // were writing at once).
-    //
-    // The assertion is written as the TRUTH rather than as the current answer:
-    // Dancing Grenade is not a finished card, so it must not report as one. The
-    // owed row is
-    //
-    //   ["UNL-020", "half written: the 2 damage works; 'its controller may play
-    //    this spell again for [rainbow]' is unwritten — the replay leaves the
-    //    CASTER's trash to be played by its target's controller at a REPLACED
-    //    price, and nothing tallies one spell's damage instances this turn"]
-    //
-    // `unl-fury-wave3.test.ts` carries the same assertion for this defId and goes
-    // red with it, from the same cause and fixed by the same one line — so the two
-    // files agree rather than contradicting each other, which is what a
-    // "flip me at integration" pin would have produced here.
-    expect(
-      partialImplementationNote(registry.get(DANCING_GRENADE)),
-      "the PARTIALLY_IMPLEMENTED row for UNL-020 is still owed — see this test's comment for its text",
-    ).toBeDefined();
-    expect(isCardImplemented(registry.get(DANCING_GRENADE))).toBe(false);
+  it("coverage reports it whole, with no partial note", () => {
+    // **This test was RED ON PURPOSE until 2026-08-14**, asserting that a
+    // half-written card must not report as finished. The card is finished, so the
+    // assertion is inverted rather than deleted: a partial note reappearing here
+    // would mean somebody re-added a row without checking the card.
+    expect(partialImplementationNote(registry.get(DANCING_GRENADE)), "a partial note came back").toBeUndefined();
+    expect(isCardImplemented(registry.get(DANCING_GRENADE))).toBe(true);
   });
 });
 

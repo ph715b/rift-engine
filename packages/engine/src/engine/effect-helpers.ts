@@ -312,6 +312,39 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
  * bonus). Direct spell damage isn't combat, so Shield doesn't apply here;
  * a Shielded unit dies to lethal direct damage the same as an unshielded one.
  */
+/**
+ * How many times this CARD INSTANCE has dealt damage this turn — UNL-020 Dancing
+ * Grenade's escalating "1 additional Bonus Damage for each time this spell has
+ * dealt damage this turn".
+ *
+ * A reader beside the writer below, rather than an inline index, so the field's
+ * "absent means zero" convention is stated once.
+ */
+export function cardDamageInstancesThisTurn(state: GameState, cardInstanceId: string | undefined): number {
+  return cardInstanceId === undefined ? 0 : (state.damageInstancesByCardThisTurn[cardInstanceId] ?? 0);
+}
+
+/**
+ * Records that this card instance dealt damage, once.
+ *
+ * **Called by the RESOLVER rather than by `dealDamage`, and that is a deliberate
+ * trade.** `dealDamage` takes no source card and is called from ~60 sites for
+ * which the question is meaningless; threading a source through all of them to
+ * serve one card would be a wide change for a narrow text. The cost is that a
+ * card wanting this tally has to remember to write it — which is exactly one
+ * card, and its own test is what proves it does.
+ */
+export function recordCardDamageInstance(state: GameState, cardInstanceId: string | undefined): GameState {
+  if (cardInstanceId === undefined) return state;
+  return {
+    ...state,
+    damageInstancesByCardThisTurn: {
+      ...state.damageInstancesByCardThisTurn,
+      [cardInstanceId]: cardDamageInstancesThisTurn(state, cardInstanceId) + 1,
+    },
+  };
+}
+
 export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceId: string, amount: number): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;

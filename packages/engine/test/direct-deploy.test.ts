@@ -137,6 +137,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
+    damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,
     lastShowdownExcessDamage: null,

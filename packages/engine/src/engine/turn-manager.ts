@@ -549,5 +549,9 @@ export function runEnd(state: GameState): GameState {
     movementLockedUnitInstanceIds: [],
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
+    // Dancing Grenade's tally. "This turn" is printed, so it is cleared here with
+    // every other this-turn field — a Grenade whose history survived the turn
+    // would open its next dance already escalated.
+    damageInstancesByCardThisTurn: {},
   });
 }

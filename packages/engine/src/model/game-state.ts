@@ -1432,6 +1432,33 @@ export interface GameState {
    * instances, because each is its own "next time".
    */
   damagePreventedOnceInstanceIds: string[];
+  /**
+   * How many times each CARD INSTANCE has dealt damage this turn — UNL-020
+   * Dancing Grenade's "1 additional Bonus Damage for each time this spell has
+   * dealt damage this turn", which is the pool's first text to count a single
+   * card's damage INSTANCES rather than their total.
+   *
+   * **Keyed by instanceId, not defId.** Two copies of Dancing Grenade in one turn
+   * are two spells, and each escalates on its own history; a defId key would make
+   * the second copy open at the first's tally.
+   *
+   * **On `GameState` rather than on the card**, the same three reasons the two
+   * id lists above give: it expires with the turn, the card moves between zones
+   * while it is being counted (hand -> trash -> played again from that trash),
+   * and every helper that rebuilds a `CardInstance` would otherwise have to
+   * remember to carry it.
+   *
+   * A count rather than a list of ids, unlike its neighbours, because nothing
+   * ever removes one entry — the question asked of it is "how many", and a list
+   * would answer it by filtering.
+   *
+   * Written by `recordCardDamageInstance` and read by `cardDamageInstancesThisTurn`
+   * (effect-helpers.ts). `dealDamage` does NOT write it: that function takes no
+   * source card, and every other damage in the pool is anonymous, so plumbing a
+   * source through 60-odd call sites to serve one card would be the wrong trade.
+   * The one resolver that needs the tally keeps it.
+   */
+  damageInstancesByCardThisTurn: Record<string, number>;
   extraTurns: number;
   /** Whose extra turns those are. Meaningless while `extraTurns` is 0. */
   extraTurnsForIndex: 0 | 1;

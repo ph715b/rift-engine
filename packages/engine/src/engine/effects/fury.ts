@@ -14,6 +14,7 @@ import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
   banishCard,
+  cardDamageInstancesThisTurn,
   dealDamage,
   completeDeath,
   discardCards,
@@ -28,6 +29,7 @@ import {
   payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
+  recordCardDamageInstance,
   recycleUnitFromPlayToDeck,
   returnUnitToHand,
 } from "../effect-helpers.js";
@@ -52,7 +54,7 @@ import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
-import type { GearInstance, UnitInstance } from "../../model/card.js";
+import type { CardInstance, GearInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
 import { attachEquipment, detachEquipment, isEquipmentGear, wearerListener } from "../equipment.js";
 import {
@@ -784,11 +786,9 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // again for [rainbow]. If they do, this deals 1 additional Bonus Damage for
     // each time this spell has dealt damage this turn."
     //
-    // **ONLY THE FIRST SENTENCE IS WRITTEN, and this is a HALF.** Registration is
-    // per defId, so the 2 alone reports the whole card DONE — which is why this
-    // wave's report asks for a `coverage.PARTIALLY_IMPLEMENTED` entry and why
-    // `test/unl-fury-wave7.test.ts` pins the missing half by asserting that
-    // resolving it parks NO question for anybody.
+    // **WHOLE as of 2026-08-14**, and the refusal it carried until then is kept
+    // below because it was exactly right about its blocker and wrong about the
+    // fix — twice, having already been re-triaged once.
     //
     // "A unit" — no owner and no location printed, so `scope: "anywhere"`
     // (355.9.a.1's widening, "'Unit,' 'gear,' and 'rune' refer to objects on the
@@ -796,65 +796,90 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // that makes a printed "at a battlefield" load-bearing). A unit sitting in
     // either base is a legal choice, the same reading Square Up above takes.
     //
-    // # Why the bounce half is refused rather than approximated
+    // # What the refusal said, and why it was wrong
     //
-    // **RE-TRIAGED 2026-08-13, and two of the three original blockers are now
-    // GONE.** The refusal stands, but for a reason that got sharper rather than
-    // for the reasons first written, so the old list is corrected here rather
-    // than left to be re-measured a fourth time:
+    // It said: "ITS controller may play this spell again" hands the replay to the
+    // DAMAGED unit's controller, a replay has to become a PERMISSION the ordinary
+    // play path spends, and `timing.mayPlayCardNow` opens with `playerIndex !==
+    // actingPlayerIndex(state)` — so a cross-seat grant is not merely unwritten
+    // but UNUSABLE. It added that this engine cannot pay mid-resolution.
     //
-    //  - ~~"for [rainbow]" needs a replaced cost~~ — **BUILT.** Rule 356.1.a's
-    //    cost replacement is `engine/replaced-costs.ts`, and the per-instance
-    //    GRANTED form is `PlayerState.replacedCostPlays`. UNL-186 Death from
-    //    Below uses exactly this and is whole.
-    //  - ~~no zone-crossing play-from-a-trash path~~ — a trash play at a replaced
-    //    price now exists and `mayPlayFromTrash` is no longer Units-only.
+    // The first half is TRUE of the permission path and the answer is to not take
+    // it. A parked decision is answered by whoever it names: `legal-actions`
+    // returns the pending decision's answers and nothing else while one is
+    // outstanding, so the opponent gets a real window instead of one that never
+    // opens. The second half was simply STALE — `payPowerFromChanneled` has paid
+    // a Power cost from inside a resolution since Flame Chompers, and
+    // "for [rainbow]" is that helper's `null` domain exactly.
     //
-    // **What actually blocks it is the TIMING of the grantee, and it is
-    // structural.** "ITS controller may play this spell again" hands the replay
-    // to the DAMAGED unit's controller — usually the opponent. This engine cannot
-    // play a card mid-resolution (419.3.b; the divergence recorded against Last
-    // Rites and Death from Below), so a replay has to become a PERMISSION the
-    // ordinary play path spends. That workaround only works when the grantee is
-    // the ACTIVE player:
+    // So the only genuinely new thing this card needed was the tally, and it is
+    // the smallest of the three things the refusal named.
     //
-    //  - `timing.mayPlayCardNow` opens with
-    //    `if (playerIndex !== actingPlayerIndex(state)) return false;`
-    //  - Dancing Grenade is Default-timed (`isReaction` and `isAction` are both
-    //    false, measured), so it additionally needs `chainOpen && turnState ===
-    //    "Neutral"` — the active player's own open state.
-    //  - The permission is cleared at `runEnd`, so it cannot survive to the
-    //    opponent's turn either.
+    // # The three instructions
     //
-    // So the opponent has no window in which to hold it. **A cross-seat grant is
-    // not merely unwritten here, it is unusable** — which is why the
-    // `fromPlayerIndex` field built for this card was removed again the same day
-    // after mutation testing showed it unreachable against the whole suite. See
-    // `GrantedReplacedCostPlay`.
+    // The DAMAGE is `dealDamage`, escalated by the tally — see the resolver.
     //
-    // The third clause is still a genuine gap and is now the SMALLER one: **"for
-    // each time this spell has dealt damage this turn"** is a turn-scoped tally
-    // of one card INSTANCE's damage instances. `dealDamage` takes no source card,
-    // so the count would be kept by this resolver rather than plumbed through it
-    // — a GameState field keyed by instanceId and cleared at `runEnd`.
+    // The REPLAY is two parked decisions (yes/no, then the new target), for the
+    // reason Here to Help's pair records: a `PendingDecision` carries one option
+    // id, and folding a target into the yes/no would make the option list the
+    // cross product of the offer and every unit on the board.
     //
-    // **The half that WOULD work was considered and declined.** When the caster
-    // targets their OWN unit they are the controller, the grantee is the active
-    // player, and every piece above lines up. That would make the card correct in
-    // the minority case and silently inert in the majority, with a new GameState
-    // field carried for it — a worse trade than a refusal that names its blocker,
-    // since a card reporting DONE is a card nobody goes back to.
+    // The TALLY is `GameState.damageInstancesByCardThisTurn`, keyed by instanceId
+    // and cleared at runEnd. It is written by this resolver rather than by
+    // `dealDamage`, which takes no source card — see `recordCardDamageInstance`
+    // for why threading one through 60 call sites to serve one text is the wrong
+    // trade.
     //
-    // The plausible fake is worth naming because it would have passed a shallow
-    // test: park a "pay [rainbow] to deal 2 more" question on the caster. That is
-    // a different card in three ways at once — wrong player, no replay (so no
-    // second `cardPlayed`, which Katarina - Reckless and Black Market Broker
-    // watch), and a fixed bonus where the printed one escalates.
+    // The plausible fake the refusal named is still worth naming, because it
+    // would have passed a shallow test: park a "pay [rainbow] to deal 2 more"
+    // question on the CASTER. That is a different card in three ways at once —
+    // wrong player, no replay (so no second `cardPlayed`, which Katarina -
+    // Reckless and Black Market Broker watch), and a fixed bonus where the printed
+    // one escalates. All three are asserted in `test/dancing-grenade.test.ts`.
     targeting: { kind: "unit", scope: "anywhere" },
-    resolve: (state, ctx, event) =>
-      event.targetUnitInstanceId
-        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, DANCING_GRENADE_DAMAGE)
-        : state,
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const found = findUnitAnywhere(state, targetId);
+      if (!found) return state; // killed in the response window — 359.3
+      // "ITS controller" is read BEFORE the damage, because the damage can kill
+      // the unit and a dead unit has no controller to hand the replay to. Same
+      // capture-then-act shape Death from Below takes for its Might reading.
+      const controller = found.ownerIndex;
+      // **The escalation, and it is measured before this execution is counted.**
+      // "1 additional Bonus Damage for each time this spell has dealt damage this
+      // turn" — on the first play the tally is 0, so it deals its printed 2; the
+      // copy the replay plays sees 1 and deals 3; the next sees 2 and deals 4.
+      //
+      // Added to the AMOUNT rather than routed through a separate bonus channel:
+      // 714 sums every instance of Bonus Damage and applies it once, and 715.1
+      // applies it to a single-target Deal — so for one target one instance, the
+      // sum IS the amount. `dealDamage` still applies `modifiedDamageAmount` on
+      // top, which is where Annie - Fiery's own +1 comes in.
+      const bonus = cardDamageInstancesThisTurn(state, ctx.sourceCardInstanceId);
+      const before = found.unit.damage;
+      const damaged = dealDamage(state, ctx.casterIndex, targetId, DANCING_GRENADE_DAMAGE + bonus);
+      // Counted only when damage was actually DEALT. Three things can eat it —
+      // Unyielding Spirit's per-player prevention, Kayn - Unleashed's "takes no
+      // damage", and Counter Strike's one-shot shield — and "each time this spell
+      // has DEALT damage" is false for all three. Measured off the board rather
+      // than assumed: the unit is gone (lethal) or its damage rose.
+      const after = findUnitAnywhere(damaged, targetId);
+      const dealt = after === undefined || after.unit.damage > before;
+      const tallied = dealt ? recordCardDamageInstance(damaged, ctx.sourceCardInstanceId) : damaged;
+      if (ctx.sourceCardInstanceId === undefined) return tallied;
+      // "ITS controller MAY play this spell again" — a question for a player who
+      // is usually NOT the active one, which is the whole reason this is a parked
+      // decision rather than a play permission. `legal-actions` returns only the
+      // pending decision's answers while one is outstanding, and it returns them
+      // for `decision.playerIndex` whoever that is, so the opponent gets the
+      // window the permission path could never give them.
+      return parkDecision(tallied, {
+        kind: DANCING_GRENADE_REPLAY,
+        playerIndex: controller,
+        cardInstanceId: ctx.sourceCardInstanceId,
+      });
+    },
   },
 };
 
@@ -890,6 +915,91 @@ const SMITE_DAMAGE = 3;
 /** Dancing Grenade's opening hit — the only half of that card that is written,
  *  and the base the unwritten escalation would have added to. See its entry. */
 const DANCING_GRENADE_DAMAGE = 2;
+/** "for :rb_rune_rainbow:" — one Power pip of any domain. `null` is the rainbow
+ *  domain everywhere in this engine. */
+const DANCING_GRENADE_REPLAY_POWER = 1;
+/** The two questions the replay asks, named so the resolver and the registry
+ *  cannot spell one of them differently. */
+const DANCING_GRENADE_REPLAY = "UNL-020-replay";
+const DANCING_GRENADE_TARGET = "UNL-020-target";
+
+/**
+ * Dancing Grenade sitting in its OWNER's trash, with that owner's index.
+ *
+ * The card is in the CASTER's trash — a Spell trashes itself as it is played —
+ * while the player answering is the damaged unit's controller, so the two seats
+ * are usually different and the owner has to be looked up rather than assumed.
+ * Searching both trashes is what makes the answer the OWNER by construction:
+ * whichever trash holds it is whose card it is.
+ */
+function dancingGrenadeInTrash(
+  state: GameState,
+  cardInstanceId: string | undefined,
+): { card: CardInstance; ownerIndex: 0 | 1 } | undefined {
+  if (cardInstanceId === undefined) return undefined;
+  for (const ownerIndex of [0, 1] as const) {
+    const card = state.players[ownerIndex].trash.find((c) => c.instanceId === cardInstanceId);
+    if (card) return { card, ownerIndex };
+  }
+  return undefined;
+}
+
+/** Every unit on the board, either player's, base or battlefield — "a unit" with
+ *  no owner and no location word (355.9.a.1). */
+function allUnitsOnBoard(state: GameState): UnitInstance[] {
+  return [
+    ...state.players.flatMap((p) => p.baseUnits),
+    ...state.battlefields.flatMap((bf) => Object.values(bf.units).flat()),
+  ];
+}
+
+/**
+ * The replay itself — 419.3, "game effects may result in cards being played as
+ * part of their resolution", with 419.3.b's "treat all steps of Play as normal,
+ * except as noted by the game effect creating this Limited Play Effect". The one
+ * step this card notes is the cost, which it replaces with [rainbow].
+ *
+ * Three things happen in the order a play happens them in: the pip is paid, the
+ * card leaves the zone it was in, and then it is played. `playCardIgnoringCost`
+ * does the last of those and is explicit that the CALLER pays and the CALLER
+ * removes the card — so both are done here.
+ *
+ * **`spellTrashOwnerIndex` is the one thing this needed from that helper.** It
+ * trashes a played Spell into the trash of the player who played it, which is
+ * right for every other caller and wrong here: the card is the caster's and a
+ * card goes to its OWNER's trash. Without it the Grenade migrates across the
+ * table one replay at a time.
+ *
+ * **`cardsPlayedThisTurn` is bumped for the REPLAYER**, because this is a card
+ * they played — [Legion] and Viktor - Innovator both count it, the same call Here
+ * to Help and Void Rush make. `playCardIgnoringCost` deliberately leaves that to
+ * the caller.
+ */
+function replayDancingGrenade(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cardInstanceId: string | undefined,
+  targetInstanceId: string,
+): GameState {
+  const found = dancingGrenadeInTrash(state, cardInstanceId);
+  if (!found) return state;
+  const paid = payPowerFromChanneled(state, playerIndex, null, DANCING_GRENADE_REPLAY_POWER);
+  if (paid === undefined) return state; // the pool moved between the offer and the answer
+  const players = [...paid.players] as [PlayerState, PlayerState];
+  players[found.ownerIndex] = {
+    ...players[found.ownerIndex],
+    trash: players[found.ownerIndex].trash.filter((c) => c.instanceId !== found.card.instanceId),
+  };
+  players[playerIndex] = { ...players[playerIndex], cardsPlayedThisTurn: players[playerIndex].cardsPlayedThisTurn + 1 };
+  return playCardIgnoringCost(
+    { ...paid, players },
+    playerIndex,
+    found.card,
+    undefined,
+    { targetUnitInstanceId: targetInstanceId },
+    found.ownerIndex,
+  );
+}
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   "SFD-013": {
@@ -2619,6 +2729,96 @@ function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Dancing Grenade's "ITS controller may play this spell again for [rainbow]" —
+   * the question, asked of the DAMAGED unit's controller.
+   *
+   * # Why this is a decision and not a play permission
+   *
+   * The refusal this card carried until 2026-08-14 was exactly right about its
+   * blocker and wrong about the fix. It said: a replay has to become a PERMISSION
+   * the ordinary play path spends, and `timing.mayPlayCardNow` opens with
+   * `playerIndex !== actingPlayerIndex(state)`, so a cross-seat grant is not
+   * merely unwritten but UNUSABLE. Every word of that is true — and the answer is
+   * to not use the permission path at all. A parked decision is answered by
+   * whoever it names, active player or not (`legal-actions` returns the pending
+   * decision's answers and nothing else while one is outstanding), so the
+   * opponent gets a real window rather than one that never opens.
+   *
+   * # And the payment is not a new mechanism either
+   *
+   * The second half of the refusal — "this engine cannot pay mid-resolution" —
+   * was stale. `payPowerFromChanneled` pays a Power cost from inside a
+   * resolution, spending floating Power first and recycling a rune for the rest,
+   * and it is asked SPECULATIVELY when the options are built so an unpayable
+   * offer is never made (416.3, the convention Flame Chompers and Here to Help
+   * both keep). "For [rainbow]" is one Power pip of any domain, which is exactly
+   * that helper's `null` domain. Nothing here needed building.
+   *
+   * Declining leads, as every 'you may' in this engine does. With the pip
+   * unpayable the list is a bare decline and `advanceDecisions` executes it
+   * without prompting, which is the right amount of theatre for a question with
+   * one answer.
+   */
+  [DANCING_GRENADE_REPLAY]: {
+    prompt: () => "Dancing Grenade: play it again for 1 Power of any domain?",
+    // **Gated on the PIP alone, and deliberately not on the card's zone.**
+    //
+    // A replayed copy parks its own next offer from INSIDE `playSpellImmediately`,
+    // which trashes the card AFTER the effect resolves — so at the moment the
+    // second question is raised the Grenade is in no zone at all. Gating on trash
+    // membership made `advanceDecisions` see a bare decline and auto-answer it,
+    // while `legal-actions` (asked a moment later, with the card safely in the
+    // trash) would have offered the replay. Two evaluations of one option list
+    // disagreeing is worse than either answer.
+    //
+    // Payability is the condition that is actually stable across the window, and
+    // it is the one 416.3 cares about. `replayDancingGrenade` re-derives the card
+    // and answers `state` unchanged if it has genuinely gone — 359.3's "a check on
+    // something no longer available returns null" — without taking the payment.
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(payPowerFromChanneled(state, d.playerIndex, null, DANCING_GRENADE_REPLAY_POWER) !== undefined
+        ? [{ id: "replay", label: "Play Dancing Grenade again (1 Power of any domain)" }]
+        : []),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline"
+        ? state
+        : parkDecision(state, {
+            kind: DANCING_GRENADE_TARGET,
+            playerIndex: d.playerIndex,
+            ...(d.cardInstanceId !== undefined ? { cardInstanceId: d.cardInstanceId } : {}),
+          }),
+  },
+  /**
+   * ...and "Deal 2 to a unit" for the replayed copy, asked of the player who took
+   * the offer.
+   *
+   * A SECOND question rather than a target chosen alongside the yes/no, and Here
+   * to Help's two-step is the precedent: `PendingDecision` carries one option id,
+   * and folding a target into the first answer would make the option list the
+   * cross product of `{decline, replay}` and every unit on the board.
+   *
+   * The pip is re-paid HERE rather than trusted from the first answer, which was
+   * built against the state one question ago — the convention `payPowerFromChanneled`
+   * and `spendBuff` share. An unpayable cost withholds the replay; it never hands
+   * it over free.
+   *
+   * "A unit" with no owner and no location word, so the option list is every unit
+   * on the board including the answerer's own (355.9.a.1's widening). A player
+   * who takes this offer to point the Grenade back at the caster's board is
+   * playing the card as printed.
+   */
+  [DANCING_GRENADE_TARGET]: {
+    prompt: () => "Dancing Grenade: deal 2 to which unit?",
+    options: (state, d) =>
+      // The pip, again, and again not the zone — see the question above.
+      payPowerFromChanneled(state, d.playerIndex, null, DANCING_GRENADE_REPLAY_POWER) === undefined
+        ? []
+        : allUnitsOnBoard(state).map((u) => ({ id: u.instanceId, label: `Deal to ${u.name}`, instanceId: u.instanceId })),
+    resolve: (state, d, optionId) => replayDancingGrenade(state, d.playerIndex, d.cardInstanceId, optionId),
+  },
   "UNL-181-banish": {
     // Jhin - Virtuoso's "you MAY banish it".
     prompt: () => "Jhin - Virtuoso: banish that spell with me?",
