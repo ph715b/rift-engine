@@ -453,7 +453,7 @@ describe("the five cards wave 7 refused", () => {
    * rather than quietly changing behaviour nobody is watching. The precise edit is
    * written beside each, in the file it belongs to — none of which this wave owns.
    */
-  it("Repulse (UNL-106) — needs a cross-target filter on `chainSpellAndUnit`", () => {
+  it("Repulse (UNL-106) — GOT its cross-target filter on `chainSpellAndUnit`", () => {
     // "Choose a friendly unit at a battlefield. Counter an enemy spell or ability
     // that chooses it AND NO OTHER friendly unit."
     //
@@ -471,7 +471,13 @@ describe("the five cards wave 7 refused", () => {
     // Approximating it as Not So Fast's `choosesFriendlyPermanent` was rejected: that
     // is wider than printed in three directions (a spell choosing two friendly units,
     // a chosen GEAR, and a friendly unit in BASE).
-    expect(isCardImplemented(registry.get(REPULSE))).toBe(false);
+    //
+    // **Written 2026-08-14, and the three-step plan above is the change, in
+    // order.** The rejected shortcut is the more valuable half and it survives as
+    // three separate assertions in `repulse.test.ts` — including the one that
+    // goes the OTHER way, since a chosen GEAR does not block Repulse (the printed
+    // word is "unit"), which a blanket "narrower than Not So Fast" would fumble.
+    expect(isCardImplemented(registry.get(REPULSE)), "Repulse went back to unimplemented").toBe(true);
   });
 
   it("Determined Sentry (UNL-111) — needs a per-UNIT gate where the engine has a per-BATTLEFIELD one", () => {

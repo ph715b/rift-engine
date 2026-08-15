@@ -30,6 +30,7 @@ import { chooseRestrictionDefIds } from "./target-lookup.js";
 import { accelerateGrantDefIds, playRestrictionDefIds } from "./timing.js";
 import { replacedCostDefIds } from "./replaced-costs.js";
 import { moveSurchargeDefIds } from "./move-surcharge.js";
+import { namedTagDefIds } from "./named-tag.js";
 
 /**
  * Which cards actually DO something, and which only look like they do.
@@ -355,6 +356,10 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   // itself (validate/execute), not in any per-card registry, so without this
   // source it would be written and report unimplemented forever.
   { label: "move surcharge", defIds: moveSurchargeDefIds },
+  // The List's "name a tag" half. Its ABILITY is an ordinary activated-ability
+  // entry, but the naming hangs off the gear-play site, so without this source
+  // the card would report by its ability alone and hide a missing name.
+  { label: "named tag", defIds: namedTagDefIds },
   // The optional XP additional cost. `optionalXpCostDefIds` has existed since
   // UNL-164 Safety Inspector but was never wired in here — he reports finished
   // through his on-play trigger, so nothing missed it. UNL-178 Poppy - Defender

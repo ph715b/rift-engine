@@ -264,6 +264,23 @@ export interface GearInstance extends CardInstanceBase {
    */
   banishedInstanceIds?: readonly string[];
   /**
+   * The tag this gear was told to remember — UNL-138 The List's "as you play
+   * this, NAME A TAG".
+   *
+   * **A GearInstance had nowhere to write this, and that was the real blocker on
+   * that card across two waves.** Its key set is otherwise `CardInstanceBase`'s
+   * six plus the cost fields plus `keywords`/`isReaction`/`attachedToInstanceId`,
+   * with no generic bag — and every optional field beside this one is likewise a
+   * named card's, which is the pattern rather than an exception. A tag is a
+   * string chosen from the 111 in the pool, so it is data rather than a flag, and
+   * it belongs on the instance that was told it: two Lists name two tags.
+   *
+   * Optional, so every existing gear construction site is unaffected; absent
+   * reads as "no tag named", which is true of the other 90 Gear and which makes
+   * The List's ability find NOTHING rather than everything.
+   */
+  namedTag?: string;
+  /**
    * This gear is BORROWED — Akshan - Mischievous' "move an enemy gear to your
    * base. You control it until I leave the board."
    *

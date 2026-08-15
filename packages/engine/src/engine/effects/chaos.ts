@@ -66,6 +66,7 @@ import { gainPoints } from "../effect-helpers.js";
 import { recordBanishedWithGear, unitsBanishedWith, wearerListener } from "../equipment.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { canonicalDefId } from "../../cards/card-loader.js";
+import { allPrintedTags, namedTagOf, setNamedTag, unitsWithTag } from "../named-tag.js";
 
 /**
  * Card implementations for **Chaos** — one file, one owner.
@@ -3140,7 +3141,42 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
 /** Nocturne - Horrifying's alternative price — "play me for [rainbow]". */
 const NOCTURNE_POWER = 1;
 
+/** The List gives -2 Might this turn. Named so the decision below does not read
+ *  as a bare literal beside a tag string. */
+const THE_LIST_PENALTY = 2;
+
 export const decisions: Record<string, DecisionDefinition> = {
+  "UNL-138-name": {
+    // The List's "as you play this, name a tag."
+    prompt: () => "The List: name a tag",
+    // **The FULL pool of 111 tags, not the ones on the board.** Naming is a read
+    // on what your opponent will play; restricting it to what is already visible
+    // would turn a guess into a tautology and make the card strictly weaker than
+    // printed. The project owner's call, and the paper game's behaviour.
+    //
+    // Affordable precisely because it is a decision rather than an action
+    // fan-out: this list is built once, when the question is answered.
+    options: () => allPrintedTags().map((tag) => ({ id: tag, label: tag })),
+    // No decline: "name a tag" is not "you may".
+    resolve: (state, d, optionId) => setNamedTag(state, d.playerIndex, d.cardInstanceId ?? "", optionId),
+  },
+  "UNL-138-weaken": {
+    // "[Exhaust]: Give a unit with the named tag -2 [Might] this turn."
+    prompt: () => "The List: give a unit with the named tag -2 Might this turn",
+    // Rebuilt from live state like every option list, so a unit that left the
+    // board between the activation and the answer is simply no longer offered.
+    // Either side's — the card says "a unit".
+    options: (state, d) => {
+      const tag = namedTagOf(state, d.playerIndex, d.cardInstanceId ?? "");
+      if (tag === undefined) return [];
+      return unitsWithTag(state, tag).map(({ unit }) => ({
+        id: unit.instanceId,
+        label: `${unit.name} (-2 Might)`,
+        instanceId: unit.instanceId,
+      }));
+    },
+    resolve: (state, _d, optionId) => giveMightThisTurn(state, optionId, -THE_LIST_PENALTY),
+  },
   "SFD-140-play": {
     // Fizz - Trickster's "you may play a spell from your trash, ignoring its
     // Energy cost. Recycle that spell after you play it."
@@ -4893,40 +4929,51 @@ export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
     resolve: (state, ctx, _event, sourceInstanceId) =>
       parkDecision(state, { kind: "UNL-148-play", playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
   },
-  // # UNL-138 The List is REFUSED, and it is the ability half that is fine
-  //
-  // "As you play this, name a tag. [Exhaust]: Give a unit with the named tag -2
-  // [Might] this turn."
-  //
-  // The [Exhaust] half needs nothing new. A `{ kind: "none" }` ability that parks
-  // a decision whose OPTIONS are the units carrying the tag is exactly Maduli's
-  // shape three entries up, and `UnitInstance.tags` is populated from the
-  // definition, so the filter is one `.includes`.
-  //
-  // What has no home is the NAME. Measured 2026-08-13 in
-  // `test/unl-chaos-wave8-refusals.test.ts`, three ways:
-  //
-  //   - **A GearInstance has no field to write it to.** Its key set is asserted
-  //     there in full — `CardInstanceBase`'s six, the three cost fields, and
-  //     `keywords`/`isReaction`/`attachedToInstanceId` — with no generic bag, and
-  //     every optional field on the interface (`attachedThisTurn`,
-  //     `banishedInstanceIds`, `borrowedControl`) is a named card's. That is
-  //     `model/card.ts`, shared.
-  //   - **A Gear has no on-play resolution step at all.** 0 of the pool's 91 Gear
-  //     are registered in `cardEffects`, and structurally so: a Spell goes on the
-  //     chain and `card-effect-resolution` runs its `resolve`, while a Gear goes
-  //     straight into `activeGear`. Playing The List through `submit` leaves
-  //     `spellChain` empty. A held trigger is reachable (`holdQuickDrawAttach`
-  //     proves it), but 355's Make Relevant Choices step puts "as you play this"
-  //     at ANNOUNCE, not after.
-  //   - **A mode per tag is not a route.** `CardMode` is the one existing shape
-  //     carrying a per-choice `TargetingSpec`, and the pool has 111 distinct tags
-  //     — `legal-actions` fans modes out unconditionally, so a 1-Energy gear would
-  //     push 111 actions before targets are considered.
-  //
-  // Nothing weaker than printed exists to write: a List with no name is a gear
-  // that does nothing, and registering it would report the card DONE. Wave 7
-  // reached the same verdict; this is the measurement it was missing.
+  "UNL-138": {
+    // The List — "As you play this, name a tag. [Exhaust]: Give a unit with the
+    // named tag -2 [Might] this turn."
+    //
+    // **Refused in waves 7 and 8, and wave 8's refusal was right about all three
+    // of its measurements.** The ability half needed nothing new, exactly as it
+    // said — this is Maduli's shape, a target-less ability parking a decision
+    // whose options are the units that qualify. What had no home was the NAME:
+    //
+    //   1. "A GearInstance has no field to write it to" — TRUE, and it is
+    //      `GearInstance.namedTag` now. A tag is a string chosen from 111, so it
+    //      is data rather than a flag, and it lives on the instance that was told
+    //      it: two Lists name two tags.
+    //   2. "A Gear has no on-play resolution step at all... playing The List
+    //      through `submit` leaves `spellChain` empty" — TRUE, and it is why the
+    //      naming hangs off `execute-play-card`'s gear-placement site, the one
+    //      place a Gear enters `activeGear`, beside `[Quick-Draw]`.
+    //   3. "A mode per tag is not a route... 111 distinct tags" — TRUE, and it
+    //      rules out the fan-out on the ACTION as well, for the same arithmetic.
+    //      The name is a parked DECISION, which costs one action to answer.
+    //
+    // The one thing the refusal treated as fatal and is instead a recorded
+    // divergence: 355 puts "as you play this" at ANNOUNCE and this asks
+    // immediately after. A Gear does not use the chain, so nothing can respond in
+    // between — see `named-tag.ts`.
+    //
+    // "A unit with the named tag" names no side and no location, so 355.9.a.1
+    // widens it to every unit on the Board, both players. -2 Might THIS TURN is
+    // `mightThisTurn`, which `runEnd` clears; 143.2.b then floors what reads it at
+    // 0, so this does not kill a 1-Might unit and must not be written as if it
+    // could.
+    kind: "Gear",
+    cost: { exhaust: true },
+    targeting: { kind: "none" },
+    // Not offered while the gear has no tag, and not offered when no unit carries
+    // it — 416.3's shape, and the reason it is asked here rather than inside
+    // `resolve`: an ability that exhausted to do nothing would have spent the
+    // whole card for the turn.
+    availableWhile: (state, playerIndex, sourceInstanceId) => {
+      const tag = namedTagOf(state, playerIndex, sourceInstanceId);
+      return tag !== undefined && unitsWithTag(state, tag).length > 0;
+    },
+    resolve: (state, ctx, _event, sourceInstanceId) =>
+      parkDecision(state, { kind: "UNL-138-weaken", playerIndex: ctx.casterIndex, cardInstanceId: sourceInstanceId }),
+  },
 };
 
 /**

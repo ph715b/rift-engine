@@ -19,6 +19,7 @@ import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
 import { holdQuickDrawAttach, isEquipmentGear } from "../engine/equipment.js";
+import { holdNamedTagChoice } from "../engine/named-tag.js";
 import { holdUnitsChosen } from "../engine/triggers.js";
 import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
@@ -846,6 +847,15 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // A no-op for every Gear without the keyword, and for a board with no unit
   // to attach to.
   if (card.kind === "Gear") placed = holdQuickDrawAttach(placed, action.playerIndex, card);
+
+  // UNL-138 The List — "as you play this, NAME A TAG". Here for the same reason
+  // `[Quick-Draw]` is: this is the ONE place a Gear enters `activeGear`, so a
+  // Gear arriving by another route cannot silently skip being asked.
+  //
+  // A no-op for the other 90 Gear. See `named-tag.ts` for why the name is a
+  // parked decision here rather than a field fanned out on the action, and for
+  // the divergence from 355's Make Relevant Choices that buys.
+  if (card.kind === "Gear") placed = holdNamedTagChoice(placed, action.playerIndex, card);
 
   // Ezreal - Prodigal Explorer — the enemy units and gear this play CHOSE.
   placed = recordEnemyChoices(placed, action.playerIndex, enemyChosen);

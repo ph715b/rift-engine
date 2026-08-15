@@ -402,6 +402,28 @@ export type TargetingSpec =
       scope?: TargetScope;
       maxPrintedEnergy?: number;
       maxPrintedPower?: number;
+      /** Only an OPPONENT's spell may be countered — Repulse's "counter an ENEMY
+       *  spell or ability". Riposte sets neither this nor the field below and is
+       *  unchanged. Read through `counterFilter`, the same function the
+       *  `chainSpell` kind's identically-named field goes through. */
+      enemyOnly?: true;
+      /**
+       * The countered spell must choose the unit this play named **and no other
+       * friendly unit** — UNL-106 Repulse, in full.
+       *
+       * **The one restriction in the pool that is BETWEEN two announced targets**,
+       * which is why it could not be a filter on either alone: `counterFilter`
+       * answers per-spell and `eligibleTargets` per-unit, and this is a property
+       * of the PAIR. It is applied where the pair first exists — the cross product
+       * in `legal-actions`, and the same predicate re-derived in
+       * `validate-play-card`.
+       *
+       * Deliberately NOT approximated as Not So Fast's `choosesFriendlyPermanent`,
+       * which a wave-7 note measured as wider than printed in three directions: a
+       * spell choosing two friendly units, a chosen GEAR, and a friendly unit in
+       * base all satisfy that and none satisfies this.
+       */
+      choosesOnlyThisUnit?: true;
     }
   /**
    * `owner`, `excludesSelf` and `includesFacedown` are Pack of Wonders' — "Return

@@ -58,17 +58,65 @@ export function matchesCostFilter(card: SpellInstance, maxPrintedEnergy?: number
  * name. The spell half is complete; see docs/rules-conformance.md.
  */
 function choosesAFriendlyPermanent(state: GameState, entry: SpellChainEntry, friendlyIndex: 0 | 1): boolean {
-  const named = [
+  const owner = state.players[friendlyIndex];
+  return chosenIdsOf(entry).some((id) => {
+    if (owner.activeGear.some((g) => g.instanceId === id)) return true;
+    const unit = findUnitAnywhere(state, id);
+    return unit !== undefined && unit.ownerIndex === friendlyIndex;
+  });
+}
+
+/**
+ * Every id this chain entry NAMED as a target.
+ *
+ * Extracted from `choosesAFriendlyPermanent` when Repulse needed the same list,
+ * and shared for the reason that function's own comment gives: enumerating the
+ * fields that can name a permanent by hand is what left `[Deflect]` unpriced on
+ * five cards. Two copies of this list is two chances to miss the next field.
+ */
+function chosenIdsOf(entry: SpellChainEntry): string[] {
+  return [
     entry.targetUnitInstanceId,
     entry.secondTargetUnitInstanceId,
     ...(entry.targetUnitInstanceIds ?? []),
     entry.targetPermanentInstanceId,
   ].filter((id): id is string => id !== undefined);
-  const owner = state.players[friendlyIndex];
-  return named.some((id) => {
-    if (owner.activeGear.some((g) => g.instanceId === id)) return true;
+}
+
+/**
+ * UNL-106 Repulse — "counter an enemy spell or ability that chooses IT and NO
+ * OTHER friendly unit", where "it" is the unit this Repulse announced.
+ *
+ * **The pool's only restriction BETWEEN two announced targets**, which is why it
+ * lives here as a pair predicate rather than as a field on either target's
+ * filter: `counterFilter` answers about the spell alone and `eligibleTargets`
+ * about the unit alone, and neither can see the other's choice. The PDF uses this
+ * card by name as its worked example of announce-time selection.
+ *
+ * Both halves are real and separable:
+ *   - it must choose the named unit — a spell aimed elsewhere is not counterable
+ *     by this Repulse even if it chooses some other friendly unit;
+ *   - and NO OTHER friendly unit — a sweep that catches the named unit plus a
+ *     second friendly one is out, which is the half that makes Repulse a
+ *     protection card rather than a general counter.
+ *
+ * **"No other friendly UNIT", not permanent.** A chosen friendly GEAR does not
+ * disqualify the counter: the printed word is "unit", and Not So Fast's
+ * deliberately wider `choosesFriendlyPermanent` sits right above as the contrast.
+ * An enemy unit chosen alongside is likewise irrelevant.
+ */
+export function choosesOnlyThisFriendlyUnit(
+  state: GameState,
+  entry: SpellChainEntry,
+  unitInstanceId: string,
+  counterorIndex: 0 | 1,
+): boolean {
+  const chosen = chosenIdsOf(entry);
+  if (!chosen.includes(unitInstanceId)) return false;
+  return !chosen.some((id) => {
+    if (id === unitInstanceId) return false;
     const unit = findUnitAnywhere(state, id);
-    return unit !== undefined && unit.ownerIndex === friendlyIndex;
+    return unit !== undefined && unit.ownerIndex === counterorIndex;
   });
 }
 

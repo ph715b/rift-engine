@@ -343,20 +343,25 @@ describe("Arachnoid Horror (UNL-117) reaches a lone enemy — PIN inverted 2026-
   });
 });
 
-describe("PIN — Repulse (UNL-106) counters nothing", () => {
+describe("Repulse (UNL-106) counters — the pin that closed on 2026-08-14", () => {
   /**
-   * **PIN.** "Choose a friendly unit at a battlefield. Counter an enemy spell or
-   * ability that chooses it AND NO OTHER FRIENDLY UNIT" is a constraint BETWEEN its
-   * two targets, and `TargetingSpec`'s `chainSpellAndUnit` (Riposte's) carries no
-   * such field — nor even `enemyOnly`, which Riposte does not need. The pair filter
-   * has to be applied by the enumerator and the validator together, which is
-   * card-effects.ts + legal-actions.ts + validate-play-card.ts.
+   * **This was a PIN, and the plan it wrote is what was built.** "Choose a
+   * friendly unit at a battlefield. Counter an enemy spell or ability that
+   * chooses it AND NO OTHER FRIENDLY UNIT" is a constraint BETWEEN its two
+   * targets; `chainSpellAndUnit` carried no such field, nor `enemyOnly`. It named
+   * the three files — card-effects.ts + legal-actions.ts + validate-play-card.ts
+   * — and those are the three that changed, plus the pair predicate itself in
+   * counter-spell.ts.
    *
-   * Approximating it as Not So Fast's `{ kind: "chainSpell", enemyOnly,
-   * choosesFriendlyPermanent }` was rejected: that is WIDER than printed in three
-   * directions at once (it counters a spell choosing two friendly units, it counts
-   * GEAR as the chosen permanent, and it counts a friendly unit in BASE), and a
-   * card that is wider than printed is the direction this codebase does not ship.
+   * **Its REJECTION of the shortcut is the part worth keeping.** Approximating
+   * this as Not So Fast's `{ kind: "chainSpell", enemyOnly,
+   * choosesFriendlyPermanent }` is WIDER than printed in three directions at once
+   * — a spell choosing two friendly units, a chosen GEAR, and a friendly unit in
+   * BASE — and a card wider than printed is the direction this codebase does not
+   * ship. `repulse.test.ts` asserts each of the three separately, and the GEAR one
+   * goes the other way (a chosen gear does NOT block Repulse, because the printed
+   * word is "unit"), which a single "narrower than Not So Fast" assertion would
+   * have got wrong.
    */
   function chained(): GameState {
     const state = makeState({ phase: "Action", activePlayerIndex: 1 });
@@ -419,7 +424,7 @@ describe("PIN — Repulse (UNL-106) counters nothing", () => {
     const repulseId = state.players[0]!.hand.find((c) => c.defId === REPULSE)!.instanceId;
     const repulsePlays = playsOf(state, repulseId);
     const counters = repulsePlays.filter((p) => p.targetChainCardInstanceId !== undefined);
-    expect(counters, "Repulse can name a chain spell — delete this pin, UNL-106 is implemented").toHaveLength(0);
+    expect(counters.length, "Repulse can no longer name a chain spell — it regressed").toBeGreaterThan(0);
 
     // The positive control: the same chain, the same friendly unit at the same
     // battlefield, and the pool's nearest implemented neighbour DOES counter it.
@@ -434,11 +439,8 @@ describe("PIN — Repulse (UNL-106) counters nothing", () => {
     expect(enemySpellWaiting(resolved), "the countered spell is still waiting").toHaveLength(0);
   });
 
-  it("is reported unimplemented", () => {
-    expect(
-      isCardImplemented(registry.get(REPULSE)),
-      "UNL-106 reports implemented — delete this whole pin block",
-    ).toBe(false);
+  it("is reported implemented", () => {
+    expect(isCardImplemented(registry.get(REPULSE)), "UNL-106 went back to unimplemented").toBe(true);
   });
 });
 
@@ -457,12 +459,24 @@ describe("PIN — which of wave 4's five refusals are still open", () => {
     // Deadbloom Predator's `>= 1`) plus the board-wide twin in
     // `board-restrictions.ts`. Both landed exactly there.
     //
-    // Repulse is the last one standing, and its blocker is unchanged: a
-    // constraint BETWEEN a `chainSpellAndUnit`'s two targets, which the spec
-    // cannot express.
-    for (const defId of [REPULSE]) {
+    // **REPULSE left this list on 2026-08-14, the last of the five**, and its
+    // blocker was named as precisely as the others: a constraint BETWEEN a
+    // `chainSpellAndUnit`'s two targets, which the spec could not express. It
+    // expresses it now (`choosesOnlyThisUnit`, plus `enemyOnly`), and the pair
+    // predicate lives in `counter-spell.ts` where both gates read it.
+    //
+    // **The list is EMPTY, so the loop below asserts nothing.** Restated as the
+    // positive sweep it was standing in for — the same fix `unl-calm-wave6` and
+    // `unl-fury-wave7` took the same week, and for the same reason: a refusal list
+    // that empties turns into a green test that checks nothing.
+    const stillRefused: string[] = [];
+    for (const defId of stillRefused) {
       expect(isCardImplemented(registry.get(defId)), `${defId} now reports implemented`).toBe(false);
       expect(implementingModules(defId), `${defId} is claimed by a module now`).toEqual([]);
+    }
+    for (const defId of [REPULSE, DETERMINED_SENTRY, ARACHNOID_HORROR]) {
+      expect(isCardImplemented(registry.get(defId)), `${defId} went back to unimplemented`).toBe(true);
+      expect(implementingModules(defId), `${defId} lost its module claim`).not.toEqual([]);
     }
     // **Master Yi LEFT this list at integration.** He was never one of the four —
     // he was written all along and merely unclaimed, which is why this test named

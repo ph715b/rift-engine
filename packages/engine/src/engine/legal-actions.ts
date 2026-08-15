@@ -14,7 +14,7 @@ import type {
 import { computeAutoPayment, computeEffectiveCost, matchesPowerDomain, restrictedPowerFor } from "./rune-payment.js";
 import { variantCostDiscount } from "./cost-modifiers.js";
 import { ownTrashCandidates } from "./card-effects.js";
-import { counterFilter, counterableSpells } from "./counter-spell.js";
+import { counterFilter, counterableSpells, choosesOnlyThisFriendlyUnit } from "./counter-spell.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "./unit-triggers.js";
 import {
   eligibleTargets,
@@ -1254,9 +1254,27 @@ export function legalActions(state: GameState): PlayerAction[] {
       // Through the same two helpers the `chainSpell` and `unit` branches use, so
       // the enumerator cannot offer a pair the validator then refuses — the drift
       // this file's own notes keep warning about.
-      for (const { entry } of counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower)) {
+      // `counterFilter` is passed now, so Repulse's "an ENEMY spell" narrows the
+      // spell half exactly as it does for the `chainSpell` kind. Riposte names no
+      // filter fields and gets `undefined`, i.e. the walk it always had.
+      for (const { entry } of counterableSpells(
+        state,
+        targeting.maxPrintedEnergy,
+        targeting.maxPrintedPower,
+        counterFilter(targeting, playerIndex),
+      )) {
         for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
           if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
+          // The PAIR restriction — Repulse's "chooses it and no other friendly
+          // unit". Applied here because this cross product is the first place both
+          // choices exist at once, and re-derived from the same function in
+          // `validate-play-card` so the two cannot disagree.
+          if (
+            targeting.choosesOnlyThisUnit &&
+            !choosesOnlyThisFriendlyUnit(state, entry, target.instanceId, playerIndex)
+          ) {
+            continue;
+          }
           effectVariants.push({
             targetChainCardInstanceId: entry.card.instanceId,
             targetUnitInstanceId: target.instanceId,

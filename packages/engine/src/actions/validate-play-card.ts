@@ -68,7 +68,7 @@ import {
 import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 import { replacedCostFor } from "../engine/replaced-costs.js";
 import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
-import { counterFilter, counterableSpells } from "../engine/counter-spell.js";
+import { counterFilter, counterableSpells, choosesOnlyThisFriendlyUnit } from "../engine/counter-spell.js";
 import { equipmentPairedWith } from "../engine/equipment.js";
 
 /**
@@ -311,8 +311,14 @@ function targetingRejection(
     if (!choices.targetUnitInstanceId) {
       return `${cardName} requires a target unit`;
     }
-    const counterable = counterableSpells(state, targeting.maxPrintedEnergy, targeting.maxPrintedPower);
-    if (!counterable.some(({ entry }) => entry.card.instanceId === choices.targetChainCardInstanceId)) {
+    const counterable = counterableSpells(
+      state,
+      targeting.maxPrintedEnergy,
+      targeting.maxPrintedPower,
+      counterFilter(targeting, playerIndex),
+    );
+    const chosenEntry = counterable.find(({ entry }) => entry.card.instanceId === choices.targetChainCardInstanceId);
+    if (!chosenEntry) {
       return `${cardName} cannot target that spell`;
     }
     // Asked through `eligibleTargets` rather than this file's own
@@ -325,6 +331,17 @@ function targetingRejection(
       )
     ) {
       return `${cardName} cannot target that unit`;
+    }
+    // The PAIR restriction, re-derived rather than trusted — Repulse's "chooses
+    // it and no other friendly unit". Asked LAST, after both halves have been
+    // checked individually, and through the very function the enumerator's cross
+    // product calls: a hand-built play could otherwise counter a sweep that
+    // catches two friendly units, which is precisely what the card does not do.
+    if (
+      targeting.choosesOnlyThisUnit &&
+      !choosesOnlyThisFriendlyUnit(state, chosenEntry.entry, choices.targetUnitInstanceId, playerIndex)
+    ) {
+      return `${cardName} can only counter a spell that chooses that unit and no other friendly unit`;
     }
   } else if (targeting.kind === "unitList") {
     // Accepts ANY legal set, not only the ones `legal-actions` sampled — that

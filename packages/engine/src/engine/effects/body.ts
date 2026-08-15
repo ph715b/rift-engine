@@ -109,14 +109,51 @@ import { placeGoldTokens } from "../token.js";
  *    cannot be prevented by actions and Game Effects that restrict or block
  *    Movement" — is why combat's step-3d recall (466.1.a.2) must stay unaffected,
  *    exactly as it already is for Vilemaw's Lair and Minotaur Reckoner.
- *  - **UNL-106 Repulse** — "counter an enemy spell that chooses it AND NO OTHER
- *    friendly unit" is a constraint BETWEEN its two targets, and `chainSpellAndUnit`
- *    (Riposte's spec) carries no filter fields at all. Approximating it as Not So
- *    Fast's `{ kind: "chainSpell", enemyOnly, choosesFriendlyPermanent }` was
- *    rejected: that is wider than printed in three directions at once (a spell
- *    choosing two friendly units, a chosen GEAR, and a friendly unit in BASE).
+ *  - **UNL-106 Repulse WAS refused here and is written now (2026-08-14).** The
+ *    refusal was right in every particular: "counter an enemy spell that chooses
+ *    it AND NO OTHER friendly unit" is a constraint BETWEEN its two targets, and
+ *    `chainSpellAndUnit` carried no filter fields at all. It carries
+ *    `enemyOnly` and `choosesOnlyThisUnit` now, and the pair predicate lives in
+ *    `counter-spell.choosesOnlyThisFriendlyUnit`, applied at the enumerator's
+ *    cross product and re-derived in the validator.
+ *
+ *    Its REJECTION of the shortcut was the load-bearing half and is preserved as
+ *    a test: approximating this as Not So Fast's `{ kind: "chainSpell",
+ *    enemyOnly, choosesFriendlyPermanent }` is wider than printed in three
+ *    directions at once — a spell choosing two friendly units, a chosen GEAR, and
+ *    a friendly unit in BASE — and `repulse.test.ts` asserts each of the three
+ *    separately rather than trusting the sentence.
  */
+import { counterSpell } from "../counter-spell.js";
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "UNL-106": {
+    // Repulse — "[Reaction] Choose a friendly unit at a battlefield. Counter an
+    // enemy spell or ability that chooses it and no other friendly unit."
+    //
+    // Riposte's shape (`chainSpellAndUnit`) plus the two filters that make this a
+    // protection card rather than a general counter. Both targets are announced —
+    // 355.7 makes each a target and 355.8 makes the card uncastable without one
+    // of each, which is correct here: with nothing on the chain aimed at exactly
+    // one of your units, Repulse has no legal announcement.
+    //
+    // **"a friendly unit AT A BATTLEFIELD"**, so the default battlefield scope
+    // rather than Riposte's `anywhere`. The location word is printed, and
+    // 355.9.b is what makes it load-bearing: a friendly unit in base cannot be
+    // the one Repulse protects.
+    //
+    // **"or ABILITY" is the inherited divergence, not a new one.** An activated
+    // ability resolves INLINE in this engine, so there is no ability item on the
+    // chain for any counter to name — the same limitation Not So Fast carries,
+    // recorded once in docs/rules-conformance.md for the family.
+    //
+    // A vanished target is a no-op, the case Riposte's own note calls real rather
+    // than defensive: two counters can name the same spell and the second finds
+    // nothing.
+    targeting: { kind: "chainSpellAndUnit", owner: "friendly", enemyOnly: true, choosesOnlyThisUnit: true },
+    resolve: (state, _ctx, event) =>
+      event.targetChainCardInstanceId ? counterSpell(state, event.targetChainCardInstanceId) : state,
+  },
   "SFD-107": {
     // Strike Down — "Choose an EQUIPPED friendly unit. It deals damage equal to
     // its Might to an enemy unit. Then detach an Equipment from it."

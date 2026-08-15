@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { pendingDecision } from "../src/engine/decisions.js";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { cardEffectDefIds, grantedRepeatCostOf, optionalXpCostDefIds } from "../src/engine/card-effects.js";
@@ -564,7 +565,7 @@ describe("UNL-146 Syndra: why the existing granted-[Repeat] route cannot carry h
 // UNL-138 The List — "As you play this, name a tag. [Exhaust]: Give a unit with
 // the named tag -2 [Might] this turn."
 // ---------------------------------------------------------------------------
-describe("UNL-138 The List: where the named tag would have to live", () => {
+describe("UNL-138 The List: where the named tag ended up living", () => {
   it("the pool has 111 distinct tags, so a mode-per-tag enumeration is not a route", () => {
     // `CardMode` is the one existing shape that carries a per-choice
     // `TargetingSpec`, and `legal-actions` fans every mode out unconditionally
@@ -574,15 +575,22 @@ describe("UNL-138 The List: where the named tag would have to live", () => {
     expect(tags.size).toBeGreaterThanOrEqual(111);
   });
 
-  it("PINNED: a GearInstance has no field that could hold the name", () => {
-    // The whole refusal in one assertion. `CardInstanceBase` carries
-    // instanceId/defId/name/domains/exhausted/isToken and GearInstance adds the
-    // cost fields plus four optional ones, every one of them for a different
-    // card. There is no generic bag, so the string chosen at play time has
-    // nowhere to be written and nothing for the [Exhaust] ability to read.
+  it("a GearInstance HAS a field for the name now — `namedTag`", () => {
+    // **This was the whole refusal in one assertion, and it said "flips when
+    // someone adds the field — which is the point." It flipped on 2026-08-14.**
     //
-    // Flips when someone adds the field — which is the point.
-    expect(Object.keys(realGearInstance(THE_LIST)).sort()).toEqual(
+    // The measurement was exactly right: `CardInstanceBase` carries the six,
+    // GearInstance adds the cost fields plus optional ones each belonging to a
+    // named card, and there is no generic bag — so a string chosen at play time
+    // had nowhere to live. `namedTag` is that card's optional field, written the
+    // same way every neighbour is.
+    //
+    // Kept as a KEY-SET assertion rather than softened to "has namedTag": the
+    // reason this pin worked is that it fails on any change to the instance
+    // shape, and that is still worth having. A new optional field belongs in this
+    // list deliberately.
+    const keys = Object.keys(realGearInstance(THE_LIST)).sort();
+    expect(keys).toEqual(
       [
         "attachedToInstanceId",
         "defId",
@@ -599,9 +607,14 @@ describe("UNL-138 The List: where the named tag would have to live", () => {
         "powerDomain",
       ].sort(),
     );
+    // `namedTag` is absent on a FRESH instance and present once named — which is
+    // what "optional, absent reads as no tag named" means, and is the half a key
+    // set alone cannot show.
+    expect(keys, "a fresh gear already carries a tag").not.toContain("namedTag");
+    expect("namedTag" in realGearInstance(THE_LIST), "the field is being pre-set").toBe(false);
   });
 
-  it("...and no Gear in the pool has a registered card effect, because playing one resolves nothing", () => {
+  it("...and STILL no Gear has a registered card effect, because playing one resolves nothing", () => {
     // The other half of "as you play this" having no home. A Spell goes on the
     // chain and `card-effect-resolution` runs its registered `resolve`; a Gear
     // goes straight into `activeGear` and never reaches that file at all. So the
@@ -619,7 +632,15 @@ describe("UNL-138 The List: where the named tag would have to live", () => {
     const after = accept(state, playsOf(state, list.instanceId)[0]!);
 
     expect(after.players[0]!.activeGear.map((g) => g.instanceId), "it never landed").toEqual([list.instanceId]);
-    expect(after.spellChain, "a Gear reached the chain — there is a resolution step to hang the naming on now").toEqual([]);
+    expect(after.spellChain, "a Gear reached the chain — the structural claim below changed").toEqual([]);
+
+    // **STILL TRUE, and it is what decided the design.** A Gear reaches no chain,
+    // so there is no resolution step to hang "as you play this" on — the naming
+    // hangs off `execute-play-card`'s gear-placement site instead, and asks
+    // immediately AFTER the gear lands rather than at announce (355). That is a
+    // recorded divergence, and this assertion is why it is a narrow one: with no
+    // chain there is no window in between for anything to respond differently.
+    expect(pendingDecision(after)?.kind, "the naming question was not asked on play").toBe("UNL-138-name");
   });
 
   it("POSITIVE CONTROL: a unit instance DOES carry its tags, so only the naming half is missing", () => {
