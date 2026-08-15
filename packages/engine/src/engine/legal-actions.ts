@@ -87,6 +87,7 @@ import {
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { replacedCostFor } from "./replaced-costs.js";
+import { moveSurchargeFor } from "./move-surcharge.js";
 import {
   chosenUnitsOfActivation,
   chosenUnitsOfPlay,
@@ -99,7 +100,7 @@ import { effectiveMight } from "./effective-might.js";
 import { attachableEquipment, equipmentPairedWith } from "./equipment.js";
 import { optionsFor, pendingDecision } from "./decisions.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
-import type { CardInstance } from "../model/card.js";
+import type { CardInstance, UnitInstance } from "../model/card.js";
 
 /**
  * Does a `secondAtDestination` spec's second target actually stand at the
@@ -136,6 +137,106 @@ export function secondTargetIsAtDestination(
   if (action.destinationBattlefieldId === undefined) return false;
   const at = findUnitOnBattlefield(state, action.secondTargetUnitInstanceId);
   return at !== undefined && state.battlefields[at.battlefieldIndex]!.id === action.destinationBattlefieldId;
+}
+
+/**
+ * The units `playerIndex` may move to `destinationId` right now, asked one unit
+ * at a time.
+ *
+ * Every condition here was already being asked by the two per-unit loops this
+ * replaced, and each is kept in the same words for the same reason:
+ *
+ *   - a unit must be READY (144.2 makes exhausting it the cost);
+ *   - Vex - Apathetic's this-turn lock is asked at BOTH origins. Gating only the
+ *     battlefield loop once left a locked unit in BASE free to walk out, which is
+ *     the exact board her own pin drives — she stuns a unit as it arrives, and it
+ *     arrives in a base;
+ *   - a unit already AT a battlefield needs `[Ganking]` to move to another, asked
+ *     through the same grant layer the validator uses so a conditionally-Ganking
+ *     unit is never offered a move that is then refused;
+ *   - and it cannot move to where it already stands.
+ */
+function movableTo(state: GameState, playerIndex: 0 | 1, destinationId: string): UnitInstance[] {
+  const actor = state.players[playerIndex];
+  const fromBase = actor.baseUnits.filter((u) => !u.exhausted && unitMayMoveThisTurn(state, u.instanceId));
+  const fromBattlefields = state.battlefields.flatMap((bf) =>
+    bf.id === destinationId
+      ? []
+      : (bf.units[actor.id] ?? []).filter(
+          (u) => !u.exhausted && unitMayMoveThisTurn(state, u.instanceId) && hasKeyword(state, u, playerIndex, "Ganking"),
+        ),
+  );
+  return [...fromBase, ...fromBattlefields];
+}
+
+/**
+ * Every non-empty subset of `units`, smallest first.
+ *
+ * **Bounded, and the bound is reported rather than silent.** 144.3 allows any
+ * number of units to move at once, so the honest enumeration is the full power
+ * set — 2^n. That is fine at the sizes real boards reach and catastrophic if one
+ * ever does not: the AI evaluates every action it is offered, so an unbounded
+ * fan-out turns one large turn into a hang.
+ *
+ * `MAX_GROUPED_MOVERS` is the line. Below it the enumeration is complete; at or
+ * above it, only the singletons and the all-in group are emitted, which keeps the
+ * two moves anyone actually makes and drops the middle. A truncation nobody can
+ * see is worse than one that is written down, so this says so here and
+ * `groupedMoveTruncated` lets a test assert the boundary from both sides.
+ */
+const MAX_GROUPED_MOVERS = 4;
+
+function nonEmptySubsets(units: readonly UnitInstance[]): UnitInstance[][] {
+  if (units.length === 0) return [];
+  // Asked through the SAME predicate the test pins, not through a second copy of
+  // the comparison. A first version wrote `units.length > MAX_GROUPED_MOVERS`
+  // here and `moverCount > MAX_GROUPED_MOVERS` there; mutating this one to `>=`
+  // left every test green, because the assertion about the boundary was reading
+  // the other function. Two expressions of one rule is how a bound comes to be
+  // documented at a value it does not have.
+  if (groupedMoveTruncated(units.length)) {
+    return [...units.map((u) => [u]), [...units]];
+  }
+  const out: UnitInstance[][] = [];
+  for (let mask = 1; mask < 1 << units.length; mask += 1) {
+    out.push(units.filter((_, i) => (mask & (1 << i)) !== 0));
+  }
+  return out;
+}
+
+/** Whether a group of this size would be enumerated exhaustively — the boundary
+ *  `MAX_GROUPED_MOVERS` draws, exported so a test can pin both sides of it. */
+export function groupedMoveTruncated(moverCount: number): boolean {
+  return moverCount > MAX_GROUPED_MOVERS;
+}
+
+/**
+ * One `MoveUnit` action for `group`, carrying the Applied Cost when something
+ * taxes it, or undefined when that cost cannot be paid.
+ *
+ * The surcharge is asked through `moveSurchargeFor` — the same function the
+ * validator and the executor ask — so the three cannot disagree about the price.
+ * Undefined means 204.4.c: a player who cannot pay cannot perform the action.
+ */
+function pricedMove(
+  state: GameState,
+  playerIndex: 0 | 1,
+  destinationId: string,
+  group: readonly UnitInstance[],
+): MoveUnitAction | undefined {
+  const move: MoveUnitAction = {
+    type: "MoveUnit",
+    playerIndex,
+    unitInstanceIds: group.map((u) => u.instanceId),
+    destinationBattlefieldId: destinationId,
+  };
+  const owed = moveSurchargeFor(state, playerIndex, destinationId, group.length);
+  if (owed === 0) return move;
+  // Any Ready rune pays a rainbow cost. Taken in channeled order, which is the
+  // order `payMoveSurcharge` spends in, so this predicts exactly what it will take.
+  const rainbow = state.players[playerIndex].channeled.filter((r) => r.state === "Ready").slice(0, owed);
+  if (rainbow.length < owed) return undefined;
+  return { ...move, payment: { energyRunes: [], powerRunes: [], rainbowRunes: rainbow.map((r) => r.id) } };
 }
 
 /** Every legal FloatRune candidate for `actor` — one Energy-mode candidate
@@ -2385,21 +2486,25 @@ export function legalActions(state: GameState): PlayerAction[] {
   // already control.)
   if (!isNeutralOpen) return actions;
 
-  for (const unit of actor.baseUnits) {
-    if (unit.exhausted) continue;
-    // Vex - Apathetic's this-turn lock. **This is the SECOND move-emission site**
-    // — the battlefield loop below has its own — and gating only that one left a
-    // locked unit in BASE free to walk out, which is exactly the board Vex's own
-    // pin drives: she stuns a unit as it arrives, and it arrives in a base.
-    if (!unitMayMoveThisTurn(state, unit.instanceId)) continue;
-    for (const bf of state.battlefields) {
-      const move: MoveUnitAction = {
-        type: "MoveUnit",
-        playerIndex,
-        unitInstanceIds: [unit.instanceId],
-        destinationBattlefieldId: bf.id,
-      };
-      actions.push(move);
+  // **Every SUBSET of the units that can reach a destination, not one action per
+  // unit.** Rule 144.3: "players may perform multiple Units' standard move
+  // simultaneously. This is treated as one game action performed on multiple
+  // Units." A one-action-per-unit enumerator can express only the degenerate case,
+  // and until 2026-08-14 that is all this did — which left UNL-163 Mageseeker
+  // Investigator's applied cost (204.4) reachable by a human client and by nothing
+  // else, since his tax starts at the second unit.
+  //
+  // The eligibility rules are unchanged and still asked PER UNIT, exactly as the
+  // two loops this replaced asked them — see `movableTo`. Only the grouping is new.
+  //
+  // A group the surcharge makes unaffordable is NOT offered. That is 204.4.c ("a
+  // player who can't pay cannot perform the associated Game Action") rather than
+  // merely this file's usual rule against offering what the validator refuses,
+  // though it is both.
+  for (const dest of state.battlefields) {
+    for (const group of nonEmptySubsets(movableTo(state, playerIndex, dest.id))) {
+      const priced = pricedMove(state, playerIndex, dest.id, group);
+      if (priced !== undefined) actions.push(priced);
     }
   }
 
@@ -2420,19 +2525,9 @@ export function legalActions(state: GameState): PlayerAction[] {
         actions.push(recall);
       }
 
-      // Same grant layer the validator uses, so a conditionally-Ganking unit is
-      // never offered a move the validator would then refuse (or vice versa).
-      if (!hasKeyword(state, unit, playerIndex, "Ganking")) continue;
-      for (const dest of state.battlefields) {
-        if (dest.id === bf.id) continue;
-        const move: MoveUnitAction = {
-          type: "MoveUnit",
-          playerIndex,
-          unitInstanceIds: [unit.instanceId],
-          destinationBattlefieldId: dest.id,
-        };
-        actions.push(move);
-      }
+      // The MOVE half of this loop is now the subset fan-out above; what stays
+      // here is the RECALL, which is a different Game Action (454 calls it
+      // "explicitly not a Move") and keeps its per-unit shape.
     }
   }
 

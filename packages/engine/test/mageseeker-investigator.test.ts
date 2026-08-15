@@ -3,6 +3,7 @@ import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validateMoveUnit } from "../src/actions/validate-move-unit.js";
 import { moveSurchargeFor } from "../src/engine/move-surcharge.js";
+import { groupedMoveTruncated } from "../src/engine/legal-actions.js";
 import { isCardImplemented, partialImplementationNote } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import type { GameState } from "../src/model/game-state.js";
@@ -18,20 +19,23 @@ import { makeState, makeUnit, realUnitInstance } from "./fixtures.js";
  * Refused in waves 6 and 7, and wave 7's refusal is one of the most precisely
  * written in the repo. It named all four sites — `MoveUnitAction` had no
  * `payment`, `validateMoveUnit` listed this very surcharge in its own header as
- * an omission, `executeMoveUnit` only exhausted, and `legalActions` emits only
+ * an omission, `executeMoveUnit` only exhausted, and `legalActions` emitted only
  * single-unit moves — and it named the rule: **144.2**, "exhausting the Unit is
  * the Cost for this action", which is why the move path had no price to add to.
+ * All four are closed.
  *
- * Three of the four are closed here. The fourth is not, and that is deliberate:
- * see `the enumerator still offers only single-unit moves` below.
+ * # A cost, and the rules say which kind
  *
- * # The wrong implementation this does NOT do
+ * **204.4 names this card as its own worked example of an Applied Cost**, which
+ * settles the one thing the two refusals disagreed about. Wave 7 called refusing
+ * an unpaid move "the tempting wrong implementation... strictly stronger than
+ * printed"; 204.4.c says "if a player can't pay or chooses not to pay the Applied
+ * Cost, they cannot perform the associated Game Action."
  *
- * Wave 7 also named the tempting error, and it was right to: refusing the move
- * when the opponent cannot pay is strictly STRONGER than printed. The card makes
- * a group move expensive, not impossible. So an unpayable move is refused as
- * THAT action, and moving the same units one at a time still costs nothing —
- * asserted below, because the difference is the whole card.
+ * What wave 7 was right about is WHICH thing is barred. 144.3 makes a
+ * simultaneous multi-unit move ONE action, so moving the same units one at a time
+ * is a different action and stays free — the line between expensive and
+ * impossible, asserted below because it is the whole card.
  */
 
 const registry = defaultCardRegistry();
@@ -177,24 +181,93 @@ describe("executing it", () => {
   });
 });
 
-describe("the fourth site, still open and deliberately so", () => {
-  it("the enumerator still offers only single-unit moves", () => {
-    // **Wave 7's fourth blocker, unchanged**, and it is why the AI never pays this
-    // tax: `legalActions` emits one action per unit. Enumerating every SUBSET of a
-    // player's units per battlefield is a power set, and nothing in the pool but
-    // this card would read it.
-    //
-    // The card is not inert for it — a human client builds multi-unit moves
-    // directly (`GameBoard.tsx` does exactly that), which is the path everything
-    // above drives. Recorded as a divergence in docs/rules-conformance.md, and
-    // pinned here so widening the enumerator fails loudly rather than silently
-    // changing what the AI can do.
-    const state = board();
+describe("the fourth site: the enumerator offers the group move his tax is about", () => {
+  it("fans out every subset, and prices the ones he guards", () => {
+    // Wave 7's fourth blocker, closed on 2026-08-14 — `legalActions` emitted one
+    // action per unit, so the AI never declared a 144.3 group move and this card
+    // was reachable only through a human client. It now fans out every non-empty
+    // SUBSET of the units that can reach a destination.
+    const state = board({ movers: 3, runes: 5 });
     const moves = legalActions(state).filter((a): a is MoveUnitAction => a.type === "MoveUnit");
+    // 3 units -> 7 subsets, times 2 battlefields.
+    expect(moves.length, "the subset enumeration changed shape — recount it").toBe(14);
 
-    expect(moves.length, "no move was enumerated — this pin measures nothing").toBeGreaterThan(0);
-    expect(moves.every((m) => m.unitInstanceIds.length === 1), "the enumerator learned multi-unit moves").toBe(true);
-    expect(moves.every((m) => m.payment === undefined), "a single-unit move was given a payment").toBe(true);
+    const guarded = moves.filter((m) => m.destinationBattlefieldId === "bf1");
+    const free = moves.filter((m) => m.destinationBattlefieldId === "bf2");
+    expect(
+      guarded.every((m) => (m.payment?.rainbowRunes ?? []).length === m.unitInstanceIds.length - 1),
+      "a group move onto his battlefield was mispriced",
+    ).toBe(true);
+    expect(free.every((m) => m.payment === undefined), "a move he does not guard was charged").toBe(true);
+  });
+
+  it("drops the groups the mover cannot afford — 204.4.c, in the enumerator", () => {
+    // With one rune only the two-unit groups are payable, so the three-unit one is
+    // not offered at all. The engine's usual rule is "never offer what the
+    // validator refuses"; here it is also the printed rule.
+    const state = board({ movers: 3, runes: 1 });
+    const guarded = legalActions(state)
+      .filter((a): a is MoveUnitAction => a.type === "MoveUnit")
+      .filter((m) => m.destinationBattlefieldId === "bf1");
+
+    expect(guarded.map((m) => m.unitInstanceIds.length).sort(), "the unaffordable group was still offered").toEqual([
+      1, 1, 1, 2, 2, 2,
+    ]);
+  });
+
+  it("every enumerated move VALIDATES — including a Ganking unit's", () => {
+    // The enumerate/validate agreement rule, applied to a path that had no reason
+    // to need it while every move was one unit from base. It does now: a
+    // `[Ganking]` unit can leave a battlefield, and the fan-out has to exclude the
+    // battlefield it is standing on or the validator refuses what was offered.
+    //
+    // Mutation-found. Dropping that exclusion left the whole engine suite green,
+    // because nothing else puts a Ganking unit on a board and reads the move list.
+    const state = board({ movers: 1, runes: 5 });
+    state.battlefields[0]!.units = {
+      ...state.battlefields[0]!.units,
+      p1: [makeUnit({ instanceId: "ganker", keywords: { Ganking: 1 } })],
+    };
+
+    const moves = legalActions(state).filter((a): a is MoveUnitAction => a.type === "MoveUnit");
+    const gankerMoves = moves.filter((m) => m.unitInstanceIds.includes("ganker"));
+    expect(gankerMoves.length, "the Ganking unit was offered no move — this asserts nothing").toBeGreaterThan(0);
+    expect(
+      gankerMoves.every((m) => m.destinationBattlefieldId !== "bf1"),
+      "a unit was offered a move to the battlefield it already stands on",
+    ).toBe(true);
+
+    for (const m of moves) {
+      const verdict = validateMoveUnit(state, m);
+      expect(verdict.ok, verdict.ok ? "" : `offered but refused: ${verdict.error}`).toBe(true);
+    }
+  });
+
+  it("BOUNDS the fan-out above 4 movers, and says so rather than truncating silently", () => {
+    // 2^n is honest and unbounded, and the AI evaluates every action it is handed
+    // — so one large board would become a hang. Above the line only the singletons
+    // and the all-in group are emitted. Asserted from BOTH sides of the boundary,
+    // because a bound nobody measures is the silent truncation it was meant not
+    // to be.
+    //
+    // **The bound was 8 for about an hour and is 4 because it was MEASURED.** At 8
+    // (255 groups per battlefield) `reachability` went from ~120s to over ten
+    // minutes and `GAMES=1000` stopped finishing at all — the probe is the whole
+    // verification loop's long pole, and a rules-complete enumeration nobody can
+    // afford to run is not an improvement. 4 still covers every group size the tax
+    // is about; the truncation is stated rather than hidden, which is the part
+    // that matters.
+    expect(groupedMoveTruncated(4), "the bound moved down").toBe(false);
+    expect(groupedMoveTruncated(5), "the bound moved up").toBe(true);
+
+    const wide = board({ movers: 5, guarded: false });
+    const toBf2 = legalActions(wide)
+      .filter((a): a is MoveUnitAction => a.type === "MoveUnit")
+      .filter((m) => m.destinationBattlefieldId === "bf2");
+
+    // 5 singletons plus the all-in group, NOT 31.
+    expect(toBf2.length, "the bound is not being applied").toBe(6);
+    expect(toBf2.some((m) => m.unitInstanceIds.length === 5), "the all-in group was dropped").toBe(true);
   });
 });
 

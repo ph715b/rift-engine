@@ -161,9 +161,14 @@ describe("Megatusk (UNL-126): Spend 3 XP: give your units here [Ganking] this tu
     const after = accept(state, action!);
 
     expect(after.players[0]!.xp, "the 3 XP was never spent").toBe(0);
-    expect(gankMovesFor(after, ally.instanceId), "the ally was not granted [Ganking]").toHaveLength(1);
+    // **Counted as "any" rather than "exactly one" since 2026-08-14.** The
+    // enumerator fans out every SUBSET of the units that can reach a destination
+    // (144.3), so a unit that may move sideways appears in as many actions as
+    // there are groups containing it. The claim was always "the ally can walk
+    // sideways now"; only the arithmetic changed.
+    expect(gankMovesFor(after, ally.instanceId).length, "the ally was not granted [Ganking]").toBeGreaterThan(0);
     // "YOUR units" names no exception, so he grants to himself too.
-    expect(gankMovesFor(after, tusk.instanceId), "Megatusk did not grant to himself").toHaveLength(1);
+    expect(gankMovesFor(after, tusk.instanceId).length, "Megatusk did not grant to himself").toBeGreaterThan(0);
   });
 
   it("actually moves — the grant survives into a real MoveUnit action", () => {

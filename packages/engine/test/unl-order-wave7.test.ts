@@ -235,21 +235,30 @@ describe("Mageseeker Investigator (UNL-163): WRITTEN — the Standard Move gaine
     expect(payableTowardRainbow(b, 1), "the untaxed move was charged").toBe(1);
   });
 
-  it("is not even enumerable: every offered MoveUnit moves exactly one unit", () => {
-    // The second half of the refusal, and the reason implementing the tax in the
-    // validator alone would still leave it unexercised: `legalActions` fans out
-    // one action per unit per destination, so the AI never declares a 144.3 group
-    // move. The human UI does (GameBoard hand-builds the multi-unit action), so
-    // the tax would be reachable in play and invisible to every probe.
+  it("IS enumerable now: the fan-out offers every subset a 144.3 group move can be", () => {
+    // **This was the second half of the refusal and it asserted the opposite
+    // until 2026-08-14.** It said: implementing the tax in the validator alone
+    // would leave it unexercised, because `legalActions` fanned out one action per
+    // unit per destination, so the AI never declared a 144.3 group move and the
+    // card was reachable only through the human UI (`GameBoard` hand-builds the
+    // multi-unit action).
+    //
+    // That was true, it was the right thing to measure, and it is now closed:
+    // the fan-out is every non-empty SUBSET of the units that can reach a
+    // destination. Two base units make 3 subsets, times two battlefields, is 6 —
+    // asserted exactly, so a fixture that stops producing moves fails here.
     const state = makeState({ phase: "Action", activePlayerIndex: 0, turnState: "Neutral", chainOpen: true });
     state.players[0]!.baseUnits = [makeUnit({ instanceId: "a" }), makeUnit({ instanceId: "b" })];
 
     const moves = legalActions(state).filter((a): a is MoveUnitAction => a.type === "MoveUnit");
-    expect(moves.length, "no moves were offered at all — the fixture is wrong").toBeGreaterThan(0);
+    expect(moves.length, "the subset enumeration changed shape — recount it").toBe(6);
     expect(
-      moves.every((m) => m.unitInstanceIds.length === 1),
-      "the enumerator now offers group moves — Mageseeker's tax has become AI-reachable",
-    ).toBe(true);
+      moves.filter((m) => m.unitInstanceIds.length === 2).map((m) => m.destinationBattlefieldId).sort(),
+      "the two-unit group is missing from one or both battlefields",
+    ).toEqual(["bf1", "bf2"]);
+    // Untaxed here: no Investigator is on this board, so no group carries a
+    // payment. The taxed shape is asserted in `mageseeker-investigator.test.ts`.
+    expect(moves.every((m) => m.payment === undefined), "an untaxed move was given a payment").toBe(true);
   });
 });
 

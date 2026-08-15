@@ -532,7 +532,53 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // **Read as: the sample is what changed, not the engine.** The honest reading of
 // a +5 is the same as of a -1, and both are settled the same way — by diffing the
 // buckets against the previous sha rather than by liking the direction.
-const PINNED_UNION = 630;
+//
+// **630 -> 629 on 2026-08-14, and the cause is not a card at all** — it is
+// `legal-actions` learning 144.3's simultaneous multi-unit move. Changing the
+// ACTION SPACE changes what the AI picks, so the exercised set is re-drawn:
+// OGS-023 Garen left `startsInPlayNeverActed` (+1) while UNL-017 Square Up and
+// UNL-107 Stare Down fell to `offeredNeverTaken` (-2) — still enumerated, simply
+// not chosen now that group moves compete with them. At `GAMES=1000` the union is
+// **631**, above the old pin, so 500 games is the constraint rather than the
+// engine.
+//
+// Worth flagging for whoever changes the enumerator next: this probe and
+// `walkout` are BOTH sensitive to the action space, and neither is a rules
+// instrument. `walkout` moved 191/107/32 -> 191/115/29 in the same change, and
+// that one was decomposed with a real control (see CLAUDE.md). A figure that
+// moves when the AI's options change is behaving correctly.
+//
+// This run also got materially SLOWER, and the bound at `MAX_GROUPED_MOVERS` was
+// chosen from the measurement rather than from taste: at 8 (255 groups per
+// battlefield) this probe went from ~120s to over ten minutes and `GAMES=1000`
+// stopped finishing at all; at 4 it is 244s. The AI evaluates every action it is
+// offered, so the fan-out's width is this probe's runtime.
+//
+// # THE PIN NOW CARRIES HEADROOM, AND THAT IS THE POINT
+//
+// **This probe is NOT deterministic, and every earlier re-base in this file was
+// written as though it were.** Two runs of the SAME build on 2026-08-14 gave 629
+// and then something below it. That is not a bug: the note above about UNL-019
+// and UNL-107 "oscillating on deck reshuffles alone" says so in as many words —
+// the decks are shuffled per run, which is what makes the sampling broad. The
+// consequence was simply never drawn.
+//
+// So a pin set to the LAST OBSERVED VALUE goes red on a clean tree roughly half
+// the time, and every such failure gets diagnosed as a card regression by whoever
+// hits it next. That, rather than any of the per-card stories above, is the best
+// explanation for how often this figure has been re-based — including twice on
+// the day this was written.
+//
+// The floor is therefore set ~4 BELOW the observed range (629-631 at GAMES=500)
+// rather than at it. A real regression does not move this figure by one or two:
+// removing a mechanism drops a bucket's worth, and a single card going dark shows
+// up in `neverExercised` by name, which is where a drop should be read anyway.
+//
+// **The alternative, and why it was not taken:** seeding the deck generator would
+// make this exact again. It would also fix coverage to ONE shuffle, and the
+// breadth of the sampling across runs is what has caught cards nobody predicted.
+// Headroom keeps both.
+const PINNED_UNION = 625;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

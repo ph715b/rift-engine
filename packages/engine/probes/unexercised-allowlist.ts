@@ -80,10 +80,20 @@ export const UNEXERCISED_ALLOWLIST: Readonly<Record<string, string>> = {
   // Not a blind spot — a condition self-play has never satisfied.
   // ---------------------------------------------------------------------------
 
-  "OGS-023":
-    "Garen - Might of Demacia: 'when you conquer, if you have 4+ units at that battlefield, draw 2'. The " +
-    "trigger IS held and reachable — test/legend-triggers-held.test.ts asserts it reaches the chain — but " +
-    "its `conquerCondition` (4+ friendly units surviving at the conquered battlefield) has not come up in " +
-    "500 games per mode. This one is a DECK/scenario gap, not an engine or observer one, and it would be " +
-    "closed by a deck built to mass units rather than by any change to the card.",
+  // **OGS-023 Garen - Might of Demacia LEFT this list on 2026-08-14, and his
+  // entry predicted the mechanism while naming the wrong agent.** It read:
+  // "'when you conquer, if you have 4+ units at that battlefield, draw 2'... its
+  // `conquerCondition` has not come up in 500 games per mode. This one is a
+  // DECK/scenario gap, not an engine or observer one, and it would be closed by a
+  // deck built to mass units rather than by any change to the card."
+  //
+  // It was closed by a change to neither the deck nor the card: `legal-actions`
+  // learned 144.3's simultaneous multi-unit move, so the AI can now put four
+  // units on one battlefield in a single action instead of four. The condition
+  // was never rare in the FORMAT — it was rare in the action space the AI had.
+  //
+  // Two entries have now expired this way (see OGN-158 above), and both say the
+  // same thing: **an allowlist entry is a claim about what the measurement can
+  // SEE, and it expires when the measurement changes, not when the card does.**
+  // Read every remaining excuse below as depth- and enumerator-dependent.
 };

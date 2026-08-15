@@ -166,7 +166,7 @@ describe("Mageseeker Investigator (UNL-163): refused, and its cost is unreachabl
    * The test below measures the OTHER half of the refusal, which is the half that
    * makes the whole card moot today.
    */
-  it("is WRITTEN now, and `legalActions` still never offers a move of more than one unit", () => {
+  it("is WRITTEN now, and `legalActions` offers the group move his tax is about", () => {
     // **Written 2026-08-14.** This wave's analysis was the one that got it right:
     // 204.4 makes it an Applied Cost with this very card as the rules' worked
     // example, so it belongs on the MoveUnit path and not in any effects registry
@@ -188,15 +188,35 @@ describe("Mageseeker Investigator (UNL-163): refused, and its cost is unreachabl
     ];
     state.battlefields[0]!.units = { p2: [realUnitInstance(MAGESEEKER_INVESTIGATOR)] };
 
+    // **BROKE with no runes, and that is the card working.** Three base units make
+    // 7 non-empty subsets (2^3 - 1) and there are two battlefields, so the complete
+    // 144.3 enumeration is 14. This player holds nothing, so every group of 2+
+    // headed for the Investigator's battlefield is unaffordable and 204.4.c drops
+    // it: 3 singletons to bf1 plus all 7 to bf2 is 10.
+    //
+    // It used to be 6 — one action per unit per battlefield — and the whole of
+    // this card's reachability is the difference.
     const moves = legalActions(state).filter((a): a is MoveUnitAction => a.type === "MoveUnit");
-    // Gate on having measured anything at all: an empty list would report "no
-    // multi-unit move" just as loudly as a correct one. Three base units by two
-    // battlefields, one action each — the exact number, so a fixture that stops
-    // producing moves fails here instead of reporting a vacuous pass.
-    expect(moves.length, "no move was enumerated — the fixture is wrong, not the refusal").toBe(6);
+    expect(moves.length, "the subset enumeration changed shape — recount it").toBe(10);
     expect(
-      moves.every((m) => m.unitInstanceIds.length === 1),
-      "a multi-unit move is enumerable now — the Investigator's applied cost has become reachable",
+      moves.filter((m) => m.destinationBattlefieldId === "bf1").every((m) => m.unitInstanceIds.length === 1),
+      "a group move onto his battlefield was offered with no way to pay for it",
+    ).toBe(true);
+    expect(
+      moves.some((m) => m.destinationBattlefieldId === "bf2" && m.unitInstanceIds.length > 1),
+      "no group move at all is enumerable — the widening is gone, not just the tax",
+    ).toBe(true);
+
+    // Give the mover the two rainbow it owes for a three-unit group and the four
+    // dropped actions come back. Measured as a pair so the 10 above is the tax
+    // rather than a missing feature.
+    const funded = { ...state, players: [{ ...state.players[0]!, channeled: runesFor(MAGESEEKER_INVESTIGATOR, 2) }, state.players[1]!] } as GameState;
+    const richer = legalActions(funded).filter((a): a is MoveUnitAction => a.type === "MoveUnit");
+    expect(richer.length, "funding the tax did not restore the group moves").toBe(14);
+    const taxed = richer.filter((m) => m.destinationBattlefieldId === "bf1" && m.unitInstanceIds.length > 1);
+    expect(
+      taxed.every((m) => (m.payment?.rainbowRunes ?? []).length === m.unitInstanceIds.length - 1),
+      "a group move onto his battlefield was offered untaxed",
     ).toBe(true);
   });
 });

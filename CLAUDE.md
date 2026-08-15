@@ -53,15 +53,52 @@ been built.
 stays green. Read it to the END (`tail` shows a misleading subset), and when it
 is red, diff the error list against HEAD before assuming the errors are yours.
 
-**Pinned probe figures.** `walkout` is **191 walkouts / 107 points / 32 closed
+**Pinned probe figures.** `walkout` is **190 walkouts / 113 points / 29 closed
 with nobody present**. A change to combat, timing or Might math that moves these
 needs the new number explained, not accepted.
 
-`reachability` is pinned at **630 of 692 cards needing code ever exercised**
-(OGN 228/248, OGS 20/22, SFD 188/198, UNL 194/224), at its default **500 games
-per mode**,
-which takes ~120s. A FLOOR, not an equality — it is supposed to rise, and the
-probe prints a line asking for the pin to be bumped when it does. A DROP is red.
+**It moved for the first time on 2026-08-14, from 191/107/32, and the cause was
+not in that list — it was the ACTION SPACE.** `legal-actions` began enumerating
+every subset of the units that can reach a battlefield (144.3's simultaneous
+move), so the AI commits several units in one action instead of dribbling them in
+one per action. It arrives in force, and fewer showdowns close empty.
+
+Decomposed by CONTROL, not by argument: making `nonEmptySubsets` return
+singletons and rebuilding reproduces 191/107/32 exactly. **That control was run
+twice and the first time it was worthless** — the probes load from `dist`, so a
+src edit without `npm run build` measures the PREVIOUS build. It agreed with the
+unmutated run to four figures, which is exactly what a working control looks
+like. Step 2 of the loop above is not optional for probes either.
+
+It then moved again in the same session, 191/115/29 → 190/113/29, when
+`MAX_GROUPED_MOVERS` was lowered from 8 to 4 for runtime. **That is the lesson
+worth keeping: this probe is sensitive to how wide the fan-out is, not only to
+what the rules do.** Expect it to move for any enumerator change and re-derive it
+by control, exactly as above.
+
+**`walkout` IS deterministic — five runs, same figures — and `reachability` is
+NOT.** Do not carry an assumption from one to the other; see the pin note below.
+
+`reachability` is pinned at **625, against an observed 629–631** of 692 cards
+needing code ever exercised, at its default **500 games per mode**, which takes
+**~244s** (it was ~120s before `legal-actions` learned 144.3's group move; the
+AI evaluates every action it is offered, so the move fan-out's width is this
+probe's runtime, and `MAX_GROUPED_MOVERS` is the dial).
+
+A FLOOR, not an equality — it is supposed to rise, and the probe prints a line
+asking for the pin to be bumped when it does.
+
+**The pin deliberately sits ~4 BELOW the observed range, and do not "correct" it
+upward.** This probe is NOT deterministic: it reshuffles decks per run, which is
+what the note below about cards "oscillating on deck reshuffles alone" is
+describing. Two runs of the same build on 2026-08-14 gave 629 and then less. A
+pin set to the last observed value therefore goes red on a clean tree about half
+the time, and each of those gets diagnosed as a card regression by whoever hits
+it next — which is the likeliest explanation for how often this figure has been
+re-based, including twice on the day this paragraph was written.
+
+So a one-or-two drop is NOISE. Read a real one off `neverExercised` BY NAME
+rather than off the total; removing a mechanism moves a whole bucket.
 
 **It dropped for the first time on 2026-08-10, by one, and it was NOT a
 regression** — worth knowing because the same shape recurs whenever a card is
