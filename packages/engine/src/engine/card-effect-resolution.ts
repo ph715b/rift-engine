@@ -1,4 +1,4 @@
-import type { SpellChainEntry, GameState } from "../model/game-state.js";
+import { repeatExecutionsOf, type RepeatChoices, type SpellChainEntry, type GameState } from "../model/game-state.js";
 import { cardModeOf, type ResolveEvent } from "./card-effects.js";
 import { contextFor } from "./effect-context.js";
 
@@ -44,12 +44,20 @@ function choicesOf(entry: SpellChainEntry): ResolveEvent {
  * `discardCardInstanceId` and `xAmount` are parts of the COST, and 820.1.c.1
  * pays the cost once, as the card is played.
  *
- * No `repeatChoices` at all means "the same choices again" — a legal thing to
- * choose, and what the enumerator samples.
+ * No choices at all means "the same choices again" — a legal thing to choose,
+ * and what the enumerator samples.
+ *
+ * Takes the execution's own choice set rather than reading `entry.repeatChoices`
+ * itself, because a card printing several instances (Curtain Call) has one such
+ * set PER paid instance and they are not interchangeable — 820.2 gives each
+ * execution its own Make Relevant Choices step. Every execution replaces against
+ * the SAME first-execution baseline, which is what "do not have to be the same as
+ * the choices made for the initial execution" (820.2.a) says: the additional
+ * executions are each measured against the initial one, not chained off each
+ * other.
  */
-function repeatChoicesOf(entry: SpellChainEntry): ResolveEvent {
+function repeatChoicesOf(entry: SpellChainEntry, second: RepeatChoices | undefined): ResolveEvent {
   const first = choicesOf(entry);
-  const second = entry.repeatChoices;
   if (second === undefined) return first;
   const {
     targetUnitInstanceId: _a,
@@ -131,17 +139,23 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
   // killed. 359.3 covers that: a check on something no longer available returns
   // null and calculations based on it are ignored, which is what every helper
   // here already does with a missing target.
-  if (entry.repeatPaid) {
-    // **The repeat may switch MODES**, so the second execution resolves through
-    // its own mode rather than reusing the first one's. 820.1.d works this
-    // example on Rocket Barrage by name: "they may choose the same mode or a
+  //
+  // ONE EXECUTION PER PAID INSTANCE, in the order the action lists them — 820.3,
+  // "the spell or ability's instructions will be executed an additional time on
+  // resolution for each instance of Repeat that is paid for". For every card but
+  // Curtain Call that list is at most one entry long and this loop runs the same
+  // single extra pass it always did.
+  for (const execution of repeatExecutionsOf(entry)) {
+    // **The repeat may switch MODES**, so each additional execution resolves
+    // through its own mode rather than reusing the first one's. 820.2.a works
+    // this example on Rocket Barrage by name: "they may choose the same mode or a
     // different one, and if they choose the same mode, may choose the same
-    // target or a different one." A repeat that names no mode reuses the first,
-    // which is what "the same choices again" means.
-    const repeatMode = entry.repeatChoices?.modeId !== undefined
-      ? cardModeOf(entry.card, entry.repeatChoices.modeId)
+    // target or a different one." An execution that names no mode reuses the
+    // first, which is what "the same choices again" means.
+    const repeatMode = execution.choices?.modeId !== undefined
+      ? cardModeOf(entry.card, execution.choices.modeId)
       : effect;
-    if (repeatMode) resolved = repeatMode.resolve(resolved, ctx, repeatChoicesOf(entry));
+    if (repeatMode) resolved = repeatMode.resolve(resolved, ctx, repeatChoicesOf(entry, execution.choices));
   }
   // Temporal Portal's GRANTED instance — 820.3: "the spell or ability's
   // instructions will be executed an additional time on resolution for each

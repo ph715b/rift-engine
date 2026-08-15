@@ -71,6 +71,64 @@ export interface RepeatChoices {
   modeId?: string;
 }
 
+/**
+ * One PAID instance of `[Repeat]`, and the choices ITS execution makes.
+ *
+ * # Why the instance is named rather than counted
+ *
+ * 820.1.c.2 — "if a spell or ability has more than one instance of Repeat, each
+ * Cost may be paid or not paid individually" — and 820.1.c.3 — "each Repeat Cost
+ * can be paid only a single time". UNL-182 Curtain Call prints three, at three
+ * DIFFERENT prices (`[1]` / `[rainbow]` / `[1][rainbow]`), so "how many were
+ * paid" does not price the play: paying the cheap one and paying the dear one buy
+ * the same extra execution for different runes. `instance` indexes
+ * `repeatCostsOf(defId)`, and the distinctness of those indices across a play is
+ * 820.1.c.3 enforced by the validator rather than left as a convention.
+ *
+ * # And why the choices live HERE rather than in a parallel list
+ *
+ * 820.2 gives every additional execution its own Make Relevant Choices step, so
+ * each has its own targets AND (820.2.a's Rocket Barrage example) its own mode.
+ * A second list keyed by the same index is the shape this repo keeps paying for:
+ * two fields each holding part of one truth drift apart the first time one of
+ * them is filtered. One entry per execution carries the whole of it.
+ *
+ * `choices` absent means "the same choices again", exactly what an absent
+ * `repeatChoices` has always meant — see `RepeatChoices`.
+ */
+export interface RepeatExecution {
+  /** Which printed instance was paid — an index into `repeatCostsOf(defId)`. */
+  instance: number;
+  /** This execution's own choices (820.2). Absent means "the same again". */
+  choices?: RepeatChoices;
+}
+
+/**
+ * The `[Repeat]` executions a play bought, from whichever spelling it used.
+ *
+ * **`repeatExecutions` is the canonical field and this is its only reader.** The
+ * pair below it — `repeatPaid` plus `repeatChoices` — is the ONE-INSTANCE
+ * spelling every card in the pool but Curtain Call needs, and is exactly
+ * equivalent to a single entry naming instance 0. Keeping it is not a second
+ * source of truth: it is a strictly narrower way of writing the same list, it is
+ * what the 26 `repeatPaid` readers and eleven test files already say, and the
+ * validator refuses the two spellings together so a play can never be described
+ * twice.
+ *
+ * Structural rather than typed on `PlayCardAction`, because a chain entry asks
+ * this same question with the same three fields and `model/` must not import
+ * `actions/`.
+ */
+export function repeatExecutionsOf(play: {
+  repeatExecutions?: readonly RepeatExecution[];
+  repeatPaid?: true;
+  repeatChoices?: RepeatChoices;
+}): readonly RepeatExecution[] {
+  if (play.repeatExecutions !== undefined) return play.repeatExecutions;
+  if (!play.repeatPaid) return [];
+  return [{ instance: 0, ...(play.repeatChoices !== undefined ? { choices: play.repeatChoices } : {}) }];
+}
+
 export interface SpellChainEntry {
   kind?: "spell";
   playerIndex: 0 | 1;
@@ -157,6 +215,11 @@ export interface SpellChainEntry {
    *  `repeatPaid` set means "the same choices again", which is a legal thing to
    *  choose and is what the enumerator samples. */
   repeatChoices?: RepeatChoices;
+  /** Every PAID printed `[Repeat]` instance and its own choices — the canonical
+   *  carrier since 2026-08-14, read through `repeatExecutionsOf`. Absent on a
+   *  play that used the one-instance spelling above, which is every card in the
+   *  pool but Curtain Call. */
+  repeatExecutions?: readonly RepeatExecution[];
   /** Which option a MODAL card chose (Rocket Barrage's "Choose one"). Absent for
    *  every ordinary card, whose single mode needs no naming. */
   modeId?: string;

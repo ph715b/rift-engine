@@ -1,5 +1,5 @@
 import { findUnitAnywhere } from "./target-lookup.js";
-import type { GameState } from "../model/game-state.js";
+import { repeatExecutionsOf, type GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
@@ -941,39 +941,52 @@ export function chosenUnitsOfPlay(choice: {
  * its own right: 820.1.d puts the additional execution's choices at the same
  * Make Relevant Choices step, so they are choices, so they are taxed.
  *
- * The fallback when `repeatChoices` is absent is the FIRST execution's own
- * choices, because that is what absent MEANS (see RepeatChoices) — so the
- * default repeat doubles the tax rather than escaping it.
+ * The fallback when an execution names no choices is the FIRST execution's own,
+ * because that is what absent MEANS (see RepeatChoices) — so the default repeat
+ * doubles the tax rather than escaping it.
  *
  * Mirrors `card-effect-resolution.ts`'s `repeatChoicesOf` exactly — including
- * that `targetPermanentInstanceId` is one of the fields `repeatChoices`
- * REPLACES, so a repeat that switches to a gear-targeting mode is taxed on the
- * gear it actually names rather than on whatever the first execution held. Two
- * spellings of that rule is how the price and the effect would come to disagree
- * about what was chosen.
+ * that `targetPermanentInstanceId` is one of the fields a choice set REPLACES,
+ * so a repeat that switches to a gear-targeting mode is taxed on the gear it
+ * actually names rather than on whatever the first execution held. Two spellings
+ * of that rule is how the price and the effect would come to disagree about what
+ * was chosen.
+ *
+ * **Summed over EVERY paid instance**, which is the same 2026-08-06 ruling read
+ * one step further: a Curtain Call paying all three of its printed Repeats
+ * executes four times and owes a `[Deflect]` unit four surcharges if it names it
+ * four times. `repeatExecutionsOf` is what makes that one loop rather than a
+ * branch on how many instances the card prints.
  */
 export function chosenUnitsOfRepeat(action: {
   repeatPaid?: true;
-  repeatChoices?: {
-    targetUnitInstanceId?: string;
-    secondTargetUnitInstanceId?: string;
-    targetUnitInstanceIds?: readonly string[];
-    targetPermanentInstanceId?: string;
-  };
+  repeatChoices?: RepeatChoiceFields;
+  repeatExecutions?: readonly { instance: number; choices?: RepeatChoiceFields }[];
   targetUnitInstanceId?: string;
   secondTargetUnitInstanceId?: string;
   targetUnitInstanceIds?: readonly string[];
   targetPermanentInstanceId?: string;
 }): (string | undefined)[] {
-  if (!action.repeatPaid) return [];
-  const second = action.repeatChoices;
-  if (second === undefined) return chosenUnitsOfPlay(action);
-  return [
-    second.targetUnitInstanceId,
-    second.secondTargetUnitInstanceId,
-    ...(second.targetUnitInstanceIds ?? []),
-    second.targetPermanentInstanceId,
-  ];
+  return repeatExecutionsOf(action).flatMap((execution) => {
+    const second = execution.choices;
+    if (second === undefined) return chosenUnitsOfPlay(action);
+    return [
+      second.targetUnitInstanceId,
+      second.secondTargetUnitInstanceId,
+      ...(second.targetUnitInstanceIds ?? []),
+      second.targetPermanentInstanceId,
+    ];
+  });
+}
+
+/** The subset of `RepeatChoices` that names something taxable — declared
+ *  structurally so this module keeps its existing freedom from `model/`'s
+ *  full type, exactly as it was written. */
+interface RepeatChoiceFields {
+  targetUnitInstanceId?: string;
+  secondTargetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+  targetPermanentInstanceId?: string;
 }
 
 /**

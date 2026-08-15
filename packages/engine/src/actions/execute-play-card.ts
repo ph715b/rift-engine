@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import { repeatExecutionsOf, type GameState, type PlayerState } from "../model/game-state.js";
 import type { RuneCard } from "../model/rune.js";
 import { applyContested } from "../engine/cleanup.js";
 import { dispatchOnPlayUnit } from "../engine/unit-triggers.js";
@@ -695,13 +695,19 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // is a multiset of ids for TRIGGERS, deduped implicitly by the listeners
     // themselves, while the surcharge is summed per choice precisely because the
     // same unit chosen twice owes twice.
+    //
+    // Every PAID instance's execution, not just one — `repeatExecutionsOf`
+    // normalises the one-instance spelling into the same list, so a Curtain Call
+    // that pays all three announces the units all four executions choose.
     const chosen = [
       action.targetUnitInstanceId,
       action.secondTargetUnitInstanceId,
       ...(action.targetUnitInstanceIds ?? []),
-      action.repeatChoices?.targetUnitInstanceId,
-      action.repeatChoices?.secondTargetUnitInstanceId,
-      ...(action.repeatChoices?.targetUnitInstanceIds ?? []),
+      ...repeatExecutionsOf(action).flatMap((execution) => [
+        execution.choices?.targetUnitInstanceId,
+        execution.choices?.secondTargetUnitInstanceId,
+        ...(execution.choices?.targetUnitInstanceIds ?? []),
+      ]),
     ].filter((id): id is string => id !== undefined);
     updatedActor = {
       ...actor,
@@ -803,6 +809,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // that never happens.
           ...(action.grantedRepeatPaid !== undefined ? { grantedRepeatPaid: action.grantedRepeatPaid } : {}),
           ...(action.repeatChoices !== undefined ? { repeatChoices: action.repeatChoices } : {}),
+          // The multi-instance spelling of the two fields above. Forwarded here
+          // rather than normalised on the way in, so the chain entry says what the
+          // player announced — and so `repeatExecutionsOf` is the only place that
+          // knows there are two spellings at all.
+          ...(action.repeatExecutions !== undefined ? { repeatExecutions: action.repeatExecutions } : {}),
           // Which option a modal card chose. Same dropped-field hazard as every
           // field above: enumerated, validated, and then silently lost here
           // would leave Rocket Barrage resolving whichever mode came first.
@@ -829,9 +840,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // flat zero with nothing thrown, which is how this was found.
     enemyChosen = [
       ...chosen,
-      ...[action.targetPermanentInstanceId, action.repeatChoices?.targetPermanentInstanceId].filter(
-        (id): id is string => id !== undefined,
-      ),
+      ...[
+        action.targetPermanentInstanceId,
+        ...repeatExecutionsOf(action).map((execution) => execution.choices?.targetPermanentInstanceId),
+      ].filter((id): id is string => id !== undefined),
     ];
   } else {
     updatedActor = {

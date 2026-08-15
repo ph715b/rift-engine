@@ -1,7 +1,7 @@
 import type { CardInstance } from "../model/card.js";
-import type { RepeatChoices } from "../model/game-state.js";
+import type { RepeatChoices, RepeatExecution } from "../model/game-state.js";
 
-export type { RepeatChoices };
+export type { RepeatChoices, RepeatExecution };
 
 /**
  * A rune payment: which specific channeled runes (by id) cover a cost's
@@ -265,8 +265,31 @@ export interface PlayCardAction {
    * "make the same choices again" — legal, and what the enumerator samples; see
    * legal-actions.ts for why the sampler stops there while the validator below
    * accepts any legal second set.
+   *
+   * **The ONE-INSTANCE spelling of `repeatExecutions` below**, and kept because
+   * it is what every card in the pool but Curtain Call needs. The two are
+   * mutually exclusive on one action — the validator says so — so a play is never
+   * described twice.
    */
   repeatChoices?: RepeatChoices;
+  /**
+   * Every PRINTED `[Repeat]` instance this play paid for, one entry each, with
+   * that execution's own choices — 820.1.c.2's "each Cost may be paid or not paid
+   * individually" made explicit on the announcement.
+   *
+   * **The canonical field.** `repeatPaid` above stays as the derived "at least
+   * one printed instance was paid" view its 26 readers already ask, and
+   * `repeatChoices` stays as the one-entry spelling; `repeatExecutionsOf` is the
+   * single place that normalises all three, so nothing downstream branches on
+   * which spelling arrived.
+   *
+   * `instance` indexes `repeatCostsOf(defId)` and must be in range and DISTINCT
+   * across the list — 820.1.c.3, "each Repeat Cost can be paid only a single
+   * time". The validator enforces both rather than trusting the enumerator: an
+   * action arrives from outside the engine, and naming instance 0 twice would
+   * otherwise buy two executions for one price.
+   */
+  repeatExecutions?: readonly RepeatExecution[];
   /**
    * Which option of a MODAL card this play chooses — Rocket Barrage's "Choose
    * one — Deal 4 to a unit in a base. [or] Kill a gear."

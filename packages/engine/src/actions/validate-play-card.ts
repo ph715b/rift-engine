@@ -1,4 +1,4 @@
-import type { GameState, PlayerState } from "../model/game-state.js";
+import { repeatExecutionsOf, type GameState, type PlayerState } from "../model/game-state.js";
 import { mayPlaceWithoutPresence, targetingForAnyCard, unitTriggerHasVisionChoice } from "../engine/unit-triggers.js";
 import {
   findUnitAnywhere,
@@ -47,7 +47,7 @@ import {
   optionalXpEnergyDiscountOf,
   optionalUnitCostOf,
   grantedRepeatCostOf,
-  repeatCostOf,
+  repeatCostsOf,
   slotScope,
   costNamesGear,
   type OptionalUnitCost,
@@ -555,7 +555,27 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   }
 
   // `[Repeat]` (820.1). Three separate questions, and they fail differently.
-  const repeatCost = repeatCostOf(card.defId);
+  //
+  // Every PRINTED instance this card has, in printed order — a one-element list
+  // for the twenty cards that print one, three for Curtain Call. `repeatCost`
+  // below is the first of them, which is what every single-instance check here
+  // has always meant.
+  const repeatCosts = repeatCostsOf(card.defId);
+  const repeatCost = repeatCosts[0];
+  // **The two spellings of the same list must never arrive together.** A play
+  // carrying both `repeatExecutions` and the `repeatPaid`/`repeatChoices` pair is
+  // describing itself twice, and `repeatExecutionsOf` would silently believe one
+  // of them — which is the drift this field was designed to avoid rather than
+  // to introduce.
+  if (action.repeatExecutions !== undefined && action.repeatChoices !== undefined) {
+    return fail(`${card.name} named both [Repeat] executions and a single [Repeat] choice set`);
+  }
+  // `=== true` rather than a bare compare: `repeatPaid` is `true | undefined`,
+  // never `false`, so a declined play spelled with an empty list would otherwise
+  // read as a disagreement between `undefined` and `false`.
+  if (action.repeatExecutions !== undefined && (action.repeatPaid === true) !== (action.repeatExecutions.length > 0)) {
+    return fail(`${card.name}'s repeatPaid flag disagrees with its [Repeat] executions`);
+  }
   // Temporal Portal's GRANTED instance, priced from the card's PRINTED cost.
   // Re-derived from state rather than trusted from the action: a client could
   // otherwise claim a grant it never armed and buy a second execution for the
@@ -572,11 +592,38 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (action.repeatPaid && repeatCost === undefined) {
     return fail(`${card.name} does not have [Repeat]`);
   }
+  // 820.1.c.2 / 820.1.c.3: each printed instance is paid or not paid
+  // individually, and each can be paid only a SINGLE time. Both re-derived here
+  // rather than trusted from the enumerator — an action arrives from outside the
+  // engine, and naming instance 0 twice would otherwise buy two executions for
+  // one price.
+  const executions = repeatExecutionsOf(action);
+  const namedInstances = new Set<number>();
+  for (const execution of executions) {
+    if (!Number.isInteger(execution.instance) || execution.instance < 0 || execution.instance >= repeatCosts.length) {
+      return fail(`${card.name} has no [Repeat] instance ${execution.instance}`);
+    }
+    if (namedInstances.has(execution.instance)) {
+      return fail(`${card.name}'s [Repeat] instance ${execution.instance} was paid more than once`);
+    }
+    namedInstances.add(execution.instance);
+  }
   // **A `[Repeat]` priced in CARDS.** Square Up's "Discard 1" — re-derived here
   // rather than trusted from the action, the discipline every cost in this file
   // keeps: a hand-built action could otherwise repeat for free, or discard a card
   // it does not hold.
-  const repeatDiscardNeeded = repeatCost?.discard ?? 0;
+  //
+  // Summed over the PAID instances rather than read off the first, so a card
+  // printing a discard on its second Repeat is priced by which one was bought.
+  // `repeatDiscardCardInstanceId` is one field and can therefore name only one
+  // card: two discard-priced instances on one card would need a list, and the
+  // check below refuses that combination rather than silently discarding once —
+  // no card in the pool prints it, and `repeat-cost-table.test.ts` is where that
+  // premise is asserted.
+  const repeatDiscardNeeded = executions.reduce((sum, e) => sum + (repeatCosts[e.instance]?.discard ?? 0), 0);
+  if (repeatDiscardNeeded > 1) {
+    return fail(`${card.name} paid two [Repeat] instances that each cost a discard, which one action cannot name`);
+  }
   if (action.repeatPaid && repeatDiscardNeeded > 0) {
     const named = action.repeatDiscardCardInstanceId;
     if (named === undefined) {
@@ -600,23 +647,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   if (action.repeatChoices !== undefined && !action.repeatPaid) {
     return fail(`${card.name} named [Repeat] choices without paying its [Repeat] cost`);
   }
-  // 820.1.d's second execution names its OWN targets, checked by the same
+  // 820.2's additional executions name their OWN targets, checked by the same
   // function as the first. `undefined` is legal and means "the same choices
   // again" — see RepeatChoices.
-  if (action.repeatPaid && action.repeatChoices !== undefined) {
-    // **The repeat may switch MODES**, and if it does its targets are checked
-    // against THAT mode's spec — 820.1.d works the example on Rocket Barrage:
+  for (const execution of executions) {
+    if (execution.choices === undefined) continue;
+    // **A repeat may switch MODES**, and if it does its targets are checked
+    // against THAT mode's spec — 820.2.a works the example on Rocket Barrage:
     // "they may choose the same mode or a different one". Validating a
     // mode-switched repeat against the first mode's targeting would refuse a
     // legal play (a gear named where the first mode wanted a unit) and accept an
     // illegal one.
-    const repeatModeId = action.repeatChoices.modeId;
+    const repeatModeId = execution.choices.modeId;
     if (repeatModeId !== undefined) {
       if (modes.length <= 1) return fail(`${card.name} is not modal, so its [Repeat] cannot choose a mode`);
       if (!modes.some((m) => m.id === repeatModeId)) return fail(`${card.name} has no mode "${repeatModeId}"`);
     }
     const repeatTargeting = targetingForAnyCard(card, repeatModeId ?? action.modeId);
-    const repeatError = targetingRejection(state, action.playerIndex, card.name, repeatTargeting, action.repeatChoices);
+    const repeatError = targetingRejection(state, action.playerIndex, card.name, repeatTargeting, execution.choices);
     if (repeatError !== null) return fail(`${card.name}'s [Repeat] execution: ${repeatError}`);
   }
 
@@ -1008,11 +1056,21 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Marai Spire's "while you control this battlefield, friendly [Repeat] costs
   // cost [1] less" — applied through the shared modifier so the enumerator
   // cannot price it differently.
-  const repeatEnergy = action.repeatPaid
-    ? modifiedRepeatEnergy(state, action.playerIndex, repeatCost?.energy ?? 0)
-    : 0;
-  const repeatPower = action.repeatPaid ? repeatCost?.power ?? 0 : 0;
-  const repeatRainbow = action.repeatPaid ? repeatCost?.rainbowPower ?? 0 : 0;
+  //
+  // ONE BUNDLE PER PAID INSTANCE, not one summed bundle: 820.1.c.2 makes each
+  // instance its own Optional Additional Cost, and the 2026-08-08 ruling gives
+  // each qualifying optional additional cost its own Ezreal pip. Summing first
+  // and discounting once is the exact mistake the granted instance's note below
+  // records having shipped, from the other side. For the twenty single-instance
+  // cards this is a one-element list and prices identically.
+  const repeatBundles = executions.map((execution) => {
+    const cost = repeatCosts[execution.instance]!;
+    return {
+      energy: modifiedRepeatEnergy(state, action.playerIndex, cost.energy),
+      power: cost.power ?? 0,
+      rainbow: cost.rainbowPower ?? 0,
+    };
+  });
   // The granted instance is a SECOND additional cost and adds on top of the
   // printed one — 820.1.c.2 makes them independently payable, so a spell can owe
   // both. `modifiedRepeatEnergy` applies to it too: Marai Spire's discount is
@@ -1049,7 +1107,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // which is what keeps the two from disagreeing.
   const additional = discountedOptionalCosts(state, action.playerIndex, action.targetDiscountAxis, [
     ...(action.acceleratePaid ? [{ energy: accelerateEnergy, power: acceleratePower, rainbow: 0 }] : []),
-    ...(action.repeatPaid ? [{ energy: repeatEnergy, power: repeatPower, rainbow: repeatRainbow }] : []),
+    ...repeatBundles,
     ...(action.grantedRepeatPaid ? [{ energy: grantedEnergy, power: grantedPower, rainbow: 0 }] : []),
     ...(action.optionalPowerPaid
       ? [{ energy: optionalPower?.energy ?? 0, power: optionalPower?.count ?? 0, rainbow: 0 }]
