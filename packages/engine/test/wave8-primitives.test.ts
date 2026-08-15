@@ -62,13 +62,17 @@ describe("Baron Nashor (UNL-147) can't be chosen by enemy spells and abilities",
     expect(unitChooseableBy(state, baron, 0, 1), "his protection turned out to be conditional").toBe(false);
   });
 
-  it("leaves him HALF written — the battlefield token is still unwritten", () => {
-    // Two of three clauses now. The third is systemic: nothing in this engine can
-    // add a battlefield at all, which is why it is a refusal rather than a to-do.
-    expect(isCardImplemented(registry.get("UNL-147")), "Baron claims to be finished").toBe(false);
-    expect(partialImplementationNote(registry.get("UNL-147")), "his remaining gap is unrecorded").toMatch(
-      /two of three clauses/,
-    );
+  it("...and he is WHOLE now — all three clauses, as of 2026-08-14", () => {
+    // **This asserted the WRONG answer on purpose and fired.** It read: "the third
+    // is systemic: nothing in this engine can add a battlefield at all, which is
+    // why it is a refusal rather than a to-do." The Pit has no card data — that
+    // half was right — but the engine was never fixed at two battlefields, and
+    // `engine/battlefield-tokens.ts` is the writer that was missing.
+    //
+    // Inverted rather than deleted: a partial note reappearing here would mean
+    // somebody re-added a row without re-reading the card.
+    expect(partialImplementationNote(registry.get("UNL-147")), "a partial note came back").toBeUndefined();
+    expect(isCardImplemented(registry.get("UNL-147")), "Baron went back to unimplemented").toBe(true);
   });
 });
 

@@ -583,21 +583,20 @@ const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // `activationCostFor` changes: the cost is derived per TARGET at all three
   // sites (enumerator, validator, executor), the same three-site discipline the
   // PlayCard path keeps.
-  // **UNL-147 Baron Nashor, written by a THIRD in wave 7.** His "other friendly
-  // units have +2 [Might]" landed as this engine's first `mightModifiers` entry;
-  // his other two sentences did not, and both leave him weaker than printed.
+
+  // **UNL-147 Baron Nashor LEFT this map on 2026-08-14.** Its note read: "two of
+  // three clauses ... 'add the Baron Pit battlefield token to the board' is
+  // unwritten, and is SYSTEMIC rather than a card gap — nothing in this engine can
+  // add a battlefield at all, battlefieldPair builds exactly two at setup with ids
+  // stable for the game, and the Pit has no card data in unl.json."
   //
-  // The first is systemic rather than a card gap, and was checked rather than
-  // assumed: **nothing in the engine can add a battlefield at all.**
-  // `battlefieldPair` builds exactly two at setup with ids stable for the game's
-  // lifetime, no writer appends to `state.battlefields`, and the Baron Pit has no
-  // card data in unl.json — 187.9 would have to be transcribed. 172 makes the
-  // battlefield count a property of the Mode of Play, so a third one is a third
-  // scoring location and would move `walkout`'s pinned figures.
-  [
-    "UNL-147",
-    "two of three clauses: the +2 Might aura and 'I can't be chosen by enemy spells and abilities' both work; 'add the Baron Pit battlefield token to the board' is unwritten, and is SYSTEMIC rather than a card gap — nothing in this engine can add a battlefield at all, battlefieldPair builds exactly two at setup with ids stable for the game, and the Pit has no card data in unl.json",
-  ],
+  // The card-data half was right and is still right: there is no Baron Pit card in
+  // any of the four set files, so `engine/battlefield-tokens.ts` authors it from
+  // the reminder text printed on Baron himself — the call `token.ts` already makes
+  // for the Gold gear token. The SYSTEMIC half was an inference from setup to the
+  // engine and did not hold: `state.battlefields` is a list every site walks
+  // without assuming a length, and the web board already sizes its grid from it.
+  // See `test/baron-pit.test.ts`.
   // **UNL-020 Dancing Grenade LEFT this map on 2026-08-14**, and its note is worth
   // keeping because it was RIGHT about the blocker and WRONG about the fix — twice
   // over, having already been re-triaged once. It read: the replay is granted to

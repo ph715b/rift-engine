@@ -26,6 +26,7 @@ import { powerCostOf } from "../model/card.js";
 import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
 import { mayPlayFromTrash, mayPlayFromTrashOnCharge } from "../engine/timing.js";
 import { holdsGrantedReplacedCost, replacedCostFor } from "../engine/replaced-costs.js";
+import { addBattlefieldToken, baronPitEntryFor } from "../engine/battlefield-tokens.js";
 
 /**
  * Resolves a validated PlayCard action, returning a new GameState rather than
@@ -537,10 +538,27 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       nextUnitsEnterReady,
     };
 
-    if (action.destinationBattlefieldId === undefined) {
-      const players = [...state.players] as [PlayerState, PlayerState];
+    // **UNL-147 Baron Nashor's "as you play me", and it happens BEFORE he lands.**
+    //
+    // "Add the Baron Pit battlefield token to the board if it's not there
+    // already. If you do, I enter there." Both halves are replacements on the
+    // PLAY rather than an on-play trigger: `dispatchOnPlayUnit` runs after the
+    // unit is already standing somewhere, and a Baron who arrived at base and was
+    // then moved would fire arrival triggers for the wrong location and contest a
+    // battlefield he was never played to.
+    //
+    // "If you DO" is load-bearing: with the Pit already on the board nothing is
+    // added, so the clause is false and he enters wherever this play named — base,
+    // or a battlefield he is reinforcing. That is why this returns the destination
+    // rather than forcing one.
+    const baronPit = baronPitEntryFor(state, card);
+    const withPit = baronPit === undefined ? state : addBattlefieldToken(state, baronPit.token);
+    const destinationBattlefieldId = baronPit?.enterThere ?? action.destinationBattlefieldId;
+
+    if (destinationBattlefieldId === undefined) {
+      const players = [...withPit.players] as [PlayerState, PlayerState];
       players[action.playerIndex] = { ...updatedActor, baseUnits: [...actor.baseUnits, deployedUnit] };
-      const next: GameState = { ...state, players };
+      const next: GameState = { ...withPit, players };
       return dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, "base", {
         ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         // Akshan - Mischievous' enemy gear. Forwarded for the reason
@@ -604,19 +622,21 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       });
     }
 
-    const players = [...state.players] as [PlayerState, PlayerState];
+    const players = [...withPit.players] as [PlayerState, PlayerState];
     players[action.playerIndex] = updatedActor;
 
-    const bfIndex = state.battlefields.findIndex((bf) => bf.id === action.destinationBattlefieldId);
-    const bf = state.battlefields[bfIndex]!;
-    const battlefields = [...state.battlefields];
+    // Read off `withPit` and `destinationBattlefieldId`, not off `state` and the
+    // action: the Baron Pit may have just been added, and it is where he lands.
+    const bfIndex = withPit.battlefields.findIndex((bf) => bf.id === destinationBattlefieldId);
+    const bf = withPit.battlefields[bfIndex]!;
+    const battlefields = [...withPit.battlefields];
     battlefields[bfIndex] = {
       ...bf,
       units: { ...bf.units, [actor.id]: [...(bf.units[actor.id] ?? []), deployedUnit] },
     };
 
-    let next: GameState = { ...state, players, battlefields };
-    next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: action.destinationBattlefieldId }, {
+    let next: GameState = { ...withPit, players, battlefields };
+    next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: destinationBattlefieldId }, {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         // Akshan - Mischievous' enemy gear. Forwarded for the reason
         // `trashCardInstanceId` beside it carries a paragraph about: a field
@@ -668,7 +688,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // Contested now, Showdown staged by the following Cleanup — identical
     // treatment to a Move (rule 190.3.a's "Moves or otherwise becomes present"),
     // which is the point of routing both through applyContested.
-    return applyContested(next, action.destinationBattlefieldId, action.playerIndex);
+    return applyContested(next, destinationBattlefieldId, action.playerIndex);
   }
 
   let updatedActor: PlayerState;

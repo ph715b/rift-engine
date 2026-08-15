@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { battlefieldTakesMovesFromAnywhere } from "../engine/battlefield-tokens.js";
 import { unitMayMoveThisTurn } from "../engine/battlefield-continuous.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -64,7 +65,15 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
       // effectiveKeywords, not unit.keywords: Raging Soul and Bilgewater Bully
       // GAIN Ganking conditionally, and a granted keyword has to behave exactly
       // like a printed one.
-      if (!hasKeyword(state, unit, action.playerIndex, "Ganking")) {
+      //
+      // **The Baron Pit overrides it for its own destination** — "Units can move
+      // here from anywhere", which is exactly 813's restriction being lifted. Asked
+      // through the same helper `legal-actions.movableTo` asks, so the enumerator
+      // and this gate cannot disagree about a move.
+      if (
+        !hasKeyword(state, unit, action.playerIndex, "Ganking") &&
+        !battlefieldTakesMovesFromAnywhere(state, destination.id)
+      ) {
         return fail(`${unit.name} needs Ganking to move battlefield-to-battlefield`);
       }
     }

@@ -235,16 +235,18 @@ describe("what is NOT written on Baron Nashor — pinned, so closing it fails lo
     expect(unitChooseableBy(state, b, 0, 0), "his own controller could not choose him").toBe(true);
   });
 
-  it("his FIRST sentence is unwritten: playing him adds no battlefield, and he lands where he was played", () => {
-    // "As you play me, add the Baron Pit battlefield token to the board if it's not
-    // there already. If you do, I enter there." **187.9** defines the token
-    // ("Units can move here from anywhere") and **369.3** makes the last sentence a
-    // replacement effect on his entry location; **172** makes the number of
-    // battlefields a property of the Mode of Play, and this engine builds exactly
-    // two at setup with no writer that appends one.
+  it("his FIRST sentence LANDED TOO — playing him adds the Pit and he enters there", () => {
+    // **This pin asserted the WRONG answer on purpose and fired on 2026-08-14.** It
+    // read: "as you play me, add the Baron Pit battlefield token ... this engine
+    // builds exactly two at setup with no writer that appends one."
     //
-    // A REAL play through `legalActions` + `submit`, not a resolver call: the whole
-    // point of the pin is that nothing in the live play path creates the token.
+    // The half about card data was right and still is — no Baron Pit card exists in
+    // any set file, so `engine/battlefield-tokens.ts` authors it from the reminder
+    // text printed on Baron. The half about the engine was an inference from setup
+    // and did not hold: `state.battlefields` is a list nothing assumes the length
+    // of. Inverted rather than deleted, for the reason the sentence-two pin above
+    // gives — the full behaviour lives in `test/baron-pit.test.ts`, and what stays
+    // here is that this wave's card really does reach it through a REAL play.
     const state = richState();
     const b = baron();
     state.players[0]!.hand = [b];
@@ -259,14 +261,13 @@ describe("what is NOT written on Baron Nashor — pinned, so closing it fails lo
     expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
     const settled = resolveHeldTriggers(next);
 
-    expect(settled.battlefields.length, "a third battlefield appeared — retire this pin").toBe(2);
-    expect(settled.battlefields.map((bf) => bf.name)).not.toContain("Baron Pit");
+    expect(settled.battlefields.length, "the Pit was not added").toBe(3);
+    expect(settled.battlefields.map((bf) => bf.name)).toContain("Baron Pit");
     expect(
       settled.players[0]!.baseUnits.some((u) => u.instanceId === b.instanceId),
-      "he did not land in the base he was played to",
-    ).toBe(true);
+      "he stayed in base instead of entering the Pit",
+    ).toBe(false);
   });
-
   it("coverage sees him through the Might-modifier seam", () => {
     // He is reported by `effectiveMightDefIds`, so the registered clause is not
     // counted inert. **He still owes a `coverage.PARTIALLY_IMPLEMENTED` row** for

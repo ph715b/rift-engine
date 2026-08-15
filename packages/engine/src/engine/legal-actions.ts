@@ -89,6 +89,7 @@ import {
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { replacedCostFor } from "./replaced-costs.js";
+import { battlefieldTakesMovesFromAnywhere } from "./battlefield-tokens.js";
 import { foreignRepeatPip, reserveForeignPip, standingRepeatGrantFor } from "./repeat-grants.js";
 import { moveSurchargeFor } from "./move-surcharge.js";
 import {
@@ -162,11 +163,18 @@ export function secondTargetIsAtDestination(
 function movableTo(state: GameState, playerIndex: 0 | 1, destinationId: string): UnitInstance[] {
   const actor = state.players[playerIndex];
   const fromBase = actor.baseUnits.filter((u) => !u.exhausted && unitMayMoveThisTurn(state, u.instanceId));
+  // **The Baron Pit lifts 813's [Ganking] restriction for its own destination** —
+  // "Units can move here from anywhere". Asked through the same helper
+  // `validate-move-unit` asks, so an offered move can never be refused.
+  const anywhere = battlefieldTakesMovesFromAnywhere(state, destinationId);
   const fromBattlefields = state.battlefields.flatMap((bf) =>
     bf.id === destinationId
       ? []
       : (bf.units[actor.id] ?? []).filter(
-          (u) => !u.exhausted && unitMayMoveThisTurn(state, u.instanceId) && hasKeyword(state, u, playerIndex, "Ganking"),
+          (u) =>
+            !u.exhausted &&
+            unitMayMoveThisTurn(state, u.instanceId) &&
+            (anywhere || hasKeyword(state, u, playerIndex, "Ganking")),
         ),
   );
   return [...fromBase, ...fromBattlefields];

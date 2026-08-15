@@ -16,6 +16,7 @@ import {
 import { decisionDefIds } from "../src/engine/decisions.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { loadBattlefieldDefinitions, loadTokenDefinitions } from "../src/cards/card-loader.js";
+import { battlefieldTokenDefIds } from "../src/engine/battlefield-tokens.js";
 import {
   KEYWORDS,
   NON_KEYWORD_BRACKETS,
@@ -185,12 +186,25 @@ describe("coverage.ts knows about every place a card can be implemented", () => 
     // never held. Loosening the check to "ignore ids starting TOKEN-" would
     // have let a typo through; asking `loadTokenDefinitions()` keeps the teeth,
     // because a token id backed by no printed card still fails here.
+    // **BATTLEFIELD TOKENS are the FOURTH source, added 2026-08-14.** The Baron
+    // Pit and the Brush are battlefields a card puts on the board mid-game, and
+    // neither is in any set file at all — measured across all four. Their rules
+    // text is printed in the REMINDER TEXT of the cards that make them (UNL-147
+    // and UNL-195), so it is quoted in `engine/battlefield-tokens.ts` rather than
+    // loaded. Same argument as the Gold token one line up, one step further: the
+    // card that names the token is real, and asking the authored list keeps the
+    // teeth because a typo'd token id is in none of the four sources.
     const battlefieldIds = new Set(loadBattlefieldDefinitions().map((b) => b.id));
     const tokenIds = new Set(loadTokenDefinitions().map((t) => t.runtimeDefId));
+    const battlefieldTokenIds = new Set(battlefieldTokenDefIds());
     for (const { defId, file } of occurrences) {
       const module = implementingModule(defId);
       if (module === undefined) continue;
-      const real = registry.tryGet(defId) !== undefined || battlefieldIds.has(defId) || tokenIds.has(defId);
+      const real =
+        registry.tryGet(defId) !== undefined ||
+        battlefieldIds.has(defId) ||
+        tokenIds.has(defId) ||
+        battlefieldTokenIds.has(defId);
       expect(real, `${module} claims ${defId} (referenced in ${file}) but it is not a real card`).toBe(true);
     }
   });
