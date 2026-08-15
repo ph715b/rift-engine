@@ -448,6 +448,41 @@ export const cardEffects: Record<string, EffectDefinition> = {
     // which is how it will usually be cast; "you haven't already chosen" has
     // nothing to exclude when there is only one choice.
     //
+    // # MEASURED 2026-08-14, so the next pass does not re-derive it
+    //
+    // This repo's standing rule is that a note about its own mechanisms is wrong
+    // ten times out of eleven, so this is a measurement rather than a plan: 53
+    // references to `repeatPaid` / `repeatChoices` / `repeatCostOf` across 12
+    // files (`player-action`, `legal-actions`, `validate-play-card`,
+    // `execute-play-card`, `card-effect-resolution`, `card-effects`, `coverage`,
+    // `granted-keywords`, `game-state`, and three domain files). That is larger
+    // than Syndra's fourth payment bucket, which was 17 sites across 10.
+    //
+    // What has to change, in dependency order:
+    //   1. `REPEAT_COSTS` maps one defId to ONE `RepeatCostSpec`. Curtain Call
+    //      needs a LIST — three instances, `[1]`, `[rainbow]`, `[1][rainbow]`.
+    //   2. `PlayCardAction.repeatPaid` is a boolean. It has to become WHICH
+    //      printed instances were paid, and `repeatChoices` has to become one
+    //      entry PER paid instance — 820.2 gives each execution its own Make
+    //      Relevant Choices step, which is what "one you haven't already chosen"
+    //      reads.
+    //   3. `card-effect-resolution` runs the effect once per paid instance with
+    //      that instance's own choices, and the modes chosen must be DISTINCT
+    //      across executions.
+    //   4. The enumerator fan-out is the risk: 8 subsets of three instances,
+    //      times up to 4! orderings of distinct modes, times targets per mode.
+    //      **It needs a stated bound**, the same way `MAX_GROUPED_MOVERS` bounds
+    //      the 144.3 move fan-out — the AI evaluates every action it is offered,
+    //      and that lesson cost this repo a 5x slowdown on `reachability` the day
+    //      this was written.
+    //
+    // **It should also close UNL-146 Syndra's recorded under-offer**, which is
+    // the same missing thing from the other side: two GRANTED instances at once
+    // (Syndra beside an armed Temporal Portal) have nowhere to be recorded while
+    // `grantedRepeatPaid` is one boolean. Whoever builds the list for printed
+    // instances should check whether the granted ones can share it, and delete
+    // that divergence rather than leaving it to be rediscovered.
+    //
     // # The modes
     //
     // The two damage modes differ ONLY in where they may point, and the printed
