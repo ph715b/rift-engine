@@ -7,6 +7,7 @@ import { holdBattlefieldTrigger } from "../engine/battlefield-abilities.js";
 import { findUnitOnBattlefield } from "../engine/target-lookup.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { validateMoveUnit } from "./validate-move-unit.js";
+import { moveSurchargeFor, payMoveSurcharge } from "../engine/move-surcharge.js";
 
 function removeFromOrigin(state: GameState, playerIndex: 0 | 1, unitId: string): { state: GameState; unit: UnitInstance } {
   const actor = state.players[playerIndex];
@@ -38,7 +39,9 @@ function addToBattlefield(state: GameState, playerIndex: 0 | 1, battlefieldId: s
  * Resolves a validated MoveUnit action, returning a new GameState. Mirrors
  * ActionExecutor.executeMoveUnit (engine/ActionExecutor.java:811-892), minus
  * every named-card trigger (Ahri - Nine-Tailed Fox, Yasuo - Windrider,
- * Noxian Drummer) and the Mageseeker Investigator surcharge. Every moved
+ * Noxian Drummer). **The Mageseeker Investigator surcharge, which this header
+ * listed as missing since the file was written, landed on 2026-08-14** and is the
+ * first cost a Standard Move has ever had beyond 144.2's exhaust. Every moved
  * unit is exhausted unconditionally (a real core rule, not a placeholder —
  * `unit.exhaust()` runs for every move regardless of destination,
  * ActionExecutor.java:849).
@@ -60,7 +63,22 @@ export function executeMoveUnit(state: GameState, action: MoveUnitAction): GameS
   const validation = validateMoveUnit(state, action);
   if (!validation.ok) throw new Error(validation.error);
 
+  // **UNL-163 Mageseeker Investigator's surcharge, paid FIRST.** Before the units
+  // move, because the tax is on the board as it stands when the action is taken —
+  // and because the Investigator's own battlefield is the thing being read, which
+  // the arriving units would change.
+  //
+  // Re-derived here rather than trusted from the action, the third cost site
+  // asking the same function the validator does. `payMoveSurcharge` returning
+  // undefined can only mean the pool moved between validation and execution,
+  // which is a throw for the same reason an unpayable activation cost is.
+  const owed = moveSurchargeFor(state, action.playerIndex, action.destinationBattlefieldId, action.unitInstanceIds.length);
   let next = state;
+  if (owed > 0) {
+    const paid = payMoveSurcharge(next, action.playerIndex, (action.payment?.rainbowRunes ?? []).slice(0, owed));
+    if (paid === undefined) throw new Error("The move surcharge cannot be paid");
+    next = paid;
+  }
   for (const unitId of action.unitInstanceIds) {
     // Where it came FROM, captured before the removal — `removeFromOrigin` is
     // what makes that unanswerable afterwards.

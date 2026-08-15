@@ -166,8 +166,19 @@ describe("Mageseeker Investigator (UNL-163): refused, and its cost is unreachabl
    * The test below measures the OTHER half of the refusal, which is the half that
    * makes the whole card moot today.
    */
-  it("is unwritten, and `legalActions` never offers a move of more than one unit", () => {
-    expect(isCardImplemented(registry.get(MAGESEEKER_INVESTIGATOR)), "someone wrote it — rewrite this pin").toBe(false);
+  it("is WRITTEN now, and `legalActions` still never offers a move of more than one unit", () => {
+    // **Written 2026-08-14.** This wave's analysis was the one that got it right:
+    // 204.4 makes it an Applied Cost with this very card as the rules' worked
+    // example, so it belongs on the MoveUnit path and not in any effects registry
+    // — and `MoveUnitAction` already looped over `unitInstanceIds`, so the
+    // multi-unit move was never the missing piece. What was missing was exactly
+    // what this comment says: a `payment` on the action plus the surcharge in the
+    // validator and the executor. Behaviour is in `mageseeker-investigator.test.ts`.
+    //
+    // **The enumerator half below is UNCHANGED and still true**, and it is kept
+    // for that reason rather than deleted: the AI cannot make the move this taxes,
+    // so the card is live for a human client and inert for a probe.
+    expect(isCardImplemented(registry.get(MAGESEEKER_INVESTIGATOR)), "he went back to unimplemented").toBe(true);
 
     const state = makeState({ phase: "Action", activePlayerIndex: 0 });
     state.players[0]!.baseUnits = [

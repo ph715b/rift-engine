@@ -3,6 +3,7 @@ import { unitMayMoveThisTurn } from "../engine/battlefield-continuous.js";
 import type { MoveUnitAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import { hasKeyword } from "../engine/granted-keywords.js";
+import { moveSurchargeFor } from "../engine/move-surcharge.js";
 
 /**
  * Validates a MoveUnit action. Mirrors ActionValidator.validateMoveUnit
@@ -66,6 +67,27 @@ export function validateMoveUnit(state: GameState, action: MoveUnitAction): Vali
       if (!hasKeyword(state, unit, action.playerIndex, "Ganking")) {
         return fail(`${unit.name} needs Ganking to move battlefield-to-battlefield`);
       }
+    }
+  }
+
+  // **UNL-163 Mageseeker Investigator's surcharge.** This function's own header
+  // used to name it as one of the omissions; it is the last of them to land.
+  //
+  // A COST, never a prohibition. The card makes a group move expensive, not
+  // impossible, so a mover who cannot pay is refused THIS action and remains free
+  // to move the same units one at a time for nothing — which is exactly what the
+  // printed text leaves them.
+  //
+  // Re-derived from the board rather than trusted from the action, the same rule
+  // every other cost site here follows: a client could otherwise quote itself a
+  // cheaper move than the one it names. The runes must also still be in the
+  // mover's pool, since naming an id is not holding it.
+  const owed = moveSurchargeFor(state, action.playerIndex, destination.id, action.unitInstanceIds.length);
+  if (owed > 0) {
+    const named = action.payment?.rainbowRunes ?? [];
+    const held = named.filter((id) => actor.channeled.some((r) => r.id === id));
+    if (held.length < owed) {
+      return fail(`Moving ${action.unitInstanceIds.length} units to ${destination.name} costs ${owed} rainbow Power`);
     }
   }
 

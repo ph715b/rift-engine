@@ -280,15 +280,31 @@ export interface PassAction {
 /**
  * Moves one or more units (base -> battlefield, or battlefield ->
  * battlefield if [Ganking]) to `destinationBattlefieldId` in one action.
- * Mirrors PlayerAction.MoveUnit (engine/PlayerAction.java) — Java's variant
- * also carries a `payment` for the Mageseeker Investigator rainbow-Power
- * surcharge, a single named card's cost not modeled here.
+ * Mirrors PlayerAction.MoveUnit (engine/PlayerAction.java).
  */
 export interface MoveUnitAction {
   type: "MoveUnit";
   playerIndex: 0 | 1;
   unitInstanceIds: string[];
   destinationBattlefieldId: string;
+  /**
+   * Rainbow runes recycled to pay UNL-163 Mageseeker Investigator's surcharge —
+   * "opponents must pay [rainbow] for each unit beyond the first to move multiple
+   * units to my battlefield at the same time".
+   *
+   * **The move path had no cost to carry until 2026-08-14**, and that was not an
+   * oversight: 144.2 makes exhausting the unit the entire cost of a standard
+   * move, so nothing else had a price. Java's variant carried this field for
+   * exactly this card, and the comment here used to say so while calling it "not
+   * modeled".
+   *
+   * Rainbow only, so it reuses `RunePayment`'s existing any-domain bucket rather
+   * than a new shape; the other two buckets are always empty on a move. Absent on
+   * every move that owes nothing, which is every single-unit move and every move
+   * to a battlefield the Investigator is not standing at — so an ordinary move's
+   * action is byte-for-byte what it always was.
+   */
+  payment?: RunePayment;
 }
 
 /**

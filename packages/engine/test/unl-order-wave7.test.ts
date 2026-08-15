@@ -91,7 +91,7 @@ const payableTowardRainbow = (state: GameState, playerIndex: 0 | 1): number => {
   );
 };
 
-describe("Mageseeker Investigator (UNL-163): REFUSED — a Standard Move has no cost to add to", () => {
+describe("Mageseeker Investigator (UNL-163): WRITTEN — the Standard Move gained its first cost", () => {
   /**
    * "Opponents must pay :rainbow: for each unit beyond the first to move multiple
    * units to my battlefield at the same time."
@@ -119,9 +119,14 @@ describe("Mageseeker Investigator (UNL-163): REFUSED — a Standard Move has no 
    * when the opponent cannot pay. That is strictly stronger than printed: the card
    * makes a group move expensive, not impossible.
    */
-  it("is reported unimplemented, with nothing registered for it", () => {
-    expect(isCardImplemented(registry.get(MAGESEEKER)), "someone implemented him — delete this block").toBe(false);
-    expect(implementingModule(MAGESEEKER), "an effect is registered now — delete this block").toBeUndefined();
+  it("is reported IMPLEMENTED now, and by a module that is not an effects registry", () => {
+    // **Flipped 2026-08-14.** The module name is the interesting half and is
+    // asserted rather than merely defined: 204.4.b makes this an Applied Cost that
+    // "does not use the chain and cannot be reacted to", so it could never have
+    // been an entry in `effects/order.ts`. It lives on the move path, and
+    // `coverage` reaches it through a source added for exactly that.
+    expect(isCardImplemented(registry.get(MAGESEEKER)), "he went back to unimplemented").toBe(true);
+    expect(implementingModule(MAGESEEKER), "he lost his coverage source").toBe("move surcharge");
     // The instrument control, once for the whole file: both of the above answer
     // the OTHER way for a card that IS written, so `false`/`undefined` are facts
     // about this card rather than about a lookup that never resolves. (Verified by
@@ -175,48 +180,59 @@ describe("Mageseeker Investigator (UNL-163): REFUSED — a Standard Move has no 
     };
   }
 
-  it("charges an opponent NOTHING to walk two units onto his battlefield at once", () => {
+  it("charges an opponent 1 rainbow to walk two units onto his battlefield at once", () => {
+    // **This asserted the opposite until 2026-08-14**, on this same fixture. The
+    // move now carries the payment, and the single rune the fixture provides is
+    // exactly the printed tax: 2 units, "for each unit beyond the first".
     const { state, move } = taxBoard(true);
-    // The measurement is live: there IS one rune to take, so `toBe(1)` below is a
-    // claim about the engine rather than about an empty pool.
     expect(payableTowardRainbow(state, 1), "the fixture left the mover nothing to be taxed").toBe(1);
 
-    const after = accept(state, move, "a two-unit move onto the Mageseeker's battlefield");
+    const paid = { ...move, payment: { energyRunes: [], powerRunes: [], rainbowRunes: [state.players[1]!.channeled[0]!.id] } };
+    const after = accept(state, paid, "a two-unit move onto the Mageseeker's battlefield");
 
-    // Printed: 2 units, "for each unit beyond the first", so 1 rainbow is owed and
-    // the mover's single rune should be recycled for it.
     expect(unitsAt(after, "bf1", 1).map((u) => u.name), "the taxed move did not complete").toEqual([
       "Mover A",
       "Mover B",
     ]);
-    expect(payableTowardRainbow(after, 1), "something WAS charged — the refusal is stale").toBe(1);
+    expect(payableTowardRainbow(after, 1), "nothing was charged — the tax is inert again").toBe(0);
   });
 
-  it("does not even refuse the move when the tax would be unpayable", () => {
-    // The sharper half. With an EMPTY rune pool the printed card makes this group
-    // move undeclarable — there is no way to pay the 1 rainbow it costs. It goes
-    // through untouched.
+  it("REFUSES the group move when the tax is unpayable — 204.4.c", () => {
+    // **The sharper half, and it flipped too.** This block used to call the
+    // refusal "the tempting wrong implementation... strictly stronger than
+    // printed", and the rules text settles it the other way: 204.4.c says "if a
+    // player can't pay or chooses not to pay the Applied Cost, they cannot perform
+    // the associated Game Action", and 204.4's own worked example is this card.
+    //
+    // What the earlier note was right about is that the barred thing is the
+    // ACTION. 144.3 makes a simultaneous multi-unit move ONE action; moving the
+    // same units one at a time is a different action and is still free. That half
+    // is asserted in `mageseeker-investigator.test.ts`.
     const { state, move } = taxBoard(true, 0);
     expect(payableTowardRainbow(state, 1)).toBe(0);
-    const after = accept(state, move, "an unpayable two-unit move onto the Mageseeker's battlefield");
-    expect(unitsAt(after, "bf1", 1), "the unpayable move was refused after all").toHaveLength(2);
+
+    const { result } = submit(state, move);
+    expect(result, "an unpayable group move was allowed").not.toMatchObject({ type: "Ok" });
   });
 
-  it("does exactly the same thing when he is not on the board — the negative control", () => {
-    // The point of the pair: with and without him the board ends identical, which
-    // is what "inert" means. The first test alone would pass just as well against
-    // a Mageseeker that taxed the WRONG player, or that only taxed single moves.
+  it("costs NOTHING when he is not on the board — the negative control, inverted", () => {
+    // The pair used to prove the boards ended IDENTICAL, which is what "inert"
+    // meant. It now proves the opposite half: the units arrive either way, and the
+    // rune pool is the one thing that differs. Without this, the test above passes
+    // just as well against a tax that charges every move, or the wrong player.
     const withHim = taxBoard(true);
     const withoutHim = taxBoard(false);
 
-    const a = accept(withHim.state, withHim.move, "the move with the Mageseeker present");
+    const paid = {
+      ...withHim.move,
+      payment: { energyRunes: [], powerRunes: [], rainbowRunes: [withHim.state.players[1]!.channeled[0]!.id] },
+    };
+    const a = accept(withHim.state, paid, "the move with the Mageseeker present");
     const b = accept(withoutHim.state, withoutHim.move, "the move with no Mageseeker");
 
     expect(unitsAt(a, "bf1", 1).map((u) => u.instanceId)).toEqual(unitsAt(b, "bf1", 1).map((u) => u.instanceId));
-    expect(payableTowardRainbow(a, 1)).toBe(payableTowardRainbow(b, 1));
-    expect(a.players[1]!.baseUnits, "the movers left base in one case and not the other").toHaveLength(
-      b.players[1]!.baseUnits.length,
-    );
+    expect(payableTowardRainbow(a, 1), "the taxed move was not charged").toBe(0);
+    expect(payableTowardRainbow(b, 1), "the untaxed move was charged").toBe(1);
   });
 
   it("is not even enumerable: every offered MoveUnit moves exactly one unit", () => {

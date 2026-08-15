@@ -514,7 +514,25 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // Worth keeping beside the three drops above precisely because it is the
 // exception: a Legend cannot displace anything, so finishing one moves this
 // figure by exactly one, every time.
-const PINNED_UNION = 625;
+//
+// **625 -> 630 on 2026-08-14 for UNL-163 Mageseeker Investigator** — a +5 for one
+// card, with NOTHING lost, which needed decomposing as much as any drop would.
+// The buckets say: UNL-163 left `neverSeated` (implementing him let
+// `deck-generator` seat him), and four cards came back with him — UNL-107 Stare
+// Down and UNL-118 Elder Dragon out of `offeredNeverTaken`, UNL-166 Stalking Wolf
+// and UNL-168 Undying Loyalty out of `drawnNeverOffered`.
+//
+// All four are the sampling-sensitive ones this file already names by hand: the
+// two `drawnNeverOffered` entries are the Bird/Cat/Dog/Poro family whose costs go
+// unpayable when the deck mix shifts, and UNL-107 is the documented oscillator
+// that also recovered at `GAMES=1000` in the previous entry. Seating a new card
+// re-mixes a fixed-size covering deck, so it moves cards in BOTH directions —
+// this run happened to move four of them back in.
+//
+// **Read as: the sample is what changed, not the engine.** The honest reading of
+// a +5 is the same as of a -1, and both are settled the same way — by diffing the
+// buckets against the previous sha rather than by liking the direction.
+const PINNED_UNION = 630;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();
