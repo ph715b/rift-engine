@@ -1,5 +1,59 @@
 # Finishing Unleashed — the last 12
 
+> ## STATUS 2026-08-14 — READ THIS FIRST, IT SUPERSEDES THE BODY
+>
+> **Nine of the twelve are done and committed.** Everything below this box is the
+> 2026-08-13 brief and is now HISTORY: its card list, its blockers and its
+> per-card plans describe a tree that no longer exists. It is kept because the
+> *reasoning* in it is still worth reading, not because the *facts* are current.
+> Re-measure before believing any of it — the section "Before trusting a word of
+> this file" is the one part that has not aged.
+>
+> ### Landed 2026-08-14
+>
+> | card | the mechanism it needed |
+> |---|---|
+> | UNL-188 Hextech Gauntlets | `activationCostFor` — an activation cost that depends on the chosen target |
+> | UNL-045 Forgotten Signpost | `exhaustFriendlyUnit` cost; the payer's location IS the destination |
+> | UNL-169 Ashe - Focused | `engine/delayed-triggers.ts` — a chain item belonging to no card |
+> | UNL-181 Jhin - Virtuoso | `LegendInstance.banishedInstanceIds` + `spellCast.spellInstanceId` |
+> | UNL-163 Mageseeker Investigator | an Applied Cost (204.4) on the Standard Move, plus 144.3 group-move enumeration |
+> | UNL-138 The List | `GearInstance.namedTag`, named at the gear-play site; full 111-tag list |
+> | UNL-106 Repulse | `choosesOnlyThisUnit` — a restriction BETWEEN two announced targets |
+> | UNL-146 Syndra - Transcendent | `foreignPowerRunes`, a 4th payment bucket; standing repeat grants |
+>
+> ### What remains — THREE items, all large
+>
+> 1. **UNL-182 Curtain Call** — multi-instance `[Repeat]`. **Steps 1 and 2's
+>    design are already committed**; read the long comment on its entry in
+>    `src/engine/effects/signature-fury.ts`, which carries the measurement (53
+>    refs / 12 files), the four steps in dependency order, and the settled action
+>    shape. Do not re-plan it from scratch.
+> 2. **UNL-020 Dancing Grenade** — the mid-resolution payment mechanism. The
+>    project owner chose to BUILD IT rather than keep the workaround, which also
+>    retires the recorded divergence for Last Rites, Jayce - Man of Progress and
+>    Death from Below. Widest blast radius of the three: it changes behaviour
+>    those three already ship.
+> 3. **UNL-195 Ivern + UNL-147 Baron Nashor** — battlefield replacement. The
+>    owner asked for this LAST.
+>
+> ### Two open items that are not cards
+>
+> - **Syndra shipped with one recorded UNDER-offer**: two granted `[Repeat]`
+>   instances (her beside an armed Temporal Portal) have nowhere to be recorded
+>   while `grantedRepeatPaid` is a single boolean. Curtain Call's list should
+>   close it — **delete that divergence when it does** rather than leaving it to
+>   be rediscovered.
+> - **`reachability` is NOT deterministic** and its pin now carries deliberate
+>   headroom. `walkout` IS deterministic. Both are sensitive to the ACTION SPACE,
+>   not only to the rules. See CLAUDE.md — this cost real time to establish.
+>
+> ### Pins as of this box
+>
+> `walkout` **190 / 113 / 29**. `reachability` floor **625**, observed 633.
+> Trigger census **316 held / 5 inline / 321 cards**. Root `npm test` **4943 +
+> 174**, typecheck **0**.
+
 Paste-in brief for a fresh session. Written 2026-08-13 at `0a8a9b4`, branch
 `feat/unleashed-xp`. **Block 1 was worked on 2026-08-13 and this file was
 updated in place** — see that section for what landed, what it cost, and the two
