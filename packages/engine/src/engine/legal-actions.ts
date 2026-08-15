@@ -87,6 +87,7 @@ import {
 } from "./timing.js";
 import { RAINBOW, hiddenCardIsPlayable, hideCostFor, isHiddenCard, mayHideWithEnergy } from "./hidden.js";
 import { replacedCostFor } from "./replaced-costs.js";
+import { foreignRepeatPip, reserveForeignPip, standingRepeatGrantFor } from "./repeat-grants.js";
 import { moveSurchargeFor } from "./move-surcharge.js";
 import {
   chosenUnitsOfActivation,
@@ -2230,8 +2231,26 @@ export function legalActions(state: GameState): PlayerAction[] {
       // the card has one, because 820.1.c.2 makes them independently payable: pay
       // neither, either, or both, at four different prices for three different
       // execution counts.
-      const grantedCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
-      if (grantedCost && !fromHidden && !usingReplacedCost && !usingOptionalXp) {
+      // TWO sources of a granted Repeat, and they are different shapes: Temporal
+      // Portal ARMS a counter spent by the next spell, and UNL-146 Syndra -
+      // Transcendent grants a STANDING one to every spell while she is in a
+      // showdown. See `repeat-grants.ts`.
+      //
+      // **The armed one wins when both are live, and that is an under-offer.**
+      // 820.1.c.2 makes them separately payable, so the rules allow paying both
+      // for two extra executions; the action carries `grantedRepeatPaid` as a
+      // single boolean and `card-effect-resolution` runs one extra execution for
+      // it, so a second granted instance has nowhere to be recorded. Recorded as
+      // a divergence rather than approximated — offering one instance is
+      // narrower than printed, which is the direction this engine errs in.
+      const grantedCost =
+        grantedRepeatCostOf(card, actor.nextSpellRepeatGrants) ?? standingRepeatGrantFor(state, playerIndex, card);
+      // The part of that cost the card's own Power bucket cannot hold — Syndra's
+      // Chaos pip on a Fury spell. Reserved out of the pool first, so the general
+      // payment below cannot spend the rune this pip needs.
+      const foreignPip = foreignRepeatPip(card, grantedCost);
+      const foreignReserve = foreignPip ? reserveForeignPip(actor.channeled, foreignPip) : undefined;
+      if (grantedCost && !fromHidden && !usingReplacedCost && !usingOptionalXp && !(foreignPip && !foreignReserve)) {
         const pricedGranted = new Set<string>();
         for (const alsoPrinted of repeatCost ? [false, true] : [false]) {
           for (const axis of additionalCostAxes) {
@@ -2243,7 +2262,14 @@ export function legalActions(state: GameState): PlayerAction[] {
             // observable — `[Accelerate]` is a Unit keyword and every `[Repeat]`
             // card is a Spell, so those two can never meet on one play.
             const additional = discountedOptionalCosts(state, playerIndex, axis, [
-              { energy: modifiedRepeatEnergy(state, playerIndex, grantedCost.energy), power: grantedCost.power ?? 0, rainbow: 0 },
+              {
+                energy: modifiedRepeatEnergy(state, playerIndex, grantedCost.energy),
+                // A FOREIGN pip is not part of the card's Power total — it is paid
+                // from its own reserved runes below. Folding it in here is what
+                // would demand Fury of a Fury spell for Syndra's Chaos pip.
+                power: foreignPip ? 0 : (grantedCost.power ?? 0),
+                rainbow: 0,
+              },
               ...(alsoPrinted
                 ? [
                     {
@@ -2270,7 +2296,7 @@ export function legalActions(state: GameState): PlayerAction[] {
               restrictedPowerFor(actor, card.kind),
               actor.floatingRainbowPower,
             );
-            const shape = `${alsoPrinted}/${grantedEffective.energyCost}/${grantedEffective.powerCost}/${additional.rainbow}`;
+            const shape = `${alsoPrinted}/${grantedEffective.energyCost}/${grantedEffective.powerCost}/${additional.rainbow}/${foreignPip?.count ?? 0}`;
             if (pricedGranted.has(shape)) continue; // this axis buys nothing new
             pricedGranted.add(shape);
             const grantedVariant = {
@@ -2289,7 +2315,9 @@ export function legalActions(state: GameState): PlayerAction[] {
               ...(alsoPrinted ? chosenUnitsOfRepeat(grantedVariant) : []),
             ]);
             const paidGranted = computeAutoPayment(
-              actor.channeled,
+              // The pool MINUS the foreign pip's reserved runes — see
+              // `reserveForeignPip` for why they come out first.
+              foreignReserve?.remaining ?? actor.channeled,
               grantedEffective.energyCost,
               grantedEffective.powerCost,
               card.powerDomain,
@@ -2301,7 +2329,12 @@ export function legalActions(state: GameState): PlayerAction[] {
                 type: "PlayCard",
                 playerIndex,
                 card,
-                payment: paidGranted,
+                // The foreign pip's reserved runes ride in their own bucket —
+                // `computeAutoPayment` never saw them, so it cannot have named
+                // them for anything else.
+                payment: foreignReserve
+                  ? { ...paidGranted, foreignPowerRunes: foreignReserve.reserved.map((r) => r.id) }
+                  : paidGranted,
                 ...variant,
                 ...hiddenFields,
                 ...grantedVariant,

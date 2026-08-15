@@ -1590,75 +1590,30 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
   //     instead is worse still: the rune would be spent for nothing, which is
   //     416.3's offered-then-refused shape wearing a different hat.
   //
-  // **UNL-146 Syndra - Transcendent** — "While I'm in a showdown, your spells
-  // have [Repeat] [2][Chaos]."
+  // **UNL-146 Syndra - Transcendent WAS refused here and is written now
+  // (2026-08-14).** Her refusal was re-measured twice and both corrections held:
   //
-  // The Repeat RULING is settled and is deliberately not re-derived: 820.3 gives
-  // one extra execution per instance PAID, 820.1.c.3 caps each cost at a single
-  // payment, 820.2.a lets the choices differ per execution, and 820.3.a keeps the
-  // spell PLAYED once. Nothing about the rules blocks her.
+  //   - the two-instance case really was NOT the problem — `legal-actions`
+  //     already crosses a granted instance with a printed one;
+  //   - the real blocker really was the DOMAIN. "Your spells have [Repeat]
+  //     [2][Chaos]" hands a Chaos pip to spells of every domain, and none of
+  //     `RunePayment`'s three buckets could say that: `powerRunes` is checked
+  //     against the CARD's domain (demanding Fury of a Fury spell) and
+  //     `rainbowRunes` against none (accepting any rune, stronger than printed).
   //
-  // The engine does, in three places, and the shape is precise enough to build
-  // from. `card-effect-resolution` already runs a spell up to three times
-  // (`repeatPaid` then `grantedRepeatPaid`), so the EXECUTION count is not the
-  // gap. The gap is the grant:
+  // `RunePayment.foreignPowerRunes` is the fourth bucket, and her grant lives in
+  // `engine/repeat-grants.ts` as a STANDING source rather than on
+  // `nextSpellRepeatGrants` — that counter is spent by the next spell played, so
+  // riding it would have given her one repeatable spell per arming instead of
+  // every spell she stands in a showdown for. That was the third blocker, and it
+  // was right too.
   //
-  //   - **The granted cost is DERIVED, not stored.** `grantedRepeatCostOf(card,
-  //     grantsArmed)` returns `{ energy: card.energyCost, power: card.powerCost }`
-  //     — Temporal Portal's "[Repeat] equal to its cost". Syndra's price is a
-  //     CONSTANT `[2][Chaos]`, and the returned record carries no `domain` at all,
-  //     so a Chaos pip could be paid with any rune. Measured: for Upstage Comedy
-  //     it returns `{ energy: 2, power: 0 }` with `domain === undefined`.
-  //   - **It is asked with no state.** The function takes exactly two parameters
-  //     and both call sites pass `actor.nextSpellRepeatGrants`, so "while I'm in a
-  //     showdown" has nowhere to be asked.
-  //   - **The one counter that exists is spent by the next spell PLAYED.** Armed
-  //     at 2 and driven through `submit`, `nextSpellRepeatGrants` is 0 after one
-  //     spell. Riding it would give Syndra one repeatable spell per arming rather
-  //     than every spell she stands in a showdown for.
-  //
-  // **RE-MEASURED 2026-08-13, and the blocker is smaller in one place and much
-  // bigger in another than this note said.** Corrected in place rather than
-  // re-derived a third time.
-  //
-  // SMALLER: the two-instance case is NOT the problem. `legal-actions` already
-  // crosses a granted instance with a printed one — `for (const alsoPrinted of
-  // repeatCost ? [false, true] : [false])` — and the action already carries
-  // `repeatPaid` and `grantedRepeatPaid` as SEPARATE booleans, which is exactly
-  // "which instances were paid" for the two-source case. A list is needed only
-  // for two GRANTED instances at once (Syndra beside an armed Temporal Portal),
-  // which is a rarer case than the note implied and can be under-offered.
-  //
-  // BIGGER, and this is the real refusal: **her pip is in a domain the card does
-  // not print, and no payment shape in this engine can express that.**
-  //
-  //   - `RepeatCostSpec.domain` is DEAD DATA. Grep it: nothing in
-  //     `legal-actions` or `validate-play-card` reads it. Both fold the repeat's
-  //     Power into `card.powerCost` and pay the total with `card.powerDomain`.
-  //     That is correct today only because all fourteen printed Repeats are in
-  //     their own card's domain — `repeat-cost-table.test.ts` asserts it card by
-  //     card, which is why nobody has noticed the field is unused.
-  //   - Syndra grants `[2][Chaos]` to **"your spells"**, so the first Fury spell
-  //     she is played beside owes one Fury pip and one Chaos pip on the same
-  //     play. `RunePayment` has exactly three buckets — `energyRunes`,
-  //     `powerRunes` (checked against the CARD's domain) and `rainbowRunes` (any
-  //     domain) — and none of them is "a pip in some other named domain".
-  //   - Folding it into `powerRunes` demands Fury for a Chaos pip (refuses legal
-  //     plays); routing it through `rainbowRunes` accepts ANY rune for it
-  //     (STRONGER than printed, the direction this file works hardest to avoid).
-  //
-  // So the edit is a FOURTH payment bucket, mirroring what `rainbowRunes`
-  // already does for `[Deflect]` — 17 sites across 10 files
-  // (`player-action.ts`, `rune-payment.ts`, `legal-actions.ts`,
-  // `validate-play-card.ts`, `execute-play-card.ts` and the activated-ability
-  // pair). It is refused rather than half-built because the tractable subset is
-  // a coverage LIE: her grant CAN be expressed for a spell with no printed Power
-  // pip (pass "Chaos" as the whole domain) and for a Chaos spell, and those two
-  // cases would make the card report DONE while silently never offering the
-  // grant on any other spell.
-  //
-  // **`RepeatCostSpec.domain` being unread is worth fixing whoever takes this**,
-  // independently of Syndra: it is a field that looks like it works.
+  // **Her arrival is what makes `RepeatCostSpec.domain` live.** The refusal's
+  // parting note — "worth fixing whoever takes this, independently of Syndra: it
+  // is a field that looks like it works" — was the useful part: it was dead data,
+  // correct only because all fourteen printed Repeats are in their own card's
+  // domain, which `repeat-cost-table.test.ts` asserts card by card and is exactly
+  // why nobody noticed.
 };
 
 /** Angler Beast's net — "all units with 2 [Might] or less". */

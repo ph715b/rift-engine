@@ -492,7 +492,7 @@ describe("UNL-144 Maduli: the second ready door, through a real spell", () => {
 // What is measured is the SHAPE the engine's granted-Repeat machinery has, and
 // why Syndra's grant does not fit it.
 // ---------------------------------------------------------------------------
-describe("UNL-146 Syndra: why the existing granted-[Repeat] route cannot carry her", () => {
+describe("UNL-146 Syndra: the existing granted-[Repeat] route still cannot carry her, so she got her own", () => {
   it("a granted cost is DERIVED from the card, so a fixed [2][Chaos] has nowhere to live", () => {
     // Temporal Portal grants "[Repeat] equal to its cost", so
     // `grantedRepeatCostOf` computes the price from the spell rather than
@@ -509,16 +509,24 @@ describe("UNL-146 Syndra: why the existing granted-[Repeat] route cannot carry h
     expect(granted).not.toEqual(syndraPrice);
   });
 
-  it("...and it is asked with no state, so 'while I'm in a showdown' cannot be a condition on it", () => {
-    // Both call sites pass `actor.nextSpellRepeatGrants` and nothing else. A
-    // conditional aura needs the board, which means a signature change in
-    // card-effects.ts plus both callers (legal-actions.ts, validate-play-card.ts).
-    expect(grantedRepeatCostOf.length, "it takes state now — re-read this refusal").toBe(2);
+  it("...and it is STILL asked with no state — she got a separate source instead", () => {
+    // The refusal predicted a signature change here plus both callers. That is
+    // not what happened: `grantedRepeatCostOf` is untouched, and Syndra's grant
+    // is a second source (`repeat-grants.standingRepeatGrantFor`) that the two
+    // callers fall back to. The two are different shapes — an armed counter and a
+    // standing aura — and giving the derived one a state parameter would have
+    // meant one function answering two questions.
+    //
+    // Kept asserting 2 for that reason: if this ever takes state, the split has
+    // been undone and both call sites need re-reading.
+    expect(grantedRepeatCostOf.length, "it takes state now — the two sources have been merged").toBe(2);
   });
 
-  it("PINNED: the grant counter is spent by the NEXT SPELL PLAYED, not held while a unit stands", () => {
-    // Riding `nextSpellRepeatGrants` would give Syndra ONE repeatable spell per
-    // arming rather than every spell she is in a showdown for. Driven through
+  it("STILL TRUE: the grant counter is spent by the NEXT SPELL PLAYED, not held while a unit stands", () => {
+    // The third blocker, and it is why Syndra is a separate source rather than an
+    // extra arming: riding this counter would have given her ONE repeatable spell
+    // per arming rather than every spell she is in a showdown for. The counter
+    // behaves exactly as measured here; she simply does not use it. Driven through
     // `submit`, because the clear lives in `execute-play-card` and a direct read
     // of the field would not exercise it.
     const state = richState();
@@ -535,7 +543,12 @@ describe("UNL-146 Syndra: why the existing granted-[Repeat] route cannot carry h
     ).toBe(0);
   });
 
-  it("Syndra grants nothing today: a spell played beside her in a showdown has no repeat variant", () => {
+  it("Syndra grants only IN a showdown — the fixture that used to prove she granted nothing", () => {
+    // **This asserted "no repeat variant beside Syndra" and it still passed after
+    // she was written**, because `richState()` opens no showdown and her grant is
+    // conditional on one. A premise that survives its own card is the shape this
+    // file exists to catch, so it is now asserted from BOTH sides on the same
+    // board: no showdown, no grant; showdown, grant.
     const state = richState();
     const syndra = realUnitInstance(SYNDRA_TRANSCENDENT);
     const spell = spellInstance(CONFRONT);
@@ -548,8 +561,15 @@ describe("UNL-146 Syndra: why the existing granted-[Repeat] route cannot carry h
     expect(offered.length, "the spell is unplayable here, so the next line is vacuous").toBeGreaterThan(0);
     expect(
       offered.some((a) => a.grantedRepeatPaid === true || a.repeatPaid === true),
-      "a repeat variant is offered beside Syndra — she is implemented, retire this",
+      "she granted outside a showdown",
     ).toBe(false);
+
+    // The same board with the showdown open — now she does.
+    const fighting = { ...state, showdownBattlefieldId: state.battlefields[0]!.id } as GameState;
+    expect(
+      playsOf(fighting, spell.instanceId).some((a) => a.grantedRepeatPaid === true),
+      "she granted nothing while standing in a showdown",
+    ).toBe(true);
 
     // The control that says the enumerator CAN offer one: arm the mechanism that
     // exists, and the same spell grows a second variant.

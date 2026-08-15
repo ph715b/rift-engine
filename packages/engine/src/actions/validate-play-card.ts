@@ -69,6 +69,7 @@ import { hiddenCardAt, hiddenCardIsPlayable } from "../engine/hidden.js";
 import { replacedCostFor } from "../engine/replaced-costs.js";
 import { mayPlayUnitAt } from "../engine/battlefield-continuous.js";
 import { counterFilter, counterableSpells, choosesOnlyThisFriendlyUnit } from "../engine/counter-spell.js";
+import { foreignRepeatPip, standingRepeatGrantFor } from "../engine/repeat-grants.js";
 import { equipmentPairedWith } from "../engine/equipment.js";
 
 /**
@@ -559,7 +560,12 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // Re-derived from state rather than trusted from the action: a client could
   // otherwise claim a grant it never armed and buy a second execution for the
   // repeat's price alone.
-  const grantedRepeatCost = grantedRepeatCostOf(card, actor.nextSpellRepeatGrants);
+  // Both granted sources, in the SAME precedence the enumerator uses — the armed
+  // counter first, then Syndra's standing grant. Two spellings of that order is
+  // exactly how the two gates drift apart.
+  const grantedRepeatCost =
+    grantedRepeatCostOf(card, actor.nextSpellRepeatGrants) ??
+    standingRepeatGrantFor(state, action.playerIndex, card);
   if (action.grantedRepeatPaid && grantedRepeatCost === undefined) {
     return fail(`${card.name} has no granted [Repeat] to pay for`);
   }
@@ -1014,7 +1020,11 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   const grantedEnergy = action.grantedRepeatPaid
     ? modifiedRepeatEnergy(state, action.playerIndex, grantedRepeatCost?.energy ?? 0)
     : 0;
-  const grantedPower = action.grantedRepeatPaid ? grantedRepeatCost?.power ?? 0 : 0;
+  // A FOREIGN pip (Syndra's Chaos on a Fury spell) is NOT part of the card's
+  // Power total — it is checked against its own named domain below, and folding
+  // it in here would demand a Fury rune for it.
+  const grantedForeignPip = foreignRepeatPip(card, grantedRepeatCost);
+  const grantedPower = action.grantedRepeatPaid && !grantedForeignPip ? grantedRepeatCost?.power ?? 0 : 0;
 
   // Every OPTIONAL ADDITIONAL cost this play opted into, ONE BUNDLE EACH, each
   // discounted separately by Ezreal - Prodigy before they are summed.
@@ -1222,6 +1232,45 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     // ITS OWNER's cost; it does not make two Powers.
     if (alreadySpent.has(id)) {
       return fail(`Rune ${id} is already spent on ${card.name}'s own cost and cannot also pay its [Deflect] surcharge`);
+    }
+  }
+
+  // **The FOREIGN pip — UNL-146 Syndra - Transcendent's [Chaos] on a spell of any
+  // domain.** A third domain rule, and the reason this could not ride either
+  // existing bucket: `powerRunes` is checked against the CARD's domain just
+  // above, and `rainbowRunes` is checked against no domain at all.
+  //
+  // The required domain is re-derived from the granted spec rather than read off
+  // the action — a client that named its own domain could quote itself a cheaper
+  // pip, which is the same reason every other cost here is re-derived.
+  const foreign = payment.foreignPowerRunes ?? [];
+  const foreignOwed = action.grantedRepeatPaid && grantedForeignPip ? grantedForeignPip.count : 0;
+  if (foreign.length < foreignOwed) {
+    return fail(
+      `${card.name} must pay ${foreignOwed} ${grantedForeignPip!.domain} Power for its granted [Repeat], but named ${foreign.length}`,
+    );
+  }
+  // Named but not owed is refused too: an unowed bucket would otherwise let a
+  // play recycle runes for nothing, and a client has no reason to send one.
+  if (foreign.length > foreignOwed) {
+    return fail(`${card.name} named ${foreign.length} runes for a granted [Repeat] pip it does not owe`);
+  }
+  for (const id of foreign) {
+    const rune = channeledById.get(id);
+    if (!rune) return fail(`Rune ${id} is not in ${actor.name}'s channeled pool`);
+    // The whole point of the bucket: this pip is in a NAMED domain that is not
+    // the card's, so neither the card's domain check nor the rainbow's
+    // no-check is the right rule.
+    if (rune.domain !== grantedForeignPip!.domain) {
+      return fail(`Rune ${id} is not ${grantedForeignPip!.domain} and cannot pay ${card.name}'s granted [Repeat] pip`);
+    }
+    // Paying Power RECYCLES the rune (416), so an exhausted one has nothing left
+    // to give — the same line `reserveForeignPip` draws when it reserves.
+    if (rune.state !== "Ready") {
+      return fail(`Rune ${id} is exhausted and cannot pay ${card.name}'s granted [Repeat] pip`);
+    }
+    if (alreadySpent.has(id) || rainbow.includes(id)) {
+      return fail(`Rune ${id} is already spent on ${card.name}'s own cost and cannot also pay its granted [Repeat] pip`);
     }
   }
 

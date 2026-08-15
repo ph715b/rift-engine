@@ -185,7 +185,16 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // Power cost RECYCLES the rune (416) whatever it is owed to — so they share one
   // set here. They are separate buckets on the ACTION because the validator holds
   // them to different domain rules, not because they are paid differently.
-  const paidPowerIds = new Set([...action.payment.powerRunes, ...(action.payment.rainbowRunes ?? [])]);
+  // The foreign pip's runes are recycled exactly as the other two are — a Power
+  // cost recycles the rune (416) whatever domain it is owed in. They ride a
+  // separate bucket on the ACTION because the validator holds them to a THIRD
+  // domain rule (a named domain that is not the card's), not because they are
+  // spent differently. UNL-146 Syndra - Transcendent.
+  const paidPowerIds = new Set([
+    ...action.payment.powerRunes,
+    ...(action.payment.rainbowRunes ?? []),
+    ...(action.payment.foreignPowerRunes ?? []),
+  ]);
   // Runes recycled for the surcharge get NO floating-Energy credit. The credit
   // exists because a Ready rune recycled for its OWNER's Power had Energy-paying
   // potential that the owner never got to use; a rune handed over as an opponent's

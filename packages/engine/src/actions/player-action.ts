@@ -25,6 +25,29 @@ export interface RunePayment {
    * — a card whose targets carry no `[Deflect]` never mentions it.
    */
   rainbowRunes?: string[];
+  /**
+   * Runes recycled for a Power pip in a domain the CARD DOES NOT PRINT —
+   * UNL-146 Syndra - Transcendent's "your spells have [Repeat] [2][Chaos]",
+   * granted to spells of every domain.
+   *
+   * **A fourth bucket, and the three that exist genuinely cannot hold it.**
+   * `powerRunes` is validated against the card's own `powerDomain`, so folding a
+   * Chaos pip in there demands Fury of a Fury spell and refuses a legal play;
+   * `rainbowRunes` accepts ANY rune, which would pay a Chaos pip with a Body one
+   * and is STRONGER than printed. The first Fury spell cast beside Syndra owes
+   * one Fury pip and one Chaos pip on the same play, and only a separate bucket
+   * can say that.
+   *
+   * The DOMAIN is not carried here: it is re-derived at every site from the
+   * granted `RepeatCostSpec`, the same convention every other cost in this engine
+   * follows — a client that named its own domain could quote itself a cheaper
+   * one. That also makes `RepeatCostSpec.domain` load-bearing for the first time;
+   * it had been dead data, correct only because all fourteen printed Repeats are
+   * in their own card's domain.
+   *
+   * Optional, so every existing producer and every stored action stays valid.
+   */
+  foreignPowerRunes?: string[];
 }
 
 export interface PlayCardAction {
