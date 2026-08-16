@@ -137,16 +137,97 @@ describe("[Empowered][>] grants only while the status holds (828.1.c)", () => {
 });
 
 describe("what the parsers refuse (and why coverage must agree)", () => {
-  it("refuses a compound or self-modifying [Empower] cost", () => {
-    // `parseEquipCost`'s rule: half a cost is CHEAPER than printed. 827.1.c.3
-    // also makes the self-modifying kind ("costs [1] less for each rune you
-    // control") wrong in the other direction if the printed number is taken alone.
+  it("READS a compound cost term by term (827.1.c.2)", () => {
+    // "Empower costs may include both resource costs and non-resource costs."
+    // Every term below is one `ActivationCost` already had a field for, which is
+    // why the compound half needed no new cost model — the same payoff
+    // `EquipExtraCost` buys for `[Equip]`'s two compound costs.
+    expect(parseEmpowerCost("[Empower] — Discard 1 (reminder)")).toEqual({
+      energy: 0,
+      powerCost: 0,
+      powerDomain: null,
+      extra: { discard: 1 },
+    });
+    expect(parseEmpowerCost("[Empower] — :rb_exhaust: (reminder)")).toEqual({
+      energy: 0,
+      powerCost: 0,
+      powerDomain: null,
+      extra: { exhaust: true },
+    });
+    // Comma-separated terms, and the resource half is summed rather than dropped.
+    expect(parseEmpowerCost("[Empower] — :rb_energy_1:, :rb_exhaust: (reminder)")).toEqual({
+      energy: 1,
+      powerCost: 0,
+      powerDomain: null,
+      extra: { exhaust: true },
+    });
+    expect(parseEmpowerCost("[Empower] — Kill a friendly unit (reminder)")).toEqual({
+      energy: 0,
+      powerCost: 0,
+      powerDomain: null,
+      extra: { killFriendlyPermanent: true },
+    });
+  });
+
+  it("still refuses a compound cost with a term it cannot charge", () => {
+    // **The two Vendetta shapes deliberately left unwritten**, each refused
+    // whole rather than approximated by the half that is expressible:
+    //
+    //   "Discard a spell" — `ActivationCost.discard` is a COUNT of any cards, so
+    //   charging it would let the player discard a UNIT instead. Cheaper than
+    //   printed, which is the one direction this codebase never ships.
+    //
+    //   "[1] or [Body]" — an ALTERNATIVE cost. Either half alone is cheaper than
+    //   the choice and both together are dearer, so neither is the card.
+    expect(parseEmpowerCost("[Empower] — Discard a spell (reminder)")).toBeUndefined();
+    expect(parseEmpowerCost("[Empower] — :rb_energy_1: or :rb_rune_body: (reminder)")).toBeUndefined();
+    // A term this reader has never seen must take the whole cost with it, rather
+    // than yielding the terms before it.
+    expect(parseEmpowerCost("[Empower] — :rb_energy_1:, Sacrifice a rune (reminder)")).toBeUndefined();
+  });
+
+  it("charges the compound half through the generated ability", () => {
+    // Punching Poro's Empower costs a DISCARD and no resources. Asserting the
+    // hand shrinks is what says the non-resource half is actually taken — a cost
+    // spread into the ability but never charged would leave this at 0.
+    const poro = unit(PUNCHING_PORO, "p1");
+    const state = boardWith([poro]);
+    state.players[0]!.hand = [unit(SHADOW_FIEND), unit(SHADOW_FIEND)];
+    const activate = legalActions(state).find(
+      (a) => a.type === "ActivateAbility" && a.permanentInstanceId === "p1",
+    );
+    expect(activate, "no [Empower] ability was offered for a compound cost").toBeDefined();
+
+    const before = state.players[0]!.hand.length;
+    const { state: after, result } = submit(state, activate!);
+    expect(result, `refused: ${JSON.stringify(result)}`).toMatchObject({ type: "Ok" });
+    expect(before - after.players[0]!.hand.length, "the discard was not charged").toBe(1);
+    expect(isEmpowered(after, "p1"), "the compound Empower did not Empower the unit").toBe(true);
+  });
+
+  it("does not offer a compound Empower whose cost cannot be paid", () => {
+    // The control on the above: with an EMPTY hand there is no discard to make,
+    // and `canPayActivationCost` must refuse rather than let the player pay
+    // nothing. Without this, the test above would pass against an ability whose
+    // discard is declared and never checked.
+    const state = boardWith([unit(PUNCHING_PORO, "p1")]);
+    state.players[0]!.hand = [];
+    expect(
+      legalActions(state).find((a) => a.type === "ActivateAbility" && a.permanentInstanceId === "p1"),
+      "a discard-costed Empower was offered with an empty hand",
+    ).toBeUndefined();
+  });
+
+  it("refuses a self-modifying [Empower] cost", () => {
+    // 827.1.c.3: text altering the cost "is taken into account when determining a
+    // card's Empower cost for any reason", so honouring the printed number alone
+    // is too EXPENSIVE and the card is unplayable at the price it means. This is
+    // the one shape a term-by-term reader cannot see, so it is refused explicitly.
     expect(parseEmpowerCost("[Empower] :rb_energy_2::rb_rune_fury: (reminder)")).toEqual({
       energy: 2,
       powerCost: 1,
       powerDomain: "Fury",
     });
-    expect(parseEmpowerCost("[Empower] — Discard 1 (reminder)"), "a compound cost is not a price").toBeUndefined();
     expect(
       parseEmpowerCost("[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes."),
       "a self-modifying cost is not the printed number",
@@ -175,10 +256,38 @@ describe("what the parsers refuse (and why coverage must agree)", () => {
     // so the registry check called him implemented while his printed way of
     // BECOMING Empowered does not exist. Derived rather than listed, so the next
     // unreadable cost cannot slip through by nobody adding a row.
-    const poro = registry.get(PUNCHING_PORO);
-    expect(poro.empoweredGrant, "the grant half must still parse, or this measures nothing").toBeDefined();
-    expect(poro.empowerCost, "the cost half must still be unreadable, or this measures nothing").toBeUndefined();
-    expect(partialImplementationNote(poro), "no partial note for a half-written card").toBeDefined();
-    expect(isCardImplemented(poro), "a card with no way to Empower itself reported implemented").toBe(false);
+    // **SYNTHETIC subject, and the reason is that the real one was implemented
+    // out from under this test within the day.** It named Punching Poro, whose
+    // "— Discard 1" cost this file now reads — so the pin measured nothing the
+    // moment the compound parser landed. The five cards still refused today
+    // (self-modifying costs, "Discard a spell", "[1] or [Body]") are all
+    // implementable in principle and would do the same thing again.
+    //
+    // A definition built here cannot be finished by anyone, so the invariant
+    // survives every card that lands: prints `[Empower]`, has no readable cost,
+    // must not report implemented.
+    // `empowerCost` is DESTRUCTURED away rather than set to `undefined`:
+    // `exactOptionalPropertyTypes` makes an explicit `undefined` a different type
+    // from an absent key, and the absent key is what a card with no readable cost
+    // actually has.
+    const { empowerCost: _noCost, ...withoutCost } = registry.get(MOURNFUL_WITNESS);
+    const synthetic = {
+      ...withoutCost,
+      id: "VEN-000",
+      text: "[Empower] — Sacrifice a rune (Pay the cost: Empower me.)[Empowered][>] I have +2 :rb_might:.",
+    };
+    expect(partialImplementationNote(synthetic), "no partial note for a half-written card").toBeDefined();
+    expect(isCardImplemented(synthetic), "a card with no way to Empower itself reported implemented").toBe(false);
+
+    // And the same claim on whatever real cards still qualify, found rather than
+    // named — so this cannot go stale as the remaining five are written, and
+    // cannot go vacuous either, since the count is asserted.
+    const stillUnreadable = registry
+      .all()
+      .filter((d) => (d.text ?? "").includes("[Empower]") && d.empowerCost === undefined);
+    expect(stillUnreadable.length, "every [Empower] cost now parses — retire this half of the test").toBeGreaterThan(0);
+    for (const card of stillUnreadable) {
+      expect(isCardImplemented(card), `${card.id} has no readable Empower cost but reports implemented`).toBe(false);
+    }
   });
 });

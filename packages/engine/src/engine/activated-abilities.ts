@@ -663,7 +663,7 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
   for (const def of defaultCardRegistry().all()) {
     if (def.empowerCost === undefined) continue;
     if (def.type !== "Unit" && def.type !== "Gear" && def.type !== "Legend") continue;
-    const { energy, powerCost, powerDomain } = def.empowerCost;
+    const { energy, powerCost, powerDomain, extra } = def.empowerCost;
     out[def.id] = {
       kind: def.type,
       // NO exhaust unless the card printed one: 827.1.c.1's expansion is
@@ -673,6 +673,11 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
       cost: {
         ...(energy > 0 ? { energy } : {}),
         ...(powerCost > 0 ? { power: { domain: powerDomain, count: powerCost } } : {}),
+        // The COMPOUND half (827.1.c.2). Spread rather than translated, because
+        // `empowerCost.extra` is deliberately shaped as the `ActivationCost`
+        // fields it becomes — every one of them already existed for other
+        // abilities, so a compound Empower needed no new cost model at all.
+        ...(extra ?? {}),
       },
       availableWhile: (state, _playerIndex, sourceInstanceId) => !isEmpowered(state, sourceInstanceId),
       resolve: (state, _ctx, _event, sourceInstanceId) => empowerPermanent(state, sourceInstanceId),

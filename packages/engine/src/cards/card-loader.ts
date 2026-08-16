@@ -546,6 +546,14 @@ export function parseEmpowerCost(plain: string): { energy: number; powerCost: nu
   // and the card is unplayable at the price it actually means.
   const rest = after.slice(pips[0].length);
   if (/^\s*\.\s*This ability costs/i.test(rest)) return undefined;
+  // **A COMPOUND cost (827.1.c.2) is read term by term, not refused wholesale.**
+  // The em dash introduces the non-resource half, and every term in it is a cost
+  // this engine already has an `ActivationCost` field for. An UNKNOWN term still
+  // refuses the whole cost — `parseEquipCost`'s rule, and the reason "Discard a
+  // spell" and "[1] or [Body]" are still declined below rather than approximated
+  // by a plain discard or by whichever half is cheaper.
+  const compound = /^\s*[—–-]\s*(.+?)(?:\(|$)/s.exec(rest);
+  if (compound) return compoundEmpowerCost(compound[1]!);
   // **Anything else may follow the pips, and MUST be allowed to.** This used to
   // demand a "(" — the reminder text's opening — and that quietly refused every
   // `(Overnumbered)` printing, whose text is the same card with the reminder
@@ -553,6 +561,57 @@ export function parseEmpowerCost(plain: string): { energy: number; powerCost: nu
   // own note says it is for: VEN-181 disagreed with VEN-086 about being
   // implemented, which is the same card twice.
   return costFromPips(pips[1], pips[2] ?? "");
+}
+
+/**
+ * A compound `[Empower]` cost's terms — the half after the em dash (827.1.c.2).
+ *
+ * Comma-separated, and every term must be one this engine can already charge.
+ * **An unrecognised term refuses the WHOLE cost**, which is `parseEquipCost`'s
+ * rule and the only safe direction: reading the half you understand makes the
+ * ability cheaper than printed, and an Empower that is too cheap turns on a
+ * card's whole `[Empowered]` clause for free.
+ *
+ * Two Vendetta shapes are refused here on purpose rather than approximated:
+ *
+ *   **"Discard a spell"** (Mel, Defiant Soul) — `ActivationCost.discard` is a
+ *   COUNT of any cards, so charging it would let the player discard a unit
+ *   instead. That is cheaper than printed. It needs a narrowed discard field.
+ *
+ *   **"[1] or [Body]"** (Legion Marauder) — an ALTERNATIVE cost, which no field
+ *   here expresses. Charging either half alone is cheaper than the choice, and
+ *   charging both is dearer.
+ */
+function compoundEmpowerCost(
+  terms: string,
+): { energy: number; powerCost: number; powerDomain: Domain | null; extra?: { exhaust?: true; discard?: number; killFriendlyPermanent?: true } } | undefined {
+  let energy = 0;
+  const extra: { exhaust?: true; discard?: number; killFriendlyPermanent?: true } = {};
+  for (const raw of terms.split(",")) {
+    const term = raw.trim();
+    if (term === "") continue;
+    const energyPip = /^:rb_energy_(\d+):$/i.exec(term);
+    if (energyPip) {
+      energy += Number.parseInt(energyPip[1]!, 10);
+      continue;
+    }
+    if (/^:rb_exhaust:$/i.test(term)) {
+      extra.exhaust = true;
+      continue;
+    }
+    const discard = /^Discard (\d+)$/i.exec(term);
+    if (discard) {
+      extra.discard = Number.parseInt(discard[1]!, 10);
+      continue;
+    }
+    if (/^Kill a friendly unit$/i.test(term)) {
+      extra.killFriendlyPermanent = true;
+      continue;
+    }
+    return undefined; // a term this cannot charge — refuse the whole cost
+  }
+  if (energy === 0 && Object.keys(extra).length === 0) return undefined;
+  return { energy, powerCost: 0, powerDomain: null, ...(Object.keys(extra).length > 0 ? { extra } : {}) };
 }
 
 /** The shared `:rb_energy_N::rb_rune_X:` reading behind `[Flow]` and `[Empower]`.

@@ -38,7 +38,21 @@ export interface CardDefinitionBase {
    * Units, Gear and Legends all print it in Vendetta, and declaring it three
    * times is how `text` came to be omitted from Legend for months.
    */
-  empowerCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
+  empowerCost?: {
+    energy: number;
+    powerCost: number;
+    powerDomain: Domain | null;
+    /**
+     * The NON-RESOURCE half of a compound Empower cost — 827.1.c.2, "Empower
+     * costs may include both resource costs and non-resource costs."
+     *
+     * Deliberately shaped as the `ActivationCost` fields it becomes, so wiring is
+     * a spread rather than a translation — the same choice `EquipExtraCost` makes
+     * for `[Equip]`'s compound costs, and for the same reason: every one of these
+     * already existed as an activation cost, so none needed a new cost model.
+     */
+    extra?: { exhaust?: true; discard?: number; killFriendlyPermanent?: true };
+  };
   /**
    * What this card's `[Empowered][>]` clause grants it while it holds the status
    * (828.1.b.1, "While I have the Empowered status, this card gains `[Text]`"),
