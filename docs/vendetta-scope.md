@@ -38,6 +38,86 @@ trusting either version.
 Nothing downstream of this can start. Every later phase is bounded work with
 known shape; this one is an unknown, so it is its own gate.
 
+### RE-MEASURED 2026-08-16 — the gate is still CLOSED, for a reason not listed below
+
+The oracle finding above holds: still `ogn/ogs/sfd/unl`, nothing else, and
+`model/Keyword.java` has no Vendetta section either — its keyword commentary
+stops at UNL.
+
+**The set code is `VEN`, not `VDT`.** Every guess at `vdt.json` in this document
+is wrong; the file to write is `ven.json`.
+
+**The data DOES exist upstream, and it is branch (2) — but in a state none of the
+three branches below describes.** The Riftcodex API serves Vendetta, and it is
+provably the same source the four shipped files came from: fetched live, its UNL
+reproduces `packages/engine/src/cards/unl.json` **exactly** — identical 280 ids,
+zero differences in `name`, `attributes`, `classification`, `tags`, `text.plain`
+or `metadata.alternate_art`. So the fetch route is not in question.
+
+Vendetta is served by **two ingests at once**, and both are live:
+
+```
+node tools/card-data/set-audit.mjs VEN     # BLOCKED, exit 1
+node tools/card-data/set-audit.mjs UNL     # CLEAR,   exit 0  <- the control
+```
+
+| | VEN | UNL (control) |
+|---|---|---|
+| raw documents | 358 | 280 |
+| distinct cards | **227** | 280 |
+| reconciled | **131 (58%)** | 280 (100%) |
+
+`/cards` paginates over DOCUMENTS, not cards, so the same `riftbound_id` arrives
+twice: an older scrape (2026-07-10) and a newer reconciled one (to 2026-07-21).
+The reconciliation populates `tcgplayer_id`, `metadata.clean_name` and
+`text.flavour` — and, load-bearing here, it sets `metadata.alternate_art` and
+`metadata.overnumbered`. **An unreconciled record reports every printing flag as
+false.** Measured on the 131 cards holding both halves, the old half disagreed
+with the new one 27 times and always in that direction.
+
+**What is fine.** The main set is complete and clean: all 166 collector numbers
+present, no gaps, no duplicate numbers, no duplicate names, 156 playable after
+`shouldSkip` drops 10 Battlefields. 78 of those 166 are unreconciled and that
+does not matter — their rules text, cost, type and domains are all present, their
+printing flags are false and false is CORRECT for a main-set card, and what
+reconciliation would add is read by nothing in this engine. **All 9 main-set
+Legends are reconciled**, which is the one thing that had to be true: the old
+ingest drops a Legend's champion prefix, and `championTag` is the first word of
+the name.
+
+**What blocks.** Fourteen unreconciled records sit ABOVE the main-set band, where
+genuine additional cards and alternate printings of main-set cards are
+INTERLEAVED — VEN has 12 flagged printings and 5 genuine cards between 167 and
+197, and only `metadata.overnumbered` separates them. For those fourteen no field
+carries the answer. Guess "printing" and the card plays as a different card;
+guess "genuine" and a phantom card inflates coverage, the trigger census and
+`reachability` alike.
+
+Both tempting derivations were TESTED against the reconciled records, where the
+answer is known, and both are false:
+
+- *collector > set size means printing* — **no**, 5 counterexamples (Vi 167,
+  Jayce 175, Viktor 176, Rengar 179, Kha'Zix 180 are genuine cards).
+- *a duplicate name means printing* — **no**, and the counterexample is the
+  clearest single case in the set. `VEN-194 "Defender of Tomorrow"` is provably
+  the Overnumbered print of `VEN-149 "Jayce - Defender of Tomorrow"`: same type,
+  same Mind/Body domains, same two abilities, differing only by the dropped
+  `[Empower]` reminder text — the Baron Nashor shape `PRINTING_SUFFIX` already
+  knows. But the stale record carries no `(Overnumbered)` suffix, no flag, and no
+  champion prefix, so it matches nothing and would load as a phantom Legend
+  tagged `DEFENDER`.
+
+**So the honest move is branch (3)'s, arrived at from branch (2): say so and
+stop.** The blocker is narrow and it is upstream's to clear, not ours — the audit
+exits 0 by itself the moment the unreconciled count reaches zero. Upstream has
+not moved in four weeks (last `updated_on` 2026-07-21; still 131/227 on
+2026-08-16), so re-running the audit is the whole of Phase 0 until it does.
+
+**Do not close this by hand**, and note that "it is only fourteen records" is
+exactly the argument that makes it tempting. A hand-classified pool is the fifth
+source of truth this document already refuses below, and it would be one that
+nothing in the repo could re-derive or check.
+
 ### What "the data" has to be
 
 `packages/engine/src/cards/raw-card-schema.ts` is the contract, and it is
@@ -73,6 +153,14 @@ loader is where every one of those is handled.
    fiction. (Authoring a *token* from a card's own printed reminder text is a
    different thing and is fine; `engine/battlefield-tokens.ts` and `token.ts`
    both do it, because the source card is real.)
+4. **The export exists but is PARTIAL — the actual case, added 2026-08-16.**
+   Neither "fetch it" nor "it isn't there". The cards are all present and their
+   rules text is sound; what is missing is the printing metadata that says which
+   records are separate cards, and that is exactly what the loader keys on. It
+   costs (3)'s outcome for (2)'s reason, and the tell is that the missing half is
+   structural rather than per-card — so `RawCardSchema` validates every record
+   happily and a `wc -l` looks right. **Validating the schema is not validating
+   the pool**; `tools/card-data/set-audit.mjs` is what asks the second question.
 
 ### The trap that has caught this repo twice, in Phase 0 specifically
 
@@ -150,7 +238,72 @@ For each new keyword, answer three questions and nothing else:
 
 `model/Keyword.java` in the frozen oracle carries the authoritative per-set
 keyword split and settles questions the rules PDF leaves looking open. It is not
-derivable from this repo. Check whether it has a Vendetta section.
+derivable from this repo. **Checked 2026-08-16: it has NO Vendetta section** —
+its keyword commentary stops at UNL. So this set is also the first whose keywords
+have to be scoped against the rules PDF alone, with no oracle to settle ties.
+
+### The bracket census, measured 2026-08-16
+
+Off the deduped 227-card pool, not off the file. This survives the Phase 0 block
+because it reads `text.plain`, which is the half of the data that IS sound — but
+re-measure it when the pool finally lands, since the 14 blocked records are not
+in this count.
+
+Brackets appearing in VEN that none of the four shipped sets uses:
+
+| bracket | occurrences | note |
+|---|---|---|
+| `[Empower]` | 51 | the set's headline mechanic; pairs with `[Empowered]`, which OGN already prints (rule **828**) |
+| `[Flow]` | 18 | play from trash for an alternate cost, then banish — printed WITH its cost, e.g. `[Flow] :rb_energy_3::rb_rune_rainbow:` |
+| `[Burn N]` | 9 across N=1,2,3,7 | self-mill; reminder text is "put the top card of your Main Deck into your trash" |
+| `[Stun]` | 3 | |
+| `[Predict N]` | 2 across N=2,5 | |
+
+Already-known brackets recurring here — `[Assault N]`, `[Deflect N]`, `[Shield N]`,
+`[Add]`, `[>]` — need nothing new. Two to look at rather than assume: `[>>]`
+(2 occurrences, and `[>]` is an existing NON_KEYWORD_BRACKETS entry) and
+`[NO TEXT]` (6 occurrences, which is upstream placeholder noise of the same class
+as UNL-094's stray lowercase `ambush`, not a keyword).
+
+**`[Empower]` and `[Empowered]` are two different things and the split matters.**
+`[Empower]` is a printed COST-and-ability ("`[Empower] 2R R`: Empower me. Use only
+if not Empowered."), while `[Empowered][>]` gates a second ability on the
+resulting state — so a card prints both and they are not one keyword with two
+spellings.
+
+### The rule numbers, read against `-raw` 2026-08-16
+
+**The current rules PDF already covers this set** — `Riftbound Core Rules Updated
+2026-07-16.pdf` postdates Vendetta's spoiler season, so Phase 2 needs no new
+document. Every number below was read off `pdftotext -q -raw` and the sentence it
+lands on was checked to say the thing being relied on, per CLAUDE.md.
+
+| term | rule | what the sentence actually says |
+|---|---|---|
+| Empower | **827** | "Empower is an Activated Ability keyword." 827.1.c: formatted `Empower [Cost]`; 827.1.c.1 makes it short for "`[Cost]`: Empower this. Play only if not Empowered." |
+| Empowered | **828** | 828.1.a: formatted `[Empowered][>] [Text]`; 828.1.b.1 "functionally short for 'While I have the Empowered status…'" — a DEPENDENT ability, the same shape as `[Level]` (824) |
+| Flow | **829** | "Flow is a passive ability keyword." 829.1.a: "Flow is present on Spells." 829.1.c: formatted `Flow [Cost]` |
+| Burn | **440** | "Burning is the act of moving cards from the top of a player's Main Deck to their trash." 440.3: a Limited Action |
+| Burn Out | **431** | **A DIFFERENT RULE** — what happens when a player must move cards and cannot. 431.5 makes it a Replacement Effect. Do not conflate with 440 |
+| Predict | **436** | "looking at a single card from the top of the Main Deck and choosing…" 436.2: a Limited Action |
+| Stun | **423** | "Stunning is the act of selecting one or more Units… and rendering them Stunned." 423.1.a: a binary state, cleared in step 3d of end-of-turn cleanup |
+
+**Only THREE of these are keywords.** Empower/Empowered/Flow are in the 800
+Keyword Glossary; Burn, Predict and Stun are in the 4xx **actions** band, which
+means they are action words a card's text *performs*, not properties a card
+*has*. That is a Phase 1 decision, not a Phase 2 one: putting `[Burn]` in
+`KEYWORDS` would be the wrong table.
+
+This is not a new judgement — `keyword.ts` already made it for two of the three.
+Its comment on `[Predict]` reads "NOT among them, and that is a decision rather
+than an oversight: it prints as an **action word** (`[Predict].` mid-sentence,
+like `[Buff]` and `[Stun]`), not as something a card HAS", and both are already
+in `NON_KEYWORD_BRACKETS`. `[Burn N]` is the same shape and belongs beside them;
+what is new is that it carries a MAGNITUDE, which neither `[Predict]` nor
+`[Stun]` does.
+
+So the Phase 1 line "new keywords into **both** `KEYWORDS` and
+`UNIMPLEMENTED_KEYWORDS`" applies to **Empower, Empowered and Flow only**.
 
 ---
 
