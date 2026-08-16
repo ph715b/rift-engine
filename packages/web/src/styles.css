@@ -1432,6 +1432,24 @@ button:disabled {
   background: #4a6b8f;
 }
 
+/* Empowered (441 / 828). Gold, matching `--color-accent`, because it is a
+   status the OWNER bought and wants to see — the opposite reading from the
+   debuff purple. It shares a card with the Buff green often (both are "this unit
+   is better than it prints"), so the two are distinguished by hue AND glyph:
+   ✦ against ★. A player who confuses them mis-reads which effects are live. */
+.status-empowered {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* Stunned (423). Danger red, because it is the only badge here that means the
+   unit is doing LESS than the card says: 423.1 stops it contributing Might in
+   the damage step, so a player who cannot see it reads their own combat maths as
+   broken. It had no badge at all for longer than Empowered did. */
+.status-stunned {
+  background: var(--color-danger);
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;

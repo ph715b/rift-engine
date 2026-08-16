@@ -355,7 +355,26 @@ export function CardView({
           </span>
         </div>
       )}
-      {card.kind === "Unit" && (card.damage > 0 || card.mightThisTurn !== 0 || card.buffed || (attachedEquipment?.length ?? 0) > 0) && (
+      {/* **`[Empowered]` (441 / 828) is on GEAR as well as units**, so it gets its
+          own block rather than joining the unit badges below. 827.1.a puts the
+          keyword on "permanents and legends", and Vendetta prints it on four
+          Gear — folding it into a `kind === "Unit"` branch would have shipped the
+          status visible on some of the cards that can hold it, which is the kind
+          of half-delivery that reads as working. */}
+      {card.kind === "Gear" && card.empowered === true && (
+        <div className="card-status-badges">
+          <span className="status-badge status-empowered" title="Empowered — its [Empowered] ability is active">
+            ✦
+          </span>
+        </div>
+      )}
+      {card.kind === "Unit" &&
+        (card.damage > 0 ||
+          card.mightThisTurn !== 0 ||
+          card.buffed ||
+          card.stunned ||
+          card.empowered === true ||
+          (attachedEquipment?.length ?? 0) > 0) && (
         // Rendered regardless of real-art-vs-fallback — real card art never
         // prints marked damage, a Buff, or a this-turn modifier, since those are
         // runtime state, not part of the card's design.
@@ -397,6 +416,27 @@ export function CardView({
               }
             >
               ⚔{attachedEquipment!.length > 1 ? attachedEquipment!.length : ""}
+            </span>
+          )}
+          {/* **STUNNED has been an engine mechanic with no board affordance for
+              longer than Empowered**, and it is the more urgent of the two: 423.1
+              makes it a binary state that stops a unit contributing its Might in
+              the damage step, so a player reading the board could not tell why
+              their combat maths was wrong. It clears in step 3d of end-of-turn
+              cleanup, which the title says so nobody reads it as permanent. */}
+          {card.stunned && (
+            <span className="status-badge status-stunned" title="Stunned — contributes no Might; clears at end of turn">
+              ✷
+            </span>
+          )}
+          {/* 828.1.c: the dependent ability is active "as long as" the status
+              holds, and 442 lets an opponent take it away — so this is a
+              question the board has to answer at a glance, exactly as the Buff
+              above is. Distinct glyph from the Buff's ★, because a player who
+              confuses them mis-reads which effects are live. */}
+          {card.empowered === true && (
+            <span className="status-badge status-empowered" title="Empowered — its [Empowered] ability is active">
+              ✦
             </span>
           )}
         </div>
