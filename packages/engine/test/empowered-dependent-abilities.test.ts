@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { effectiveMight } from "../src/engine/effective-might.js";
+import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
 import { empowerPermanent, disempowerPermanent } from "../src/engine/effect-helpers.js";
 import { eventTriggerFor } from "../src/engine/triggers.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
@@ -35,6 +36,7 @@ const registry = defaultCardRegistry();
 const NASUS_ASCENDED = "VEN-046"; // [Empowered][>] When I conquer, you score 1 point.
 const COVERT_INFORMANT = "VEN-057"; // [Empowered][>] When I move, draw 1.
 const AUROK_GENERAL = "VEN-130"; // [Empowered][>] Your units that are [Empowered] have +2 Might (including me).
+const APPLIED_RESEARCHERS = "VEN-055"; // [Empowered][>] Your spells cost [1][rainbow] less, to a minimum of [1].
 const PLAIN_UNIT = "OGN-164"; // a vanilla body, for the aura's negative control
 
 const unit = (defId: string, instanceId: string): UnitInstance => ({
@@ -151,11 +153,46 @@ describe("Aurok General's aura is gated on HIS status and filters on the receive
     expect(mightOf(empowered, "g1") - before, "the General did not pump himself").toBe(2);
   });
 
-  it("claims all three cards for coverage", () => {
+  it("Applied Researchers discounts your spells only while Empowered", () => {
+    // Vex - Cheerless's friendly half with an Empowered condition. Asserted
+    // through `modifiedEnergyCost`, the function all three cost sites ask, so
+    // this measures the price a play is actually charged rather than a helper.
+    const spellCost = 4;
+    const plain = boardWith([unit(APPLIED_RESEARCHERS, "r1")]);
+    expect(
+      modifiedEnergyCost(plain, 0, "Spell", spellCost, "OGN-001", true),
+      "an un-Empowered Researcher discounted a spell",
+    ).toBe(spellCost);
+
+    const empowered = empowerPermanent(plain, "r1");
+    expect(
+      modifiedEnergyCost(empowered, 0, "Spell", spellCost, "OGN-001", true),
+      "an Empowered Researcher did not discount a spell",
+    ).toBe(spellCost - 1);
+
+    // "Your SPELLS" — a Unit is not discounted, which is the half a kind check
+    // exists for and the half a careless implementation drops.
+    expect(
+      modifiedEnergyCost(empowered, 0, "Unit", spellCost, "OGN-001", true),
+      "a UNIT was discounted by a spells-only clause",
+    ).toBe(spellCost);
+  });
+
+  it("never raises a spell already priced below the printed floor", () => {
+    // "To a minimum of [1]" cannot make a card MORE expensive. Vex's clamp is
+    // written `max(min(cost, FLOOR), ...)` for exactly this, and reusing hers
+    // rather than a plain `max(1, ...)` is what keeps a 0-cost spell at 0.
+    const empowered = empowerPermanent(boardWith([unit(APPLIED_RESEARCHERS, "r1")]), "r1");
+    expect(modifiedEnergyCost(empowered, 0, "Spell", 0, "OGN-001", true), "a free spell was raised to 1").toBe(0);
+    // And the floor still holds from above: a 1-cost spell stays at 1.
+    expect(modifiedEnergyCost(empowered, 0, "Spell", 1, "OGN-001", true), "the floor of 1 was breached").toBe(1);
+  });
+
+  it("claims all four cards for coverage", () => {
     // The Lucian - Purifier trap: a card can work in play and report
     // UNIMPLEMENTED because no module claims it, which also drops it from
     // generated decks and hides it from `reachability`.
-    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL]) {
+    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL, APPLIED_RESEARCHERS]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} works but no module claims it`).toBe(true);
     }
   });

@@ -706,6 +706,49 @@ const VEX_POWER_SWING = 1;
 const VEX_FRIENDLY_ENERGY_FLOOR = 1;
 
 /**
+ * Applied Researchers — "[Empowered][>] Your spells cost [1][rainbow] less, to a
+ * minimum of [1]."
+ *
+ * **Vex - Cheerless's friendly half, with a different condition and no enemy
+ * half.** The sentence is hers almost verbatim, including the floor, so this
+ * reuses her constants and her clamp rather than restating either — the floor
+ * especially, whose `max(min(cost, FLOOR), ...)` form exists because a spell
+ * already priced BELOW 1 (a Hidden play, or one Sky Splitter zeroed) must not be
+ * RAISED to 1 by a discount.
+ *
+ * Three differences from Vex, all of them the card's:
+ *
+ *   The condition is the Researchers' own Empowered STATUS (828.1.c, active "as
+ *   long as"), not a board state — so it is per-object (441.1.a) and read off the
+ *   instance, and two copies with one Empowered still discount.
+ *
+ *   **No enemy half**, so no rainbow surcharge and nothing in
+ *   `rainbowSurchargeForPlay`. Her tax exists because her card prints one; this
+ *   card does not.
+ *
+ *   Position is not asked. Her "while I'm in combat" is a location question; this
+ *   text names no battlefield, so a Researcher in base discounts exactly as one at
+ *   a battlefield does — the reading Rumble - Scrapper's and Dr. Mundo's
+ *   unpositioned auras take.
+ *
+ * COUNTED rather than boolean, on Vex's own reasoning: nothing in the rules makes
+ * a second copy redundant (817.1.a's redundancy rule reaches keywords, not
+ * continuous abilities), so two Empowered Researchers discount twice.
+ */
+const APPLIED_RESEARCHERS = "VEN-055";
+
+/** How many Empowered Applied Researchers this player controls, anywhere.
+ *  Unpositioned, so base and battlefields both count. */
+function empoweredResearchers(state: GameState, playerIndex: 0 | 1): number {
+  const player = state.players[playerIndex];
+  const atBattlefields = state.battlefields.reduce(
+    (n, bf) => n + (bf.units[player.id] ?? []).filter((u) => u.defId === APPLIED_RESEARCHERS && u.empowered === true).length,
+    0,
+  );
+  return player.baseUnits.filter((u) => u.defId === APPLIED_RESEARCHERS && u.empowered === true).length + atBattlefields;
+}
+
+/**
  * Vex's swing on a spell `playerIndex` is playing, measured from THEIR seat:
  * positive is a tax they owe, negative is a discount they get, zero is no Vex in
  * the fight.
@@ -731,7 +774,12 @@ export function combatSpellPowerDiscount(
   playerIndex: 0 | 1,
   cardKind: string,
 ): number {
-  return Math.max(0, -vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING;
+  // Applied Researchers' rainbow pip rides here with Vex's, because both are
+  // REDUCTIONS of the spell's own Power rather than debts beside it — the
+  // distinction her note draws, and the reason her ENEMY half is in
+  // `rainbowSurchargeForPlay` instead.
+  const researchers = cardKind === "Spell" ? empoweredResearchers(state, playerIndex) : 0;
+  return Math.max(0, -vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING + researchers * VEX_POWER_SWING;
 }
 
 /**
@@ -785,6 +833,10 @@ export function costModifierDefIds(): string[] {
   return [
     EZREAL_PRODIGY,
     VEX_CHEERLESS,
+    // Applied Researchers' whole printed effect is the cost modifier above, so
+    // nothing else claims him — the Lucian - Purifier trap, which costs a working
+    // card its place in generated decks and its visibility to `reachability`.
+    APPLIED_RESEARCHERS,
     NEEDLESSLY_LARGE_YORDLE,
     ...PLAY_FROM_ELSEWHERE_DISCOUNT_DEF_IDS,
     IRELIA_GRACEFUL,
@@ -996,6 +1048,20 @@ export function modifiedEnergyCost(
   } else if (vexSwing > 0) {
     // No floor on the tax — a surcharge has no minimum to clamp against.
     cost += vexSwing * VEX_ENERGY_SWING;
+  }
+
+  // Applied Researchers' ENERGY half — Vex's friendly discount with an Empowered
+  // condition instead of a combat one. Its Power half is in
+  // `combatSpellPowerDiscount` beside hers, since both take a rainbow pip off the
+  // spell's own Power rather than adding a debt.
+  //
+  // The SAME clamp as hers, reused rather than restated: "to a minimum of [1]"
+  // must not raise a spell already priced below 1.
+  if (cardKind === "Spell") {
+    const researchers = empoweredResearchers(state, playerIndex);
+    if (researchers > 0) {
+      cost = Math.max(Math.min(cost, VEX_FRIENDLY_ENERGY_FLOOR), cost - researchers * VEX_ENERGY_SWING);
+    }
   }
 
   // Ornn's Forge — "the FIRST friendly non-token gear played each turn costs [1]
