@@ -203,6 +203,80 @@ the genuinely-unwritten cards be named individually in `PARTIALLY_IMPLEMENTED`.
 Expect **~10 test premise flips** in files you did not touch. That is the gates
 working. See the premise-pin taxonomy below.
 
+### ATTEMPTED 2026-08-16, and REVERTED — what it measured
+
+`ven.json` (209 cards) and `tools/card-data/fetch-set.mjs` are committed; the
+`CARD_FILES` wiring is **not**. Wiring it produced **16 failures across 13 files**
+and four of them are decisions rather than counts, so the tree was returned to
+green rather than left red. Re-do this with the list below in hand.
+
+**The coverage gates are HONEST about the set, which was the main risk and is
+settled**: VEN reports `needing=176, implemented=3, unimplemented=173,
+partial=63, finishedButUndeclared=false`. No coverage lie. (The three that
+already report implemented are carried by generic mechanisms; `set-coverage`'s
+failure is only the set-list premise, 4 sets → 5.)
+
+**THE BLOCKER, and it is not in the file list above: Vendetta changed the
+champion-unit naming convention, and no legal VEN deck can be built.**
+
+| set | champions | `" - "` | `", "` |
+|---|---|---|---|
+| OGN / OGS / SFD / UNL | 128 | **128** | 0 |
+| VEN | 38 | 0 | **38** |
+
+Every earlier champion is `Akali - Silent`; every VEN champion is
+`Akali, Silent`. `deck-validation.isEligibleChampion` requires the champion's
+name to start with `"{character} - "`, so it matches **no** VEN champion to
+**any** VEN legend, and `validateDeckList` needs an eligible designated champion.
+The sweep "every legend in the pool has an eligible champion" named all 14.
+
+**Its own pin has to flip with it, and deliberately so.** `deck-validation.test.ts`
+asserts `isEligibleChampion(champion("Garen, Spiritforged"), "Garen - …")` is
+**false** — correct while no set used commas, and a false premise now. INVERT it
+per the taxonomy below; do not weaken it, and keep the en-dash case rejected.
+
+**One legend does not fit either convention.** `VEN-155` / `VEN-197`
+"Yordle, Kennen - Heart of the Tempest" yields character `"Yordle, Kennen"` and
+`championTag` `"YORDLE,"`, matching nothing. Its champion is `Kennen, Storm of
+Shuriken`. Every other VEN legend is plain `Champion - Title`, so this is a
+one-card shape needing a ruling, not a convention.
+
+**The other decisions behind a number:**
+
+- **`[Burn]` never appears bare** — the pool prints `[Burn 1|2|3|7]` only, so
+  `coverage-drift`'s "each entry is a token the pool really prints" fails on a
+  `NON_KEYWORD_BRACKETS` entry that is genuinely printed. That check compares the
+  RAW token; `[Stun]` and `[Predict]` happen to appear bare and never exposed it.
+  Strip the magnitude there, the way `isKnownBracketToken` already does.
+- **~21 cards print `Empower`/`Empowered` bare**, with no bracketed form on that
+  card — 827.1.c.1's "Empower this" is a VERB and 828's status is a NOUN, so
+  these are almost certainly `BARE_KEYWORD_NOT_HELD`, not `PROSE_KEYWORD_DEF_IDS`
+  (which would BRACKET the word and grant the keyword). Confirm per card; the two
+  tables point in opposite directions and `keyword-prose.test.ts` cannot infer
+  which.
+- **Four "I enter ready" cards, and NONE is unconditional** — VEN-013 and VEN-091
+  are `if`-gated, VEN-016 and VEN-019 print it only inside `[Accelerate]`'s
+  reminder. So `QUICK_TEXT_OVERRIDES` gets nothing and all four go in
+  `card-loader.test.ts`'s CONDITIONAL map. An override here would hand each an
+  unconditional readiness it does not print.
+- **Ten cards need ART inspection**, which is the standing per-set cost of the two
+  tables whose data is in the picture. `POWER_DOMAIN_ALT_OVERRIDES` candidates are
+  VEN-140/144/148/150/152/154 (all dual-domain, 1 Power); `EQUIP_MIGHT_BONUS`
+  needs VEN-011/027/073/137. **The pipeline works** — `curl` the `media.image_url`,
+  crop the pip, read it — and VEN-140 Shuriken Flip was confirmed a Fury|Calm
+  SPLIT capsule this way, so the 35/35 "alt = higher-ordinal domain" pattern
+  holds at 36. Confirm the rest rather than deriving them.
+
+**Pure count updates** (the gates working as designed, no decision in any):
+`ambush-keyword` 12→15, `hunt-keyword` 12→13, `battlefield-coverage` 54→64,
+`equipment`/`equipment-wearer-moments` 36→40, `printing-aliases` 31→43,
+`the-list` 111→124, `coverage-drift`'s token census 27→31 and its
+unimplemented-keyword list `[]`→`[Empower, Empowered, Flow]`, `card-loader`'s
+"I enter ready" scan 17→19 and its split-pip census 35→41, `set-coverage`'s set
+list. `decklist-text-parser`'s fold-collision sweep reported 10 and was not
+diagnosed — note there are **no** case-folded name collisions in the pool, so it
+is the comma/dash RETRY that collides, which VEN's comma names are new for.
+
 ### Do NOT declare the set complete in Phase 1
 
 `COMPLETE_SETS` is a hard gate and `finishedButUndeclared` is what tells you when
