@@ -25,14 +25,13 @@ import { secondTargetIsAtDestination } from "../engine/legal-actions.js";
 import { chosenUnitsOfPlay, chosenUnitsOfRepeat, deflectSurchargeForTargets } from "../engine/granted-keywords.js";
 import {
   modifiedEnergyCost,
-  modifiedRepeatEnergy,
   optionalCostDiscount,
-  discountedOptionalCosts,
   targetChoiceDiscount,
   scaledPowerDiscount,
   combatSpellPowerDiscount,
   rainbowSurchargeForPlay,
 } from "../engine/cost-modifiers.js";
+import { optionalAdditionalCostsFor } from "../engine/optional-additional-costs.js";
 import {
   cardModesOf,
   cardMayMoveToBase,
@@ -56,8 +55,6 @@ import {
 import type { PlayCardAction } from "./player-action.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
 import {
-  ACCELERATE_ENERGY,
-  ACCELERATE_POWER,
   acceleratePowerDomain,
   hasAccelerate,
   mayPlayFromTrash,
@@ -971,9 +968,6 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     return fail(`${card.name} does not choose a unit that discounts it`);
   }
 
-  const accelerateEnergy = action.acceleratePaid ? ACCELERATE_ENERGY : 0;
-  const acceleratePower = action.acceleratePaid ? ACCELERATE_POWER : 0;
-
   // Call to Glory's "if you do, ignore this spell's cost" — the same zeroing
   // rule 811 gives a from-hidden play, and gated on the additional cost having
   // ACTUALLY been named, since declining leaves the printed cost standing.
@@ -1081,62 +1075,24 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
   // cost [1] less" — applied through the shared modifier so the enumerator
   // cannot price it differently.
   //
-  // ONE BUNDLE PER PAID INSTANCE, not one summed bundle: 820.1.c.2 makes each
-  // instance its own Optional Additional Cost, and the 2026-08-08 ruling gives
-  // each qualifying optional additional cost its own Ezreal pip. Summing first
-  // and discounting once is the exact mistake the granted instance's note below
-  // records having shipped, from the other side. For the twenty single-instance
-  // cards this is a one-element list and prices identically.
-  const repeatBundles = executions.map((execution) => {
-    const cost = repeatCosts[execution.instance]!;
-    return {
-      energy: modifiedRepeatEnergy(state, action.playerIndex, cost.energy),
-      power: cost.power ?? 0,
-      rainbow: cost.rainbowPower ?? 0,
-    };
-  });
-  // The granted instance is a SECOND additional cost and adds on top of the
-  // printed one — 820.1.c.2 makes them independently payable, so a spell can owe
-  // both. `modifiedRepeatEnergy` applies to it too: Marai Spire's discount is
-  // about [Repeat] costs, and a granted instance is one.
-  const grantedEnergy = action.grantedRepeatPaid
-    ? modifiedRepeatEnergy(state, action.playerIndex, grantedRepeatCost?.energy ?? 0)
-    : 0;
   // A FOREIGN pip (Syndra's Chaos on a Fury spell) is NOT part of the card's
   // Power total — it is checked against its own named domain below, and folding
-  // it in here would demand a Fury rune for it.
+  // it in would demand a Fury rune for it. Read here as well as inside
+  // `optionalAdditionalCostsFor` because the rune-bucket checks further down are
+  // this function's alone.
   const grantedForeignPip = foreignRepeatPip(card, grantedRepeatCost);
-  const grantedPower = action.grantedRepeatPaid && !grantedForeignPip ? grantedRepeatCost?.power ?? 0 : 0;
 
   // Every OPTIONAL ADDITIONAL cost this play opted into, ONE BUNDLE EACH, each
   // discounted separately by Ezreal - Prodigy before they are summed.
   //
-  // A LIST rather than one summed bundle since the project-owner ruling of
-  // 2026-08-08: "[1] or [rainbow] less" is once per qualifying optional
-  // additional cost, so a play that pays two of them gets two pips off. The
-  // previous shape summed first and discounted once, which under-paid the player
-  // by a pip on the only board where it is observable (Temporal Portal's granted
-  // `[Repeat]` alongside a printed one).
-  //
-  // MANDATORY costs are absent by construction and that is the point: the four
-  // entries below are the four flags a player OPTS INTO. Cruel Patron's kill,
-  // Legion Quartermaster's bounce and Stalking Wolf's kill ride
-  // `additionalCostUnitInstanceId`, are `mandatory` in `OPTIONAL_UNIT_COSTS`, and
-  // are paid with a permanent rather than a pip — nothing here to reduce, and no
-  // entry to reduce it in.
-  //
-  // The optional cost's ENERGY half is in its entry too — Sea Monkey pays only
-  // Energy and Blast Corps Cadet pays one of each, so the Power line is not the
-  // whole price. Re-derived from the same table the enumerator priced against,
-  // which is what keeps the two from disagreeing.
-  const additional = discountedOptionalCosts(state, action.playerIndex, action.targetDiscountAxis, [
-    ...(action.acceleratePaid ? [{ energy: accelerateEnergy, power: acceleratePower, rainbow: 0 }] : []),
-    ...repeatBundles,
-    ...(action.grantedRepeatPaid ? [{ energy: grantedEnergy, power: grantedPower, rainbow: 0 }] : []),
-    ...(action.optionalPowerPaid
-      ? [{ energy: optionalPower?.energy ?? 0, power: optionalPower?.count ?? 0, rainbow: 0 }]
-      : []),
-  ]);
+  // **Shared with `execute-play-card` rather than spelled out here**, which is
+  // the fix for the third occurrence of this repo's worst-behaved bug shape: the
+  // executor priced its own figure from the raw printed cost and simply never
+  // added this term, so an optional additional cost paid out of FLOATING Energy
+  // was free. The list, the per-bundle Ezreal discount and the mandatory-cost
+  // exclusion all live in that one function now; see its comment for why a
+  // shared function beats two careful copies here specifically.
+  const additional = optionalAdditionalCostsFor(state, action, card);
 
   const effectiveCost = fromHidden || costIgnored
     ? { energyCost: 0, powerCost: 0 }

@@ -14,6 +14,7 @@ import {
   combatSpellPowerDiscount,
 } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
+import { optionalAdditionalCostsFor } from "../engine/optional-additional-costs.js";
 import { optionalXpCostOf, optionalXpEnergyDiscountOf } from "../engine/card-effects.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
@@ -294,6 +295,24 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // would let a Death from Below-shaped `[rainbow]` price be paid in a domain
   // the replacement never offered.
   const basePowerDomainAlt = usingReplacedCost ? undefined : card.powerDomainAlt;
+  // **The OPTIONAL ADDITIONAL COSTS this play opted into** — `[Accelerate]`,
+  // every paid `[Repeat]` instance, a granted `[Repeat]`, and an optional Power
+  // cost. 204.2 and 820.1.c.1 make these part of what the play costs, so they
+  // are ADDED to both totals below, after the base-cost modifications and never
+  // floored away by them.
+  //
+  // **This term was missing entirely and that was a live bug for four sets.**
+  // The validator priced base + additional against the float; this half priced
+  // the BASE ALONE, so whenever banked Energy covered the difference the
+  // additional cost was free — every `[Repeat]`, every `[Accelerate]`, every
+  // optional-Power card. It is computed by the SAME function the validator
+  // calls, which is the only reason the two can no longer disagree: the
+  // convention this block follows — re-derive from the raw cost so the halves
+  // cannot drift — is exactly what made a forgotten term invisible, three times,
+  // always here.
+  const additional = ignoresBaseCost
+    ? { energy: 0, power: 0, rainbow: 0 }
+    : optionalAdditionalCostsFor(state, action, card);
   const modifiedEnergy = ignoresBaseCost
     ? 0
     : Math.max(
@@ -310,7 +329,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // against Irelia - Graceful, and the reason this file re-prices from
           // the raw cost rather than trusting the validator.
           (action.optionalXpPaid === true ? optionalXpEnergyDiscountOf(card.defId) : 0),
-      );
+        // ADDED OUTSIDE the `Math.max`, exactly as `validate-play-card` adds it:
+        // a discount can floor the printed cost at zero, but it cannot eat into
+        // an additional cost the player chose to pay on top.
+      ) + additional.energy;
   const powerToPay = ignoresBaseCost
     ? 0
     : Math.max(
@@ -324,7 +346,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
           // function spends without re-deriving — the same treatment `[Deflect]`
           // gets, for the same reason: the validator has already priced it.
           combatSpellPowerDiscount(state, action.playerIndex, card.kind),
-      );
+      ) + additional.power;
   const floatingEnergySpent = Math.min(actor.floatingEnergy, modifiedEnergy);
   // restrictedSpellEnergy (Lux-Crownguard's activated ability, Spells only)
   // drains AFTER floating Energy, for whatever floating didn't cover —

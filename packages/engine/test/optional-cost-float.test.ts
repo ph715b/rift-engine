@@ -2,45 +2,52 @@ import { describe, expect, it } from "vitest";
 import { submit } from "../src/engine/game-engine.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { validatePlayCard } from "../src/actions/validate-play-card.js";
+import { ACCELERATE_ENERGY } from "../src/engine/timing.js";
+import { defaultCardRegistry } from "../src/cards/card-registry.js";
+import { createCardInstance, type UnitInstance } from "../src/model/card.js";
 import { makeState, makeUnit, spellInstance } from "./fixtures.js";
 import type { GameState } from "../src/model/game-state.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 
 /**
- * **A PIN ON A LIVE BUG.** These tests assert the WRONG answer on purpose, so
- * that fixing it fails loudly rather than silently changing behaviour nobody is
- * watching. The row is in `docs/rules-conformance.md`.
+ * An OPTIONAL ADDITIONAL COST is paid out of FLOATING resources, exactly as the
+ * printed cost is.
  *
- * # What is wrong
+ * # This file was a PIN ON A LIVE BUG until 2026-08-16
  *
- * An OPTIONAL ADDITIONAL COST's Energy is never taken from FLOATING Energy.
+ * It asserted the WRONG answer on purpose so that fixing the bug would fail
+ * loudly. It has now done that job and is INVERTED rather than deleted: the
+ * arithmetic it measures is silent in the direction nobody tests, so the
+ * assertion is still worth having, pointed the other way.
  *
- * `validate-play-card` prices the printed base PLUS every optional additional
- * cost through `discountedOptionalCosts` and then `computeEffectiveCost`, so the
- * float reduces the whole bundle and the RUNES only cover what is left. But
- * `execute-play-card` re-derives its own figure from the RAW printed cost, and
- * `modifiedEnergy` there consults `acceleratePaid`, `repeatPaid` and
- * `optionalPowerPaid` nowhere at all. So a caster with banked Energy is charged
- * runes for nothing and float for the base alone: the additional cost is FREE.
+ * # What was wrong, and why it stayed wrong for four sets
  *
- * # Found on 2026-08-14, and it predates every multi-instance `[Repeat]` change
+ * `validate-play-card` priced the printed base PLUS every optional additional
+ * cost and let the float eat the whole bundle, so the RUNES only covered what
+ * was left. `execute-play-card` then re-derived its own figure from the RAW
+ * printed cost and consulted `acceleratePaid`, `repeatPaid` and
+ * `optionalPowerPaid` nowhere at all — it deducted the float against the BASE
+ * ALONE. So the two halves disagreed in the payer's favour whenever the float
+ * covered the difference, and a caster with enough banked Energy got every
+ * `[Repeat]`, `[Accelerate]` and optional-Power cost FREE.
  *
- * Found while asserting Curtain Call's three prices, which read as identical.
- * Measured on a single-instance card untouched by that work — Feral Strength,
- * SFD-034, 2 Energy with `[Repeat] [2]` — so the pin cannot be mistaken for a
- * consequence of it.
+ * **Nothing else could see it.** Every other optional-cost test in this repo
+ * measures either the RUNE counts of the enumerated payment or the validator's
+ * verdict, and neither moves when the executor's float arithmetic is wrong —
+ * which is why the second test below, the one that was already passing, is kept
+ * exactly as it was. It is the control that localises the bug to the executor.
  *
- * # Why nothing else catches it
- *
- * Every optional-cost test in this repo measures either the RUNE counts of the
- * enumerated payment or the validator's verdict, and neither moves when the
- * executor's float arithmetic is wrong. That is the third time this exact
- * third-site shape has shipped here — `docs/rules-conformance.md` records it
- * against Irelia - Graceful and against `variantCostDiscount`, both times with
- * the executor as the site that was missed.
+ * That was the THIRD time the missed cost site was `execute-play-card`;
+ * `docs/rules-conformance.md` records the same shape against Irelia - Graceful
+ * and against `variantCostDiscount`. The fix is not a fourth careful copy — both
+ * halves now call `optionalAdditionalCostsFor`, so there is one list of optional
+ * costs and no site that can forget a term.
  */
 
 const FERAL_STRENGTH = "SFD-034"; // 2 Energy; [Repeat] [2]
+const JINX_DEMOLITIONIST = "OGN-030"; // [Accelerate] 1 Energy + 1 Fury
+
+const registry = defaultCardRegistry();
 
 function caster(floatingEnergy: number): { state: GameState; spellId: string } {
   const spell = spellInstance(FERAL_STRENGTH);
@@ -60,32 +67,28 @@ function spend(state: GameState, action: PlayCardAction): number {
   return state.players[0]!.floatingEnergy - after.players[0]!.floatingEnergy;
 }
 
-describe("PINNED WRONG: an optional additional cost is free when paid from float", () => {
+describe("an optional additional cost is paid from floating Energy", () => {
   /**
    * The card costs 2 and its `[Repeat]` costs 2 more, so a play that pays the
-   * Repeat should take 4 out of a 10-Energy bank. It takes 2.
+   * Repeat takes 4 out of a 10-Energy bank. It used to take 2.
    */
-  it("a [Repeat] paid from banked Energy costs nothing", () => {
+  it("a [Repeat] paid from banked Energy costs its full price", () => {
     const { state, spellId } = caster(10);
     const plays = playsOf(state, spellId);
     const plain = plays.find((p) => !p.repeatPaid && p.targetUnitInstanceId === "ally0");
     const repeat = plays.find((p) => p.repeatPaid && p.targetUnitInstanceId === "ally0");
-    expect(plain, "no plain play was offered — the pin measures nothing").toBeDefined();
-    expect(repeat, "no repeat-paying play was offered — the pin measures nothing").toBeDefined();
+    expect(plain, "no plain play was offered — the assertion measures nothing").toBeDefined();
+    expect(repeat, "no repeat-paying play was offered — the assertion measures nothing").toBeDefined();
 
     expect(spend(state, plain!), "the printed cost came out of the bank").toBe(2);
-    // **THE WRONG ANSWER.** It should be 4 — the printed 2 plus the [Repeat]'s 2.
-    expect(
-      spend(state, repeat!),
-      "the [Repeat]'s Energy is being paid now — retire this pin and its rules-conformance row",
-    ).toBe(2);
+    expect(spend(state, repeat!), "the printed 2 plus the [Repeat]'s 2").toBe(4);
   });
 
   /**
-   * The control that says this is the EXECUTOR and not the price: with no float
-   * at all the repeat really is charged its 2 extra Energy, in runes, and the
-   * validator agrees. So the two halves of the pipeline disagree only where the
-   * float covers the difference.
+   * The control that localises this to the EXECUTOR rather than to the price,
+   * and the reason the bug was invisible: with no float at all the repeat was
+   * always charged its 2 extra Energy in runes, and the validator always agreed.
+   * Unchanged from when this file pinned the bug — it passed then and passes now.
    */
   it("...and with NO float the same play is charged its full price in runes", () => {
     const { state, spellId } = caster(0);
@@ -104,11 +107,11 @@ describe("PINNED WRONG: an optional additional cost is free when paid from float
   });
 
   /**
-   * The boundary, which is what makes the bug a REACHABLE one rather than an
-   * arithmetic curiosity: 2 banked Energy is enough for the base and not for the
-   * Repeat, so the runes should cover 2 and cover 0.
+   * The boundary, which is what made the bug REACHABLE rather than an arithmetic
+   * curiosity: 4 banked Energy covers base + Repeat exactly, so the validator
+   * owes no rune and the whole bank is spent. It used to spend 2 and keep 2.
    */
-  it("partial float pays the base and the runes cover only what is left — which is nothing", () => {
+  it("partial float pays the whole bundle and the runes cover only what is left", () => {
     const { state, spellId } = caster(4);
     state.players[0]!.channeled = Array.from({ length: 6 }, (_, i) => ({
       id: `C${i}`,
@@ -117,9 +120,38 @@ describe("PINNED WRONG: an optional additional cost is free when paid from float
     }));
     const repeat = playsOf(state, spellId).find((p) => p.repeatPaid && p.targetUnitInstanceId === "ally0")!;
 
-    // The validator prices 2 + 2 against 4 banked, so no rune is owed — correct.
+    // The validator prices 2 + 2 against 4 banked, so no rune is owed.
     expect(repeat.payment.energyRunes.length).toBe(0);
-    // **THE WRONG ANSWER.** The bank should be emptied; only the base comes out.
-    expect(spend(state, repeat), "the executor now spends the whole bundle — retire this pin").toBe(2);
+    expect(spend(state, repeat), "the bank is emptied — base AND additional").toBe(4);
+  });
+
+  /**
+   * **`[Repeat]` is not the only cost this reached**, and this case is here so
+   * the repair cannot be mistaken for a one-keyword patch. The bug was in the
+   * term the executor never added, so it reached `[Accelerate]` and every
+   * `OPTIONAL_POWER_COSTS` card identically. Jinx - Demolitionist's
+   * `[Accelerate]` is 1 Energy + 1 Fury, so paying it costs exactly
+   * `ACCELERATE_ENERGY` more out of the bank than declining it.
+   *
+   * Asserted as a DELTA against the same card's declined play rather than as an
+   * absolute, so it measures the additional cost alone and cannot be rewritten by
+   * a change to what Jinx costs.
+   */
+  it("an [Accelerate] paid from banked Energy costs its full price too", () => {
+    const jinx = createCardInstance(registry.get(JINX_DEMOLITIONIST)) as UnitInstance;
+    const state = makeState({ phase: "Action" });
+    state.players[0]!.hand = [jinx];
+    state.players[0]!.floatingEnergy = 10;
+    state.players[0]!.floatingPower = { Fury: 3 };
+
+    const plays = playsOf(state, jinx.instanceId);
+    const plain = plays.find((p) => !p.acceleratePaid);
+    const fast = plays.find((p) => p.acceleratePaid && p.destinationBattlefieldId === plain?.destinationBattlefieldId);
+    expect(plain, "no declined play was offered — the assertion measures nothing").toBeDefined();
+    expect(fast, "no [Accelerate] play was offered — the assertion measures nothing").toBeDefined();
+
+    expect(spend(state, fast!) - spend(state, plain!), "[Accelerate]'s Energy comes out of the bank").toBe(
+      ACCELERATE_ENERGY,
+    );
   });
 });
