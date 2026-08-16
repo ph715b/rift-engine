@@ -374,7 +374,18 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     //
     // The two survivors are one mechanic in two rules and stay until the
     // Empowered STATUS exists: 827 confers it, 828 depends on it.
-    expect([...flagged].sort()).toEqual(["Empower", "Empowered"]);
+    //
+    // **`[Empower]` and `[Empowered]` LEFT on 2026-08-16 too, one day after
+    // arriving, and the map is EMPTY for the sixth time.** Both had to go
+    // together: 827 confers the status and 828 depends on it, so a card printing
+    // both is finished only when both work — and leaving either flag up would
+    // grey every card printing it, which is the `[Level]` mistake recorded above.
+    //
+    // The half-written cards are held by other mechanisms rather than by this
+    // one: an unreadable Empower COST produces a derived `PARTIALLY_IMPLEMENTED`
+    // note, and an Empowered payload that is a trigger simply registers nothing
+    // and fails the registry check. That is the split this map exists to keep.
+    expect([...flagged].sort()).toEqual([]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is

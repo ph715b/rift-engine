@@ -225,14 +225,22 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   // the status, 828 is the dependent ability gated ON it. One entry would grey a
   // card printing only the second, and would let a single deletion falsely free
   // both halves.
-  [
-    "Empower",
-    "[Empower] is ignored — the Empowered status and the activated ability that confers it (827) are not built",
-  ],
-  [
-    "Empowered",
-    "[Empowered] is ignored — its dependent ability (828) is permanently inactive, since nothing carries the Empowered status",
-  ],
+  // **`[Empower]` and `[Empowered]` LEFT on 2026-08-16, one day after arriving**,
+  // and the map is empty for the sixth time. The Empowered STATUS is a binary
+  // per-object flag (441.1.a), `[Empower]` is a generated activated ability
+  // (827.1.c.1 spells the keyword out as exactly one), and `[Empowered][>]` is a
+  // dependent ability whose format 828.1.a fixes — so the payload parses.
+  //
+  // **Both had to go together, and neither could go alone.** 827 confers the
+  // status and 828 depends on it, so a card printing both is finished only when
+  // both work — and leaving either flag up would grey every card printing it,
+  // including the ones that now work. That is the `[Level]` lesson, whose note
+  // above records greying 16 working cards out of generated decks for a day.
+  //
+  // The cards whose Empowered payload is a TRIGGER or an activated ability get no
+  // derived grant and report unimplemented through `isCardImplemented`'s registry
+  // check — the split this map exists to keep clean. Same for the cards whose
+  // Empower COST is compound, which `parseEmpowerCost` refuses to read.
   // **`[Flow]` LEFT this map on 2026-08-16, the same day it arrived**, which is
   // the third time a keyword has been declared and freed in one session and the
   // reason the mechanism is kept through its empty periods.
@@ -483,6 +491,42 @@ export function implementingModule(defId: string): string | undefined {
  * Each entry names what is missing, and the entry is deleted — not amended —
  * when the rest lands. A card is either finished or it is on this list.
  */
+/**
+ * A card that prints `[Empower]` but whose COST this engine cannot read — the
+ * partial note, DERIVED rather than listed.
+ *
+ * **This closes a coverage lie that the Empower subsystem opened on the day it
+ * landed, and the shape is worth keeping in view.** Six Vendetta cards print a
+ * compound Empower cost ("— Discard 1", "— Kill a friendly unit") AND an
+ * `[Empowered][>]` clause whose payload parses. The clause registers the card in
+ * `granted-keywords`, so `isCardImplemented`'s registry check said yes — while
+ * the card's own printed way of BECOMING Empowered does not exist, and the grant
+ * it registers is unreachable by any means the card itself offers.
+ *
+ * That is the exact over-report `UNIMPLEMENTED_KEYWORDS` was added to fix, one
+ * table over: a card registered for half its text reads as finished. It is
+ * derived from `empowerCost` being absent while the text prints the keyword,
+ * rather than listed by defId, so the next unreadable cost cannot slip through
+ * by nobody remembering to add a row.
+ *
+ * It is deliberately NOT "the grant is inert": another card can Empower this one
+ * (Vendetta prints several that do), so the clause is reachable in principle.
+ * What is missing is the printed ability, and that is what the note says.
+ */
+function unreadableEmpowerCostNote(def: CardDefinition): string | undefined {
+  // Read off the card's OWN parsed cost rather than its canonical twin's, and
+  // that is safe only because `parseEmpowerCost` reads both printings the same
+  // way. It did not at first — it required the reminder text's "(" after the
+  // pips, so every `(Overnumbered)` print, which drops that reminder, refused a
+  // cost its twin accepted. `printing-aliases.test.ts` caught the disagreement
+  // rather than this file noticing it. Keeping the lookup uncanonicalised is
+  // deliberate: it leaves that test able to catch the next parser that treats two
+  // printings of one card differently, which a canonicalised read would hide.
+  if (def.empowerCost !== undefined) return undefined;
+  if (!(def.text ?? "").includes("[Empower]")) return undefined;
+  return "[Empower]'s printed cost is a compound or self-modifying one this engine cannot yet price, so the card has no way to Empower itself";
+}
+
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
   // **Keep the mechanism even when this list empties**, for the reason
   // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
@@ -925,7 +969,7 @@ export function partialImplementationNote(def: CardDefinition): string | undefin
   // Caught by `printing-aliases.test.ts`'s partition assertion ("no printing
   // disagrees with its canonical print") within an hour of the row landing —
   // which is exactly what that test is for, since nothing else compares the two.
-  const listed = PARTIALLY_IMPLEMENTED.get(canonicalDefId(def.id));
+  const listed = PARTIALLY_IMPLEMENTED.get(canonicalDefId(def.id)) ?? unreadableEmpowerCostNote(def);
   const missingKeywords = unimplementedKeywordsOn(def).map((k) => UNIMPLEMENTED_KEYWORDS.get(k)!);
   // A card that carries an unimplemented keyword AND has no registered module at
   // all is not "partial" — NOTHING of it works, and saying only "[Deflect] is
@@ -1114,7 +1158,12 @@ export function isCardImplemented(def: CardDefinition): boolean {
   // reason this list has to exist.
   // Canonical, like `partialImplementationNote` above — an alternate printing of
   // a half-written card is half-written.
-  if (PARTIALLY_IMPLEMENTED.has(canonicalDefId(def.id))) return false;
+  // The DERIVED partial note is consulted here too, and it has to be: this used
+  // to be a bare `PARTIALLY_IMPLEMENTED.has`, so a note produced by derivation
+  // rather than by a listed row reached `coverageBySet`'s `partial` column while
+  // this function still called the card implemented. The two answers disagreed —
+  // which is the same "registered for half its text" over-report one level up.
+  if (PARTIALLY_IMPLEMENTED.has(canonicalDefId(def.id)) || unreadableEmpowerCostNote(def) !== undefined) return false;
   // An unimplemented keyword is the same kind of partial, derived rather than
   // listed. Fiora - Victorious is the case that needs it: her grant IS registered
   // (granted-keywords), and [Ganking] and [Shield] really do work, so the registry

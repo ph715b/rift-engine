@@ -1,4 +1,6 @@
 import { findUnitAnywhere } from "./target-lookup.js";
+import { canonicalDefId } from "../cards/card-loader.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
 import { repeatExecutionsOf, type GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Keyword } from "../model/keyword.js";
@@ -129,6 +131,11 @@ export function grantedKeywordDefIds(): string[] {
     // caught it. Spread rather than re-listed, so the next row added to that
     // table cannot repeat this.
     ...Object.keys(CONDITIONAL_GRANTS),
+    // Vendetta's derived `[Empowered][>]` grants, spread for the same reason
+    // `CONDITIONAL_GRANTS` is: this table is DERIVED from the pool, so a new set
+    // adds rows to it without anyone editing a list, and a hand-maintained copy
+    // here would silently fall behind.
+    ...empoweredGrantDefIds(),
     ...equipmentKeywordDefIds(),
     ...equipmentDefIds(),
   ];
@@ -523,6 +530,64 @@ export function sivirConditionMet(state: GameState, ownerIndex: 0 | 1): boolean 
   return state.players[ownerIndex].powerSpentThisTurn >= SIVIR_POWER_THRESHOLD;
 }
 
+/**
+ * `[Empowered][>]` clauses whose payload is Might and/or keywords, derived from
+ * the printed text rather than tabulated — 828.
+ *
+ * **Derived, and 828.1.a is what makes that legitimate**: the rules FIX the
+ * clause format, so `card-loader.parseEmpoweredGrant` is reading a printed
+ * grammar rather than guessing at English. Measured over the loaded pool, 21 of
+ * the 36 printed clauses are "I have +N Might", "I have [Keyword]", or the two
+ * joined by "and" — nineteen cards served with no per-card row.
+ *
+ * The other fifteen have TRIGGER or activated-ability payloads, get no entry
+ * here, and report unimplemented until someone writes them. That split is the
+ * point: a card granted half its clause looks finished.
+ *
+ * Cached, like `printingAliases`, because it walks the whole registry and
+ * `effectiveKeywords` is on the hot path for every Might read in combat.
+ */
+let empoweredGrantCache: ReadonlyMap<string, { might: number; keywords: Partial<Record<Keyword, number>> }> | undefined;
+
+function empoweredGrants(): ReadonlyMap<string, { might: number; keywords: Partial<Record<Keyword, number>> }> {
+  if (empoweredGrantCache) return empoweredGrantCache;
+  const out = new Map<string, { might: number; keywords: Partial<Record<Keyword, number>> }>();
+  for (const def of defaultCardRegistry().all()) {
+    if (def.empoweredGrant !== undefined) out.set(def.id, def.empoweredGrant);
+  }
+  empoweredGrantCache = out;
+  return out;
+}
+
+/** The keywords this card's Empowered clause grants, or undefined if it grants
+ *  none. Returns undefined rather than an empty object so `effectiveKeywords`'
+ *  fast path can test it directly. */
+function empoweredKeywordGrant(defId: string): Partial<Record<Keyword, number>> | undefined {
+  const grant = empoweredGrants().get(canonicalDefId(defId));
+  if (grant === undefined || Object.keys(grant.keywords).length === 0) return undefined;
+  return grant.keywords;
+}
+
+/**
+ * The Might half of an Empowered clause, for `effective-might`.
+ *
+ * Split from the keyword half rather than returned together because the two are
+ * read by different modules on different hot paths, and `effectiveMight` must not
+ * pull the keyword machinery in behind it.
+ */
+export function empoweredMightBonus(unit: UnitInstance): number {
+  if (unit.empowered !== true) return 0;
+  return empoweredGrants().get(canonicalDefId(unit.defId))?.might ?? 0;
+}
+
+/** Every card served by the derived Empowered grants — for coverage, which asks
+ *  which MODULE claims a card. Omitting this is the Lucian - Purifier trap the
+ *  note on `grantedKeywordDefIds` records twice: a card that works while nothing
+ *  claims it reports UNIMPLEMENTED and is dropped from generated decks. */
+export function empoweredGrantDefIds(): string[] {
+  return [...empoweredGrants().keys()];
+}
+
 const CONDITIONAL_GRANTS: Record<string, Grant> = {
   // **Unleashed's `[Level N]` grants, 2026-08-09.** The keyword is stripped at
   // load (`card-loader.GRANTED_ONLY_KEYWORDS`) and handed back here under the real
@@ -716,9 +781,15 @@ export function effectiveKeywords(
   // `unit.keywords` unchanged is what "nothing is granting anything" means, and
   // a dynamic value is something being granted.
   const dynamic = DYNAMIC_KEYWORD_VALUES[unit.defId];
+  // `[Empowered][>] I have [Keyword]` (828.1.b.1). Looked up before the fast path
+  // for exactly the reason the dynamic value is: returning `unit.keywords`
+  // unchanged is what "nothing is granting anything" means, and an Empowered unit
+  // whose clause names a keyword IS having something granted.
+  const empoweredKeywords = unit.empowered === true ? empoweredKeywordGrant(unit.defId) : undefined;
   if (
     !hasThisTurn &&
     dynamic === undefined &&
+    empoweredKeywords === undefined &&
     fromAuras.length === 0 &&
     fromBattlefield.length === 0 &&
     Object.keys(fromEquipment).length === 0 &&
@@ -748,6 +819,18 @@ export function effectiveKeywords(
   }
   if (grant && grant.when(state, unit, ownerIndex)) {
     for (const kw of grant.keywords) mergeGrantedKeyword(out, kw, 1);
+  }
+  // The Empowered clause's keywords, folded on the same terms as everything else
+  // here. 828.1.c makes the dependent ability active "as long as the Game Object
+  // has the Empowered status", so this is re-asked on every read and vanishes the
+  // instant the permanent is Disempowered (442) — a latched grant would outlive
+  // the status, which is the mistake `[Level]`'s note above records refusing.
+  //
+  // VALUED, unlike `CONDITIONAL_GRANTS` above: the pool prints `[Assault 3]` and
+  // `[Shield 3]` inside these clauses, so the magnitude is read off the card
+  // instead of defaulting to 1.
+  if (empoweredKeywords !== undefined) {
+    for (const [kw, n] of Object.entries(empoweredKeywords)) mergeGrantedKeyword(out, kw as Keyword, n ?? 1);
   }
   // Another permanent's aura, folded in on the same terms as the card's own
   // grants — every reader wants "does it have this NOW", and nothing downstream

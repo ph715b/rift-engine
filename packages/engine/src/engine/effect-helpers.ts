@@ -829,6 +829,78 @@ export function payPowerFromChanneled(
  *  unchanged for every other caller. */
 const STACKING_BUFF_DEF_IDS = new Set(["OGN-078"]); // Lee Sin - Ascetic
 
+/**
+ * Is this permanent Empowered? (441.1.a — "a binary state".)
+ *
+ * Asks UNITS and GEAR, because 827.1.a puts `[Empower]` on "permanents and
+ * legends" and Vendetta prints it on both kinds. A permanent that is nowhere on
+ * the board answers `false` rather than throwing, which is what every caller
+ * here wants: `availableWhile` runs against boards where the source may already
+ * have died.
+ */
+export function isEmpowered(state: GameState, instanceId: string): boolean {
+  const unit = findUnitAnywhere(state, instanceId);
+  if (unit) return unit.unit.empowered === true;
+  for (const player of state.players) {
+    const gear = player.activeGear.find((g) => g.instanceId === instanceId);
+    if (gear) return gear.empowered === true;
+  }
+  return false;
+}
+
+/**
+ * The Empower game action (441) — "the act of rendering one or more Game Objects
+ * Empowered".
+ *
+ * **441.1.b: "An Empowered Game Object can not be Empowered", and 441.1.c makes a
+ * second instruction do nothing.** So this is a no-op on an already-Empowered
+ * permanent rather than an error, which is `addBuff`'s shape above and for the
+ * same reason 702.3.a gives it: the rules make the redundant case silent, so the
+ * engine must too.
+ *
+ * 441.1.c.1's "some effects may grant permission to be Empowered multiple times"
+ * has no card in this pool and is deliberately not modelled — there is nothing
+ * for a second Empower to DO while the state is a binary flag, so an override
+ * would be a parameter no caller could justify.
+ */
+export function empowerPermanent(state: GameState, instanceId: string): GameState {
+  if (isEmpowered(state, instanceId)) return state;
+  return setEmpowered(state, instanceId, true);
+}
+
+/**
+ * The Disempower game action (442) — "removing the Empowered status".
+ *
+ * 442.1.a.1: an instruction to Disempower a card that is not Empowered "will do
+ * nothing", so this is the exact mirror of the guard above.
+ */
+export function disempowerPermanent(state: GameState, instanceId: string): GameState {
+  if (!isEmpowered(state, instanceId)) return state;
+  return setEmpowered(state, instanceId, false);
+}
+
+/** The one writer of the status, so the two actions above cannot disagree about
+ *  where it lives. Absent-means-false, so clearing DELETES the field rather than
+ *  storing `false` — which keeps a permanent's shape identical to what it was
+ *  before Vendetta and stops `false` and `undefined` becoming two spellings of
+ *  one state. */
+function setEmpowered(state: GameState, instanceId: string, empowered: boolean): GameState {
+  const applied = (card: { empowered?: true }) => {
+    const { empowered: _dropped, ...rest } = card;
+    return (empowered ? { ...rest, empowered: true } : rest) as typeof card;
+  };
+  if (findUnitAnywhere(state, instanceId)) {
+    return updateUnitAnywhere(state, instanceId, (u) => applied(u) as UnitInstance);
+  }
+  return {
+    ...state,
+    players: state.players.map((p) => ({
+      ...p,
+      activeGear: p.activeGear.map((g) => (g.instanceId === instanceId ? (applied(g) as typeof g) : g)),
+    })) as GameState["players"],
+  };
+}
+
 export function addBuff(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   // "When you BUFF a friendly unit" (Mistfall) is about a buff actually being

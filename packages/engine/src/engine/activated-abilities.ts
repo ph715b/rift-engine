@@ -51,7 +51,7 @@ import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
 import { attachEquipment, attachableEquipment, copiedTextSourceFor, unitsBanishedWith } from "./equipment.js";
-import { banishCard } from "./effect-helpers.js";
+import { banishCard, empowerPermanent, isEmpowered } from "./effect-helpers.js";
 import { playCardIgnoringCost } from "./play-free.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 
@@ -632,8 +632,58 @@ function equipAbilities(): Record<string, ActivatedAbilityDefinition> {
   return out;
 }
 
+/**
+ * Every card whose printed `[Empower]` cost this engine can express, as a
+ * generated activated ability — 827.
+ *
+ * **827.1.c.1 spells the keyword out as an ability**: "Empower is functionally
+ * short for '[Cost]: Empower this. Play only if not Empowered.'" That is exactly
+ * an `ActivatedAbilityDefinition` with a cost, a resolver and an `availableWhile`,
+ * so the keyword needs no new machinery — the same finding `[Equip]` produced
+ * above, and the reason both are generated rather than tabulated.
+ *
+ * **NO targeting**, per 827.1.b.1: "The source game object is not a target of the
+ * Empower ability." It empowers itself, so the resolver reads `sourceInstanceId`
+ * and nothing else — which also means no `[Deflect]` surcharge can attach to it,
+ * correctly, since nothing is being chosen.
+ *
+ * **The "only if not Empowered" half is `availableWhile`, not a guard inside the
+ * resolver**, and that placement is load-bearing for the reason this file's Vi
+ * note already gives: a resolver that refused would have taken the cost first, so
+ * the player would pay to do nothing. Both the enumerator and the validator reach
+ * it through `canPayActivationCost`.
+ *
+ * Cards whose Empower cost is COMPOUND ("— Discard 1", "— Kill a friendly unit")
+ * or carries its own modifying text ("costs [1] less for each rune you control")
+ * are excluded one step earlier, by `parseEmpowerCost` refusing to read them —
+ * see its comment. They report unimplemented, which is what they are.
+ */
+function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
+  const out: Record<string, ActivatedAbilityDefinition> = {};
+  for (const def of defaultCardRegistry().all()) {
+    if (def.empowerCost === undefined) continue;
+    if (def.type !== "Unit" && def.type !== "Gear" && def.type !== "Legend") continue;
+    const { energy, powerCost, powerDomain } = def.empowerCost;
+    out[def.id] = {
+      kind: def.type,
+      // NO exhaust unless the card printed one: 827.1.c.1's expansion is
+      // "[Cost]: Empower this", and an exhaust nobody printed would make every
+      // Empower a once-per-turn ability. The cards that DO print `[Exhaust]` in
+      // their Empower cost are the compound ones `parseEmpowerCost` refuses.
+      cost: {
+        ...(energy > 0 ? { energy } : {}),
+        ...(powerCost > 0 ? { power: { domain: powerDomain, count: powerCost } } : {}),
+      },
+      availableWhile: (state, _playerIndex, sourceInstanceId) => !isEmpowered(state, sourceInstanceId),
+      resolve: (state, _ctx, _event, sourceInstanceId) => empowerPermanent(state, sourceInstanceId),
+    };
+  }
+  return out;
+}
+
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...equipAbilities(),
+  ...empowerAbilities(),
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
   "SFD-189": {
     // Ornn - Fire Below the Mountain — "[Exhaust]: [Reaction] — [Add] [rainbow].

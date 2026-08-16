@@ -496,23 +496,148 @@ const FLOW_COST_PATTERN = /\[Flow\]\s*(?::rb_energy_(\d+):)?((?::rb_rune_[a-z]+:
 export function parseFlowCost(plain: string): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
   const match = FLOW_COST_PATTERN.exec(plain);
   if (!match) return undefined;
-  const energy = match[1] ? Number.parseInt(match[1], 10) : 0;
-  const runes = [...(match[2] ?? "").matchAll(/:rb_rune_([a-z]+):/gi)].map((m) => m[1]!.toLowerCase());
   // A bare `[Flow]` with no cost at all is not a cost this can price. Both cards
   // that produce one are UNITS referencing the keyword rather than printing it,
   // and they are stripped in GRANTED_ONLY_KEYWORDS — so reaching here means a
   // shape nobody has read, and undefined is the honest answer.
+  //
+  // The pip reading itself is shared with `[Empower]`, which prints its cost in
+  // the same notation immediately after its own bracket. Two readers of one
+  // notation is how they come to disagree.
+  return costFromPips(match[1], match[2] ?? "");
+}
+
+/**
+ * `[Empower]`'s printed activation cost — "Empower [Cost]" (827.1.c).
+ *
+ * Shares `parseFlowCost`'s grammar deliberately: both keywords print a cost
+ * immediately after the bracket in the same `:rb_energy_N:` + `:rb_rune_X:`
+ * notation, and two readers of one notation is how they come to disagree.
+ *
+ * **Refuses a COMPOUND cost rather than half-reading it**, which is
+ * `parseEquipCost`'s rule and the reason it is stated again here: Vendetta
+ * prints six Empower costs of the form "— Discard 1", "— Kill a friendly unit",
+ * "— [Exhaust]", and reading only the resource half would make each of those
+ * abilities free. Those cards report unimplemented, which is what they are.
+ *
+ * It also refuses the two costs carrying their own MODIFYING text ("This ability
+ * costs [1] less for each rune you control"), for the same reason in the other
+ * direction: 827.1.c.3 says such text "is taken into account when determining a
+ * card's Empower cost for any reason", so honouring the printed number alone
+ * would be too EXPENSIVE and the card would be unplayable at the price it means.
+ */
+export function parseEmpowerCost(plain: string): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
+  const at = plain.indexOf("[Empower]");
+  if (at < 0) return undefined;
+  const after = plain.slice(at + "[Empower]".length);
+  const pips = /^\s*(?::rb_energy_(\d+):)?((?::rb_rune_[a-z]+:)*)/i.exec(after);
+  if (!pips) return undefined;
+  // **A COMPOUND cost has no pips here at all**, because its non-resource half is
+  // introduced by an em dash — "[Empower] — Discard 1", "[Empower] — Kill a
+  // friendly unit", "[Empower] — :rb_energy_1:, :rb_exhaust:". The dash is not a
+  // pip, so nothing matches and `costFromPips` refuses below. That is
+  // `parseEquipCost`'s rule: half a cost is CHEAPER than printed.
+  //
+  // **A SELF-MODIFYING cost is refused explicitly**, and it is the one shape a
+  // pip check alone cannot see: "[Empower] :rb_energy_12:. This ability costs
+  // :rb_energy_1: less for each rune you control" reads as a clean 12 and is not
+  // one. 827.1.c.3 says such text "is taken into account when determining a
+  // card's Empower cost for any reason", so honouring 12 alone is too EXPENSIVE
+  // and the card is unplayable at the price it actually means.
+  const rest = after.slice(pips[0].length);
+  if (/^\s*\.\s*This ability costs/i.test(rest)) return undefined;
+  // **Anything else may follow the pips, and MUST be allowed to.** This used to
+  // demand a "(" — the reminder text's opening — and that quietly refused every
+  // `(Overnumbered)` printing, whose text is the same card with the reminder
+  // DROPPED. `printing-aliases.test.ts` caught it within the hour, exactly as its
+  // own note says it is for: VEN-181 disagreed with VEN-086 about being
+  // implemented, which is the same card twice.
+  return costFromPips(pips[1], pips[2] ?? "");
+}
+
+/** The shared `:rb_energy_N::rb_rune_X:` reading behind `[Flow]` and `[Empower]`.
+ *  One domain across every rune; `rainbow` is `null`, the spelling every payment
+ *  site already reads as "any domain". */
+function costFromPips(
+  energyPips: string | undefined,
+  runePips: string,
+): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
+  const energy = energyPips ? Number.parseInt(energyPips, 10) : 0;
+  const runes = [...runePips.matchAll(/:rb_rune_([a-z]+):/gi)].map((m) => m[1]!.toLowerCase());
   if (energy === 0 && runes.length === 0) return undefined;
   if (runes.length === 0) return { energy, powerCost: 0, powerDomain: null };
-  // One domain across every rune. `rainbow` is the RAINBOW pip, which
-  // `ReplacedCost.powerDomain` already spells as `null` and every payment site
-  // already reads as "any domain".
   const first = runes[0]!;
   if (!runes.every((r) => r === first)) return undefined;
   if (first === "rainbow") return { energy, powerCost: runes.length, powerDomain: null };
   const capitalized = first.charAt(0).toUpperCase() + first.slice(1);
   if (!isDomain(capitalized)) return undefined;
   return { energy, powerCost: runes.length, powerDomain: capitalized };
+}
+
+/**
+ * What an `[Empowered][>]` clause grants, for the payloads that are a static
+ * Might bonus and/or keywords.
+ *
+ * **Parsed rather than tabulated, and 828.1.a is what makes that legitimate
+ * rather than speculative**: the rules FIX the clause's format ("[Empowered][>]
+ * [Text]"), and 828.1.b.1 fixes its meaning ("While I have the Empowered status,
+ * this card gains `[Text]`"). Measured over the loaded pool, 21 of the 36
+ * printed clauses are exactly "I have +N Might", "I have [Keyword]", or the two
+ * joined by "and" — so one reader serves nineteen cards with no per-card row,
+ * the same trade `parseEquipCost` makes.
+ *
+ * Everything else returns undefined and stays unwritten: a payload that is a
+ * TRIGGER ("When I conquer, you score 1 point"), an activated ability, or a
+ * replacement effect needs per-card code, and a partially-granted card is worse
+ * than an unimplemented one because it looks finished.
+ */
+export function parseEmpoweredGrant(plain: string): { might: number; keywords: Partial<Record<Keyword, number>> } | undefined {
+  const clause = /\[Empowered\]\[>\]\s*([^.]*)\./.exec(plain);
+  if (!clause) return undefined;
+  const text = clause[1]!.trim();
+  // "I have ..." is the whole of the payload shape this reads. Anything that
+  // does not open that way is a trigger or an ability.
+  const body = /^I have\s+(.*)$/i.exec(text);
+  if (!body) return undefined;
+  let might = 0;
+  const keywords: Partial<Record<Keyword, number>> = {};
+  for (const part of body[1]!.split(/\s+and\s+|,\s*/)) {
+    const term = part.trim();
+    if (term === "") continue;
+    const mightMatch = /^\+(\d+)\s*:rb_might:$/i.exec(term);
+    if (mightMatch) {
+      might += Number.parseInt(mightMatch[1]!, 10);
+      continue;
+    }
+    const keywordMatch = /^\[([A-Za-z][a-zA-Z-]*)(?:\s+(\d+))?\]$/.exec(term);
+    const keyword = keywordMatch ? keywordFromBracketText(keywordMatch[1]!) : undefined;
+    if (keyword === undefined) return undefined; // a term this cannot read — grant nothing
+    keywords[keyword] = keywordMatch![2] ? Number.parseInt(keywordMatch![2], 10) : 1;
+  }
+  if (might === 0 && Object.keys(keywords).length === 0) return undefined;
+  return { might, keywords };
+}
+
+/**
+ * The two `[Empower]`/`[Empowered]` fields, ready to spread into any card
+ * variant.
+ *
+ * One helper rather than two reads per branch, because 827.1.a puts the keyword
+ * on "permanents and legends" and Vendetta prints it on Units, Gear AND Legends
+ * — three branches that must not drift. `text` is the standing warning here: it
+ * was declared per variant and simply omitted from Legend, so every Legend's
+ * printed ability was invisible to coverage for months.
+ */
+function empowerFields(plain: string): {
+  empowerCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
+  empoweredGrant?: { might: number; keywords: Partial<Record<Keyword, number>> };
+} {
+  const empowerCost = plain.includes("[Empower]") ? parseEmpowerCost(plain) : undefined;
+  const empoweredGrant = plain.includes("[Empowered]") ? parseEmpoweredGrant(plain) : undefined;
+  return {
+    ...(empowerCost !== undefined ? { empowerCost } : {}),
+    ...(empoweredGrant !== undefined ? { empoweredGrant } : {}),
+  };
 }
 
 function shouldSkip(card: RawCard): boolean {
@@ -798,7 +923,41 @@ function printedKeywords(id: string, plain: string): Partial<Record<Keyword, num
   if (CONDITIONAL_KEYWORD_DEF_IDS.has(id)) return {};
   const parsed = parseKeywords(plain);
   for (const keyword of GRANTED_ONLY_KEYWORDS[id] ?? []) delete parsed[keyword];
+  for (const keyword of empoweredOnlyKeywords(plain)) delete parsed[keyword];
   return parsed;
+}
+
+/**
+ * Keywords a card holds ONLY inside its `[Empowered][>]` clause.
+ *
+ * **This is the sixth appearance of the bracket false-positive shape, and the
+ * first one derived rather than listed.** `KW_PATTERN` sees brackets, not
+ * sentences, so `[Empowered][>] I have [Assault 3]` handed Shadow Fiend a flat
+ * printed `[Assault 3]` — live at all times, with no Empower paid. That is
+ * exactly what `GRANTED_ONLY_KEYWORDS` records for UNL-047, UNL-075 and UNL-113,
+ * whose `[Level N]` clauses produced the identical bug.
+ *
+ * Derived, because Vendetta prints EIGHTEEN of them and a hand list of eighteen
+ * defIds is a list that falls behind the next set. 828.1.a fixes the clause's
+ * format, so "inside the clause" is a well-defined region rather than a guess.
+ *
+ * **Only keywords appearing NOWHERE else are stripped**, which is the precision
+ * `GRANTED_ONLY_KEYWORDS` needed for Taric (who prints `[Shield]` and also grants
+ * it): Baccai Sandspinner's clause names `[Deflect]`, and a card printing
+ * `[Deflect]` on its frame as well must keep the printed one. The keyword is
+ * handed back under the real condition by `granted-keywords`' derived Empowered
+ * grant — stripped here, re-granted there, the same pairing one file apart that
+ * Sivir and the `[Level]` rows already use.
+ */
+function empoweredOnlyKeywords(plain: string): Keyword[] {
+  const clause = /\[Empowered\]\[>\][^.]*\./.exec(plain);
+  if (!clause) return [];
+  const outside = plain.replace(clause[0], "");
+  const inClause = new Set(Object.keys(parseKeywords(clause[0])) as Keyword[]);
+  for (const keyword of Object.keys(parseKeywords(outside)) as Keyword[]) inClause.delete(keyword);
+  // `Empowered` itself is the clause's own marker, not something it grants.
+  inClause.delete("Empowered");
+  return [...inClause];
 }
 
 /**
@@ -1039,6 +1198,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerDomain: null,
         imageUrl,
         championTag: name.split(/\s+/)[0]!.toUpperCase(),
+        ...empowerFields(plain),
         // Was omitted, which made every Legend's printed ability invisible to
         // coverage.ts — see CardDefinitionBase.text.
         text: plain,
@@ -1062,6 +1222,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
           ...(QUICK_TEXT_OVERRIDES.has(id) ? { Quick: 1 } : {}),
         },
         legionDiscount: legionMatch ? Number.parseInt(legionMatch[1]!, 10) : 0,
+        ...empowerFields(plain),
         hidden: isGenuinelyHidden(plain, id),
         isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
         tags: card.tags ?? [],
@@ -1102,6 +1263,7 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         powerCost,
         keywords: printedKeywords(id, plain),
         isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
+        ...empowerFields(plain),
         hidden: isGenuinelyHidden(plain, id),
         // The three Equipment fields. Two are parsed and one is a table,
         // because the badge is art-only data no parser can reach.

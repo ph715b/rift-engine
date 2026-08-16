@@ -8,7 +8,7 @@ import { BRUSH_MIGHT, BRUSH_TAGS, isBrush } from "./battlefield-tokens.js";
 import { effectiveTagsOf } from "./equipment.js";
 import { equipmentMightBonusFor } from "./equipment.js";
 import { isMechDef } from "./constants.js";
-import { sivirConditionMet } from "./granted-keywords.js";
+import { empoweredMightBonus, sivirConditionMet } from "./granted-keywords.js";
 import { isMechUnit } from "./equipment.js";
 
 export interface MightContext {
@@ -495,6 +495,17 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   if (unit.defId === SIVIR_MERCENARY && sivirConditionMet(state, ownerIndex)) {
     bonus += SIVIR_MIGHT_BONUS;
   }
+
+  // `[Empowered][>] I have +N Might` (828.1.b.1), derived from the printed clause
+  // rather than tabulated per card — ten of Vendetta's clauses are exactly this.
+  //
+  // Read off the UNIT's own status, not the player's, which is what separates
+  // this from the `[Level]` bonuses below it: two copies of one Empowered unit
+  // can disagree, because 441.1.a makes the status a property of the Game Object.
+  //
+  // No recursion risk, on the same terms as Sivir's above: the condition is a
+  // boolean flag on the instance, not a Might read.
+  bonus += empoweredMightBonus(unit);
 
   // Rumble - Scrapper — "Your Mechs have +1 Might (including me)."
   //

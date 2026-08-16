@@ -30,6 +30,26 @@ export interface CardDefinitionBase {
    *  without a hybrid pip (e.g. Decisive Strike). See card-loader.ts's
    *  POWER_DOMAIN_ALT_OVERRIDES. */
   powerDomainAlt?: Domain;
+  /**
+   * `[Empower]`'s printed activation cost (827.1.c), or undefined for a card
+   * that prints none.
+   *
+   * On the BASE because 827.1.a puts the keyword on "permanents and legends" —
+   * Units, Gear and Legends all print it in Vendetta, and declaring it three
+   * times is how `text` came to be omitted from Legend for months.
+   */
+  empowerCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
+  /**
+   * What this card's `[Empowered][>]` clause grants it while it holds the status
+   * (828.1.b.1, "While I have the Empowered status, this card gains `[Text]`"),
+   * for the clauses whose payload is a static Might bonus and/or keywords.
+   *
+   * Undefined both for a card printing no such clause and for one whose payload
+   * is a TRIGGER or an activated ability — those need per-card code and report
+   * unimplemented until they get it, which is the honest answer rather than a
+   * partially-granted card.
+   */
+  empoweredGrant?: { might: number; keywords: Partial<Record<Keyword, number>> };
   imageUrl: string;
   /**
    * The card's printed rules text, reminder text and all.

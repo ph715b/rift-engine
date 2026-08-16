@@ -48,7 +48,7 @@ export interface LegendInstance extends CardInstanceBase {
   banishedInstanceIds?: readonly string[];
 }
 
-export interface UnitInstance extends CardInstanceBase {
+export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
   kind: "Unit";
   energyCost: number;
   powerCost: number;
@@ -227,7 +227,26 @@ export interface SpellInstance extends CardInstanceBase {
   flowCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
 }
 
-export interface GearInstance extends CardInstanceBase {
+/**
+ * The Empowered status — rule **441**, read against `-raw`.
+ *
+ * > 441.1.a "Empowered is a binary state. A Game Object is Empowered or it isn't."
+ * > 441.1.b "An Empowered Game Object can not be Empowered."
+ * > 442.1.a "Disempowering affects only cards that are currently Empowered."
+ *
+ * **Optional-and-`true` rather than a plain boolean**, matching `isToken` and
+ * `powerDomainAlt`'s spelling in this file: an absent field is "not Empowered",
+ * so every permanent that predates Vendetta reads correctly with no migration
+ * and no per-site default.
+ *
+ * It is a PER-OBJECT status, which is what separates it from `[Level]`'s
+ * superficially identical `[Empowered][>]` clause shape — Level reads one
+ * integer on `PlayerState`, so every card a player controls answers it the same
+ * way, while two copies of one Empowered unit can disagree.
+ */
+export type EmpowerableInstance = { empowered?: true };
+
+export interface GearInstance extends CardInstanceBase, EmpowerableInstance {
   kind: "Gear";
   energyCost: number;
   powerCost: number;
