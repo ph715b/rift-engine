@@ -11,7 +11,7 @@ import type {
 import { killGear } from "../triggers.js";
 import { isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
-import { drawCards } from "../effect-helpers.js";
+import { drawCards, isEmpowered } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { hasKeyword } from "../granted-keywords.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";
@@ -2122,6 +2122,33 @@ function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDe
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-057": {
+    // Covert Informant — "[Empowered][>] When I move, draw 1."
+    //
+    // A DEPENDENT trigger (828): 828.1.c makes the ability active only "as long
+    // as" the source holds the Empowered status, so an un-Empowered Informant
+    // walks for nothing. Asked on the LISTENER's own instance, because 441.1.a
+    // makes Empowered a property of the game object — two Informants can
+    // disagree, and only the moved one's own status matters.
+    //
+    // "When **I** move" is the SELF reading, so the event's `unitInstanceId` is
+    // compared to the listener's own card rather than merely checking that its
+    // controller moved something. `unitMoved` fires per unit inside
+    // `execute-move-unit`'s loop, so an Informant walking alongside two others is
+    // one draw, not three — which is what the card says and is the same
+    // per-unit-not-per-action reading Yasuo - Windrider's counter takes.
+    //
+    // No location test: his text names no battlefield, unlike the "to a
+    // battlefield other than mine" cards above. `unitMoved` only fires for a
+    // Standard Move to a battlefield anyway, so a recall is already excluded
+    // without a check here.
+    on: "unitMoved",
+    applies: (state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      isEmpowered(state, listener.card.instanceId),
+    resolve: (state, listener) => drawCards(state, listener.ownerIndex, 1),
+  },
   "UNL-074": {
     // Frigid Jewel — "When you draw your SECOND card each turn, give a friendly
     // unit +2 [Might] this turn."

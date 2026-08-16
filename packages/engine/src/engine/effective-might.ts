@@ -126,6 +126,26 @@ function ownUnitLocation(state: GameState, ownerIndex: 0 | 1, defId: string): st
   return undefined;
 }
 
+/**
+ * Aurok General: "[Empowered][>] Your units that are [Empowered] have +2 Might
+ * (including me)." The first aura whose SOURCE has to hold a status for the aura
+ * to exist at all — Rumble - Scrapper's shape plus 828.1.c's "as long as".
+ */
+const AUROK_GENERAL = "VEN-130";
+const AUROK_GENERAL_BONUS = 2;
+
+/** Does this player control an EMPOWERED copy of `defId`, anywhere?
+ *
+ *  Any-match rather than first-copy: two Generals with only one Empowered must
+ *  still turn the aura on, and `ownUnitLocation` reports the first copy it finds
+ *  — the under-report its own note records, which is harmless for the yes/no
+ *  questions it was written for and would be wrong here. */
+function hasEmpoweredUnit(state: GameState, ownerIndex: 0 | 1, defId: string): boolean {
+  const owner = state.players[ownerIndex];
+  if (owner.baseUnits.some((u) => u.defId === defId && u.empowered === true)) return true;
+  return state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some((u) => u.defId === defId && u.empowered === true));
+}
+
 /** Garen - Commander: "Other friendly units have +1 Might here." */
 const GAREN_COMMANDER = "OGS-013";
 /** Master Yi - Meditative: "While you have 8+ runes, I have +4 Might." */
@@ -256,6 +276,11 @@ export function effectiveMightDefIds(): string[] {
   // written in the "wrong" file.
   return [
     ...Object.values(domainMightModifiers()).map((m) => m.defId),
+    // Aurok General's aura lives in this file and nowhere else, so coverage would
+    // report him inert without this line — the Lucian - Purifier trap that
+    // `grantedKeywordDefIds` records having sprung twice: if a card works and the
+    // count does not move, no module has claimed it.
+    AUROK_GENERAL,
     GAREN_COMMANDER,
     MASTER_YI_MEDITATIVE,
     WIELDER_OF_WATER,
@@ -506,6 +531,35 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   // No recursion risk, on the same terms as Sivir's above: the condition is a
   // boolean flag on the instance, not a Might read.
   bonus += empoweredMightBonus(unit);
+
+  // Aurok General — "[Empowered][>] Your units that are [Empowered] have +2
+  // Might (including me)."
+  //
+  // **Rumble - Scrapper's shape with one condition added**, and the addition is
+  // the dependent keyword: the aura exists only while the GENERAL himself is
+  // Empowered (828.1.c's "as long as"), and it then reaches every Empowered unit
+  // its controller has. So there are two status reads and they are different
+  // questions — the source's, which turns the aura on, and the receiver's, which
+  // is the aura's own filter.
+  //
+  // "Including me" needs no special case, exactly as it does not for Rumble: a
+  // General whose aura is live is Empowered by definition, so he satisfies his
+  // own filter and the clause is simply the absence of the "other" every
+  // exclusive aura in this file prints. Sett - Kingpin is the precedent for
+  // reading a missing "other" as inclusive.
+  //
+  // Unpositioned, like Rumble's: his text names no battlefield, so a General in
+  // base still pumps an Empowered unit at the far end of the board.
+  //
+  // No recursion risk: both reads are boolean flags on instances, not Might.
+  // `ownUnitLocation` cannot answer this: it returns WHERE a defId is, and the
+  // question here is about that unit's own status. Two Generals with only one
+  // Empowered must turn the aura on, so any-match is the right quantifier —
+  // which is also why this does not reuse the "first copy" helper Rumble's note
+  // records as under-reporting.
+  if (unit.empowered === true && hasEmpoweredUnit(state, ownerIndex, AUROK_GENERAL)) {
+    bonus += AUROK_GENERAL_BONUS;
+  }
 
   // Rumble - Scrapper — "Your Mechs have +1 Might (including me)."
   //

@@ -405,10 +405,20 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // `inline` did not move and must not — it is `beginningPhase` alone, three
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
+    // **320/5/325 → 322/5/327 on 2026-08-16: two cards, and both are real.**
+    // VEN-046 Nasus, Ascended ("when I conquer, you score 1 point") and VEN-057
+    // Covert Informant ("when I move, draw 1"), the first two `[Empowered][>]`
+    // clauses whose payload is a TRIGGER rather than the static Might/keyword
+    // grant `parseEmpoweredGrant` reads.
+    //
+    // **VEN-130 Aurok General landed in the same change and is correctly NOT
+    // here**: his clause is an AURA, so it lives in `effective-might.ts` and this
+    // census has nothing to count. Worth stating, because "three cards, +2" looks
+    // like a miscount and is the shape this file's own notes keep warning about.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 320,
+      held: 322,
       inline: 5,
-      cards: 325,
+      cards: 327,
     });
   });
 

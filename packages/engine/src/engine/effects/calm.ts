@@ -39,6 +39,7 @@ import {
   returnUnitToHand,
   stunUnits,
   takeOneFromTopAndRecycleRest,
+  isEmpowered,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
 import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
@@ -1733,6 +1734,45 @@ function apprenticeSmithReveal(state: GameState, ownerIndex: 0 | 1): GameState {
 const LILLIA_TOKEN_MIGHT = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-046": {
+    // Nasus, Ascended — "[Empowered][>] When I conquer, you score 1 point."
+    //
+    // **The first DEPENDENT trigger in this file, and the gate is the whole
+    // difference from an ordinary one.** 828.1.b.1 makes the clause short for
+    // "While I have the Empowered status, this card gains `[Text]`", and 828.1.c
+    // makes it active "as long as" the status holds — so the trigger exists only
+    // while Nasus is Empowered, and an un-Empowered Nasus conquering scores
+    // nothing beyond the ordinary point. Asked through `isEmpowered` on the
+    // LISTENER's own instance, which is what makes it per-object (441.1.a) rather
+    // than a question about the player.
+    //
+    // "When **I** conquer" is the positional reading Ahri - Alluring, Adaptatron
+    // and Sett - Brawler all take of the same phrase: the battlefield conquered
+    // has to be the one Nasus is standing at, not merely one his controller took
+    // somewhere. The event carries a battlefield for exactly that reason.
+    //
+    // He therefore DOUBLES a conquest — the ordinary point is already awarded by
+    // the time this fires, and this is a second one. That is the card: 8 Energy
+    // to Empower a `[Deflect 2]` body whose battlefield is then worth two.
+    //
+    // **A plain `gainPoints`, deliberately NOT routed through `recordConquest`**,
+    // for the reason Ahri's entry sets out at length: 471.1.b's Final Point
+    // restriction applies only to a point gained "through a Conquer", and sending
+    // this down that path would silently withhold a winning point unless every
+    // battlefield had been scored that turn.
+    on: "battlefieldConquered",
+    // Every condition is fixed at FIRE time, including the Empowered one. This
+    // trigger is held, and the window it opens is precisely when an opponent
+    // could Disempower him (442) — re-asking at resolution would let them cancel
+    // a point that has already been earned, which is the same argument Ahri's
+    // entry makes about moving or killing her.
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      isEmpowered(state, listener.card.instanceId),
+    resolve: (state, listener) => gainPoints(state, listener.ownerIndex, 1),
+  },
   "UNL-058": {
     // Lillia - Protector of Dreams — "When you play a TOKEN UNIT, give me +1
     // [Might] this turn." Her second sentence ("your token units have [Tank]") is
