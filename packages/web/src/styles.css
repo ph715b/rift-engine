@@ -627,6 +627,46 @@ button:disabled {
     transform 0.18s ease;
 }
 
+/*
+ * A card you may play from your TRASH, riding in the hand fan.
+ *
+ * It shares the fan rather than getting a row of its own, and that is a SIZE
+ * decision rather than a cosmetic one: every card on the board is sized from the
+ * shortest measured row, so a row existing only for these would cap the whole
+ * board — the same mechanism that made removing the hand's own row worth 31px a
+ * card at 1600x950. This layer is absolutely positioned and out of flow, so it
+ * costs zero height.
+ *
+ * The badge sits at the TOP of the card on purpose. The slot is collapsed to a
+ * peek of each card's top edge in its resting state, so a bottom-anchored label
+ * would be invisible exactly when the player needs to notice the card is there —
+ * and it would be inside the gradient mask's faded strip as well.
+ */
+.hand-fan-slot.from-trash > .card {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.hand-fan-slot.from-trash::after {
+  content: "TRASH";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 0.1em 0.5em;
+  border-radius: 0 0 5px 5px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: clamp(7px, calc(var(--hand-card-w) * 0.11), 12px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.35;
+  /* The slot owns the click; the badge must not swallow it. */
+  pointer-events: none;
+}
+
 .hand-fan-slot > .card {
   position: absolute;
   left: 0;

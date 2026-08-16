@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useRowFit } from "./use-row-fit.js";
+import { trashPlayableCards } from "./trash-plays.js";
 import { useBoardCardSize, CARD_ASPECT_RATIO } from "./use-board-card-size.js";
 import {
   beginFirstTurn,
@@ -630,8 +631,46 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
   // this whenever the cards genuinely do not fit.
   const handCardWidth =
     boardCardSize.cardHeight === null ? null : boardCardSize.cardHeight * CARD_ASPECT_RATIO * HAND_CARD_SCALE;
+  /**
+   * Cards you may play from your TRASH right now, surfaced beside the hand.
+   *
+   * **Rule 366.1 is why these belong on the board at all**: a passive ability of
+   * a card outside the board "self-describes its context", so `[Flow]` (829) and
+   * Undying Legion's `[Legion][>] You may play me from your trash` are real
+   * permissions that exist while the card sits in the trash. The engine has
+   * offered them for two sets; the board had nowhere to click.
+   *
+   * **This was a silent, two-set-old dead end.** `human.hand.map` was the only
+   * place a card ever received an `onClick`, and the trash browser renders
+   * `<CardView inPile />` with no handler — so Undying Legion's whole trash
+   * clause has been unreachable by a human since it shipped, and 15 Vendetta
+   * `[Flow]` spells were about to join it. Nothing could see it: every
+   * instrument in this repo drives `submit` directly, so `reachability` happily
+   * reports a Flow spell exercised because the AI never needs an affordance.
+   *
+   * Read off `legal` rather than from any card property, so it covers all three
+   * routes at once — a printed replaced cost, a parsed `[Flow]` cost, and a
+   * granted trash charge — and cannot fall behind a fourth. The selection lives
+   * in `trash-plays.ts` so it can be tested against a crafted state; this
+   * component takes no state injection, so an inline version was untestable.
+   */
+  const trashPlayable = trashPlayableCards(human.trash, legal);
+  /**
+   * ONE fan holds the hand and the trash-playable cards together.
+   *
+   * A second ROW would have been the obvious shape and is the trap this board
+   * already sprang once: every card in the game is sized from the SHORTEST
+   * measured row, so a row that exists only for these cards would cap every card
+   * on the board — the same mechanism that made removing the hand's row worth
+   * 31px a card at 1600x950. The hand is an overlay for exactly that reason, and
+   * this rides in it, costing zero height.
+   *
+   * It is also what MTG Arena does with flashback and escape: a card you may
+   * play from the graveyard appears with your hand rather than in a pile viewer.
+   */
+  const fanCards = [...human.hand, ...trashPlayable];
   const handFit = useRowFit(
-    human.hand.length,
+    fanCards.length,
     handCardWidth === null ? undefined : -Math.round(handCardWidth * HAND_OVERLAP_FRACTION),
   );
   // The opponent's backs fan tighter than real cards: they carry no information
@@ -2699,14 +2738,16 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
             }
           >
             <AnimatePresence>
-              {human.hand.map((card, index) => (
+              {fanCards.map((card, index) => (
                 <div
                   key={card.instanceId}
-                  className="hand-fan-slot"
+                  // Trash cards are marked so the fan does not silently imply
+                  // they are in hand — the badge and outline are in styles.css.
+                  className={`hand-fan-slot${index >= human.hand.length ? " from-trash" : ""}`}
                   // The fan's arc. Written inline because it is per-index and
                   // per-count, which a stylesheet cannot express — the same
                   // reason the overlap itself is measured rather than declared.
-                  style={fanTransform(index, human.hand.length)}
+                  style={fanTransform(index, fanCards.length)}
                 >
                   <CardView
                     card={card}
