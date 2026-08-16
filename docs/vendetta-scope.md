@@ -5,6 +5,12 @@ declared. **Do not copy the verification loop into this file.** It is in
 `CLAUDE.md`, and six docs in this directory each wrote their own copy, they
 drifted, and the copy in front of a session beat the correct one.
 
+**Three skills carry the repeatable parts of this and are the first thing to
+reach for**: `land-a-set` (phases 0–4 below, as procedure), `triage-a-refusal`
+(phase 3's refusals) and `fix-a-premise-pin` (the flips every phase produces).
+They are the durable half; this file is the Vendetta-specific half and dies with
+the set.
+
 **Delete this file the day Vendetta is declared complete.** `unl-finish-handoff.md`
 was deleted on 2026-08-15 for exactly that reason and its own last line asked for
 it; the five older prompts in this directory should have been.
