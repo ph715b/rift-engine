@@ -21,7 +21,10 @@ this for the order of operations and for the things that have gone wrong before.
    rely on. A number that resolves is not yet a number that is right.
 3. **Find the seam before writing anything.** Most refusals in this repo were
    one table row, one field, or one predicate — not a subsystem. Grep for a card
-   that already prints a similar sentence and copy where it lives.
+   that already prints a similar sentence and copy where it lives. If a note
+   calls the card blocked, systemic or structural, run the `triage-a-refusal`
+   skill first: four consecutive refusals on the last set were exactly right
+   about their blocker and exactly wrong about their fix.
 4. **Implement.**
 5. **Write the test.**
 6. **Mutation-test it** — see the `mutation-test` skill. Do this BEFORE the full
@@ -76,11 +79,18 @@ Agent waves leave `describe` blocks asserting a card is unimplemented, often wit
 a behavioural half ("it is castable and does NOTHING"). Finishing the card turns
 them red. **Fix the premise, never weaken the assertion.**
 
-The right move is usually to DELETE the block and leave a tombstone comment
-pointing at the new test file — a second file claiming the same fact is how the
-premise-flip class starts over. Keep whatever the refusal note got RIGHT: those
-notes have repeatedly named the real blocker precisely, and the sharpest sentence
-in them is often what the new tests should be built around.
+**See the `fix-a-premise-pin` skill** — there are four distinct repairs and
+picking the wrong one is how a pin comes back. Briefly: INVERT is the default,
+especially for a NEGATIVE or a continuous effect, because something that silently
+stops being registered looks like nothing at all. Deleting the block and leaving
+a tombstone is right only when the fact has genuinely moved to a new file; a pin
+that was measuring the WRONG THING gets retired and replaced with an invariant
+instead, and one that borrowed a real unfinished card as its subject gets a
+synthetic one.
+
+Either way, keep whatever the refusal note got RIGHT: those notes have repeatedly
+named the real blocker precisely, and the sharpest sentence in them is often what
+the new tests should be built around — see `triage-a-refusal`.
 
 Search for them by defId across `test/` before running the full suite; they are
 usually in `unl-*-wave*.test.ts`.
