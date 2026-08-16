@@ -1563,6 +1563,35 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
     resolve: (state, ctx) => [0, 1, 2].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
   },
 
+  // Noxian Emissary — "[Empowered][>][>>][Deathknell][>] Play two 1-Might
+  // Recruit unit tokens to your base. (When I die while Empowered, get the
+  // effect.)"
+  //
+  // **Machine Evangel's Deathknell with a condition, and the card's own reminder
+  // text is what settles the condition** — "When I die while Empowered" — so
+  // there is nothing to infer from the bracket stack. That stack is a DEPENDENT
+  // ability nested inside another: 828's `[Empowered][>]` gates 808's
+  // `[Deathknell][>]`, with `[>>]` separating the two (the ability divider that
+  // `NON_KEYWORD_BRACKETS` records for UNL-049 Honeyfruit, here doing the same
+  // job one set later).
+  //
+  // **Asked on `death.unit`, not on the board.** By the time a Deathknell
+  // resolves its source is off the board, so `isEmpowered(state, ...)` would
+  // answer `false` for every Emissary that ever died — the status has to come off
+  // the corpse the death context carries. That is exactly what `DeathContext.unit`
+  // is for, and Unsung Hero below reads it the same way.
+  //
+  // `applies` rather than a guard inside `resolve`, on the split the interface
+  // documents: a Deathknell whose condition is unmet must place NO Pending Item,
+  // rather than one that costs both players a PassFocus and resolves to nothing.
+  //
+  // TWO separate placements rather than a count, for the Evangel's reason: each
+  // token is its own game object with its own instanceId (185.1).
+  "VEN-128": {
+    applies: (_state, death) => death.unit.empowered === true,
+    resolve: (state, ctx) => [0, 1].reduce((next) => placeRecruitToken(next, ctx.casterIndex, "base"), state),
+  },
+
   // Honest Broker — "[Deathknell] — Play a Gold gear token exhausted." (rule 808)
   //
   // A 2-Energy 2-Might body that cashes itself in when it dies: the token is

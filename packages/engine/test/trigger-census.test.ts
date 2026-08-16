@@ -415,10 +415,19 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // here**: his clause is an AURA, so it lives in `effective-might.ts` and this
     // census has nothing to count. Worth stating, because "three cards, +2" looks
     // like a miscount and is the shape this file's own notes keep warning about.
+    // **322/5/327 → 323/5/328, one card: VEN-128 Noxian Emissary's Deathknell**
+    // — the first `[Empowered][>]` clause whose payload is a DEATH trigger, and
+    // the third dependent-ability shape after Nasus's conquer and the Informant's
+    // move.
+    //
+    // VEN-055 Applied Researchers landed in the same stretch and is correctly NOT
+    // here: his clause is a COST MODIFIER, so it lives in `cost-modifiers.ts` and
+    // this census has nothing to count for him. Same reason Aurok General is
+    // absent one note up. Two cards, +1, and both halves of that are right.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 322,
+      held: 323,
       inline: 5,
-      cards: 327,
+      cards: 328,
     });
   });
 

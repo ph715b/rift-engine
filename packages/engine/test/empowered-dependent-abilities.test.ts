@@ -3,6 +3,10 @@ import { effectiveMight } from "../src/engine/effective-might.js";
 import { modifiedEnergyCost } from "../src/engine/cost-modifiers.js";
 import { empowerPermanent, disempowerPermanent } from "../src/engine/effect-helpers.js";
 import { eventTriggerFor } from "../src/engine/triggers.js";
+// The Deathknell registry has no exported per-card accessor, so the domain table
+// it actually lives in is read directly — which also proves the entry is in the
+// file that merges into the shared registry, not merely defined somewhere.
+import { deathTriggers as orderDeathTriggers } from "../src/engine/effects/order.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
@@ -37,6 +41,7 @@ const NASUS_ASCENDED = "VEN-046"; // [Empowered][>] When I conquer, you score 1 
 const COVERT_INFORMANT = "VEN-057"; // [Empowered][>] When I move, draw 1.
 const AUROK_GENERAL = "VEN-130"; // [Empowered][>] Your units that are [Empowered] have +2 Might (including me).
 const APPLIED_RESEARCHERS = "VEN-055"; // [Empowered][>] Your spells cost [1][rainbow] less, to a minimum of [1].
+const NOXIAN_EMISSARY = "VEN-128"; // [Empowered][>][>>][Deathknell][>] Play two 1-Might Recruit tokens to your base.
 const PLAIN_UNIT = "OGN-164"; // a vanilla body, for the aura's negative control
 
 const unit = (defId: string, instanceId: string): UnitInstance => ({
@@ -188,11 +193,46 @@ describe("Aurok General's aura is gated on HIS status and filters on the receive
     expect(modifiedEnergyCost(empowered, 0, "Spell", 1, "OGN-001", true), "the floor of 1 was breached").toBe(1);
   });
 
-  it("claims all four cards for coverage", () => {
+  it("Noxian Emissary's Deathknell fires only if he died Empowered", () => {
+    // "(When I die while Empowered, get the effect.)" — the card's own reminder
+    // text settles the condition, so nothing is inferred from the bracket stack.
+    //
+    // **Read off `death.unit`, not off the board**, and that is the whole trap:
+    // by the time a Deathknell resolves its source is gone, so a board lookup
+    // would answer `false` for every Emissary that ever died and the ability
+    // would be permanently inert.
+    const trigger = orderDeathTriggers[NOXIAN_EMISSARY];
+    expect(trigger, "no Deathknell is registered for Noxian Emissary").toBeDefined();
+
+    const corpse = unit(NOXIAN_EMISSARY, "e1");
+    const plainDeath = { unit: corpse, ownerIndex: 0 as const };
+    expect(trigger!.applies?.(makeState({}), plainDeath as never), "an un-Empowered Emissary made tokens").toBe(false);
+
+    const empoweredDeath = { unit: { ...corpse, empowered: true as const }, ownerIndex: 0 as const };
+    expect(
+      trigger!.applies?.(makeState({}), empoweredDeath as never),
+      "an Empowered Emissary's Deathknell did not fire",
+    ).toBe(true);
+  });
+
+  it("plays TWO Recruit tokens into base, as two game objects", () => {
+    // 185.1 — each token is its own game object, which is why this is two
+    // placements rather than one with a count. Machine Evangel's three take the
+    // same shape.
+    const state = boardWith([]);
+    const trigger = orderDeathTriggers[NOXIAN_EMISSARY]!;
+    const after = trigger.resolve!(state, { casterIndex: 0 } as never, undefined as never);
+    const made = after.players[0]!.baseUnits;
+    expect(made, "two Recruit tokens were not played").toHaveLength(2);
+    expect(new Set(made.map((u) => u.instanceId)).size, "the two tokens share an instanceId").toBe(2);
+    for (const token of made) expect(token.might, "a Recruit is a 1-Might token").toBe(1);
+  });
+
+  it("claims all five cards for coverage", () => {
     // The Lucian - Purifier trap: a card can work in play and report
     // UNIMPLEMENTED because no module claims it, which also drops it from
     // generated decks and hides it from `reachability`.
-    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL, APPLIED_RESEARCHERS]) {
+    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL, APPLIED_RESEARCHERS, NOXIAN_EMISSARY]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} works but no module claims it`).toBe(true);
     }
   });
