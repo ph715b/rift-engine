@@ -203,7 +203,34 @@ the genuinely-unwritten cards be named individually in `PARTIALLY_IMPLEMENTED`.
 Expect **~10 test premise flips** in files you did not touch. That is the gates
 working. See the premise-pin taxonomy below.
 
-### ATTEMPTED 2026-08-16, and REVERTED — what it measured
+### LANDED 2026-08-16 at `988db6e` — Phase 1 is DONE
+
+The section below was written when the first attempt was reverted; it is kept
+because its list is what the landing then worked through, and because the
+blocker it names is the one worth remembering. **All 16 flips are repaired and
+the tree is green: 5021 engine / 311 files + 174 web, all eight probes OK,
+`walkout` unmoved at 190/113/29.**
+
+What actually landed: 209 records → **178 playable definitions + 10
+battlefields**. Coverage reports `needing=176, implemented=3, unimplemented=173,
+partial=63`. `COMPLETE_SETS` is untouched, and `test/ven-partial-set.test.ts`
+pins both that and the 18 ids the generator still drops.
+
+Three things cost more than the file list predicted, all one root cause — the
+champion-name convention — and two of them were SILENT:
+
+1. `isEligibleChampion` (no legal deck could be built at all)
+2. `printingBaseName` (a cross-set reprint's printing lost its alias and would
+   have shipped with no implementation)
+3. `decklist-text-parser`'s retry-collision pin (harmless, but the pin was
+   measuring the wrong thing and was retired)
+
+**Phase 2 is also done** — the keyword scoping below is implemented: Empower,
+Empowered and Flow are in both keyword lists; Burn joins Stun and Predict in
+`NON_KEYWORD_BRACKETS`. **Phase 3, the card waves, is what remains**, against 173
+unimplemented cards.
+
+### The first attempt, 2026-08-16, REVERTED — what it measured
 
 `ven.json` (209 cards) and `tools/card-data/fetch-set.mjs` are committed; the
 `CARD_FILES` wiring is **not**. Wiring it produced **16 failures across 13 files**
