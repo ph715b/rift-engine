@@ -58,16 +58,23 @@ describe("every printed battlefield does something", () => {
       .map((id) => [id, "granted activated ability"] as const),
   ]);
 
-  it("the pool is 54 battlefields — 24 OGN, 15 SFD, 15 UNL, and OGS prints none", () => {
+  it("the pool is 64 battlefields — 24 OGN, 15 SFD, 15 UNL, 10 VEN, and OGS prints none", () => {
     // A positive control on the measurement itself: an empty or truncated
     // definition list would make every assertion below vacuously pass.
-    expect(defs).toHaveLength(54);
+    //
+    // **VEN's 10 are UNIMPLEMENTED and that is expected**, not a regression: the
+    // set landed 2026-08-16 with its cards unwritten, and `COMPLETE_BATTLEFIELD_SETS`
+    // deliberately does not name VEN, so the per-set gate below does not hold it
+    // to anything yet. That list is separate from `COMPLETE_SETS` for exactly this
+    // reason — battlefields finish on their own schedule.
+    expect(defs).toHaveLength(64);
     const bySet = new Map<string, number>();
     for (const d of defs) bySet.set(setCodeOf(d.id), (bySet.get(setCodeOf(d.id)) ?? 0) + 1);
     expect([...bySet].sort()).toEqual([
       ["OGN", 24],
       ["SFD", 15],
       ["UNL", 15],
+      ["VEN", 10],
     ]);
     // The gate is only worth something while it actually gates something. All 39
     // now: OGN's 24 have been hard-gated since this file was written, and SFD's

@@ -390,8 +390,11 @@ describe("coverage now tells the truth about art-only Equipment", () => {
     // carries a note" now demands three card implementations as the price of
     // loading a set's JSON. In a finished set a note IS a regression; in a set
     // under construction it is the mechanism telling the truth.
+    // Vendetta's 4 (2026-08-16) land in an UNDECLARED set, so they are outside
+    // this sweep's `COMPLETE_SETS` scope by construction — which is the scoping
+    // the note above describes, working a second time.
     const equipment = registry.all().filter((d) => d.type === "Gear" && d.isEquipment === true);
-    expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(36);
+    expect(equipment.length, "the Equipment sweep found nothing to sweep").toBe(40);
     const noted = equipment
       .filter((d) => partialImplementationNote(d) !== undefined)
       .filter((d) => COMPLETE_SETS.includes(setCodeOf(d.id)))

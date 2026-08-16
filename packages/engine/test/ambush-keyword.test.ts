@@ -146,9 +146,13 @@ describe("[Ambush] gives Reaction timing INTO a battlefield you have units at", 
 });
 
 describe("the keyword no longer greys any card", () => {
-  it("twelve cards print it, and none is still blamed on it", () => {
+  it("fifteen cards print it, and none is still blamed on it", () => {
+    // 12 from UNL, which brought the keyword, plus **3 from VEN** (2026-08-16).
+    // Vendetta needed no `[Ambush]` work at all: the keyword's placement half was
+    // always the ordinary reinforce rule, and its timing half lives in
+    // `timing.ambushReactionAt`, keyed on the keyword rather than on a card list.
     const printed = registry.all().filter((d) => (d.text ?? "").includes("[Ambush]"));
-    expect(printed.length, "the sweep found the wrong number — the pattern drifted").toBe(12);
+    expect(printed.length, "the sweep found the wrong number — the pattern drifted").toBe(15);
 
     // Not all twelve report finished: several carry a SECOND gap of their own.
     // The claim is only that [Ambush] itself is no longer the reason.

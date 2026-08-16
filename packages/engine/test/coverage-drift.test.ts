@@ -346,7 +346,24 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // Empty is the map's normal resting state between sets — it has now emptied
     // and refilled five times, twice on the day a set's JSON arrived. Keep the
     // mechanism.
-    expect([...flagged].sort()).toEqual([]);
+    //
+    // **It refilled for the SIXTH time on 2026-08-16, the day ven.json landed**,
+    // and for the third time that is the same day a set's JSON arrived — which is
+    // the discipline the map exists to enforce: a keyword declared in `KEYWORDS`
+    // without an entry here makes every card printing it report IMPLEMENTED and
+    // ship inert.
+    //
+    // Two of the three are one mechanic in two rules and must be two entries:
+    // 827 `[Empower]` is the Activated Ability that CONFERS the status, 828
+    // `[Empowered]` is the dependent ability gated ON it, and a card routinely
+    // prints both. `[Flow]` (829) is separate again — playing a Spell from the
+    // trash for an alternate cost, then banishing it.
+    //
+    // **`[Burn]`, `[Predict]` and `[Stun]` are deliberately absent**, and that is
+    // a decision rather than an omission: they are 4xx ACTIONS (440 / 436 / 423),
+    // verbs a card's text performs rather than properties a card has. Flagging an
+    // action word here would grey every card that merely instructs you to do it.
+    expect([...flagged].sort()).toEqual(["Empower", "Empowered", "Flow"]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is
@@ -575,9 +592,21 @@ describe("a bracketed token nothing knows about", () => {
 
   it("keeps the allow-list explicit — each entry is a token the pool really prints", () => {
     // An allow-list is the easy way to defeat this check, so an entry that
-    // matches nothing is an entry nobody has had to justify. Every one of the
-    // three is on real cards today.
-    const printed = new Set([...bracketTokens(registry.all()).keys()]);
+    // matches nothing is an entry nobody has had to justify. Every one of them is
+    // on real cards today.
+    //
+    // **The MAGNITUDE is stripped, and Vendetta is what forced that.** This
+    // compared the raw token, which worked only because every valued allow-list
+    // entry so far ALSO appeared bare somewhere in the pool — `[Stun]` and
+    // `[Predict]` both do. `[Burn]` does not: it prints only as `[Burn 1]`,
+    // `[Burn 2]`, `[Burn 3]` and `[Burn 7]`, so a correctly-justified entry
+    // failed this check while nothing was wrong with it.
+    //
+    // Stripping here matches what `isKnownBracketToken` has always done, so the
+    // guard and the thing it guards now agree — which is the same argument the
+    // sibling test below makes for reading both through `keywordFromBracketText`
+    // rather than a second copy of the grammar.
+    const printed = new Set([...bracketTokens(registry.all()).keys()].map((t) => t.replace(/\s+\d+$/, "")));
     for (const token of NON_KEYWORD_BRACKETS) {
       expect(printed.has(token), `${token} is allow-listed but no card in the pool prints [${token}]`).toBe(true);
       expect(keywordFromBracketText(token), `${token} is allow-listed AND a modelled keyword`).toBeUndefined();
@@ -631,9 +660,23 @@ describe("a bracketed token nothing knows about", () => {
       "Assault",
       "Backline",
       "Buff",
+      // **Vendetta's four, 2026-08-16**, in sorted position rather than appended.
+      // `Empower`, `Empowered` and `Flow` are real 800-band keywords (827 / 828 /
+      // 829), declared in KEYWORDS with entries in UNIMPLEMENTED_KEYWORDS; `Burn`
+      // is a 4xx ACTION (440), allow-listed beside `Stun` and `Predict`.
+      //
+      // `Burn` is worth stating for the reason the `ADD`/`Add` note above states
+      // its own: it is the first allow-listed token that NEVER appears bare in the
+      // pool — only `[Burn 1|2|3|7]`. That is why the sibling check on this list
+      // had to start stripping the magnitude; the two valued tokens seen before it
+      // happened to appear unvalued as well, so nothing had ever exercised the path.
+      "Burn",
       "Deathknell",
       "Deflect",
+      "Empower",
+      "Empowered",
       "Equip",
+      "Flow",
       "Ganking",
       "Hidden",
       "Hunt",

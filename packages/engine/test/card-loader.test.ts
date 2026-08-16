@@ -256,11 +256,23 @@ describe("QUICK_TEXT_OVERRIDES: 'I enter ready.' plain-text grants Quick, not ju
       ["UNL-122", "Crescent Guardian — only if you paid its optional additional cost"],
       ["UNL-151", "Bandle Soldier — only at 3+ XP ([Level 3]), not a board condition"],
       ["UNL-194", "Shadow — only if played to a battlefield, not to your base"],
+      // **Vendetta prints the phrase four times and NOT ONE is unconditional**,
+      // so it adds nothing to QUICK_TEXT_OVERRIDES — the first set of the four to
+      // print it and hand that table no rows at all. Two are ordinary "if"
+      // clauses; the other two are a shape worth naming, because the phrase is
+      // not the card's own text at all but `[Accelerate]`'s printed REMINDER
+      // ("You may pay [1][Fury] as an additional cost to have me enter ready"),
+      // which describes an optional cost the player may decline. An override for
+      // either would grant free readiness that has to be paid for.
+      ["VEN-013", "Shadow Assassin — only with a card of my name in your trash"],
+      ["VEN-016", "Eclipse Dragon — [Accelerate]'s reminder text, not a printed grant"],
+      ["VEN-019", "Renekton, Rage Fueled — [Accelerate]'s reminder text, not a printed grant"],
+      ["VEN-091", "Corrupted Dragon — only while your score is not within 3 of the Victory Score"],
     ]);
     const printing = defaultCardRegistry()
       .all()
       .filter((def) => /I enter ready/.test(def.text ?? ""));
-    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(17);
+    expect(printing.length, "the scan matches nothing — it can no longer see the cards it guards").toBe(19);
     const unaccounted = printing
       .filter((def) => !CONDITIONAL.has(def.id))
       .filter((def) => !(def.type === "Unit" && def.keywords.Quick === 1))
@@ -340,6 +352,17 @@ describe("POWER_DOMAIN_ALT_OVERRIDES: a census, since the answer is in the art",
       "UNL-200 Order", // Mirror Image
       "UNL-202 Chaos", // Void Assault
       "UNL-204 Order", // Keeper's Verdict
+      // **Vendetta's six, inspected 2026-08-16** — every one a single capsule
+      // split into its two printed domains' colours with one glyph inside, so the
+      // pool-wide pattern is 41 of 41 across five sets. The census did its job
+      // again: a new set arrives as a NAMED failure listing exactly the cards to
+      // look at, which is one inspection per set rather than a standing cost.
+      "VEN-140 Calm", // Shuriken Flip
+      "VEN-144 Chaos", // Death Mark
+      "VEN-148 Order", // Shadow Dash
+      "VEN-150 Body", // Acceleration Gate
+      "VEN-152 Chaos", // Rebuttal
+      "VEN-154 Order", // Public Execution
     ]);
   });
 

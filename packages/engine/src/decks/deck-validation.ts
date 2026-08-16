@@ -29,9 +29,73 @@ import { foldCardName } from "./decklist-text-parser.js";
  * next set that ships one.
  */
 export function isEligibleChampion(champion: UnitDefinition, legendName: string, legendDomains: readonly string[]): boolean {
-  const charName = legendName.includes(" - ") ? legendName.slice(0, legendName.indexOf(" - ")) : legendName;
-  if (!foldCardName(champion.name).startsWith(foldCardName(`${charName} - `))) return false;
+  const character = legendCharacter(legendName);
+  const championName = championCharacter(champion.name);
+  if (championName === undefined) return false;
+  if (foldCardName(championName) !== foldCardName(character)) return false;
   return champion.domains.every((d) => legendDomains.includes(d));
+}
+
+/**
+ * The two separators a printed name uses between a character and their title.
+ *
+ * **Vendetta changed the convention, wholesale, and it is a set-wide fact rather
+ * than noise** — measured over the loaded pool: all 128 champions in
+ * OGN/OGS/SFD/UNL are `Akali - Silent`, and all 38 in VEN are `Akali, Silent`,
+ * with no set mixing the two.
+ *
+ * Left unhandled, the old `"{character} - "` prefix matched NO Vendetta champion
+ * to ANY Vendetta legend, and `validateDeckList` requires the designated champion
+ * to be eligible — so no legal Vendetta deck could be built at all, and nothing
+ * said so: the champion picker was simply empty. That is the failure this
+ * module's Rek'Sai note describes, one capital S turned into one comma.
+ *
+ * **Accepting the comma POOL-WIDE rather than per-set is deliberate, and it is
+ * measurably a no-op for the first four sets**: zero of their champions contain
+ * `", "` at all, and zero of their legends carry a comma in the character half.
+ * So there is no pairing this can change except the ones it exists to fix, and a
+ * set-scoped branch would be a second rule to keep in step for no benefit.
+ *
+ * The em dash stays rejected, and so does a name with no separator at all —
+ * both are pinned in `deck-validation.test.ts`. This widens the SEPARATOR set,
+ * it does not loosen the requirement that there be one.
+ */
+const TITLE_SEPARATORS = [" - ", ", "] as const;
+
+/** The character a CHAMPION's printed name names, or undefined when the name
+ *  carries no title separator — which stays ineligible, since the whole rule is
+ *  that a champion's name announces whose champion it is. */
+function championCharacter(name: string): string | undefined {
+  for (const separator of TITLE_SEPARATORS) {
+    const at = name.indexOf(separator);
+    if (at > 0) return name.slice(0, at);
+  }
+  return undefined;
+}
+
+/**
+ * The character a LEGEND's printed name names.
+ *
+ * `" - "` is checked first and unconditionally, because every legend in the pool
+ * uses it — including Vendetta's, whose CHAMPIONS moved to the comma while its
+ * legends did not.
+ *
+ * **The trailing comma-segment strip is for exactly one card, and it is upstream
+ * data noise rather than a naming convention.** `VEN-155` / `VEN-197` arrive as
+ * `Yordle, Kennen - Heart of the Tempest`, which yields the character
+ * `"Yordle, Kennen"` and matches nothing. The card's own `tags` are
+ * `["Yordle", "Kennen"]` — *identical to those of its champion*, `VEN-113
+ * Kennen, Storm of Shuriken` — so `Yordle` is the tribal tag leaked into the
+ * name and `Kennen` is the character. Every other legend in the pool has no
+ * comma in its character half at all (measured), so this strip is inert
+ * everywhere else and generalises to the next such leak instead of naming a
+ * defId.
+ */
+function legendCharacter(name: string): string {
+  const at = name.indexOf(" - ");
+  const character = at > 0 ? name.slice(0, at) : name;
+  const lastComma = character.lastIndexOf(", ");
+  return lastComma > 0 ? character.slice(lastComma + 2) : character;
 }
 
 /**

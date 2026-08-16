@@ -130,8 +130,13 @@ describe("per-set completeness gating", () => {
     // and that is where it belongs permanently: borrowing whichever real set
     // happens to be under construction is how this assertion came to be rewritten
     // three times, once per set that finished.
+    // **VEN joined the pool on 2026-08-16 and is NOT finished**, which hands this
+    // assertion back the real negative case the note above says it had to give
+    // up. The two lines below now differ: every set is undeclared, and only the
+    // four finished ones raise the flag. A VEN appearing in the second list would
+    // mean the coverage gates had stopped seeing 173 unimplemented cards.
     const undeclared = coverageBySet(registry.all(), []);
-    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL"]);
+    expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL", "VEN"]);
     expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL"]);
     // And declaring only one leaves the flag on the other, so the check is per
     // set rather than an all-or-nothing.

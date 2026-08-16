@@ -268,8 +268,13 @@ describe("the generated [Equip] ability", () => {
     // **Unleashed printed 5 more and 4 wired themselves**, including Hextech
     // Gauntlets' compound cost — which is the payoff for having parsed the cost
     // instead of tabulating it, measured rather than hoped for.
+    //
+    // **Vendetta printed 4 more (2026-08-16) and all 4 wired themselves too** —
+    // their `[Equip]` costs parse, so they need no per-card code. Their art-only
+    // Might badges are a separate table and a separate question; see
+    // `card-loader`'s `EQUIP_MIGHT_BONUS`.
     const equipment = registry.all().filter((c) => c.type === "Gear" && c.isEquipment === true);
-    expect(equipment).toHaveLength(36);
+    expect(equipment).toHaveLength(40);
 
     // The one the GENERATOR does not reach, named rather than counted — a bare
     // count would let a second unreached card hide behind this one.

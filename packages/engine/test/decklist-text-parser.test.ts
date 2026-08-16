@@ -365,20 +365,49 @@ Side Board:
       expect(foldCardName("  Ride  The   Wind ")).toBe("ride the wind");
     });
 
-    it("no two cards collide once the comma/dash retry is applied either", () => {
-      // The second resolution path. `resolve` falls back to swapping ", " for
-      // " - ", so a later set printing a name with a comma where an existing
-      // card has a dash would make one of them unreachable by that spelling.
-      // Wider than the fold sweep above, and empty for the same reason.
-      const keys = new Map<string, string>();
-      const shadowed: string[] = [];
+    it("every card that shares a comma/dash retry key with another IS that other card", () => {
+      // **RETIRED AND REPLACED 2026-08-16, because the old assertion was
+      // measuring the wrong thing** — and its own comment had predicted the day
+      // it would go off: "a later set printing a name with a comma where an
+      // existing card has a dash would make one of them unreachable by that
+      // spelling." Vendetta did exactly that, ten times.
+      //
+      // It asserted the retry key was globally unique. That is now false and
+      // HARMLESSLY so: `resolve` tries the exact folded name FIRST and only then
+      // the swap, and the exact map is injective (the sweep above proves it), so
+      // every card is still reachable by its own printed name. Nothing is
+      // shadowed; the retry simply has a second card it could have reached.
+      //
+      // What actually matters is that a shared retry key means the two really are
+      // the SAME CARD, so whichever one the fallback lands on plays identically.
+      // Vendetta reprints ten earlier cards under its new comma convention —
+      // `Vi - Destructive` (OGN-036) reprinted as `Vi, Destructive` (VEN-167) —
+      // and a genuine clash between two DIFFERENT cards is the thing worth
+      // failing on. That is what this now checks, and it cannot go vacuous: the
+      // groups are asserted non-empty first.
+      const groups = new Map<string, typeof registry.all>();
+      const byKey = new Map<string, ReturnType<typeof registry.all>>();
       for (const def of registry.all()) {
-        const swapped = foldCardName(def.name).replace(", ", " - ");
-        const prior = keys.get(swapped);
-        if (prior !== undefined && prior !== def.name) shadowed.push(`${prior} vs ${def.name}`);
-        keys.set(swapped, def.name);
+        const key = foldCardName(def.name).replace(", ", " - ");
+        byKey.set(key, [...(byKey.get(key) ?? []), def]);
       }
-      expect(shadowed).toEqual([]);
+      void groups;
+      const shared = [...byKey.values()].filter((defs) => defs.length > 1);
+      expect(shared.length, "no card shares a retry key — this sweep is checking nothing").toBeGreaterThan(0);
+
+      const mismatched = shared
+        .filter((defs) => {
+          const shape = (d: (typeof defs)[number]) =>
+            JSON.stringify([
+              d.type,
+              "energyCost" in d ? d.energyCost : null,
+              "powerCost" in d ? d.powerCost : null,
+              "might" in d ? d.might : null,
+            ]);
+          return defs.some((d) => shape(d) !== shape(defs[0]!));
+        })
+        .map((defs) => defs.map((d) => `${d.id} ${d.name}`).join(" vs "));
+      expect(mismatched, "two DIFFERENT cards share a comma/dash retry key — one shadows the other").toEqual([]);
     });
   });
 });

@@ -2,6 +2,7 @@ import ognRaw from "./ogn.json" with { type: "json" };
 import ogsRaw from "./ogs.json" with { type: "json" };
 import sfdRaw from "./sfd.json" with { type: "json" };
 import unlRaw from "./unl.json" with { type: "json" };
+import venRaw from "./ven.json" with { type: "json" };
 import type { Domain } from "../model/domain.js";
 import { isDomain, lowestOrdinalDomain } from "../model/domain.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
@@ -53,7 +54,27 @@ import { extractCardItems, type RawCard } from "./raw-card-schema.js";
  * unconditionally, even if the function that uses them is never called
  * client-side.
  */
-const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw, sfdRaw, unlRaw];
+/**
+ * **Vendetta (VEN) is the first set NOT copied from the oracle**, which holds
+ * only ogn/ogs/sfd/unl. It is generated from the Riftcodex API by
+ * `tools/card-data/fetch-set.mjs`, and it is the first card file here that is
+ * PARTIAL BY CONSTRUCTION — 209 of the set's 227 cards.
+ *
+ * The API serves VEN as two live ingests, and only the reconciled records carry
+ * trustworthy `alternate_art`/`overnumbered` flags. The generator writes every
+ * record whose printing status the data determines and drops the 18 it cannot.
+ *
+ * **The MAIN SET is complete**: all 166 collector numbers, no gaps, no duplicate
+ * names, and all 9 main-set Legends reconciled — which is the one thing that had
+ * to hold, since the old ingest drops a Legend's champion prefix and
+ * `championTag` is the first word of the name.
+ *
+ * Missing are 17 alternate printings and `ven-sp1`, pinned by id in
+ * `test/ven-partial-set.test.ts`. **VEN is deliberately NOT in `COMPLETE_SETS`**
+ * and must not be added until the generator drops nothing — the gate is
+ * `node tools/card-data/set-audit.mjs VEN`.
+ */
+const CARD_FILES: readonly unknown[] = [ognRaw, ogsRaw, sfdRaw, unlRaw, venRaw];
 
 /**
  * The bracket grammar `parseKeywords` reads. The trailing `-` in the character
@@ -233,6 +254,31 @@ const POWER_DOMAIN_ALT_OVERRIDES: Record<string, Domain> = {
   "UNL-200": "Order", // Mirror Image — Mind/Order
   "UNL-202": "Chaos", // Void Assault — Body/Chaos
   "UNL-204": "Order", // Keeper's Verdict — Body/Order
+
+  // **Vendetta's six — CONFIRMED BY INSPECTION 2026-08-16**, each
+  // `media.image_url` pulled and its pip cropped and read side by side. All six
+  // are the same single capsule split left/right into their two printed domains'
+  // colours, each holding ONE glyph against a printed Power cost of 1:
+  //
+  //   Shuriken Flip     red|green    Fury|Calm
+  //   Death Mark        red|purple   Fury|Chaos
+  //   Shadow Dash       green|yellow Calm|Order
+  //   Acceleration Gate blue|orange  Mind|Body
+  //   Rebuttal          blue|purple  Mind|Chaos
+  //   Public Execution  orange|yellow Body|Order
+  //
+  // **The pool-wide pattern is now 41 of 41 across five sets with no exception**,
+  // and the alt is again the higher-ordinal of the card's two domains — which is
+  // simply `domains[1]` here, since the export lists them lowest-ordinal first.
+  // The note below on why this stays a hand table is unchanged by that: the split
+  // is a fact about the art that no field carries, and a sixth set could print a
+  // solid dual-domain pip that a derivation would silently widen.
+  "VEN-140": "Calm", // Shuriken Flip — Fury/Calm
+  "VEN-144": "Chaos", // Death Mark — Fury/Chaos
+  "VEN-148": "Order", // Shadow Dash — Calm/Order
+  "VEN-150": "Body", // Acceleration Gate — Mind/Body
+  "VEN-152": "Chaos", // Rebuttal — Mind/Chaos
+  "VEN-154": "Order", // Public Execution — Body/Order
 };
 
 /**
@@ -794,6 +840,16 @@ function decodeTextEntities(plain: string): string {
 const PROSE_KEYWORD_DEF_IDS: Record<string, readonly Keyword[]> = {
   "SFD-096": ["Ganking"], // Laurent Bladekeeper
   "SFD-138": ["Hidden"], // Windsinger
+  // **VEN-073 Jagged Cutlass — the third, and the first where the lost brackets
+  // cost a COST rather than a keyword.** Its text is
+  // `Equip :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)`,
+  // with the keyword unbracketed exactly as Laurent's and Windsinger's are.
+  //
+  // `parseEquipCost` matches on `[Equip]`, so without this the card is tagged
+  // `Equipment` and carries NO equip ability at all — it is the one Vendetta
+  // Equipment of four that fails to wire itself, and `equipment.test.ts` names it
+  // rather than letting it count as a parser limitation.
+  "VEN-073": ["Equip"],
 };
 
 /** The defIds above, for the test that pins each entry to a card whose text
@@ -838,6 +894,49 @@ export function proseKeywordDefIds(): string[] {
 const BARE_KEYWORD_NOT_HELD: Record<string, readonly Keyword[]> = {
   "UNL-094": ["Ambush"], // Gemhand Hunter — upstream data artifact
   "UNL-078": ["Repeat"], // Sprite Fountain — the English verb
+  //
+  // ---- Vendetta's fifteen, 2026-08-16 — ONE decision applied to 20 rows ----
+  //
+  // **Every one is 827's own reminder VERB or 828's status NOUN, and the rules
+  // define both printed forms precisely enough that this is not a judgement
+  // call.** 827.1.c: the keyword is formatted `Empower [Cost]`. 828.1.a: the
+  // dependent ability is formatted `[Empowered][>] [Text]`. Anything else that
+  // says "empower" or "Empowered" is the sentence describing the action or the
+  // status, exactly as `[Add]` is a verb and `[Stun]` an action word:
+  //
+  //   the VERB      — "Empower me.", "Empower another gear.", "you may
+  //                   disempower something you control to empower a legend"
+  //   the STATUS    — "Use only if not Empowered.", "It becomes Empowered if
+  //                   it's not already."
+  //
+  // Following `keyword-prose.test.ts`'s other suggestion here would have been a
+  // real bug in the opposite direction: `PROSE_KEYWORD_DEF_IDS` BRACKETS the
+  // word, which would hand each of these cards an `[Empower]` activated ability
+  // or an `[Empowered]` dependent ability it does not print. Two of them —
+  // Questionable Tome and Glowstone — print a genuine bracketed `[Empower]` and
+  // are listed here only for `Empowered`, which is exactly the per-KEYWORD
+  // precision this table has and `CONDITIONAL_KEYWORD_DEF_IDS` does not.
+  //
+  // "disempower" never matches the sweep and needs no entry: the character
+  // before "empower" is a word character, so the bare-word pattern does not fire.
+  "VEN-054": ["Empowered"], // Questionable Tome — prints [Empower]; "not Empowered" is the status
+  "VEN-062": ["Empower", "Empowered"], // Hextech Formula — "Empower another gear. (It becomes Empowered…)"
+  "VEN-082": ["Empower"], // Profiteer — "…to empower a legend, unit, or gear"
+  "VEN-087": ["Empowered"], // Hextech Disc
+  "VEN-089": ["Empower", "Empowered"], // Wild Claw
+  "VEN-099": ["Empower"], // Tornado Warrior — "you may empower something here"
+  "VEN-133": ["Empowered"], // Glowstone — prints [Empower]; "not Empowered" is the status
+  "VEN-143": ["Empower", "Empowered"], // Zed - Master of Shadows — "empower me. (I become Empowered…)"
+  "VEN-151": ["Empower", "Empowered"], // Mel - Soul's Reflection
+  "VEN-153": ["Empower", "Empowered"], // Ambessa - Matriarch of War
+  "VEN-155": ["Empower"], // Yordle, Kennen - Heart of the Tempest
+  // The four `(Overnumbered)` prints of the legends above. They are aliased for
+  // IMPLEMENTATION but not for text parsing — `printedKeywords` runs per defId,
+  // before any alias — so each needs its own row.
+  "VEN-191": ["Empower"], // Zed - Master of Shadows (Overnumbered)
+  "VEN-195": ["Empower"], // Mel - Soul's Reflection (Overnumbered)
+  "VEN-196": ["Empower"], // Ambessa - Matriarch of War (Overnumbered)
+  "VEN-197": ["Empower"], // Yordle, Kennen - Heart of the Tempest (Overnumbered)
 };
 
 /** The pairs above, for the test that both EXCLUDES them from the bare-keyword
@@ -976,10 +1075,27 @@ export function loadCardDefinitions(): CardDefinition[] {
  */
 const PRINTING_SUFFIX = /\s*\((Overnumbered|Signature|Ultimate)\)\s*$/;
 
-/** The card's name with any printing suffix removed — the identity two prints
- *  of one card share. */
+/**
+ * The card's name with any printing suffix removed — the identity two prints of
+ * one card share.
+ *
+ * **The title separator is normalised, and Vendetta is why.** That set prints
+ * `Character, Title` where the first four print `Character - Title` — measured
+ * over the loaded pool: 128 of 128 earlier champions use the dash, 38 of 38
+ * Vendetta ones use the comma — and it REPRINTS eleven earlier cards under the
+ * new convention. `VEN-168 Jinx, Demolitionist (Overnumbered)` is a printing of
+ * `OGN-030 Jinx - Demolitionist`, and without this the two base names differ, no
+ * canonical twin is found, and the printing lands with **no implementation at
+ * all** — which is exactly the "12 of the 31 printings were INERT in a real
+ * game" bug this alias table was built to end, arriving through the name instead
+ * of through the id.
+ *
+ * Normalising toward the dash rather than the comma is arbitrary but must be
+ * one-way and shared; `printingAliases` compares only values produced here, so
+ * the direction never escapes this function.
+ */
 function printingBaseName(name: string): string {
-  return name.replace(PRINTING_SUFFIX, "").trim();
+  return name.replace(PRINTING_SUFFIX, "").replace(", ", " - ").trim();
 }
 
 /**
@@ -1025,7 +1141,15 @@ export function printingAliases(): ReadonlyMap<string, string> {
     if (PRINTING_SUFFIX.test(d.name)) continue;
     // First plain print wins. Two sets can print the same card (UNL reprints
     // five Poros), and either implementation serves — they are the same card.
-    if (!canonical.has(d.name)) canonical.set(d.name, d.id);
+    //
+    // **Keyed through `printingBaseName`, not on the raw name**, so both sides of
+    // the lookup below normalise the title separator the same way. Keying this
+    // raw while looking up normalised would work only for a printing whose twin
+    // is in an OLDER set and fail for one whose twin is in its own — `VEN-023
+    // Zed, From the Shadows` and its `(Overnumbered)` print are exactly that
+    // case, and it is the majority case for Vendetta.
+    const base = printingBaseName(d.name);
+    if (!canonical.has(base)) canonical.set(base, d.id);
   }
   const aliases = new Map<string, string>();
   for (const d of defs) {

@@ -203,6 +203,40 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
   // would otherwise look FINISHED, and a card with no implementation already
   // looks unfinished without help. She is the reason `unimplementedKeywordsOn`
   // and `PARTIALLY_IMPLEMENTED` are separate answers.
+  //
+  // ---- Vendetta (VEN), on the day ven.json landed (2026-08-16) ----
+  //
+  // **Declared with the set, not after somebody noticed a card doing nothing.** A
+  // keyword in `KEYWORDS` but not here makes every card printing it report
+  // IMPLEMENTED and play inert, which is the `[Deflect]` failure this map exists
+  // to prevent.
+  //
+  // Counts are over the pool that LOADS, and this set's file is itself partial
+  // (209 of 227 — see `card-loader`'s CARD_FILES note), so these are a FLOOR that
+  // rises when upstream reconciliation completes.
+  //
+  // `[Burn]`, `[Predict]` and `[Stun]` are NOT here and must never be: they are
+  // 4xx ACTIONS (440 / 436 / 423), verbs a card's text performs rather than
+  // properties a card has, and they live in `NON_KEYWORD_BRACKETS`. Adding an
+  // action word here would grey every card that merely instructs you to do it.
+  //
+  // **`[Empower]` and `[Empowered]` are two entries because they are two rules**,
+  // and a card routinely prints both — 827 is the Activated Ability that CONFERS
+  // the status, 828 is the dependent ability gated ON it. One entry would grey a
+  // card printing only the second, and would let a single deletion falsely free
+  // both halves.
+  [
+    "Empower",
+    "[Empower] is ignored — the Empowered status and the activated ability that confers it (827) are not built",
+  ],
+  [
+    "Empowered",
+    "[Empowered] is ignored — its dependent ability (828) is permanently inactive, since nothing carries the Empowered status",
+  ],
+  [
+    "Flow",
+    "[Flow] is ignored — a spell cannot yet be played from the trash for its Flow cost and banished afterwards (829)",
+  ],
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.

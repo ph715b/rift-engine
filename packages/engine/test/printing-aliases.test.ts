@@ -75,8 +75,13 @@ function stats(def: ReturnType<typeof registry.get>): Record<string, number | un
 
 describe("the alias table is derived, and the derivation is sound", () => {
   it("finds every alternate printing in the pool", () => {
+    // 31 from UNL's Legends and Poro reprints, plus **12 from VEN**
+    // (2026-08-16) — its `(Overnumbered)` Legend prints. Vendetta's are the
+    // RECONCILED ones only: its card file drops the printings upstream has not
+    // yet flagged, so this number RISES when that reconciliation completes. See
+    // `card-loader`'s CARD_FILES note.
     const printed = registry.all().filter((d) => PRINTING_SUFFIX.test(d.name));
-    expect(printed.length, "the sweep found a different number — the pattern drifted").toBe(31);
+    expect(printed.length, "the sweep found a different number — the pattern drifted").toBe(43);
     // Every one of them is aliased: a printing with no plain twin would be left
     // out, and that would be a data problem worth failing on.
     for (const d of printed) {

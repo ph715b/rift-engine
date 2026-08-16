@@ -41,14 +41,47 @@ describe("isEligibleChampion", () => {
       );
     });
 
-    it("rejects a champion whose separator is not ' - '", () => {
-      // Community lists write "Character, Title" and decklist-text-parser.ts
-      // folds that form on input. This rule does NOT — a card whose printed name
-      // used a comma would be eligible for nothing, with no error anywhere.
+    it("accepts ', ' as a title separator too — Vendetta prints its champions that way", () => {
+      // **INVERTED 2026-08-16, and the premise is what changed, not the rule's
+      // strictness.** This asserted the comma form was INELIGIBLE, on the stated
+      // grounds that "a card whose printed name used a comma would be eligible for
+      // nothing" — which was a correct warning and became a description of the
+      // live pool the day Vendetta landed: all 38 of its champions are
+      // `Akali, Silent`, against all 128 of the first four sets' `Akali - Silent`.
+      //
+      // Widened pool-wide rather than per-set because it is measurably a no-op
+      // for the older sets — none of their champions contains ", " at all, and
+      // the sweep below proves the whole pool still pairs up.
       expect(isEligibleChampion(champion("Garen, Spiritforged", ["Order"]), garenLegend.name, garenLegend.domains)).toBe(
+        true,
+      );
+    });
+
+    it("still rejects a separator that is neither ' - ' nor ', '", () => {
+      // The half that did NOT change, and the reason the entry above is a widened
+      // separator set rather than a loosened rule. An em dash is a different
+      // character and a plausible typo, and it stays ineligible.
+      expect(isEligibleChampion(champion("Garen — Spiritforged", ["Order"]), garenLegend.name, garenLegend.domains)).toBe(
         false,
       );
-      expect(isEligibleChampion(champion("Garen — Spiritforged", ["Order"]), garenLegend.name, garenLegend.domains)).toBe(
+    });
+
+    it("reads the character from a legend whose name leaks a tribal tag", () => {
+      // VEN-155 arrives as "Yordle, Kennen - Heart of the Tempest". Its `tags` are
+      // ["Yordle", "Kennen"] — identical to those of its champion, VEN-113
+      // "Kennen, Storm of Shuriken" — so "Yordle" is the tag leaked into the name
+      // and the character is Kennen. Without the trailing-segment strip the
+      // character reads "Yordle, Kennen" and the legend pairs with nothing.
+      expect(
+        isEligibleChampion(
+          champion("Kennen, Storm of Shuriken", ["Fury"]),
+          "Yordle, Kennen - Heart of the Tempest",
+          ["Fury", "Mind"],
+        ),
+        "the tribal tag is not the character",
+      ).toBe(true);
+      // And it must not match the TAG instead of the character.
+      expect(isEligibleChampion(champion("Yordle, Trickster", ["Fury"]), "Yordle, Kennen - Heart of the Tempest", ["Fury"])).toBe(
         false,
       );
     });

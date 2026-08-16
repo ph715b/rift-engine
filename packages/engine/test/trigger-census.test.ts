@@ -381,13 +381,34 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // insist on. **Any future Legend or reprinted card will move this by more
     // than one for the same reason.**
     //
+    // **319/5/324 → 320/5/325 on 2026-08-16, when Vendetta's JSON landed, and
+    // the +1 is NOT a Vendetta card.** No VEN card has an implementation yet, so
+    // a set of 178 definitions moved this by one — which looks exactly like the
+    // miscount this file exists to prevent, and was diagnosed by FAMILY rather
+    // than by reasoning about it, the method the Jhin note above insists on:
+    //
+    //     event 192 VEN=0   death 31 VEN=0   legend 15 VEN=0
+    //     unit  120 VEN=1 -> VEN-168, canonical OGN-030
+    //
+    // `VEN-168 Jinx, Demolitionist (Overnumbered)` is a printing of `OGN-030
+    // Jinx - Demolitionist`, so it inherits his on-play trigger through
+    // `printingAliases` and legitimately becomes a second key for one registry
+    // entry — the same shape as Jhin's +3 above, across sets this time.
+    //
+    // It only counts at all because `printingBaseName` now normalises the title
+    // SEPARATOR: Vendetta prints `Character, Title` where the first four print
+    // `Character - Title`, so without that the two base names differ, no
+    // canonical twin is found, and the printing ships with no implementation.
+    // **A reprint that silently loses its alias would move this number DOWN, and
+    // that is the regression to watch for here.**
+    //
     // `inline` did not move and must not — it is `beginningPhase` alone, three
     // OGN cards, and a new set adding to it would be the ordering regression the
     // note above describes rather than a number to update.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 319,
+      held: 320,
       inline: 5,
-      cards: 324,
+      cards: 325,
     });
   });
 

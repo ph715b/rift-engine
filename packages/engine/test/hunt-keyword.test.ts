@@ -153,12 +153,16 @@ describe("the keyword is registered ONCE, not twelve times", () => {
   const registry = defaultCardRegistry();
   const huntCards = registry.all().filter((def) => (def.text ?? "").includes("[Hunt"));
 
-  it("all 12 TEXT-printing cards are served by the one key", () => {
-    // Twelve print it in their rules text. A THIRTEENTH carries it on its ART —
-    // UNL-096 Hunter's Machete, an Equipment — and is deliberately not counted
-    // here, because this sweep is over `def.text` and the art is exactly what
-    // that cannot see. Its own test is below.
-    expect(huntCards).toHaveLength(12);
+  it("all 13 TEXT-printing cards are served by the one key", () => {
+    // Twelve from UNL, which brought the keyword, plus **one from VEN**
+    // (2026-08-16) — the keyword is registered per KEYWORD in `triggers.ts`
+    // (`HUNT_TRIGGER_KEY`), so a new set's card is served with no new code.
+    //
+    // A further card carries it on its ART — UNL-096 Hunter's Machete, an
+    // Equipment — and is deliberately not counted here, because this sweep is
+    // over `def.text` and the art is exactly what that cannot see. Its own test
+    // is below.
+    expect(huntCards).toHaveLength(13);
     expect(eventTriggerDefIds()).toContain(HUNT_TRIGGER_KEY);
     // And NONE of them has an entry of its own — the thing that would silently
     // reintroduce twelve copies of one rule.

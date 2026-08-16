@@ -51,6 +51,14 @@ export const KEYWORDS = [
   "Level", // 16 cards. Dependent keyword (727): "While you have N+ XP, get the effect."
   "Ambush", // 12 cards. "You may play me as a [Reaction] to a battlefield where you have units."
   "Backline", // 4 cards. "I must be assigned combat damage last" — see combat.assignmentOrder.
+  // Vendetta (VEN). All three are in UNIMPLEMENTED_KEYWORDS, and all three are
+  // genuinely in the 800 Keyword Glossary — unlike `[Burn]`, `[Predict]` and
+  // `[Stun]`, which this set also prints and which are 4xx ACTIONS and belong in
+  // NON_KEYWORD_BRACKETS below. Read against `pdftotext -q -raw`, checking the
+  // sentence each number lands on rather than inferring from the brackets.
+  "Empower", // 40 brackets. 827, an Activated Ability keyword: "Empower [Cost]" = "[Cost]: Empower this. Play only if not Empowered."
+  "Empowered", // 51 brackets. 828, a DEPENDENT ability: "[Empowered][>] [Text]" — the same shape as [Level] (824).
+  "Flow", // 17 brackets. 829, a passive keyword on Spells only: "Flow [Cost]" — play from trash, then banish.
 ] as const;
 
 export type Keyword = (typeof KEYWORDS)[number];
@@ -161,6 +169,27 @@ export const NON_KEYWORD_BRACKETS = [
   "Stun",
   "Buff",
   "Predict",
+  //
+  // ---- Vendetta (VEN), landed 2026-08-16 ----
+  //
+  // **`[Burn N]` is an ACTION WORD, and the rules say which band it is in.** 440
+  // — "Burning is the act of moving cards from the top of a player's Main Deck to
+  // their trash", 440.3 "Burning is a Limited Action" — puts it in the 4xx
+  // ACTIONS band beside `[Stun]` (423) and `[Predict]` (436), not in the 800
+  // Keyword Glossary. No card "has [Burn]"; a card's text instructs you to burn.
+  //
+  // **Do not confuse 440 Burn with 431 Burn Out**, which this repo already
+  // implements (`test/burn-out.test.ts`): Burning Out is the Replacement Effect
+  // for a player who must move cards and cannot.
+  //
+  // **It is the first entry here that NEVER appears bare.** `[Stun]`, `[Buff]`
+  // and `[Predict]` all print unvalued somewhere in the pool; Burn prints only as
+  // `[Burn 1]`, `[Burn 2]`, `[Burn 3]` and `[Burn 7]` (7 cards, plus `[Burn 3]` on
+  // a battlefield). That is why `coverage-drift`'s "every entry is really
+  // printed" check had to start stripping the magnitude — it compared the raw
+  // token, and the two valued keywords it had seen before happened to appear bare
+  // as well, so nothing had ever exercised that path.
+  "Burn",
 ] as const;
 
 const NON_KEYWORD_BRACKETS_UPPER = new Set<string>(NON_KEYWORD_BRACKETS.map((t) => t.toUpperCase()));

@@ -99,12 +99,17 @@ describe("naming the tag, as the gear is played", () => {
     // **The project owner's call, and the paper game's behaviour.** Naming is a
     // read on what the opponent will play; restricting the list to what is
     // already visible would make the card strictly weaker than printed. The board
-    // here holds ONE Demacian and the option list is still all 111.
+    // here holds ONE Demacian and the option list is still all 124.
+    //
+    // 111 until Vendetta landed (2026-08-16) and 124 after it, which is the point
+    // of asserting the figure as well as the identity below it: the card's option
+    // list is the WHOLE printed pool, so it grows with every set, and a number
+    // that stopped moving would mean the new set's tags were not reaching it.
     const parked = playList(board([{ id: "d", tags: ["Demacia"] }]));
     const options = optionsFor(parked, pendingDecision(parked)!).map((o) => o.id);
 
     expect(options.length, "the tag list was filtered to the board").toBe(allPrintedTags().length);
-    expect(options.length, "the pool stopped having 111 tags — re-read this test").toBe(111);
+    expect(options.length, "the pool stopped having 124 tags — re-read this test").toBe(124);
     expect(options, "a tag nobody on the board carries was dropped").toContain("Poro");
     expect(options, "the tag the board DOES carry is missing").toContain("Demacia");
   });
