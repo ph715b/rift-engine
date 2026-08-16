@@ -72,6 +72,20 @@ export interface SpellDefinition extends CardDefinitionBase {
   isReaction: boolean;
   isAction: boolean;
   hidden: boolean;
+  /**
+   * `[Flow]`'s alternate cost (829), or undefined for a spell that prints none.
+   *
+   * 829.1.b: "You may play this from your trash for its flow cost. Then banish
+   * it." 829.1.c.1 makes it an ALTERNATE cost that REPLACES the base cost, which
+   * is why this is a whole cost rather than a discount — and why it feeds
+   * `replaced-costs.ts` rather than `cost-modifiers.ts`.
+   *
+   * **Spells only, per 829.1.a**, and that is load-bearing rather than
+   * decorative: two Vendetta UNITS mention `[Flow]` (one grants it, one discounts
+   * it) and would otherwise parse as having it. They are stripped in
+   * `GRANTED_ONLY_KEYWORDS`.
+   */
+  flowCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
 }
 
 export interface GearDefinition extends CardDefinitionBase {

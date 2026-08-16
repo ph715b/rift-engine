@@ -38,13 +38,25 @@ import { legionActive } from "./effect-helpers.js";
  * It is filed as an open reading in docs/rules-conformance.md's Unverified
  * section; revisit when a third card makes it reachable.
  *
- * **NOT rule 829 `[Flow]`**, which is the keyword form of this same sentence
- * ("You may play this from your trash for its flow cost. Then banish it.") and
- * whose 829.1.c.1 says the same thing about replacement. No card in any of the
- * four sets prints `[Flow]` — measured, all four JSONs have zero hits — so the
- * keyword is deliberately not implemented here and its BANISH clause must not be
- * borrowed: none of the cards below print it, and adding it would silently make
- * a Spell's recursion one-shot.
+ * **Rule 829 `[Flow]` IS implemented here now, as of 2026-08-16**, and this
+ * paragraph used to say the opposite. It read: "No card in any of the four sets
+ * prints `[Flow]` — measured, all four JSONs have zero hits — so the keyword is
+ * deliberately not implemented here." Both halves were true when written and the
+ * measurement expired the day Vendetta landed: **15 VEN spells print it.**
+ *
+ * The note was right about the shape, which is why the keyword cost one function
+ * and no new machinery: `[Flow]` is the keyword form of this same sentence ("You
+ * may play this from your trash for its flow cost. Then banish it."), and
+ * 829.1.c.1 says the same thing about replacement that 356.1.a does. See
+ * `flowReplacedCostFor` below, which derives the permission from the cost printed
+ * on each card instead of tabulating one row per spell.
+ *
+ * **Its warning about the BANISH clause still stands and is now load-bearing in
+ * the other direction.** "Adding it would silently make a Spell's recursion
+ * one-shot" is exactly right: the banish belongs to `[Flow]` alone and must not
+ * be borrowed by the two printed replaced costs below, neither of which prints
+ * the keyword. `execute-play-card` therefore gates the banish on the card having
+ * a `flowCost`, not on a replaced cost having been paid.
  *
  * 829.1.b.2 is worth keeping in view anyway, since it is the ruling for what a
  * replaced cost does NOT change: "Playing a spell for its Flow cost does not
@@ -192,6 +204,36 @@ export function replacedCostDefIds(): string[] {
  * for a card that is not in the zone it names can never be handed out: a
  * `"trash"` entry answers only for a card actually in that trash.
  */
+/**
+ * `[Flow]`'s permission (829), derived from the card's own printed cost.
+ *
+ * **Derived, not tabulated, and that is the whole reason the keyword lands in one
+ * change**: 829.1.c prints the cost on the card, `card-loader.parseFlowCost`
+ * reads it, and every Vendetta spell carrying the keyword is served with no
+ * per-card row — the same payoff `parseEquipCost` buys for 25 Equipment.
+ *
+ * It is exactly a replaced cost and needs no new machinery: 829.1.c.1 makes the
+ * Flow cost "an alternate cost that REPLACES the base cost", and 829.1.b names
+ * the trash as the zone, which is `ReplacedCost`'s two fields. Undying Legion
+ * has been the same shape for two sets.
+ *
+ * 829.1.b.2 is why nothing else is touched here: "Playing a spell for its Flow
+ * cost does not change the timing at which it can be played, nor any permissions
+ * for the spell aside from the ZONE from which it can be played." So a
+ * `[Reaction]` Flow spell is still a Reaction and an ordinary one is still
+ * sorcery-speed; the zone is the only permission this grants.
+ *
+ * Zone membership is checked by the caller for the printed table and here for
+ * this one, in the same place and for the same reason: a permission for a card
+ * that is not in the trash can never be handed out.
+ */
+function flowReplacedCostFor(state: GameState, playerIndex: 0 | 1, card: CardInstance): ReplacedCost | null {
+  const flow = card.kind === "Spell" ? card.flowCost : undefined;
+  if (flow === undefined) return null;
+  if (!state.players[playerIndex].trash.some((c) => c.instanceId === card.instanceId)) return null;
+  return { energyCost: flow.energy, powerCost: flow.powerCost, powerDomain: flow.powerDomain, zone: "trash" };
+}
+
 export function replacedCostFor(
   state: GameState,
   playerIndex: 0 | 1,
@@ -203,6 +245,9 @@ export function replacedCostFor(
   // has both, and the order is stated rather than incidental.
   const granted = grantedReplacedCostFor(state, playerIndex, card);
   if (granted !== null) return granted;
+
+  const flow = flowReplacedCostFor(state, playerIndex, card);
+  if (flow !== null) return flow;
 
   const printed = PRINTED_REPLACED_COSTS[card.defId];
   if (printed === undefined) return null;

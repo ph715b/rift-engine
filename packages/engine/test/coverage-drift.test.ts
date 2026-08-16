@@ -363,7 +363,18 @@ describe("the unimplemented-keyword mechanism, now that SFD has reopened it", ()
     // a decision rather than an omission: they are 4xx ACTIONS (440 / 436 / 423),
     // verbs a card's text performs rather than properties a card has. Flagging an
     // action word here would grey every card that merely instructs you to do it.
-    expect([...flagged].sort()).toEqual(["Empower", "Empowered", "Flow"]);
+    //
+    // **`[Flow]` LEFT the same day it arrived (2026-08-16)**, which is the third
+    // time a keyword has been declared and freed in one session, and the sharpest
+    // instance yet of this repo's "a 'needs subsystem X' note is wrong ten times
+    // out of eleven" rule: all three of 829's parts already existed —
+    // `replaced-costs.ts` has served an alternate cost from the TRASH since
+    // Undying Legion, `banishCard` has been there longer, and the cost is PRINTED
+    // on each card so it parses. Fifteen spells, no per-card rows.
+    //
+    // The two survivors are one mechanic in two rules and stay until the
+    // Empowered STATUS exists: 827 confers it, 828 depends on it.
+    expect([...flagged].sort()).toEqual(["Empower", "Empowered"]);
 
     // And the direction that matters for OGN/OGS/SFD: a keyword losing its
     // implementation would show up here as a card from a FINISHED set, which is

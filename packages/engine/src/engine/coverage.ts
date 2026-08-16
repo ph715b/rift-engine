@@ -233,10 +233,23 @@ const UNIMPLEMENTED_KEYWORDS: ReadonlyMap<Keyword, string> = new Map([
     "Empowered",
     "[Empowered] is ignored — its dependent ability (828) is permanently inactive, since nothing carries the Empowered status",
   ],
-  [
-    "Flow",
-    "[Flow] is ignored — a spell cannot yet be played from the trash for its Flow cost and banished afterwards (829)",
-  ],
+  // **`[Flow]` LEFT this map on 2026-08-16, the same day it arrived**, which is
+  // the third time a keyword has been declared and freed in one session and the
+  // reason the mechanism is kept through its empty periods.
+  //
+  // It is also the cleanest instance yet of this repo's own rule that a "needs
+  // subsystem X" note is wrong ten times out of eleven. All three of 829's parts
+  // already existed: `replaced-costs.ts` has served an alternate cost from the
+  // TRASH since Undying Legion two sets ago (829.1.c.1 makes a Flow cost exactly
+  // that), `effect-helpers.banishCard` and `PlayerState.banished` have been there
+  // longer, and the cost itself is PRINTED on each card, so `parseFlowCost` reads
+  // it the way `parseEquipCost` reads `[Equip]` — all 15 spells with no per-card
+  // row.
+  //
+  // The cards' own effects are a separate question and mostly unwritten; they
+  // report unimplemented through `isCardImplemented`'s registry check, which is
+  // the split this map exists to keep clean. A keyword-level flag would have
+  // greyed the spells whose text is nothing BUT the keyword.
 ]);
 
 /** The keyword a bracket encloses, if it is one this engine does not implement.

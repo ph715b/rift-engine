@@ -216,6 +216,15 @@ export interface SpellInstance extends CardInstanceBase {
    *  Reaction-only card such as Gust has `isReaction: true, isAction: false`.
    *  Testing this flag alone would bar all 8 Reaction spells from Showdowns. */
   isAction: boolean;
+  /**
+   * `[Flow]`'s alternate cost (829), copied from the definition.
+   *
+   * Carried on the INSTANCE for the reason the `isAction` note above records
+   * having learned the hard way: `replacedCostFor` is handed a `CardInstance`,
+   * so a cost that lives only on the definition cannot be checked at the moment
+   * the permission is asked for.
+   */
+  flowCost?: { energy: number; powerCost: number; powerDomain: Domain | null };
 }
 
 export interface GearInstance extends CardInstanceBase {
@@ -408,6 +417,8 @@ export function createCardInstance(def: CardDefinition): CardInstance {
         // be checked at runtime: the definition carried it, a PlayCardAction
         // carries the INSTANCE, and the instance didn't have it.
         isAction: def.isAction,
+        // `[Flow]`, copied for exactly the reason the line above exists.
+        ...(def.flowCost !== undefined ? { flowCost: def.flowCost } : {}),
       };
     case "Gear":
       return {

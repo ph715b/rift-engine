@@ -475,6 +475,46 @@ function runeCost(match: RegExpExecArray): { energy: number; domain: Domain | "r
   return { energy, domain: capitalized, count: 1 };
 }
 
+/**
+ * `[Flow]`'s printed alternate cost — "Flow [Cost]" (829.1.c).
+ *
+ * Parsed rather than tabulated, on `parseEquipCost`'s precedent and for the same
+ * payoff: **all 15 Vendetta spells printing the keyword are covered with no
+ * per-card code**, because every one of them prints Energy followed by runes of
+ * a single domain. Measured over the loaded pool rather than assumed —
+ * `:rb_energy_4::rb_rune_order::rb_rune_order:` (two Order) and
+ * `:rb_energy_5::rb_rune_rainbow::rb_rune_rainbow:` (two rainbow) are the widest
+ * shapes, and both are this pattern.
+ *
+ * A cost this cannot read is reported UNPARSED rather than half-read, which is
+ * `parseEquipCost`'s rule and the one direction this codebase never ships: half
+ * a cost is CHEAPER than the printed one, and an alternate cost that is too
+ * cheap is a card that plays for free out of the trash.
+ */
+const FLOW_COST_PATTERN = /\[Flow\]\s*(?::rb_energy_(\d+):)?((?::rb_rune_[a-z]+:)*)/i;
+
+export function parseFlowCost(plain: string): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
+  const match = FLOW_COST_PATTERN.exec(plain);
+  if (!match) return undefined;
+  const energy = match[1] ? Number.parseInt(match[1], 10) : 0;
+  const runes = [...(match[2] ?? "").matchAll(/:rb_rune_([a-z]+):/gi)].map((m) => m[1]!.toLowerCase());
+  // A bare `[Flow]` with no cost at all is not a cost this can price. Both cards
+  // that produce one are UNITS referencing the keyword rather than printing it,
+  // and they are stripped in GRANTED_ONLY_KEYWORDS — so reaching here means a
+  // shape nobody has read, and undefined is the honest answer.
+  if (energy === 0 && runes.length === 0) return undefined;
+  if (runes.length === 0) return { energy, powerCost: 0, powerDomain: null };
+  // One domain across every rune. `rainbow` is the RAINBOW pip, which
+  // `ReplacedCost.powerDomain` already spells as `null` and every payment site
+  // already reads as "any domain".
+  const first = runes[0]!;
+  if (!runes.every((r) => r === first)) return undefined;
+  if (first === "rainbow") return { energy, powerCost: runes.length, powerDomain: null };
+  const capitalized = first.charAt(0).toUpperCase() + first.slice(1);
+  if (!isDomain(capitalized)) return undefined;
+  return { energy, powerCost: runes.length, powerDomain: capitalized };
+}
+
 function shouldSkip(card: RawCard): boolean {
   const { classification, metadata } = card;
   if (classification.type === "Rune" || classification.type === "Battlefield") return true;
@@ -724,6 +764,26 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // AI's flat 64-iteration settle cap could not drain at the two passes per item
   // a chain costs. That cap is now a no-progress guard. The bug was in the
   // instrument, and the six cards were right all along.
+  // ---- Vendetta's two `[Flow]` references, 2026-08-16 ----
+  //
+  // **829.1.a: "Flow is present on Spells." Both of these are UNITS**, so
+  // neither can hold the keyword however its text reads — which makes this the
+  // rare case where the rules settle the question outright instead of it being a
+  // judgement about the sentence. Left in, each would parse a `[Flow]` it does
+  // not have, and `replaced-costs` would then have to decide what a Unit playable
+  // from its own trash means.
+  //
+  // The two shapes are the same two this table already holds, one each:
+  //
+  //   GRANTS it — VEN-113 Kennen, Storm of Shuriken: "When I conquer, give a
+  //   spell in your trash [Flow] equal to its cost this turn." The grant itself
+  //   is unwritten and Kennen reports unimplemented for it.
+  //
+  //   REFERENCES it — VEN-098 Stargazer: "Spells with [Flow] you play from your
+  //   trash cost [2] less." A cost modifier that names the keyword, exactly as
+  //   Petal Pixie only COUNTS `[Temporary]` units.
+  "VEN-098": ["Flow"], // Stargazer — discounts Flow spells, does not have Flow
+  "VEN-113": ["Flow"], // Kennen, Storm of Shuriken — grants Flow to a spell in your trash
   "OGN-106": ["Temporary"], // Sprite Mother — the token she plays is Temporary, not her
   "UNL-048": ["Temporary"], // Trevor Snoozebottom — same, and he keeps his [Shield]
   "UNL-076": ["Temporary"], // Petal Pixie — only COUNTS units that have it
@@ -1008,7 +1068,10 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         text: plain,
       };
     }
-    case "Spell":
+    case "Spell": {
+      // 829.1.a puts `[Flow]` on Spells alone, so it is read only here — a Unit
+      // that mentions the keyword cannot pick up a cost from this branch at all.
+      const flowCost = plain.includes("[Flow]") ? parseFlowCost(plain) : undefined;
       return {
         type: "Spell",
         id,
@@ -1022,8 +1085,10 @@ function parseCardDefinition(card: RawCard): CardDefinition {
         isReaction: plain.includes("[Reaction]") && !reactionIsOnlyAmbushReminder(plain),
         isAction: plain.includes("[Action]"),
         hidden: isGenuinelyHidden(plain, id),
+        ...(flowCost !== undefined ? { flowCost } : {}),
         text: plain,
       };
+    }
     case "Gear":
       return {
         type: "Gear",

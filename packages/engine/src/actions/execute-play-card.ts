@@ -781,12 +781,36 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         ...(execution.choices?.targetUnitInstanceIds ?? []),
       ]),
     ].filter((id): id is string => id !== undefined);
-    updatedActor = {
-      ...actor,
-      ...sharedUpdates,
-      // ...and onto the discard the shared updates already appended.
-      trash: [...sharedUpdates.trash, card],
-    };
+    // **`[Flow]`'s "Then banish it" (829.1.b)** — the spell goes to `banished`
+    // instead of the trash it would otherwise return to.
+    //
+    // Gated on the FLOW cost having actually been the one paid, not merely on the
+    // card having the keyword: a Flow spell cast from HAND for its printed cost
+    // trashes normally, and only the trash play banishes. `usedFlowCost` is
+    // re-derived from the board rather than trusted from the action, the
+    // convention this whole file follows.
+    //
+    // **Banished at cast rather than on leaving the chain, which 829.1.b.1
+    // specifies, and that is a KNOWN divergence recorded in
+    // `docs/rules-conformance.md`.** It is the existing one rather than a new
+    // one: this engine already trashes a spell at cast rather than after
+    // resolution (see this file's header, mirroring the oracle's
+    // `payAndQueueSpell`), so Flow follows the zone timing every other spell here
+    // already has. The observable gap is the same one: between cast and
+    // resolution the card counts as banished rather than as trash.
+    const usedFlowCost = action.replacedCostPaid === true && card.kind === "Spell" && card.flowCost !== undefined;
+    updatedActor = usedFlowCost
+      ? {
+          ...actor,
+          ...sharedUpdates,
+          banished: [...actor.banished, card],
+        }
+      : {
+          ...actor,
+          ...sharedUpdates,
+          // ...and onto the discard the shared updates already appended.
+          trash: [...sharedUpdates.trash, card],
+        };
     nextState = {
       ...nextState,
       chainOpen: false,
