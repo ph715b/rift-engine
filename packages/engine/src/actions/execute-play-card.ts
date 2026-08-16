@@ -15,7 +15,7 @@ import {
 } from "../engine/cost-modifiers.js";
 import { holdRunesRecycled } from "../engine/effect-helpers.js";
 import { optionalAdditionalCostsFor } from "../engine/optional-additional-costs.js";
-import { optionalXpCostOf, optionalXpEnergyDiscountOf } from "../engine/card-effects.js";
+import { optionalUnitCostOf, optionalXpCostOf, optionalXpEnergyDiscountOf } from "../engine/card-effects.js";
 import { restrictedPowerFor } from "../engine/rune-payment.js";
 import type { PlayCardAction } from "./player-action.js";
 import { validatePlayCard } from "./validate-play-card.js";
@@ -246,7 +246,32 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // Consult the Past (4 Energy) from Hidden with 3 floating Energy banked
   // silently burned all three for a card that was supposed to be free. Ignored
   // is ignored — no runes, no float, no cost modifiers.
-  const ignoresBaseCost = action.fromHiddenBattlefieldId !== undefined;
+  const fromHidden = action.fromHiddenBattlefieldId !== undefined;
+  /**
+   * Call to Glory's and Wallop's "if you do, ignore this spell's cost" — the
+   * same zeroing rule 811 gives a from-hidden play, and gated on the additional
+   * cost having ACTUALLY been named, since declining leaves the printed cost
+   * standing.
+   *
+   * **This was missing here entirely, and it is the FOURTH instance of the shape
+   * the file's own comments already record three times — always this executor.**
+   * `validate-play-card` zeroed the whole effective cost when it applied, so the
+   * enumerated payment correctly owed no runes; this half then priced from the
+   * raw printed cost anyway and took the Energy out of the float. Measured on
+   * both cards that carry the flag: Call to Glory (3 Energy) and Wallop (2) each
+   * spent their full printed cost out of a 10-Energy bank on the PAID variant,
+   * identically to declining — so a caster paying from float spent the buff AND
+   * the Energy, and the card's entire benefit was silently negated.
+   *
+   * Kept as its own binding rather than folded into `fromHidden` because the two
+   * are not the same question: `fromHidden` also suppresses the target/variant
+   * discounts and the replaced cost below, which a cost-ignoring play must still
+   * compute — it is only the PRICE that vanishes.
+   */
+  const optionalUnitCost = optionalUnitCostOf(card.defId);
+  const costIgnored =
+    optionalUnitCost?.ignoresCostWhenPaid === true && action.additionalCostUnitInstanceId !== undefined;
+  const ignoresBaseCost = fromHidden;
   const playedFromHand = actor.hand.some((c) => c.instanceId === card.instanceId);
   // Irelia - Graceful, through the SAME helper the validator priced with. This
   // half re-derives from the RAW cost by design, so a target-keyed discount
@@ -310,10 +335,15 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // convention this block follows — re-derive from the raw cost so the halves
   // cannot drift — is exactly what made a forgotten term invisible, three times,
   // always here.
-  const additional = ignoresBaseCost
-    ? { energy: 0, power: 0, rainbow: 0 }
-    : optionalAdditionalCostsFor(state, action, card);
-  const modifiedEnergy = ignoresBaseCost
+  //
+  // **The gate on all three prices below is `fromHidden || costIgnored`**, which
+  // is `validate-play-card`'s own condition spelled the same way. Anything that
+  // zeroes what the validator charges has to zero what this half spends, or the
+  // runes come out right and the FLOAT comes out wrong — which is the entire
+  // failure mode of this block, now recorded four times.
+  const priceZeroed = ignoresBaseCost || costIgnored;
+  const additional = priceZeroed ? { energy: 0, power: 0, rainbow: 0 } : optionalAdditionalCostsFor(state, action, card);
+  const modifiedEnergy = priceZeroed
     ? 0
     : Math.max(
         0,
@@ -333,7 +363,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
         // a discount can floor the printed cost at zero, but it cannot eat into
         // an additional cost the player chose to pay on top.
       ) + additional.energy;
-  const powerToPay = ignoresBaseCost
+  const powerToPay = priceZeroed
     ? 0
     : Math.max(
         0,
