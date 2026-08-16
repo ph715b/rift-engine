@@ -118,6 +118,49 @@ exactly the argument that makes it tempting. A hand-classified pool is the fifth
 source of truth this document already refuses below, and it would be one that
 nothing in the repo could re-derive or check.
 
+### A THIRD derivation was tried on 2026-08-16 and also fails — do not retry it
+
+Collector-number and name-matching are refuted above. The obvious next idea is
+**structural identity**: a record is an alternate printing iff some other card
+matches it on type, cost, Might, domains and rules text (reminder text stripped).
+That is how `VEN-194` was shown to be Jayce's Overnumbered print by hand, and it
+is what `printingsMatchTheirTwin` already asserts for known aliases.
+
+Validated against the **43 reconciled records outside the main-set band**, where
+the answer is known, it looks excellent:
+
+| structural twin | is a printing | is genuine |
+|---|---|---|
+| in the SAME set's main band | **26** | 0 |
+| in an OLDER set | 1 | **7** |
+| none found | 0 | **9** |
+
+35 of 43 classified with zero errors. Cross-set twins are inherently ambiguous —
+`VEN-168 Jinx, Demolitionist (Overnumbered)` and `VEN-175 Jayce, Man of Progress`
+are structurally identical situations with opposite answers, because a set can
+REPRINT an older card as a genuine new card.
+
+**And it still fails, because it is validated on the wrong population.** The 43
+records it was tested against are the RECONCILED ones — the half whose text is
+clean and current. The 18 it must classify are all UNRECONCILED, and their text
+is pre-release: differently worded, and mojibaked. Two of the first three
+verdicts checked by hand were wrong, both in the worst direction (calling a
+printing a genuine card, which inflates the pool):
+
+- `VEN-177 Renekton, Brute` vs `VEN-092` — same stats, same abilities, but the
+  clause reads `[Ganking] and [Deflect]` against `[Deflect] and [Ganking]`.
+  **Different ORDER**, same card.
+- `VEN-185 Kayle, Justified` vs `VEN-134` — identical but for a **mojibaked
+  apostrophe**, `I<?>m` against `I'm`. The same latin-1 class `CLAUDE.md` records
+  for `ogn.json`.
+
+So the honest summary is narrower than "it works": structural identity can
+**positively identify a printing** (an exact same-set match, 26/26) but can never
+**certify a record as genuine**, because on stale text an absent match is
+evidence of nothing. Five records remain ambiguous even in principle. The gate
+does not clear, no code changed, and the next person to have this idea can stop
+here.
+
 ### What "the data" has to be
 
 `packages/engine/src/cards/raw-card-schema.ts` is the contract, and it is
