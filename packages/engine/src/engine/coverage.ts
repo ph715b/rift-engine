@@ -5,6 +5,7 @@ import { canonicalDefId, loaderHandledDefIds, printingAliases } from "../cards/c
 import { playCardDefIds } from "./deploy.js";
 import { cardEffectDefIds, optionalPowerCostDefIds, optionalXpCostDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
+import { counterPreventionDefIds } from "./counter-spell.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
 import { grantedKeywordDefIds } from "./granted-keywords.js";
@@ -361,6 +362,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "play-card rules", defIds: playCardDefIds },
   { label: "damage-modifiers", defIds: damageModifierDefIds },
   { label: "cost-modifiers", defIds: costModifierDefIds },
+  { label: "counter prevention", defIds: counterPreventionDefIds },
   { label: "turn-manager", defIds: turnManagerDefIds },
   { label: "activated abilities", defIds: activatedAbilityDefIds },
   { label: "borrowed abilities", defIds: borrowedAbilityDefIds },
@@ -528,6 +530,19 @@ function unreadableEmpowerCostNote(def: CardDefinition): string | undefined {
 }
 
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
+  // Mel, Newly Awakened — her `[Empowered][>]` clause is TWO sentences and only
+  // the first is written. "Your spells and abilities can't be countered" is
+  // `counter-spell.canBeCountered`; "if a spell or ability you control would give
+  // -[Might] to a unit it chooses, it gives an additional -1" is a REPLACEMENT
+  // effect on the giving of Might, which this engine has no seam for.
+  //
+  // Listed because registration is per defId and she is now registered: without
+  // this row her counter-prevention half would report the whole card finished,
+  // which is the over-report this map exists for.
+  [
+    "VEN-069",
+    "Mel's second sentence is unwritten — a spell or ability she controls gives its printed -[Might] and not the additional -1",
+  ],
   // **Keep the mechanism even when this list empties**, for the reason
   // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
   // defId, so the next two-clause card written by halves reports DONE on the

@@ -143,6 +143,69 @@ export function counterFilter(
 /** The waiting spells a counter with this filter could legally name. Asked by
  *  both `legal-actions` and `validate-play-card`, so the enumerator and the
  *  validator cannot disagree about what is counterable. */
+/**
+ * Spells whose own printed text says they cannot be countered.
+ *
+ * A named table rather than a text scan, on the convention every per-card table
+ * in `card-loader` follows: the sentence is short and the phrasing is upstream's,
+ * so a substring match would be one data refresh away from silently missing a
+ * card that reworded it — and the failure would be invisible, since an
+ * uncounterable spell that CAN be countered simply dies to a counter nobody
+ * questions.
+ */
+const UNCOUNTERABLE_DEF_IDS = new Set([
+  "VEN-015", // Decree of Rage — "[Action] This can't be countered. Deal 4 to an enemy Calm unit."
+]);
+
+/**
+ * Mel, Newly Awakened — "[Empowered][>] Your spells and abilities can't be
+ * countered."
+ *
+ * The other half of her clause ("if a spell or ability you control would give
+ * -Might to a unit it chooses, it gives an additional -1") is a REPLACEMENT
+ * effect and is not written, so she stays partial — see
+ * `docs/rules-conformance.md`. Registration is per defId, so implementing only
+ * this half would otherwise report her finished.
+ */
+const MEL_NEWLY_AWAKENED = "VEN-069";
+
+/**
+ * Can this spell on the chain be countered at all?
+ *
+ * **The single predicate, and it has to be, because there are three consumers
+ * that must never disagree**: the enumerator (which must not offer a counter that
+ * would do nothing), the validator (which reaches the same walk through
+ * `counterableSpells`), and `counterSpell` itself as the executor funnel. This
+ * repo's most-repeated bug is the enumerator offering a play the validator then
+ * refuses; a protection applied at two of three sites is exactly how that
+ * happens again.
+ *
+ * Two sources today and they are different KINDS of protection — one is a
+ * property of the CARD, the other of the BOARD at the moment the counter is
+ * attempted — which is why this reads state rather than being a flag on the
+ * chain entry captured at cast time. Mel can be Empowered, or Disempowered (442),
+ * after the spell is already waiting.
+ */
+export function canBeCountered(state: GameState, entry: SpellChainEntry): boolean {
+  if (UNCOUNTERABLE_DEF_IDS.has(entry.card.defId)) return false;
+  // "YOUR spells" — the protection belongs to the spell's CONTROLLER, so an
+  // Empowered Mel does not shield an opponent's spell.
+  const owner = state.players[entry.playerIndex];
+  const melAnywhere = [
+    ...owner.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? []),
+  ];
+  return !melAnywhere.some((u) => u.defId === MEL_NEWLY_AWAKENED && u.empowered === true);
+}
+
+/** The cards this module implements, for coverage.ts — which would otherwise
+ *  report both inert, since neither has an entry in any effect registry. Mel is
+ *  claimed here for her counter-prevention half only; her -Might half keeps her
+ *  in `PARTIALLY_IMPLEMENTED`. */
+export function counterPreventionDefIds(): string[] {
+  return [...UNCOUNTERABLE_DEF_IDS, MEL_NEWLY_AWAKENED];
+}
+
 export function counterableSpells(
   state: GameState,
   maxPrintedEnergy?: number,
@@ -153,6 +216,9 @@ export function counterableSpells(
   filter?: { counterorIndex: 0 | 1; enemyOnly?: true; choosesFriendlyPermanent?: true },
 ): { entry: SpellChainEntry; index: number }[] {
   return spellsOnChain(state).filter(({ entry }) => {
+    // Checked FIRST and unconditionally: a spell that cannot be countered is not
+    // a candidate for any counter, however the caller's other filters read.
+    if (!canBeCountered(state, entry)) return false;
     if (!matchesCostFilter(entry.card, maxPrintedEnergy, maxPrintedPower)) return false;
     if (filter === undefined) return true;
     // "an ENEMY spell" — cast by the other seat. A counter that could name your
@@ -192,6 +258,14 @@ export function counterableSpells(
 export function counterSpell(state: GameState, spellCardInstanceId: string): GameState {
   const target = spellsOnChain(state).find(({ entry }) => entry.card.instanceId === spellCardInstanceId);
   if (!target) return state;
+  // **The funnel's own guard, and it is not redundant with the enumeration
+  // above.** Every counter in the pool routes through here, but several arrive
+  // by paths that never consulted `counterableSpells`: Hard Bargain counters
+  // when its RANSOM IS ANSWERED, long after any targeting happened, and a
+  // decision answered later can reach a board where Mel became Empowered in
+  // between. A protection enforced only where targets are OFFERED would be
+  // bypassed by exactly those cards.
+  if (!canBeCountered(state, target.entry)) return state;
 
   const spellChain = state.spellChain
     .filter((_, index) => index !== target.index)
