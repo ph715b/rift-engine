@@ -7,6 +7,7 @@ import { eventTriggerFor } from "../src/engine/triggers.js";
 // it actually lives in is read directly — which also proves the entry is in the
 // file that merges into the shared registry, not merely defined somewhere.
 import { deathTriggers as orderDeathTriggers } from "../src/engine/effects/order.js";
+import { decisions as bodyDecisions } from "../src/engine/effects/body.js";
 import { isCardImplemented } from "../src/engine/coverage.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type UnitInstance } from "../src/model/card.js";
@@ -42,6 +43,7 @@ const COVERT_INFORMANT = "VEN-057"; // [Empowered][>] When I move, draw 1.
 const AUROK_GENERAL = "VEN-130"; // [Empowered][>] Your units that are [Empowered] have +2 Might (including me).
 const APPLIED_RESEARCHERS = "VEN-055"; // [Empowered][>] Your spells cost [1][rainbow] less, to a minimum of [1].
 const NOXIAN_EMISSARY = "VEN-128"; // [Empowered][>][>>][Deathknell][>] Play two 1-Might Recruit tokens to your base.
+const DAME_THE_DESPOILER = "VEN-079"; // [Empowered][>] When I attack or defend, choose a unit here...
 const PLAIN_UNIT = "OGN-164"; // a vanilla body, for the aura's negative control
 
 const unit = (defId: string, instanceId: string): UnitInstance => ({
@@ -53,6 +55,33 @@ function boardWith(units: UnitInstance[]): GameState {
   const state = makeState({ phase: "Action" });
   state.players[0]!.baseUnits = units;
   return state;
+}
+
+
+/** Dame and companions standing at the first battlefield — hers on side 0, any
+ *  extra named "enemy" on side 1, so the option list can be checked across both. */
+function atBattlefield(dame: UnitInstance, ...others: UnitInstance[]): GameState {
+  const state = makeState({ phase: "Action" });
+  const bf = state.battlefields[0]!;
+  bf.id = "bf1";
+  bf.units[state.players[0]!.id] = [dame, ...others.filter((u) => u.instanceId !== "enemy")];
+  bf.units[state.players[1]!.id] = others.filter((u) => u.instanceId === "enemy");
+  // CONTESTED by the opponent, so Dame is a DEFENDER. `isFightingAt` returns
+  // false at an uncontested battlefield — there is neither an attacker nor a
+  // defender to be — and a fixture without this makes her gate untestable rather
+  // than passing it.
+  bf.contestedByIndex = 1;
+  return state;
+}
+
+/** A unit at bf1, whichever side it is on. */
+function findAt(state: GameState, instanceId: string): UnitInstance {
+  const bf = state.battlefields.find((b) => b.id === "bf1")!;
+  for (const side of Object.values(bf.units)) {
+    const found = (side ?? []).find((u) => u.instanceId === instanceId);
+    if (found) return found;
+  }
+  throw new Error(`no unit ${instanceId} at bf1`);
 }
 
 const mightOf = (state: GameState, instanceId: string): number => {
@@ -228,11 +257,78 @@ describe("Aurok General's aura is gated on HIS status and filters on the receive
     for (const token of made) expect(token.might, "a Recruit is a 1-Might token").toBe(1);
   });
 
-  it("claims all five cards for coverage", () => {
+  it("Dame's trigger does not fire un-Empowered (828.1.c)", () => {
+    // **This test exists because MUTATION TESTING found it missing.** Deleting
+    // the `isEmpowered` gate from her `applies` left all of Dame's other tests
+    // green — they drive the DECISION, which is downstream of the trigger — so
+    // the clause that makes her ability dependent at all was unasserted. Every
+    // other card in this file has the same assertion; hers was the one that did
+    // not, which is the shape a whole file of green tests can hide.
+    const dame = unit(DAME_THE_DESPOILER, "d1");
+    const state = atBattlefield(dame, unit(PLAIN_UNIT, "ally"));
+    const trigger = eventTriggerFor(DAME_THE_DESPOILER);
+    expect(trigger, "no attack-or-defend trigger is registered for Dame").toBeDefined();
+
+    const listener = { card: findAt(state, "d1"), ownerIndex: 0 as const, battlefieldId: "bf1" };
+    const event = { kind: "combatBegan" as const, battlefieldId: "bf1", designated: ["d1", "ally"] };
+
+    expect(trigger!.applies?.(state, listener as never, event as never), "an un-Empowered Dame triggered").toBe(false);
+
+    const empowered = empowerPermanent(state, "d1");
+    const live = { ...listener, card: findAt(empowered, "d1") };
+    expect(
+      trigger!.applies?.(empowered, live as never, event as never),
+      "an Empowered Dame did not gain her attack-or-defend trigger",
+    ).toBe(true);
+  });
+
+  it("Dame the Despoiler matches the chosen unit's Might, then adds 1", () => {
+    // "Increase my Might to its Might this turn, then give me +1 Might this
+    // turn." The match is a CLAMPED DELTA in rule 477's Arithmetic layer, not an
+    // assignment — Convergent Mutation's entry settles the identical sentence —
+    // so it stacks rather than wipes, and the +1 lands on top.
+    const dame = { ...unit(DAME_THE_DESPOILER, "d1"), might: 3 } as UnitInstance;
+    const bigger = { ...unit(PLAIN_UNIT, "big"), might: 7 } as UnitInstance;
+    const state = atBattlefield(dame, bigger);
+    const decision = bodyDecisions["VEN-079-match"]!;
+    const after = decision.resolve(state, { playerIndex: 0, cardInstanceId: "d1", battlefieldId: "bf1" } as never, "big");
+
+    const dameAfter = findAt(after, "d1");
+    expect(effectiveMight(after, dameAfter, 0, { isCombat: false }), "3 matched to 7, then +1").toBe(8);
+  });
+
+  it("never SHRINKS her — naming a smaller unit is a legal no-op plus the 1", () => {
+    // The clamp is the rules' own: "Players cannot increase a numeric attribute
+    // by a negative amount... they increase it by 0 instead." Naming herself is
+    // the degenerate case of the same thing.
+    const dame = { ...unit(DAME_THE_DESPOILER, "d1"), might: 6 } as UnitInstance;
+    const smaller = { ...unit(PLAIN_UNIT, "small"), might: 2 } as UnitInstance;
+    const state = atBattlefield(dame, smaller);
+    const decision = bodyDecisions["VEN-079-match"]!;
+
+    const afterSmall = decision.resolve(state, { playerIndex: 0, cardInstanceId: "d1", battlefieldId: "bf1" } as never, "small");
+    expect(effectiveMight(afterSmall, findAt(afterSmall, "d1"), 0, { isCombat: false }), "she shrank to a smaller unit").toBe(7);
+
+    const afterSelf = decision.resolve(state, { playerIndex: 0, cardInstanceId: "d1", battlefieldId: "bf1" } as never, "d1");
+    expect(effectiveMight(afterSelf, findAt(afterSelf, "d1"), 0, { isCombat: false }), "naming herself is +1 and nothing else").toBe(7);
+  });
+
+  it("offers every unit at the battlefield, both sides and herself included", () => {
+    // "A unit" with no "friendly", "enemy" or "other" — and a missing "other" is
+    // INCLUSIVE, the reading Sett - Kingpin and Rumble - Scrapper already take.
+    const dame = unit(DAME_THE_DESPOILER, "d1");
+    const state = atBattlefield(dame, unit(PLAIN_UNIT, "ally"), unit(PLAIN_UNIT, "enemy"));
+    const ids = bodyDecisions["VEN-079-match"]!
+      .options(state, { playerIndex: 0, cardInstanceId: "d1", battlefieldId: "bf1" } as never)
+      .map((o) => o.id);
+    expect(new Set(ids), "the option list is not every unit here").toEqual(new Set(["d1", "ally", "enemy"]));
+  });
+
+  it("claims all six cards for coverage", () => {
     // The Lucian - Purifier trap: a card can work in play and report
     // UNIMPLEMENTED because no module claims it, which also drops it from
     // generated decks and hides it from `reachability`.
-    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL, APPLIED_RESEARCHERS, NOXIAN_EMISSARY]) {
+    for (const defId of [NASUS_ASCENDED, COVERT_INFORMANT, AUROK_GENERAL, APPLIED_RESEARCHERS, NOXIAN_EMISSARY, DAME_THE_DESPOILER]) {
       expect(isCardImplemented(registry.get(defId)), `${defId} works but no module claims it`).toBe(true);
     }
   });

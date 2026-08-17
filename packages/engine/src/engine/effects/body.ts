@@ -28,6 +28,7 @@ import {
   recycleCardFromHand,
   spendBuff,
   spendXp,
+  isEmpowered,
 } from "../effect-helpers.js";
 import { readyableOthers } from "../unit-triggers.js";
 import { playUnitToBattlefield } from "../deploy.js";
@@ -1187,7 +1188,71 @@ function dazzlingAuroraReveal(state: GameState, ownerIndex: 0 | 1): GameState {
  */
 const GRIM_RESOLVE_COMBAT_GRANT = "UNL-095-combat-xp";
 
+/**
+ * Dame the Despoiler — "[Empowered][>] When I attack or defend, choose a unit
+ * here. Increase my Might to its Might this turn, then give me +1 Might this
+ * turn."
+ *
+ * The units she could name: **every unit at that battlefield, both sides, herself
+ * included.** Her text says "a unit" with no "friendly", no "enemy" and no
+ * "other", and a missing "other" is INCLUSIVE — the reading Sett - Kingpin and
+ * Rumble - Scrapper already take. Naming herself is a legal no-op (the delta
+ * below clamps to 0) and offering it is what the card says, not a convenience.
+ *
+ * "HERE" is a referent read from the ability's source and checked on EXECUTION
+ * (359.3.f.1 / 359.3.f.2), so this is asked against the live board rather than
+ * captured at fire time — a Dame killed or moved in the response window her hold
+ * opens names nobody. Yuumi - Magical Cat's candidates take the same shape for
+ * the same rule, which is also why the check lives in ONE helper both the
+ * fire-time question and the answer-time option list call.
+ */
+const DAME_BONUS_MIGHT = 1;
+
+function damesCandidates(state: GameState, ownerIndex: 0 | 1, dameInstanceId: string, battlefieldId: string) {
+  const bf = state.battlefields.find((b) => b.id === battlefieldId);
+  if (bf === undefined) return [];
+  // She must still BE there — 359.3.f.2's referent check, and the reason this is
+  // not simply "the units at the battlefield the combat opened at".
+  const dameStillHere = (bf.units[state.players[ownerIndex].id] ?? []).some((u) => u.instanceId === dameInstanceId);
+  if (!dameStillHere) return [];
+  return [...(bf.units[state.players[0].id] ?? []), ...(bf.units[state.players[1].id] ?? [])];
+}
+
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-079": {
+    // Dame the Despoiler's dependent trigger — see `damesCandidates` above for
+    // who she can name.
+    //
+    // `isFightingAt` is the shared "attack OR defend" predicate (383.4.e and
+    // 383.4.f are two rules and this card asks for either); it also carries the
+    // "gaining the designation NOW" check, so a reinforcement arriving later does
+    // not re-fire her.
+    //
+    // The EMPOWERED gate is 828.1.c and is fixed at FIRE time with the rest: the
+    // hold she places opens precisely the window in which an opponent could
+    // Disempower her, and re-asking at resolution would cancel a trigger that has
+    // already happened.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isFightingAt(state, listener, event) && isEmpowered(state, listener.card.instanceId),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // **The candidate check is in `resolve`, not in `applies`**, on the split
+      // Yuumi's entry documents: the trigger condition is "when I attack or
+      // defend" and nothing else, so the ability triggers even with nothing to
+      // name and the instruction is then ignored (359.3.e.6). Putting it in
+      // `applies` would invent a printed requirement the card does not carry.
+      if (damesCandidates(state, listener.ownerIndex, listener.card.instanceId, event.battlefieldId).length === 0) {
+        return state;
+      }
+      return parkDecision(state, {
+        kind: "VEN-079-match",
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        battlefieldId: event.battlefieldId,
+      });
+    },
+  },
   [GRIM_RESOLVE_COMBAT_GRANT]: {
     // Grim Resolve's second sentence — "When it wins a combat this turn, gain
     // 2 XP." Keyed by the GRANTED key rather than by a defId: the ability belongs
@@ -2137,6 +2202,58 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Dame the Despoiler's "choose a unit here", raised by her attack-or-defend
+   * trigger, which has already established that such a unit exists.
+   *
+   * NO decline option: the card carries no "you may", so once it has triggered
+   * the match has to happen. With exactly one candidate `advanceDecisions`
+   * executes it without a prompt, which is right — there is no choice to make.
+   */
+  "VEN-079-match": {
+    prompt: () => "Dame the Despoiler: choose a unit here to match Might with",
+    options: (state, d) =>
+      damesCandidates(state, d.playerIndex, d.cardInstanceId ?? "", d.battlefieldId ?? "").map((u) => ({
+        id: u.instanceId,
+        label: u.name,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => {
+      const dameId = d.cardInstanceId ?? "";
+      const candidates = damesCandidates(state, d.playerIndex, dameId, d.battlefieldId ?? "");
+      // Re-asked against the SAME walk the options came from, as Yuumi's does —
+      // `answerDecision` already refuses an option that is not on offer, so this
+      // is unreachable through the action path and is here so a future caller
+      // cannot put the Might somewhere the referent no longer reaches.
+      const chosen = candidates.find((u) => u.instanceId === optionId);
+      const dame = candidates.find((u) => u.instanceId === dameId);
+      if (chosen === undefined || dame === undefined) return state;
+
+      // **"INCREASE my Might TO its Might" is ARITHMETIC, not assignment**, and
+      // the rules separate those layers explicitly (477): "a unit's Might becomes
+      // 4" is the assignment layer, while "increase X to Y" is worked in the
+      // Arithmetic layer as a positive delta. Convergent Mutation's entry in
+      // mind.ts settles this for the identical sentence — which is why this is a
+      // `giveMightThisTurn` and not a new set-to primitive, and why it STACKS
+      // with an existing modifier rather than wiping it.
+      //
+      // The delta is clamped at 0 by the same rules text: "Players cannot
+      // increase a numeric attribute by a negative amount. If an effect would
+      // instruct a player to do so, they increase it by 0 instead." So naming a
+      // SMALLER unit is legal and does nothing, and naming HERSELF is the
+      // degenerate case of that — never a shrink.
+      //
+      // EFFECTIVE Might on both sides, not printed: the Arithmetic layer runs on
+      // the value the rest of the game sees, so a chosen unit already pumped
+      // donates the pumped number.
+      const ctx = { isCombat: false };
+      const delta = Math.max(0, effectiveMight(state, chosen, d.playerIndex, ctx) - effectiveMight(state, dame, d.playerIndex, ctx));
+      // "THEN give me +1" — sequenced, and the order is load-bearing: the +1 is
+      // added AFTER the match, so it is a true +1 over the matched value rather
+      // than something the clamp could absorb.
+      return giveMightThisTurn(giveMightThisTurn(state, dameId, delta), dameId, DAME_BONUS_MIGHT);
+    },
+  },
   /**
    * Void Hatchling's look, before Dazzling Aurora's reveal.
    *

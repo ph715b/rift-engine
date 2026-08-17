@@ -424,10 +424,13 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // here: his clause is a COST MODIFIER, so it lives in `cost-modifiers.ts` and
     // this census has nothing to count for him. Same reason Aurok General is
     // absent one note up. Two cards, +1, and both halves of that are right.
+    // **323/5/328 → 324/5/329, one card: VEN-079 Dame the Despoiler's
+    // attack-or-defend trigger** — the fourth `[Empowered][>]` payload shape to
+    // land, after a conquer, a move and a Deathknell.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 323,
+      held: 324,
       inline: 5,
-      cards: 328,
+      cards: 329,
     });
   });
 
