@@ -19,6 +19,7 @@ import {
   unchooseableAmong,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
+  activatableGearTargets,
 } from "../engine/target-lookup.js";
 import { attachableEquipment, equipmentPairedWith } from "../engine/equipment.js";
 import { fail, ok, type ValidationResult } from "./validation-result.js";
@@ -213,6 +214,19 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     });
     if (!legal.some((t) => t.instanceId === action.targetPermanentInstanceId)) {
       return fail(`${action.targetPermanentInstanceId} is not a legal target for ${card.name}'s ability`);
+    }
+  }
+
+  // Jayce - Defender of Tomorrow's "Ready a gear" — the ability-side twin of the
+  // Spell path's `"gear"` targeting, asked through the SAME walk the enumerator
+  // fans out from so the two cannot disagree about which gear is on offer.
+  if (targeting.kind === "gear") {
+    if (action.targetPermanentInstanceId === undefined) {
+      return fail(`${card.name}'s ability needs a gear to target`);
+    }
+    const legal = activatableGearTargets(state, action.playerIndex, targeting);
+    if (!legal.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
+      return fail(`${action.targetPermanentInstanceId} is not a legal gear for ${card.name}'s ability`);
     }
   }
 

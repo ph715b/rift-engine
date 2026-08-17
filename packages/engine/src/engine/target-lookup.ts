@@ -543,6 +543,32 @@ export function gearTargets(state: GameState): { instanceId: string; name: strin
 }
 
 /**
+ * The gear an ACTIVATED ability may name — `gearTargets` plus the two narrowings
+ * an ability's spec can carry.
+ *
+ * **One walk for the enumerator and the validator**, which is the whole reason it
+ * is here rather than inline in either: this codebase's most-repeated bug is the
+ * enumerator offering a choice the validator then refuses, and a filter applied
+ * at one of the two is exactly how it happens again.
+ *
+ * `exhaustedOnly` is what keeps "Ready a gear" off an ability with nothing to
+ * ready — `legal-actions`' own rule that "a mode with no legal target is simply
+ * not offered, since paying for nothing is never what the player meant".
+ */
+export function activatableGearTargets(
+  state: GameState,
+  playerIndex: 0 | 1,
+  spec: { owner?: "friendly" | "enemy"; exhaustedOnly?: true },
+): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
+  return gearTargets(state).filter((g) => {
+    if (!gearOwnerMatches(spec.owner, g.ownerIndex, playerIndex)) return false;
+    if (spec.exhaustedOnly !== true) return true;
+    const owner = state.players[g.ownerIndex];
+    return owner.activeGear.some((c) => c.instanceId === g.instanceId && c.exhausted);
+  });
+}
+
+/**
  * Does a gear owned by `ownerIndex` satisfy `owner`, measured from `chooserIndex`?
  *
  * One function for the enumerator, the validator and `hasAnyLegalEffectChoice` —

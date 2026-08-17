@@ -844,6 +844,14 @@ export function isEmpowered(state: GameState, instanceId: string): boolean {
   for (const player of state.players) {
     const gear = player.activeGear.find((g) => g.instanceId === instanceId);
     if (gear) return gear.empowered === true;
+    // **The LEGEND zone, and leaving it out was a real bug rather than an
+    // omission of scope.** 827.1.a puts `[Empower]` on "permanents AND legends",
+    // and Vendetta prints it on three of them — Jayce - Defender of Tomorrow
+    // could never become Empowered at all, so his entire `[Empowered][>]` ability
+    // was unreachable. The Legend is not on the board and not in any list, which
+    // is the same gap `findActivatable` had to learn about before Legend
+    // abilities were reachable.
+    if (player.legend.instanceId === instanceId) return player.legend.empowered === true;
   }
   return false;
 }
@@ -897,6 +905,11 @@ function setEmpowered(state: GameState, instanceId: string, empowered: boolean):
     players: state.players.map((p) => ({
       ...p,
       activeGear: p.activeGear.map((g) => (g.instanceId === instanceId ? (applied(g) as typeof g) : g)),
+      // The Legend zone — see `isEmpowered`'s note. Writing it here as well as
+      // reading it there is the whole of what a Legend needed: 827.1.a's
+      // "permanents and legends" is one clause, and covering half of it left
+      // Jayce's dependent ability permanently unreachable.
+      legend: p.legend.instanceId === instanceId ? (applied(p.legend) as typeof p.legend) : p.legend,
     })) as GameState["players"],
   };
 }

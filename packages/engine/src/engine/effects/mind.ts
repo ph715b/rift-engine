@@ -11,7 +11,7 @@ import type {
 import { killGear } from "../triggers.js";
 import { isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
-import { drawCards, isEmpowered } from "../effect-helpers.js";
+import { drawCards, isEmpowered, readyPermanent } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { hasKeyword } from "../granted-keywords.js";
 import { defaultCardRegistry } from "../../cards/card-registry.js";

@@ -163,6 +163,16 @@ export type TargetingSpec =
        * seat every other `owner` on this union is measured from.
        */
       owner?: "friendly" | "enemy";
+      /**
+       * Only gear that is currently EXHAUSTED — Jayce - Defender of Tomorrow's
+       * "Ready a gear", where a ready one is nothing to ready.
+       *
+       * A narrowing on the OFFER rather than on the card's words: `legal-actions`
+       * does not offer a mode with no legal target, "since paying for nothing is
+       * never what the player meant", and an ability that readies an already-ready
+       * gear is exactly that.
+       */
+      exhaustedOnly?: true;
     }
   /**
    * A card in the caster's OWN trash, chosen as the spell is announced.

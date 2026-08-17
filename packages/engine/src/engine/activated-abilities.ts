@@ -38,6 +38,7 @@ import {
   returnPermanentToHand,
   spendBuff,
   stunUnits,
+  readyPermanent,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
 import { destroyUnit, spendXp } from "./effect-helpers.js";
@@ -480,6 +481,12 @@ const MISS_FORTUNE_BOUNTY_HUNTER = "OGN-267";
 /** Forge of the Fluft — a BATTLEFIELD whose printed text is an ability its
  *  controller's Legend has. Keyed here by the battlefield's own defId, the way
  *  the Gold token's ability is keyed by the token's. */
+/** Jayce - Defender of Tomorrow and his two suffixed READY ability keys — see
+ *  `abilitiesAvailableTo` for why they are not keyed on his bare defId. */
+const JAYCE_DEFENDER = "VEN-149";
+const JAYCE_READY = "VEN-149-ready";
+const JAYCE_READY_EMPOWERED = "VEN-149-ready-empowered";
+
 const FORGE_OF_THE_FLUFT = "SFD-208";
 const DARIUS_HAND_OF_NOXUS = "OGN-253";
 const KAISA_DAUGHTER_OF_THE_VOID = "OGN-247";
@@ -689,6 +696,71 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
 const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
   ...equipAbilities(),
   ...empowerAbilities(),
+  /**
+   * Jayce - Defender of Tomorrow's two READY abilities.
+   *
+   * **They live in THIS table rather than a domain file, and a gate is what said
+   * so.** `effect-registry.test.ts` requires every defId registered in
+   * `effects/<domain>.ts` to be a real card of that single domain — and these
+   * keys are suffixed rather than card ids, while Jayce himself is dual-domain
+   * (Mind/Body) and would belong in `signature.ts` regardless. A suffixed ability
+   * key is an ENGINE concept, not a card entry, so it belongs beside Forge of the
+   * Fluft's below.
+   *
+   * The suffixes are forced: he prints THREE activated abilities and this
+   * registry is keyed by defId, so his own key is already taken by the generated
+   * `[Empower]`. `abilitiesAvailableTo` already returns a LIST and already hands
+   * a source a second entry under another key — Svellsongur's copied text and
+   * Forge of the Fluft's grant are the precedents — so the offering needed no new
+   * machinery. `mergeRegistries` would have caught a collision on his bare defId.
+   *
+   * **The Empowered one does not REPLACE the printed one.** 828 ADDS a dependent
+   * ability. So an Empowered Jayce genuinely has both and both are offered; the
+   * 2-gear version strictly dominates at the same cost, but offering only the
+   * better one would be the engine choosing for the player.
+   */
+  [JAYCE_READY]: {
+    // "[1], [Exhaust]: Ready a gear."
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    // `exhaustedOnly` keeps him off an ability with nothing to ready, which is
+    // `legal-actions`' own "paying for nothing is never what the player meant".
+    //
+    // `owner: "friendly"` is a NARROWING and a recorded one: his text says "a
+    // gear" with no owner, so an enemy gear is legal to name, and `readyPermanent`
+    // only reaches the acting player's. Withholding an option is the safe
+    // direction — readying an opponent's gear is never desirable — and it is in
+    // docs/rules-conformance.md rather than silent.
+    targeting: { kind: "gear", owner: "friendly", exhaustedOnly: true },
+    resolve: (state, ctx, event) =>
+      event.targetPermanentInstanceId === undefined
+        ? state
+        : readyPermanent(state, ctx.casterIndex, event.targetPermanentInstanceId),
+  },
+  [JAYCE_READY_EMPOWERED]: {
+    // "[Empowered][>] [1], [Exhaust]: Ready 2 gear." Offered only while he holds
+    // the status (828.1.c) — enforced by `abilitiesAvailableTo`, not here.
+    kind: "Legend",
+    cost: { energy: 1, exhaust: true },
+    targeting: { kind: "gear", owner: "friendly", exhaustedOnly: true },
+    resolve: (state, ctx, event) => {
+      if (event.targetPermanentInstanceId === undefined) return state;
+      const readied = readyPermanent(state, ctx.casterIndex, event.targetPermanentInstanceId);
+      // **The SECOND gear is the first remaining exhausted one, and that is a
+      // recorded simplification rather than the card.** "Ready 2 gear" is two
+      // choices and this engine has no two-gear targeting shape — the same
+      // "WHICH is a real choice with several available; the first is taken"
+      // simplification Yone - Blademaster's entry records. With 0 or 1 other
+      // exhausted gear, which is the common board, it is not a choice at all and
+      // this is exact.
+      const other = readied.players[ctx.casterIndex].activeGear.find(
+        (g) => g.exhausted && g.instanceId !== event.targetPermanentInstanceId,
+      );
+      // 359.3.e.6 — an instruction that cannot be followed is ignored, so one
+      // gear readied is a legal outcome rather than a failure.
+      return other === undefined ? readied : readyPermanent(readied, ctx.casterIndex, other.instanceId);
+    },
+  },
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
   "SFD-189": {
     // Ornn - Fire Below the Mountain — "[Exhaust]: [Reaction] — [Add] [rainbow].
@@ -2625,6 +2697,21 @@ export function abilitiesAvailableTo(
   // through it. A parallel path would be a fourth place to keep in step.
   if (source.defId === state.players[playerIndex].legend.defId && controlsForgeOfTheFluft(state, playerIndex)) {
     granted.push({ abilityDefId: FORGE_OF_THE_FLUFT, definition: allActivatedAbilities()[FORGE_OF_THE_FLUFT]! });
+  }
+  // Jayce - Defender of Tomorrow's two READY abilities. His own defId is taken by
+  // the generated `[Empower]`, so they carry suffixed keys and are offered here —
+  // the same shape Forge of the Fluft's grant takes directly above, and for the
+  // reason its note gives: this function is the single answer to "what can this
+  // source activate", so a parallel path would be a fourth place to keep in step.
+  //
+  // The Empowered one is gated on the LEGEND's own status (828.1.c). Read off the
+  // legend rather than passed in, because `source` carries only a defId — and for
+  // a Legend that is exact, since a player has exactly one.
+  if (source.defId === JAYCE_DEFENDER && source.defId === state.players[playerIndex].legend.defId) {
+    granted.push({ abilityDefId: JAYCE_READY, definition: allActivatedAbilities()[JAYCE_READY]! });
+    if (state.players[playerIndex].legend.empowered === true) {
+      granted.push({ abilityDefId: JAYCE_READY_EMPOWERED, definition: allActivatedAbilities()[JAYCE_READY_EMPOWERED]! });
+    }
   }
   return own ? [{ abilityDefId: source.defId, definition: own }, ...granted] : granted;
 }

@@ -27,6 +27,7 @@ import {
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitWithinMaxMight,
+  activatableGearTargets,
 } from "./target-lookup.js";
 import {
   modifiedEnergyCost,
@@ -433,6 +434,22 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
             ...(mode.targeting.includesFacedown !== undefined ? { includesFacedown: mode.targeting.includesFacedown } : {}),
           })) {
             push({ ...withMode, targetPermanentInstanceId: t.instanceId });
+          }
+          continue;
+        }
+        // Jayce - Defender of Tomorrow is the first ABILITY to target a GEAR, and
+        // this branch is why it could not simply reuse the spec: ability
+        // enumeration fanned out `"unit"` and `"unitOrGear"` and pushed
+        // everything else TARGET-LESS, so a `"gear"` ability would have been
+        // offered with nothing chosen and then done nothing — the exact shape the
+        // `unitOrGear` note above records having fixed for Pack of Wonders.
+        //
+        // Through `activatableGearTargets`, the same walk `validate-activate-
+        // ability` asks, so the enumerator cannot offer a gear the validator then
+        // refuses. That disagreement is this file's most-repeated bug.
+        if (mode.targeting.kind === "gear") {
+          for (const g of activatableGearTargets(state, playerIndex, mode.targeting)) {
+            push({ ...withMode, targetPermanentInstanceId: g.instanceId });
           }
           continue;
         }

@@ -26,7 +26,7 @@ export interface CardInstanceBase {
   isToken: boolean;
 }
 
-export interface LegendInstance extends CardInstanceBase {
+export interface LegendInstance extends CardInstanceBase, EmpowerableInstance {
   kind: "Legend";
   championTag: string;
   /**
