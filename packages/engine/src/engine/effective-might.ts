@@ -132,6 +132,12 @@ function ownUnitLocation(state: GameState, ownerIndex: 0 | 1, defId: string): st
  * to exist at all — Rumble - Scrapper's shape plus 828.1.c's "as long as".
  */
 const AUROK_GENERAL = "VEN-130";
+
+/** Ambessa, The Wolf's Might half — "[Empowered][>] I have +3 [Might] and can't
+ *  be dealt damage unless I'm in combat." The protection half is
+ *  `damage-modifiers.takesNoDamage`; see its note for why the two are apart. */
+const AMBESSA_THE_WOLF = "VEN-084";
+const AMBESSA_MIGHT_BONUS = 3;
 const AUROK_GENERAL_BONUS = 2;
 
 /** Does this player control an EMPOWERED copy of `defId`, anywhere?
@@ -281,6 +287,10 @@ export function effectiveMightDefIds(): string[] {
     // `grantedKeywordDefIds` records having sprung twice: if a card works and the
     // count does not move, no module has claimed it.
     AUROK_GENERAL,
+    // Ambessa's MIGHT half. Her damage protection claims her in
+    // `damageModifierDefIds` too — a card claimed by two modules is harmless,
+    // and claimed by neither is the Lucian - Purifier trap.
+    AMBESSA_THE_WOLF,
     GAREN_COMMANDER,
     MASTER_YI_MEDITATIVE,
     WIELDER_OF_WATER,
@@ -560,6 +570,21 @@ function continuousAuraBonus(state: GameState, unit: UnitInstance, ownerIndex: 0
   if (unit.empowered === true && hasEmpoweredUnit(state, ownerIndex, AUROK_GENERAL)) {
     bonus += AUROK_GENERAL_BONUS;
   }
+
+  // Ambessa, The Wolf — "[Empowered][>] I have +3 Might and can't be dealt damage
+  // unless I'm in combat."
+  //
+  // Only the MIGHT half is here; the damage protection is
+  // `damage-modifiers.takesNoDamage`, which is the seam Kayn - Unleashed already
+  // uses. The two halves of one printed sentence live apart because the engine
+  // asks them at unrelated choke points, and splitting them is what keeps each
+  // one out of a place it does not belong.
+  //
+  // She is NOT in `parseEmpoweredGrant`'s derived table: that reader refuses her
+  // clause WHOLE because of the second sentence, which is the right call — a
+  // partially-granted card looks finished. So her Might is written by hand here,
+  // and her `PARTIALLY_IMPLEMENTED` row went away only once both halves existed.
+  if (unit.defId === AMBESSA_THE_WOLF && unit.empowered === true) bonus += AMBESSA_MIGHT_BONUS;
 
   // Rumble - Scrapper — "Your Mechs have +1 Might (including me)."
   //

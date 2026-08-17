@@ -46,7 +46,7 @@ const KAYN_MOVES_REQUIRED = 2;
 const ELDER_DRAGON = "UNL-118";
 
 export function damageModifierDefIds(): string[] {
-  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN, ELDER_DRAGON];
+  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN, ELDER_DRAGON, AMBESSA_THE_WOLF];
 }
 
 /**
@@ -116,8 +116,51 @@ export function anyDamageIsLethalTo(state: GameState, ownerIndex: 0 | 1): boolea
  * that needs no new assignment concept; recorded Unverified in
  * docs/rules-conformance.md.
  */
-export function takesNoDamage(unit: UnitInstance): boolean {
-  return unit.defId === KAYN_UNLEASHED && (unit.movesThisTurn ?? 0) >= KAYN_MOVES_REQUIRED;
+export function takesNoDamage(state: GameState, unit: UnitInstance): boolean {
+  if (unit.defId === KAYN_UNLEASHED && (unit.movesThisTurn ?? 0) >= KAYN_MOVES_REQUIRED) return true;
+  return ambessaIsProtected(state, unit);
+}
+
+/**
+ * Ambessa, The Wolf — "[Empowered][>] I have +3 Might and can't be dealt damage
+ * unless I'm in combat."
+ *
+ * The second unit in the pool that can stop taking damage at all, after Kayn -
+ * Unleashed, and the reason `takesNoDamage` grew a `state` parameter: Kayn's
+ * condition is a counter ON the unit, while hers is a question about the BOARD.
+ *
+ * **"In combat" is a STATE question, not the combat-designation event**, and Vex
+ * - Cheerless's note settles it for the identical phrase: `isFightingAt` takes a
+ * GameEvent and asks whether a listener was designated by THAT event, which is
+ * unanswerable when damage is being dealt with no event in hand. The state that
+ * survives the whole fight is the open Combat Showdown, so "I'm in combat" is "I
+ * am standing at the battlefield the open Combat Showdown is at".
+ *
+ * `designatedInstanceIds` is the rejected sharper alternative, on the reason
+ * Sudden Storm and Vex both record: it is written only by a Cleanup, so a unit
+ * that walked in and started this very fight would read as not being in it.
+ *
+ * The protection is INVERTED relative to Kayn's — his condition grants immunity,
+ * hers REMOVES it — so an Ambessa in the thick of a fight is the vulnerable one,
+ * which is the card: 3 Energy and a Body pip buys a body that can only be
+ * answered by fighting it.
+ *
+ * The +3 Might half is NOT here. `parseEmpoweredGrant` refuses her clause whole
+ * because of this second sentence, so her Might rides `effective-might`'s
+ * `ambessaMightBonus` beside the other Empowered auras.
+ */
+const AMBESSA_THE_WOLF = "VEN-084";
+
+function ambessaIsProtected(state: GameState, unit: UnitInstance): boolean {
+  if (unit.defId !== AMBESSA_THE_WOLF || unit.empowered !== true) return false;
+  // 828.1.c: the dependent ability is active only while she holds the status, so
+  // a Disempowered Ambessa takes damage like anything else.
+  if (state.showdownKind === "Combat" && state.showdownBattlefieldId !== null) {
+    const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
+    const inThisFight = bf !== undefined && Object.values(bf.units).some((side) => (side ?? []).some((u) => u.instanceId === unit.instanceId));
+    if (inThisFight) return false; // "unless I'm in combat" — she is, so she can be damaged
+  }
+  return true;
 }
 
 /**

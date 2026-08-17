@@ -281,7 +281,7 @@ function applyDamage(state: GameState, units: readonly UnitInstance[], pending: 
     // Kayn - Unleashed after his second move takes none of what was assigned to
     // him — assignment above is untouched, so he still absorbs a lethal
     // allocation and shields whoever is behind him. See `takesNoDamage`.
-    if (dmg && takesNoDamage(u)) return u;
+    if (dmg && takesNoDamage(state, u)) return u;
     // Lotus Trap's doubling lands HERE, on the halved assignment
     // `assignmentNeeded` handed out — 465.2.c.5's "1 damage that doubles to 2
     // damage as it is assigned". It is applied once: combat never routes through

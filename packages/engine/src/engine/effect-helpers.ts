@@ -360,7 +360,7 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // Kayn - Unleashed after his second move. Checked before the amount is
   // modified rather than after: a prevented 0 is still prevented, and Annie's
   // bonus damage has nothing to add to.
-  if (takesNoDamage(unit)) return state;
+  if (takesNoDamage(state, unit)) return state;
   // Counter Strike — "the NEXT time that unit would be dealt damage this turn,
   // prevent it."
   //
