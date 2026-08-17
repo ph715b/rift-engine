@@ -6,6 +6,7 @@ import { playCardDefIds } from "./deploy.js";
 import { cardEffectDefIds, optionalPowerCostDefIds, optionalXpCostDefIds } from "./card-effects.js";
 import { costModifierDefIds } from "./cost-modifiers.js";
 import { counterPreventionDefIds } from "./counter-spell.js";
+import { replacementEffectDefIds } from "./effect-helpers.js";
 import { damageModifierDefIds } from "./damage-modifiers.js";
 import { effectiveMightDefIds } from "./effective-might.js";
 import { grantedKeywordDefIds } from "./granted-keywords.js";
@@ -363,6 +364,7 @@ const COVERAGE_SOURCES: ReadonlyArray<{ label: string; defIds: () => string[] }>
   { label: "damage-modifiers", defIds: damageModifierDefIds },
   { label: "cost-modifiers", defIds: costModifierDefIds },
   { label: "counter prevention", defIds: counterPreventionDefIds },
+  { label: "replacement effects", defIds: replacementEffectDefIds },
   { label: "turn-manager", defIds: turnManagerDefIds },
   { label: "activated abilities", defIds: activatedAbilityDefIds },
   { label: "borrowed abilities", defIds: borrowedAbilityDefIds },

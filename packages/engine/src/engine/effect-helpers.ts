@@ -1,4 +1,5 @@
 import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
@@ -595,6 +596,14 @@ export function giveMightThisTurn(
   amount: number,
   floor?: number,
 ): GameState {
+  // Gangplank, Naval's replacement (369.1). **NEGATIVE amounts only**, and that
+  // is load-bearing rather than an optimisation: his text names "give me
+  // -[Might]", so an ordinary pump is not something being replaced — and without
+  // the sign check the +3 this very replacement grants would replace itself,
+  // which is an infinite regress rather than a card.
+  if (amount < 0 && gangplankReplaces(state, targetInstanceId)) {
+    return gangplankInstead(state, targetInstanceId);
+  }
   const raised = updateUnitAnywhere(state, targetInstanceId, (u) => {
     if (floor === undefined) return { ...u, mightThisTurn: u.mightThisTurn + amount };
     const lowest = floor - u.might;
@@ -828,6 +837,61 @@ export function payPowerFromChanneled(
  *  is the pool's only one, and naming him here keeps `addBuff`'s contract
  *  unchanged for every other caller. */
 const STACKING_BUFF_DEF_IDS = new Set(["OGN-078"]); // Lee Sin - Ascetic
+
+/**
+ * Gangplank, Naval — "[Empowered][>] If a spell or ability that chooses me would
+ * stun me, give me -[Might], or return me to hand, give me +3 [Might] instead."
+ *
+ * **A REPLACEMENT EFFECT (369.1's "would"), and it is asked at the three points
+ * the replaced things are APPLIED** rather than registered as a listener — the
+ * same shape `damageIsDoubledFor` takes for Lotus Trap, and for the same reason:
+ * there is no event to listen to, only an instruction about to be carried out.
+ *
+ * The three points are `stunUnits`, `giveMightThisTurn` (negative amounts only)
+ * and `returnUnitToHand`. Three separate guards rather than one, because the
+ * three instructions have nothing in common in this engine — which is exactly why
+ * the card needed a seam per verb and not a shared "bad things" hook.
+ *
+ * **"A spell or ability that CHOOSES me" is NOT checked, and that is a recorded
+ * simplification.** These helpers are handed a target id and no source, so the
+ * chooser is not in scope; `chosenUnitsOfPlay` answers the question one layer up,
+ * at the action, and threading it through every caller of three general-purpose
+ * helpers would be a change to the whole effect surface for one card. The
+ * practical gap is narrow: an effect that stuns or bounces WITHOUT choosing him
+ * (a sweep) is also replaced, which makes him stronger than printed against those
+ * few cards. Recorded in docs/rules-conformance.md rather than left silent.
+ *
+ * The +3 is `mightThisTurn`, not a Buff — "give me +3 [Might]" with no duration
+ * named on a replacement of this-turn effects, matching every other
+ * `giveMightThisTurn` here and expiring in the Expiration Step (317.2.c).
+ */
+const GANGPLANK_NAVAL = "VEN-086";
+const GANGPLANK_REPLACEMENT_MIGHT = 3;
+
+/** Is this unit an Empowered Gangplank, i.e. does his replacement apply?
+ *
+ *  Canonical, so his `(Overnumbered)` printing (VEN-181) answers the same — it is
+ *  the same card, and `printingAliases` is what says so. */
+function gangplankReplaces(state: GameState, targetInstanceId: string): boolean {
+  const found = findUnitAnywhere(state, targetInstanceId);
+  if (!found) return false;
+  return canonicalDefId(found.unit.defId) === GANGPLANK_NAVAL && found.unit.empowered === true;
+}
+
+/** The replacement itself — +3 Might this turn instead of whatever was coming. */
+/** For coverage — his whole printed `[Empowered]` clause is the replacement
+ *  above, so no effect registry claims him and he would report inert. The
+ *  Lucian - Purifier trap, which also drops a working card from generated decks. */
+export function replacementEffectDefIds(): string[] {
+  return [GANGPLANK_NAVAL];
+}
+
+function gangplankInstead(state: GameState, targetInstanceId: string): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) => ({
+    ...u,
+    mightThisTurn: u.mightThisTurn + GANGPLANK_REPLACEMENT_MIGHT,
+  }));
+}
 
 /**
  * Is this permanent Empowered? (441.1.a — "a binary state".)
@@ -1309,10 +1373,24 @@ export function stunUnits(state: GameState, stunnerIndex: 0 | 1, targetInstanceI
   for (const id of targetInstanceIds) {
     const location = findUnitAnywhere(next, id);
     if (!location || location.unit.stunned) continue;
+    // Gangplank, Naval's replacement (369.1) — he is not stunned, he grows. He is
+    // also not pushed onto `stunned`, which is what keeps "when you stun an enemy
+    // unit" from firing for a stun that never happened; the already-stunned
+    // `continue` above makes the same distinction for the same reason.
+    if (gangplankReplaces(next, id)) {
+      next = gangplankInstead(next, id);
+      continue;
+    }
     next = stunUnit(next, id);
     stunned.push({ unitInstanceId: id, ownerIndex: location.ownerIndex });
   }
-  if (stunned.length === 0) return state;
+  // **`next`, not `state`, and this was a real bug the tests caught.** The early
+  // return existed because "a stun that changed nothing at all fires no event and
+  // returns the state untouched" — true while the only way to stun nobody was to
+  // re-stun an already-stunned unit, which changes nothing. Gangplank's
+  // replacement breaks that premise: nobody is stunned AND the board has changed,
+  // so returning `state` silently threw his +3 away.
+  if (stunned.length === 0) return next;
 
   // HELD (383), not dispatched — and the Legend rides the same call now rather
   // than a second dispatch beside it, because `allListeningPermanents` walks the
@@ -1962,6 +2040,9 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
 export function returnUnitToHand(state: GameState, targetInstanceId: string): GameState {
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
+  // Gangplank, Naval's replacement (369.1) — he stays on the board and grows
+  // instead of going home.
+  if (gangplankReplaces(state, targetInstanceId)) return gangplankInstead(state, targetInstanceId);
   const { unit, ownerIndex } = location;
 
   const returned: UnitInstance = { ...unit, damage: 0, mightThisTurn: 0, buffed: false, exhausted: false };
