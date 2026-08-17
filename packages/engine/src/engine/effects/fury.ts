@@ -14,8 +14,10 @@ import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
   banishCard,
+  burn,
   cardDamageInstancesThisTurn,
   dealDamage,
+  dealDamageToEnemyUnitsAtBattlefield,
   completeDeath,
   discardCards,
   discardThenDraw,
@@ -94,7 +96,229 @@ import {
 /** Detonate's compensation draw — "its controller draws 2". */
 const DETONATE_DRAW = 2;
 
+/** Ruthless Strike, undiscounted and paid — 5 INSTEAD of 3, never both, see the
+ *  card's entry. Two constants rather than a base and a bonus, because the card
+ *  replaces the number rather than adding to it. */
+const RUTHLESS_STRIKE_BASE = 3;
+const RUTHLESS_STRIKE_PAID = 5;
+/** Consuming Curse's printed damage, before the Bonus Damage its own copies in
+ *  the trash add. */
+const CONSUMING_CURSE_DAMAGE = 2;
+/** ...and the name it counts. Read off the card rather than compared to a defId:
+ *  "each card with THIS NAME" is a name check, and the pool now contains reprints
+ *  of one card under several ids. */
+const CONSUMING_CURSE_NAME = "Consuming Curse";
+/** Perfect Execution's `[Assault 3]`. Named because the grant's `value`
+ *  parameter defaults to 1, so a missing argument here is a silently weaker card
+ *  rather than a type error. */
+const PERFECT_EXECUTION_ASSAULT = 3;
+
+/**
+ * "If you control fewer runes than an opponent" — Forsaken Baccai's and Oasis
+ * Raider's shared condition.
+ *
+ * One predicate for both because they print the identical sentence, and a
+ * duplicated copy is how two cards that are meant to agree stop agreeing. The
+ * pool has produced that four times.
+ *
+ * **Runes CONTROLLED are the ones in the Rune Pool** — `channeled`, the same
+ * field Master Yi - Meditative's "if you control 8 or more runes" reads in
+ * `effective-might.ts`. The rune DECK is the unrevealed remainder and is not
+ * something a player controls in the sense any card means; counting it would
+ * make both these cards permanently live in the early game and permanently dead
+ * later, which is backwards.
+ *
+ * STRICTLY fewer — equal is not fewer. That boundary is the whole card, and a
+ * `<=` here would be invisible on any board that was never set up level.
+ */
+function behindOnRunes(state: GameState, playerIndex: 0 | 1): boolean {
+  const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
+  return state.players[playerIndex].channeled.length < state.players[opponentIndex].channeled.length;
+}
+
+/** Forsaken Baccai's catch-up pump. */
+const FORSAKEN_BACCAI_MIGHT = 1;
+/** ...and Oasis Raider's, which is the bigger half of a bigger card. */
+const OASIS_RAIDER_MIGHT = 2;
+/** Baccai Reaper's "you may pay [Fury]" — ONE pip, of his own domain. */
+const BACCAI_REAPER_POWER = 1;
+/** ...and the question that offer parks. */
+const BACCAI_REAPER_PUMP = "VEN-009-assault";
+/** Baccai Reaper's granted `[Assault 2]`. Printed on his frame AND granted by
+ *  the clause, and 817 makes the two SUM — see the card's entry. */
+const BACCAI_REAPER_ASSAULT = 2;
+/** Renekton, Rage Fueled's rune CEILING — "4 or fewer", so the test is `>` this
+ *  number to bail. Shared reading with Eclipse Dragon's, and kept as two
+ *  constants because they are two cards' printed numbers that happen to agree. */
+const RENEKTON_MAX_RUNES = 4;
+/** ...and his sweep. */
+const RENEKTON_DAMAGE = 2;
+/** Eclipse Dragon's rune ceiling and his draw. */
+const ECLIPSE_DRAGON_MAX_RUNES = 4;
+const ECLIPSE_DRAGON_DRAW = 1;
+/** Blade Twirler's "the FIRST time I move each turn", read against
+ *  `unitMoved.movesThisTurn`, which is the count AFTER the move. */
+const BLADE_TWIRLER_NTH_MOVE = 1;
+/** ...and the question he parks. */
+const BLADE_TWIRLER_BURN = "VEN-002-burn";
+/** ...and how much the chosen player burns. */
+const BLADE_TWIRLER_BURN_COUNT = 1;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-003": {
+    // Brittle Steel — "Kill a gear. [Flow] [4 Energy][Fury]."
+    //
+    // Detonate's spec (SFD-005, below) minus the compensation draw, and killed
+    // through the same `killGear` funnel so a dying gear's own trigger still
+    // fires — Treasure Trove and Scrapheap both read that moment, and a bare
+    // removal from `activeGear` would skip them.
+    //
+    // **`[Flow]` needs nothing here, and that is worth stating rather than
+    // assuming.** 829.1.c.1 makes a Flow cost an ALTERNATIVE cost paid from the
+    // trash, and it is plumbed generically: `card-loader` parses the printed
+    // `flowCost` off the card, `replaced-costs` offers the play, and
+    // `execute-play-card` banishes the spell afterwards. A card effect is reached
+    // identically whichever cost paid for it, so this resolver cannot tell — and
+    // must not try to.
+    //
+    // "A gear" with no owner printed is either player's, the same reading
+    // Rocket Barrage and Detonate take (355.9.a.1's widening). Killing your own
+    // gear is a bad play rather than an illegal one, and the card offers it.
+    targeting: { kind: "gear" },
+    resolve: (state, _ctx, event) => {
+      const id = event.targetPermanentInstanceId;
+      if (!id) return state;
+      // Walked over both seats because `killGear` needs the OWNER's index, and a
+      // bare id does not carry it — Detonate's loop below, and the same "the gear
+      // has already left the chain's sight" outcome (359.3.e.12) when neither
+      // seat holds it any more.
+      for (const ownerIndex of [0, 1] as const) {
+        const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === id);
+        if (gear) return killGear(state, gear, ownerIndex);
+      }
+      return state;
+    },
+  },
+  "VEN-008": {
+    // Ruthless Strike — "[Action] As an additional cost to play this, you may
+    // discard 1. Deal 3 to a unit at a battlefield. If you paid the additional
+    // cost, deal 5 to it instead."
+    //
+    // # "Instead" is a REPLACEMENT of the number, not a second shot
+    //
+    // 5 or 3, never 8 and never two instances. Dealing 3 and then 2 more would be
+    // a visibly different card: two instances trip a damage-triggered ability
+    // twice, and Consuming Curse's neighbour comment records the same distinction
+    // from the other direction (Bonus Damage adds to ONE instance).
+    //
+    // # The cost is declared on the ACTION, and the discard is performed here
+    //
+    // `DISCARD_CHOICE_CARDS` in card-effects.ts carries the row; `legal-actions`
+    // fans a variant out per card in hand and `validate-play-card` refuses an
+    // ineligible one, so by the time this resolver runs the choice is made and
+    // paid for. Brazen Buccaneer's entry below records why the discard itself
+    // happens in the resolver rather than at announce: it is the one instruction
+    // the cost machinery cannot perform, since it does not know which card the
+    // effect wants gone.
+    //
+    // **`event.discardCardInstanceId` is the whole "if you paid" test.** It is
+    // set exactly when a discard variant was submitted — there is no separate
+    // paid flag to fall out of step with it, which is the failure the Blast Corps
+    // Cadet's `optionalPowerPaid` note describes guarding against.
+    //
+    // The discard runs BEFORE the damage, which is the printed order ("as an
+    // additional cost to play this" precedes the effect) and is observable: the
+    // discarded card is in the trash when the damage resolves, so a Flame
+    // Chompers discarded to this may already have offered its own replay.
+    //
+    // "A unit AT A BATTLEFIELD" is printed, so `scope: "battlefield"` — 355.9.b's
+    // narrowing, not 355.9.a.1's widening. A unit in base is not a legal choice.
+    targeting: { kind: "unit", scope: "battlefield" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const paid = event.discardCardInstanceId !== undefined;
+      const next = paid
+        ? discardCards(state, ctx.casterIndex, 1, [event.discardCardInstanceId!])
+        : state;
+      return dealDamage(next, ctx.casterIndex, targetId, paid ? RUTHLESS_STRIKE_PAID : RUTHLESS_STRIKE_BASE);
+    },
+  },
+  "VEN-010": {
+    // Consuming Curse — "[Action] Deal 2 to a unit at a battlefield. This deals 1
+    // Bonus Damage for each card with this name in your trash."
+    //
+    // **"WITH THIS NAME", not "this card"** — every copy of Consuming Curse in
+    // the trash counts, and the card is a self-referential pile-builder: the
+    // second copy is a 3, the third a 4. Compared on `name` rather than on
+    // `defId` deliberately, because those two answers differ across sets — a
+    // reprint under another id is still a card with this name, and Vendetta
+    // reprinting ten earlier cards under plain names is the pool this reading has
+    // to survive.
+    //
+    // # The trash is read at RESOLUTION, and this spell is not yet in it
+    //
+    // A Spell goes to its owner's trash AFTER its effect resolves
+    // (`playSpellImmediately` trashes it last), so the copy being cast never
+    // counts itself. That is the printed reading — "in your trash" is a zone
+    // check, and a spell on the Chain is not in a trash — and it is the
+    // difference between a first copy dealing 2 and one dealing 3.
+    //
+    // # Bonus Damage is not a second instance of damage
+    //
+    // 714 makes Bonus Damage an ADDITION to an instance rather than a new one, so
+    // this is a single `dealDamage` of 2 + N. Dealing them separately would be a
+    // visibly different card: two instances trip a damage-triggered ability twice
+    // and can be prevented independently.
+    //
+    // "A unit AT A BATTLEFIELD" is printed, so `scope: "battlefield"` — 355.9.b's
+    // narrowing, the half that makes a printed location load-bearing, NOT
+    // 355.9.a.1's widening. A unit in either base is not a legal choice.
+    targeting: { kind: "unit", scope: "battlefield" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const name = state.players[ctx.casterIndex].trash.filter((c) => c.name === CONSUMING_CURSE_NAME).length;
+      return dealDamage(state, ctx.casterIndex, targetId, CONSUMING_CURSE_DAMAGE + name);
+    },
+  },
+  "VEN-012": {
+    // Perfect Execution — "Ready a unit and give it [Assault 3] this turn.
+    // [Flow] [3 Energy][Fury]."
+    //
+    // Two instructions on ONE target, joined by "and" — not a modal card and not
+    // two targets. Both land on whatever is chosen.
+    //
+    // **Deliberately NOT `exhaustedOnly`**, and that is the one real decision
+    // here. Jayce - Defender of Tomorrow's "Ready a gear" narrows its offer to
+    // exhausted gear because a ready one is nothing to ready and the ability does
+    // nothing else. This card does something else: the `[Assault 3]` is a second
+    // instruction with its own value, and pumping a READY attacker is a normal
+    // line — the commonest one, in fact, since a unit you are about to send in is
+    // ready. Narrowing the offer would withhold a legal play, which this project
+    // does not do.
+    //
+    // `readyUnit` no-ops on an already-ready unit of its own accord (and refuses
+    // an enemy under Mageseeker Warden), so the first instruction simply does
+    // what it can and the second is unaffected.
+    //
+    // "A unit", bare, so `scope: "anywhere"` — 355.9.a.1's widening. Readying a
+    // unit in base is a real line: it is what lets it be played into a fight the
+    // same turn under a card that cares.
+    //
+    // The grant is `grantKeywordThisTurn` with an explicit VALUE. `[Assault 3]`
+    // is not `[Assault]`, and the default of 1 would have been a silently weaker
+    // card that no type error could catch — `mergeGrantedKeyword` takes the
+    // higher of what is there, so a unit that already has `[Assault 2]` goes to 3
+    // rather than to 5 (817's summing is for VALUED keywords from separate
+    // grants; see `keyword-stacking`).
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      return grantKeywordThisTurn(readyUnit(state, targetId), targetId, "Assault", PERFECT_EXECUTION_ASSAULT);
+    },
+  },
   "UNL-013": {
     // Lotus Trap — "[Hidden][Reaction] Choose a unit. Double all damage that
     // would be dealt to it this turn."
@@ -1002,6 +1226,46 @@ function replayDancingGrenade(
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-017": {
+    // Morgana, Vindictive — "[Ambush] When you play me, deal damage to a unit
+    // equal to the damage marked on it."
+    //
+    // **A finisher, not removal**: the shot is exactly as big as the wound
+    // already there, so it doubles marked damage and is worth nothing at all on
+    // an untouched unit. Read live off `unit.damage` at resolution rather than
+    // captured when the trigger was held — 383 fixes WHAT triggered at the moment
+    // of the event, not the numbers the instruction reads, and the response
+    // window between the two is exactly when someone else's damage lands.
+    //
+    // `[Ambush]` is a play-timing keyword handled by the timing layer (it lets
+    // her be played as a [Reaction] to a battlefield where you have units); it
+    // does not gate this trigger, which is why nothing here reads it.
+    //
+    // ZERO deals nothing rather than 0, the convention Lucian - Gunslinger's
+    // `[Assault]` shot records below: an instance of 0 damage is still an
+    // instance, and would trip the damage-triggered abilities in this pool.
+    // Unlike his, this case is COMMON — most units on a board are undamaged — so
+    // it is the difference between a trigger that fires uselessly and one that
+    // fires wrongly.
+    //
+    // "A unit", bare, so `scope: "anywhere"` (355.9.a.1). A damaged unit sitting
+    // in a base is a legal choice and often the right one.
+    //
+    // **NOT `optionalChoice`.** The text prints no "you may", so with a legal
+    // target on the board the shot happens; `unit-triggers` already offers the
+    // empty variant when there is nothing to choose, which is the only case where
+    // she may arrive without naming anything.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, _unitId, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const found = findUnitAnywhere(state, targetId);
+      // 359.3.e.12 — a check on something no longer available returns null. Killed
+      // in the response window is the ordinary way to reach this.
+      if (!found || found.unit.damage <= 0) return state;
+      return dealDamage(state, ctx.casterIndex, targetId, found.unit.damage);
+    },
+  },
   "SFD-013": {
     // Blast Corps Cadet — "You may pay [1][Fury] as an additional cost to play
     // me. When you play me, if you paid the additional cost, deal 2 to a unit at
@@ -1473,6 +1737,272 @@ function blindFuryReveal(state: GameState, casterIndex: 0 | 1): GameState {
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-005": {
+    // Forsaken Baccai — "If you control fewer runes than an opponent at the start
+    // of your Beginning Phase, give me +1 [Might] this turn."
+    //
+    // The first of Vendetta's "behind on runes" pair (Oasis Raider, VEN-006, is
+    // the other and is the same shape with a bigger payload). A CATCH-UP card:
+    // it is live exactly while you are losing the resource race, and dead the
+    // turn you draw level.
+    //
+    // # What "control fewer runes" counts
+    //
+    // `channeled.length` — the runes in the player's Rune Pool, which is what a
+    // player controls. Not `runeDeck`, which is the unrevealed remainder and is
+    // controlled by nobody in the sense any card means. Master Yi - Meditative's
+    // "if you control 8 or more runes" already reads exactly this field in
+    // `effective-might.ts`, and two cards asking the same question must not read
+    // two different ones.
+    //
+    // STRICTLY fewer. Equal is not fewer, and this is the boundary the whole card
+    // turns on — a mutation to `<=` is the plausible wrong version and passes any
+    // test that only ever sets up a lopsided board.
+    //
+    // # Why this is an event trigger and not a Might modifier
+    //
+    // "GIVE me +1 Might THIS TURN" is a one-shot grant with a duration (432.1.a's
+    // fixed amount), not a continuous aura: it is computed once when the phase
+    // starts and does not follow the rune counts for the rest of the turn. A card
+    // that read the runes continuously would be `effective-might.ts`'s business
+    // and would turn itself off mid-turn when the opponent's runes were spent.
+    //
+    // `beginningPhase` is the one event kind this engine still resolves INLINE
+    // (see trigger-census.test.ts) — deliberately, because holding it would
+    // resolve Beginning-Phase abilities after `scoreHolds`. Nothing here depends
+    // on that; it is stated so the absence of an `applies` is not read as an
+    // oversight. An inline dispatch never consults `applies` at all, which is why
+    // every condition below sits in `resolve`.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      if (!behindOnRunes(state, listener.ownerIndex)) return state;
+      return giveMightThisTurn(state, listener.card.instanceId, FORSAKEN_BACCAI_MIGHT);
+    },
+  },
+  "VEN-006": {
+    // Oasis Raider — "[Ganking] If you control fewer runes than an opponent at
+    // the start of your Beginning Phase, give me +2 [Might] and [Ganking] this
+    // turn."
+    //
+    // Forsaken Baccai's condition (VEN-005, above) with two payloads, and the
+    // second of them is printed on a card that ALREADY HAS IT: his frame carries
+    // `[Ganking]`, and the clause grants `[Ganking]` again.
+    //
+    // **That redundancy is the card, not a data error, and it must still be
+    // granted.** `mergeGrantedKeyword` takes the higher value, so granting it to
+    // a unit that has it is a no-op today — and the grant is what keeps the card
+    // right the day something strips the printed keyword or the day a granted
+    // `[Ganking]` is read by a card that distinguishes them. Dropping it because
+    // "he already has it" would be reading the board instead of the card.
+    //
+    // Both payloads are one instruction with one condition, so they cannot come
+    // apart: there is no board on which he gets the Might and not the keyword.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      if (!behindOnRunes(state, listener.ownerIndex)) return state;
+      const pumped = giveMightThisTurn(state, listener.card.instanceId, OASIS_RAIDER_MIGHT);
+      return grantKeywordThisTurn(pumped, listener.card.instanceId, "Ganking");
+    },
+  },
+  "VEN-009": {
+    // Baccai Reaper — "[Assault 2] When I attack, you may pay [Fury] to give me
+    // [Assault 2] this turn."
+    //
+    // Draven - Vanquisher's pump (SFD-020, below) with a keyword payload instead
+    // of a Might one, and it takes that card's shape exactly: `combatBegan` +
+    // `isAttackingAt`, the payment asked SPECULATIVELY in `applies` so an
+    // unaffordable board places no Pending Item, and re-asked in `resolve`
+    // because the window a hold opens is precisely when that Fury could be spent
+    // on something else.
+    //
+    // **"Attack", not "attack or defend"** — `isAttackingAt`, where Draven's
+    // clause says "attack or defend" and takes `isFightingAt`. The two predicates
+    // exist as separate names so a card that deliberately ignores the designation
+    // says so, and copying Draven wholesale would have quietly widened this one.
+    //
+    // # The grant STACKS with his printed [Assault 2], and 817 is why
+    //
+    // He prints `[Assault 2]` and the clause gives `[Assault 2]` — the same
+    // keyword, from a separate source, with a value. **817 makes valued keywords
+    // SUM**, which is the rule a playtest found this engine getting wrong two
+    // sets ago, so a paid Reaper attacks at +4 rather than +2.
+    //
+    // That is `grantKeywordThisTurn`'s job and not this resolver's: it routes
+    // through `mergeGrantedKeyword`, which is the single place the printed value
+    // and a this-turn grant are combined. Adding the numbers here would be a
+    // second implementation of 817 that could disagree with the first.
+    //
+    // "You MAY pay" is a cost, so this parks a question rather than firing —
+    // 416.3 means it is not even asked when the Fury cannot be paid, and 402.1
+    // puts the decision at the moment the ability resolves.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isAttackingAt(state, listener, event) &&
+      payPowerFromChanneled(state, listener.ownerIndex, "Fury", BACCAI_REAPER_POWER) !== undefined,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (payPowerFromChanneled(state, listener.ownerIndex, "Fury", BACCAI_REAPER_POWER) === undefined) return state;
+      return parkDecision(state, {
+        kind: BACCAI_REAPER_PUMP,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "VEN-019": {
+    // Renekton, Rage Fueled — "[Accelerate] When I attack, if you control 4 or
+    // fewer runes, deal 2 to all enemy units here."
+    //
+    // A sweep with a rune CEILING, where Forsaken Baccai's pair have a rune
+    // COMPARISON — both are Vendetta's "you are behind, so you hit harder" axis
+    // and they are not the same test: this one is absolute, and a player with 4
+    // runes fires it whether or not the opponent has 2.
+    //
+    // `[Accelerate]` is a cost keyword handled at play time (805) and does not
+    // gate this trigger, which is why nothing here reads it.
+    //
+    // **"HERE" is re-checked at resolution against where he is standing**, and
+    // the combat's battlefield is only what it is compared to. 359.3.f.2 checks a
+    // referent on EXECUTION, with the rules' own worked example being exactly
+    // this window — an opponent moving the attacker so that "'here' is no longer
+    // the battlefield where combat is ongoing and the attack trigger mistargets".
+    // A Renekton moved away or killed sweeps nothing, and the Pending Item still
+    // cost both players a PassFocus. Lucian - Gunslinger's entry below is the
+    // convention.
+    //
+    // The rune count is likewise re-read rather than captured: it is a condition
+    // on the INSTRUCTION, and a rune spent during the response window is a rune
+    // he no longer controls.
+    //
+    // `dealDamageToEnemyUnitsAtBattlefield` is the shared sweep, so "enemy" means
+    // what it means everywhere else — measured from the ability's controller, not
+    // from whoever is attacking.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (state.players[listener.ownerIndex].channeled.length > RENEKTON_MAX_RUNES) return state;
+      const here = findUnitOnBattlefield(state, listener.card.instanceId);
+      if (!here || state.battlefields[here.battlefieldIndex]!.id !== event.battlefieldId) return state;
+      return dealDamageToEnemyUnitsAtBattlefield(state, listener.ownerIndex, event.battlefieldId, RENEKTON_DAMAGE);
+    },
+  },
+  "VEN-020": {
+    // Twilight Reveler — "When I attack, ready ANOTHER friendly unit."
+    //
+    // **"Another" is the whole card**: he must not ready himself, and he is
+    // exhausted at exactly the moment this fires, since attacking is what
+    // exhausted him. A version without the self-exclusion would be a unit that
+    // untaps itself every combat, which is a different and much better card.
+    //
+    // The exclusion is by instanceId rather than by defId — two copies of him on
+    // the board may ready EACH OTHER, which is what "another" says.
+    //
+    // "FRIENDLY unit", anywhere: no location is printed, so 355.9.a.1's widening
+    // applies and a unit sitting in base is a legal choice. It is often the right
+    // one, since readying a base unit is what lets it be sent in.
+    //
+    // The target is auto-selected in `listeningPermanents` board order — base,
+    // then battlefields, then gear — which is the simplification every
+    // auto-targeting attack trigger in this pool makes, and for the same
+    // structural reason: nothing carries a choice made inside a Cleanup. Recorded
+    // Unverified in docs/rules-conformance.md with the rest of that family.
+    //
+    // Only an EXHAUSTED unit is a candidate. `readyUnit` no-ops on a ready one,
+    // so picking one would spend the trigger on nothing — and unlike Perfect
+    // Execution above there is no second instruction to make it worth doing.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      const candidate = ownUnitsEverywhere(state, listener.ownerIndex).find(
+        (u) => u.instanceId !== listener.card.instanceId && u.exhausted,
+      );
+      return candidate ? readyUnit(state, candidate.instanceId) : state;
+    },
+  },
+  "VEN-016": {
+    // Eclipse Dragon — "[Accelerate] When I move, if you control 4 or fewer
+    // runes, draw 1."
+    //
+    // The board-wide `unitMoved` EVENT rather than unit-triggers.ts's per-card
+    // `ON_MOVE_TRIGGERS` table, which is module-private and not this file's to
+    // edit — the route Jhin - Murderous Artist (UNL-022, below) takes, and the
+    // reason `applies` is what keeps this off every other unit's move.
+    //
+    // **"When I MOVE" reaches all three emitters**: `execute-move-unit`,
+    // `execute-recall-unit` (a unit walking home is a Move, 446.1) and
+    // `effect-helpers`' force-moves (449 — "spells, abilities, or other effects
+    // may cause a Move to occur"). So an enemy Blast Cone shoving him pays HIM,
+    // which is right: the card says "when I move", not "when you move me". A
+    // Recall is still not a Move (456) and pays nothing.
+    //
+    // **`to` is NOT always a battlefield**, and this card is deliberately one of
+    // the ones that does not care — it prints no destination, so a walk home
+    // counts. Mister Root and Corina Veraza were both caught paying out for a
+    // walk home when the event widened; they print "move to a battlefield" and
+    // this does not.
+    //
+    // The rune ceiling is Renekton's (VEN-019, above) and is read at RESOLUTION,
+    // not when the trigger was held: a rune spent in the response window is a
+    // rune no longer controlled, and the condition is on the instruction.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved" || event.unitInstanceId !== listener.card.instanceId) return state;
+      if (state.players[listener.ownerIndex].channeled.length > ECLIPSE_DRAGON_MAX_RUNES) return state;
+      return drawCards(state, listener.ownerIndex, ECLIPSE_DRAGON_DRAW);
+    },
+  },
+  "VEN-002": {
+    // Blade Twirler — "The FIRST TIME I move each turn, choose a player. They
+    // [Burn 1]."
+    //
+    // # "The first time ... each turn" is read off the event, not counted here
+    //
+    // `unitMoved.movesThisTurn` is the mover's count AFTER this move, which makes
+    // the condition exactly `=== 1`. Yasuo - Windrider's "the third time I move
+    // in a turn" reads the same field, and its comment says why the field exists
+    // rather than the listener re-deriving it: by resolution the count has moved
+    // on, and every listener would see the same final number.
+    //
+    // So there is no per-card counter and nothing to clear at end of turn — the
+    // one shape of this card that could rot.
+    //
+    // # "Choose a PLAYER", which is a real question at 1v1
+    //
+    // Bewitching Spirit (UNL-121, effects/chaos.ts) draws this exact distinction:
+    // "a player" reaches EITHER seat, where "an opponent" reduces to no choice in
+    // a two-player game. Burning your own top card is a live line — it is how you
+    // fill a trash for Consuming Curse or a `[Flow]` cost — so the offer is real
+    // and hard-coding the opponent would be reading a different card's text.
+    //
+    // No decline: the sentence carries no "you may". The OPPONENT leads, the
+    // convention every such offer in this pool follows so a mis-click and the
+    // AI's tie-break land on the ordinary answer.
+    //
+    // # And the move itself is the same event every other mover reads
+    //
+    // All three emitters, a walk home included (449/446.1); a Recall is not a
+    // Move (456) and never fires it. See Eclipse Dragon above.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.movesThisTurn === BLADE_TWIRLER_NTH_MOVE,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved" || event.unitInstanceId !== listener.card.instanceId) return state;
+      // Re-checked at resolution as well as in `applies`, for the reason Jhin's
+      // entry records: the inline `dispatchEvent` path does not consult `applies`
+      // at all, so a condition asserted only there is asserted only on one of the
+      // two routes into this resolver.
+      if (event.movesThisTurn !== BLADE_TWIRLER_NTH_MOVE) return state;
+      return parkDecision(state, { kind: BLADE_TWIRLER_BURN, playerIndex: listener.ownerIndex });
+    },
+  },
   "SFD-024": {
     // Rell - Magnetic — "[Tank] When I attack, you may play an Equipment with
     // Energy cost no more than [2] from hand, ignoring its cost. If you do, then
@@ -2729,6 +3259,70 @@ function rellEquipCandidates(state: GameState, playerIndex: 0 | 1): GearInstance
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Baccai Reaper's "you may pay [Fury] to give me [Assault 2] this turn".
+   *
+   * Draven - Vanquisher's pump question with a keyword payload, and it keeps that
+   * question's two disciplines:
+   *
+   * **The payment is asked here as well as in the trigger's `applies`**, and it
+   * is TAKEN here. `payPowerFromChanneled` returns the paid state or `undefined`,
+   * so there is no way to grant the keyword without having spent the pip — the
+   * pattern that makes "you may pay" a cost rather than a condition.
+   *
+   * **The offer is rebuilt from live state**, so a Reaper who died in the
+   * response window, or a Fury spent elsewhere, leaves a bare Decline that
+   * `advanceDecisions` executes without prompting. 416.3: a cost that cannot be
+   * completed is not one you may choose to pay.
+   *
+   * `grantKeywordThisTurn` is what applies 817's summing against his printed
+   * `[Assault 2]`; this resolver deliberately does no arithmetic of its own.
+   */
+  [BACCAI_REAPER_PUMP]: {
+    prompt: () => "Baccai Reaper: pay 1 Fury to give me [Assault 2] this turn?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.cardInstanceId !== undefined &&
+      findUnitAnywhere(state, d.cardInstanceId) !== undefined &&
+      payPowerFromChanneled(state, d.playerIndex, "Fury", BACCAI_REAPER_POWER) !== undefined
+        ? [{ id: "pay", label: "Pay 1 Fury: [Assault 2] this turn" }]
+        : []),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.cardInstanceId === undefined) return state;
+      const paid = payPowerFromChanneled(state, d.playerIndex, "Fury", BACCAI_REAPER_POWER);
+      if (paid === undefined) return state;
+      return grantKeywordThisTurn(paid, d.cardInstanceId, "Assault", BACCAI_REAPER_ASSAULT);
+    },
+  },
+  /**
+   * Blade Twirler's "choose a player. They [Burn 1]."
+   *
+   * Bewitching Spirit's shape (UNL-121, effects/chaos.ts), which is the pool's
+   * only other "choose a player" — TWO options at 1v1, because "a player" reaches
+   * either seat where "an opponent" would not. Burning your own top card is a
+   * real line, so both answers are offered.
+   *
+   * No decline: the text prints no "you may". The OPPONENT leads, matching
+   * Bewitching Spirit and every decline-first offer in this file, so a mis-click
+   * and the AI's tie-break land on the ordinary answer.
+   *
+   * The burn itself is `burn` (rule 440), which handles 440.4's "burn what you
+   * have, Burn Out, then burn the rest" — irrelevant at 1 card and correct for
+   * free, since the helper is shared with the cards that burn 7.
+   */
+  [BLADE_TWIRLER_BURN]: {
+    prompt: () => "Blade Twirler: choose a player. They Burn 1.",
+    // Typed `(0 | 1)[]` rather than inferred, for the reason Bewitching Spirit's
+    // entry records: a bare array literal widens to `number[]`, `players` is a
+    // two-tuple, and the lookup below then fails the typecheck — which vitest
+    // does not run, so it only appears at step 3 of the loop.
+    options: (state, d) => {
+      const order: (0 | 1)[] = d.playerIndex === 0 ? [1, 0] : [0, 1];
+      return order.map((index) => ({ id: String(index), label: `${state.players[index].name} Burns 1` }));
+    },
+    resolve: (state, _d, optionId) => burn(state, optionId === "1" ? 1 : 0, BLADE_TWIRLER_BURN_COUNT),
+  },
   /**
    * Dancing Grenade's "ITS controller may play this spell again for [rainbow]" —
    * the question, asked of the DAMAGED unit's controller.

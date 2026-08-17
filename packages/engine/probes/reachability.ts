@@ -578,7 +578,29 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // make this exact again. It would also fix coverage to ONE shuffle, and the
 // breadth of the sampling across runs is what has caught cards nobody predicted.
 // Headroom keeps both.
-const PINNED_UNION = 625;
+//
+// # 625 -> 700 on 2026-08-16, and 625 had stopped meaning anything
+//
+// **Vendetta landed 178 more cards and nobody bumped this**, so the floor was a
+// figure about a 692-card pool being asserted against a 907-card one. It had
+// ~79 cards of slack: the whole of Unleashed could have gone dark and this would
+// still have been green. A floor that cannot fail is not a floor.
+//
+// Two measurements on the same day, on two builds, both at GAMES=500:
+//
+//     693   after the printing-alias fix (ten inert Vendetta reprints)
+//     704   after Vendetta's first Fury wave (13 more cards)
+//
+// Pinned at **700**, keeping the same ~4-below-observed headroom the paragraphs
+// above argue for. The two runs are NOT two samples of one build and must not be
+// read as a range — the second build has thirteen more implemented cards in it.
+//
+// **Expect to bump this per Vendetta batch**, which is new: the earlier sets were
+// finished before this probe existed, so the figure only ever moved by ones. It
+// is still a FLOOR — the probe prints a bump request rather than failing on a
+// rise — and it is still the DROP that is the finding, read off `neverExercised`
+// by name rather than off the total.
+const PINNED_UNION = 700;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

@@ -118,6 +118,10 @@ export function playCardDefIds(): string[] {
     SCORCHCLAW,
     BANDLE_SOLDIER,
     MASTER_YI_WUJU_MASTER,
+    // Vendetta's, added 2026-08-16. Like Bandle Soldier above, his entire printed
+    // text is the conditional enter-ready — so this array is his ONLY
+    // registration anywhere, and coverage reports him unimplemented without it.
+    SHADOW_ASSASSIN,
     ...GEAR_ENTERING_EXHAUSTED,
   ];
 }
@@ -338,6 +342,29 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // on one reading of a condition and deployed on another is the shape this
       // file's own Leona note warns about.
       return opponentControlsStunnedUnit(state, playerIndex);
+    case SHADOW_ASSASSIN:
+      // VEN — "I enter ready if you have a card with MY NAME in your trash." His
+      // whole printed text, and Vendetta's first entry in this switch.
+      //
+      // **Matched on NAME, not on defId**, and the card says so. Those two
+      // answers come apart in this very pool: Vendetta reprints ten earlier cards
+      // under plain names, so a second printing of a card is a different defId
+      // with the same name — and `printingAliases` redirects an IMPLEMENTATION
+      // lookup, not a "is a card with this name in the trash" question. Comparing
+      // ids would silently miss exactly the copies the card is about.
+      //
+      // Read off `card.name` rather than a literal string, so a rename upstream
+      // cannot leave this pointing at nothing. The pool's other name-matching
+      // card, Consuming Curse (effects/fury.ts), holds a literal because it is a
+      // SPELL counting itself from a resolver that has no instance to read; this
+      // one is handed the arriving unit.
+      //
+      // **He is not in the trash yet, and cannot be his own copy.** He is in
+      // HAND until this predicate answers — `unitEntersReady` is asked before the
+      // unit is inserted into a zone, which `conditionalEntersReady`'s own header
+      // records — so "another copy died earlier" is the only way this is true,
+      // which is the recursion the card is built on.
+      return player.trash.some((c) => c.name === card.name);
     default:
       return false;
   }
@@ -401,6 +428,10 @@ const XIN_ZHAO_OTHER_UNITS = 2;
 const SCORCHCLAW = "UNL-016";
 const SCORCHCLAW_LEVEL = 3;
 /** Bandle Soldier (UNL-151) — "[Level 3][>] I enter ready", his whole text. */
+/** Shadow Assassin (VEN-013): "I enter ready if you have a card with my name in
+ *  your trash." Vendetta's only conditional enter-ready, and the first in this
+ *  file whose condition is about a card's NAME rather than about the board. */
+const SHADOW_ASSASSIN = "VEN-013";
 const BANDLE_SOLDIER = "UNL-151";
 const BANDLE_SOLDIER_LEVEL = 3;
 /** Master Yi - Wuju Master (UNL-191) — "[Level 11][>] Your units enter ready."

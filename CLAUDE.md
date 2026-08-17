@@ -79,9 +79,22 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **625, against an observed 633–639** of 692 cards
-needing code ever exercised, at its default **500 games per mode**, which takes
-**~290s** (it was ~120s before `legal-actions` learned 144.3's group move, and
+`reachability` is pinned at **700, against an observed 704** of 868 cards needing
+code ever exercised, at its default **500 games per mode**, which takes **~340s**
+with Vendetta in the pool.
+
+**It was 625 against 692 until 2026-08-16, and that was a stale figure rather
+than a low one.** Vendetta landed 178 cards and the pin was never bumped, so a
+floor about a 692-card pool was being asserted against a 907-card one with ~79
+cards of slack — the whole of Unleashed could have gone dark and it would still
+have been green. **Expect to bump it once per Vendetta batch** while the set is
+being written; that is new, since the earlier four sets were finished before this
+probe existed.
+
+The paragraphs below are the history of the 625-era figure and the reasoning
+behind the headroom, which is unchanged:
+
+it was **~290s** at 692 cards (and ~120s before `legal-actions` learned 144.3's group move, and
 ~244s before UNL-147 Baron Nashor put a THIRD battlefield on the board — the
 move fan-out loops over destinations, so a third one widens every turn's action
 space. The AI evaluates every action it is offered, so that fan-out's width is

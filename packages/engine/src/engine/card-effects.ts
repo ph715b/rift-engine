@@ -1536,6 +1536,24 @@ export interface DiscardChoiceSpec {
 const DISCARD_CHOICE_CARDS: Record<string, DiscardChoiceSpec> = {
   "OGN-008": { optional: false }, // Get Excited! — discard 1, damage = its Energy cost
   "OGN-002": { optional: true, energyDiscount: 2 }, // Brazen Buccaneer — optional cost, -2 Energy
+  // Ruthless Strike (VEN-008) — "As an additional cost to play this, you may
+  // discard 1. Deal 3 to a unit at a battlefield. If you paid the additional
+  // cost, deal 5 to it instead."
+  //
+  // **The first row with NO `energyDiscount`, and that is the point rather than
+  // an omission.** Both existing rows buy something the COST math has to know
+  // about; this one buys a bigger effect, which only the resolver knows about.
+  // The spec's two roles were already "part of the effect" and "an additional
+  // cost", and this is the second role without the discount that has so far
+  // always come with it — so the field is genuinely optional and the readers
+  // already treat it that way (`energyDiscount ?? 0` in validate-play-card,
+  // an `undefined` guard in legal-actions that falls through to the plain
+  // payment).
+  //
+  // Left as `optional: true` alone rather than adding a "buys nothing" marker:
+  // what the discard buys is the resolver's business, and a second field naming
+  // it would be a table that has to agree with a card's text in two places.
+  "VEN-008": { optional: true },
 };
 
 /** How this card uses a discard choice, or undefined if it doesn't. */

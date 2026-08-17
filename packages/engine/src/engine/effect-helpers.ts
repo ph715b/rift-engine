@@ -1,6 +1,6 @@
 import type { GameState, PendingDeath, PlayerState } from "../model/game-state.js";
 import { canonicalDefId } from "../cards/card-loader.js";
-import type { UnitInstance } from "../model/card.js";
+import type { CardInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
@@ -1834,6 +1834,80 @@ function burnOut(state: GameState, playerIndex: 0 | 1): GameState {
   // Through `gainPoints`, so Tianna blocks Burn Out's point like any other.
   players[opponentIndex] = gainPoints({ ...state, players }, opponentIndex, 1).players[opponentIndex];
   return { ...state, players };
+}
+
+/**
+ * **Rule 440's Burn** — "Burning is the act of moving cards from the top of a
+ * player's Main Deck to their trash" (440.1), formatted "Burn X" (440.2).
+ *
+ * Vendetta's action word, and it is NOT a keyword: `coverage.UNIMPLEMENTED_KEYWORDS`
+ * excludes it beside `[Predict]` and `[Stun]` for the reason keyword.ts records —
+ * it prints as an instruction mid-sentence, not as something a card HAS.
+ *
+ * # 440.4 is the whole reason this is not a three-line loop
+ *
+ * "When Burning is part of an effect, then a player must Burn as many cards as
+ * possible. If instructed to burn more cards than they have in their main deck,
+ * they burn that many cards, **burn out and then burn the rest**." So a Burn 7
+ * against a 3-card deck burns 3, runs rule 431's Burn Out (the trash — which now
+ * holds those 3 — becomes the deck, and an opponent gains a point), and burns 4
+ * more. That is a different card from "burn as many as you can and stop", and
+ * Endless Riches (VEN-022) is built on the difference: it banishes the trash
+ * FIRST precisely so its own Burn 7 cannot be recycled back.
+ *
+ * The `burnOut` helper above is shared with `drawCards` rather than reimplemented,
+ * so the point and the recycle cannot drift between the two callers. Its
+ * trash-order (rather than shuffled) recycle is the same named simplification
+ * `drawCards` records.
+ *
+ * **The empty-empty stop is what keeps this finite**, exactly as `drawCards`'
+ * is: with deck and trash both empty there is no card and no way to make one, so
+ * a further Burn Out could only loop. 431.3 does describe repeated burn-outs
+ * feeding an opponent points, but it takes an effect that keeps ASKING; a single
+ * "Burn 7" that has run out has run out.
+ *
+ * # Why this reports the cards it took
+ *
+ * Forgotten Relic (VEN-108) prints "When you burn a unit this way, do this: give
+ * a friendly unit +[Might] equal to the burned card's Might" — it needs the
+ * identity of what was burned, and that cannot be peeked beforehand because a
+ * Burn Out mid-instruction changes which cards the rest of the burn takes. So the
+ * caller is handed them rather than being invited to read the trash afterwards,
+ * which would also pick up whatever else the turn had put there.
+ *
+ * **No `cardsBurned` GameEvent, deliberately.** 440.1.a provides for "when you
+ * burn" abilities, and the six cards in the pool that burn all read their OWN
+ * burn — none watches another card's. An event with no listener is a trigger
+ * census row and a Chain Pending Item that resolves to nothing; the day a card
+ * watches someone else's burn is the day to add it.
+ */
+export function burnCards(
+  state: GameState,
+  playerIndex: 0 | 1,
+  count: number,
+): { state: GameState; burned: CardInstance[] } {
+  if (count <= 0) return { state, burned: [] };
+  let next = state;
+  const burned: CardInstance[] = [];
+  for (let taken = 0; taken < count; taken += 1) {
+    const player = next.players[playerIndex];
+    if (player.deck.length === 0) {
+      if (player.trash.length === 0) return { state: next, burned };
+      next = burnOut(next, playerIndex);
+    }
+    const top = next.players[playerIndex].deck[0];
+    if (!top) return { state: next, burned };
+    burned.push(top);
+    next = updatePlayer(next, playerIndex, (p) => ({ ...p, deck: p.deck.slice(1), trash: [...p.trash, top] }));
+  }
+  return { state: next, burned };
+}
+
+/** The `burnCards` most callers want — Blade Twirler, Kennen and Kharox all
+ *  simply burn and carry on. Named separately rather than making the report
+ *  optional so a caller that DOES need the cards cannot silently drop them. */
+export function burn(state: GameState, playerIndex: 0 | 1, count: number): GameState {
+  return burnCards(state, playerIndex, count).state;
 }
 
 /**

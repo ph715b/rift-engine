@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=52  unimplemented=124  partial=6      (2026-08-16, after the alias fix)
+VEN: needing=176  implemented=65  unimplemented=111  partial=6      (2026-08-16, after the alias fix and the Fury wave)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,10 +487,12 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 124 cards, no subsystems.** The deep end
+**What is left is ORDINARY CARD WORK — 111 cards, no subsystems.** The deep end
 is finished: `[Flow]`, `[Empower]`/`[Empowered]`, the Empowered status, counter
 prevention, damage prevention, a choose-time replacement effect, gear targeting
-for activated abilities, and multi-ability cards all exist now.
+for activated abilities, and multi-ability cards all exist now. Rule **440**'s
+Burn joined them with the Fury wave (`effect-helpers.burnCards`), which is the
+one genuinely new primitive the set needed and which six more cards read.
 
 The 6 partial cards are the only ones needing more than a card entry:
 
@@ -505,6 +507,34 @@ The 6 partial cards are the only ones needing more than a card entry:
 and both deliberately not exact: Gangplank's "chooses me" is unchecked (he is
 stronger than printed against sweeps), and Jayce's "Ready 2 gear" takes the first
 remaining exhausted gear rather than asking.
+
+### Fury, wave 1 — done 2026-08-16 (13 cards)
+
+VEN-002, 003, 005, 006, 008, 009, 010, 012, 013, 016, 017, 019, 020. Registered
+across `effects/fury.ts` (card effects, one unit trigger, five event triggers,
+two decisions), `deploy.ts` (Shadow Assassin's conditional enter-ready),
+`card-effects.ts` (Ruthless Strike's discard row) and `effect-helpers.ts` (Burn).
+Tests in `test/ven-fury-wave1.test.ts`; **14 mutants, 14 killed**, one of which
+(loosening Blade Twirler's `applies`) survived the first pass and needed a
+chain-placement assertion rather than an outcome one — the identical finding
+Jhin - Murderous Artist's test already records.
+
+**Fury's remainder, and why each is not in that list:**
+
+| card | what it needs |
+|---|---|
+| VEN-004 Dune Surfer | "You ignore `[Tank]` while assigning combat damage here" — a per-player exemption inside `combat.ts`'s assignment order, not a card registry entry |
+| VEN-022 Endless Riches | FOUR continuous clauses on one gear: skip your Draw Phase, play cards from your trash, and a trash→banish replacement, plus an on-play banish-and-Burn-7. Three of the four are different subsystems |
+| VEN-023 Zed, From the Shadows | A Shadow Clone TOKEN with its own printed attack trigger. The token spec belongs in `token.ts` (shared — VEN-144 Death Mark makes the same one from `signature-fury.ts`), and its ability keys off the runtime `TOKEN-` defId the way the Gold token's does. **VEN-169 lands with it through the alias** |
+| VEN-001 Baccai Sandspinner | Partial — the self-modifying `[Empower]` cost above. Left until last with the other five |
+
+**One thing to know about `DISCARD_CHOICE_CARDS` before the next batch:** it is
+keyed by raw defId with no `canonicalDefId`, so a PRINTING of a card with a
+discard cost would not get one. Not reachable today (no alias's twin is in that
+table) and the same shape as the literal-comparison class `printing-aliases.test.ts`
+already describes. `REPEAT_COSTS`, `OPTIONAL_UNIT_COSTS` and
+`TOKEN_PLACEMENT_SPELL_DEF_IDS` are keyed the same way — check them when a
+Vendetta reprint lands in one.
 
 ## Phase 3 — the card waves
 

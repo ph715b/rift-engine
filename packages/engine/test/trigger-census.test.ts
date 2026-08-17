@@ -158,10 +158,21 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // Palace are both `beginningPhase` listeners, which is the ONE inline event
     // kind, and the test above asserting exactly that still passes. Inline means
     // no response window; a card printing anything else must not appear here.
-    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
+    // **Two VEN cards joined on 2026-08-16, and the invariant HELD again.**
+    // Forsaken Baccai (VEN-005) and Oasis Raider (VEN-006) print the same
+    // sentence — "at the start of your Beginning Phase, if you control fewer
+    // runes than an opponent, give me +Might" — so both are `beginningPhase`
+    // listeners, the one inline kind, and the test above asserting exactly that
+    // still passes.
+    //
+    // Checked before it was bumped, the way the UNL pair above were. A Vendetta
+    // card printing any OTHER moment must not appear here: inline means no
+    // response window, and it is a deliberate exception for a phase ability
+    // rather than a licence.
+    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006"]);
   });
 
-  it("331 held / 5 inline of 336 trigger cards", () => {
+  it("337 held / 7 inline of 344 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -452,10 +463,33 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // and VEN-sp6 (Lux, Crownguard) are ACTIVATED abilities and VEN-179 (Rengar,
     // Trophy Hunter) is not a trigger card either — ten aliases, seven cards, and
     // both halves of that are right.
+    //
+    // **331/5/336 → 337/7/344 on 2026-08-16: Vendetta's first Fury wave, eight
+    // trigger cards out of fourteen implemented, and the split is the check.**
+    // Recomputed by family and by name rather than transcribed:
+    //
+    //     inline (+2)  VEN-005 Forsaken Baccai, VEN-006 Oasis Raider
+    //                  — both `beginningPhase`, both named in the inline test above
+    //     held   (+6)  VEN-009 Baccai Reaper, VEN-019 Renekton, VEN-020 Twilight
+    //                  Reveler (combatBegan); VEN-016 Eclipse Dragon, VEN-002
+    //                  Blade Twirler (unitMoved); VEN-017 Morgana (on-play)
+    //
+    // **`inline` moved for the first time since UNL, and that IS the ordering
+    // regression this file warns about unless it is checked — so it was.** Both
+    // additions print "at the start of your Beginning Phase", which is the one
+    // event kind `InlineEvent` admits; the compiler enforces the kind and the
+    // by-name test above enforces the membership.
+    //
+    // The other six cards in the same wave are correctly absent: VEN-003 Brittle
+    // Steel, VEN-008 Ruthless Strike, VEN-010 Consuming Curse and VEN-012 Perfect
+    // Execution are SPELL effects, which are not triggers at all, and VEN-013
+    // Shadow Assassin is a deploy-time replacement in `deploy.ts`. Fourteen cards,
+    // +8, and every one of the six absences is a card that has no trigger to
+    // count rather than one that was missed.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 331,
-      inline: 5,
-      cards: 336,
+      held: 337,
+      inline: 7,
+      cards: 344,
     });
   });
 
