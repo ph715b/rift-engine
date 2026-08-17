@@ -451,6 +451,41 @@ So the Phase 1 line "new keywords into **both** `KEYWORDS` and
 
 ---
 
+## STATE AS OF 2026-08-16, measured — start here
+
+Re-measure rather than trusting this; it is one `coverageBySet` call, and this
+document's own advice has been right every time it was ignored.
+
+```
+VEN: needing=176  implemented=42  unimplemented=134  partial=6
+```
+
+**Phases 0–2 are done except for one upstream gate.** The set is landed, all
+three keywords are implemented, and `UNIMPLEMENTED_KEYWORDS` is empty again.
+`COMPLETE_SETS` still cannot take VEN — five records remain unclassifiable
+upstream, and all THREE derivations have now been refuted (collector band, name
+matching, structural identity). `node tools/card-data/set-audit.mjs VEN` is the
+gate and opens by itself.
+
+**What is left is ORDINARY CARD WORK — 134 cards, no subsystems.** The deep end
+is finished: `[Flow]`, `[Empower]`/`[Empowered]`, the Empowered status, counter
+prevention, damage prevention, a choose-time replacement effect, gear targeting
+for activated abilities, and multi-ability cards all exist now.
+
+The 6 partial cards are the only ones needing more than a card entry:
+
+| card | what is missing |
+|---|---|
+| VEN-001, VEN-032, VEN-050 | a SELF-MODIFYING `[Empower]` cost ("costs [1] less for each rune you control") — 827.1.c.3 makes the printed number wrong on its own, so a cost-modifier hook is needed |
+| VEN-074 | an ALTERNATIVE Empower cost ("[1] **or** [Body]") — no cost shape expresses a choice |
+| VEN-110 | "Discard **a spell**" — `ActivationCost.discard` is a count of any cards, so charging it would be cheaper than printed |
+| VEN-069 | Mel's SECOND sentence — "gives an additional -1 [Might]" is a replacement on the giving of Might. **Gangplank's three guards are the nearest seam**; this one needs the amount rewritten rather than the instruction replaced |
+
+**Two recorded simplifications** from the cluster, both in `rules-conformance.md`
+and both deliberately not exact: Gangplank's "chooses me" is unchecked (he is
+stronger than printed against sweeps), and Jayce's "Ready 2 gear" takes the first
+remaining exhausted gear rather than asking.
+
 ## Phase 3 — the card waves
 
 ~97 commits over seven days took UNL from landing to complete. The shape that
