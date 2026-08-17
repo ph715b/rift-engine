@@ -1403,13 +1403,19 @@ function printingBaseName(name: string): string {
  * other 19 are aliased too, so they land implemented the day their twin does
  * rather than needing to be noticed again.
  *
+ * **A PRINTING NEED NOT BE SUFFIXED, and assuming it must cost ten more cards.**
+ * Vendetta reprints ten earlier cards under a plain name — see the loop below.
+ * Whether the reprint is marked is a fact about how a SET was laid out, not
+ * about whether two ids are the same card, and this table is about the second.
+ *
  * # Why it is derived rather than listed
  *
  * A hand-written table is one more list to forget, and this pool has already
  * produced four wrong lists that were maintained by hand. The base NAME is the
  * identity, and it is checked: `printingsMatchTheirTwin` in
- * `test/printing-aliases.test.ts` asserts every alias has identical rules text
- * (reminder text stripped), type, cost and Might. A print that genuinely
+ * `test/printing-aliases.test.ts` asserts every alias has identical type, cost
+ * and Might, and identical rules text apart from three named CROSS-SET
+ * templating rewordings that are quoted there in full. A print that genuinely
  * differed would fail there rather than silently inherit the wrong behaviour.
  *
  * # What it does NOT do
@@ -1439,7 +1445,26 @@ export function printingAliases(): ReadonlyMap<string, string> {
   }
   const aliases = new Map<string, string>();
   for (const d of defs) {
-    if (!PRINTING_SUFFIX.test(d.name)) continue;
+    // **The suffix filter that used to be here was removed on 2026-08-16, and it
+    // was hiding ten more inert cards.**
+    //
+    // It read `if (!PRINTING_SUFFIX.test(d.name)) continue;` — only a printing
+    // whose NAME carries `(Overnumbered)`/`(Signature)`/`(Ultimate)` was ever
+    // aliased. That was right for Unleashed, where every reprint is suffixed,
+    // and wrong for Vendetta, which reprints ten earlier cards under a PLAIN
+    // name: `VEN-167 Vi, Destructive` is `OGN-036 Vi - Destructive`,
+    // `VEN-sp6 Lux, Crownguard` is `OGS-014 Lux - Crownguard`, and so on for
+    // Jayce, Viktor, Rengar, Kha'Zix, Sona, Ahri, Sett and Ezreal.
+    //
+    // Every one of the ten had an implemented twin and no implementation of its
+    // own — the same "12 of the 31 printings were INERT" bug this table was
+    // built to end, arriving through the door the filter left open. Measured:
+    // dropping the filter produces exactly those ten new aliases pool-wide, all
+    // matching their twin on type and on every printed number.
+    //
+    // Nothing else changes. `canonical` is built from unsuffixed names in file
+    // order, so a card is never aliased to itself (`target !== d.id` below), and
+    // the FIRST print of a base name stays canonical.
     const target = canonical.get(printingBaseName(d.name));
     // A printing with no plain twin would be a data problem, not something to
     // paper over: leaving it unaliased makes it report unimplemented, which is

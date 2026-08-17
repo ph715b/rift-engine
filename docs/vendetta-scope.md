@@ -457,17 +457,37 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=42  unimplemented=134  partial=6
+VEN: needing=176  implemented=52  unimplemented=124  partial=6      (2026-08-16, after the alias fix)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
 three keywords are implemented, and `UNIMPLEMENTED_KEYWORDS` is empty again.
-`COMPLETE_SETS` still cannot take VEN — five records remain unclassifiable
-upstream, and all THREE derivations have now been refuted (collector band, name
-matching, structural identity). `node tools/card-data/set-audit.mjs VEN` is the
-gate and opens by itself.
+`COMPLETE_SETS` still cannot take VEN — records remain unclassifiable upstream,
+and all THREE derivations have been refuted (collector band, name matching,
+structural identity). `node tools/card-data/set-audit.mjs VEN` is the gate and
+opens by itself.
 
-**What is left is ORDINARY CARD WORK — 134 cards, no subsystems.** The deep end
+**Three numbers in the paragraph above were wrong when it was written, which is
+this document's own point about itself.** It said "five records remain
+unclassifiable"; the audit reports **14** and exits **1**, not 0. Neither figure
+is worth chasing — the count is upstream's and moves on its own — but "the audit
+exits 0 by itself" is not a thing to plan around, and a session that believed it
+would look for a bug in the gate.
+
+**TEN OF THE 134 WERE NEVER UNWRITTEN CARDS — they were INERT REPRINTS.**
+`printingAliases` only aliased a printing whose NAME carried
+`(Overnumbered)`/`(Signature)`/`(Ultimate)`. Unleashed marks every reprint that
+way; Vendetta reprints ten earlier cards under a PLAIN name — `VEN-167 Vi,
+Destructive` is `OGN-036 Vi - Destructive`, and likewise Jayce, Viktor, Rengar,
+Kha'Zix, Sona, Ahri, Sett, Ezreal and Lux. All ten had an implemented twin and no
+implementation of their own, which is the "12 of 31 printings were INERT" bug
+arriving through the door the suffix filter left open.
+
+Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
+same card, Vendetta's newer wording — so the alias test now asserts type and every
+printed number unconditionally, and quotes both texts for those three by name.
+
+**What is left is ORDINARY CARD WORK — 124 cards, no subsystems.** The deep end
 is finished: `[Flow]`, `[Empower]`/`[Empowered]`, the Empowered status, counter
 prevention, damage prevention, a choose-time replacement effect, gear targeting
 for activated abilities, and multi-ability cards all exist now.

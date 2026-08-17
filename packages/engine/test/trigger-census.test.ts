@@ -161,7 +161,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088"]);
   });
 
-  it("319 held / 5 inline of 324 trigger cards", () => {
+  it("331 held / 5 inline of 336 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -427,10 +427,35 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // **323/5/328 → 324/5/329, one card: VEN-079 Dame the Despoiler's
     // attack-or-defend trigger** — the fourth `[Empowered][>]` payload shape to
     // land, after a conquer, a move and a Deathknell.
+    //
+    // **324/5/329 → 331/5/336 on 2026-08-16, and NOT ONE of the seven is a new
+    // implementation.** `printingAliases` stopped requiring a printing to carry
+    // `(Overnumbered)`/`(Signature)`/`(Ultimate)` in its NAME, which is what
+    // Vendetta's ten plain-name reprints of earlier cards needed; seven of the
+    // ten have a trigger, so seven registry entries each legitimately gained a
+    // second key. Exactly the shape of Jhin's +3 and Jinx's +1 above, at scale.
+    //
+    // The stale `it(...)` title said 319 while this asserted 324 — five apart,
+    // and nobody could have noticed, since only the assertion runs. Corrected in
+    // the same change; if the two ever disagree again, the ASSERTION is the one
+    // that has been recomputed.
+    //
+    // Diagnosed by FAMILY and by NAME rather than by reasoning about the total,
+    // the method every note above insists on:
+    //
+    //     event  200  VEN-176 VEN-180 VEN-sp2 VEN-sp3 VEN-sp4
+    //     unit   123  VEN-175 VEN-sp4 VEN-sp5
+    //     death   32  -    self 12  -    legend 15  -
+    //     distinct: 7 (VEN-sp4 is in two registries and counts once)
+    //
+    // The other three reprints are correctly absent: VEN-167 (Vi, Destructive)
+    // and VEN-sp6 (Lux, Crownguard) are ACTIVATED abilities and VEN-179 (Rengar,
+    // Trophy Hunter) is not a trigger card either — ten aliases, seven cards, and
+    // both halves of that are right.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 324,
+      held: 331,
       inline: 5,
-      cards: 329,
+      cards: 336,
     });
   });
 

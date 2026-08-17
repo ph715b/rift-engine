@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { canonicalDefId, printingAliases } from "../src/cards/card-loader.js";
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { isCardImplemented, implementingModules } from "../src/engine/coverage.js";
+import {
+  cardPlacesTokens,
+  discardChoiceOf,
+  optionalUnitCostOf,
+  repeatCostsOf,
+  targetMustBeElsewhere,
+} from "../src/engine/card-effects.js";
 import { eventTriggerDefIds } from "../src/engine/triggers.js";
 import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
@@ -89,14 +96,19 @@ describe("the alias table is derived, and the derivation is sound", () => {
     }
   });
 
-  it("every alias matches its twin on rules text, type, cost and Might", () => {
+  it("every alias matches its twin on type, cost and Might", () => {
     // The check that makes deriving-by-name safe. If a print ever diverged, this
     // is what would say so — loudly, and before anything inherited the wrong
     // behaviour.
+    //
+    // **Unconditional, and it stayed unconditional when the alias rule widened
+    // on 2026-08-16.** The printed numbers are the half that no reprint may
+    // touch: a rewording is a templating decision, a different Might is a
+    // different card. All ten of Vendetta's plain-name reprints match here
+    // exactly, which is what made widening the derivation safe at all.
     for (const [alias, canonical] of printingAliases()) {
       const a = registry.get(alias);
       const c = registry.get(canonical);
-      expect(rulesText(a.text), `${alias} and ${canonical} print different rules`).toBe(rulesText(c.text));
       expect(a.type, `${alias} is a different card type from ${canonical}`).toBe(c.type);
       // Narrowed per type rather than read off the union: `CardDefinition` is
       // LegendDefinition | UnitDefinition | SpellDefinition | GearDefinition, and
@@ -104,6 +116,70 @@ describe("the alias table is derived, and the derivation is sound", () => {
       // which carry neither.
       expect(stats(a), `${alias} and ${canonical} have different stats`).toEqual(stats(c));
     }
+  });
+
+  it("...and on rules text, apart from three named cross-set rewordings", () => {
+    // **The premise this pin was built on was "every printing is a same-set
+    // reprint", and Vendetta broke it.** Until 2026-08-16 the alias rule only
+    // reached names carrying `(Overnumbered)`/`(Signature)`/`(Ultimate)`, which
+    // are always laid out beside their twin and always print the identical
+    // sentence. Vendetta reprints ten earlier cards under a PLAIN name and
+    // re-templates three of them — the same card, said in the set's newer words.
+    //
+    // The repair is to NAME them, not to relax the comparison. Quoting both
+    // sides means the assertion still fails on any OTHER divergence, including a
+    // future edit to one of these three: the pair drops out of the exception
+    // only by matching the text recorded here.
+    //
+    // Each was read against the twin before being listed, and none changes what
+    // the card does:
+    //  - VEN-176 / OGN-117 — "play a Recruit token TO your base" / "IN your base".
+    //  - VEN-sp4 / OGN-164 — "When you play me or when I conquer" / "When I'm
+    //    played and when I conquer". Vendetta's phrasing is the one every other
+    //    on-play trigger in the pool uses.
+    //  - VEN-sp6 / OGS-014 — "Spend this Energy only to play spells" / "Use only
+    //    to play spells". `restrictedSpellEnergy` is that sentence either way.
+    //
+    // **`OGS-014`'s recorded text contains a MOJIBAKE, and that is deliberate.**
+    // Its card data holds `â` where an em-dash belongs — the
+    // UTF-8 bytes of `—` decoded as Latin-1 — so `rulesText`'s em-dash strip
+    // walks straight past it and the pair reads as different for a reason that
+    // has nothing to do with the reprint. Quoting the broken bytes pins the data
+    // defect: if upstream ever repairs the character this assertion goes red and
+    // whoever hits it deletes the exception, which is the outcome to want.
+    const REWORDED: Record<string, { alias: string; twin: string }> = {
+      "VEN-176": {
+        alias: "Whenyouplayacardonanopponent'sturn,playa1:rb_might:Recruitunittokentoyourbase.",
+        twin: "Whenyouplayacardonanopponent'sturn,playa1:rb_might:Recruitunittokeninyourbase.",
+      },
+      "VEN-sp4": {
+        alias: "WhenyouplaymeorwhenIconquer,buffme.Spendmybuff:Giveme+4:rb_might:thisturn.",
+        twin: "WhenI'mplayedandwhenIconquer,buffme.Spendmybuff:Giveme+4:rb_might:thisturn.",
+      },
+      "VEN-sp6": {
+        alias: ":rb_exhaust::[Reaction][Add]:rb_energy_2:.SpendthisEnergyonlytoplayspells.",
+        twin: ":rb_exhaust::[Reaction]â[Add]:rb_energy_2:.Useonlytoplayspells.",
+      },
+    };
+
+    let exceptionsSeen = 0;
+    for (const [alias, canonical] of printingAliases()) {
+      const a = rulesText(registry.get(alias).text);
+      const c = rulesText(registry.get(canonical).text);
+      const known = REWORDED[alias];
+      if (known === undefined) {
+        expect(a, `${alias} and ${canonical} print different rules`).toBe(c);
+        continue;
+      }
+      exceptionsSeen += 1;
+      expect(a, `${alias}'s text is no longer the rewording recorded here`).toBe(known.alias);
+      expect(c, `${canonical}'s text is no longer the rewording recorded here`).toBe(known.twin);
+    }
+    // The "tried > 0" rule. An exception list that stopped matching anything
+    // would leave three pairs unchecked in silence.
+    expect(exceptionsSeen, "no reworded pair was reached — the exception list is dead").toBe(
+      Object.keys(REWORDED).length,
+    );
   });
 
   it("a plain print is its own canonical id", () => {
@@ -183,6 +259,51 @@ describe("an alternate printing actually WORKS in a game", () => {
   });
 });
 
+describe("the COST tables keyed by defId reach a printing too", () => {
+  it("no printing disagrees with its twin about any defId-keyed cost table", () => {
+    // **The class `mergeRegistries` cannot reach, asserted as a partition.**
+    // Those five tables in `card-effects.ts` are plain `Record`s looked up by raw
+    // defId with no `canonicalDefId` — the same shape as the literal comparisons
+    // this file's header describes, one level up. A printing of a card with a
+    // `[Repeat]` cost or an optional discard would be enumerated as if it printed
+    // neither, which is a silently CHEAPER card rather than an inert one.
+    //
+    // Measured 2026-08-16, after the alias rule widened to Vendetta's ten
+    // plain-name reprints: nothing disagrees today, so this is a guard rather
+    // than a bug report. Asserted as an invariant over every alias rather than
+    // as a list, so the day a reprint lands in one of these tables it fails here
+    // instead of in a playtest.
+    const probes: Record<string, (defId: string) => unknown> = {
+      "discard choice": (id) => discardChoiceOf(id) !== undefined,
+      "[Repeat] costs": (id) => repeatCostsOf(id).length,
+      "optional unit cost": (id) => optionalUnitCostOf(id) !== undefined,
+      "token placement": (id) => cardPlacesTokens(id),
+      "target must be elsewhere": (id) => targetMustBeElsewhere(id),
+    };
+
+    let checked = 0;
+    for (const [alias, canonical] of printingAliases()) {
+      for (const [label, probe] of Object.entries(probes)) {
+        expect(probe(alias), `${alias} disagrees with ${canonical} about its ${label}`).toEqual(probe(canonical));
+      }
+      checked += 1;
+    }
+    // The "tried > 0" rule: an empty alias map would pass this in silence.
+    expect(checked, "no printing pairs were checked at all — this test is blind").toBeGreaterThan(0);
+  });
+
+  it("...and the probes are not all vacuously false", () => {
+    // The control on the test above. Every probe answers `false`/`0` for most of
+    // the pool, so a probe pointed at a table that no longer exists would agree
+    // with itself everywhere and prove nothing. Each is shown finding a real row.
+    expect(discardChoiceOf("OGN-002"), "the discard table is empty or renamed").toBeDefined();
+    expect(repeatCostsOf("UNL-017").length, "the [Repeat] table is empty or renamed").toBeGreaterThan(0);
+    expect(optionalUnitCostOf("OGN-048"), "the optional-unit-cost table is empty or renamed").toBeDefined();
+    expect(cardPlacesTokens("OGN-094"), "the token-placement set is empty or renamed").toBe(true);
+    expect(targetMustBeElsewhere("OGN-199"), "the elsewhere set is empty or renamed").toBe(true);
+  });
+});
+
 describe("coverage reports a printing exactly as it reports its twin", () => {
   it("no printing disagrees with its canonical print", () => {
     // The invariant, asserted as a PARTITION rather than as a count, so it
@@ -201,6 +322,38 @@ describe("coverage reports a printing exactly as it reports its twin", () => {
     // from "somebody implemented one by hand".
     for (const id of ["UNL-221", "UNL-222", "UNL-227", "UNL-227*", "UNL-228", "UNL-228*", "UNL-229", "UNL-229*", "UNL-230", "UNL-230*", "UNL-231", "UNL-231*"]) {
       expect(implementingModules(id), `${id} is still inert`).not.toEqual([]);
+    }
+  });
+
+  it("...and so do Vendetta's TEN plain-name reprints", () => {
+    // **The second batch of inert printings, found 2026-08-16**, and the reason
+    // they were invisible for a set and a half: `printingAliases` only aliased a
+    // name carrying `(Overnumbered)`/`(Signature)`/`(Ultimate)`. Unleashed marks
+    // every reprint that way and Vendetta marks none of these, so all ten had an
+    // implemented twin and no implementation of their own — `VEN-167 Vi,
+    // Destructive` had no ability at all while `OGN-036 Vi - Destructive` worked.
+    //
+    // NAMED rather than counted, for the reason the twelve above are: a count
+    // cannot tell "the derivation reaches them" from "somebody wrote them by
+    // hand". Every one of these is implemented ONLY through its twin — nothing in
+    // `src/` mentions these ids — so this fails the moment the suffix filter
+    // comes back, which is what a control on that change looks like.
+    const PLAIN_NAME_REPRINTS = [
+      "VEN-167", // Vi, Destructive        <- OGN-036
+      "VEN-175", // Jayce, Man of Progress <- SFD-084
+      "VEN-176", // Viktor, Innovator      <- OGN-117
+      "VEN-179", // Rengar, Trophy Hunter  <- UNL-120
+      "VEN-180", // Kha'Zix, Evolving Hunter <- UNL-119
+      "VEN-sp2", // Sona, Harmonious       <- OGN-073
+      "VEN-sp3", // Ahri, Inquisitive      <- OGN-119
+      "VEN-sp4", // Sett, Brawler          <- OGN-164
+      "VEN-sp5", // Ezreal, Prodigy        <- SFD-149
+      "VEN-sp6", // Lux, Crownguard        <- OGS-014
+    ];
+    for (const id of PLAIN_NAME_REPRINTS) {
+      expect(canonicalDefId(id), `${id} is not aliased to a twin at all`).not.toBe(id);
+      expect(implementingModules(id), `${id} is still inert`).not.toEqual([]);
+      expect(isCardImplemented(registry.get(id)), `${id} still reports unimplemented`).toBe(true);
     }
   });
 
