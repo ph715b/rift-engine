@@ -185,7 +185,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006"]);
   });
 
-  it("343 held / 7 inline of 350 trigger cards", () => {
+  it("348 held / 7 inline of 355 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -533,10 +533,28 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //
     // VEN-004 Dune Surfer is correctly absent too — his ignore is a continuous
     // rule inside `combat.assignmentOrder`, not a trigger.
+    //
+    // **343/7/350 -> 348/7/355 on 2026-08-17: Vendetta's Body wave, five trigger
+    // cards out of twelve implemented.** By family and by name:
+    //
+    //     event (+4)  VEN-071 Fretful Feline, VEN-088 Jayce Hammer in Hand
+    //                 (both `unitReadied`); VEN-080 Noxian Demolitionist
+    //                 (battlefieldConquered); VEN-091 Corrupted Dragon (combatBegan)
+    //     unit  (+1)  VEN-082 Profiteer
+    //
+    // `unitReadied` gains its first CARD listeners here — the event has existed
+    // since Pirate's Haven read it, so "becoming ready" already had one
+    // definition and these two could not disagree with it.
+    //
+    // The other seven are correctly absent, across four different homes: VEN-072,
+    // VEN-081, VEN-083, VEN-085, VEN-089 and VEN-090 are SPELL effects; VEN-076
+    // Repair Specialist is a `DYNAMIC_KEYWORD_VALUES` grant. Corrupted Dragon is
+    // counted ONCE despite also being a `conditionalEntersReady` case in
+    // deploy.ts, which is right — this census counts trigger cards, not clauses.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 343,
+      held: 348,
       inline: 7,
-      cards: 350,
+      cards: 355,
     });
   });
 

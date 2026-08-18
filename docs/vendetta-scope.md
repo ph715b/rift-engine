@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=80  unimplemented=96   partial=6      (2026-08-17, after the alias fix and three card waves)
+VEN: needing=176  implemented=92  unimplemented=84   partial=6      (2026-08-17, after the alias fix and four card waves)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 96 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 84 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,37 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Body, wave 1 — done 2026-08-17 (12 of 13 cards)
+
+VEN-071, 072, 076, 080, 081, 082, 083, 085, 088, 089, 090, 091. VEN 80 -> 92.
+Tests in `test/ven-body-wave1.test.ts`; **25 mutants, 25 killed.**
+
+**One engine seam, and it is the third instance of one failure shape.** Rampage
+is the pool's first SPELL with an optional Power cost, and `optionalPowerPaid`
+rode only the on-play TRIGGER event — so the card would have been enumerated at
+two prices and resolved identically at both. `OPTIONAL_POWER_COSTS` already
+records the mirror of this TWICE (Pyke and Nami shipped with the trigger written
+and the table row missing, so the flag could never be true). Now threaded onto
+`SpellChainEntry` and `ResolveEvent`.
+
+**Both surviving mutants were the same class of test gap**: an assertion that
+never reaches the second half of a two-part card. Wild Claw's Empower step is
+only asked when the banish was taken, so a test that declines the FIRST question
+cannot see it; and every Rampage test called the resolver directly, which proves
+it READS the flag and says nothing about anything WRITING it. **A card with a
+chained question needs a test that answers the first and refuses the second, and
+a card with a new action field needs one end-to-end test through `submit`.**
+
+Cataclysmic Duel is the first card here where a player controlling NOTHING still
+has to answer: an empty option list makes a question moot, `advanceDecisions`
+drops it, and the chain to the other player's question breaks — turning "kill the
+rest" into "kill nothing". The explicit "you control no units" answer is what
+keeps it alive.
+
+**VEN-074 Legion Marauder is Body's only remainder**, and it is one of the six
+partials: `[Empower] — [1] or [Body]` is an ALTERNATIVE cost, and no cost shape
+in this engine expresses a choice.
 
 ### Fury, wave 2 — done 2026-08-17 (3 cards, and the token subsystem)
 

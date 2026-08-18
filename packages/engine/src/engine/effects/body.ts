@@ -9,11 +9,14 @@ import {
   canSpendXp,
   channelRunesExhausted,
   dealDamage,
+  destroyUnit,
+  disempowerPermanent,
   dealDamageToAllUnitsAtAllBattlefields,
   dealDamageToEnemyUnitsAtBattlefield,
   drawCards,
   forceMoveToBase,
   forceMoveToBattlefield,
+  empowerPermanent,
   gainXp,
   giveMightThisTurn,
   giveMightThisTurnToOwnUnit,
@@ -51,7 +54,9 @@ import { effectiveKeywords, isMighty } from "../granted-keywords.js";
 import { isAttackingAt, isFightingAt, isStillHere } from "../combat-designation.js";
 import { opponentNearVictory } from "../constants.js";
 import type { GameEvent, Listener } from "../triggers.js";
-import { findUnitAnywhere, type AnyUnitLocation } from "../target-lookup.js";
+import { killGear } from "../triggers.js";
+import { playCardIgnoringCost } from "../play-free.js";
+import { findUnitAnywhere, findUnitOnBattlefield, type AnyUnitLocation } from "../target-lookup.js";
 import { attachEquipment, borrowGear, detachEquipment, equipmentAttachedTo, isEquipmentGear } from "../equipment.js";
 import { wearerListener } from "../equipment.js";
 import { gainPoints } from "../effect-helpers.js";
@@ -127,7 +132,212 @@ import { placeGoldTokens } from "../token.js";
  */
 import { counterSpell } from "../counter-spell.js";
 
+/** Guttural Roar's two amounts — the second REPLACES the first, so they are two
+ *  constants rather than a base and a bonus. */
+const GUTTURAL_ROAR_MIGHT = 2;
+const GUTTURAL_ROAR_EMPOWERED_MIGHT = 4;
+/** Onslaught's pump. */
+const ONSLAUGHT_MIGHT = 6;
+/** Rampage's optional [Body] pip buys this much Might for the friendly unit. */
+const RAMPAGE_MIGHT = 2;
+/** Fretful Feline's become-ready pump. */
+const FRETFUL_FELINE_MIGHT = 2;
+/** Corrupted Dragon's ceiling — "each with 5 [Might] or less". */
+const CORRUPTED_DRAGON_MAX_MIGHT = 5;
+/** The questions this file's Vendetta cards park. */
+const PROFITEER_DISEMPOWER = "VEN-082-disempower";
+const PROFITEER_EMPOWER = "VEN-082-empower";
+const DEMOLITIONIST_KILL = "VEN-080-kill";
+const JAYCE_HAMMER_CHOICE = "VEN-088-choice";
+const DECREE_OF_STRENGTH_PICK = "VEN-085-pick";
+const CORRUPTED_DRAGON_SHOVE = "VEN-091-shove";
+const WILD_CLAW_BANISH = "VEN-089-banish";
+const WILD_CLAW_EMPOWER = "VEN-089-empower";
+/** Wild Claw looks at five and reduces by five. Two constants because they are
+ *  two printed numbers that happen to agree. */
+const WILD_CLAW_LOOK = 5;
+const WILD_CLAW_REDUCTION = 5;
+const CATACLYSMIC_DUEL_PICK = "VEN-090-pick";
+const CATACLYSMIC_DUEL_SECOND = "VEN-090-second";
+/** The option id both halves of Cataclysmic Duel use for "I control nothing to
+ *  keep" — a real answer rather than an absent one, because a question with no
+ *  options is MOOT and `advanceDecisions` drops it, which would break the chain
+ *  before the other player was ever asked. */
+const DUEL_KEEPS_NOTHING = "none";
+/** Jayce, Hammer in Hand's three offers — "choose one to give me this turn". The
+ *  VALUES are printed and are not all 1, so each rides with its keyword. */
+const JAYCE_HAMMER_MODES: readonly { id: string; keyword: Keyword; value: number }[] = [
+  { id: "assault", keyword: "Assault", value: 2 },
+  { id: "deflect", keyword: "Deflect", value: 2 },
+  { id: "ganking", keyword: "Ganking", value: 1 },
+];
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-072": {
+    // Guttural Roar — "[Action] Give a unit +2 [Might] this turn. If it's
+    // [Empowered], give it +4 [Might] this turn INSTEAD."
+    //
+    // "Instead" replaces the amount, so it is 4 or 2 and never 6 — the reading
+    // Ruthless Strike's entry records, and the reason two constants are named
+    // rather than a base and a bonus.
+    //
+    // The status is read at RESOLUTION, not at announce: 441.1.a makes Empowered
+    // a binary state a unit can gain or lose in the response window an `[Action]`
+    // can be cast into. `isEmpowered` is the single reader of it.
+    //
+    // "A unit", bare, so `scope: "anywhere"` (355.9.a.1). Pumping an ENEMY unit is
+    // a legal play and the card offers it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const amount = isEmpowered(state, targetId) ? GUTTURAL_ROAR_EMPOWERED_MIGHT : GUTTURAL_ROAR_MIGHT;
+      return giveMightThisTurn(state, targetId, amount);
+    },
+  },
+  "VEN-081": {
+    // Onslaught — "Give a unit +6 [Might] this turn. [Flow] [4 Energy]."
+    //
+    // The whole card. `[Flow]` needs nothing here: 829.1.c.1's alternative cost is
+    // plumbed generically, and a card effect is reached identically whichever cost
+    // paid for it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId ? giveMightThisTurn(state, event.targetUnitInstanceId, ONSLAUGHT_MIGHT) : state,
+  },
+  "VEN-083": {
+    // Rampage — "As you play this, you may pay [Body] as an additional cost.
+    // Choose a friendly unit and an enemy unit. If you paid the additional cost,
+    // give the friendly unit +2 [Might] this turn. They deal damage equal to
+    // their Mights to each other."
+    //
+    // # Both Mights are read ONCE, before either shot lands
+    //
+    // Stormbringer's entry records the same discipline and the same reason: read
+    // sequentially, the first unit dying could change what the second deals. A
+    // simultaneous exchange is what "to each other" describes.
+    //
+    // **The pump lands BEFORE the Mights are read**, which is the whole point of
+    // paying: +2 on the friendly unit is +2 of damage dealt to the enemy. A
+    // resolver that pumped afterwards would buy a survivor and nothing else.
+    //
+    // # Two slots, and deliberately no `sameBattlefield`
+    //
+    // The card names no shared location, so `unitSlots` with roles
+    // `["friendly", "enemy"]` and the default scope — unlike Facebreaker, whose
+    // "at the same battlefield" is printed and IS a relation between the targets.
+    //
+    // The optional `[Body]` is `OPTIONAL_POWER_COSTS`' shape, read off the action
+    // as `optionalPowerPaid` for the reason Blast Corps Cadet's entry gives:
+    // nothing on the board records how the card was paid for by the time this
+    // runs.
+    targeting: { kind: "unitSlots", slots: ["friendly", "enemy"], min: 2 },
+    resolve: (state, ctx, event) => {
+      const friendlyId = event.targetUnitInstanceId;
+      const enemyId = event.secondTargetUnitInstanceId;
+      if (!friendlyId || !enemyId) return state;
+      const pumped = event.optionalPowerPaid ? giveMightThisTurn(state, friendlyId, RAMPAGE_MIGHT) : state;
+
+      const friendly = findUnitAnywhere(pumped, friendlyId);
+      const enemy = findUnitAnywhere(pumped, enemyId);
+      // 359.3.e.12 — either having left play makes the exchange moot, and the pump
+      // (already paid for) stands.
+      if (!friendly || !enemy) return pumped;
+      const friendlyMight = nonCombatMight(pumped, friendly);
+      const enemyMight = nonCombatMight(pumped, enemy);
+
+      // Both shots come from the SAME pair of numbers, and both are attributed to
+      // the CASTER — this is a spell they cast, not a combat.
+      return dealDamage(dealDamage(pumped, ctx.casterIndex, enemyId, friendlyMight), ctx.casterIndex, friendlyId, enemyMight);
+    },
+  },
+  "VEN-085": {
+    // Decree of Strength — "Choose an opponent. They reveal their hand and you
+    // choose a Mind ([Mind]) card from it. They recycle that card."
+    //
+    // **"An OPPONENT" is not "a player", and the difference is printed.**
+    // Mindsplitter's entry records the reading: "an opponent" reduces to no choice
+    // at all in a two-player game, where Bewitching Spirit's "a player" reaches
+    // either seat. So there is nothing to ask about WHO, and the card goes
+    // straight to the interesting question.
+    //
+    // The REVEAL needs no modelling: a decision's options are built from live
+    // state and shown to whoever answers, and the chooser here is the CASTER — so
+    // the hand becoming visible to them is exactly what that clause does.
+    //
+    // **A MIND card, not any card.** With none in the opponent's hand the offer is
+    // a bare decline that `advanceDecisions` executes silently, which is the right
+    // amount of theatre for a question with one answer.
+    //
+    // Recycled to the BOTTOM of the opponent's deck by `recycleCardFromHand`
+    // (416), which also holds `cardsRecycled` — for the OWNER of the deck, which
+    // is the opponent here rather than the caster.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: DECREE_OF_STRENGTH_PICK, playerIndex: ctx.casterIndex }),
+  },
+  "VEN-089": {
+    // Wild Claw — "Look at the top 5 cards of your Main Deck. You may banish a
+    // unit or gear from among them and play it, reducing its Energy cost by [5].
+    // Recycle the rest. Then you may do this: Empower it."
+    //
+    // Reinforce's shape (OGN-062, effects/calm.ts) with two differences, and both
+    // are printed:
+    //
+    //  - **A unit OR GEAR**, where Reinforce takes a unit. So the candidate walk
+    //    admits both kinds, and the play goes through the same cost-ignoring
+    //    funnel either way.
+    //  - **"Then you may do this: EMPOWER IT"**, a second optional step on the
+    //    card that was just played — which is why the two are chained questions
+    //    rather than one: a `PendingDecision` carries one answer.
+    //
+    // Nocturne's offer goes FIRST, before the look question: the queue is FIFO,
+    // so "as you look at me" is answered before "which of these do you banish",
+    // which is the order the two texts read in. Reinforce's entry records the
+    // same ordering.
+    //
+    // **The Energy reduction is a recorded DIVERGENCE, inherited whole from
+    // Reinforce**, and it points the safe way: this engine cannot pay a real
+    // cost mid-resolution (`DecisionOption.payment` has zero producers), so the
+    // candidate list is filtered to what the reduction covers OUTRIGHT — Energy
+    // cost 5 or less, played for free — rather than offering a 6-cost card for 1.
+    // The POWER half is likewise waived rather than paid, since "reducing its
+    // Energy cost" says nothing about Power. Both halves are narrower than the
+    // card, never wider. See docs/rules-conformance.md.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, state.players[ctx.casterIndex].deck.slice(0, WILD_CLAW_LOOK)), {
+        kind: WILD_CLAW_BANISH,
+        playerIndex: ctx.casterIndex,
+      }),
+  },
+  "VEN-090": {
+    // Cataclysmic Duel — "Each player chooses a unit they control. Kill the rest."
+    //
+    // # Two questions, CHAINED, and the kill runs from the second
+    //
+    // Both players choose and then everything unchosen dies, so the sweep must
+    // happen after BOTH answers. A resolver that killed per answer would let the
+    // first chooser's sweep take the second chooser's candidates off the board
+    // before they were asked — which is not "each player chooses" at all.
+    //
+    // So the caster's question resolves by parking the OPPONENT's, carrying the
+    // caster's survivor on `cardInstanceId`; the opponent's resolver knows both
+    // and sweeps. Here to Help's pair is the same chaining, and for the same
+    // reason: a `PendingDecision` carries one answer, so two answers are two
+    // questions.
+    //
+    // **A player who controls nothing still answers**, with an explicit
+    // `DUEL_KEEPS_NOTHING` option. An empty option list makes a question MOOT and
+    // `advanceDecisions` drops it — which would break the chain and leave the
+    // other player's units alive, turning "kill the rest" into "kill nothing".
+    //
+    // "Kill the REST" is every unit in play, both sides and both zones
+    // (355.9.a.1's bare noun), through `destroyUnit` so each death fires its own
+    // `[Deathknell]`. Attributed to the CASTER: it is their spell, whoever the
+    // unit belonged to.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: CATACLYSMIC_DUEL_PICK, playerIndex: ctx.casterIndex }),
+  },
   "UNL-106": {
     // Repulse — "[Reaction] Choose a friendly unit at a battlefield. Counter an
     // enemy spell or ability that chooses it and no other friendly unit."
@@ -719,6 +929,35 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-082": {
+    // Profiteer — "When you play me, you may DISEMPOWER something you control to
+    // EMPOWER a legend, unit, or gear."
+    //
+    // # A cost inside an instruction, so it is one decision chain and not two
+    //
+    // 355.10.c.1 names this shape: "costs within instructions, identified by
+    // phrases like '[do X] to [do Y]'. The cost within that instruction is
+    // '[do X]'" — so the disempower is PAID and the empower is what it buys.
+    // Declining to disempower and declining to empower are the same answer, which
+    // is why the first question carries the decline and the second does not.
+    //
+    // Two questions rather than one over pairs, because a `PendingDecision`
+    // carries one answer — the reason Here to Help's pair records, and the
+    // alternative (a cross product of every Empowered thing you control against
+    // every permanent in play) is an option list nobody can read.
+    //
+    // # The two halves have DIFFERENT scopes, and both are printed
+    //
+    // "Something YOU CONTROL" for the cost — and "something" is wider than a
+    // unit: 441 makes Empowered a status of a GAME OBJECT, and a Legend, a unit
+    // and a gear can all carry it.
+    //
+    // "A legend, unit, or GEAR" for the payoff, with no owner printed — so an
+    // ENEMY permanent is a legal choice (355.9.a.1). Empowering an opponent's
+    // unit is a bad play rather than an illegal one, and the card offers it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: PROFITEER_DISEMPOWER, playerIndex: ctx.casterIndex }),
+  },
   "SFD-109": {
     // Akshan - Mischievous — "[Weaponmaster] You may pay [Body][Body] as an
     // additional cost to play me. When you play me, if you paid the additional
@@ -1219,6 +1458,120 @@ function damesCandidates(state: GameState, ownerIndex: 0 | 1, dameInstanceId: st
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-071": {
+    // Fretful Feline — "When I become ready, give me +2 [Might] this turn."
+    //
+    // The pool's first reader of `unitReadied` as a CARD trigger, and the event
+    // already existed: `readyUnit` and `readyPermanent` hold it, and Pirate's
+    // Haven has been paying out on it. So "becoming ready" has one definition and
+    // this card cannot disagree with it.
+    //
+    // **Awaken does NOT fire it, and that is what makes the card playable rather
+    // than a free +2 every turn.** `runAwaken` readies by its own inline map
+    // rather than through `readyUnit` — recorded in `readyUnit`'s own note as the
+    // reason its Mageseeker check is structural — so only a SPELL or ABILITY
+    // readying him pays. Whether the rules agree is a real question, and it is
+    // recorded Unverified in docs/rules-conformance.md rather than decided here.
+    //
+    // It stacks: two readyings in a turn is +4, because each is its own
+    // instruction and `giveMightThisTurn` adds (477.3's arithmetic layer).
+    on: "unitReadied",
+    applies: (_state, listener, event) =>
+      event.kind === "unitReadied" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitReadied" || event.unitInstanceId !== listener.card.instanceId) return state;
+      return giveMightThisTurn(state, listener.card.instanceId, FRETFUL_FELINE_MIGHT);
+    },
+  },
+  "VEN-088": {
+    // Jayce, Hammer in Hand — "When I become ready, choose one to give me this
+    // turn — [Assault 2] / [Deflect 2] / [Ganking]."
+    //
+    // Fretful Feline's moment with a MODAL payload, so it parks a question rather
+    // than granting: 402.1 puts a triggered ability's choices at the moment it
+    // resolves, and "choose one" is exactly such a choice.
+    //
+    // **All three keywords are also PRINTED on his frame**, which looks like a
+    // conflict and is the card: he has them permanently, and this clause adds
+    // ANOTHER instance for the turn. **817 makes valued keywords SUM**, so
+    // choosing `[Assault 2]` puts him at 4 while attacking — the same rule Baccai
+    // Reaper's entry records, and the reason the grant goes through
+    // `grantKeywordThisTurn` rather than being reasoned about here.
+    //
+    // No decline: the text says "choose one", not "you may".
+    on: "unitReadied",
+    applies: (_state, listener, event) =>
+      event.kind === "unitReadied" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitReadied" || event.unitInstanceId !== listener.card.instanceId) return state;
+      return parkDecision(state, {
+        kind: JAYCE_HAMMER_CHOICE,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "VEN-080": {
+    // Noxian Demolitionist — "When I conquer, you may kill a gear with Energy cost
+    // no more than MY Might."
+    //
+    // "When **I** conquer" is positional — the reading Kai'Sa - Survivor and Vayne
+    // - Hunter take, and he has to be standing at the battlefield taken. Settled
+    // in `applies` because the event is held (383) and the window a hold opens is
+    // exactly when he could be moved off it.
+    //
+    // **His Might is read at RESOLUTION**, not when he conquered: it is the
+    // measure the instruction uses, and a pump landing in the response window
+    // widens what he can kill. 359.3.f.2 checks a referent on execution. That is
+    // also why the ceiling cannot be baked into the trigger — it is a live number.
+    //
+    // "Energy cost NO MORE THAN" is the PRINTED cost, not a modified one: the kill
+    // ignores cost entirely, so there is no modified price to compare against —
+    // the same printed-vs-paid reading Rell - Magnetic's Equipment ceiling takes.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (event.conquerorIndex !== listener.ownerIndex) return state;
+      return parkDecision(state, {
+        kind: DEMOLITIONIST_KILL,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "VEN-091": {
+    // Corrupted Dragon, SECOND clause — "When I attack, you may move ANY NUMBER of
+    // enemy units here each with 5 [Might] or less to their base." His enter-ready
+    // half is a `conditionalEntersReady` case in deploy.ts.
+    //
+    // **"Any number" is what makes this a repeated question rather than one
+    // choice.** The offer is re-parked after each answer, exactly as the generic
+    // discard question re-parks itself while cards are still owed, and declining
+    // ends it. A single question over SUBSETS would be an option list the size of
+    // the power set of the battlefield.
+    //
+    // The Might ceiling and "here" are both re-read per answer, off live state: a
+    // unit pumped out of range between two answers is out of range, and the
+    // Dragon moved away mid-question has nothing left to shove (359.3.f.2).
+    //
+    // `forceMoveToBase` is 455's Recall rather than a Move (456), so it fires no
+    // `unitMoved` and pays no "when I move" trigger — the same reading every
+    // shove-home in this pool takes.
+    on: "combatBegan",
+    applies: isAttackingAt,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      return parkDecision(state, {
+        kind: CORRUPTED_DRAGON_SHOVE,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
   "VEN-079": {
     // Dame the Despoiler's dependent trigger — see `damesCandidates` above for
     // who she can name.
@@ -2201,7 +2554,289 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/** Non-combat effective Might for a located unit — the context every Might
+ *  threshold in this pool is measured in: auras and this-turn pumps count,
+ *  `[Assault]`/`[Shield]` do not. */
+function nonCombatMight(state: GameState, found: NonNullable<ReturnType<typeof findUnitAnywhere>>): number {
+  return effectiveMight(state, found.unit, found.ownerIndex, {
+    isCombat: false,
+    ...(found.zone === "base" ? {} : { battlefieldId: state.battlefields[found.zone.battlefieldIndex]!.id }),
+  });
+}
+
+/** Everything either player has on the board that can carry the Empowered status
+ *  — units in both zones, active gear, and both Legends. 441 makes it a status of
+ *  a GAME OBJECT, so "a legend, unit, or gear" is the full list rather than a
+ *  narrowing. */
+function empowerablePermanents(state: GameState): { instanceId: string; name: string }[] {
+  const out: { instanceId: string; name: string }[] = [];
+  for (const index of [0, 1] as const) {
+    const player = state.players[index];
+    for (const u of ownUnitsEverywhere(state, index)) out.push({ instanceId: u.instanceId, name: u.name });
+    for (const g of player.activeGear) out.push({ instanceId: g.instanceId, name: g.name });
+    out.push({ instanceId: player.legend.instanceId, name: player.legend.name });
+  }
+  return out;
+}
+
+/** ...and the ones `playerIndex` controls that are Empowered right now — what
+ *  Profiteer's cost may be paid with. */
+function ownEmpoweredPermanents(state: GameState, playerIndex: 0 | 1): { instanceId: string; name: string }[] {
+  const player = state.players[playerIndex];
+  const mine = [
+    ...ownUnitsEverywhere(state, playerIndex).map((u) => ({ instanceId: u.instanceId, name: u.name })),
+    ...player.activeGear.map((g) => ({ instanceId: g.instanceId, name: g.name })),
+    { instanceId: player.legend.instanceId, name: player.legend.name },
+  ];
+  return mine.filter((p) => isEmpowered(state, p.instanceId));
+}
+
+/** Every unit in play, BOTH sides — Cataclysmic Duel's "kill the rest", which
+ *  names no owner and no location (355.9.a.1's bare noun). */
+function allUnitsBothSides(state: GameState): UnitInstance[] {
+  return [...ownUnitsEverywhere(state, 0), ...ownUnitsEverywhere(state, 1)];
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Wild Claw's "you may banish a unit or gear from among them and play it,
+   * reducing its Energy cost by [5]. Recycle the rest."
+   *
+   * The recycle happens whichever way this is answered — it is not conditional on
+   * the banish — and it runs FIRST so the deck arithmetic is done against the
+   * five that were actually looked at. Reinforce's entry records the same call.
+   */
+  [WILD_CLAW_BANISH]: {
+    prompt: () => "Wild Claw: banish a unit or gear from the top 5 and play it?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...wildClawCandidates(state, d.playerIndex).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      const looked = state.players[d.playerIndex].deck.slice(0, WILD_CLAW_LOOK);
+      const chosen =
+        optionId === "decline" ? undefined : wildClawCandidates(state, d.playerIndex).find((c) => c.instanceId === optionId);
+
+      const rest = looked.filter((c) => c.instanceId !== chosen?.instanceId);
+      const players = [...state.players] as [PlayerState, PlayerState];
+      players[d.playerIndex] = {
+        ...players[d.playerIndex],
+        deck: [...players[d.playerIndex].deck.slice(looked.length), ...rest],
+      };
+      // Karma - Channeler watches every recycle in this engine, including the ones
+      // written inline like this one — `rest` is what actually moved.
+      const recycled = holdCardsRecycled({ ...state, players }, d.playerIndex, rest.length);
+      if (!chosen) return recycled;
+
+      // Chained rather than folded in: "then you may do this: Empower it" is a
+      // second optional step, and a `PendingDecision` carries one answer. The
+      // played card's instanceId rides across so the second question knows what
+      // "it" is — and it survives the play, since `playCardIgnoringCost` puts the
+      // same instance into play.
+      return parkDecision(playCardIgnoringCost(recycled, d.playerIndex, chosen), {
+        kind: WILD_CLAW_EMPOWER,
+        playerIndex: d.playerIndex,
+        cardInstanceId: chosen.instanceId,
+      });
+    },
+  },
+  /**
+   * ...and Wild Claw's "then you may do this: Empower it".
+   *
+   * Asked only when something was actually played, so the decline is the only
+   * other answer — there is nothing else to choose. `empowerPermanent` no-ops on
+   * something already Empowered (441.1.b), and a card that failed to arrive (a
+   * board restriction refused it) leaves this question with nothing to act on,
+   * which the id lookup answers by finding nothing.
+   */
+  [WILD_CLAW_EMPOWER]: {
+    prompt: () => "Wild Claw: empower what you just played?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.cardInstanceId !== undefined && findUnitAnywhere(state, d.cardInstanceId) !== undefined
+        ? [{ id: "empower", label: "Empower it" }]
+        : []),
+      ...(d.cardInstanceId !== undefined && state.players[d.playerIndex].activeGear.some((g) => g.instanceId === d.cardInstanceId)
+        ? [{ id: "empower", label: "Empower it" }]
+        : []),
+    ],
+    resolve: (state, d, optionId) =>
+      optionId === "decline" || d.cardInstanceId === undefined ? state : empowerPermanent(state, d.cardInstanceId),
+  },
+  /**
+   * Profiteer's COST — "disempower something you control". Carries the decline,
+   * because 355.10.c.1 makes this the `[do X]` of a `[do X] to [do Y]` and
+   * declining to pay is declining the whole instruction.
+   */
+  [PROFITEER_DISEMPOWER]: {
+    prompt: () => "Profiteer: disempower something you control, to empower a legend, unit or gear?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...ownEmpoweredPermanents(state, d.playerIndex).map((p) => ({
+        id: p.instanceId,
+        label: `Disempower ${p.name}`,
+        instanceId: p.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Re-checked rather than trusted: the status is binary (441.1.a) and the
+      // window between the offer and the answer is exactly when something else
+      // could have taken it.
+      if (!isEmpowered(state, optionId)) return state;
+      return parkDecision(disempowerPermanent(state, optionId), {
+        kind: PROFITEER_EMPOWER,
+        playerIndex: d.playerIndex,
+      });
+    },
+  },
+  /**
+   * ...and its PAYOFF — "empower a legend, unit, or gear", asked only once the
+   * cost is paid, which is why this half carries no decline.
+   *
+   * No owner is printed, so an ENEMY permanent is a legal choice. `empowerPermanent`
+   * no-ops on something already Empowered (441.1.b), so the list is not filtered:
+   * choosing one is a wasted answer rather than an illegal one, and the printed
+   * card does not narrow it.
+   */
+  [PROFITEER_EMPOWER]: {
+    prompt: () => "Profiteer: empower a legend, unit or gear.",
+    options: (state) =>
+      empowerablePermanents(state).map((p) => ({ id: p.instanceId, label: `Empower ${p.name}`, instanceId: p.instanceId })),
+    resolve: (state, _d, optionId) => empowerPermanent(state, optionId),
+  },
+  /**
+   * Noxian Demolitionist's "you may kill a gear with Energy cost no more than my
+   * Might".
+   *
+   * The ceiling is re-derived HERE from his live Might rather than captured when
+   * he conquered — see the trigger. With him gone the question is MOOT (no
+   * options beyond the decline) and `advanceDecisions` drops it, which is
+   * 359.3.e.12's answer.
+   *
+   * Killed through `killGear` so the dying gear's own trigger still fires.
+   */
+  [DEMOLITIONIST_KILL]: {
+    prompt: () => "Noxian Demolitionist: kill a gear with Energy cost no more than my Might?",
+    options: (state, d) => {
+      const self = d.cardInstanceId === undefined ? undefined : findUnitAnywhere(state, d.cardInstanceId);
+      const ceiling = self ? nonCombatMight(state, self) : -1;
+      const gears = [0, 1].flatMap((index) =>
+        state.players[index as 0 | 1].activeGear.filter((g) => g.energyCost <= ceiling),
+      );
+      return [
+        { id: "decline", label: "Decline" },
+        ...gears.map((g) => ({ id: g.instanceId, label: `Kill ${g.name}`, instanceId: g.instanceId })),
+      ];
+    },
+    resolve: (state, _d, optionId) => {
+      if (optionId === "decline") return state;
+      for (const ownerIndex of [0, 1] as const) {
+        const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === optionId);
+        if (gear) return killGear(state, gear, ownerIndex);
+      }
+      return state;
+    },
+  },
+  /**
+   * Jayce, Hammer in Hand's "choose one to give me this turn".
+   *
+   * No decline — "choose one" is not "you may". The grant routes through
+   * `grantKeywordThisTurn` with the printed VALUE, so 817's summing against the
+   * same keyword on his frame happens in the one place that implements it.
+   */
+  [JAYCE_HAMMER_CHOICE]: {
+    prompt: () => "Jayce, Hammer in Hand: choose one to give me this turn.",
+    options: (state, d) =>
+      d.cardInstanceId !== undefined && findUnitAnywhere(state, d.cardInstanceId) !== undefined
+        ? JAYCE_HAMMER_MODES.map((m) => ({ id: m.id, label: `[${m.keyword} ${m.value}]` }))
+        : [],
+    resolve: (state, d, optionId) => {
+      const mode = JAYCE_HAMMER_MODES.find((m) => m.id === optionId);
+      if (!mode || d.cardInstanceId === undefined) return state;
+      return grantKeywordThisTurn(state, d.cardInstanceId, mode.keyword, mode.value);
+    },
+  },
+  /**
+   * Decree of Strength's "you choose a MIND card from it. They recycle that
+   * card."
+   *
+   * Answered by the CASTER and acting on the OPPONENT's hand, which is the whole
+   * shape of the card — and the reason the option list IS the reveal.
+   */
+  [DECREE_OF_STRENGTH_PICK]: {
+    prompt: () => "Decree of Strength: choose a Mind card from your opponent's hand.",
+    options: (state, d) => {
+      const opponentIndex: 0 | 1 = d.playerIndex === 0 ? 1 : 0;
+      return [
+        { id: "decline", label: "No Mind card to take" },
+        ...state.players[opponentIndex].hand
+          .filter((c) => c.domains.includes("Mind"))
+          .map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      return recycleCardFromHand(state, d.playerIndex === 0 ? 1 : 0, optionId);
+    },
+  },
+  /**
+   * Cataclysmic Duel, FIRST half — the caster keeps one of their own units, then
+   * chains the opponent's question carrying that survivor.
+   */
+  [CATACLYSMIC_DUEL_PICK]: {
+    prompt: () => "Cataclysmic Duel: choose a unit you control to keep.",
+    options: (state, d) => duelKeepOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) =>
+      parkDecision(state, {
+        kind: CATACLYSMIC_DUEL_SECOND,
+        playerIndex: d.playerIndex === 0 ? 1 : 0,
+        ...(optionId === DUEL_KEEPS_NOTHING ? {} : { cardInstanceId: optionId }),
+      }),
+  },
+  /**
+   * ...and the SECOND half, which knows both survivors and does the sweep.
+   *
+   * The caster's choice rides on `cardInstanceId`; this answer is the other. Both
+   * may be absent — a player who controls nothing answers `DUEL_KEEPS_NOTHING` —
+   * and the sweep is the same either way.
+   */
+  [CATACLYSMIC_DUEL_SECOND]: {
+    prompt: () => "Cataclysmic Duel: choose a unit you control to keep.",
+    options: (state, d) => duelKeepOptions(state, d.playerIndex),
+    resolve: (state, d, optionId) => {
+      const spared = new Set([d.cardInstanceId, optionId].filter((id): id is string => id !== undefined && id !== DUEL_KEEPS_NOTHING));
+      let next = state;
+      for (const unit of allUnitsBothSides(state)) {
+        if (spared.has(unit.instanceId)) continue;
+        // No killer is attributed: the spell's caster is not on this decision, and
+        // a Duel is a mutual sweep rather than one player's removal. `destroyUnit`
+        // takes an optional killer for exactly this case.
+        next = destroyUnit(next, unit.instanceId);
+      }
+      return next;
+    },
+  },
+  /**
+   * Corrupted Dragon's "you may move ANY NUMBER of enemy units here each with 5
+   * [Might] or less to their base" — re-parked after every answer, so "any
+   * number" is a sequence of one-unit choices and declining ends it.
+   */
+  [CORRUPTED_DRAGON_SHOVE]: {
+    prompt: () => "Corrupted Dragon: move an enemy unit here with 5 Might or less to their base?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...corruptedDragonTargets(state, d).map((u) => ({ id: u.instanceId, label: `Move ${u.name} home`, instanceId: u.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const moved = forceMoveToBase(state, optionId);
+      // Re-parked so the NEXT one can be chosen — "any number". `repeatDecision`
+      // puts it back at the FRONT of the queue, which is what keeps the sequence
+      // together rather than interleaving with anything else waiting.
+      return repeatDecision(moved, d);
+    },
+  },
   /**
    * Dame the Despoiler's "choose a unit here", raised by her attack-or-defend
    * trigger, which has already established that such a unit exists.
@@ -3498,6 +4133,42 @@ function exhaustGear(state: GameState, playerIndex: 0 | 1, gearInstanceId: strin
  * that throws on a duplicate defId — so a card registered both here and in the
  * built-in table is a named error at import, not a silent last-write-wins.
  */
+/** What Wild Claw may banish from the five it looked at — "a unit or gear", and
+ *  filtered to what its printed [5] Energy reduction covers OUTRIGHT, since this
+ *  engine cannot pay a real cost mid-resolution. Reinforce's identical narrowing
+ *  is the recorded divergence this inherits. */
+function wildClawCandidates(state: GameState, playerIndex: 0 | 1) {
+  return state.players[playerIndex].deck
+    .slice(0, WILD_CLAW_LOOK)
+    .filter((c) => (c.kind === "Unit" || c.kind === "Gear") && c.energyCost <= WILD_CLAW_REDUCTION);
+}
+
+/** The units Cataclysmic Duel offers a player to keep — their own, both zones.
+ *  Always at least one option: a player controlling nothing answers
+ *  `DUEL_KEEPS_NOTHING`, because a MOOT question is dropped and would break the
+ *  chain before the other player was asked. */
+function duelKeepOptions(state: GameState, playerIndex: 0 | 1): DecisionOption[] {
+  const mine = ownUnitsEverywhere(state, playerIndex);
+  if (mine.length === 0) return [{ id: DUEL_KEEPS_NOTHING, label: "You control no units" }];
+  return mine.map((u) => ({ id: u.instanceId, label: `Keep ${u.name}`, instanceId: u.instanceId }));
+}
+
+/** The enemy units Corrupted Dragon may shove home — at HIS battlefield, and 5
+ *  effective Might or less. Re-derived per answer off live state, so a unit
+ *  pumped out of range between two answers is out of range. */
+function corruptedDragonTargets(state: GameState, d: PendingDecision): UnitInstance[] {
+  if (d.cardInstanceId === undefined) return [];
+  const here = findUnitOnBattlefield(state, d.cardInstanceId);
+  if (!here) return [];
+  const battlefield = state.battlefields[here.battlefieldIndex]!;
+  const enemyId = state.players[d.playerIndex === 0 ? 1 : 0].id;
+  return (battlefield.units[enemyId] ?? []).filter(
+    (u) =>
+      effectiveMight(state, u, d.playerIndex === 0 ? 1 : 0, { isCombat: false, battlefieldId: battlefield.id }) <=
+      CORRUPTED_DRAGON_MAX_MIGHT,
+  );
+}
+
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
   "UNL-102": {
     // Crowd Favorite — "[Hunt] (When I conquer or hold, gain 1 XP.) Spend 2 XP:

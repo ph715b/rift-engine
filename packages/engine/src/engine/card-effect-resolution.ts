@@ -26,6 +26,10 @@ function choicesOf(entry: SpellChainEntry): ResolveEvent {
     ...(entry.destinationIsBase === true ? { destinationIsBase: true as const } : {}),
     ...(entry.discardCardInstanceId !== undefined ? { discardCardInstanceId: entry.discardCardInstanceId } : {}),
     ...(entry.targetPermanentInstanceId !== undefined ? { targetPermanentInstanceId: entry.targetPermanentInstanceId } : {}),
+    // Part of the COST, so it carries across a `[Repeat]`'s second execution with
+    // `discardCardInstanceId` rather than being re-chosen — 820.1.c.1 pays the
+    // cost once, as the card is played.
+    ...(entry.optionalPowerPaid !== undefined ? { optionalPowerPaid: entry.optionalPowerPaid } : {}),
   };
 }
 

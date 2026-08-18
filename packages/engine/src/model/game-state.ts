@@ -134,6 +134,23 @@ export interface SpellChainEntry {
   playerIndex: 0 | 1;
   card: SpellInstance;
   /**
+   * Whether this play paid its OPTIONAL POWER additional cost — Rampage's "as you
+   * play this, you may pay [Body]".
+   *
+   * **The flag reached UNIT triggers and not SPELL resolvers until 2026-08-17**,
+   * and `OPTIONAL_POWER_COSTS` is the reason nobody noticed: every card in that
+   * table was a Unit, so `optionalPowerPaid` was threaded onto the unit-trigger
+   * event and never onto the chain. A Spell reading it would have compiled
+   * against `ResolveEvent`, been enumerated at two prices, and then resolved
+   * identically at both — a card paying a cost for nothing.
+   *
+   * That is the same shipped-correct-and-INERT shape `OPTIONAL_POWER_COSTS`'
+   * own notes record TWICE for Pyke and Nami, from the other direction: there
+   * the trigger was written and the row was missing, here the row exists and the
+   * carrier did not. Both make an enumerable choice that changes nothing.
+   */
+  optionalPowerPaid?: true;
+  /**
    * The ENERGY actually spent to play this spell, after every discount — not
    * its printed cost.
    *

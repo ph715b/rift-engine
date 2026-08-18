@@ -122,6 +122,10 @@ export function playCardDefIds(): string[] {
     // text is the conditional enter-ready — so this array is his ONLY
     // registration anywhere, and coverage reports him unimplemented without it.
     SHADOW_ASSASSIN,
+    // Corrupted Dragon's enter-ready half. His attack clause registers him in
+    // effects/body.ts too, and coverage merges the two claims — the same split
+    // Monch, Scorchclaw and Bandle Soldier all have above.
+    CORRUPTED_DRAGON,
     ...GEAR_ENTERING_EXHAUSTED,
   ];
 }
@@ -342,6 +346,22 @@ function conditionalEntersReady(state: GameState, playerIndex: 0 | 1, card: Unit
       // on one reading of a condition and deployed on another is the shape this
       // file's own Leona note warns about.
       return opponentControlsStunnedUnit(state, playerIndex);
+    case CORRUPTED_DRAGON:
+      // VEN — "If your score is NOT within 3 points of the Victory Score, I enter
+      // ready."
+      //
+      // **The inverse of Leona - Zealot's comeback clause, and measured on the
+      // OTHER player.** Hers asks whether an OPPONENT is close to winning; his
+      // asks whether HIS controller is not — a 10-Energy body that arrives ready
+      // while you are behind and arrives exhausted once you are about to win.
+      //
+      // `opponentNearVictory(state, opponentIndex)` is that question asked from
+      // the other seat: it reports whether the opponent OF the index passed is
+      // near victory, so passing the opponent's index asks about `playerIndex`
+      // themselves. Reusing it rather than writing a second comparison is what
+      // keeps both cards measuring against THIS game's Victory Score — which
+      // Aspirant's Climb can raise, and which the printed 8 would miss.
+      return !opponentNearVictory(state, playerIndex === 0 ? 1 : 0);
     case SHADOW_ASSASSIN:
       // VEN — "I enter ready if you have a card with MY NAME in your trash." His
       // whole printed text, and Vendetta's first entry in this switch.
@@ -432,6 +452,10 @@ const SCORCHCLAW_LEVEL = 3;
  *  your trash." Vendetta's only conditional enter-ready, and the first in this
  *  file whose condition is about a card's NAME rather than about the board. */
 const SHADOW_ASSASSIN = "VEN-013";
+/** Corrupted Dragon (VEN-091): "If your score is not within 3 points of the
+ *  Victory Score, I enter ready." His attack clause is an event trigger in
+ *  effects/body.ts, so coverage merges both claims. */
+const CORRUPTED_DRAGON = "VEN-091";
 const BANDLE_SOLDIER = "UNL-151";
 const BANDLE_SOLDIER_LEVEL = 3;
 /** Master Yi - Wuju Master (UNL-191) — "[Level 11][>] Your units enter ready."

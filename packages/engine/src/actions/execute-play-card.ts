@@ -859,6 +859,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       ...(action.additionalCostPermanentInstanceId !== undefined
         ? { additionalCostPermanentInstanceId: action.additionalCostPermanentInstanceId }
         : {}),
+      // Forwarded onto the CHAIN, not only onto a unit trigger. Rampage is the
+      // pool's first SPELL with an optional Power cost, and without this hop the
+      // card is enumerated at two prices and resolves identically at both — see
+      // `SpellChainEntry.optionalPowerPaid`.
+      ...(action.optionalPowerPaid !== undefined ? { optionalPowerPaid: action.optionalPowerPaid } : {}),
       ...(action.discardCardInstanceId !== undefined ? { discardCardInstanceId: action.discardCardInstanceId } : {}),
         // Forwarded for the same reason trashCardInstanceId is: a field that
         // exists on the action, is validated, is enumerated — and is then

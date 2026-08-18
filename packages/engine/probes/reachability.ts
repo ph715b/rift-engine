@@ -616,7 +616,14 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // `everyUnexercisedExplained` will hold VEN to in Phase 4, not a defect: a
 // covering deck seats one printing of a card, so the twin is never drawn. The
 // per-set figures again held EXACTLY (OGN 228, OGS 21, SFD 188, UNL 205).
-const PINNED_UNION = 714;
+//
+// **714 -> 725 on 2026-08-18, against 729 measured after the Body wave.** Twelve
+// cards implemented and eleven newly exercised (VEN 76 -> 87), with the four
+// finished sets holding EXACTLY for the FOURTH consecutive wave. That stability
+// is the check worth doing every time: a finished set's figure moving would be a
+// displacement in a covering deck rather than new coverage, and is the thing to
+// explain.
+const PINNED_UNION = 725;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

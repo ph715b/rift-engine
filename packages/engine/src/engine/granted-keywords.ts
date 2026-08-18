@@ -707,6 +707,11 @@ const DISCIPLE_OF_SHEN = "VEN-117";
 const DISCIPLE_OF_SHEN_ALLIES = 1;
 const DISCIPLE_OF_SHEN_SHIELD = 3;
 
+/** Repair Specialist (VEN-076): "I have [Assault] equal to the number of gear
+ *  you control." The printed keyword is stripped in card-loader's
+ *  GRANTED_ONLY_KEYWORDS and handed back here at the value the board says. */
+const REPAIR_SPECIALIST = "VEN-076";
+
 /** Ancient Warmonger: "I have [Assault] equal to the number of enemy units
  *  here." */
 const ANCIENT_WARMONGER = "SFD-131";
@@ -734,6 +739,22 @@ const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
     // should look like to a reader that only asks whether the keyword is there.
     value: (state, unit, ownerIndex) =>
       otherOwnUnitsHere(state, unit, ownerIndex) === DISCIPLE_OF_SHEN_ALLIES ? DISCIPLE_OF_SHEN_SHIELD : 0,
+  },
+  [REPAIR_SPECIALIST]: {
+    keyword: "Assault",
+    // "The number of GEAR YOU CONTROL" — `activeGear`, unpositioned, so unlike
+    // Ancient Warmonger's count below this one is the same wherever he stands.
+    // Measured off `ownerIndex`, which is HIS controller: "you" in a card's own
+    // text is always its controller (355.9).
+    //
+    // Gear TOKENS count. 185 makes a token not a card, and this counts gear
+    // rather than cards — a Gold token in `activeGear` is a gear you control, and
+    // nothing in the sentence narrows it.
+    //
+    // A 0 is folded in as a 0 rather than skipped, per this table's convention:
+    // it keeps the key present for `hasKeyword`'s `in` check without adding
+    // Might, which is what "no gear, no Assault" should look like.
+    value: (state, _unit, ownerIndex) => state.players[ownerIndex].activeGear.length,
   },
   [ANCIENT_WARMONGER]: {
     keyword: "Assault",

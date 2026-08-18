@@ -681,6 +681,12 @@ export interface ResolveEvent {
   /** The unit OR gear chosen by a `unitOrGear`-kind spec. Deliberately not
    *  `targetUnitInstanceId`: every reader of that field assumes a unit. */
   targetPermanentInstanceId?: string;
+  /** Whether this play paid its OPTIONAL POWER additional cost — Rampage's
+   *  "you may pay [Body]". The Unit half of this flag has ridden the on-play
+   *  trigger event since Clockwork Keeper; see `SpellChainEntry.optionalPowerPaid`
+   *  for why the Spell half arrived two sets later and what it was inert
+   *  against. */
+  optionalPowerPaid?: boolean;
   /**
    * The ordered targets of a `unitList`-kind spec — Falling Star's two, Icathian
    * Rain's six, Fox-Fire's any number.
@@ -1123,6 +1129,11 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, OptionalPowerCostSpec>> = {
   // off the action, since by resolution nothing on the board records how he was
   // paid for.
   "VEN-120": { domain: "Order", count: 1 },
+  // Rampage (VEN-083) — "As you play this, you may pay [Body] as an additional
+  // cost." **The pool's first SPELL in this table**, and that is what exposed the
+  // flag never reaching a Spell resolver: every other row is a Unit, whose
+  // on-play trigger reads `optionalPowerPaid` off a different event.
+  "VEN-083": { domain: "Body", count: 1 },
   "SFD-098": { energy: 1 }, // Sea Monkey — [1], no rune at all
   // Akshan - Mischievous — [Body][Body]. The pool's first optional cost of TWO
   // runes; every other one is a single pip, which is why `count` had never been

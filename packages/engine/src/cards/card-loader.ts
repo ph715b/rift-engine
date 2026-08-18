@@ -897,6 +897,17 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // `CONDITIONAL_GRANTS` one, because his has a VALUE: those grant at 1, and
   // `[Shield 3]` is not `[Shield]`.
   "VEN-117": ["Shield"],
+  // **VEN-076 Repair Specialist — "I have [Assault] equal to the number of gear
+  // you control."** Ancient Warmonger's shape exactly (SFD-131 above): a keyword
+  // the card gives ITSELF at a value only the board can supply.
+  //
+  // Left in, he has a flat `[Assault 1]` FLOOR — `effectiveKeywords` merges the
+  // computed value with `Math.max`, so a Specialist with no gear at all swings
+  // at +1 for an ability that reads "equal to zero". That is the same
+  // stronger-than-printed direction Warmonger's own note records, and it is why
+  // per-KEYWORD stripping exists rather than `CONDITIONAL_KEYWORD_DEF_IDS`,
+  // which returns `{}` and would take any other printed keyword with it.
+  "VEN-076": ["Assault"],
 
   // ---- Unleashed's four, found 2026-08-09 ----
   //
