@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
+import type { Domain } from "../model/domain.js";
 import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
@@ -520,6 +521,7 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
         unitOrGearTargets(state, {
           playerIndex,
           ...(targeting.owner !== undefined ? { owner: targeting.owner } : {}),
+          ...(targeting.domain !== undefined ? { domain: targeting.domain } : {}),
           ...(targeting.includesFacedown !== undefined ? { includesFacedown: targeting.includesFacedown } : {}),
         }).length > 0
       );
@@ -591,7 +593,12 @@ export function unitOrGearTargets(
    *  gets exactly the walk it always had. */
   opts: {
     playerIndex?: 0 | 1;
-    owner?: "friendly";
+    owner?: "friendly" | "enemy";
+    /** Decree of Unity's "an enemy CHAOS unit or gear" — the permanent must have
+     *  this domain AMONG its domains, so a Fury+Chaos unit qualifies. Needs
+     *  `playerIndex` to be meaningful only through `owner`; the domain half is
+     *  measured off the permanent alone. */
+    domain?: Domain;
     excludeInstanceId?: string;
     includesFacedown?: true;
     /** WHO is choosing — Ruin Runner's "enemy spells and abilities". Separate
@@ -603,17 +610,25 @@ export function unitOrGearTargets(
   } = {},
 ): { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] {
   const out: { instanceId: string; name: string; ownerIndex: 0 | 1; isGear: boolean }[] = [];
+  // A permanent's DOMAINS, when the spec names one. Read off the instance rather
+  // than re-looked-up from the registry: a token carries `domains: []` and is
+  // therefore not a Chaos unit, which is the right answer and one a registry
+  // lookup by defId could not give (`TOKEN-…` is not a card).
+  const domainOk = (domains: readonly Domain[]): boolean =>
+    opts.domain === undefined || domains.includes(opts.domain);
   for (const bf of state.battlefields) {
     for (const [ownerId, units] of Object.entries(bf.units)) {
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
       for (const u of units) {
         if (opts.chooserIndex !== undefined && !unitChooseableBy(state, u, ownerIndex, opts.chooserIndex)) continue;
+        if (!domainOk(u.domains)) continue;
         out.push({ instanceId: u.instanceId, name: u.name, ownerIndex, isGear: false });
       }
     }
   }
   for (const index of [0, 1] as const) {
     for (const g of state.players[index].activeGear) {
+      if (!domainOk(g.domains)) continue;
       out.push({ instanceId: g.instanceId, name: g.name, ownerIndex: index, isGear: true });
     }
   }
@@ -631,7 +646,11 @@ export function unitOrGearTargets(
   return out.filter(
     (t) =>
       t.instanceId !== opts.excludeInstanceId &&
-      !(opts.owner === "friendly" && opts.playerIndex !== undefined && t.ownerIndex !== opts.playerIndex),
+      !(opts.owner === "friendly" && opts.playerIndex !== undefined && t.ownerIndex !== opts.playerIndex) &&
+      // The mirror of the line above, and it needs `playerIndex` for the same
+      // reason: "enemy" is measured from the CHOOSER's seat, and a walk with no
+      // chooser has nothing to measure it against.
+      !(opts.owner === "enemy" && opts.playerIndex !== undefined && t.ownerIndex === opts.playerIndex),
   );
 }
 

@@ -128,6 +128,7 @@ function makeState(): GameState {
     spellResolvingForIndex: null,
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
+    damagePreventionPoolByInstanceId: {},
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,

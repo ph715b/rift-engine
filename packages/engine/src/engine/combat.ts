@@ -3,7 +3,7 @@ import type { UnitInstance } from "../model/card.js";
 import { recordConquest } from "./scoring.js";
 import { effectiveMight } from "./effective-might.js";
 import { anyDamageIsLethalTo, damageIsDoubledFor, takesNoDamage } from "./damage-modifiers.js";
-import { hasKeyword } from "./granted-keywords.js";
+import { hasKeyword, otherOwnUnitsHere } from "./granted-keywords.js";
 import { healAllUnits, killUnit, relocateToBaseUnchanged } from "./effect-helpers.js";
 import { clearContested } from "./cleanup.js";
 import { holdEventTrigger } from "./triggers.js";
@@ -49,6 +49,22 @@ function outgoingMight(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1, 
   // would deal it AND his Might in the damage step — strictly stronger than
   // printed, which is the one direction this codebase does not ship.
   if (DEALS_NO_COMBAT_DAMAGE_DEF_IDS.has(unit.defId)) return 0;
+  // Sacred Protector (VEN-129) — "I don't deal combat damage UNLESS I'm at a
+  // battlefield with exactly one other unit you control."
+  //
+  // The same clause as Ezreal - Dashing's one line up, with a condition on it,
+  // which is why it cannot join that Set. His is a flat drawback; hers is a
+  // 6-Might body that is live only in a two-unit formation — Vendetta's Order
+  // motif, and the reason `otherOwnUnitsHere` is shared rather than counted here.
+  //
+  // "UNLESS" inverts it: she deals nothing when the count is anything BUT one,
+  // and `otherOwnUnitsHere` answering `undefined` (she is in base) is one of
+  // those. A unit in base is not in a combat at all, so that branch is
+  // unreachable from here — asked anyway, because a predicate that silently
+  // depends on its caller's context is how the next reader gets it wrong.
+  if (DEALS_NO_COMBAT_DAMAGE_UNLESS_PAIRED.has(unit.defId) && otherOwnUnitsHere(state, unit, ownerIndex) !== PAIRED_ALLIES) {
+    return 0;
+  }
   return effectiveMight(state, unit, ownerIndex, { isCombat: true, isAttackingSide, combatRole: "outgoing", battlefieldId });
 }
 
@@ -158,6 +174,14 @@ const ASSIGNED_LAST_DEF_IDS = new Set(["OGN-068"]); // Caitlyn - Patrolling, who
  *  `outgoingMight`, beside the Stun rule it mirrors. */
 const DEALS_NO_COMBAT_DAMAGE_DEF_IDS = new Set(["SFD-082"]); // Ezreal - Dashing
 
+/** Units that deal no combat damage UNLESS exactly one other friendly unit
+ *  stands with them — Sacred Protector (VEN-129). A separate table from the flat
+ *  one above because the condition is the card: hers is a formation requirement,
+ *  not a drawback she always carries. */
+const DEALS_NO_COMBAT_DAMAGE_UNLESS_PAIRED = new Set(["VEN-129"]);
+/** ...and the count that satisfies it — "exactly ONE other unit you control". */
+const PAIRED_ALLIES = 1;
+
 /** Symbol of the Solari: "If a combat where you are the attacker ends in a tie,
  *  recall ALL units instead." A Gear that changes rule 466's step 3d, so it is
  *  read here rather than registered as an effect. */
@@ -206,7 +230,16 @@ function assignmentOrder(state: GameState, units: readonly UnitInstance[], owner
 /** The cards whose printed text this module implements, for coverage.ts — the
  *  same reason effective-might.ts and granted-keywords.ts export theirs. */
 export function combatAssignmentDefIds(): string[] {
-  return [...ASSIGNED_LAST_DEF_IDS, ...DEALS_NO_COMBAT_DAMAGE_DEF_IDS, SYMBOL_OF_THE_SOLARI];
+  // Sacred Protector's conditional clause is her ENTIRE printed text, so this
+  // list is her only registration anywhere — the Lucian - Purifier trap, which
+  // costs a working card its place in generated decks and its visibility to
+  // `reachability`.
+  return [
+    ...ASSIGNED_LAST_DEF_IDS,
+    ...DEALS_NO_COMBAT_DAMAGE_DEF_IDS,
+    ...DEALS_NO_COMBAT_DAMAGE_UNLESS_PAIRED,
+    SYMBOL_OF_THE_SOLARI,
+  ];
 }
 
 /**

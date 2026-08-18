@@ -397,7 +397,40 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
     modifiedDamageAmount(state, casterIndex, amount, targetBattlefieldId) *
     (damageIsDoubledFor(state, targetInstanceId) ? LOTUS_TRAP_MULTIPLIER : 1);
 
-  const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + modifiedAmount };
+  // **Ki Barrier's pool (VEN-126), absorbed AFTER the modifiers and BEFORE the
+  // lethal test.** "Prevent the next 7 damage that would be dealt to it this
+  // turn" is a replacement on the damage being DEALT (369.1's "would"), so it
+  // acts on the amount that is actually arriving — Annie - Fiery's +1 is part of
+  // what the barrier eats, and a Lotus Trap doubling is doubled before the
+  // barrier sees it, exactly as the multiplication order above establishes.
+  //
+  // Ordered after Counter Strike's single-use shield rather than before it, and
+  // the difference is observable: Counter Strike stops the whole instance and is
+  // spent, so a unit holding both keeps its barrier full. That is the
+  // conservative reading of "the NEXT time that unit WOULD be dealt damage" —
+  // with the instance prevented outright, no damage would be dealt for a pool to
+  // absorb.
+  //
+  // A pool that does not cover the hit lets the REMAINDER through, which is the
+  // card's own reminder text: "opponents can assign it extra combat damage to
+  // kill it." Emptied keys are dropped rather than left at 0, so the record stays
+  // a statement about units that still have a barrier.
+  const barrier = state.damagePreventionPoolByInstanceId[targetInstanceId] ?? 0;
+  const absorbed = Math.min(barrier, modifiedAmount);
+  const arriving = modifiedAmount - absorbed;
+  const stateAfterBarrier: GameState =
+    absorbed === 0
+      ? state
+      : {
+          ...state,
+          damagePreventionPoolByInstanceId: withBarrierSpent(
+            state.damagePreventionPoolByInstanceId,
+            targetInstanceId,
+            barrier - absorbed,
+          ),
+        };
+
+  const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + arriving };
   // A base unit has no battlefield id — continuous auras keyed on location
   // (Garen - Commander) resolve it as "base" from the omitted field.
   const mightCtx = zone === "base" ? { isCombat: false } : { isCombat: false, battlefieldId: state.battlefields[zone.battlefieldIndex]!.id };
@@ -410,8 +443,16 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // only order that works: a unit that dies to the damage anyway must die by the
   // ordinary path (so the killer is attributed and the Deathknell reads the right
   // damage), and one that survives must still be killed.
+  //
+  // **`arriving > 0` is Ki Barrier's doing, and it is the whole point of a
+  // prevention.** A hit absorbed in full is damage that was NOT dealt, so a
+  // delayed kill waiting on "the next time it takes damage" has not seen one —
+  // without this, a 7-point barrier would turn Noxian Guillotine's marker into an
+  // execution the barrier was bought to stop. A PARTIAL absorption still deals
+  // damage and still trips it, which is the same reading from the other side.
   const sentenced =
-    state.killDamagedUnitsThisTurn || state.markedForDeathOnDamageInstanceIds.includes(targetInstanceId);
+    arriving > 0 &&
+    (state.killDamagedUnitsThisTurn || state.markedForDeathOnDamageInstanceIds.includes(targetInstanceId));
   // Elder Dragon — "any amount of your damage is enough to kill enemy units"
   // (142.4.c, which names the card). A LETHAL-DAMAGE override, so it sits in the
   // lethal test rather than in `modifiedDamageAmount` above: the Dragon does not
@@ -423,12 +464,15 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // `modifiedAmount > 0` is "any AMOUNT": a prevented or zeroed hit marks
   // nothing, and 142.4.b's own floor is "a non-zero amount".
   const dragonKills =
-    modifiedAmount > 0 && casterIndex !== ownerIndex && anyDamageIsLethalTo(state, ownerIndex);
+    arriving > 0 && casterIndex !== ownerIndex && anyDamageIsLethalTo(state, ownerIndex);
   const isLethal =
     sentenced || dragonKills || effectiveMight(state, unit, ownerIndex, mightCtx) - damagedUnit.damage <= 0;
 
   if (isLethal) {
-    const stateAfterRemoval = removeUnitAnywhere(state, targetInstanceId);
+    // From `stateAfterBarrier`, not `state`: the barrier was spent by this hit and
+    // must stay spent whether or not the hit killed. Threading the pre-barrier
+    // state on into a death would refund a prevention nobody got back.
+    const stateAfterRemoval = removeUnitAnywhere(stateAfterBarrier, targetInstanceId);
     // The damaged copy, not `unit` — a Deathknell reading "my" attributes
     // (rule 808.1.d.3) must see the state the unit died in.
     return killUnit(
@@ -442,7 +486,42 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
     );
   }
 
-  return updateUnitAnywhere(state, targetInstanceId, () => damagedUnit);
+  return updateUnitAnywhere(stateAfterBarrier, targetInstanceId, () => damagedUnit);
+}
+
+/**
+ * A damage-prevention pool with `remaining` left on one unit — the key DROPPED
+ * when it empties.
+ *
+ * Dropped rather than left at 0 so the record stays a statement about units that
+ * still have a barrier: `?? 0` reads an absent key and a zeroed one identically,
+ * but only one of them is honest to a debugger or to a future card asking "is
+ * anything shielded".
+ */
+function withBarrierSpent(pool: Record<string, number>, instanceId: string, remaining: number): Record<string, number> {
+  if (remaining > 0) return { ...pool, [instanceId]: remaining };
+  const next = { ...pool };
+  delete next[instanceId];
+  return next;
+}
+
+/**
+ * Adds `amount` to a unit's damage-prevention pool — Ki Barrier's "prevent the
+ * next 7 damage that would be dealt to it this turn".
+ *
+ * Two barriers on one unit SUM. Nothing in the text makes them separate shields,
+ * and a queue would differ only in which empties first, which nothing can
+ * observe. Recorded Unverified in docs/rules-conformance.md.
+ */
+export function addDamagePreventionPool(state: GameState, targetInstanceId: string, amount: number): GameState {
+  if (amount <= 0) return state;
+  return {
+    ...state,
+    damagePreventionPoolByInstanceId: {
+      ...state.damagePreventionPoolByInstanceId,
+      [targetInstanceId]: (state.damagePreventionPoolByInstanceId[targetInstanceId] ?? 0) + amount,
+    },
+  };
 }
 
 /** Unconditionally removes a unit at a battlefield to its owner's trash —
@@ -588,6 +667,28 @@ export function withMightTransitions(
     next = holdEventTrigger(next, { kind: "unitBecameMighty", ownerIndex: now.ownerIndex, unitInstanceId: id });
   }
   return next;
+}
+
+/**
+ * REPLACES a unit's base Might for the turn — Dragon Form's "its base Might
+ * becomes 5 this turn".
+ *
+ * **Deliberately not part of `giveMightThisTurn` below, because it is a
+ * different LAYER rather than a different amount.** 477.1.a.1 assigns Might in
+ * layer 1 (Trait-Altering) and quotes this exact sentence as its example; 477.3
+ * puts arithmetic third. So every pump, buff, aura and keyword bonus still
+ * applies ON TOP of what this sets, and folding the two together would make
+ * whichever ran last win.
+ *
+ * No floor and no clamp: 0 is a legal assignment, and `effectiveMight`'s own
+ * `Math.max(0, m)` is what keeps a negative TOTAL from being referenced
+ * (143.2.b).
+ *
+ * No-ops on a unit that has left play, the same target-vanished convention every
+ * helper here follows (359.3.e.12).
+ */
+export function setBaseMightThisTurn(state: GameState, targetInstanceId: string, might: number): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (unit) => ({ ...unit, baseMightThisTurn: might }));
 }
 
 export function giveMightThisTurn(

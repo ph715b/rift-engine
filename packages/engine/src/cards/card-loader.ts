@@ -877,6 +877,27 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // a `CONDITIONAL_GRANTS` entry sharing one predicate with her Might half.
   "SFD-143": ["Ganking"],
 
+  // ---- Vendetta's first, 2026-08-17 ----
+  //
+  // **VEN-117 Disciple of Shen — "I have [Shield 3] WHILE I'm at a battlefield
+  // with exactly one other unit you control."** Sivir's shape again, and the
+  // seventh instance of it: a keyword printed inside a condition parses as a flat
+  // printed one, because `KW_PATTERN` sees brackets and not sentences.
+  //
+  // Left in, he is a 1-Might unit with a permanent `[Shield 3]` — a 4-Might
+  // defender in his own base, where the card gives him nothing at all. That is
+  // the "stronger than printed" direction, which coverage.ts's own note calls the
+  // worse one: the card looks finished and quietly does something else.
+  //
+  // Per-KEYWORD rather than `CONDITIONAL_KEYWORD_DEF_IDS`, which returns `{}` and
+  // would take his real printed `[Hidden]` with it — the same constraint Sivir's
+  // entry and Ancient Warmonger's both record.
+  //
+  // The runtime grant is a `DYNAMIC_KEYWORD_VALUES` entry rather than a
+  // `CONDITIONAL_GRANTS` one, because his has a VALUE: those grant at 1, and
+  // `[Shield 3]` is not `[Shield]`.
+  "VEN-117": ["Shield"],
+
   // ---- Unleashed's four, found 2026-08-09 ----
   //
   // **Sivir's shape, four more times, and two agents found it independently.**

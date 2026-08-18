@@ -697,7 +697,15 @@ export function effectiveMight(state: GameState, unit: UnitInstance, ownerIndex:
   //
   // The badge is ART-ONLY data — it is in no field of the card JSON — so it
   // comes from a hand-transcribed table. See card-loader's EQUIP_MIGHT_BONUS.
-  let m = unit.might + unit.mightThisTurn + buffValue + equipmentMightBonusFor(state, unit.instanceId);
+  // **Layer 1 before layer 3**: Dragon Form's "its base Might becomes 5 this
+  // turn" REPLACES the printed figure, and every term on this line and below
+  // then adds to the new one. 477.1.a.1 assigns Might in the Trait-Altering
+  // layer and quotes that sentence as its example; 477.3 puts arithmetic third.
+  //
+  // `??` rather than a truthiness test, because **0 is a legal assignment** and
+  // `0 || unit.might` would silently hand back the printed Might.
+  const base = unit.baseMightThisTurn ?? unit.might;
+  let m = base + unit.mightThisTurn + buffValue + equipmentMightBonusFor(state, unit.instanceId);
   if (ctx.isCombat) {
     // Granted keywords count: Raging Soul's [Assault] arrives from its own text
     // rather than from the card frame, and combat must not be able to tell the

@@ -80,6 +80,34 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    */
   mightThisTurn: number;
   /**
+   * This unit's base Might, REPLACED for the current turn — Dragon Form
+   * (VEN-116): "Choose a unit. Its base Might becomes 5 this turn."
+   *
+   * **A different LAYER from `mightThisTurn` above, not a different amount.**
+   * 477.1.a.1 puts "assignment of Might" in layer 1 (Trait-Altering) and quotes
+   * this exact sentence as its worked example — "A spell reads 'A unit's Might
+   * becomes 4 this turn.' The unit's Might is set to 4 in this layer" — while
+   * 477.3 puts arithmetic in layer 3. So this replaces the printed `might` and
+   * every other source still adds ON TOP of the new figure: a 5 set here, plus a
+   * buff, plus an aura, plus `[Assault]`, is 5 + all of them.
+   *
+   * That ordering is the whole card. Setting it as a delta instead would make
+   * Dragon Form a pump on a big unit and a shrink on nothing, where the printed
+   * card is a leveller that turns a 1-Might token into a 5 and a 7-Might
+   * champion into a 5.
+   *
+   * Optional, and absent means "use the printed Might" — the ordinary case for
+   * every unit in the pool. `undefined` rather than a sentinel number because
+   * **0 is a legal assignment**: a card setting a unit's base Might to 0 must be
+   * distinguishable from one that set nothing.
+   *
+   * Swept by runEnd with `mightThisTurn`, and DELETED rather than zeroed, for the
+   * reason `grantedTriggersThisTurn` records: `exactOptionalPropertyTypes` makes
+   * an absent key a different type from a present one, and absent is what every
+   * untouched unit carries.
+   */
+  baseMightThisTurn?: number;
+  /**
    * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
    * (rule 705), which persists across turns until it is spent or the unit
    * leaves play (rule 705).

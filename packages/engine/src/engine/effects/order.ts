@@ -6,9 +6,11 @@ import type { DeathknellDefinition, DeathWatchDefinition, EventTriggerDefinition
 import type { DecisionDefinition } from "../decisions.js";
 import {
   addBuff,
+  addDamagePreventionPool,
   canSpendXp,
   channelRunesExhausted,
   destroyUnit,
+  disempowerPermanent,
   drawCards,
   exhaustGear,
   forceMoveToBattlefield,
@@ -16,15 +18,18 @@ import {
   gainXp,
   giveMightThisTurn,
   giveMightThisTurnToAllFriendlies,
+  giveMightThisTurnToOwnUnit,
   grantTemporary,
   legionActive,
   holdCardsRecycled,
   ownUnitsEverywhere,
+  payEnergyFromPool,
   payPowerFromChanneled,
   readyUnit,
   recycleCardFromHand,
   recycleUnitFromPlayToDeck,
   returnCardFromTrash,
+  setBaseMightThisTurn,
   spendBuff,
   spendXp,
   stunUnits,
@@ -38,7 +43,7 @@ import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { isAttackingAt, isStillHere } from "../combat-designation.js";
-import { hasKeyword, isMighty } from "../granted-keywords.js";
+import { hasKeyword, isMighty, otherOwnUnitsHere } from "../granted-keywords.js";
 import { effectiveMight } from "../effective-might.js";
 import type { UnitInstance } from "../../model/card.js";
 import type { GameState, PendingDecision, PlayerState } from "../../model/game-state.js";
@@ -149,7 +154,183 @@ const JUDGMENT_KEEP = 2;
  */
 const BONDS_OF_STRENGTH_MIGHT = 1;
 
+/** Dragon Form's assignment — "its base Might BECOMES 5 this turn". */
+const DRAGON_FORM_MIGHT = 5;
+/** Ki Barrier's pool — "prevent the next 7 damage". */
+const KI_BARRIER_PREVENTION = 7;
+/** Lacerate's ceiling — "kill it if it has 3 [Might] or less". */
+const LACERATE_MAX_MIGHT = 3;
+/** Reluctant Leader's pump per OTHER unit played. */
+const RELUCTANT_LEADER_MIGHT = 2;
+/** Hungry Wolf's pump, and the one enemy choice that unlocks him. */
+const HUNGRY_WOLF_MIGHT = 1;
+const HUNGRY_WOLF_CHOICES_NEEDED = 1;
+/** Kennen's toll, his stun bonus, and the question his "you may pay" parks. */
+const KENNEN = "VEN-135";
+const KENNEN_STUN_ENERGY = 2;
+const KENNEN_MIGHT = 2;
+const KENNEN_STUN = "VEN-135-stun";
+/** Shen's hold clause and Vendetta's Order motif — "exactly ONE other unit you
+ *  control here". The same number `granted-keywords.otherOwnUnitsHere` is
+ *  compared against by Disciple of Shen and Sacred Protector; kept as this file's
+ *  own constant because it is Shen's printed number, not a shared rule. */
+const SHEN_ALLIES = 1;
+const SHEN_POINTS = 1;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-116": {
+    // Dragon Form — "Choose a unit. Its BASE Might becomes 5 this turn.
+    // [Flow] [3 Energy]."
+    //
+    // # A LEVELLER, and the LAYER is what makes it one
+    //
+    // 477.1.a.1 puts "assignment of Might" in layer 1 (Trait-Altering) and quotes
+    // this card's sentence as its worked example — "A spell reads 'A unit's Might
+    // becomes 4 this turn.' The unit's Might is set to 4 in this layer" — while
+    // 477.3 puts arithmetic third. So the printed Might is REPLACED and every
+    // other source still adds on top of the 5: a buff, an aura, a this-turn pump
+    // and [Assault] all survive.
+    //
+    // That ordering is the card. Written as a delta it would be a pump on a small
+    // unit and nothing on a big one; written as a floor it could never shrink
+    // anything. It is neither — a 1-Might token becomes a 5 and a 7-Might
+    // champion becomes a 5, which is why it is removal as often as a pump.
+    //
+    // `UnitInstance.baseMightThisTurn` is the field, and `effectiveMight` reads it
+    // with `??` rather than `||` because **0 is a legal assignment**. Swept by
+    // runEnd, DELETED rather than zeroed, for the same reason.
+    //
+    // "A unit", bare, so `scope: "anywhere"` — 355.9.a.1's widening. Setting an
+    // ENEMY unit to 5 is a legal play and often the point of the card.
+    //
+    // [Flow] needs nothing here: 829.1.c.1's alternative cost is plumbed
+    // generically, and a card effect is reached identically whichever cost paid
+    // for it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? setBaseMightThisTurn(state, event.targetUnitInstanceId, DRAGON_FORM_MIGHT)
+        : state,
+  },
+  "VEN-126": {
+    // Ki Barrier — "[Reaction] Choose a unit. Prevent the next 7 damage that
+    // would be dealt to it this turn."
+    //
+    // # A POOL, not a shield, and the difference is the whole card
+    //
+    // Counter Strike prevents the next INSTANCE of any size and is spent; this
+    // absorbs an AMOUNT across as many instances as it takes, and a 9-damage hit
+    // against a full barrier still puts 2 through. The card's own reminder text
+    // says so — "opponents can assign it extra combat damage to kill it" — which
+    // is what makes 7 a number rather than a word.
+    //
+    // So it needed real state: `GameState.damagePreventionPoolByInstanceId`, the
+    // remaining amount keyed by unit, spent inside `dealDamage` after the damage
+    // modifiers and before the lethal test. 369.1 makes this a replacement on the
+    // damage that WOULD be dealt, so it acts on what actually arrives — Annie -
+    // Fiery's +1 is part of what the barrier eats, and a Lotus Trap doubling is
+    // doubled before the barrier sees it.
+    //
+    // **A fully absorbed hit is damage that was NOT dealt**, which is why
+    // `dealDamage` also gates Noxian Guillotine's and Imperial Decree's delayed
+    // kills on something getting through. Without that, a 7-point barrier would
+    // turn a death sentence into an execution it was bought to stop.
+    //
+    // **[Reaction] needs nothing here** — timing is `timing.timingTierOf` reading
+    // `isReaction` off the card, and that is what lets this be cast into a combat
+    // damage step, the only window it is worth anything in.
+    //
+    // "A unit", bare, so `scope: "anywhere"` (355.9.a.1). Barriering an ENEMY unit
+    // is legal and pointless, and the card offers it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? addDamagePreventionPool(state, event.targetUnitInstanceId, KI_BARRIER_PREVENTION)
+        : state,
+  },
+  "VEN-127": {
+    // Lacerate — "Choose a unit. If it's [Empowered], disempower it. Then kill it
+    // if it has 3 [Might] or less. [Flow] [4 Energy][Order][Order]."
+    //
+    // # The ORDER of the two instructions is the card
+    //
+    // "Then" is sequential, and it has to be: an [Empowered] unit is carrying its
+    // `empoweredGrant` — a Might bonus, keywords, or both — so disempowering
+    // FIRST is what can drop it to 3 or less and make the kill land. A card that
+    // measured Might before the disempower would fail against exactly the units
+    // it is printed to answer.
+    //
+    // `disempowerPermanent` is the single writer of the status (441.1.a's binary
+    // state) and no-ops on a unit that was never Empowered — so the "if it's
+    // Empowered" guard is that helper's, not a branch here.
+    //
+    // "3 [Might] OR LESS" reads EFFECTIVE Might, not printed: an aura, a buff and
+    // a this-turn pump all count, the reading every other Might threshold in this
+    // pool takes. Non-combat context, so [Assault]/[Shield] do NOT — a defender's
+    // Shield must not save it from a spell cast outside a damage step.
+    //
+    // **Re-read AFTER the disempower**, off the post-disempower state. Reading it
+    // once at the top would measure the unit this card exists to strip.
+    //
+    // Killed through `destroyUnit` rather than by damage: "kill it" is a Kill
+    // Instruction, so [Deathknell]s fire and nothing about the unit's damage track
+    // enters into it.
+    //
+    // "A unit", bare — `scope: "anywhere"` (355.9.a.1), and a friendly target is a
+    // legal if unusual play.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const disempowered = disempowerPermanent(state, targetId);
+      // 359.3.e.12 — a check on something no longer available returns null.
+      const found = findUnitAnywhere(disempowered, targetId);
+      if (!found) return disempowered;
+      const where =
+        found.zone === "base"
+          ? { isCombat: false as const }
+          : { isCombat: false as const, battlefieldId: disempowered.battlefields[found.zone.battlefieldIndex]!.id };
+      const might = effectiveMight(disempowered, found.unit, found.ownerIndex, where);
+      return might <= LACERATE_MAX_MIGHT ? destroyUnit(disempowered, targetId, ctx.casterIndex) : disempowered;
+    },
+  },
+  "VEN-131": {
+    // Decree of Unity — "Kill an enemy Chaos ([Chaos]) unit or gear."
+    //
+    // **Two narrowings on the OFFER, not checks in the resolver**, and for a Spell
+    // that is not a style choice: the targeting IS the effect, so a board with no
+    // enemy Chaos permanent must make this card UNCASTABLE rather than
+    // castable-and-inert. A resolver that refused would leave it spent.
+    //
+    // Both ride the shared `unitOrGearTargets` walk, which the enumerator and the
+    // validator BOTH go through — the enumerate/execute split that has produced
+    // five crashes here, every one found by a probe rather than a test. Neither
+    // call site passed the spec's narrowings before this card; both do now.
+    //
+    // **"A CHAOS unit" means Chaos AMONG its domains**, so a Fury+Chaos unit is a
+    // legal target. That is what a domain reads like everywhere else in the game,
+    // and the alternative (sole-domain only) would exclude most of the set's
+    // dual-domain cards.
+    //
+    // A TOKEN carries `domains: []` and is therefore never a Chaos unit — read off
+    // the instance rather than the registry, which could not answer for a
+    // `TOKEN-` defId at all.
+    //
+    // Killed through the kind-appropriate funnel: `killGear` for a gear so its own
+    // "when I am killed" self-trigger fires (Treasure Trove, Scrapheap), and
+    // `destroyUnit` for a unit so its [Deathknell] does. One `unitOrGear` target
+    // and two kill paths is the shape Fading Memories already has.
+    targeting: { kind: "unitOrGear", owner: "enemy", domain: "Chaos" },
+    resolve: (state, ctx, event) => {
+      const id = event.targetPermanentInstanceId;
+      if (!id) return state;
+      for (const ownerIndex of [0, 1] as const) {
+        const gear = state.players[ownerIndex].activeGear.find((g) => g.instanceId === id);
+        if (gear) return killGear(state, gear, ownerIndex);
+      }
+      return destroyUnit(state, id, ctx.casterIndex);
+    },
+  },
   "SFD-151": {
     // Bonds of Strength — "[Reaction] [Repeat] [2] Give two friendly units each
     // +1 Might this turn."
@@ -912,6 +1093,72 @@ export const cardEffects: Record<string, EffectDefinition> = {
 };
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-120": {
+    // Masa, Crashing Thunder — "You may pay [Order] as an additional cost to play
+    // me. When you play me, if you paid the additional cost, [Stun] an enemy unit
+    // at a battlefield."
+    //
+    // Clockwork Keeper's optional-Power shape with a stun instead of an
+    // enter-ready: the row lives in `card-effects.OPTIONAL_POWER_COSTS`, the
+    // enumerator fans out a paid and an unpaid variant at two prices, and the
+    // flag reaches here as `event.optionalPowerPaid`.
+    //
+    // Read off the ACTION, because by the time this resolves nothing on the board
+    // records how he was paid for — the reason Blast Corps Cadet's entry gives,
+    // and the reason the flag exists at all.
+    //
+    // **The target is chosen whether or not the cost was paid**, a consequence of
+    // targeting being declared per card rather than per branch. A Masa played
+    // cheap names an enemy and then does nothing to it — harmless, and the
+    // alternative is a second spec keyed on a flag the enumerator would have to
+    // read. Blast Corps Cadet records the same trade.
+    //
+    // "An ENEMY unit AT A BATTLEFIELD" — both narrowings printed, so `owner:
+    // "enemy"` and `scope: "battlefield"` (355.9.b's narrowing, the half that
+    // makes a printed location load-bearing).
+    //
+    // `stunUnits` is the funnel, so Gangplank, Naval's replacement (369.1) still
+    // applies and a "when you stun an enemy unit" listener still sees it.
+    targeting: { kind: "unit", owner: "enemy", scope: "battlefield" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.optionalPowerPaid && event.targetUnitInstanceId
+        ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId])
+        : state,
+  },
+  [KENNEN]: {
+    // Kennen, Keeper of Balance — "[Hidden] When you play me OR I attack, you may
+    // pay [2 Energy] to [Stun] a unit. While there's a stunned enemy unit here, I
+    // have +2 [Might]."
+    //
+    // THREE clauses across three mechanisms, and this entry is the first: the
+    // ON-PLAY half of a trigger whose ATTACK half is a `combatBegan` listener in
+    // `eventTriggers` below, and whose Might clause is a `mightModifiers` entry.
+    // One card, three tables, because they are three different things — the split
+    // Master Yi's and Scorchclaw's entries already record.
+    //
+    // **"When you play me OR I attack" is ONE ability with two moments**, and this
+    // engine has no table keyed by both: on-play lives in `unitTriggers` (keyed by
+    // the arriving unit) and on-attack in the event bus (keyed by a listener
+    // walk). So it is registered twice and both park the SAME question kind, which
+    // is what keeps the two moments from drifting into two different offers.
+    //
+    // **[Hidden] needs nothing here** — 811's facedown play is the timing layer's.
+    //
+    // "You MAY pay" is a cost, so this parks a question rather than firing, and
+    // 416.3 means it is not asked at all when the Energy cannot be paid. Asked
+    // through the very helper that will spend it, so affordability and payment
+    // cannot disagree.
+    //
+    // "[Stun] A UNIT" — bare, so either player's and anywhere (355.9.a.1). Stunning
+    // your own unit is a bad play rather than an illegal one, and the card offers
+    // it; his Might clause reads "a stunned ENEMY unit", which is a different
+    // sentence and is filtered separately.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      payEnergyFromPool(state, ctx.casterIndex, KENNEN_STUN_ENERGY) === undefined
+        ? state
+        : parkDecision(state, { kind: KENNEN_STUN, playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
+  },
   "UNL-169": {
     // Ashe - Focused — "When you play me, choose an opponent. They reveal their
     // hand. Choose a card revealed this way and banish it. When they hold, return
@@ -1908,6 +2155,113 @@ export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
 const FIORA_WORTHY_READY_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-121": {
+    // Reluctant Leader — "When you play ANOTHER unit, give me +2 [Might] this
+    // turn."
+    //
+    // Cithria of Cloudfield's sentence, and the `cardPlayed` event carries both
+    // fields it needs for exactly that card: `playedKind` (a Spell must not pump
+    // him) and `playedInstanceId` (his own arrival must not).
+    //
+    // **"ANOTHER unit" excludes himself by INSTANCE**, so a second Reluctant
+    // Leader played beside him does pump the first — "another" is a different
+    // object, not a different card, the reading every "other" in this pool takes.
+    //
+    // **A TOKEN is not a card, and IS a unit.** 185 says "tokens are not cards";
+    // this clause says "another UNIT", so `isToken` is deliberately NOT filtered
+    // — a Recruit arriving pumps him. The event's own note draws exactly this
+    // line, and it is the difference between the listeners that read "play a
+    // card" and those that read "play a unit".
+    //
+    // "When YOU play" is his controller's play, not either player's: the event
+    // fires for both sides, and `casterIndex` is what separates them.
+    //
+    // The pump stacks — three units played is +6 — because each play is its own
+    // instruction and `giveMightThisTurn` adds. That is 477.3's arithmetic layer
+    // and needs no special handling.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Unit" &&
+      event.playedInstanceId !== listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      // Re-checked at resolution as well as in `applies`: the inline
+      // `dispatchEvent` path does not consult `applies` at all, so a condition
+      // asserted only there is asserted only on one of the two routes in.
+      if (event.casterIndex !== listener.ownerIndex) return state;
+      if (event.playedKind !== "Unit" || event.playedInstanceId === listener.card.instanceId) return state;
+      return giveMightThisTurn(state, listener.card.instanceId, RELUCTANT_LEADER_MIGHT);
+    },
+  },
+  [KENNEN]: {
+    // Kennen, Keeper of Balance — the "or I ATTACK" half of the same offer his
+    // `unitTriggers` entry parks on play. See that entry for why one printed
+    // ability is registered in two tables.
+    //
+    // `combatBegan` + `isAttackingAt`, the shared adapter every "when I attack"
+    // card in this pool uses, so Kennen and Yasuo cannot come to different answers
+    // about who is attacking. The designation is fixed when the combat opens
+    // (383), so it is settled in `applies`.
+    //
+    // The payment is asked SPECULATIVELY here so an unaffordable board places no
+    // Pending Item — a held trigger that resolves to nothing still costs both
+    // players a PassFocus, and this one would otherwise fire at every combat he is
+    // in. Re-asked in `resolve`, because the window a hold opens is exactly when
+    // that Energy could be spent elsewhere.
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isAttackingAt(state, listener, event) &&
+      payEnergyFromPool(state, listener.ownerIndex, KENNEN_STUN_ENERGY) !== undefined,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      if (payEnergyFromPool(state, listener.ownerIndex, KENNEN_STUN_ENERGY) === undefined) return state;
+      return parkDecision(state, {
+        kind: KENNEN_STUN,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "VEN-138": {
+    // Shen, Leader of the Kinkou Order — "[Shield] When I hold, if there is
+    // EXACTLY ONE other unit you control here, you score 1 point."
+    //
+    // Dunebreaker's positional hold reading with Vendetta's Order motif attached:
+    // "when **I** hold" means the battlefield he is standing at, which is what
+    // separates him from a "when you conquer" card.
+    //
+    // A hold is 469.2's SCORING moment rather than mere presence, so a battlefield
+    // already scored this turn fires nothing — **470**: "A player may only Score,
+    // from either method, once per Battlefield per turn."
+    //
+    // **EXACTLY one other unit**, so a third body at the battlefield turns him
+    // off. That is the boundary this whole domain is built on, and the mutation
+    // any board with a single ally would never see.
+    //
+    // Both conditions settle in `applies` because the event is held (383) and the
+    // window a hold opens is precisely when he could be moved or killed — but the
+    // COUNT is deliberately re-read in `resolve` as well: it is a condition on the
+    // instruction rather than on the trigger, and a unit that arrived or died in
+    // the response window changes it. 359.3.f.2 checks a referent on execution.
+    //
+    // The point goes through `gainPoints`, so Tianna's block and the Victory-Score
+    // check apply exactly as they do to every other point in the game.
+    on: "battlefieldHeld",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      listener.card.kind === "Unit" &&
+      otherOwnUnitsHere(state, listener.card, listener.ownerIndex) === SHEN_ALLIES,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldHeld") return state;
+      if (listener.card.kind !== "Unit") return state;
+      if (otherOwnUnitsHere(state, listener.card, listener.ownerIndex) !== SHEN_ALLIES) return state;
+      return gainPoints(state, listener.ownerIndex, SHEN_POINTS);
+    },
+  },
   "SFD-180": {
     // Fiora - Worthy — "When a unit you control becomes [Mighty], you may pay
     // [Order] to ready it."
@@ -2386,7 +2740,66 @@ export const selfTriggers: Record<string, SelfTriggerDefinition> = {
  *  a `kind` string rather than a defId, since one card can ask more than one
  *  kind of question; the one-file-one-owner rule still applies, and the key is
  *  prefixed with the card's defId so ownership stays readable. */
+/**
+ * Every unit in play, BOTH sides — Kennen's "[Stun] a unit", which names no owner
+ * and no location (355.9.a.1's bare noun).
+ *
+ * A local composition of the shared `ownUnitsEverywhere` rather than an import:
+ * `effects/chaos.ts` has a private `allUnitsInPlay` of its own, and the
+ * one-file-one-owner rule that keeps these files independently editable is
+ * exactly what makes a local copy the only thing a domain file CAN write. Two
+ * copies of a two-line walk is the cheaper half of that trade; sweeping them into
+ * one shared helper is integrator work, and is noted here so the next sweep can
+ * find both.
+ */
+function bothSidesUnitsInPlay(state: GameState): UnitInstance[] {
+  return [...ownUnitsEverywhere(state, 0), ...ownUnitsEverywhere(state, 1)];
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Kennen's "you may pay [2 Energy] to [Stun] a unit" — ONE question kind for
+   * BOTH of his moments (played, and attacking), parked from two registrations.
+   *
+   * That is deliberate: a second kind would be a second option list to keep in
+   * step, and the printed ability is one sentence with two triggers rather than
+   * two abilities.
+   *
+   * **The payment is taken HERE and asked through the helper that takes it**, so
+   * affordability and payment cannot disagree — the discipline every "you may
+   * pay" in this pool keeps. The offer is rebuilt from live state, so a Kennen
+   * who died in the response window, or Energy spent elsewhere, leaves a bare
+   * Decline that `advanceDecisions` executes without prompting (416.3).
+   *
+   * The TARGET is part of the same question rather than a second one, because
+   * declining to pay and declining to stun are the same answer — 355.10.d.1's
+   * cost-within-an-instruction, the reading Sinister Poro's entry records.
+   *
+   * "A unit", bare, so every unit in play is offered including his controller's
+   * own (355.9.a.1). Stunning your own is a bad play, not an illegal one.
+   */
+  [KENNEN_STUN]: {
+    prompt: () => "Kennen: pay 2 Energy to stun a unit?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(payEnergyFromPool(state, d.playerIndex, KENNEN_STUN_ENERGY) === undefined
+        ? []
+        : bothSidesUnitsInPlay(state)
+            // An already-stunned unit is not offered: 423 makes Stunned a binary
+            // state and says outright that "a Stunned Unit can not be Stunned
+            // again", so paying 2 Energy for it would buy nothing. `stunUnits`
+            // skips it anyway; withholding it here is what stops the player being
+            // charged for the discovery.
+            .filter((unit) => !unit.stunned)
+            .map((unit) => ({ id: unit.instanceId, label: `Stun ${unit.name}`, instanceId: unit.instanceId }))),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, KENNEN_STUN_ENERGY);
+      if (paid === undefined) return state;
+      return stunUnits(paid, d.playerIndex, [optionId]);
+    },
+  },
   "UNL-169-banish": {
     // Ashe - Focused. Chooser is the caster; the hand, the banish zone and the
     // hand it comes back to are all the opponent's.
@@ -3576,6 +3989,45 @@ function movableTokensFor(state: GameState, playerIndex: 0 | 1, battlefieldId: s
  * `availableWhile`.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "VEN-125": {
+    // Hungry Wolf — "[Order]: Ready me and give me +1 [Might] this turn. Use only
+    // if you've chosen an enemy unit this turn and only once each turn."
+    //
+    // # No exhaust, and that is the card
+    //
+    // The ability READIES him, so `cost` names only the Power. An exhaust would
+    // make readying himself a no-op with extra steps — he would exhaust to pay and
+    // then ready, ending exactly where he started. Vi - Destructive's entry
+    // records the same absence for the same reason.
+    //
+    // # "Only ONCE each turn" is `modesOncePerTurn`, not an exhaust
+    //
+    // Azir - Emperor's precedent: a single implicit mode with the per-source
+    // record (`abilityModesUsedThisTurn`), which `runEnd` already clears for every
+    // unit. An exhaust cannot express it here at all, since the ability's payload
+    // is a ready.
+    //
+    // # "Use only if" is a restriction on ACTIVATING
+    //
+    // So it is `availableWhile` and not a guard inside the resolver: a resolver
+    // that refused would already have taken the Power, and the player would have
+    // paid for nothing. Both the enumerator and the validator reach it through
+    // `canPayActivationCost`, so the ability cannot be offered and then refused.
+    //
+    // `enemyChoicesThisTurn` is the counter, and it is Ezreal - Prodigal
+    // Explorer's — counted at the two ANNOUNCE sites, one per CHOICE rather than
+    // one per card, and ENEMY-only. Reusing it rather than adding a second counter
+    // is what stops the two cards disagreeing about what choosing is.
+    kind: "Unit",
+    cost: { power: { domain: "Order", count: 1 } },
+    modesOncePerTurn: true,
+    // "Ready ME and give ME" — no target to choose.
+    targeting: { kind: "none" },
+    availableWhile: (state, playerIndex) =>
+      state.players[playerIndex].enemyChoicesThisTurn >= HUNGRY_WOLF_CHOICES_NEEDED,
+    resolve: (state, ctx, _event, sourceInstanceId) =>
+      giveMightThisTurnToOwnUnit(readyUnit(state, sourceInstanceId), ctx.casterIndex, sourceInstanceId, HUNGRY_WOLF_MIGHT),
+  },
   "UNL-158": {
     // Shepherd's Heirloom, second clause — "[Equip] — Spend 1 XP. (Pay the cost:
     // Attach this to a unit you control.)"
@@ -3736,6 +4188,45 @@ const NO_COMBAT_DAMAGE_PENALTY = 1000;
  * in both directions.
  */
 export const mightModifiers: Record<string, MightModifier> = {
+  [KENNEN]: {
+    // Kennen, Keeper of Balance — "While there's a STUNNED ENEMY unit HERE, I have
+    // +2 [Might]." The third of his three clauses; the other two are the paired
+    // stun offer in `unitTriggers` and `eventTriggers` above.
+    //
+    // A CONTINUOUS ability, so it is a Might modifier rather than a trigger: it
+    // turns on and off with the board, and a stunned enemy that dies mid-combat
+    // takes the +2 with it. A this-turn pump could not do that, and would also
+    // survive the Stun expiring in the end-of-turn cleanup (423).
+    //
+    // **"HERE" is positional**, so a Kennen in base gets nothing however many
+    // stunned enemies stand elsewhere — the same reading Garen - Commander's aura
+    // and every other "here" in this file take. `ctx.battlefieldId` is the
+    // location being asked about, which is how a Might context says where the
+    // unit is standing.
+    //
+    // **"ENEMY" is measured from HIS controller**, not from whoever is asking:
+    // `ownerIndex` is Kennen's seat, and the opponent's list at that battlefield
+    // is what is walked. A stunned unit of his OWN does not pay him.
+    //
+    // Flat +2 however many stunned enemies are there — "while there's a stunned
+    // enemy unit here" is a condition, not a count, which is the difference
+    // between this and Ancient Warmonger's `[Assault]`.
+    //
+    // **The `ctx.battlefieldId === undefined` guard this used to carry was
+    // DELETED as unreachable**, after mutation testing showed removing it changed
+    // nothing: a context with no battlefield makes the `find` below return
+    // `undefined`, and `?? []` already answers 0. Keeping a guard that cannot
+    // fail reads as a live branch to the next person and is a line the tests
+    // cannot pin. `dealDamage`'s own "did anything happen" check was deleted for
+    // the same reason and after the same measurement.
+    defId: KENNEN,
+    bonus: (state, unit, ownerIndex, ctx) => {
+      if (unit.defId !== KENNEN) return 0;
+      const enemyId = state.players[ownerIndex === 0 ? 1 : 0].id;
+      const enemiesHere = state.battlefields.find((bf) => bf.id === ctx.battlefieldId)?.units[enemyId] ?? [];
+      return enemiesHere.some((u) => u.stunned) ? KENNEN_MIGHT : 0;
+    },
+  },
   "UNL-171": {
     // Galio - Indefatigable, THIRD sentence — "I don't deal combat damage."
     //

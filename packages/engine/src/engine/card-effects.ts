@@ -447,7 +447,29 @@ export type TargetingSpec =
    * whose identity is hidden — so it needs its own opt-in rather than falling out
    * of the existing walk.
    */
-  | { kind: "unitOrGear"; owner?: "friendly"; excludesSelf?: true; includesFacedown?: true }
+  /**
+   * `owner: "enemy"` and `domain` are Decree of Unity's (VEN-131) — "Kill an
+   * enemy Chaos ([Chaos]) unit or gear."
+   *
+   * Both are NARROWINGS on the offer rather than checks in the resolver, and the
+   * reason is `attackingOnly`'s: by the time a resolver runs the choice has been
+   * made and paid for, so refusing there leaves the card spent and doing nothing.
+   * For a Spell it is stronger than that — the targeting IS the effect, so a
+   * board with no enemy Chaos permanent must make this card UNCASTABLE rather
+   * than castable-and-inert.
+   *
+   * `domain` matches if the permanent has it AMONG its domains, not only as its
+   * sole one: a Fury+Chaos unit is a Chaos unit, which is what "a Chaos unit"
+   * means everywhere else in the game.
+   *
+   * **Enforced in the shared `unitOrGearTargets` walk**, which both the
+   * enumerator and the validator go through — the enumerate/execute split this
+   * codebase has shipped five crashes into. Neither call site filtered before
+   * this, so passing the spec's narrowings through is itself the change; nothing
+   * existing acquires a restriction, because the only other `unitOrGear` specs
+   * are Fading Memories' and Salvage's, which carry none.
+   */
+  | { kind: "unitOrGear"; owner?: "friendly" | "enemy"; domain?: Domain; excludesSelf?: true; includesFacedown?: true }
   /**
    * A unit AND an Equipment **with the same controller** — Angle Shot's "Choose a
    * unit and an Equipment with the same controller. Attach that Equipment to that
@@ -1087,6 +1109,16 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, OptionalPowerCostSpec>> = {
   // pip beside the rune, or instead of it.
   "SFD-013": { energy: 1, domain: "Fury", count: 1 }, // Blast Corps Cadet — [1][Fury]
   "SFD-067": { domain: "Mind", count: 1 }, // Frostcoat Cub — [Mind], no Energy
+  // Masa, Crashing Thunder (VEN-120) — "You may pay [Order] as an additional cost
+  // to play me. When you play me, if you paid the additional cost, [Stun] an
+  // enemy unit at a battlefield."
+  //
+  // Clockwork Keeper's shape exactly: one pip, no Energy, no condition. What is
+  // new is only the PAYOUT — a stun rather than an enter-ready — and that lives
+  // in effects/order.ts as an ordinary on-play trigger reading `optionalPowerPaid`
+  // off the action, since by resolution nothing on the board records how he was
+  // paid for.
+  "VEN-120": { domain: "Order", count: 1 },
   "SFD-098": { energy: 1 }, // Sea Monkey — [1], no rune at all
   // Akshan - Mischievous — [Body][Body]. The pool's first optional cost of TWO
   // runes; every other one is a single pip, which is why `count` had never been

@@ -221,8 +221,20 @@ function targetingRejection(
     if (!choices.targetPermanentInstanceId) {
       return `${cardName} requires a target unit or gear`;
     }
-    if (!unitOrGearTargets(state).some((t) => t.instanceId === choices.targetPermanentInstanceId)) {
-      return `${choices.targetPermanentInstanceId} is not a unit at a battlefield or a gear in play`;
+    // The SAME walk the enumerator offers from, with the SAME narrowings —
+    // Decree of Unity's "an enemy Chaos unit or gear". Checking an unfiltered
+    // walk here would let a forged action name a friendly Order gear that was
+    // never offered, which is the enumerate/execute split that has produced five
+    // crashes in this codebase and was found by probes every time.
+    if (
+      !unitOrGearTargets(state, {
+        playerIndex,
+        ...(targeting.owner !== undefined ? { owner: targeting.owner } : {}),
+        ...(targeting.domain !== undefined ? { domain: targeting.domain } : {}),
+        ...(targeting.includesFacedown !== undefined ? { includesFacedown: targeting.includesFacedown } : {}),
+      }).some((t) => t.instanceId === choices.targetPermanentInstanceId)
+    ) {
+      return `${choices.targetPermanentInstanceId} is not a legal unit or gear for ${cardName}`;
     }
   } else if (targeting.kind === "unitAndEquipment") {
     // The UNIT half is always required — 355 makes a named choice mandatory, and

@@ -103,6 +103,46 @@ const FIND_YOUR_CENTER_DISCOUNT = 2;
 const MONCH = "UNL-035";
 const MONCH_DISCOUNT = 2;
 
+/** Keeper of Law (VEN-119): "I cost [2 Energy][Order] less if you control a
+ *  battlefield with exactly two units there." Vendetta's first cost modifier,
+ *  and the second card in the pool after Master Yi to discount BOTH axes. */
+const KEEPER_OF_LAW = "VEN-119";
+const KEEPER_OF_LAW_ENERGY = 2;
+/** One `[Order]` pip. Named rather than a bare 1 beside the Energy figure, since
+ *  the two are different currencies and reading them as a pair is the mistake. */
+const KEEPER_OF_LAW_POWER = 1;
+const KEEPER_OF_LAW_UNITS = 2;
+
+/**
+ * Does `playerIndex` control a battlefield with EXACTLY two units at it?
+ *
+ * Shared by Keeper of Law's two halves — the Energy branch in
+ * `modifiedEnergyCost` and the Power one in `scaledPowerDiscount` — so a card
+ * discounted on one axis can never fail to be discounted on the other. Monch's
+ * predicate above exists for the same reason across two different modules, and
+ * Master Yi's tier is shared between the same two functions this one is.
+ *
+ * **"Two UNITS", not "two of yours".** No owner is printed, so 355.9.a.1's
+ * widening applies and both players' units at that battlefield are counted — a
+ * board where you and an opponent each have one there satisfies it, which is the
+ * commonest way it is satisfied.
+ *
+ * **"A battlefield YOU CONTROL" is the narrowing half**, and it is what stops
+ * this reading the whole board: standing at a battlefield is not controlling it
+ * (`controllerId`), the same distinction Vayne - Hunter's enter-ready draws.
+ *
+ * EXACTLY two. Three is as dead as one, which is the Order motif this set is
+ * built on and the boundary a test has to sit on in both directions.
+ */
+function keeperOfLawConditionMet(state: GameState, playerIndex: 0 | 1): boolean {
+  const ownerId = state.players[playerIndex].id;
+  return state.battlefields.some(
+    (bf) =>
+      bf.controllerId === ownerId &&
+      Object.values(bf.units).reduce((n, units) => n + units.length, 0) === KEEPER_OF_LAW_UNITS,
+  );
+}
+
 /** Does the OPPONENT of `playerIndex` control a stunned unit, anywhere? Shared
  *  by both of Monch's halves so the discount and the enter-ready can never
  *  disagree about the condition they are both reading. */
@@ -535,6 +575,12 @@ export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId:
   if (defId === MASTER_YI_UNSTOPPABLE) {
     return masterYiTier(state, playerIndex)?.power ?? 0;
   }
+  // Keeper of Law's POWER half — one `[Order]` pip off his printed one, so a
+  // satisfied condition makes him free of Power entirely. The ENERGY half is the
+  // matching branch in `modifiedEnergyCost`; both ask one predicate.
+  if (defId === KEEPER_OF_LAW && keeperOfLawConditionMet(state, playerIndex)) {
+    return KEEPER_OF_LAW_POWER;
+  }
   return 0;
 }
 
@@ -867,6 +913,11 @@ export function costModifierDefIds(): string[] {
     // merges this claim with that one — the same split Concentrate and Master Yi
     // both have.
     ATAKHAN,
+    // Keeper of Law's two-axis discount is his ENTIRE printed text, so nothing
+    // else claims him — the Applied Researchers case above, and the Lucian -
+    // Purifier trap: a working card that no module claims reports UNIMPLEMENTED
+    // and is dropped from generated decks.
+    KEEPER_OF_LAW,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -930,6 +981,13 @@ export function modifiedEnergyCost(
   // being stunned before the card is paid for stops discounting it.
   if (defId === MONCH && opponentControlsStunnedUnit(state, playerIndex)) {
     cost = Math.max(0, cost - MONCH_DISCOUNT);
+  }
+  // Keeper of Law's ENERGY half. His POWER half is the matching branch in
+  // `scaledPowerDiscount`, and both read `keeperOfLawConditionMet` so they cannot
+  // disagree — Master Yi's two tiers are split the same way and for the same
+  // reason.
+  if (defId === KEEPER_OF_LAW && keeperOfLawConditionMet(state, playerIndex)) {
+    cost = Math.max(0, cost - KEEPER_OF_LAW_ENERGY);
   }
   if (defId === SPOILS_OF_WAR && state.players[playerIndex === 0 ? 1 : 0].unitsLostThisTurn > 0) {
     cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);

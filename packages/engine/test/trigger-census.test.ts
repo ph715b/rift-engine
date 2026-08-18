@@ -172,7 +172,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006"]);
   });
 
-  it("337 held / 7 inline of 344 trigger cards", () => {
+  it("341 held / 7 inline of 348 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -486,10 +486,30 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // Shadow Assassin is a deploy-time replacement in `deploy.ts`. Fourteen cards,
     // +8, and every one of the six absences is a card that has no trigger to
     // count rather than one that was missed.
+    //
+    // **337/7/344 -> 341/7/348 on 2026-08-17: Vendetta's Order wave, four trigger
+    // cards out of twelve implemented.** Recomputed by family and by name:
+    //
+    //     event (+3)  VEN-121 Reluctant Leader (cardPlayed), VEN-135 Kennen
+    //                 (combatBegan), VEN-138 Shen (battlefieldHeld)
+    //     unit  (+2)  VEN-120 Masa, VEN-135 Kennen (on-play)
+    //     distinct: 4 — Kennen is in BOTH registries and counts once
+    //
+    // `inline` did not move and should not have: nothing in this wave reads the
+    // Beginning Phase.
+    //
+    // The other eight cards in the wave are correctly absent, and between them
+    // they name six different homes — which is the point worth keeping, because
+    // "twelve cards, +4" reads like a miscount otherwise. VEN-116 Dragon Form,
+    // VEN-126 Ki Barrier, VEN-127 Lacerate and VEN-131 Decree of Unity are SPELL
+    // effects; VEN-117 Disciple of Shen is a `DYNAMIC_KEYWORD_VALUES` grant;
+    // VEN-119 Keeper of Law is a cost modifier; VEN-125 Hungry Wolf is an
+    // ACTIVATED ability, which this census does not count; and VEN-129 Sacred
+    // Protector is a continuous rule inside `combat.outgoingMight`.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 337,
+      held: 341,
       inline: 7,
-      cards: 344,
+      cards: 348,
     });
   });
 

@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=65  unimplemented=111  partial=6      (2026-08-16, after the alias fix and the Fury wave)
+VEN: needing=176  implemented=77  unimplemented=99   partial=6      (2026-08-17, after the alias fix, Fury wave 1 and Order wave 1)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,14 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 111 cards, no subsystems.** The deep end
+**What is left is ORDINARY CARD WORK — 99 cards, and the "no subsystems" claim
+has now been wrong twice.** Order alone needed rule 477's layer order (an
+assignment of base Might, distinct from every pump in the pool), an amount-based
+damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
+plumbed through BOTH the enumerator and the validator. None is large; none was in
+the list below either. Expect one or two per domain rather than none.
+
+**What the original claim got right is that nothing left is BLOCKED.** The deep end
 is finished: `[Flow]`, `[Empower]`/`[Empowered]`, the Empowered status, counter
 prevention, damage prevention, a choose-time replacement effect, gear targeting
 for activated abilities, and multi-ability cards all exist now. Rule **440**'s
@@ -507,6 +514,67 @@ The 6 partial cards are the only ones needing more than a card entry:
 and both deliberately not exact: Gangplank's "chooses me" is unchecked (he is
 stronger than printed against sweeps), and Jayce's "Ready 2 gear" takes the first
 remaining exhausted gear rather than asking.
+
+### Order, wave 1 — done 2026-08-17 (12 of 13 cards)
+
+VEN-116, 117, 119, 120, 121, 125, 126, 127, 129, 131, 135, 138. Across
+`effects/order.ts`, `granted-keywords.ts` (Disciple of Shen's conditional
+`[Shield 3]`, with the printed keyword stripped in `card-loader`),
+`cost-modifiers.ts` (Keeper of Law, both axes off one predicate), `combat.ts`
+(Sacred Protector), `card-effects.ts` (Masa's optional Power row, and the
+`unitOrGear` spec's new `owner`/`domain` narrowings), `effective-might.ts` and
+`model/card.ts` (base-Might assignment) and `model/game-state.ts` (the prevention
+pool). Tests in `test/ven-order-wave1.test.ts`; **25 mutants, 25 killed.**
+
+**Four cards share ONE printed clause** — "exactly one other unit you control
+here" (VEN-117, VEN-129, VEN-138) and "exactly two units there" (VEN-119) — so
+the count lives once, in `granted-keywords.otherOwnUnitsHere`. It returns
+`undefined` for a unit in BASE rather than 0, which is what stops a caller
+satisfying an "at a battlefield" clause at home by accident. Keeper of Law's is
+deliberately NOT that function: his counts ALL units, either player's, at a
+battlefield he is not standing at, asked while he is still in hand.
+
+**The mutation run found four real gaps in the tests and one in the CODE.** Three
+were the same shape twice over — an assertion on the OUTCOME passes when only
+`applies` is loosened, because the resolver re-checks and returns the state
+unchanged, while the Pending Item is still placed and still costs both players a
+PassFocus. The fix is a chain-PLACEMENT assertion, which is the identical finding
+Jhin - Murderous Artist's and Blade Twirler's tests already record; this is now
+three waves running, so **write the placement assertion first**. The fifth was a
+guard in Kennen's Might modifier that no mutant could kill because it was
+unreachable, and it was DELETED.
+
+**The probe found a live crash the whole suite could not see, and it was
+LATENT since `[Flow]` landed.** `legal-actions` re-prices a variant when its
+target carries `[Deflect]`, and that re-pricing used the card's PRINTED cost
+unconditionally — right for a printed-price play, wrong for the two alternative
+pricings beside it (a replaced cost, and an XP-discounted one). So the enumerator
+offered a Flow play at the printed price and the validator refused it, and
+`execute-play-card` THROWS on a refusal rather than returning one, which crashed
+`reachability` outright instead of showing as a refusal.
+
+It is the **sixth** instance of this file's offered-then-refused class, after
+Maddened Marauder, Brazen Buccaneer, Get Excited!, Kraken Hunter and Call to
+Glory — every one a per-variant price computed from the wrong base. It needed
+three things at once to fire (a Flow spell in the trash, a `[Deflect]` target,
+and enough runes for the untaxed play to look affordable), and Lacerate is the
+pool's only Flow cost with TWO pips of a NAMED domain, which is what made the
+mispricing large enough to be refused rather than coincidentally equal.
+
+Pinned in `test/flow-deflect-pricing.test.ts` as an INVARIANT — every action the
+enumerator offers must validate — rather than as one action's price. **No test
+in the repo enumerated and then validated the same action for this card class,
+which is why it took a probe.** Write that pairing for any new alternative
+pricing.
+
+**VEN-132 Fallen Feline is the one card left**, and it is a design call rather
+than card work: "name a spell" over a pool of **233 distinct Spell names**, where
+the AI answers a pending decision by running a full `applyAction` + `evaluate`
+per option. Every narrower option list either leaks PRIVATE information (the
+opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
+spell you have not seen). Pinned as an invertible assertion in
+`ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
+it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
 
 ### Fury, wave 1 — done 2026-08-16 (13 cards)
 

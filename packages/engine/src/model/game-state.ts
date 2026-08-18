@@ -1446,6 +1446,32 @@ export interface GameState {
    */
   damagePreventedOnceInstanceIds: string[];
   /**
+   * Ki Barrier's "prevent the next 7 damage that would be dealt to it this turn"
+   * — a per-unit damage POOL that depletes rather than a single-use shield.
+   *
+   * **Different from `damagePreventedOnceInstanceIds` above in the one way that
+   * matters: this one absorbs an AMOUNT and survives.** Counter Strike stops one
+   * instance of any size and is spent; this stops 7 points spread over as many
+   * instances as it takes, and a 9-damage hit against a full barrier still puts 2
+   * through. A list of ids cannot express either half of that.
+   *
+   * Keyed by instanceId, and the amount REMAINING — so `dealDamage` subtracts
+   * what it can and passes the rest on, and the key is dropped when the pool
+   * empties. The card's own reminder text is what says the remainder gets
+   * through: "opponents can assign it extra combat damage to kill it."
+   *
+   * Beside its neighbours on the state rather than on the unit, for the three
+   * reasons `markedForDeathOnDamageInstanceIds` records: per-unit, expires with
+   * the turn, and every helper that rebuilds a unit would otherwise have to
+   * remember to carry it.
+   *
+   * **Two barriers on one unit SUM rather than queue.** 817's summing is about
+   * keywords and does not reach this, but nothing in the text makes them separate
+   * shields either, and a queue would be observably different only in which one
+   * empties first — which nothing can see. Recorded Unverified.
+   */
+  damagePreventionPoolByInstanceId: Record<string, number>;
+  /**
    * How many times each CARD INSTANCE has dealt damage this turn — UNL-020
    * Dancing Grenade's "1 additional Bonus Damage for each time this spell has
    * dealt damage this turn", which is the pool's first text to count a single

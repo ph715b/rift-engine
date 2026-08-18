@@ -392,7 +392,7 @@ export function runEnd(state: GameState): GameState {
   // Stun expires with it — rule 423: "Stunned Units lose the Stunned status
   // during step 3d of the end of turn cleanup." Same sweep, since both are
   // this-turn states on every unit in play, on both sides.
-  const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number; stunned?: boolean }>(u: T): T => ({
+  const expireMightThisTurn = <T extends { damage: number; mightThisTurn: number; stunned?: boolean; baseMightThisTurn?: number }>(u: T): T => ({
     ...u,
     mightThisTurn: 0,
     ...(u.stunned ? { stunned: false } : {}),
@@ -409,6 +409,12 @@ export function runEnd(state: GameState): GameState {
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
     ...("movesThisTurn" in u ? { movesThisTurn: 0 } : {}),
+    // Dragon Form's "its base Might becomes 5 THIS TURN". Deleted rather than
+    // zeroed, unlike `mightThisTurn` two fields up, and the difference is not
+    // stylistic: 0 is a legal assignment, so zeroing would leave every unit the
+    // spell ever touched permanently at 0 base Might. `grantedTriggersThisTurn`
+    // above is deleted for the neighbouring `exactOptionalPropertyTypes` reason.
+    ...("baseMightThisTurn" in u ? { baseMightThisTurn: undefined } : {}),
   });
 
   const players = afterBorrows.players.map((p) => ({
@@ -549,6 +555,10 @@ export function runEnd(state: GameState): GameState {
     movementLockedUnitInstanceIds: [],
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
+    // Ki Barrier's pool, beside the single-use shield it is the amount-based
+    // counterpart of. "THIS TURN" is printed on both, so an unspent barrier does
+    // not carry — which is what makes it a trick rather than a permanent ward.
+    damagePreventionPoolByInstanceId: {},
     // Dancing Grenade's tally. "This turn" is printed, so it is cleared here with
     // every other this-turn field — a Grenade whose history survived the turn
     // would open its next dance already escalated.

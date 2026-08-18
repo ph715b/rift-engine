@@ -1277,9 +1277,21 @@ export function legalActions(state: GameState): PlayerAction[] {
         effectVariants.push({ targetBattlefieldId: bf.id });
       }
     } else if (targeting.kind === "unitOrGear") {
-      // One candidate per unit at a battlefield AND per gear in play, either
-      // player's — a single choice across two kinds of permanent.
-      for (const t of unitOrGearTargets(state)) {
+      // One candidate per unit at a battlefield AND per gear in play — a single
+      // choice across two kinds of permanent.
+      //
+      // **The spec's narrowings are passed through as of 2026-08-17**, for Decree
+      // of Unity's "an ENEMY CHAOS unit or gear". This call took no options at
+      // all before, which was correct while every `unitOrGear` spec reached from
+      // here carried none; the validator's matching call is widened in the same
+      // change, because a filter applied at one of the two is exactly how this
+      // codebase's most-repeated bug happens.
+      for (const t of unitOrGearTargets(state, {
+        playerIndex,
+        ...(targeting.owner !== undefined ? { owner: targeting.owner } : {}),
+        ...(targeting.domain !== undefined ? { domain: targeting.domain } : {}),
+        ...(targeting.includesFacedown !== undefined ? { includesFacedown: targeting.includesFacedown } : {}),
+      })) {
         if (!atHiddenBattlefield(state, t.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetPermanentInstanceId: t.instanceId });
       }
@@ -2012,12 +2024,45 @@ export function legalActions(state: GameState): PlayerAction[] {
       // the single shared payment object it always had.
       let variantPaymentForTargets: RunePayment = variantPayment;
       if (deflected > 0) {
+        // **Re-priced from the BASE this variant is actually paying, not always
+        // the printed one.** This block used to hardcode `effectiveCost` and
+        // `card.powerDomain`, which is correct for a printed-price variant and
+        // silently wrong for the two alternative pricings beside it: a
+        // replaced-cost play (829.1's `[Flow]`, and the printed replacements) and
+        // an XP-discounted one both have a different base, and re-pricing them at
+        // the printed figure produces an action the validator refuses.
+        //
+        // **Found by a probe on 2026-08-17, and it is the SIXTH instance of this
+        // file's offered-then-refused bug** — after Maddened Marauder's reinforce
+        // variant, Brazen Buccaneer's floating-Energy mispricing, Get Excited!'s
+        // mandatory-discard path, Kraken Hunter's accelerated repeat and Call to
+        // Glory's ignored cost. Every one of the six was a per-variant price that
+        // one branch computed from the wrong base.
+        //
+        // It was LATENT from the day `[Flow]` landed and needed three things at
+        // once to fire: a Flow spell in the trash, a legal target carrying
+        // `[Deflect]`, and enough runes to make the untaxed play look affordable.
+        // Vendetta is the first set with any Flow card at all, and the crash names
+        // Lacerate — whose Flow cost is the pool's only one with TWO pips of a
+        // NAMED domain, which is what made the mispricing large enough to be
+        // refused rather than coincidentally equal.
+        //
+        // Every OTHER price-modifying branch in this loop is already gated on
+        // `!usingReplacedCost`/`!usingOptionalXp`; this one was reached by both
+        // because it is not a pricing branch but a re-pricing of whatever was
+        // chosen. So it takes the base rather than being skipped.
+        const taxBase =
+          usingReplacedCost && replacedEffective && replacedCost
+            ? { cost: replacedEffective, domain: replacedCost.powerDomain, alt: undefined }
+            : usingOptionalXp && xpDiscountedEffective
+              ? { cost: xpDiscountedEffective, domain: card.powerDomain, alt: card.powerDomainAlt }
+              : { cost: effectiveCost, domain: card.powerDomain, alt: card.powerDomainAlt };
         const taxed = computeAutoPayment(
           actor.channeled,
-          effectiveCost.energyCost,
-          effectiveCost.powerCost,
-          card.powerDomain,
-          card.powerDomainAlt,
+          taxBase.cost.energyCost,
+          taxBase.cost.powerCost,
+          taxBase.domain,
+          taxBase.alt,
           deflected,
         );
         // Unaffordable ONCE THE TAX IS ADDED — the card may still be playable at

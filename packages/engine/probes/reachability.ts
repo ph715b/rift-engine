@@ -600,7 +600,16 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // is still a FLOOR — the probe prints a bump request rather than failing on a
 // rise — and it is still the DROP that is the finding, read off `neverExercised`
 // by name rather than off the total.
-const PINNED_UNION = 700;
+//
+// **700 -> 712 on 2026-08-17, against 716 measured after Vendetta's Order wave.**
+// Twelve cards implemented and twelve newly exercised (VEN 62 -> 74), with every
+// other set holding EXACTLY — OGN 228, OGS 21, SFD 188, UNL 205, unchanged
+// through both waves. That per-set stability is the check worth doing: a card
+// wave that moved another set's figure would be a displacement in a covering
+// deck, not new coverage.
+//
+// Second bump in two days, exactly as the note above says to expect.
+const PINNED_UNION = 712;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

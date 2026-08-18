@@ -79,9 +79,14 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **700, against an observed 704** of 868 cards needing
+`reachability` is pinned at **712, against an observed 716** of 868 cards needing
 code ever exercised, at its default **500 games per mode**, which takes **~340s**
 with Vendetta in the pool.
+
+**Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
+**188**, UNL **205** have held exactly across both Vendetta waves; VEN is the only
+one that moves. A finished set's figure changing is a displacement in a covering
+deck rather than new coverage, and is the thing to explain.
 
 **It was 625 against 692 until 2026-08-16, and that was a stale figure rather
 than a low one.** Vendetta landed 178 cards and the pin was never bumped, so a

@@ -416,6 +416,46 @@ function ownUnitAnywhereExcept(state: GameState, ownerIndex: 0 | 1, defId: strin
   return state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some(matches));
 }
 
+/**
+ * How many OTHER units `unit`'s controller has standing where it stands —
+ * Vendetta's Order motif, printed on four cards with three different numbers.
+ *
+ * | card | clause |
+ * |---|---|
+ * | VEN-117 Disciple of Shen | `[Shield 3]` "while I'm at a battlefield with exactly one other unit you control" |
+ * | VEN-129 Sacred Protector | "I don't deal combat damage unless I'm at a battlefield with exactly one other unit you control" |
+ * | VEN-138 Shen | "when I hold, if there is exactly one other unit you control here, score 1 point" |
+ * | VEN-119 Keeper of Law | prices itself off a battlefield with "exactly two units there" — a DIFFERENT count, see below |
+ *
+ * One function because those first three print the same sentence, and four
+ * copies of a count is how two cards that are meant to agree stop agreeing —
+ * the failure this repo has recorded four times.
+ *
+ * **Returns `undefined` for a unit in BASE, and that is not the same as 0.**
+ * Every clause above says "at a battlefield", so a unit at home does not satisfy
+ * it however many friends are beside it; a caller comparing `=== 1` against a
+ * count of 0 would get the right answer by luck and the wrong one the moment a
+ * card prints "exactly zero". `undefined` makes the caller say what it means.
+ *
+ * **"OTHER" is a different OBJECT, not a different card**, and the exclusion is
+ * by instanceId — `ownUnitAtLocation` above records why: two copies of one card
+ * at one battlefield each count as the other's "other".
+ *
+ * Keeper of Law's is deliberately NOT this function. His is "a battlefield with
+ * exactly two units there" — ALL units, either player's, at a battlefield he is
+ * not standing at, asked while he is still in hand. Nothing about it is this
+ * question, and folding them together would have needed two flags to tell them
+ * apart.
+ */
+export function otherOwnUnitsHere(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): number | undefined {
+  const location = locationOf(state, unit);
+  if (location === undefined || location === "base") return undefined;
+  const ownerId = state.players[ownerIndex].id;
+  const here = state.battlefields.find((bf) => bf.id === location)?.units[ownerId];
+  if (here === undefined) return undefined;
+  return here.filter((u) => u.instanceId !== unit.instanceId).length;
+}
+
 /** One keyword an aura is granting, paired with whether its source card prints
  *  Spirit's Refuge's "if they didn't already". A bare `Keyword[]` could not carry
  *  that, and the clause only becomes observable once granted values SUM. */
@@ -659,11 +699,42 @@ type DynamicKeywordValue = {
   value: (state: GameState, unit: UnitInstance, ownerIndex: 0 | 1) => number;
 };
 
+/** Disciple of Shen (VEN-117): "I have [Shield 3] while I'm at a battlefield
+ *  with exactly one other unit you control." The printed keyword is stripped in
+ *  card-loader's GRANTED_ONLY_KEYWORDS and handed back here under the real
+ *  condition. */
+const DISCIPLE_OF_SHEN = "VEN-117";
+const DISCIPLE_OF_SHEN_ALLIES = 1;
+const DISCIPLE_OF_SHEN_SHIELD = 3;
+
 /** Ancient Warmonger: "I have [Assault] equal to the number of enemy units
  *  here." */
 const ANCIENT_WARMONGER = "SFD-131";
 
 const DYNAMIC_KEYWORD_VALUES: Record<string, DynamicKeywordValue> = {
+  [DISCIPLE_OF_SHEN]: {
+    keyword: "Shield",
+    // "I have [Shield 3] while I'm at a battlefield with EXACTLY ONE other unit
+    // you control."
+    //
+    // The second entry in this table and the first whose value is a CONSTANT
+    // gated by a condition rather than a count read off the board. It lives here
+    // rather than in `CONDITIONAL_GRANTS` for the one reason that table cannot
+    // serve: those grant at value 1, and `[Shield 3]` is not `[Shield]`.
+    //
+    // **EXACTLY one — not "one or more".** Two friends beside him is as dead as
+    // none, which is the whole design of Vendetta's Order motif and the mutation
+    // any board built with a single ally would never see. `otherOwnUnitsHere`
+    // returns `undefined` in base, so a Disciple at home is 0 rather than
+    // accidentally satisfying a `<= 1` reading.
+    //
+    // A 0 is folded in as a 0 rather than skipped, per this table's own
+    // convention — that keeps the key present for `hasKeyword`'s `in` check
+    // without adding Might, which is what "he does not have Shield right now"
+    // should look like to a reader that only asks whether the keyword is there.
+    value: (state, unit, ownerIndex) =>
+      otherOwnUnitsHere(state, unit, ownerIndex) === DISCIPLE_OF_SHEN_ALLIES ? DISCIPLE_OF_SHEN_SHIELD : 0,
+  },
   [ANCIENT_WARMONGER]: {
     keyword: "Assault",
     // "HERE" is a battlefield, so a Warmonger in base has [Assault 0] — the same
