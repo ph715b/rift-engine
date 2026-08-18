@@ -103,6 +103,25 @@ const FIND_YOUR_CENTER_DISCOUNT = 2;
 const MONCH = "UNL-035";
 const MONCH_DISCOUNT = 2;
 
+/**
+ * Shadowblade Lurker (VEN-096): "I cost [2 Energy] less for each card with MY
+ * NAME in your trash."
+ *
+ * A SELF-SCALING discount, and the second in the pool after Sky Splitter — his
+ * price falls as copies of him die, so the third one is often free.
+ *
+ * **Matched on NAME rather than defId**, and the card says so. Those answers come
+ * apart in this very pool: Vendetta reprints ten earlier cards under plain names,
+ * so a second printing is a different defId with the same name. `canonicalDefId`
+ * redirects an IMPLEMENTATION lookup and is no help for a "cards with this name"
+ * question.
+ *
+ * The name is read off the REGISTRY rather than written as a literal, so a rename
+ * upstream cannot leave this counting nothing.
+ */
+const SHADOWBLADE_LURKER = "VEN-096";
+const SHADOWBLADE_LURKER_DISCOUNT = 2;
+
 /** Keeper of Law (VEN-119): "I cost [2 Energy][Order] less if you control a
  *  battlefield with exactly two units there." Vendetta's first cost modifier,
  *  and the second card in the pool after Master Yi to discount BOTH axes. */
@@ -134,6 +153,15 @@ const KEEPER_OF_LAW_UNITS = 2;
  * EXACTLY two. Three is as dead as one, which is the Order motif this set is
  * built on and the boundary a test has to sit on in both directions.
  */
+/** Shadowblade Lurker's printed NAME, read from the registry once. A literal
+ *  here would silently count nothing after an upstream rename, and this card's
+ *  whole price depends on the count. */
+let lurkerNameCache: string | undefined;
+function lurkerName(): string {
+  lurkerNameCache ??= defaultCardRegistry().get(SHADOWBLADE_LURKER).name;
+  return lurkerNameCache;
+}
+
 function keeperOfLawConditionMet(state: GameState, playerIndex: 0 | 1): boolean {
   const ownerId = state.players[playerIndex].id;
   return state.battlefields.some(
@@ -918,6 +946,9 @@ export function costModifierDefIds(): string[] {
     // Purifier trap: a working card that no module claims reports UNIMPLEMENTED
     // and is dropped from generated decks.
     KEEPER_OF_LAW,
+    // Shadowblade Lurker's self-scaling discount is his ENTIRE printed text, so
+    // this list is his only registration anywhere — the Lucian - Purifier trap.
+    SHADOWBLADE_LURKER,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -988,6 +1019,13 @@ export function modifiedEnergyCost(
   // reason.
   if (defId === KEEPER_OF_LAW && keeperOfLawConditionMet(state, playerIndex)) {
     cost = Math.max(0, cost - KEEPER_OF_LAW_ENERGY);
+  }
+  // Shadowblade Lurker's self-scaling discount. Floored at 0 by the `Math.max`
+  // like every other reduction here — he states no minimum, unlike Eager
+  // Apprentice, so a trash full of him really does make him free.
+  if (defId === SHADOWBLADE_LURKER) {
+    const copies = state.players[playerIndex].trash.filter((c) => c.name === lurkerName()).length;
+    cost = Math.max(0, cost - copies * SHADOWBLADE_LURKER_DISCOUNT);
   }
   if (defId === SPOILS_OF_WAR && state.players[playerIndex === 0 ? 1 : 0].unitsLostThisTurn > 0) {
     cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);

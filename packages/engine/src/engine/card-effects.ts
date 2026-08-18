@@ -1732,6 +1732,11 @@ export function cardPlacesTokens(defId: string): boolean {
  *  not a move, so a card here is not offered without one. */
 const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
+  // Twilight Step (VEN-105) — "Move a unit with 3 [Might] or less." Charm's shape
+  // with a Might ceiling and no owner, so it repositions your own as readily as it
+  // drags an enemy out of a battlefield they were holding. The ceiling is a
+  // `maxMight` on its targeting spec; only the DESTINATION axis is this table's.
+  "VEN-105",
   // Tricksy Tentacles — "Move any number of enemy units with the same controller
   // and a total Might of 8 or less to a single location."
   //

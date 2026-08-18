@@ -623,7 +623,11 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // is the check worth doing every time: a finished set's figure moving would be a
 // displacement in a covering deck rather than new coverage, and is the thing to
 // explain.
-const PINNED_UNION = 725;
+//
+// **725 -> 733 on 2026-08-18, against 737 measured after Chaos wave 1.** Ten
+// cards implemented and eight newly exercised (VEN 87 -> 95); the four finished
+// sets held EXACTLY for the FIFTH consecutive wave.
+const PINNED_UNION = 733;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

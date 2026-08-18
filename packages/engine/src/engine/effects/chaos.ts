@@ -13,6 +13,9 @@ import type {
 import type { DecisionDefinition } from "../decisions.js";
 import {
   banishCard,
+  banishUnitFromPlay,
+  burn,
+  burnCards,
   canSpendXp,
   channelRunesExhausted,
   dealDamage,
@@ -57,7 +60,7 @@ import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
 import { placeGoldTokens, placeToken, type TokenSpec, BIRD_TOKEN } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
-import { parkDecision, type DecisionOption } from "../decisions.js";
+import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { mayMoveToBaseFrom, mayPlayUnitAt } from "../battlefield-continuous.js";
 import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
@@ -136,7 +139,113 @@ const MADULI_MOVE = "UNL-144-move";
  */
 const BARON_NASHOR = "UNL-147";
 
+/** Mask Mother's toll and what it buys. */
+const MASK_MOTHER_ENERGY = 1;
+const MASK_MOTHER_MIGHT = 2;
+/** Shadow Order Disciple's Burn and its pump. */
+const DISCIPLE_BURN = 1;
+const DISCIPLE_MIGHT = 1;
+/** Shadowblade Lurker's discount PER copy of his name in the trash. */
+const LURKER_DISCOUNT_PER_COPY = 2;
+/** Spiderling's bonus per OTHER Spiderling here. */
+const SPIDERLING_MIGHT_PER_SIBLING = 1;
+/** Shadows of the Past returns up to this many units from trashes. */
+const SHADOWS_OF_THE_PAST_MAX = 2;
+/** The Might ceiling both Twilight Step and Wind and Ghosts print. */
+const TWILIGHT_STEP_MAX_MIGHT = 3;
+const WIND_AND_GHOSTS_MAX_MIGHT = 3;
+/** Forgotten Relic's Burn. */
+const FORGOTTEN_RELIC_BURN = 1;
+/** The questions this file's Vendetta cards park. */
+const MASK_MOTHER_PUMP = "VEN-094-pump";
+const DISCIPLE_BURN_OFFER = "VEN-095-burn";
+const SHADOWS_OF_THE_PAST_PICK = "VEN-103-pick";
+const FORGOTTEN_RELIC_GIVE = "VEN-108-give";
+const PREFECT_BANISH = "VEN-102-banish";
+const MINAH_MODE = "VEN-111-mode";
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-103": {
+    // Shadows of the Past — "Return UP TO 2 units from TRASHES to their owners'
+    // hands."
+    //
+    // # "Trashes", plural, is the whole card
+    //
+    // Both players' trashes, and each unit goes to ITS OWNER's hand — so this can
+    // hand an opponent their own dead champion back, which is the cost of
+    // reaching into two graveyards with one spell. A version that read only the
+    // caster's trash would be a strictly better and different card.
+    //
+    // # A decision rather than a TargetingSpec, and the reason is structural
+    //
+    // Every `TargetingSpec` kind names things ON THE BOARD; a card in a trash has
+    // no `UnitInstance` in play to enumerate against, and `targetUnitInstanceId`
+    // is validated by a board walk. Morbid Return and Annie - Stubborn both reach
+    // a trash through `trashCardInstanceId`, which carries ONE card — and this
+    // needs two, from either side.
+    //
+    // So it is a repeated question: `count` carries how many returns are still
+    // owed, exactly as the generic discard question carries how many cards are.
+    // "UP TO" means the decline is always available and ends the sequence.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      parkDecision(state, { kind: SHADOWS_OF_THE_PAST_PICK, playerIndex: ctx.casterIndex, count: SHADOWS_OF_THE_PAST_MAX }),
+  },
+  "VEN-106": {
+    // Wind and Ghosts — "[Action] Choose a unit at a battlefield. If it has 3
+    // [Might] or less, BANISH it. Otherwise, return it to its owner's hand."
+    //
+    // **One target, two outcomes, and the branch is not optional** — so unlike a
+    // modal card there is nothing to choose but the unit. That makes it removal
+    // against anything small and a tempo play against anything big, which is the
+    // card.
+    //
+    // The Might is read at RESOLUTION and through `effectiveMight`, so an aura or
+    // a this-turn pump can lift a unit out of banish range in the response window
+    // an `[Action]` opens. Non-combat context: `[Assault]`/`[Shield]` do not count,
+    // the reading every Might threshold in this pool takes.
+    //
+    // **BANISH is not a kill**, so no `[Deathknell]` fires and nothing that
+    // watches deaths pays out — which is exactly why the small half is the
+    // stronger one. `banishCard` reaches a unit in play through the same funnel.
+    //
+    // "At a battlefield" is printed, so `scope: "battlefield"` — 355.9.b's
+    // narrowing. A unit in base is not a legal choice.
+    targeting: { kind: "unit", scope: "battlefield" },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const found = findUnitAnywhere(state, targetId);
+      // 359.3.e.12 — a check on something no longer available returns null.
+      if (!found) return state;
+      return unitWithinMaxMight(state, found.unit, WIND_AND_GHOSTS_MAX_MIGHT)
+        ? banishUnitFromPlay(state, targetId)
+        : returnUnitToHand(state, targetId);
+    },
+  },
+  "VEN-105": {
+    // Twilight Step — "Move a unit with 3 [Might] or less. [Flow] [4 Energy][Chaos]."
+    //
+    // Charm's shape (OGN-043) with a Might ceiling and no owner: "a unit" is
+    // either player's (355.9.a.1), so this both repositions your own and drags an
+    // enemy out of a battlefield they were holding.
+    //
+    // The MOVE needs a destination as well as a target, which rides on
+    // `destinationBattlefieldId` — a place rather than a second target, the split
+    // `MOVE_TARGET_SPELL_DEF_IDS` records. That table is where this card is
+    // registered for the enumerator; the resolver below only performs it.
+    //
+    // `maxMight` is a spec filter rather than a resolver check, for the reason
+    // `attackingOnly` records: by the time a resolver runs the choice is made and
+    // paid for, and for a Spell the targeting IS the effect — a board with only
+    // big units must make this UNCASTABLE rather than castable-and-inert.
+    targeting: { kind: "unit", scope: "anywhere", maxMight: TWILIGHT_STEP_MAX_MIGHT },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      return forceMoveToDestination(state, targetId, event);
+    },
+  },
   "SFD-135": {
     // Factory Recall — "[Action] Return a gear to its owner's hand."
     //
@@ -1846,6 +1955,140 @@ function pykeHasMinted(state: GameState, instanceId: string): boolean {
 const SPIRIT_WHEEL_DRAW_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-095": {
+    // Shadow Order Disciple — "When I move, you may [Burn 1] to give me +1
+    // [Might] this turn."
+    //
+    // The board-wide `unitMoved` EVENT rather than unit-triggers.ts's per-card
+    // `ON_MOVE_TRIGGERS`, which is module-private and not this file's to edit —
+    // the route Jhin - Murderous Artist and Eclipse Dragon both take.
+    //
+    // **The Burn is a COST inside an instruction** (355.10.c.1's "[do X] to [do
+    // Y]"), so declining to burn and declining the pump are one answer — which is
+    // why the question carries a single decline rather than two.
+    //
+    // Unlike a Power or Energy cost this one is ALWAYS payable in the sense 416.3
+    // cares about: rule 440.4 burns as many as possible and 431 recycles an empty
+    // deck, so there is no board on which "Burn 1" cannot be completed. The offer
+    // is therefore always made, and the only reason not to take it is that milling
+    // yourself is a real price.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved" || event.unitInstanceId !== listener.card.instanceId) return state;
+      return parkDecision(state, {
+        kind: DISCIPLE_BURN_OFFER,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
+  "VEN-111": {
+    // Minah Swiftfoot — "When I move TO A BATTLEFIELD, choose one — Each player
+    // discards 1. / Each player draws 1."
+    //
+    // **"To a battlefield" is printed and is load-bearing**, because `unitMoved.to`
+    // is NOT always a battlefield: 455/456 make a walk home a Move, and the
+    // event's own note records Mister Root and Corina Veraza both being caught
+    // paying out for one. So the destination is tested rather than assumed.
+    //
+    // "EACH player", not "an opponent" — both seats discard, both seats draw. That
+    // symmetry is the card: it is a knob you turn when the symmetry favours you,
+    // and `discardCards`/`drawCards` are called once per seat so each player's own
+    // `cardsDiscarded`/`cardDrawn` events fire for them.
+    //
+    // A modal decision rather than two triggers: 402.1 puts a triggered ability's
+    // choices at the moment it resolves, and "choose one" is exactly such a
+    // choice.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" &&
+      event.unitInstanceId === listener.card.instanceId &&
+      event.to !== "base",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "unitMoved" || event.unitInstanceId !== listener.card.instanceId) return state;
+      // Re-checked at resolution: the inline `dispatchEvent` path never consults
+      // `applies`, so a condition asserted only there holds on one route in.
+      if (event.to === "base") return state;
+      return parkDecision(state, { kind: MINAH_MODE, playerIndex: listener.ownerIndex });
+    },
+  },
+  "VEN-102": {
+    // Ravenbloom Prefect — "When an OPPONENT plays a GEAR, you may banish ME to
+    // banish IT."
+    //
+    // # Not a counter, and the difference is observable
+    //
+    // The gear is banished AFTER it has been played and resolved — this engine's
+    // `cardPlayed` fires once the card is in play, which the event's own note
+    // states. So a gear with a "when you play this" trigger gets that trigger, and
+    // only then leaves. A counter (`counterSpell`) would stop it resolving at all,
+    // and nothing in this card's text does that.
+    //
+    // # Banishing HIMSELF is the cost
+    //
+    // 355.10.c.1's "[do X] to [do Y]" again, so one question with one decline. He
+    // is banished rather than killed — 427.2.a, "Banish is not a subset of Kill" —
+    // so his own death triggers do not fire and nothing prices off him dying.
+    //
+    // "An OPPONENT plays" is measured from HIS controller, and `playedKind` is what
+    // separates a gear from anything else. A TOKEN gear (the Gold token) is
+    // deliberately NOT excluded: 185 makes a token not a card, and this clause says
+    // "plays a GEAR", which a Gold token is.
+    on: "cardPlayed",
+    applies: (_state, listener, event) =>
+      event.kind === "cardPlayed" && event.casterIndex !== listener.ownerIndex && event.playedKind === "Gear",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "cardPlayed") return state;
+      if (event.casterIndex === listener.ownerIndex || event.playedKind !== "Gear") return state;
+      return parkDecision(state, {
+        kind: PREFECT_BANISH,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        // WHICH gear — the one just played, on `targetInstanceId` since
+        // `cardInstanceId` already carries the Prefect himself. Captured because by
+        // the time this is answered the chain has moved on and "the gear that was
+        // played" is not re-derivable from the board.
+        targetInstanceId: event.playedInstanceId,
+      });
+    },
+  },
+  "VEN-108": {
+    // Forgotten Relic — "When you play this OR at the start of your Beginning
+    // Phase, [Burn 1]. When you burn a unit this way, do this: Give a friendly
+    // unit +[Might] equal to the burned card's Might this turn."
+    //
+    // # The only card in the pool that reads WHAT it burned
+    //
+    // `burnCards` returns the cards it took for exactly this: the identity cannot
+    // be peeked beforehand, because a Burn Out mid-instruction (440.4) changes
+    // which cards the rest of the burn takes. Reading the trash afterwards would
+    // pick up whatever else the turn had put there.
+    //
+    // "When you burn A UNIT this way" — a Spell or Gear burned pays nothing, and
+    // the amount is the burned card's PRINTED Might, which is the only Might a
+    // card in a trash has.
+    //
+    // # TWO moments, and they are registered in TWO tables
+    //
+    // This entry is the "at the start of your Beginning Phase" half only. The
+    // "when you play this" half is a `selfTriggers` entry below — the route all
+    // nine other gears in the pool with that clause take.
+    //
+    // **A first draft registered both on ONE definition as `["cardPlayed",
+    // "beginningPhase"]`, and the trigger census refused it.** `beginningPhase`
+    // is the one kind this engine resolves INLINE, and the census asserts that an
+    // inline trigger's `on` is exactly `["beginningPhase"]` — a definition
+    // straddling the line would be half-held and half-inline, which is a shape
+    // nothing else in the pool has and which the structural claim exists to catch.
+    // Splitting is both cleaner and what every precedent already does.
+    on: "beginningPhase",
+    resolve: (state, listener, event) => {
+      if (event.kind !== "beginningPhase" || event.playerIndex !== listener.ownerIndex) return state;
+      return forgottenRelicBurn(state, listener.ownerIndex);
+    },
+  },
   "SFD-142": {
     // Jae Medarda — "When you choose me with a spell, draw 1."
     //
@@ -2958,6 +3201,41 @@ function ownUnitsElsewhere(state: GameState, playerIndex: 0 | 1, battlefieldId: 
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  "VEN-108": {
+    // Forgotten Relic — the "WHEN YOU PLAY THIS" half. Its Beginning-Phase half is
+    // an `eventTriggers` entry above, and that entry records why the two cannot
+    // share one definition.
+    //
+    // A self trigger rather than a `cardPlayed` listener, which is the route all
+    // nine other gears in the pool printing "when you play this" take: the moment
+    // is about THIS card, so keying it by its own defId needs no filter and cannot
+    // fire for anybody else's play.
+    on: ["played"],
+    resolve: (state, event) => forgottenRelicBurn(state, event.ownerIndex),
+  },
+  "VEN-094": {
+    // Mask Mother — "When you DISCARD me, you may pay [1 Energy] to give a
+    // friendly unit +2 [Might] this turn."
+    //
+    // Flame Chompers' moment (OGN-006, effects/fury.ts) with a different payload,
+    // and keyed by her own defId for the same reason: at the instant this fires
+    // she is not in play for any listener walk to find — she is on her way from
+    // hand to trash.
+    //
+    // **The pump is on somebody ELSE**, so unlike Flame Chompers this is a card
+    // that pays out from the graveyard without coming back. Her being in the trash
+    // is not a condition of anything; the offer is about the discard, not about
+    // where she landed.
+    //
+    // "You MAY pay" is a cost, asked through the very helper that will spend it so
+    // affordability and payment cannot disagree — and 416.3 means it is not asked
+    // at all when the Energy cannot be paid.
+    on: ["discarded"],
+    resolve: (state, event) =>
+      payEnergyFromPool(state, event.ownerIndex, MASK_MOTHER_ENERGY) === undefined
+        ? state
+        : parkDecision(state, { kind: MASK_MOTHER_PUMP, playerIndex: event.ownerIndex }),
+  },
   "OGN-186": {
     // Treasure Trove — "When this leaves the board, draw 1 and channel 1 rune
     // exhausted."
@@ -3100,7 +3378,206 @@ const NOCTURNE_POWER = 1;
  *  as a bare literal beside a tag string. */
 const THE_LIST_PENALTY = 2;
 
+/**
+ * Forgotten Relic's whole instruction — "[Burn 1]. When you burn a UNIT this way,
+ * do this: give a friendly unit +[Might] equal to the burned card's Might this
+ * turn."
+ *
+ * Shared by the card's two moments (its play, and each Beginning Phase) so they
+ * cannot come to different answers — the reason `keeperOfLawConditionMet` and
+ * `opponentControlsStunnedUnit` are shared between their own two halves.
+ *
+ * The burned card's identity comes from `burnCards`' report: it cannot be peeked
+ * beforehand, because a Burn Out mid-instruction (440.4) changes which cards the
+ * rest of the burn takes, and reading the trash afterwards would pick up whatever
+ * else the turn had put there.
+ *
+ * "When you burn A UNIT this way" — a Spell or Gear burned raises no question at
+ * all, which is what makes the absence of one observable. The amount is the
+ * burned card's PRINTED Might, the only Might a card in a trash has.
+ */
+function forgottenRelicBurn(state: GameState, ownerIndex: 0 | 1): GameState {
+  const { state: burned, burned: taken } = burnCards(state, ownerIndex, FORGOTTEN_RELIC_BURN);
+  const unit = taken.find((c) => c.kind === "Unit");
+  if (!unit) return burned;
+  return parkDecision(burned, {
+    kind: FORGOTTEN_RELIC_GIVE,
+    playerIndex: ownerIndex,
+    // The AMOUNT, carried rather than re-derived: by the time this is answered the
+    // burned card is one of many in a trash and nothing distinguishes it.
+    count: unit.might,
+  });
+}
+
+/** Which seat holds this gear, or undefined if nobody does — the lookup
+ *  `banishCard` needs, since it takes an owning seat and a bare instanceId does
+ *  not carry one. */
+function gearOwnerOf(state: GameState, gearInstanceId: string): 0 | 1 | undefined {
+  for (const index of [0, 1] as const) {
+    if (state.players[index].activeGear.some((g) => g.instanceId === gearInstanceId)) return index;
+  }
+  return undefined;
+}
+
+/** Every unit sitting in EITHER trash — Shadows of the Past's "units from
+ *  TRASHES", plural, which is the whole card: each returned unit goes to its own
+ *  owner's hand, so this can hand an opponent their champion back. */
+function unitsInAnyTrash(state: GameState): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
+  return ([0, 1] as const).flatMap((index) =>
+    state.players[index].trash
+      .filter((c) => c.kind === "Unit")
+      .map((c) => ({ instanceId: c.instanceId, name: c.name, ownerIndex: index })),
+  );
+}
+
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Mask Mother's "you may pay [1 Energy] to give a friendly unit +2 [Might] this
+   * turn", raised by her own discard.
+   *
+   * The payment is TAKEN here and asked through the helper that takes it, so
+   * affordability and payment cannot disagree — and the offer is rebuilt from
+   * live state, so Energy spent in the response window leaves a bare Decline that
+   * `advanceDecisions` executes without prompting (416.3).
+   *
+   * "A FRIENDLY unit" is her controller's, anywhere (355.9.a.1 — no location is
+   * printed).
+   */
+  [MASK_MOTHER_PUMP]: {
+    prompt: () => "Mask Mother: pay 1 Energy to give a friendly unit +2 Might this turn?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(payEnergyFromPool(state, d.playerIndex, MASK_MOTHER_ENERGY) === undefined
+        ? []
+        : ownUnitsEverywhere(state, d.playerIndex).map((u) => ({
+            id: u.instanceId,
+            label: `+2 Might to ${u.name}`,
+            instanceId: u.instanceId,
+          }))),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const paid = payEnergyFromPool(state, d.playerIndex, MASK_MOTHER_ENERGY);
+      if (paid === undefined) return state;
+      return giveMightThisTurn(paid, optionId, MASK_MOTHER_MIGHT);
+    },
+  },
+  /**
+   * Shadow Order Disciple's "you may [Burn 1] to give me +1 [Might] this turn".
+   *
+   * One question over both halves: the Burn is a cost WITHIN the instruction
+   * (355.10.c.1), so declining to burn and declining the pump are one answer.
+   *
+   * Unlike a Power or Energy cost this one is always completable — 440.4 burns as
+   * many as possible and 431 recycles an empty deck — so the offer is always
+   * made, and milling yourself is the real price rather than a gate.
+   */
+  [DISCIPLE_BURN_OFFER]: {
+    prompt: () => "Shadow Order Disciple: Burn 1 to give me +1 Might this turn?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.cardInstanceId !== undefined && findUnitAnywhere(state, d.cardInstanceId) !== undefined
+        ? [{ id: "burn", label: "Burn 1 for +1 Might" }]
+        : []),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.cardInstanceId === undefined) return state;
+      return giveMightThisTurn(burn(state, d.playerIndex, DISCIPLE_BURN), d.cardInstanceId, DISCIPLE_MIGHT);
+    },
+  },
+  /**
+   * Shadows of the Past's "return UP TO 2 units from trashes to their owners'
+   * hands" — re-parked while returns are still owed, exactly as the generic
+   * discard question is, so "up to 2" is a sequence of one-unit choices and
+   * declining ends it.
+   *
+   * Each unit goes to ITS OWNER's hand, not the caster's: `returnCardFromTrash`
+   * takes the owning seat, which the option carries.
+   */
+  [SHADOWS_OF_THE_PAST_PICK]: {
+    prompt: (_state, d) => `Shadows of the Past: return a unit from a trash to its owner's hand (${d.count ?? 1} left)`,
+    options: (state) => [
+      { id: "decline", label: "Decline" },
+      ...unitsInAnyTrash(state).map((u) => ({ id: u.instanceId, label: u.name, instanceId: u.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const owner = unitsInAnyTrash(state).find((u) => u.instanceId === optionId);
+      if (!owner) return state;
+      const returned = returnCardFromTrash(state, owner.ownerIndex, optionId);
+      const remaining = (d.count ?? 1) - 1;
+      return remaining > 0 ? repeatDecision(returned, { ...d, count: remaining }) : returned;
+    },
+  },
+  /**
+   * Forgotten Relic's "give a friendly unit +[Might] equal to the burned card's
+   * Might this turn", raised only when the burn actually took a UNIT.
+   *
+   * The AMOUNT rides on `count` rather than being re-derived: by the time this is
+   * answered the burned card is one of many in a trash and nothing distinguishes
+   * it. A 0-Might unit burned still asks — the instruction is not conditional on
+   * the amount — and grants nothing, which is the honest reading.
+   */
+  [FORGOTTEN_RELIC_GIVE]: {
+    prompt: (_state, d) => `Forgotten Relic: give a friendly unit +${d.count ?? 0} Might this turn.`,
+    options: (state, d) =>
+      ownUnitsEverywhere(state, d.playerIndex).map((u) => ({
+        id: u.instanceId,
+        label: `+${d.count ?? 0} Might to ${u.name}`,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, d, optionId) => giveMightThisTurn(state, optionId, d.count ?? 0),
+  },
+  /**
+   * Ravenbloom Prefect's "you may banish ME to banish IT".
+   *
+   * `cardInstanceId` is the Prefect and `targetInstanceId` is the gear that was
+   * just played. Both are re-checked at answer time: he may have died in the
+   * response window, and the gear may already be gone.
+   *
+   * **Both banishes, and neither is a kill** (427.2.a). His own death triggers do
+   * not fire and the gear's "when I am killed" self-trigger does not either —
+   * which is exactly what separates this from `killGear`.
+   */
+  [PREFECT_BANISH]: {
+    prompt: () => "Ravenbloom Prefect: banish me to banish that gear?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...(d.cardInstanceId !== undefined &&
+      findUnitAnywhere(state, d.cardInstanceId) !== undefined &&
+      d.targetInstanceId !== undefined &&
+      gearOwnerOf(state, d.targetInstanceId) !== undefined
+        ? [{ id: "banish", label: "Banish us both" }]
+        : []),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.cardInstanceId === undefined || d.targetInstanceId === undefined) return state;
+      const gearOwner = gearOwnerOf(state, d.targetInstanceId);
+      if (gearOwner === undefined) return state;
+      // HIM first, then the gear: the cost is paid before what it buys, and a
+      // reader of the board between the two sees a Prefect who has already gone.
+      return banishCard(banishUnitFromPlay(state, d.cardInstanceId), gearOwner, d.targetInstanceId);
+    },
+  },
+  /**
+   * Minah Swiftfoot's "choose one — each player discards 1 / each player draws 1".
+   *
+   * No decline: "choose one" is not "you may". Both seats are acted on in TURN
+   * ORDER-agnostic sequence, each through the shared helper so their own
+   * `cardsDiscarded`/`cardDrawn` events fire for them.
+   */
+  [MINAH_MODE]: {
+    prompt: () => "Minah Swiftfoot: choose one.",
+    options: () => [
+      { id: "discard", label: "Each player discards 1" },
+      { id: "draw", label: "Each player draws 1" },
+    ],
+    resolve: (state, _d, optionId) => {
+      const act = (next: GameState, index: 0 | 1) =>
+        optionId === "discard" ? discardCards(next, index, 1) : drawCards(next, index, 1);
+      return act(act(state, 0), 1);
+    },
+  },
   "UNL-138-name": {
     // The List's "as you play this, name a tag."
     prompt: () => "The List: name a tag",
@@ -5020,6 +5497,36 @@ function predictTwo(state: GameState, playerIndex: 0 | 1): GameState {
  * in both directions.
  */
 export const mightModifiers: Record<string, MightModifier> = {
+  "VEN-097": {
+    // Spiderling — "[Hidden] I have +1 [Might] for each OTHER unit you control
+    // HERE with my name. Your deck can have any number of cards named Spiderling."
+    //
+    // A continuous, positional, self-referential aura: three Spiderlings at one
+    // battlefield are each a 3, and one alone is a 1. `defId` rather than `name`
+    // is the comparison — this pool has no second printing of him, and a defId
+    // comparison is what every other "with my name" board count here uses.
+    //
+    // **"OTHER" is by instanceId**, so he never counts himself; **"HERE" is
+    // positional**, so a Spiderling in base gets nothing however many siblings
+    // stand at a battlefield.
+    //
+    // # The deck-building clause is NOT implemented, and it is not a gap here
+    //
+    // "Your deck can have any number of cards named Spiderling" is a
+    // DECKBUILDING rule (103.1.b), enforced when a deck is assembled rather than
+    // during a game. This engine's `deck-generator` and its preset decks are the
+    // only deck sources and neither enforces a copy limit at all, so there is
+    // nothing for the clause to relax. Recorded in docs/rules-conformance.md
+    // rather than left implicit.
+    defId: "VEN-097",
+    bonus: (state, unit, ownerIndex, ctx) => {
+      if (unit.defId !== "VEN-097" || ctx.battlefieldId === undefined) return 0;
+      const ownerId = state.players[ownerIndex].id;
+      const here = state.battlefields.find((bf) => bf.id === ctx.battlefieldId)?.units[ownerId] ?? [];
+      const siblings = here.filter((u) => u.defId === "VEN-097" && u.instanceId !== unit.instanceId).length;
+      return siblings * SPIDERLING_MIGHT_PER_SIBLING;
+    },
+  },
   [BARON_NASHOR]: {
     // Baron Nashor, THIRD sentence — "Other friendly units have +2 [Might]."
     //

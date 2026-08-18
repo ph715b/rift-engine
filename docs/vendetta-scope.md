@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=92  unimplemented=84   partial=6      (2026-08-17, after the alias fix and four card waves)
+VEN: needing=176  implemented=102 unimplemented=74   partial=6      (2026-08-18, after the alias fix and five card waves)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 84 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 74 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,42 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Chaos, wave 1 — done 2026-08-18 (10 of 21 cards)
+
+VEN-094, 095, 096, 097, 102, 103, 105, 106, 108, 111 — the ten needing no new
+TARGETING axis. VEN 92 -> 102. Tests in `test/ven-chaos-wave1.test.ts`;
+**23 mutants, 23 killed.**
+
+**One new primitive: `banishUnitFromPlay`.** 427.2.a says outright that "Banish
+is not a subset of Kill", so it is deliberately not `destroyUnit` with another
+destination — no `[Deathknell]`, no death-watch, no `unitsLostThisTurn`. Wind and
+Ghosts and Ravenbloom Prefect both need it, and it is what makes the small half
+of Wind and Ghosts the stronger one.
+
+**The trigger census refused a card, and was right to.** Forgotten Relic prints
+two moments, and a first draft registered them on ONE definition as
+`["cardPlayed", "beginningPhase"]` — half held, half inline. The census's
+structural claim (an inline trigger's `on` is exactly `["beginningPhase"]`) is
+the thing that caught it. Split into an event trigger and a `played` SELF
+trigger, which is the route all nine other gears printing "when you play this"
+already take. **Check that claim before registering a mixed `on` list.**
+
+**Three mutants survived the first pass and all three were the same blind spot**
+— a question with ONE option is executed silently by `advanceDecisions`, so a
+test that reads `pendingDecisions` sees nothing whether the card is right or
+wrong. Two of them needed a second friendly unit on the board before the question
+was observable at all. That is the third distinct way this session has hit the
+silent-single-option shape; **when asserting that a question was or was not
+raised, make sure it would have TWO answers if raised.**
+
+**Chaos's remaining 11** need machinery rather than card work: a Tentacle token
+(VEN-100, VEN-109/182), granted `[Flow]` (VEN-113), a delayed end-of-turn
+disempower (VEN-099), a discount on a REPLACED cost (VEN-098), an "open
+battlefield" play permission (VEN-115), a domain filter on `unitList` targeting
+(VEN-107), a second Shadow Clone maker with a swap ability (VEN-112), and an
+optional Energy-only additional cost (VEN-101). VEN-110 is one of the six
+partials.
 
 ### Body, wave 1 — done 2026-08-17 (12 of 13 cards)
 

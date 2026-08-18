@@ -182,10 +182,19 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // card printing any OTHER moment must not appear here: inline means no
     // response window, and it is a deliberate exception for a phase ability
     // rather than a licence.
-    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006"]);
+    // **VEN-108 Forgotten Relic joined on 2026-08-18, and the invariant held for
+    // a reason worth recording: it very nearly did not.** A first draft registered
+    // his two moments on ONE definition as `["cardPlayed", "beginningPhase"]` —
+    // half held, half inline — and the test ABOVE refused it, which is exactly the
+    // structural claim this file says would change the meaning of every number
+    // here. Split into a `beginningPhase` event trigger and a `played` SELF
+    // trigger, which is the route all nine other gears printing "when you play
+    // this" already take. Inline means no response window, and it stays a
+    // deliberate exception for a phase ability rather than a licence.
+    expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("348 held / 7 inline of 355 trigger cards", () => {
+  it("352 held / 8 inline of 360 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -551,10 +560,27 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // Repair Specialist is a `DYNAMIC_KEYWORD_VALUES` grant. Corrupted Dragon is
     // counted ONCE despite also being a `conditionalEntersReady` case in
     // deploy.ts, which is right — this census counts trigger cards, not clauses.
+    //
+    // **348/7/355 -> 352/8/360 on 2026-08-18: Vendetta's Chaos wave, five trigger
+    // cards out of ten implemented.** By family and by name:
+    //
+    //     event (+4)  VEN-095 Shadow Order Disciple, VEN-111 Minah Swiftfoot
+    //                 (unitMoved); VEN-102 Ravenbloom Prefect (cardPlayed);
+    //                 VEN-108 Forgotten Relic (beginningPhase — the INLINE one)
+    //     self  (+2)  VEN-094 Mask Mother (discarded), VEN-108 (played)
+    //     distinct: 5 — Forgotten Relic is in BOTH registries and counts once
+    //
+    // `inline` moved to 8, and the by-name test above records why that is a split
+    // rather than a widening: his two moments are two registrations, and the
+    // structural claim refused the version that mixed them.
+    //
+    // The other five cards in the wave are correctly absent across three homes:
+    // VEN-103, VEN-105 and VEN-106 are SPELL effects, VEN-096 Shadowblade Lurker
+    // is a cost modifier, and VEN-097 Spiderling is a continuous Might modifier.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 348,
-      inline: 7,
-      cards: 355,
+      held: 352,
+      inline: 8,
+      cards: 360,
     });
   });
 

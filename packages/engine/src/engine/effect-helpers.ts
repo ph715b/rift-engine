@@ -2272,6 +2272,36 @@ export function relocateToBaseUnchanged(state: GameState, targetInstanceId: stri
  * a plain move and not `killGear`: banishing is not killing, so no self-trigger
  * fires — see `ActivationCost.banishSelf`.
  */
+/**
+ * Banishes a unit that is IN PLAY — Wind and Ghosts' "if it has 3 [Might] or
+ * less, banish it".
+ *
+ * **427.2.a: "Banish is not a subset of Kill."** So this is emphatically NOT
+ * `destroyUnit` with a different destination: no `[Deathknell]` fires, no
+ * death-watch listener sees anything, `unitsLostThisTurn` does not move, and
+ * nothing that prices itself off deaths (Spoils of War, Towering Pairofant) pays
+ * out. That is the whole reason a card banishes rather than kills, and why the
+ * small half of Wind and Ghosts is the stronger one.
+ *
+ * Distinct from `banishCard` below, which reaches a card in a NON-BOARD zone
+ * (hand, trash, gear). A unit at a battlefield or in a base is in neither, so
+ * that function cannot find it — which is how "banish it" would silently no-op.
+ *
+ * A TOKEN ceases to exist rather than resting in Banishment (186.1), which
+ * `fileIntoNonBoardZone` handles — the same funnel every zone transition here
+ * goes through.
+ *
+ * No-ops on a unit that has left play, the same target-vanished convention every
+ * helper here follows (359.3.e.12).
+ */
+export function banishUnitFromPlay(state: GameState, targetInstanceId: string): GameState {
+  const location = findUnitAnywhere(state, targetInstanceId);
+  if (!location) return state;
+  const { unit, ownerIndex } = location;
+  const removed = removeUnitAnywhere(state, targetInstanceId);
+  return updatePlayer(removed, ownerIndex, (p) => ({ ...p, banished: fileIntoNonBoardZone(p.banished, unit) }));
+}
+
 export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): GameState {
   const owner = state.players[playerIndex];
   const card =
