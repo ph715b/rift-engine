@@ -40,7 +40,7 @@ import { controlsAnyFacedownCard } from "../hidden.js";
 import { effectiveMight } from "../effective-might.js";
 import { modifiedEnergyCost } from "../cost-modifiers.js";
 import { attackerIndexAt, isAttackingAt, isFightingAt } from "../combat-designation.js";
-import { placeGoldTokens, placeToken, type TokenSpec } from "../token.js";
+import { placeGoldTokens, placeToken, SHADOW_CLONE_TOKEN, type TokenSpec } from "../token.js";
 import {
   ARMORY_WARD_POWER,
   clearPaidDeathWard,
@@ -1226,6 +1226,43 @@ function replayDancingGrenade(
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-023": {
+    // Zed, From the Shadows — "[Assault 4] You may discard 1 as an additional cost
+    // to play me. When you play me, if you paid the additional cost, play a 0
+    // [Might] Shadow Clone unit token."
+    //
+    // The token is `SHADOW_CLONE_TOKEN`, shared from token.ts because VEN-144
+    // Death Mark makes the same one from another file — the drift
+    // `SAND_SOLDIER_TOKEN` and `BIRD_TOKEN` both record. Its printed ability
+    // ("when I attack, you may banish a unit from your trash…") is registered in
+    // `engine/triggers.ts` under the token's runtime defId, the arrangement the
+    // Gold token already uses: a token is not a card, so no per-domain file may
+    // own it and `effect-registry.test.ts` would refuse it there.
+    //
+    // **`event.discardCardInstanceId` is the whole "if you paid" test** — it is
+    // set exactly when a discard variant was submitted, so there is no separate
+    // flag to fall out of step with it. Ruthless Strike's entry records the same
+    // reading.
+    //
+    // The discard is performed HERE, like Brazen Buccaneer's and Ruthless
+    // Strike's: it is the one instruction the cost machinery cannot perform,
+    // since it does not know which card the effect wants gone.
+    //
+    // **TO BASE, and that is a decision rather than the printed word.** The card
+    // names no destination, and 185.2.a plays a token "following all the
+    // applicable steps for playing a card plus any restrictions from the effect
+    // that created it" — which for a Unit is base or a battlefield you control.
+    // Offering the choice would mean a row in `TOKEN_PLACEMENT_SPELL_DEF_IDS`,
+    // and that table is for SPELLS: this is a unit's on-play trigger, which has
+    // no `destinationBattlefieldId` axis of its own to fan out over. Recorded in
+    // docs/rules-conformance.md as narrower than printed.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) => {
+      if (event.discardCardInstanceId === undefined) return state;
+      const paid = discardCards(state, ctx.casterIndex, 1, [event.discardCardInstanceId]);
+      return placeToken(paid, ctx.casterIndex, "base", SHADOW_CLONE_TOKEN);
+    },
+  },
   "VEN-017": {
     // Morgana, Vindictive — "[Ambush] When you play me, deal damage to a unit
     // equal to the damage marked on it."

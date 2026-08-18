@@ -179,6 +179,25 @@ const DEALS_NO_COMBAT_DAMAGE_DEF_IDS = new Set(["SFD-082"]); // Ezreal - Dashing
  *  one above because the condition is the card: hers is a formation requirement,
  *  not a drawback she always carries. */
 const DEALS_NO_COMBAT_DAMAGE_UNLESS_PAIRED = new Set(["VEN-129"]);
+
+/** Dune Surfer (VEN-004): "You ignore [Tank] while assigning combat damage
+ *  here." A Set rather than a lone constant, on the same "small, precise,
+ *  non-speculative table" convention every card list in this file follows. */
+const IGNORES_TANK_WHILE_ASSIGNING_HERE = new Set(["VEN-004"]);
+
+/**
+ * Does `assignerIndex` ignore `[Tank]` while assigning damage at
+ * `battlefieldId`?
+ *
+ * Read off the BOARD rather than latched, so a Surfer killed earlier in the same
+ * combat stops granting it — which is what "while" means. His own presence is
+ * the whole condition; nothing about the units being assigned to enters into it.
+ */
+function ignoresTankAt(state: GameState, assignerIndex: 0 | 1, battlefieldId: string): boolean {
+  const ownerId = state.players[assignerIndex].id;
+  const here = state.battlefields.find((bf) => bf.id === battlefieldId)?.units[ownerId] ?? [];
+  return here.some((u) => IGNORES_TANK_WHILE_ASSIGNING_HERE.has(u.defId));
+}
 /** ...and the count that satisfies it — "exactly ONE other unit you control". */
 const PAIRED_ALLIES = 1;
 
@@ -202,8 +221,38 @@ const SYMBOL_OF_THE_SOLARI = "OGN-227";
  * the rules give the choice to the player assigning damage, and this engine has
  * no interactive assignment to ask through.
  */
-function assignmentOrder(state: GameState, units: readonly UnitInstance[], ownerIndex: 0 | 1): readonly UnitInstance[] {
-  const isTank = (u: UnitInstance) => hasKeyword(state, u, ownerIndex, "Tank");
+function assignmentOrder(
+  state: GameState,
+  units: readonly UnitInstance[],
+  ownerIndex: 0 | 1,
+  /**
+   * WHERE this assignment is happening, and WHO is doing it — Dune Surfer's
+   * "you ignore [Tank] while assigning combat damage HERE" (VEN-004).
+   *
+   * Both are new parameters and both are needed: the permission belongs to the
+   * player ASSIGNING (the opponent of `ownerIndex`, since these are the units
+   * being assigned TO), and it is positional. Optional so that any caller asking
+   * the board-wide ordering question is unchanged; omitted means "no ignore
+   * applies", which is the conservative direction.
+   */
+  at?: { battlefieldId: string; assignerIndex: 0 | 1 },
+): readonly UnitInstance[] {
+  // **Dune Surfer's whole printed text, and it is the ASSIGNER's permission.**
+  // `units` are the ones being assigned to, so `ownerIndex` is the victim's seat
+  // and the Surfer belongs to the other one. A version keyed off `ownerIndex`
+  // would let a Tank ignore itself, which is the opposite card.
+  //
+  // He PRINTS `[Tank]` himself, and that is the design rather than a conflict:
+  // enemies must assign to him first, and his controller need not. Nothing here
+  // has to exclude him — he is never in `units` when his own side is assigning.
+  //
+  // Ignoring the keyword means dropping the TIER, not removing the keyword: a
+  // `[Tank]` unit still has it for everything else that reads it, and only this
+  // ordering stops caring. `[Backline]` is untouched, since the card names Tank
+  // alone.
+  const tankIgnored =
+    at !== undefined && ignoresTankAt(state, at.assignerIndex, at.battlefieldId);
+  const isTank = (u: UnitInstance) => !tankIgnored && hasKeyword(state, u, ownerIndex, "Tank");
   // The keyword and the allowlist are BOTH consulted: the four UNL cards print
   // `[Backline]`, Caitlyn prints the same sentence as prose, and `hasKeyword`
   // additionally catches a Backline granted by an effect.
@@ -238,6 +287,11 @@ export function combatAssignmentDefIds(): string[] {
     ...ASSIGNED_LAST_DEF_IDS,
     ...DEALS_NO_COMBAT_DAMAGE_DEF_IDS,
     ...DEALS_NO_COMBAT_DAMAGE_UNLESS_PAIRED,
+    // Dune Surfer's ignore is his entire printed text — his `[Tank]` is a frame
+    // keyword the engine already handles — so this list is his only registration
+    // anywhere. The Lucian - Purifier trap: a working card no module claims
+    // reports UNIMPLEMENTED and is dropped from generated decks.
+    ...IGNORES_TANK_WHILE_ASSIGNING_HERE,
     SYMBOL_OF_THE_SOLARI,
   ];
 }
@@ -503,12 +557,26 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
 
   // Tank-first on BOTH sides — the keyword is about a unit's own controller's
   // assignment order, so it applies whichever side is being assigned damage.
-  const damageToDefenders = distribute(state, attackerPool, assignmentOrder(state, defenderUnits, defenderIndex), defenderIndex, battlefieldId, false);
+  const damageToDefenders = distribute(
+    state,
+    attackerPool,
+    assignmentOrder(state, defenderUnits, defenderIndex, { battlefieldId, assignerIndex: attackerIndex }),
+    defenderIndex,
+    battlefieldId,
+    false,
+  );
   // Tryndamere - Barbarian's "if you assigned 5 or more EXCESS damage to enemy
   // units". See `excessAssigned` for why the three readings of a word the rules
   // never define all give this same number.
   const excessToDefenders = excessAssigned(state, attackerPool, defenderUnits, defenderIndex, battlefieldId);
-  const damageToAttackers = distribute(state, defenderPool, assignmentOrder(state, attackerUnits, attackerIndex), attackerIndex, battlefieldId, true);
+  const damageToAttackers = distribute(
+    state,
+    defenderPool,
+    assignmentOrder(state, attackerUnits, attackerIndex, { battlefieldId, assignerIndex: defenderIndex }),
+    attackerIndex,
+    battlefieldId,
+    true,
+  );
 
   const survivingAttackers = removeDefeated(state, applyDamage(state, attackerUnits, damageToAttackers), attackerIndex, battlefieldId, true);
   const survivingDefenders = removeDefeated(state, applyDamage(state, defenderUnits, damageToDefenders), defenderIndex, battlefieldId, false);

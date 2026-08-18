@@ -6,7 +6,10 @@ import { legendDecisions } from "./legend-abilities.js";
 import { battlefieldDecisions } from "./battlefield-abilities.js";
 import { freePlayDecisions } from "./free-play.js";
 import { discardCards, drawCards } from "./effect-helpers.js";
-import { holdEventTrigger } from "./triggers.js";
+// A CYCLE, and the same safe shape as the others in this module: triggers.ts
+// imports `parkDecision` from here, and both bindings are read only at runtime
+// inside a resolver, never at module initialisation.
+import { holdEventTrigger, tokenDecisions } from "./triggers.js";
 
 /**
  * The engine stopping to ask a player a question, and carrying on with the
@@ -146,6 +149,11 @@ function allDecisions(): Record<string, DecisionDefinition> {
     // printed Battlefield is Colorless, so filing one in a per-domain file would
     // be filing it nowhere.
     { name: "engine/battlefield-abilities.ts", entries: battlefieldDecisions },
+    // A TOKEN's own printed question — the Shadow Clone's. Beside the Legends'
+    // and the battlefields' for the same reason: a token has no domain, so a
+    // per-domain file would be filing it nowhere, and its two MAKERS are in two
+    // different files besides.
+    { name: "engine/triggers.ts (tokens)", entries: tokenDecisions },
     ...domainDecisions(),
   ]);
   return composed;

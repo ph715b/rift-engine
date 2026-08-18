@@ -6,11 +6,14 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
-import { banishCard, drawCards, fileIntoNonBoardZone, gainXp } from "./effect-helpers.js";
+import { banishCard, drawCards, fileIntoNonBoardZone, gainXp, grantKeywordThisTurn } from "./effect-helpers.js";
+import { SHADOW_CLONE_TOKEN_DEF_ID } from "./constants.js";
+import { isAttackingAt } from "./combat-designation.js";
 // Same cycle as the two above, and safe for the same reason: read inside a
 // resolver / inside `allEventTriggers`, never at module init.
 import { effectiveKeywords } from "./granted-keywords.js";
 import { parkDecision } from "./decisions.js";
+import type { DecisionDefinition } from "./decisions.js";
 // equipment.ts already imports this module for `Listener` and `holdEventTrigger`
 // — the same cycle, and safe for the same reason: the binding is read inside a
 // resolver, never at module init.
@@ -1459,8 +1462,99 @@ function huntMomentIsMine(listener: Listener, event: GameEvent): boolean {
   return false;
 }
 
-/** Triggers keyed by a KEYWORD rather than a defId. One today. */
+/** The Shadow Clone's question, keyed like its trigger by the token's runtime
+ *  id rather than by a defId. */
+export const SHADOW_CLONE_BANISH = `${SHADOW_CLONE_TOKEN_DEF_ID}-banish`;
+/** ...and what banishing buys. `[Assault 4]` is not `[Assault]`, and the grant's
+ *  `value` parameter defaults to 1 — so a missing argument here is a silently
+ *  weaker token rather than a type error. */
+const SHADOW_CLONE_ASSAULT = 4;
+
+/**
+ * Questions owned by a TOKEN rather than by a card — merged into
+ * `engine/decisions.ts` as its own source, exactly as `equipmentDecisions` and
+ * `legendDecisions` are, and for the same reason those are not in a per-domain
+ * file: nothing about a token has a domain to file it under.
+ */
+export const tokenDecisions: Record<string, DecisionDefinition> = {
+  [SHADOW_CLONE_BANISH]: {
+    prompt: () => "Shadow Clone: banish a unit from your trash to give me [Assault 4] this turn?",
+    // Rebuilt from LIVE state, so a trash emptied during the response window
+    // leaves a bare Decline that `advanceDecisions` executes without prompting
+    // (416.3), and a Clone that has since died finds its own question moot.
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...state.players[d.playerIndex].trash
+        .filter((c) => c.kind === "Unit")
+        .map((c) => ({ id: c.instanceId, label: `Banish ${c.name}`, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline" || d.cardInstanceId === undefined) return state;
+      // Banished FIRST, and the grant is conditioned on it having happened —
+      // "if you do" is a payment, not a rider. `banishCard` no-ops on a card that
+      // has left the trash, so the membership is re-checked rather than trusted.
+      if (!state.players[d.playerIndex].trash.some((c) => c.instanceId === optionId)) return state;
+      const banished = banishCard(state, d.playerIndex, optionId);
+      return grantKeywordThisTurn(banished, d.cardInstanceId, "Assault", SHADOW_CLONE_ASSAULT);
+    },
+  },
+};
+
+/** Triggers keyed by something that is NOT a card defId — a KEYWORD, or a
+ *  TOKEN's runtime id. Two today. */
 const keywordEventTriggers: Record<string, EventTriggerDefinition> = {
+  /**
+   * The Shadow Clone token's printed ability — "When I attack, you may banish a
+   * unit from your trash. If you do, give me `[Assault 4]` this turn."
+   *
+   * # Why it lives here and not in a domain file
+   *
+   * A token is not a card, so it has no `CardDefinition` and no domain — and
+   * `effect-registry.test.ts` enforces that every defId in a domain file's
+   * registries IS a real card of that domain. Its two MAKERS are in different
+   * files besides (`VEN-023` in effects/fury.ts, `VEN-144` in
+   * effects/signature-fury.ts), so either home would be arbitrary and only one
+   * of them could hold it — `mergeRegistries` throws on a duplicate key.
+   *
+   * This is the Gold token's arrangement exactly: its printed activated ability
+   * lives in the shared `activated-abilities.ts` under `GOLD_TOKEN_DEF_ID`, for
+   * the same reason and with the same "exported from token.ts so the two cannot
+   * drift" key.
+   *
+   * # The offer
+   *
+   * `combatBegan` + `isAttackingAt`, the shared adapter every "when I attack"
+   * card uses, so the token and a printed unit cannot come to different answers
+   * about who is attacking.
+   *
+   * "You MAY banish" is a cost inside an instruction (355.10.c.1's "[do X] to
+   * [do Y]"), so declining to banish and declining the pump are one answer — the
+   * reading Sinister Poro's entry records. Asked in `applies` so a caller with an
+   * EMPTY trash of units places no Pending Item: a held trigger that resolves to
+   * nothing still costs both players a PassFocus, and this one would otherwise
+   * fire at every combat the token is in.
+   *
+   * **A UNIT from the trash, not any card.** The pool's trashes fill with spells,
+   * and offering one would be a cost the card does not print.
+   */
+  [SHADOW_CLONE_TOKEN_DEF_ID]: {
+    on: "combatBegan",
+    applies: (state, listener, event) =>
+      isAttackingAt(state, listener, event) &&
+      state.players[listener.ownerIndex].trash.some((c) => c.kind === "Unit"),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatBegan") return state;
+      // Re-checked at resolution: the window a hold opens is exactly when that
+      // trash could be emptied, and the inline dispatch path never consults
+      // `applies` at all.
+      if (!state.players[listener.ownerIndex].trash.some((c) => c.kind === "Unit")) return state;
+      return parkDecision(state, {
+        kind: SHADOW_CLONE_BANISH,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      });
+    },
+  },
   [HUNT_TRIGGER_KEY]: {
     on: ["battlefieldConquered", "battlefieldHeld"],
     // Both conditions are asked BEFORE the trigger reaches the chain, per the

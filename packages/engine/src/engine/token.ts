@@ -3,6 +3,13 @@ import type { GameState, PlayerState } from "../model/game-state.js";
 import { applyContested } from "./cleanup.js";
 import { tokensEnterReady } from "./board-restrictions.js";
 import { holdEventTrigger } from "./triggers.js";
+// The Shadow Clone's TAG comes from the leaf constants module, not the other way
+// round: `triggers.ts` keys the token's printed ability off the derived defId at
+// MODULE SCOPE, and this file imports triggers.ts — so deriving it here and
+// exporting it threw a temporal-dead-zone ReferenceError at import. See the
+// constant's own note, and `GOLD_TOKEN_DEF_ID`'s, which records the silent half
+// of the same bug.
+import { SHADOW_CLONE_TAG } from "./constants.js";
 
 
 /**
@@ -117,6 +124,25 @@ export const BIRD_TOKEN: TokenSpec = { name: "Bird", might: 1, tag: "Bird", keyw
  * missing keyword looks exactly like a keyword that was never granted.
  */
 export const MECH_TOKEN: TokenSpec = { name: "Mech", might: 3, tag: "Mech" };
+
+/**
+ * Vendetta's Shadow Clone — SHARED, because TWO cards in two different files
+ * create it: `VEN-023 Zed, From the Shadows` (effects/fury.ts) and `VEN-144
+ * Death Mark` (Fury+Chaos, so effects/signature-fury.ts).
+ *
+ * That is exactly the drift `SAND_SOLDIER_TOKEN` and `BIRD_TOKEN` both record —
+ * a stat line copied into each maker's file, which then stops agreeing. Two
+ * makers is the threshold this file already uses.
+ *
+ * **0 Might, and that is the card rather than a placeholder.** It dies to any
+ * damage and contributes nothing to a combat pool; its whole value is the
+ * printed ability below, which pays `[Assault 4]` for banishing a unit from the
+ * trash. A 1-Might default would make it a materially different token.
+ *
+ * No `entersReady`, so it enters exhausted on 143.4.a's default like every other
+ * token here — neither card says otherwise.
+ */
+export const SHADOW_CLONE_TOKEN: TokenSpec = { name: "Shadow Clone", might: 0, tag: SHADOW_CLONE_TAG };
 
 /**
  * Builds a runtime-only token unit — a raw UnitInstance object literal,

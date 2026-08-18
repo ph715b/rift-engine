@@ -126,9 +126,22 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //   swept by `runEnd` — which is what makes "this turn" true. The card whose
     //   clause it is contributes nothing to the count above, and should not: the
     //   Spell itself carries no trigger.
+    //   `TOKEN-SHADOW CLONE` is a THIRD kind, added 2026-08-17: a TOKEN's own
+    //   printed ability. Like `KEYWORD-HUNT` it deflates a card count rather than
+    //   inflating one — two printed cards create the token (VEN-023 Zed and
+    //   VEN-144 Death Mark) and neither carries this trigger itself, so counting
+    //   registry keys as cards would report the ability as a card that does not
+    //   exist while the two that DO print it went uncounted.
+    //
+    //   It is registered in `engine/triggers.ts` rather than a domain file
+    //   because a token has no `CardDefinition` and no domain, and
+    //   `effect-registry.test.ts` refuses a non-card defId in a domain file. The
+    //   Gold token's activated ability sits in the shared table for the same
+    //   reason.
     expect(syntheticKeys(knownCardIds)).toEqual([
       "KEYWORD-HUNT",
       "SFD-184-conquer-home",
+      "TOKEN-SHADOW CLONE",
       "UNL-095-combat-xp",
     ]);
   });
@@ -172,7 +185,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006"]);
   });
 
-  it("341 held / 7 inline of 348 trigger cards", () => {
+  it("343 held / 7 inline of 350 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -506,10 +519,24 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // VEN-119 Keeper of Law is a cost modifier; VEN-125 Hungry Wolf is an
     // ACTIVATED ability, which this census does not count; and VEN-129 Sacred
     // Protector is a continuous rule inside `combat.outgoingMight`.
+    //
+    // **341/7/350 -> 343/7/350 on 2026-08-17: Vendetta's Fury remainder, and the
+    // +2 is ONE card.** VEN-023 Zed, From the Shadows gets a `unitTriggers` entry,
+    // and `VEN-169` — his `(Overnumbered)` print — inherits it through
+    // `printingAliases`, so one registry entry legitimately becomes two keys.
+    // Jhin's +3 and Jinx's +1 are the same shape; this file's own note says to
+    // expect it from any reprinted card.
+    //
+    // **The Shadow Clone's ability is NOT in this count**, and that is the
+    // synthetic-key test above doing its job: `TOKEN-SHADOW CLONE` is a registry
+    // key that is not a card, so it is excluded here and named there.
+    //
+    // VEN-004 Dune Surfer is correctly absent too — his ignore is a continuous
+    // rule inside `combat.assignmentOrder`, not a trigger.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 341,
+      held: 343,
       inline: 7,
-      cards: 348,
+      cards: 350,
     });
   });
 

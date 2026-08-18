@@ -609,7 +609,14 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // deck, not new coverage.
 //
 // Second bump in two days, exactly as the note above says to expect.
-const PINNED_UNION = 712;
+//
+// **712 -> 714 on 2026-08-17, against 718 measured after the Fury remainder.**
+// Three cards implemented (VEN-004, VEN-023 and VEN-169 with him through the
+// alias) and only TWO newly exercised — which is the alternate-printing shape
+// `everyUnexercisedExplained` will hold VEN to in Phase 4, not a defect: a
+// covering deck seats one printing of a card, so the twin is never drawn. The
+// per-set figures again held EXACTLY (OGN 228, OGS 21, SFD 188, UNL 205).
+const PINNED_UNION = 714;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

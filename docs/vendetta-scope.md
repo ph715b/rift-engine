@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=77  unimplemented=99   partial=6      (2026-08-17, after the alias fix, Fury wave 1 and Order wave 1)
+VEN: needing=176  implemented=80  unimplemented=96   partial=6      (2026-08-17, after the alias fix and three card waves)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 99 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 96 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,50 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Fury, wave 2 — done 2026-08-17 (3 cards, and the token subsystem)
+
+VEN-004 Dune Surfer, VEN-023 Zed (and VEN-169 with him through the alias).
+VEN 77 -> 80.
+
+**Dune Surfer's ignore is the ASSIGNER's permission**, which is what made it a
+parameter rather than a table lookup: `assignmentOrder` receives the units being
+assigned TO, so their owner is the victim and the Surfer belongs to the other
+seat. He prints `[Tank]` himself and that is the design — enemies must assign to
+him first, and his controller need not.
+
+**The Shadow Clone is the pool's second token with a printed ABILITY**, and it
+repeated the Gold token's initialisation trap in a louder form. `token.ts`
+imports `holdEventTrigger`, so deriving `SHADOW_CLONE_TOKEN_DEF_ID` there and
+reading it at MODULE SCOPE in `triggers.ts` threw a temporal-dead-zone
+ReferenceError at import. The Gold token hit the silent half of this — its
+ability was registered "under the key `undefined`" and nothing failed. Both are
+fixed the same way: the id lives in the LEAF `constants.ts`.
+
+Its question is a `tokenDecisions` merge source exported from `triggers.ts`,
+beside `legendDecisions` and `battlefieldDecisions` and for the same reason —
+nothing about a token has a domain to file it under, and its two MAKERS
+(VEN-023 in `effects/fury.ts`, VEN-144 in `effects/signature-fury.ts`) are in
+different files, so either home would be arbitrary and only one could hold it.
+
+**A COST TABLE keyed by raw defId let a printing play CHEAPER than printed, and
+the guard caught it one commit after being written.** Zed's discard row made
+`VEN-169` — his `(Overnumbered)` print — a Zed who inherits the effect through
+the alias and could never be offered the cost. The five tables in
+`card-effects.ts` now canonicalise in their ACCESSORS rather than hand-listing
+prints, which is the same reasoning that makes `printingAliases` derived at all.
+Watch for this shape on every future card with an additional cost.
+
+**Endless Riches (VEN-022) is the one Fury card left**, and it is deliberately
+its own change rather than a card entry. Four clauses, of which only the first
+is card work:
+
+| clause | what it needs |
+|---|---|
+| "banish your hand and trash, then `[Burn 7]`" | nothing new — `banishCard` and `burnCards` both exist |
+| "Skip your Draw Phase" | `turn-manager.runDraw` |
+| "You may play cards from your trash" | a THIRD trash permission: continuous, board-derived, EVERY card kind, at the PRINTED price. Neither Last Rites' spent charge (Units only) nor a card's own replaced cost is it, and `mayPlayFromTrash`'s own comment says why the two existing ones are deliberately not merged |
+| "If a card would go to your trash from anywhere other than your Main Deck, banish it instead" | a replacement on TRASHING. Nothing in this engine replaces that today, and the trash is written from ~15 sites |
 
 ### Fury, wave 1 — done 2026-08-16 (13 cards)
 

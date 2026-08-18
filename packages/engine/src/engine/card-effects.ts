@@ -28,6 +28,10 @@ import { isMighty } from "./granted-keywords.js";
 // other tag question in the engine. Same lazily-called-arrow rule as above.
 import { effectiveTagsOf } from "./equipment.js";
 import { COMPANION_TAGS } from "./constants.js";
+// An alternate printing IS the card, and these tables are keyed by defId —
+// `mergeRegistries`' alias expansion reaches the effect REGISTRIES and not a
+// plain record. See `discardChoiceOf` for the printing that made this reachable.
+import { canonicalDefId } from "../cards/card-loader.js";
 import { channelRunesForcedExhausted } from "./channel-cost.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { placeRecruitToken, type TokenDestination } from "./token.js";
@@ -1525,7 +1529,9 @@ export function grantedRepeatCostOf(
  * the same answer it always gave for every card in the table today.
  */
 export function repeatCostsOf(defId: string): readonly RepeatCostSpec[] {
-  const entry = REPEAT_COSTS[defId];
+  // Canonical, like `discardChoiceOf` below — see its note for the printing that
+  // made this reachable and why it is fixed here rather than by listing prints.
+  const entry = REPEAT_COSTS[canonicalDefId(defId)];
   if (entry === undefined) return [];
   return Array.isArray(entry) ? entry : [entry as RepeatCostSpec];
 }
@@ -1586,20 +1592,57 @@ const DISCARD_CHOICE_CARDS: Record<string, DiscardChoiceSpec> = {
   // what the discard buys is the resolver's business, and a second field naming
   // it would be a table that has to agree with a card's text in two places.
   "VEN-008": { optional: true },
+  // Zed, From the Shadows (VEN-023) — "You may discard 1 as an additional cost to
+  // play me. When you play me, if you paid the additional cost, play a 0 [Might]
+  // Shadow Clone unit token."
+  //
+  // Ruthless Strike's shape one row up: an optional discard that buys a bigger
+  // EFFECT rather than a lower price, so no `energyDiscount`. What is new is that
+  // the payer is a UNIT rather than a Spell, which changes nothing here — the
+  // flag reaches a `unitTriggers` resolver instead of a `cardEffects` one, and
+  // both read the same `discardCardInstanceId` off the action.
+  //
+  // **`VEN-169` is his `(Overnumbered)` print and is deliberately NOT listed** —
+  // `discardChoiceOf` canonicalises, so he inherits this row the same way he
+  // inherits the effect. He is the printing that MADE that necessary: the
+  // invariant in `printing-aliases.test.ts` went red the moment this row landed,
+  // which is a guard written two commits early doing exactly its job. Without it
+  // he would have been a Zed who could not be offered the discard — a strictly
+  // cheaper card than the one printed.
+  "VEN-023": { optional: true },
 };
 
-/** How this card uses a discard choice, or undefined if it doesn't. */
+/**
+ * How this card uses a discard choice, or undefined if it doesn't.
+ *
+ * **Asked of the CANONICAL printing, as of 2026-08-17.** These five tables are
+ * plain records keyed by defId, and `mergeRegistries`' alias expansion does not
+ * reach them — so an alternate printing of a card with an additional cost was
+ * enumerated as if it printed none, i.e. as a strictly CHEAPER card. That is the
+ * "12 of the 31 printings were INERT" class in its over-permissive direction.
+ *
+ * It became reachable the moment `VEN-023 Zed, From the Shadows` got a discard
+ * cost: his `(Overnumbered)` print `VEN-169` inherits the effect through the
+ * alias and would have been playable without ever paying for it. Caught by the
+ * invariant in `printing-aliases.test.ts` — which was written as a guard two
+ * commits before anything violated it, and then did exactly its job.
+ *
+ * Resolved in the ACCESSORS rather than by hand-listing every print, for the
+ * reason `printingAliases` is derived at all: a hand-maintained list is one more
+ * thing to forget, and this pool has produced four wrong ones.
+ */
 export function discardChoiceOf(defId: string): DiscardChoiceSpec | undefined {
-  return DISCARD_CHOICE_CARDS[defId];
+  return DISCARD_CHOICE_CARDS[canonicalDefId(defId)];
 }
 
-/** Which additional cost this card asks for, or undefined if it has none. */
+/** Which additional cost this card asks for, or undefined if it has none.
+ *  Canonical, like `discardChoiceOf` — see its note. */
 export function optionalUnitCostOf(defId: string): UnitCostSpec | undefined {
-  return OPTIONAL_UNIT_COSTS[defId];
+  return OPTIONAL_UNIT_COSTS[canonicalDefId(defId)];
 }
 
 export function cardHasOptionalExhaustCost(defId: string): boolean {
-  return OPTIONAL_UNIT_COSTS[defId] !== undefined;
+  return optionalUnitCostOf(defId) !== undefined;
 }
 
 /** Spells that create units and let the caster pick where they land — "your
@@ -1662,11 +1705,13 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
  */
 const TARGET_MUST_BE_ELSEWHERE = new Set(["OGN-199"]);
 
+/** Canonical, like `discardChoiceOf` — see its note. */
 export function targetMustBeElsewhere(defId: string): boolean {
-  return TARGET_MUST_BE_ELSEWHERE.has(defId);
+  return TARGET_MUST_BE_ELSEWHERE.has(canonicalDefId(defId));
 }
+/** Canonical, like `discardChoiceOf` — see its note. */
 export function cardPlacesTokens(defId: string): boolean {
-  return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(defId);
+  return TOKEN_PLACEMENT_SPELL_DEF_IDS.has(canonicalDefId(defId));
 }
 
 /** Spells that MOVE their target and so need a destination as well as a target —

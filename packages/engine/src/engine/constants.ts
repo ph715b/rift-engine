@@ -21,6 +21,33 @@ export const WIN_THRESHOLD_1V1 = 8;
 export const MIGHTY_THRESHOLD = 5;
 
 /**
+ * The runtime defId a created Shadow Clone token carries — the key its printed
+ * "when I attack" ability is registered under in `engine/triggers.ts`, and the
+ * prefix of the question that ability parks.
+ *
+ * **Here rather than beside `SHADOW_CLONE_TOKEN` in token.ts, and it THREW
+ * before it was moved.** `token.ts` imports `holdEventTrigger` from
+ * `triggers.ts`, so the two are a cycle; a module-scope constant in triggers.ts
+ * derived from a token.ts export is read while token.ts is still initialising
+ * and is `undefined` — or, as here, a temporal-dead-zone ReferenceError at
+ * import.
+ *
+ * `GOLD_TOKEN_DEF_ID` hit exactly this and the note in effects/order.ts records
+ * the outcome: the Gold token's ability was registered "under the key
+ * `undefined`" and nothing failed. A throw is the better half of that same bug,
+ * and a leaf module is the fix for both — `constants.ts` imports nothing from
+ * the engine, so triggers.ts and token.ts can each take this without opening
+ * anything.
+ *
+ * Kept as the DERIVATION `createToken` performs (`TOKEN-` + the upper-cased tag)
+ * rather than a literal, and `token-definitions.test.ts`'s convention pins the
+ * spec's tag against the card data — so a rename upstream cannot quietly leave
+ * the ability keyed to nothing.
+ */
+export const SHADOW_CLONE_TAG = "Shadow Clone";
+export const SHADOW_CLONE_TOKEN_DEF_ID = `TOKEN-${SHADOW_CLONE_TAG.toUpperCase()}`;
+
+/**
  * "A Bird, Cat, Dog, or Poro" — the four creature tags two Unleashed cards name
  * as a set, word for word:
  *
