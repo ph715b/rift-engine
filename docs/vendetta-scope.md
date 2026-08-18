@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=102 unimplemented=74   partial=6      (2026-08-18, after the alias fix and five card waves)
+VEN: needing=176  implemented=112 unimplemented=64   partial=6      (2026-08-18, after the alias fix and six card waves)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 74 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 64 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,33 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Chaos, wave 2 — done 2026-08-18 (the other 10; Chaos is finished but for its partial)
+
+VEN-098, 099, 100, 101, 107, 109, 112, 113, 115, and VEN-182 through the alias.
+VEN 102 -> 112. Tests in `test/ven-chaos-wave2.test.ts`; **25 mutants, 25
+killed.**
+
+**Four engine seams, and three are shapes this session has already hit:**
+
+| seam | the shape |
+|---|---|
+| `fromHidden` on a unit's own on-play trigger | a fact the engine ALREADY KNEW that had never reached the resolver wanting it — the third instance, after `optionalPowerPaid` for Spells and the cost tables not canonicalising |
+| `domain` on `unitList` targeting | an axis one targeting kind had and its neighbour did not; `unitOrGear` got the same field two waves ago |
+| a discount on a REPLACED cost (Stargazer) | every other entry in `cost-modifiers` reduces a PRINTED price; this reduces the Flow price, which is a different number arriving at the same function |
+| a delayed end-of-turn disempower | genuinely new. `runEnd` strips what `disempowerAtEndOfTurn` names — Ashe - Focused's `banishedUntilHold` is the same armed-state shape, and it is deliberately NOT `[Temporary]`, which KILLS what it expires on |
+
+**FIVE mutants survived the first pass, and four were one habit**: answering a
+question with `answerDecisions`' DEFAULT pick, which is the decline — so a card
+that wrongly RAISED a question produced a board identical to one that correctly
+did not. The fix is to answer with the first non-decline option and to assert the
+question's absence separately. The fifth was reading `pendingTriggers` alone
+where the Cleanup had already finalized the trigger ONTO the chain.
+
+**That is now four distinct ways this session has been fooled by the decision
+queue.** All four reduce to one rule: **a question you are asserting about must
+be observable — two answers if you want to see it raised, and a non-default pick
+if you want to see it taken.**
 
 ### Chaos, wave 1 — done 2026-08-18 (10 of 21 cards)
 

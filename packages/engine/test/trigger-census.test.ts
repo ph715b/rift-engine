@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("352 held / 8 inline of 360 trigger cards", () => {
+  it("359 held / 8 inline of 367 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -577,10 +577,26 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // The other five cards in the wave are correctly absent across three homes:
     // VEN-103, VEN-105 and VEN-106 are SPELL effects, VEN-096 Shadowblade Lurker
     // is a cost modifier, and VEN-097 Spiderling is a continuous Might modifier.
+    //
+    // **352/8/360 -> 359/8/367 on 2026-08-18: Vendetta's Chaos wave 2, seven
+    // trigger cards out of ten.** By family and by name:
+    //
+    //     event (+4)  VEN-109 Illaoi and VEN-182 her Overnumbered print
+    //                 (battlefieldConquered + battlefieldHeld); VEN-112 Zed
+    //                 Without a Sound, VEN-113 Kennen Storm of Shuriken (conquer)
+    //     unit  (+6)  VEN-099 Tornado Warrior, VEN-101 Gust Monk, VEN-115 Ocean
+    //                 Drake, plus VEN-109/VEN-182/VEN-113 again
+    //     distinct: 7 — Illaoi, her printing and Kennen are each in BOTH registries
+    //
+    // `inline` did not move: nothing in this wave reads the Beginning Phase.
+    //
+    // The other three are correctly absent across three homes: VEN-098 Stargazer
+    // is a cost modifier, VEN-100 Up from the Deep is a SPELL effect, and VEN-107
+    // Decree of Discord is a spell effect too.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 352,
+      held: 359,
       inline: 8,
-      cards: 360,
+      cards: 367,
     });
   });
 

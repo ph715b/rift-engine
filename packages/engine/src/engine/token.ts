@@ -69,6 +69,21 @@ export interface TokenSpec {
    *  says "play a READY ... token" overrides that on its own authority. */
   entersReady?: boolean;
   keywords?: UnitInstance["keywords"];
+  /**
+   * Printed tags BESIDES the subtype — the Tentacle's "from Bilgewater", which
+   * is a REGION tag and not its creature type.
+   *
+   * Its own field rather than widening `tag`, because `tag` is load-bearing on
+   * its own: `createToken` derives the runtime defId from it (`TOKEN-<TAG>`), and
+   * a two-element tag would produce an id no ability table could key against.
+   *
+   * Nothing in the pool reads "Bilgewater" today, so this is fidelity rather than
+   * behaviour — and that is the reason to carry it: a region tag that a later set
+   * asks about ("your Bilgewater units...") must already be there, and a token
+   * quietly missing one is exactly the silently-wrong shape this repo keeps
+   * finding.
+   */
+  extraTags?: readonly string[];
   /** Tag line, e.g. "Recruit" or "Sprite" — the printed subtype. */
   tag: string;
 }
@@ -145,6 +160,20 @@ export const MECH_TOKEN: TokenSpec = { name: "Mech", might: 3, tag: "Mech" };
 export const SHADOW_CLONE_TOKEN: TokenSpec = { name: "Shadow Clone", might: 0, tag: SHADOW_CLONE_TAG };
 
 /**
+ * Vendetta's Tentacle — "a 1 [Might] Tentacle unit token FROM BILGEWATER".
+ *
+ * Shared from here rather than kept local to `effects/chaos.ts`, even though both
+ * makers (VEN-100 Up from the Deep and VEN-109 Illaoi) live in that one file:
+ * Illaoi's second clause counts TOKEN units, so a second copy of this spec is a
+ * second place the Might could drift from the thing counting it. `BIRD_TOKEN`'s
+ * note records the same drift happening three times before it was shared.
+ *
+ * "From Bilgewater" is a REGION tag, carried on `extraTags` beside the creature
+ * type — see that field for why it is not folded into `tag`.
+ */
+export const TENTACLE_TOKEN: TokenSpec = { name: "Tentacle", might: 1, tag: "Tentacle", extraTags: ["Bilgewater"] };
+
+/**
  * Builds a runtime-only token unit — a raw UnitInstance object literal,
  * deliberately NOT going through createCardInstance/CardRegistry, since no
  * CardDefinition exists for it (Token-supertype entries are filtered out of the
@@ -169,7 +198,7 @@ export function createToken(spec: TokenSpec): UnitInstance {
     isChampion: false,
     keywords: spec.keywords ?? {},
     isReaction: false,
-    tags: [spec.tag],
+    tags: [spec.tag, ...(spec.extraTags ?? [])],
     damage: 0,
     mightThisTurn: 0,
     buffed: false,

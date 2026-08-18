@@ -79,7 +79,7 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **733, against an observed 737** of 868 cards needing
+`reachability` is pinned at **741, against an observed 745** of 868 cards needing
 code ever exercised, at its default **500 games per mode**, which takes **~340s**
 with Vendetta in the pool.
 

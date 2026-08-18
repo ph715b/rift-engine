@@ -241,6 +241,13 @@ export function unitListChoiceError(
     if (!location) return `${id} is not a unit ${scopeDescription(spec.scope)}`;
     if (spec.owner === "friendly" && location.ownerIndex !== playerIndex) return `${location.unit.name} is not a friendly unit`;
     if (spec.owner === "enemy" && location.ownerIndex === playerIndex) return `${location.unit.name} is not an enemy unit`;
+    // A DOMAIN filter, matched among the unit's domains rather than against its
+    // sole one — a Fury+Order unit is an Order unit. A TOKEN carries `domains: []`
+    // and so is never any domain, which is the right answer and one a registry
+    // lookup by defId could not give.
+    if (spec.domain !== undefined && !location.unit.domains.includes(spec.domain)) {
+      return `${location.unit.name} is not a ${spec.domain} unit`;
+    }
 
     if (spec.sameBattlefield) {
       const at = findUnitOnBattlefield(state, id);
@@ -368,7 +375,13 @@ function exhaustiveUnitLists(
  * notes already have three examples of.
  */
 export function unitListCandidates(state: GameState, playerIndex: 0 | 1, spec: UnitListSpec): string[][] {
-  const pool = eligibleTargets(state, playerIndex, spec.owner, spec.scope);
+  // The domain narrowing is applied to the POOL as well as being checked per set
+  // below, purely so the sampler does not spend its bounded budget on sets that
+  // `unitListChoiceError` will reject — the check is what makes it correct, and
+  // this is what makes it find anything.
+  const pool = eligibleTargets(state, playerIndex, spec.owner, spec.scope).filter(
+    (t) => spec.domain === undefined || t.domains.includes(spec.domain),
+  );
   const out: string[][] = [];
   const push = (ids: string[]) => {
     if (unitListChoiceError(state, playerIndex, spec, ids) === undefined) out.push(ids);

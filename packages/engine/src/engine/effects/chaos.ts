@@ -49,6 +49,12 @@ import {
   takeControlOfUnit,
 } from "../effect-helpers.js";
 import { eligibleTargets, findUnitAnywhere, unitWithinMaxMight } from "../target-lookup.js";
+import { effectiveTagsOf } from "../equipment.js";
+import { findUnitOnBattlefield } from "../target-lookup.js";
+import { empowerPermanent } from "../effect-helpers.js";
+import { SHADOW_CLONE_TOKEN_DEF_ID } from "../constants.js";
+import type { PendingDecision } from "../../model/game-state.js";
+import { grantReplacedCostPlay } from "../replaced-costs.js";
 import { cardModeOf } from "../card-effects.js";
 import { effectiveMight } from "../effective-might.js";
 import { attackerIndexAt, attackingUnitsAt, isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
@@ -58,7 +64,7 @@ import { applyContested } from "../cleanup.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { RAINBOW } from "../hidden.js";
-import { placeGoldTokens, placeToken, type TokenSpec, BIRD_TOKEN } from "../token.js";
+import { placeGoldTokens, placeToken, type TokenDestination, type TokenSpec, BIRD_TOKEN, SHADOW_CLONE_TOKEN, TENTACLE_TOKEN } from "../token.js";
 import { offerTopOfDeckBanish } from "../top-of-deck.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
 import { mayMoveToBaseFrom, mayPlayUnitAt } from "../battlefield-continuous.js";
@@ -163,8 +169,70 @@ const SHADOWS_OF_THE_PAST_PICK = "VEN-103-pick";
 const FORGOTTEN_RELIC_GIVE = "VEN-108-give";
 const PREFECT_BANISH = "VEN-102-banish";
 const MINAH_MODE = "VEN-111-mode";
+/** Up from the Deep plays this many Tentacles. */
+const UP_FROM_THE_DEEP_TENTACLES = 2;
+/** Decree of Discord's TOTAL Might ceiling across the whole chosen set. */
+const DECREE_OF_DISCORD_MAX_TOTAL = 5;
+/** Illaoi's bonus per TOKEN unit you control. */
+const ILLAOI_MIGHT_PER_TOKEN = 1;
+/** Gust Monk's grant, bought by banishing a card from any trash. */
+const GUST_MONK_ASSAULT = 2;
+/** Kennen, Storm of Shuriken's on-play Burn. */
+const KENNEN_SHURIKEN_BURN = 2;
+/** Tornado Warrior's and the rest of wave 2's questions. */
+const GUST_MONK_BANISH = "VEN-101-banish";
+const TORNADO_EMPOWER = "VEN-099-empower";
+const KENNEN_SHURIKEN_FLOW = "VEN-113-flow";
+const OCEAN_DRAKE_BOUNCE = "VEN-115-bounce";
+const ZED_SILENT_SWAP = "VEN-112-swap";
+const GUST_MONK_GRANT = "VEN-101-grant";
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-107": {
+    // Decree of Discord — "Return any number of enemy Order ([Order]) units with
+    // TOTAL Might 5 or less to their owners' hands."
+    //
+    // Three narrowings on one spec, and all three are printed: `owner: "enemy"`,
+    // `domain: "Order"`, and `maxTotalMight: 5` — a SUM across the chosen set,
+    // not a per-unit ceiling, which is what makes this a sweep of small bodies
+    // rather than removal for one medium one.
+    //
+    // "Any number" is `min: 0` with no `max`, so the empty choice is legal and the
+    // card is castable into a board it can do nothing to. That is the printed
+    // reading and it is what `min: 0` means everywhere else here.
+    //
+    // The domain filter is enforced in `unitListChoiceError`, the one function the
+    // enumerator and the validator BOTH go through — the enumerate/execute split
+    // this codebase has shipped six bugs into.
+    targeting: { kind: "unitList", min: 0, owner: "enemy", domain: "Order", maxTotalMight: DECREE_OF_DISCORD_MAX_TOTAL },
+    resolve: (state, _ctx, event) =>
+      (event.targetUnitInstanceIds ?? []).reduce((next, id) => returnUnitToHand(next, id), state),
+  },
+  "VEN-100": {
+    // Up from the Deep — "Play two 1 [Might] Tentacle unit tokens from
+    // Bilgewater. [Flow] [3 Energy]."
+    //
+    // Two tokens at ONE chosen destination, which is `TOKEN_PLACEMENT_SPELL_DEF_IDS`'
+    // shape: 185.2.a plays a token "following all the applicable steps for playing
+    // a card", and the inherent restriction on playing a Unit is base or a
+    // battlefield you control. Recruit the Vanguard's four and Flurry of Feathers'
+    // four both land together, and this card prints no per-token split either.
+    //
+    // `TENTACLE_TOKEN` is shared from token.ts rather than kept local, even though
+    // both makers are in this file — Illaoi's second clause COUNTS token units, so
+    // a second copy of the spec would be a second place the Might could drift from
+    // the thing counting it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      let next = state;
+      for (let i = 0; i < UP_FROM_THE_DEEP_TENTACLES; i += 1) {
+        next = placeToken(next, ctx.casterIndex, destination, TENTACLE_TOKEN);
+      }
+      return next;
+    },
+  },
   "VEN-103": {
     // Shadows of the Past — "Return UP TO 2 units from TRASHES to their owners'
     // hands."
@@ -1247,6 +1315,98 @@ function fizzSpellNeedsTarget(state: GameState, playerIndex: 0 | 1, card: CardIn
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-099": {
+    // Tornado Warrior — "[Hidden] When you play me FROM FACE DOWN, you may empower
+    // something here. DISEMPOWER IT AT END OF TURN."
+    //
+    // # Two things that are not in the pool yet, and only one of them is new
+    //
+    // "From face down" is `event.fromHidden`, which the on-play trigger event has
+    // carried since Ember Monk — 811's facedown play is already distinguished from
+    // an ordinary one, so this needed nothing.
+    //
+    // The DELAYED disempower is new: `GameState.disempowerAtEndOfTurn` holds the
+    // instanceIds, and `runEnd` clears the status and the list together. A delayed
+    // effect is the shape Ashe - Focused's `banishedUntilHold` already takes —
+    // armed state read by the phase machinery rather than a listener — and it is
+    // deliberately NOT a `[Temporary]` grant, which KILLS what it expires on.
+    //
+    // **The disempower happens even if the thing has changed hands or moved**, and
+    // that is the printed reading: the card says "disempower IT", naming the object
+    // rather than a place. Nothing in the sentence ties it to staying here.
+    //
+    // "Something HERE" is positional and covers any Empowerable object at his
+    // battlefield — 441 makes Empowered a status of a GAME OBJECT, so a unit or a
+    // gear qualifies; a gear is at no battlefield in this pool, so in practice the
+    // list is the units standing with him, either player's.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId, event) =>
+      event.fromHidden === true
+        ? parkDecision(state, { kind: TORNADO_EMPOWER, playerIndex: ctx.casterIndex, cardInstanceId: unitId })
+        : state,
+  },
+  "VEN-101": {
+    // Gust Monk — "[Assault 2] You may pay [1 Energy] as an additional cost to
+    // play me. When you play me, if you paid the additional cost, banish a card
+    // from ANY trash to give a unit [Assault 2] this turn."
+    //
+    // Sea Monkey's Energy-only optional cost (`OPTIONAL_POWER_COSTS`), read off the
+    // action as `optionalPowerPaid` — nothing on the board records how he was paid
+    // for by the time this runs.
+    //
+    // **"Banish a card from ANY trash" is a COST inside the instruction**
+    // (355.10.c.1's "[do X] to [do Y]"), so it is a parked question rather than a
+    // target: the trash is not a board zone, so no `TargetingSpec` reaches it.
+    // Either player's trash, any card kind — the sentence narrows neither.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, _unitId, event) =>
+      event.optionalPowerPaid ? parkDecision(state, { kind: GUST_MONK_BANISH, playerIndex: ctx.casterIndex }) : state,
+  },
+  "VEN-113": {
+    // Kennen, Storm of Shuriken — the ON-PLAY half, "[Burn 2]". His conquer clause
+    // is an `eventTriggers` entry.
+    //
+    // Unconditional, so there is nothing to ask: `burn` is the whole instruction,
+    // and 440.4's burn-out handling comes with the helper.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => burn(state, ctx.casterIndex, KENNEN_SHURIKEN_BURN),
+  },
+  "VEN-115": {
+    // Ocean Drake — "You may play me to an OPEN battlefield. When you play me, you
+    // may return a NON-DRAGON unit to its owner's hand."
+    //
+    // The placement half is a `PLACEMENT_GRANTS` row in unit-triggers.ts, the third
+    // card in the pool with that exact clause; **170.11.b** is what "open" means
+    // ("uncontrolled … no player controls them") and `isOpenBattlefield` adds the
+    // empty requirement Sneaky Deckhand and Sai Scout have carried since Origins.
+    //
+    // **"NON-DRAGON" excludes himself**, which is the point: an 8-Energy Dragon
+    // that could bounce himself would be a very different card. The filter is by
+    // TAG rather than by instance, so he cannot bounce a Dragon of any kind —
+    // including an enemy one, which is the half that stings.
+    //
+    // "A unit", bare, so either player's and anywhere (355.9.a.1). Bouncing your
+    // own is a live line: it re-buys an on-play trigger.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => parkDecision(state, { kind: OCEAN_DRAKE_BOUNCE, playerIndex: ctx.casterIndex }),
+  },
+  "VEN-109": {
+    // Illaoi, Prophet of the Great Kraken — the "WHEN YOU PLAY ME" half of "when
+    // you play me OR WHEN I SCORE, play a 1 [Might] Tentacle unit token from
+    // Bilgewater". Her score half is an `eventTriggers` entry, and her "+1 [Might]
+    // for each token unit you control" is a `mightModifiers` entry.
+    //
+    // One printed sentence with two moments, registered in two tables for the
+    // reason Kennen, Keeper of Balance's entry records: on-play is keyed by the
+    // arriving unit and a score is a listener walk, and this engine has no table
+    // keyed by both.
+    //
+    // TO BASE, which is the same narrowing Zed's Shadow Clone takes and is
+    // recorded with it in docs/rules-conformance.md: a UNIT's on-play trigger has
+    // no destination axis to fan out over.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", TENTACLE_TOKEN),
+  },
   "SFD-149": {
     // Ezreal - Prodigy, FIRST clause — "When you play me, discard 1, then draw 2."
     //
@@ -1955,6 +2115,82 @@ function pykeHasMinted(state: GameState, instanceId: string): boolean {
 const SPIRIT_WHEEL_DRAW_COST = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  "VEN-109": {
+    // Illaoi, Prophet of the Great Kraken — the "WHEN I SCORE" half. Her on-play
+    // half is a `unitTriggers` entry and her Might clause a `mightModifiers` one.
+    //
+    // **"When I SCORE" is BOTH scoring methods**, which is why this listens to two
+    // events: 469 makes Scoring the umbrella and 470 says "a player may only
+    // Score, from either method, once per Battlefield per turn" — so a Conquer and
+    // a Hold are two ways of doing the one thing the card names. A version keyed to
+    // conquest alone would silently pay nothing on a turn spent holding.
+    //
+    // Positional, like every "when I" in this pool: she has to be standing at the
+    // battlefield that scored. Settled in `applies` because both events are held
+    // (383) and the window a hold opens is exactly when she could be moved off it.
+    on: ["battlefieldConquered", "battlefieldHeld"],
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered"
+        ? event.conquerorIndex === listener.ownerIndex && listener.battlefieldId === event.battlefieldId
+        : event.kind === "battlefieldHeld" &&
+          event.holderIndex === listener.ownerIndex &&
+          listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered" && event.kind !== "battlefieldHeld") return state;
+      return placeToken(state, listener.ownerIndex, "base", TENTACLE_TOKEN);
+    },
+  },
+  "VEN-112": {
+    // Zed, Without a Sound — the "WHEN I CONQUER" half, "play a 0 [Might] Shadow
+    // Clone unit token TO YOUR BASE". His `[Action][>]` swap is an
+    // `activatedAbilities` entry.
+    //
+    // **"To your base" is PRINTED here**, unlike VEN-023 Zed's token — so this one
+    // is not the recorded destination narrowing, it is the card. Worth stating
+    // because the two Zeds make the same token by two different routes and only
+    // one of them is a simplification.
+    //
+    // The Clone's own printed ability lives in `engine/triggers.ts` under the
+    // token's runtime defId; nothing here needs to know about it.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) =>
+      event.kind === "battlefieldConquered" ? placeToken(state, listener.ownerIndex, "base", SHADOW_CLONE_TOKEN) : state,
+  },
+  "VEN-113": {
+    // Kennen, Storm of Shuriken — the "WHEN I CONQUER" half, "give a spell in your
+    // trash [Flow] equal to its cost this turn". His on-play `[Burn 2]` is a
+    // `unitTriggers` entry.
+    //
+    // # Granting [Flow] is granting a REPLACED COST, and the seam exists
+    //
+    // 829.1.c.1 makes a Flow cost an alternative cost paid from the trash, and
+    // `PlayerState.replacedCostPlays` already carries exactly that as a per-INSTANCE
+    // permission — Death from Below's grant is the precedent. So this needs no new
+    // mechanism: it records a grant whose price is the spell's OWN printed cost,
+    // which is what "equal to its cost" says.
+    //
+    // **Per instance, not per defId**, which the grant type's own note insists on:
+    // a second copy of the same spell in the same trash is a different object and
+    // was granted nothing.
+    //
+    // "THIS TURN" is what `runEnd` clearing `replacedCostPlays` provides, so the
+    // duration needs nothing here either.
+    on: "battlefieldConquered",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      state.players[listener.ownerIndex].trash.some((c) => c.kind === "Spell"),
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      if (!state.players[listener.ownerIndex].trash.some((c) => c.kind === "Spell")) return state;
+      return parkDecision(state, { kind: KENNEN_SHURIKEN_FLOW, playerIndex: listener.ownerIndex });
+    },
+  },
   "VEN-095": {
     // Shadow Order Disciple — "When I move, you may [Burn 1] to give me +1
     // [Might] this turn."
@@ -3409,6 +3645,18 @@ function forgottenRelicBurn(state: GameState, ownerIndex: 0 | 1): GameState {
   });
 }
 
+/** Everything at Tornado Warrior's battlefield that can carry the Empowered
+ *  status — both players' units standing with him. Re-derived at answer time, so
+ *  a Warrior killed in the response window finds his own question moot (no
+ *  options beyond the decline), which is 359.3.e.12's answer. */
+function tornadoTargets(state: GameState, d: PendingDecision): UnitInstance[] {
+  if (d.cardInstanceId === undefined) return [];
+  const here = findUnitOnBattlefield(state, d.cardInstanceId);
+  if (!here) return [];
+  const battlefield = state.battlefields[here.battlefieldIndex]!;
+  return Object.values(battlefield.units).flat();
+}
+
 /** Which seat holds this gear, or undefined if nobody does — the lookup
  *  `banishCard` needs, since it takes an owning seat and a bare instanceId does
  *  not carry one. */
@@ -3431,6 +3679,126 @@ function unitsInAnyTrash(state: GameState): { instanceId: string; name: string; 
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  /**
+   * Tornado Warrior's "you may empower something HERE. Disempower it at end of
+   * turn."
+   *
+   * The empower and the delayed disempower are ONE answer: the second half is not
+   * optional, so arming it is part of taking the offer rather than a second
+   * question. `GameState.disempowerAtEndOfTurn` holds the id and `runEnd` strips
+   * the status — see the field for why this is not a `[Temporary]` grant.
+   *
+   * "SOMETHING here" is any Empowerable object at his battlefield (441 makes the
+   * status a property of a game object), which in this pool is the units standing
+   * with him — either player's, since no owner is printed. Empowering an ENEMY
+   * unit for a turn is a bad play rather than an illegal one, and the card offers
+   * it.
+   *
+   * Already-Empowered things are still offered: `empowerPermanent` no-ops on them
+   * (441.1.b), so choosing one wastes the answer rather than being illegal — and
+   * the DISEMPOWER would still be armed against it, which is a real (if perverse)
+   * use of the card.
+   */
+  [TORNADO_EMPOWER]: {
+    prompt: () => "Tornado Warrior: empower something here until end of turn?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...tornadoTargets(state, d).map((u) => ({ id: u.instanceId, label: `Empower ${u.name}`, instanceId: u.instanceId })),
+    ],
+    resolve: (state, _d, optionId) => {
+      if (optionId === "decline") return state;
+      const empowered = empowerPermanent(state, optionId);
+      return { ...empowered, disempowerAtEndOfTurn: [...empowered.disempowerAtEndOfTurn, optionId] };
+    },
+  },
+  /**
+   * Gust Monk's "banish a card from ANY trash to give a unit [Assault 2] this
+   * turn" — the COST half (355.10.c.1), so this question carries the decline and
+   * the grant half below does not.
+   *
+   * "Any trash" is both players', and any card kind: the sentence narrows
+   * neither. With every trash empty the offer is a bare Decline that
+   * `advanceDecisions` executes silently, which is the right amount of theatre for
+   * a question with one answer.
+   */
+  [GUST_MONK_BANISH]: {
+    prompt: () => "Gust Monk: banish a card from any trash to give a unit [Assault 2] this turn?",
+    options: (state) => [
+      { id: "decline", label: "Decline" },
+      ...([0, 1] as const).flatMap((index) =>
+        state.players[index].trash.map((c) => ({ id: c.instanceId, label: `Banish ${c.name}`, instanceId: c.instanceId })),
+      ),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const owner = ([0, 1] as const).find((index) => state.players[index].trash.some((c) => c.instanceId === optionId));
+      if (owner === undefined) return state;
+      return parkDecision(banishCard(state, owner, optionId), { kind: GUST_MONK_GRANT, playerIndex: d.playerIndex });
+    },
+  },
+  /**
+   * ...and the PAYOFF — "give a unit [Assault 2] this turn", asked only once the
+   * banish is paid, which is why this half has no decline.
+   *
+   * "A unit", bare, so either player's and anywhere (355.9.a.1). Granting an enemy
+   * `[Assault]` is a bad play rather than an illegal one.
+   */
+  [GUST_MONK_GRANT]: {
+    prompt: () => "Gust Monk: give a unit [Assault 2] this turn.",
+    options: (state) =>
+      [...ownUnitsEverywhere(state, 0), ...ownUnitsEverywhere(state, 1)].map((u) => ({
+        id: u.instanceId,
+        label: `[Assault 2] to ${u.name}`,
+        instanceId: u.instanceId,
+      })),
+    resolve: (state, _d, optionId) => grantKeywordThisTurn(state, optionId, "Assault", GUST_MONK_ASSAULT),
+  },
+  /**
+   * Ocean Drake's "you may return a NON-DRAGON unit to its owner's hand".
+   *
+   * The Dragon filter is by TAG, so he cannot bounce himself OR any other Dragon —
+   * including an enemy one, which is the half that stings. `effectiveTagsOf` is
+   * the reader, so a tag granted by an Equipment counts exactly as a printed one.
+   */
+  [OCEAN_DRAKE_BOUNCE]: {
+    prompt: () => "Ocean Drake: return a non-Dragon unit to its owner's hand?",
+    options: (state) => [
+      { id: "decline", label: "Decline" },
+      ...[...ownUnitsEverywhere(state, 0), ...ownUnitsEverywhere(state, 1)]
+        .filter((u) => !effectiveTagsOf(state, u).includes("Dragon"))
+        .map((u) => ({ id: u.instanceId, label: `Return ${u.name}`, instanceId: u.instanceId })),
+    ],
+    resolve: (state, _d, optionId) => (optionId === "decline" ? state : returnUnitToHand(state, optionId)),
+  },
+  /**
+   * Kennen, Storm of Shuriken's "give a spell in your trash [Flow] equal to its
+   * cost this turn".
+   *
+   * The grant is a `replacedCostPlays` entry priced at the spell's OWN printed
+   * cost, which is what "equal to its cost" says — and per INSTANCE, which the
+   * grant type insists on: a second copy of the same spell in the same trash is a
+   * different object and was granted nothing.
+   *
+   * No decline: the text carries no "you may". With no spell in the trash the
+   * trigger is never placed at all — see his `eventTriggers` entry.
+   */
+  [KENNEN_SHURIKEN_FLOW]: {
+    prompt: () => "Kennen, Storm of Shuriken: give a spell in your trash [Flow] equal to its cost this turn.",
+    options: (state, d) =>
+      state.players[d.playerIndex].trash
+        .filter((c) => c.kind === "Spell")
+        .map((c) => ({ id: c.instanceId, label: `${c.name} gains [Flow]`, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      const spell = state.players[d.playerIndex].trash.find((c) => c.instanceId === optionId);
+      if (!spell || spell.kind !== "Spell") return state;
+      return grantReplacedCostPlay(state, d.playerIndex, {
+        instanceId: spell.instanceId,
+        energyCost: spell.energyCost,
+        powerCost: spell.powerCost,
+        powerDomain: spell.powerDomain,
+      });
+    },
+  },
   /**
    * Mask Mother's "you may pay [1 Energy] to give a friendly unit +2 [Might] this
    * turn", raised by her own discard.
@@ -5068,6 +5436,40 @@ function ownUnitsAtLocationOf(state: GameState, playerIndex: 0 | 1, sourceInstan
  * built-in table is a named error at import, not a silent last-write-wins.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  "VEN-112": {
+    // Zed, Without a Sound — "[Action][>] [1 Energy][Chaos]: Move me and a Shadow
+    // Clone you control to each other's locations." His conquer clause is an
+    // `eventTriggers` entry.
+    //
+    // `swapUnitLocations` is the shared helper Azir - Emperor's swap already uses,
+    // so "whose location is which" is decided in one place — and it handles the
+    // base-and-battlefield mix, which matters here because his own Clones are
+    // played TO HIS BASE and the swap is how they reach a fight.
+    //
+    // **The target is a Shadow Clone YOU control**, matched on the token's runtime
+    // defId rather than by tag: `SHADOW_CLONE_TOKEN_DEF_ID` is what `createToken`
+    // stamps, and it is exported from the leaf constants module precisely so a
+    // reader here and the ability table cannot drift.
+    //
+    // **`[Action]` needs nothing** — `validate-activate-ability` applies no
+    // turnState, chain or priority check to ANY activation, a standing
+    // permissiveness that file's own doc records. Stated because the keyword being
+    // free is a fact about the engine rather than about this card.
+    kind: "Unit",
+    cost: { energy: 1, power: { domain: "Chaos", count: 1 } },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, ctx, event, sourceInstanceId) => {
+      const targetId = event.targetUnitInstanceId;
+      if (targetId === undefined) return state;
+      // Re-checked rather than trusted: the offer is enumerated from a spec that
+      // cannot express "a Shadow Clone", so THIS is where the token filter lives.
+      // A non-Clone target resolves to nothing rather than swapping, which is the
+      // conservative direction — see the divergence recorded for it.
+      const target = findUnitAnywhere(state, targetId);
+      if (!target || target.unit.defId !== SHADOW_CLONE_TOKEN_DEF_ID) return state;
+      return swapUnitLocations(state, ctx.casterIndex, sourceInstanceId, targetId);
+    },
+  },
   "UNL-126": {
     // Megatusk — "[Ganking] Spend 3 XP: Give your units here [Ganking] this turn."
     //
@@ -5497,6 +5899,26 @@ function predictTwo(state: GameState, playerIndex: 0 | 1): GameState {
  * in both directions.
  */
 export const mightModifiers: Record<string, MightModifier> = {
+  "VEN-109": {
+    // Illaoi, Prophet of the Great Kraken — "I have +1 [Might] for each TOKEN unit
+    // you control." The third clause; her two token-making moments are a
+    // `unitTriggers` and an `eventTriggers` entry.
+    //
+    // **"Token unit", not "Tentacle"** — every token counts, including a Recruit,
+    // a Sand Soldier or a Shadow Clone. `isToken` is the instance flag 185 makes
+    // the distinction on, and reading the TAG instead would be a narrower and
+    // different card.
+    //
+    // UNPOSITIONED: no "here" is printed, so tokens in base and at every
+    // battlefield all count. Continuous, so a token dying takes the Might with it.
+    //
+    // She is never a token herself, so no self-exclusion is needed — but the
+    // filter is by `isToken` rather than by instance for exactly that reason, and
+    // a future token copy of her would correctly count itself.
+    defId: "VEN-109",
+    bonus: (state, unit, ownerIndex) =>
+      unit.defId !== "VEN-109" ? 0 : ownUnitsEverywhere(state, ownerIndex).filter((u) => u.isToken === true).length * ILLAOI_MIGHT_PER_TOKEN,
+  },
   "VEN-097": {
     // Spiderling — "[Hidden] I have +1 [Might] for each OTHER unit you control
     // HERE with my name. Your deck can have any number of cards named Spiderling."

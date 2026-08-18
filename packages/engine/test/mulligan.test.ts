@@ -130,6 +130,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     markedForDeathOnDamageInstanceIds: [],
     damagePreventedOnceInstanceIds: [],
     damagePreventionPoolByInstanceId: {},
+    disempowerAtEndOfTurn: [],
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,

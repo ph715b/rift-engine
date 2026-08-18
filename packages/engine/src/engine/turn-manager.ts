@@ -3,7 +3,7 @@ import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
-import { destroyUnit, drawCards, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
+import { destroyUnit, disempowerPermanent, drawCards, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
@@ -384,6 +384,18 @@ export function runEnd(state: GameState): GameState {
   // resolved, not an ability anyone controls, so there is nothing to respond to
   // and nothing to order against 383's simultaneous triggers.
   const afterBorrows = returnBorrowedUnits(afterTriggers);
+  // Tornado Warrior's "disempower it at END OF TURN" — a DELAYED effect of a
+  // trigger that already resolved, exactly like the borrowed-unit return one line
+  // up: nothing controls it, so there is nothing to respond to and nothing to
+  // order against 383's simultaneous triggers.
+  //
+  // Runs HERE, before the returned state clears the list, because the ids are
+  // what say which permanents to strip. A permanent that changed hands or moved
+  // is still stripped — the card names the OBJECT, not a place.
+  const afterDisempowers = afterBorrows.disempowerAtEndOfTurn.reduce(
+    (next, instanceId) => disempowerPermanent(next, instanceId),
+    afterBorrows,
+  );
 
   // This-turn Might expires; Buffs deliberately do NOT. Rule 705 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
@@ -417,7 +429,7 @@ export function runEnd(state: GameState): GameState {
     ...("baseMightThisTurn" in u ? { baseMightThisTurn: undefined } : {}),
   });
 
-  const players = afterBorrows.players.map((p) => ({
+  const players = afterDisempowers.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireMightThisTurn),
     // Brutalizer is fresh only for the turn it was attached in, and this is
@@ -506,7 +518,7 @@ export function runEnd(state: GameState): GameState {
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 
-  const battlefields = afterBorrows.battlefields.map((bf) => {
+  const battlefields = afterDisempowers.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
       units[playerId] = list.map(expireMightThisTurn);
@@ -526,7 +538,7 @@ export function runEnd(state: GameState): GameState {
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.
   return healAllUnits({
-    ...afterBorrows,
+    ...afterDisempowers,
     players,
     battlefields,
     activePlayerIndex: nextIndex,
@@ -559,6 +571,11 @@ export function runEnd(state: GameState): GameState {
     // counterpart of. "THIS TURN" is printed on both, so an unspent barrier does
     // not carry — which is what makes it a trick rather than a permanent ward.
     damagePreventionPoolByInstanceId: {},
+    // Tornado Warrior's delayed disempower. The LIST is cleared here; the STATUS
+    // it names is stripped just above, before this state is built — see
+    // `withDelayedDisempowers`, which has to run first or the ids would be gone
+    // before anything read them.
+    disempowerAtEndOfTurn: [],
     // Dancing Grenade's tally. "This turn" is printed, so it is cleared here with
     // every other this-turn field — a Grenade whose history survived the turn
     // would open its next dance already escalated.

@@ -627,7 +627,11 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // **725 -> 733 on 2026-08-18, against 737 measured after Chaos wave 1.** Ten
 // cards implemented and eight newly exercised (VEN 87 -> 95); the four finished
 // sets held EXACTLY for the FIFTH consecutive wave.
-const PINNED_UNION = 733;
+//
+// **733 -> 741 on 2026-08-18, against 745 measured after Chaos wave 2.** Ten
+// cards implemented and eight newly exercised (VEN 95 -> 103); the four finished
+// sets held EXACTLY for the SIXTH consecutive wave.
+const PINNED_UNION = 741;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

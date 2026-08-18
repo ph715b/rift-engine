@@ -122,6 +122,47 @@ const MONCH_DISCOUNT = 2;
 const SHADOWBLADE_LURKER = "VEN-096";
 const SHADOWBLADE_LURKER_DISCOUNT = 2;
 
+/**
+ * Stargazer (VEN-098): "Spells with [Flow] you play FROM YOUR TRASH cost
+ * [2 Energy] less, to a minimum of [1 Energy]."
+ *
+ * **The pool's first discount on a REPLACED cost.** Every other entry in this
+ * module reduces a card's printed price; this one reduces the ALTERNATIVE price
+ * a Flow spell is played from the trash for (829.1.c.1), which is a different
+ * number arriving at the same function — `modifiedEnergyCost` is called with
+ * `replacedCost.energyCost` by both the enumerator and the validator.
+ *
+ * # Three conditions, and `playedFromHand` is the load-bearing one
+ *
+ * A Flow play is the one path that passes `playedFromHand: false` for a SPELL
+ * with a `flowCost`. Last Rites' trash play is the other from-trash route and it
+ * is UNITS only, so the two cannot be confused — but the check is written as all
+ * three conditions rather than relying on that, because a future from-trash
+ * permission for spells would silently acquire this discount otherwise.
+ *
+ * **"To a minimum of [1]" is a FLOOR, and it is the card's own** — unlike every
+ * other reduction here, which floors at 0. So a 2-Energy Flow cost becomes 1
+ * rather than 0, and this is the clamp Eager Apprentice's note describes from the
+ * other side.
+ *
+ * Read off the BOARD, so a Stargazer killed in response stops discounting — and
+ * two of them do NOT stack: the card states an absolute floor rather than a
+ * per-source reduction, and `Math.max` against the floor is what expresses that.
+ * Recorded Unverified in docs/rules-conformance.md.
+ */
+const STARGAZER = "VEN-098";
+const STARGAZER_DISCOUNT = 2;
+const STARGAZER_FLOOR = 1;
+
+/** Does `playerIndex` control a Stargazer anywhere on the board? */
+function controlsStargazer(state: GameState, playerIndex: 0 | 1): boolean {
+  const owner = state.players[playerIndex];
+  return (
+    owner.baseUnits.some((u) => u.defId === STARGAZER) ||
+    state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some((u) => u.defId === STARGAZER))
+  );
+}
+
 /** Keeper of Law (VEN-119): "I cost [2 Energy][Order] less if you control a
  *  battlefield with exactly two units there." Vendetta's first cost modifier,
  *  and the second card in the pool after Master Yi to discount BOTH axes. */
@@ -160,6 +201,14 @@ let lurkerNameCache: string | undefined;
 function lurkerName(): string {
   lurkerNameCache ??= defaultCardRegistry().get(SHADOWBLADE_LURKER).name;
   return lurkerNameCache;
+}
+
+/** Does this card PRINT a `[Flow]` cost? Read off the registry rather than from a
+ *  list, so a set adding Flow spells needs no maintenance here — the parser
+ *  already puts `flowCost` on every one of them. */
+function cardHasFlowCost(defId: string): boolean {
+  const def = defaultCardRegistry().tryGet(defId);
+  return def?.type === "Spell" && def.flowCost !== undefined;
 }
 
 function keeperOfLawConditionMet(state: GameState, playerIndex: 0 | 1): boolean {
@@ -949,6 +998,9 @@ export function costModifierDefIds(): string[] {
     // Shadowblade Lurker's self-scaling discount is his ENTIRE printed text, so
     // this list is his only registration anywhere — the Lucian - Purifier trap.
     SHADOWBLADE_LURKER,
+    // Stargazer's Flow discount is his ENTIRE printed text — the Lucian - Purifier
+    // trap again, which costs a working card its place in generated decks.
+    STARGAZER,
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -1020,6 +1072,24 @@ export function modifiedEnergyCost(
   if (defId === KEEPER_OF_LAW && keeperOfLawConditionMet(state, playerIndex)) {
     cost = Math.max(0, cost - KEEPER_OF_LAW_ENERGY);
   }
+  // Stargazer's discount on a [Flow] spell played from the TRASH. Applied before
+  // the self-scaling ones below for the reason the `playedFromHand` block at the
+  // top of this function gives: a sometimes-discount should reduce what the card
+  // prints rather than something already reduced — and here "what the card
+  // prints" is its Flow cost, which is what `cost` already holds on this path.
+  //
+  // The FLOOR is the card's own "to a minimum of [1]", so this clamp is not the
+  // usual `Math.max(0, …)`.
+  if (
+    !playedFromHand &&
+    cardKind === "Spell" &&
+    defId !== undefined &&
+    cardHasFlowCost(defId) &&
+    controlsStargazer(state, playerIndex)
+  ) {
+    cost = Math.max(STARGAZER_FLOOR, cost - STARGAZER_DISCOUNT);
+  }
+
   // Shadowblade Lurker's self-scaling discount. Floored at 0 by the `Math.max`
   // like every other reduction here — he states no minimum, unlike Eager
   // Apprentice, so a trash full of him really does make him free.

@@ -350,6 +350,20 @@ export type TargetingSpec =
        * two Recruits' Might after the targets are chosen.
        */
       maxTotalMight?: number;
+      /**
+       * Every chosen unit must have this domain — Decree of Discord's "enemy
+       * ORDER ([Order]) units".
+       *
+       * The same axis `unitOrGear` carries, and matched the same way: the domain
+       * must be AMONG the unit's domains, so a Fury+Order unit is an Order unit.
+       * That is what a domain means everywhere else in the game, and the
+       * alternative would exclude most of the set's dual-domain cards.
+       *
+       * Enforced in `unitListChoiceError` — the one function BOTH the enumerator
+       * and the validator go through — rather than at either site, which is the
+       * enumerate/execute split this codebase has shipped six bugs into.
+       */
+      domain?: Domain;
     }
   /**
    * A SPELL WAITING ON THE CHAIN — Wind Wall's "counter a spell", Defy's
@@ -1135,6 +1149,10 @@ const OPTIONAL_POWER_COSTS: Readonly<Record<string, OptionalPowerCostSpec>> = {
   // on-play trigger reads `optionalPowerPaid` off a different event.
   "VEN-083": { domain: "Body", count: 1 },
   "SFD-098": { energy: 1 }, // Sea Monkey — [1], no rune at all
+  // Gust Monk (VEN-101) — "You may pay [1 Energy] as an additional cost to play
+  // me." Sea Monkey's shape exactly: Energy with no rune, so `domain` and `count`
+  // are both absent. What it buys is a banish-from-any-trash, in effects/chaos.ts.
+  "VEN-101": { energy: 1 },
   // Akshan - Mischievous — [Body][Body]. The pool's first optional cost of TWO
   // runes; every other one is a single pip, which is why `count` had never been
   // exercised above 1.
@@ -1694,6 +1712,11 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
   // probes re-run rather than assumed.
   "SFD-031", // Desert's Call — one Sand Soldier, or two under its [Repeat]
   "UNL-044", // Flurry of Feathers — all four Birds at ONE chosen destination
+  // Up from the Deep (VEN-100) — "Play two 1 [Might] Tentacle unit tokens from
+  // Bilgewater." No destination clause, so 185.2.a's inherent Unit restriction is
+  // the whole rule and both land at ONE chosen destination, exactly as Recruit
+  // the Vanguard's four and Flurry of Feathers' four do.
+  "VEN-100",
 ]);
 
 /**

@@ -92,6 +92,19 @@ export interface UnitTriggerEvent {
    *  player and by the time this resolves it has already been spent, so the
    *  board cannot be asked whether it was spent FOR THIS. */
   optionalXpPaid?: boolean;
+  /**
+   * Was this unit played FROM FACE DOWN? — Tornado Warrior's "when you play me
+   * from face down, you may empower something here".
+   *
+   * **811's facedown play was already distinguished, just not HERE.** The
+   * `cardPlayed` EVENT has carried `fromHidden` since Ember Monk, so the fact was
+   * known at the executor and simply never reached a unit's own on-play trigger —
+   * the same one-field-short-of-the-resolver shape `optionalPowerPaid` had for
+   * Spells until Rampage needed it.
+   *
+   * Absent means an ordinary play, which is every existing caller.
+   */
+  fromHidden?: boolean;
 }
 
 export interface UnitTriggerDefinition {
@@ -169,6 +182,13 @@ type PlacementGrant =
 const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "OGN-176": "openBattlefield", // Sneaky Deckhand
   "OGN-174": "openBattlefield", // Sai Scout
+  // Ocean Drake (VEN-115) — "You may play me to an OPEN battlefield." The pool's
+  // third card with this exact clause and the first outside Origins, so it needed
+  // nothing but the row. **170.11.b is what "open" resolves to**: a battlefield
+  // "can be 'uncontrolled'. This means no player controls them" — and
+  // `isOpenBattlefield` additionally requires it to be EMPTY, which is the
+  // reading Sneaky Deckhand and Sai Scout have carried since Origins.
+  "VEN-115": "openBattlefield",
   "OGN-161": "occupiedEnemyBattlefield", // Deadbloom Predator
   // Rengar - Trophy Hunter — "I can be played to a battlefield where there are
   // enemy units (even if you don't have units there)." Byte-identical to
@@ -551,6 +571,7 @@ export function dispatchOnPlayUnit(
     optionalPowerPaid?: boolean;
     exhaustLegendPaid?: boolean;
     optionalXpPaid?: boolean;
+    fromHidden?: boolean;
   },
 ): GameState {
   // **No Legend dispatch here.** Volibear - Relentless Storm used to be fired
@@ -667,6 +688,7 @@ export function dispatchOnPlayUnit(
     ...(extra?.discardCardInstanceId !== undefined ? { discardCardInstanceId: extra.discardCardInstanceId } : {}),
     ...(extra?.acceleratePaid !== undefined ? { acceleratePaid: extra.acceleratePaid } : {}),
     ...(extra?.optionalPowerPaid !== undefined ? { optionalPowerPaid: extra.optionalPowerPaid } : {}),
+    ...(extra?.fromHidden !== undefined ? { fromHidden: extra.fromHidden } : {}),
     ...(extra?.exhaustLegendPaid !== undefined ? { exhaustLegendPaid: extra.exhaustLegendPaid } : {}),
     ...(extra?.optionalXpPaid !== undefined ? { optionalXpPaid: extra.optionalXpPaid } : {}),
   });

@@ -1489,6 +1489,24 @@ export interface GameState {
    */
   damagePreventionPoolByInstanceId: Record<string, number>;
   /**
+   * Permanents that lose the Empowered status at end of turn — Tornado Warrior's
+   * "you may empower something here. DISEMPOWER IT AT END OF TURN."
+   *
+   * A DELAYED effect rather than a listener: nothing triggers at end of turn in
+   * this engine, and `runEnd` is the phase machinery that already sweeps every
+   * this-turn fact. Ashe - Focused's `banishedUntilHold` is the same shape —
+   * armed state read by the phase machinery rather than by a trigger.
+   *
+   * **Deliberately not a `[Temporary]` grant**, which is the nearest-looking
+   * mechanism and does something else entirely: `[Temporary]` KILLS what it
+   * expires on (816), and this only strips a status.
+   *
+   * Keyed by instanceId and swept by `runEnd`, so a permanent that changed hands
+   * or moved still loses the status — the card names the OBJECT ("disempower
+   * it"), not a place, and nothing in the sentence ties it to staying here.
+   */
+  disempowerAtEndOfTurn: string[];
+  /**
    * How many times each CARD INSTANCE has dealt damage this turn — UNL-020
    * Dancing Grenade's "1 additional Bonus Damage for each time this spell has
    * dealt damage this turn", which is the pool's first text to count a single

@@ -612,6 +612,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       players[action.playerIndex] = { ...updatedActor, baseUnits: [...actor.baseUnits, deployedUnit] };
       const next: GameState = { ...withPit, players };
       return dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, "base", {
+        // 811's facedown play, forwarded onto the unit's OWN trigger event —
+        // Tornado Warrior's "when you play me from face down". The fact was
+        // already known here and rode only the `cardPlayed` event.
+        ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
         ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         // Akshan - Mischievous' enemy gear. Forwarded for the reason
         // `trashCardInstanceId` beside it carries a paragraph about: a field
@@ -689,6 +693,10 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
 
     let next: GameState = { ...withPit, players, battlefields };
     next = dispatchOnPlayUnit(next, deployedUnit, action.playerIndex, { battlefieldId: destinationBattlefieldId }, {
+        // 811's facedown play, forwarded onto the unit's OWN trigger event —
+        // Tornado Warrior's "when you play me from face down". The fact was
+        // already known here and rode only the `cardPlayed` event.
+        ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
         // Akshan - Mischievous' enemy gear. Forwarded for the reason
         // `trashCardInstanceId` beside it carries a paragraph about: a field
