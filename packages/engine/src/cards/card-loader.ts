@@ -864,6 +864,25 @@ const GRANTED_ONLY_KEYWORDS: Readonly<Record<string, readonly Keyword[]>> = {
   // here" — i.e. equal to zero. The runtime value lives in
   // `granted-keywords.DYNAMIC_KEYWORD_VALUES`.
   "SFD-131": ["Assault"],
+  // **Both Zeds — VEN-023 From the Shadows and VEN-112 Without a Sound — and
+  // this is a FIFTH shape: a keyword belonging to a TOKEN the card makes.**
+  //
+  // Each prints a Shadow Clone whose abilities are quoted in a parenthetical:
+  // `(It has "When I attack, you may banish a unit from your trash. If you do,
+  // give me [Assault 4] this turn.")`. The "me" in that sentence is the CLONE.
+  // The parser sees a bracket and gives it to Zed.
+  //
+  // **Reported from playtesting**, and the report is exactly the arithmetic:
+  // "Zed, Without a Sound is somehow beating my 3-Might Poro defending alone
+  // instead of trading." He is a 5-Might body who was swinging at 9.
+  //
+  // Found by SCANNING the pool rather than by reading the two cards — see
+  // `test/granted-only-keywords.test.ts`, which now makes the scan a gate. The
+  // note above this table records that the original scan found "four cards match
+  // and exactly two are false positives"; that was measured before Vendetta
+  // landed and nothing re-ran it when 178 cards arrived.
+  "VEN-023": ["Assault"],
+  "VEN-112": ["Assault"],
   // Sivir - Mercenary — "If you've spent at least [rainbow][rainbow] this turn,
   // I have +2 Might and [Ganking]."
   //

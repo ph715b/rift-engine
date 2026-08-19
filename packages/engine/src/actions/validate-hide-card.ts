@@ -62,17 +62,29 @@ export function validateHideCard(state: GameState, action: HideCardAction): Vali
     return fail(`${bf.name} already has ${limit === 1 ? "a facedown card" : `${limit} facedown cards`} hidden there`);
   }
 
-  // The cost is a flat 1 Power in ANY domain — the card's own printed cost is
-  // not paid at all, which is the whole appeal of hiding an expensive card.
-  if (action.payment.energyRunes.length > 0) {
-    return fail("Hiding costs Power only, never Energy");
-  }
   const cost = hideCostFor(state, action.playerIndex);
   // Teemo - Swift Scout's alternative — the same-sized price paid in Energy. An
   // Energy payment carries no domain, so the rainbow check below is skipped
   // rather than satisfied: the runes are exhausted, not recycled.
+  //
+  // **This is asked FIRST, and it was not.** The blanket "hiding costs Power
+  // only" refusal below used to run before it, so an Energy payment was rejected
+  // three lines before the branch that accepts one could be reached — the Teemo
+  // route was dead code from the day it was written. `legal-actions` offered it,
+  // this refused it: the offered-then-refused split, in the one direction the
+  // usual tests do not look, because the ENUMERATOR was right.
+  //
+  // Reported from playtesting as "trying to hide a card with teemo legend alt
+  // cost does not work".
   if (mayHideWithEnergy(state, action.playerIndex) && action.payment.powerRunes.length === 0) {
     return action.payment.energyRunes.length === cost ? ok() : fail(`Hiding costs exactly ${cost} Energy for Teemo - Swift Scout`);
+  }
+  // The cost is a flat 1 Power in ANY domain — the card's own printed cost is
+  // not paid at all, which is the whole appeal of hiding an expensive card.
+  // Below the alternative above, so it refuses only the Energy payments nothing
+  // permits.
+  if (action.payment.energyRunes.length > 0) {
+    return fail("Hiding costs Power only, never Energy");
   }
   if (action.payment.powerRunes.length !== cost) {
     return fail(`Hiding costs exactly ${cost} Power`);

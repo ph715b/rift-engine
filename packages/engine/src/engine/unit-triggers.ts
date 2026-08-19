@@ -23,6 +23,7 @@ import { hasKeyword, keywordOnEntry } from "./granted-keywords.js";
 import { effectiveMight } from "./effective-might.js";
 import { findUnitOnBattlefield } from "./target-lookup.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import { grantsEnemyAlonePlacement, grantsOpenBattlefieldPlacement } from "./board-restrictions.js";
 import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
@@ -241,8 +242,30 @@ const PLACEMENT_GRANTS: Readonly<Record<string, PlacementGrant>> = {
   "SFD-025": "attackingBattlefield", // Rengar - Pouncing
 };
 
+/**
+ * The placement grant a card's own text gives it, or undefined.
+ *
+ * **Canonicalised, and that is the fix rather than a nicety.** `PLACEMENT_GRANTS`
+ * is keyed by defId and expands nothing, unlike the trigger registries — so an
+ * alternate printing fell straight through it. Reported from playtesting: "can't
+ * play rengar trophy hunter to an open battlefield the opponent is attacking when
+ * I don't have units there", which is VEN-179, the Vendetta printing of UNL-120.
+ *
+ * The card was otherwise complete — its `[Ambush]` worked, its registry entry
+ * resolved, coverage called it implemented — and exactly one clause of it was
+ * silently absent. That is the tenth instance of this class in this set and the
+ * first a PLAYER found; `test/alias-printing-parity.test.ts` is the gate that
+ * makes it the last.
+ *
+ * Exported so that gate can see it: the grant is otherwise reachable only
+ * through `mayPlaceWithoutPresence`, which needs a board.
+ */
+export function placementGrantFor(defId: string): PlacementGrant | undefined {
+  return PLACEMENT_GRANTS[canonicalDefId(defId)];
+}
+
 export function canPlayToOpenBattlefield(defId: string): boolean {
-  return PLACEMENT_GRANTS[defId] === "openBattlefield";
+  return placementGrantFor(defId) === "openBattlefield";
 }
 
 /** May this player put ANY friendly unit on an open battlefield — the per-card
@@ -323,7 +346,7 @@ export function mayPlaceWithoutPresence(
    *  property of the battlefield and ignores it. */
   costUnitInstanceId?: string,
 ): boolean {
-  switch (PLACEMENT_GRANTS[defId]) {
+  switch (placementGrantFor(defId)) {
     case "openBattlefield":
       return isOpenBattlefield(battlefield);
     case "occupiedEnemyBattlefield":
