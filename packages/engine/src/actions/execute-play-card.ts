@@ -116,6 +116,19 @@ import { addBattlefieldToken, baronPitEntryFor } from "../engine/battlefield-tok
  * Viktor - Innovator's "when you play a card on an opponent's turn" wants the
  * state where the card is already in play.
  */
+/**
+ * Was this card played from somewhere other than its owner's HAND?
+ *
+ * Asked of the pre-play board, because that is the only moment the card is still
+ * in the zone it is leaving. Written as "not in hand" rather than as a list of
+ * the other zones, so a route added later (a fifth from-elsewhere permission)
+ * answers correctly without being taught about.
+ */
+function playedFromElsewhere(state: GameState, action: PlayCardAction): boolean {
+  if (action.fromHiddenBattlefieldId !== undefined) return true;
+  return !state.players[action.playerIndex].hand.some((c) => c.instanceId === action.card.instanceId);
+}
+
 export function executePlayCard(state: GameState, action: PlayCardAction): GameState {
   const played = executePlayCardInner(state, action);
   // Two triggers, and they are not redundant. `cardPlayed` is for OTHER
@@ -140,6 +153,7 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     playedKind: action.card.kind,
     playedInstanceId: action.card.instanceId,
     playedPowerCost: powerCostOf(action.card),
+    playedDefId: action.card.defId,
     // A real card, never a token — see `isToken`'s note in triggers.ts for why
     // the two must be told apart (185 vs 350.2).
     isToken: false,
@@ -147,6 +161,12 @@ export function executePlayCard(state: GameState, action: PlayCardAction): GameS
     // existing event rather than a new one, so every other listener still sees
     // a hidden play as the play it is.
     ...(action.fromHiddenBattlefieldId !== undefined ? { fromHidden: true } : {}),
+    // Kennen's "from anywhere other than your hand". Computed from the ZONE the
+    // card actually came out of rather than from `fromHidden`: a facedown play is
+    // one route and the trash is another, and a listener asking his question
+    // wants both. `state` is the board BEFORE the play, which is the only moment
+    // the card is still in the zone it left.
+    ...(playedFromElsewhere(state, action) ? { fromElsewhere: true } : {}),
   });
   // Placed LAST so that under the chain's LIFO resolution (340.1) it resolves
   // FIRST — which is exactly where it sat while it was dispatched inline. Any
@@ -387,6 +407,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // though the combined *total* doesn't).
   const remainingAfterFloat = modifiedEnergy - floatingEnergySpent;
   const restrictedSpent = card.kind === "Spell" ? Math.min(actor.restrictedSpellEnergy, remainingAfterFloat) : 0;
+  // Renekton's Energy, UNITS only. Drains after floating for the same reason the
+  // Spell pool above does, and the two can never both apply — a Unit is not a
+  // Spell, which is what keeps them separate fields rather than one tagged pool.
+  const restrictedUnitSpent =
+    card.kind === "Unit" ? Math.min(actor.restrictedUnitEnergy, remainingAfterFloat) : 0;
   const primaryAvailable = basePowerDomain !== null ? (actor.floatingPower[basePowerDomain] ?? 0) : 0;
   const altAvailable = basePowerDomainAlt !== undefined ? (actor.floatingPower[basePowerDomainAlt] ?? 0) : 0;
   const floatingPowerSpent = Math.min(primaryAvailable + altAvailable, powerToPay);
@@ -490,6 +515,7 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     runeDeck: [...actor.runeDeck, ...recycled],
     floatingEnergy: actor.floatingEnergy - floatingEnergySpent + floatingEnergyGained,
     restrictedSpellEnergy: actor.restrictedSpellEnergy - restrictedSpent,
+    restrictedUnitEnergy: actor.restrictedUnitEnergy - restrictedUnitSpent,
     // Deducted from whichever pool paid — they are mutually exclusive by card
     // kind, so at most one of these two ever moves.
     restrictedSpellPower: actor.restrictedSpellPower - (card.kind === "Spell" ? restrictedPowerSpent : 0),

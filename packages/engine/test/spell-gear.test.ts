@@ -53,6 +53,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     scoredBattlefieldsThisTurn: [],
     unitsEnterReadyThisTurn: false,
     restrictedSpellEnergy: 0,
+    restrictedUnitEnergy: 0,
     restrictedSpellPower: 0,
     restrictedGearPower: 0,
     gearPlayedThisTurn: 0,

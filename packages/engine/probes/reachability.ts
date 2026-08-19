@@ -708,7 +708,11 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // their Overnumbered printings, which come free through the alias table and are
 // exercised the moment their canonical is. The four finished sets held EXACTLY
 // for the THIRTEENTH consecutive wave.
-const PINNED_UNION = 779;
+// **779 -> 783 on 2026-08-19, against 787 measured after Legends wave 2.** FOUR
+// cards written and four newly exercised (VEN 141 -> 145) — the other four rows
+// are their Overnumbered printings, exercised the moment their canonical is. The
+// four finished sets held EXACTLY for the FOURTEENTH consecutive wave.
+const PINNED_UNION = 783;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

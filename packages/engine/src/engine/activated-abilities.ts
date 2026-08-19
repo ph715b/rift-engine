@@ -52,7 +52,7 @@ import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
 import { attachEquipment, attachableEquipment, copiedTextSourceFor, unitsBanishedWith } from "./equipment.js";
-import { banishCard, disempowerPermanent, empowerPermanent, isEmpowered } from "./effect-helpers.js";
+import { banishCard, discardCards, disempowerPermanent, empowerPermanent, isEmpowered } from "./effect-helpers.js";
 import { playCardIgnoringCost } from "./play-free.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 
@@ -491,6 +491,13 @@ export interface ActivatedAbilityDefinition {
  */
 /** Vendetta's Legends, wave 1 — the three that need no new event of their own
  *  beyond the `empowerPermanent` hook two of them share. */
+const RENEKTON_BUTCHER = "VEN-141";
+const RENEKTON_POWER = 2;
+const RENEKTON_ENERGY = 2;
+const ZED_MASTER_OF_SHADOWS = "VEN-143";
+const KENNEN_HEART_OF_THE_TEMPEST = "VEN-155";
+const KENNEN_ASSAULT = 2;
+
 const SHEN_EYE_OF_TWILIGHT = "VEN-147";
 const MEL_SOULS_REFLECTION = "VEN-151";
 const MEL_SHRINK = 2;
@@ -1605,6 +1612,82 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     cost: { power: { domain: "Chaos", count: 1 }, killSelf: true, exhaust: true },
     targeting: { kind: "none" },
     resolve: (state) => state,
+  },
+  [RENEKTON_BUTCHER]: {
+    // Renekton - Butcher of the Sands (VEN-141) — "[Reaction][>]
+    // [rainbow][rainbow], [Exhaust]: [Add] [2 Energy]. Spend this Energy only to
+    // play units or activated abilities of units."
+    //
+    // A FOURTH restricted pool, beside Lux-Crownguard's Spells-only Energy,
+    // Kai'Sa's Spells-only rainbow, and Ornn's gear-only rainbow. Each names a
+    // different half of the game and no two can apply to one payment, which is
+    // why they are four fields rather than one tagged pool.
+    //
+    // **`[Reaction][>]` needs nothing.** `validate-activate-ability` applies no
+    // timing check to any activation — a standing permissiveness that file
+    // records — so every ability in the pool is already reaction-speed. That is
+    // wider than the rules for the OTHER abilities and exactly right for this one.
+    //
+    // **The "or activated abilities of units" half is NOT implemented**, and is
+    // recorded in docs/rules-conformance.md: activation costs are paid by
+    // `activationPayment`, which knows nothing of the restricted pools, and
+    // teaching it would change how every ability in the game is paid to serve one
+    // clause. The PLAY half is what the card is bought for.
+    //
+    // `banksResource`, like Lux-Crownguard's: the board evaluator cannot price a
+    // pool that pays for something later.
+    kind: "Legend",
+    cost: { power: { domain: null, count: RENEKTON_POWER }, exhaust: true },
+    targeting: { kind: "none" },
+    banksResource: true,
+    resolve: (state, ctx) => {
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[ctx.casterIndex];
+      players[ctx.casterIndex] = { ...actor, restrictedUnitEnergy: actor.restrictedUnitEnergy + RENEKTON_ENERGY };
+      return { ...state, players };
+    },
+  },
+  [ZED_MASTER_OF_SHADOWS]: {
+    // Zed - Master of Shadows (VEN-143) — "[Action][>] Disempower me, [Exhaust]:
+    // Discard 1, then draw 1."
+    //
+    // His first sentence ("when you banish a card you own, empower me") is a hook
+    // inside `banishCard`, the single writer of the banished zone; coverage merges
+    // the two claims.
+    //
+    // "Discard 1, THEN draw 1" is sequential, and the order is the card: a
+    // rummage that drew first could put the drawn card back, which is a different
+    // and better effect. `discardCards` parks a question when there is a real
+    // choice, and `decisions.draw` is queued behind it — the ordering mechanism
+    // Undercover Agent's entry describes, and the one Clairvoyance's draw had to
+    // be moved into.
+    kind: "Legend",
+    cost: { disempowerSelf: true, exhaust: true },
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const discarded = discardCards(state, ctx.casterIndex, 1);
+      return parkDecision(discarded, { kind: "draw", playerIndex: ctx.casterIndex, count: 1 });
+    },
+  },
+  [KENNEN_HEART_OF_THE_TEMPEST]: {
+    // Yordle, Kennen - Heart of the Tempest (VEN-155) — "[Action][>] Disempower
+    // me, [Exhaust]: Give a unit [Assault 2] this turn."
+    //
+    // His first sentence ("when you play a card from anywhere other than your
+    // hand, empower me") is an event trigger in `legend-abilities.ts`, reading the
+    // `fromElsewhere` flag `execute-play-card` now carries.
+    //
+    // "A unit", bare, so either side's and anywhere (355.9.a.1) — giving an enemy
+    // `[Assault]` is a bad play rather than an illegal one, and the card offers
+    // it. Unlike Ambessa's ready, which is narrowed because the helper cannot
+    // reach the other side, nothing stops this one being exactly as printed.
+    kind: "Legend",
+    cost: { disempowerSelf: true, exhaust: true },
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : grantKeywordThisTurn(state, event.targetUnitInstanceId, "Assault", KENNEN_ASSAULT),
   },
   [SHEN_EYE_OF_TWILIGHT]: {
     // Shen - Eye of Twilight (VEN-147) — "[Action][>] [Exhaust]: Give a friendly

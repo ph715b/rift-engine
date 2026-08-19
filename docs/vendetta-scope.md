@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=153 unimplemented=23   partial=6      (2026-08-19, after the alias fix, twelve card waves, Fallen Feline and Endless Riches; MIND and CALM are both finished but for one partial each, and 3 of the 7 LEGENDS are in)
+VEN: needing=176  implemented=161 unimplemented=15   partial=6      (2026-08-19, after the alias fix, thirteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, and ALL SEVEN LEGENDS are in)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 23 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 15 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,49 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Legends, wave 2 — done 2026-08-19 (the other 4, and 4 free printings)
+
+VEN-141 Renekton - Butcher of the Sands, 143 Zed - Master of Shadows, 145 Nasus -
+Curator of the Sands, 155 Yordle, Kennen - Heart of the Tempest, plus VEN-190,
+191, 192 and 197. VEN 153 -> 161, and **all seven Legends are in**. Tests in
+`test/ven-legends-wave2.test.ts` (20); **18 mutants — 17 killed, 1
+measured-redundant.**
+
+**Where wave 1's three shared one mechanism, these four share nothing** — and the
+lesson is where each hook GOES rather than what it does:
+
+| card | the hook, and why there |
+|---|---|
+| Renekton | a FOURTH restricted Energy pool. Four fields rather than one tagged pool because each names a different half of the game and no two can apply to one payment |
+| Zed | inside `banishCard`, the single WRITER of the banished zone — a dozen cards banish something, and a dozen event calls is a dozen chances to miss one |
+| Kennen | `fromElsewhere` on the `cardPlayed` event, because the producer is the only one who knows: by the time a listener resolves, a Unit is on the board and a Spell is in a trash |
+| Nasus | a printed-Energy threshold read off the REGISTRY, since `cardPlayed` carries the printed POWER cost and not the Energy one |
+
+**`fromElsewhere` is NOT the negation of `fromHidden`,** which is the whole
+reason it is a second field: a facedown play is one route, the trash is another
+(`[Flow]`, Last Rites, Endless Riches), and the Champion Zone a third. Asking it
+as "not from hidden" would have been wrong for all but one.
+
+**Two halves are deliberately NOT implemented and both are recorded**: Renekton's
+Energy cannot pay activation costs, and Nasus does not see activated abilities.
+Each is pinned as an assertion of the current behaviour, so closing it fails
+loudly rather than quietly changing what a card does.
+
+**Two survivors, and the instructive one was a vacuous `if`.** The test for "a
+spell cannot spend the units-only pool" was wrapped in `if (spellPlay)`, and the
+spell was never playable — Cleave needs a target and the board was empty — so the
+assertion never ran. **A conditional assertion is not an assertion.** The other
+was the `[Empowered]` guard on Nasus's offer, now labelled MEASURED-REDUNDANT:
+his option list already collapses to a bare Decline, which `advanceDecisions`
+retires without prompting.
+
+A second census pin fired that wave 1 had not touched: `legendTriggerKeysInUse`,
+which lists the Legend hook names so a new one forces a decision. +2, both new
+moments.
+
+Reachability pin 779 -> 783 against 787; VEN 141 -> 145, four finished sets EXACT
+for the FOURTEENTH wave.
 
 ### Legends, wave 1 — done 2026-08-19 (3 of the 7, and 3 free printings)
 

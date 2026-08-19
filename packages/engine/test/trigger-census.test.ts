@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("375 held / 8 inline of 383 trigger cards", () => {
+  it("379 held / 8 inline of 387 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -705,10 +705,26 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //
     // The other three are correctly absent: VEN-034 Resonating Strike, VEN-039
     // Crumbling Sands and VEN-040 Decree of Focus are SPELL effects.
+    // **375/8/383 -> 379/8/387 on 2026-08-19: Vendetta's Legends wave 2.** By
+    // family and by name:
+    //
+    //     legend (+2)  VEN-145 Nasus - Curator of the Sands (a new
+    //                  `onExpensivePlay` hook) and VEN-155 Yordle, Kennen - Heart
+    //                  of the Tempest (a new `onCardPlayedFromElsewhere` hook)
+    //     event  (+4)  the same two, plus VEN-192 and VEN-197 — their Overnumbered
+    //                  printings, which `mergeRegistries` expands after merging
+    //     distinct: 4, and TWO of the four are free printings
+    //
+    // The wave's other two Legends are correctly absent: VEN-141 Renekton banks a
+    // restricted Energy pool through an ACTIVATED ability, and VEN-143 Zed's
+    // "when you banish a card you own" is a hook inside `banishCard` — the single
+    // writer of the banished zone — rather than a registry entry. A funnel hook is
+    // not a trigger and this census cannot see one, which is the same shape wave
+    // 1's `empowerPermanent` hook took.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 375,
+      held: 379,
       inline: 8,
-      cards: 383,
+      cards: 387,
     });
   });
 
@@ -717,16 +733,28 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // hook is counted the day it is written. The risk runs the other way: a new
     // CONTINUOUS entry would be miscounted as a trigger until it is named in
     // `NON_TRIGGER_KEYS`. This census is what catches that.
+    // **+2 on 2026-08-19, both from Vendetta's Legends wave 2**, and both are
+    // moments the engine had no hook for:
+    //
+    //     onCardPlayedFromElsewhere  Kennen's "a card from anywhere other than
+    //                                your hand" — NOT the negation of
+    //                                `fromHidden`, since the trash and the
+    //                                Champion Zone are two more routes
+    //     onExpensivePlay            Nasus's "Energy cost [7] or more", read off
+    //                                the REGISTRY because `cardPlayed` carries
+    //                                the printed Power cost and not the Energy one
     expect(legendTriggerKeysInUse()).toEqual([
       "conquerCondition",
       "mightBonus",
       "onBattlefieldHeld",
       "onBeginningPhase",
+      "onCardPlayedFromElsewhere",
       "onCombatWon",
       "onConquer",
       "onEndOfTurn",
       "onEnemyUnitAttacks",
       "onEnemyUnitDied",
+      "onExpensivePlay",
       "onRunesRecycled",
       "onSpellCast",
       "onUnitBecameMighty",

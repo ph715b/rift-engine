@@ -2513,14 +2513,37 @@ export function banishCard(state: GameState, playerIndex: 0 | 1, cardInstanceId:
     owner.banished.find((c) => c.instanceId === cardInstanceId);
   if (!card || owner.banished.some((c) => c.instanceId === cardInstanceId)) return state;
 
-  return updatePlayer(state, playerIndex, (p) => ({
+  const banished = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     hand: p.hand.filter((c) => c.instanceId !== cardInstanceId),
     trash: p.trash.filter((c) => c.instanceId !== cardInstanceId),
     activeGear: p.activeGear.filter((c) => c.instanceId !== cardInstanceId),
     banished: fileIntoNonBoardZone(p.banished, card),
   }));
+  // **"When you banish a card YOU OWN, empower me"** — Zed - Master of Shadows
+  // (VEN-143).
+  //
+  // Hooked at the single writer of the banished zone, the same reasoning
+  // `empowerPermanent`'s hook records one screen up: a dozen cards banish
+  // something, and a dozen event calls is a dozen chances to miss one.
+  //
+  // `playerIndex` IS the owner here — `banishCard` takes whose card it is and
+  // searches only that player's zones — so "you own" needs no separate question,
+  // unlike the empower hook where the actor had to be inferred.
+  return legendEmpoweredByBanish(banished, playerIndex);
 }
+
+/** Zed - Master of Shadows' first sentence. Inline rather than held, for the
+ *  reason `legendsEmpoweredBySomethingElse` gives: a status change with no
+ *  choice attached, which nothing can usefully respond to. */
+function legendEmpoweredByBanish(state: GameState, ownerIndex: 0 | 1): GameState {
+  const legend = state.players[ownerIndex].legend;
+  if (canonicalDefId(legend.defId) !== ZED_MASTER_OF_SHADOWS) return state;
+  if (legend.empowered === true) return state;
+  return setEmpowered(state, legend.instanceId, true);
+}
+
+const ZED_MASTER_OF_SHADOWS = "VEN-143";
 
 /**
  * Moves a unit into `newControllerIndex`'s BASE and makes it theirs —

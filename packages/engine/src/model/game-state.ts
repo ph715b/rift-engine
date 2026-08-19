@@ -695,6 +695,27 @@ export interface PlayerState {
    */
   restrictedGearPower: number;
   /**
+   * Renekton - Butcher of the Sands' Energy — "[Add] [2 Energy]. Spend this
+   * Energy only to play UNITS or activated abilities of units."
+   *
+   * A FOURTH restricted pool, beside `restrictedSpellEnergy` (Spells only),
+   * `restrictedSpellPower` (Kai'Sa's rainbow, Spells only) and
+   * `restrictedGearPower` (Ornn's, gear only). Each of the four names a
+   * different half of the game, which is why they are four fields rather than
+   * one tagged pool: the tag would have to be understood by every consumer, and
+   * no two of them can ever apply to the same payment anyway.
+   *
+   * **The "or activated abilities of units" half is NOT implemented and is
+   * recorded as a divergence.** Activation costs are paid by
+   * `activationPayment`, which reads `floatingEnergy` and the channeled runes and
+   * knows nothing about the restricted pools; wiring a fourth pool into it is a
+   * change to how every ability in the game is paid for, to serve one clause of
+   * one Legend. The PLAY half — which is what the card is bought for — works.
+   *
+   * Cleared by `runEnd` if unspent, like the three above.
+   */
+  restrictedUnitEnergy: number;
+  /**
    * Malzahar - Fanatic's "Kill a friendly unit or gear, Exhaust: → rainbow
    * rainbow" — Power that pays a pip of ANY domain, with no Spells-only
    * restriction.

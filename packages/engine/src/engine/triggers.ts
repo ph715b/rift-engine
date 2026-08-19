@@ -685,6 +685,33 @@ export type GameEvent =
       playedPowerCost: number;
       fromHidden?: boolean;
       /**
+       * Was this card played from somewhere OTHER than its owner's hand —
+       * Yordle, Kennen - Heart of the Tempest's "when you play a card from
+       * anywhere other than your hand, empower me".
+       *
+       * **Not the negation of `fromHidden` above.** A facedown card is one route;
+       * the trash is another (`[Flow]`, Last Rites, Endless Riches), and so is the
+       * Champion Zone. A listener asking Kennen's question wants all of them, and
+       * asking it as `fromHidden !== true` would have been wrong for every one of
+       * the others.
+       *
+       * Carried on the event because the producer is the only place that knows:
+       * by the time a listener resolves, a Unit is on the board and a Spell is in
+       * a trash, and neither remembers where it came from.
+       */
+      fromElsewhere?: boolean;
+      /**
+       * The DEFINITION id of what was played — Nasus - Curator of the Sands asks
+       * about the card's printed Energy cost, and `playedPowerCost` beside it
+       * carries only the Power half.
+       *
+       * Carried rather than looked up from `playedInstanceId`, for the reason
+       * that field's own note gives: by the time a listener resolves the card may
+       * be anywhere, and a Spell in a trash or a countered card is findable in
+       * neither zone the listener would search.
+       */
+      playedDefId?: string;
+      /**
        * Was the thing played a TOKEN rather than a card?
        *
        * **This is the difference between two sentences the rules keep apart and

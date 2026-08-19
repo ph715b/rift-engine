@@ -11,6 +11,7 @@ import {
   holdCardsRecycled,
   payEnergyFromPool,
   payPowerFromChanneled,
+  empowerPermanent,
   readyRunes,
   readyUnit,
 } from "./effect-helpers.js";
@@ -29,6 +30,7 @@ import { findUnitAnywhere } from "./target-lookup.js";
 // cycle — safe for the same reason every other registry cycle here is: both
 // bindings are read inside functions, never at module load.
 import { parkDecision } from "./decisions.js";
+import { defaultCardRegistry } from "../cards/card-registry.js";
 
 /** The `unitsStunned` payload, taken FROM the event union rather than restated,
  *  so a legend's view of a stun and a permanent's can never drift. Type-only, so
@@ -93,6 +95,30 @@ export interface LegendAbilityDefinition {
   /** "When you play a spell that costs N or more..." — `totalCost` is Energy
    *  PLUS Power, see dispatchLegendOnSpellCast. */
   onSpellCast?: (state: GameState, ownerIndex: 0 | 1, totalCost: number) => GameState;
+  /**
+   * "When you play a card from anywhere other than your hand" — Yordle, Kennen -
+   * Heart of the Tempest (VEN-155).
+   *
+   * Reads `cardPlayed.fromElsewhere`, which `execute-play-card` computes from the
+   * ZONE the card actually left rather than from `fromHidden`: a facedown play is
+   * one route, the trash is another (`[Flow]`, Last Rites, Endless Riches), and
+   * the Champion Zone a third. Asking it as "not from hidden" would have been
+   * wrong for all but one.
+   */
+  onCardPlayedFromElsewhere?: (state: GameState, ownerIndex: 0 | 1) => GameState;
+  /**
+   * "When you play a unit, gear, or activated ability with Energy cost [7] or
+   * more" — Nasus - Curator of the Sands (VEN-145).
+   *
+   * `energyCost` is the card's PRINTED cost, not what was paid: "with Energy cost
+   * 7 or more" is a property of the card, the same printed-vs-paid reading
+   * `playedPowerCost` on the event keeps.
+   *
+   * **The ABILITY half is not covered and is recorded as a divergence** — the
+   * `abilityActivated` event carries the source's kind but not an Energy cost,
+   * and activation costs are a compound the event does not summarise.
+   */
+  onExpensivePlay?: (state: GameState, ownerIndex: 0 | 1) => GameState;
   /** "When you conquer..." — fires after the conquest is recorded, with the
    *  battlefield just taken. */
   onConquer?: (state: GameState, ownerIndex: 0 | 1, battlefieldId: string) => GameState;
@@ -205,6 +231,54 @@ export interface LegendMightContext {
 }
 
 const LEGEND_ABILITIES: Record<string, LegendAbilityDefinition> = {
+  "VEN-145": {
+    // Nasus - Curator of the Sands — "When you play a unit, gear, or activated
+    // ability with Energy cost [7] or more, you may exhaust me to ready up to 2
+    // runes."
+    //
+    // # Three things the card says that are easy to drop
+    //
+    // **"YOU MAY EXHAUST ME" is a cost, not a trigger condition** (402.1 decides
+    // it at resolution), so this parks a question rather than firing — and 416.3
+    // means an already-exhausted Nasus is not asked at all, because the cost
+    // cannot be paid.
+    //
+    // **"UP TO 2"** — `readyRunes` readies what there is, so a player with one
+    // exhausted rune readies one rather than the offer being withheld.
+    //
+    // **The ACTIVATED ABILITY half is not covered**, and is recorded in
+    // docs/rules-conformance.md: `abilityActivated` carries the source's kind but
+    // no Energy cost, and an activation cost is a compound the event does not
+    // summarise. The card is two-thirds live — a unit or gear at 7+ is the common
+    // case, and the pool has few 7-Energy abilities.
+    // **MEASURED-REDUNDANT, and kept.** Deleting the exhausted check changes
+    // nothing observable: the question's own option list offers only Decline to
+    // an exhausted Nasus, and `advanceDecisions` retires a one-option question
+    // without prompting. Kept because 416.3 is about not ASKING — a Pending Item
+    // that exists and resolves to nothing is a real cost in a chain the opponent
+    // has to pass on, and the day the option list gains a second entry this line
+    // is the only thing still enforcing the rule.
+    onExpensivePlay: (state, ownerIndex) =>
+      state.players[ownerIndex].legend.exhausted === true
+        ? state
+        : parkDecision(state, { kind: NASUS_READY, playerIndex: ownerIndex }),
+  },
+  "VEN-155": {
+    // Yordle, Kennen - Heart of the Tempest — "When you play a card from anywhere
+    // other than your hand, empower me."
+    //
+    // His `[Action][>]` ability lives in `activated-abilities.ts`; coverage merges
+    // the two claims.
+    //
+    // Empowering is INLINE here rather than a parked question — there is nothing
+    // to choose — but unlike Mel's and Ambessa's it goes through this registry
+    // rather than through a funnel hook, because "played from elsewhere" is an
+    // EVENT the executor already fires and not a status write with a dozen call
+    // sites. The two shapes are chosen by where the fact lives, not by taste.
+    onCardPlayedFromElsewhere: (state, ownerIndex) =>
+      empowerPermanent(state, state.players[ownerIndex].legend.instanceId),
+  },
+
   "SFD-203": {
     // Sivir - Battle Mistress — "When you recycle a rune, you may exhaust me to
     // play a Gold gear token exhausted. When one or more enemy units die, ready
@@ -540,7 +614,56 @@ const SETT_POWER_COST = 1;
  *
  * Same `<defId>-<what it asks>` key convention as the per-domain decisions.
  */
+/** Nasus - Curator of the Sands' threshold, his question, and what he readies. */
+const EXPENSIVE_PLAY_THRESHOLD = 7;
+const NASUS_READY = "VEN-145-ready";
+const NASUS_RUNES = 2;
+
+/**
+ * The PRINTED Energy cost of the card an event names.
+ *
+ * Looked up in the registry by the played card's defId, which the event does not
+ * carry — so it is taken off the instance the event names while that instance is
+ * still findable. A card already gone (a Spell in a trash) still resolves,
+ * because the registry is keyed by definition rather than by zone.
+ */
+function printedEnergyOf(playedInstanceId: string, event: { playedDefId?: string }): number {
+  const defId = event.playedDefId;
+  if (defId === undefined) return 0;
+  const def = defaultCardRegistry().tryGet(defId);
+  return def !== undefined && "energyCost" in def ? def.energyCost : 0;
+}
+
 export const legendDecisions: Record<string, DecisionDefinition> = {
+  [NASUS_READY]: {
+    // Nasus's "you may exhaust me to ready up to 2 runes".
+    //
+    // The exhaust is taken HERE, in the answer, rather than when the question was
+    // raised: 402.1 decides a "you may" at resolution, and a Nasus readied or
+    // exhausted by something else in the response window must be re-asked about.
+    // Asked through the same field the offer reads, so affordability and payment
+    // cannot disagree.
+    //
+    // Declining leaves him ready, which is the whole point of the choice: the
+    // ability competes with whatever else his exhaust is worth this turn.
+    prompt: () => "Nasus - Curator of the Sands: exhaust him to ready up to 2 runes?",
+    options: (state, d) =>
+      state.players[d.playerIndex].legend.exhausted === true
+        ? [{ id: "decline", label: "Decline" }]
+        : [
+            { id: "decline", label: "Decline" },
+            { id: "ready", label: "Exhaust Nasus, ready up to 2 runes" },
+          ],
+    resolve: (state, d, optionId) => {
+      if (optionId !== "ready") return state;
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const actor = players[d.playerIndex];
+      if (actor.legend.exhausted === true) return state;
+      players[d.playerIndex] = { ...actor, legend: { ...actor.legend, exhausted: true } };
+      return readyRunes({ ...state, players }, d.playerIndex, NASUS_RUNES);
+    },
+  },
+
   // Leona - Radiant Dawn's "buff a friendly unit" — see her entry above.
   "OGN-261-buff": {
     prompt: () => "Leona - Radiant Dawn: buff a friendly unit",
@@ -1024,7 +1147,36 @@ export function legendEventTriggers(): { name: string; entries: Record<string, E
       onUnitBecameMighty,
       onRunesRecycled,
       onEnemyUnitDied,
+      onCardPlayedFromElsewhere,
+      onExpensivePlay,
     } = ability;
+
+    if (onCardPlayedFromElsewhere) {
+      add(defId, {
+        on: "cardPlayed",
+        applies: (_state, listener, event) =>
+          event.kind === "cardPlayed" && event.casterIndex === listener.ownerIndex && event.fromElsewhere === true,
+        resolve: (state, listener, event) =>
+          event.kind === "cardPlayed" ? onCardPlayedFromElsewhere(state, listener.ownerIndex) : state,
+      });
+    }
+
+    if (onExpensivePlay) {
+      add(defId, {
+        on: "cardPlayed",
+        // "A UNIT or GEAR" — a Spell of any cost does not qualify, which is the
+        // half a reader will assume is missing. And the cost is read off the
+        // REGISTRY rather than off the event: `cardPlayed` carries the printed
+        // POWER cost but not the Energy one, and this card asks about Energy.
+        applies: (_state, listener, event) =>
+          event.kind === "cardPlayed" &&
+          event.casterIndex === listener.ownerIndex &&
+          (event.playedKind === "Unit" || event.playedKind === "Gear") &&
+          printedEnergyOf(event.playedInstanceId, event) >= EXPENSIVE_PLAY_THRESHOLD,
+        resolve: (state, listener, event) =>
+          event.kind === "cardPlayed" ? onExpensivePlay(state, listener.ownerIndex) : state,
+      });
+    }
 
     if (onEndOfTurn) {
       add(defId, {

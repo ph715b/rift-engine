@@ -81,6 +81,7 @@ function player(id: string) {
     points: 0, xp: 0, floatingEnergy: 0, floatingPower: {}, floatingRainbowPower: 0, cardsPlayedThisTurn: 0,
     firstFriendlyDeathUsedThisTurn: false, extraMightPerBuffThisTurn: 0, discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [], unitsEnterReadyThisTurn: false, restrictedSpellEnergy: 0,
+    restrictedUnitEnergy: 0,
     restrictedSpellPower: 0, nextUnitsEnterReady: 0, unitsLostThisTurn: 0, nextSpellEnergyDiscount: 0,
     nextCardEnergyDiscount: 0,
     nextCardPowerDiscount: 0,
