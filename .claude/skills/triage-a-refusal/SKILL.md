@@ -52,6 +52,34 @@ When a refusal names a mechanism that cannot do the job, ask what else in the
 engine already asks a player a question, already pays a cost, already places a
 thing. The answer is often a mechanism built for something that looks unrelated.
 
+## A COST claim is a third kind, and it needs a measurement not an argument
+
+The three tests above are about whether something is possible. A refusal can also
+say a card is possible and too EXPENSIVE, and that claim fails in its own way.
+
+> "there are 233 distinct spell names in the pool, and the AI answers a pending
+> decision by running a full `applyAction` + `evaluate` per option, so a faithful
+> offer costs 233 lookahead simulations every time she is played — inside a probe
+> that already takes ~340s"
+
+Every number correct. The per-play arithmetic was later confirmed to four
+figures: 3,495 evaluated actions across 15 plays is 233 on the nose.
+
+**And the conclusion was still wrong, because nobody asked how OFTEN.** Over 200
+games the card was played 15 times in 12 games — 1.30% of all evaluated actions.
+Decomposed by control, same machine, back to back, the probe ran 488s without her
+and 478s and 496s with. She was inside the noise.
+
+The cost of a fan-out is `(width x frequency)`, and a refusal that computes only
+the width has computed the easy half. Before accepting one:
+
+- **Measure the frequency**, do not estimate it. `runExercise`'s `onStep` hook
+  exists for this and gives you "how many times was this state reached, in how
+  many games" in a few lines.
+- **Then decompose by control**: stash, rebuild (the probes load from `dist`), run
+  the instrument, restore, run it again. A single timing is noise — this repo has
+  measured the same probe between 292s and 496s on one machine in one day.
+
 ## Check whether the note has gone stale
 
 The same refusal also said "this engine cannot pay mid-resolution". That had been

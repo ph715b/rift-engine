@@ -53,6 +53,39 @@ Mutate the thing the test claims to prove, one claim at a time:
 - **Whole registrations.** Delete the table row entirely. This is the one that
   finds dead code.
 
+## A narrowing is only under test when the WIDE answer would differ
+
+The most common weak test in this repo is not one that asserts too little. It is
+one whose FIXTURE cannot tell the narrowed answer from the unnarrowed one, so the
+assertion is true either way and reads as proof.
+
+Six survivors in one session were all this shape:
+
+- a discard cost narrowed to GEAR, tested against a hand holding **one gear** —
+  narrowed and unnarrowed both produce the same single variant;
+- a target narrowed to a DOMAIN, tested with both units at a **battlefield** —
+  the walk has a separate base branch that was never entered;
+- "another gear" / "besides me", tested with the source **not actually in the
+  candidate state** (a ready unit, a gear passed only as an argument) — so the
+  exclusion excluded nothing observable;
+- an ORDERING, tested by asserting the cards were all **still present** — an
+  ordering step that moved nothing passed.
+
+Before mutating, ask of each narrowing: **what is in this fixture that the
+narrowing must reject, and would I see it if the rejection stopped happening?**
+If the answer is nothing, the fixture is the bug, not the code.
+
+The same rule in three phrasings, because it recurs in three costumes:
+
+- a FILTER needs something to filter out;
+- a BRANCHED walk needs a subject in every branch;
+- an ORDERING needs an answer that produces a different order.
+
+**And assert against what the CARD declares, never against a value the test
+supplies.** A test that passes `{ excludesSelf: true }` to a shared walk proves
+the walk honours a flag; it says nothing about whether the card sets it. Read the
+spec off the registry and hand THAT to the walk.
+
 ## When a mutant SURVIVES
 
 It is one of three things, and they need different responses:

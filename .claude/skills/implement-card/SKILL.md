@@ -66,6 +66,36 @@ question reads exactly like a trigger that never fired. `placeToken` no-ops on
 **Rule 466 step 3c heals every unit at end of combat**, so `damage` after
 `resolveShowdown` is always 0 — read combat through DEATHS.
 
+**Parking a ONE-OPTION question executes it immediately.** `parkDecision` calls
+`advanceDecisions`, which retires any question with a single option on the spot —
+so parking a `draw` first to put it at the BACK of the queue does the opposite:
+it draws before anything else has been asked. A card whose text is sequential
+("Predict 5. Draw 2") must park the later step from the LAST step of the earlier
+one, where "the earlier part has finished" is a fact rather than a hope about
+queue order. Costs a debugging session because the board looks plausible: the
+right number of cards moved, just at the wrong time.
+
+**Helpers take the OWNER, not just the id.** Anything that moves or changes a
+permanent wants to know whose it is — `readyPermanent(state, ownerIndex,
+instanceId)`, `killGear(state, gear, ownerIndex)` — because a board restriction
+is asked about a side. A walk that finds candidates should therefore carry the
+owner out with each one rather than making the caller re-derive it.
+
+**Read the signature of every helper before calling it.** Six wrong calls in one
+session, each a build cycle, and every one looked right: argument ORDER (a cost
+helper takes the card KIND before the raw number), an extra trailing argument (an
+activated ability's `resolve` takes the source instanceId as a fourth), and
+accessors that take a defId where the neighbouring one takes a card. Do not
+reconstruct a signature from memory or from a sibling call — grep the `export`
+and read it.
+
+**`CardDefinition` is a UNION, and tests are where that bites.** Legends and
+battlefields carry no `energyCost`, `keywords`, `isReaction` or `flowCost`, so
+reading those straight off `registry.get()` builds fine — the build tsconfig
+EXCLUDES tests — and fails `npm run typecheck`, which does not. Fourteen errors
+in one test file from this alone. Write one narrowing helper per field at the top
+of the file rather than a cast at each site.
+
 **The enumerate/execute split.** Any new restriction on what may be chosen must
 land in BOTH `legal-actions` (which variants exist) and `validate-play-card`
 (which submitted ones are legal). Five crashes here have had exactly this shape,
