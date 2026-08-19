@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=161 unimplemented=15   partial=6      (2026-08-19, after the alias fix, thirteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, and ALL SEVEN LEGENDS are in)
+VEN: needing=176  implemented=164 unimplemented=12   partial=6      (2026-08-19, after the alias fix, fourteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 3 of the 9 dual-domain SPELLS)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 15 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 12 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,57 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Dual-domain spells, wave 1 — done 2026-08-19 (the three whose first domain is Fury)
+
+VEN-140 Shuriken Flip, 142 Dominus, 144 Death Mark. VEN 161 -> 164. Tests in
+`test/ven-signature-fury.test.ts` (23); **20 mutants, 20 killed** after one was
+removed as measured-redundant.
+
+**A card's home here is its FIRST domain in canonical order** (Fury, Calm, Mind,
+Body, Chaos, Order), which `effects/index.ts` states and `effect-registry.test.ts`
+enforces — so the nine split 3/2/2/1/1 across `signature-fury`, `signature-calm`,
+`signature-mind`, `signature-body`, and a `signature-chaos.ts` that does not exist
+yet (VEN-156 Lightning Rush is Chaos+Order, the first card with no earlier
+domain).
+
+**Most of this wave was already built, and that is the finding.** `[Flow]` is
+read off the printed cost pool-wide by `parseFlowCost`, so the three Flow spells
+in this block cost zero lines; the Shadow Clone was already shared out of
+`token.ts` because Zed mints the same one; and a moving spell already had a
+destination axis. Death Mark is three lines and two table rows.
+
+Two things did need care:
+
+| card | the thing that is not obvious |
+|---|---|
+| Shuriken Flip | **The slot order is the REVERSE of the printed sentence order**, forced twice over. `min: 1` on a two-slot spec means "slot 0 is required", and this card's optional half (`up to one enemy`) is the FIRST thing it prints — so the mandatory friendly has to be slot 0. Independently, `withDestinations` finds the unit being MOVED under `targetUnitInstanceId`, so putting the enemy there would fan destinations around the wrong unit |
+| Dominus | **The pool's first granted ACTIVATED ability** — a third kind of this-turn grant beside `keywordsThisTurn` and `grantedTriggersThisTurn`, and the only one that has to reach the ACTION ENUMERATOR. A granted ability nothing offers is invisible: the card reports implemented, the Might doubles, and half of it is inert |
+
+**Dominus' key cost an import cycle and the existing guard caught it.** The
+grant needs `DOMINUS_READY` in two modules that cannot import each other —
+`activated-abilities.ts` DECLARES the ability, `effects/signature-fury.ts` grants
+it — and activated-abilities reaches `effects/index.ts`, so a value imported the
+other way closes the loop. Four test files went red at import with "an ability
+registered under the key `undefined`", which is exactly the failure that guard
+was written for. The fix is the one `SHADOW_CLONE_TOKEN_DEF_ID` already records:
+the key lives in the leaf `constants.ts`. A TYPE import across that edge is fine
+and stays.
+
+**One mutant survived and the code was wrong, not the test.** A `Math.max(0,
+might)` floor in Dominus' resolver is dead: `effectiveMight` already ends in
+`Math.max(0, m)`, so nothing can reach it. Removed, with the 143.2.b behaviour
+pinned in the test instead — the enforcement belongs in the one function that
+computes a Might.
+
+**One test was reframed rather than kept.** "Burns BEFORE the token lands" was
+asserting nothing: `placeToken` reads no trash, so swapping the two lines is
+unobservable in state. It now asserts what the state can actually tell — that
+rule 440 puts the burned cards in the TRASH, which is where the Clone's own
+ability banishes from.
+
+Reachability pin 783 -> 786 against 790; VEN 145 -> 148, four finished sets EXACT
+for the FIFTEENTH wave. `walkout` unmoved at 190/113/29.
 
 ### Legends, wave 2 — done 2026-08-19 (the other 4, and 4 free printings)
 

@@ -712,7 +712,12 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // cards written and four newly exercised (VEN 141 -> 145) — the other four rows
 // are their Overnumbered printings, exercised the moment their canonical is. The
 // four finished sets held EXACTLY for the FOURTEENTH consecutive wave.
-const PINNED_UNION = 783;
+// **783 -> 786 on 2026-08-19, against 790 measured after the dual-domain spell
+// block's wave 1.** THREE cards written and exactly three newly exercised (VEN
+// 145 -> 148) — this wave adds no alternate printings, so for once the two
+// numbers are the same. The four finished sets held EXACTLY for the FIFTEENTH
+// consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
+const PINNED_UNION = 786;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

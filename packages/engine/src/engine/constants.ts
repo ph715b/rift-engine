@@ -48,6 +48,26 @@ export const SHADOW_CLONE_TAG = "Shadow Clone";
 export const SHADOW_CLONE_TOKEN_DEF_ID = `TOKEN-${SHADOW_CLONE_TAG.toUpperCase()}`;
 
 /**
+ * The registry key of the ability Dominus (VEN-142) GRANTS — "[rainbow]
+ * [rainbow]: Ready me." No card prints it, so it is a synthetic key like Jayce's
+ * two, and it is needed in two modules that cannot import each other:
+ * `activated-abilities.ts` DECLARES the ability, and `effects/signature-fury.ts`
+ * grants it.
+ *
+ * **Here for exactly the reason `SHADOW_CLONE_TOKEN_DEF_ID` above is, and it
+ * THREW before it was moved** — `activated-abilities.ts` reaches
+ * `effects/index.ts` to merge the per-domain registries, and that file imports
+ * `signature-fury.ts`, so a value imported the other way closes the cycle. The
+ * guard in `allActivatedAbilities` caught it as an ability "registered under the
+ * key `undefined`", which is the failure that guard was written for; four test
+ * files went red at import.
+ *
+ * A TYPE import across that edge is fine and stays — types are erased. It is
+ * only the value that has to come from a leaf.
+ */
+export const DOMINUS_READY = "VEN-142-ready";
+
+/**
  * "A Bird, Cat, Dog, or Poro" — the four creature tags two Unleashed cards name
  * as a set, word for word:
  *

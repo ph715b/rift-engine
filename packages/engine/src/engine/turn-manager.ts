@@ -468,6 +468,10 @@ export function runEnd(state: GameState): GameState {
     // from an empty one, and absent is what every unit that was never granted
     // anything carries.
     ...("grantedTriggersThisTurn" in u ? { grantedTriggersThisTurn: undefined } : {}),
+    // Dominus' granted "[rainbow][rainbow]: Ready me" — the third this-turn grant
+    // on a unit, swept exactly like the two around it. Deleted rather than
+    // emptied for the `exactOptionalPropertyTypes` reason the line above gives.
+    ...("grantedAbilitiesThisTurn" in u ? { grantedAbilitiesThisTurn: undefined } : {}),
     // Twilight Shroud's "can't be chosen by enemy spells and abilities this
     // turn". Deleted rather than set false, like its neighbour above.
     ...("unchooseableByEnemiesThisTurn" in u ? { unchooseableByEnemiesThisTurn: undefined } : {}),

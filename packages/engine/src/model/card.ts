@@ -256,6 +256,30 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    */
   grantedTriggersThisTurn?: readonly string[];
   /**
+   * ACTIVATED ABILITIES granted to this unit for the current turn — Dominus'
+   * "give it '[rainbow][rainbow]: Ready me.'"
+   *
+   * A THIRD sibling beside `keywordsThisTurn` and `grantedTriggersThisTurn`, not
+   * a widening of either, and the split is the same one that separated the first
+   * two: a keyword is a name the rules define, a trigger key is something the
+   * engine fires FOR you, and an activated ability is something a player must
+   * choose to USE and PAY for. Only the last of the three reaches the action
+   * enumerator, so folding it into `grantedTriggersThisTurn` would mean
+   * `holdEventTrigger` had to skip entries that are not triggers at all — the
+   * exact confusion that field's own note gives for not sharing with keywords.
+   *
+   * Each entry is a key into the ACTIVATED-ability registry, so the granted
+   * ability is written exactly where a printed one is and is offered, priced,
+   * validated and executed through the one funnel — `abilitiesAvailableTo`,
+   * which its own comment calls "the single answer to what can this source
+   * activate".
+   *
+   * Optional so every existing unit construction site is unaffected, and swept by
+   * `runEnd` alongside its two siblings, for the reason they are: "this turn"
+   * state has to expire with the turn.
+   */
+  grantedAbilitiesThisTurn?: readonly string[];
+  /**
    * Who this unit goes back to at end of turn — Hostile Takeover's "Lose control
    * of that unit and recall it at end of turn."
    *

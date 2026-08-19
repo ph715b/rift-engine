@@ -1772,6 +1772,18 @@ const TOKEN_PLACEMENT_SPELL_DEF_IDS = new Set([
   // the whole rule and both land at ONE chosen destination, exactly as Recruit
   // the Vanguard's four and Flurry of Feathers' four do.
   "VEN-100",
+  // Death Mark (VEN-144) — "Play a 0 [Might] Shadow Clone unit token." No
+  // destination clause, so 185.2.a's inherent Unit restriction is the whole rule
+  // and the caster chooses base or a battlefield they control.
+  //
+  // **The same token, from a card that DOES get the choice.** VEN-023 Zed, From
+  // the Shadows mints the identical Shadow Clone straight to base and is recorded
+  // in docs/rules-conformance.md as narrower than printed — because his is a
+  // UNIT's on-play trigger, which has no `destinationBattlefieldId` axis to fan
+  // out over, and this table is for SPELLS. Two makers of one token, two
+  // different answers, and the difference is the shape of the card that makes it
+  // rather than anything the token says.
+  "VEN-144",
 ]);
 
 /**
@@ -1876,6 +1888,21 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // destination axis and the `unitAndEquipment` axis are independent, and
   // `withDestinations` already fans one over the other.
   "SFD-184",
+  // Shuriken Flip (VEN-140) — "Deal 2 to up to one enemy unit at a battlefield,
+  // THEN MOVE A FRIENDLY UNIT."
+  //
+  // The moved unit is slot 0 of a `unitSlots` spec, which is what lets it use
+  // this table unchanged: `withDestinations` finds the mover under
+  // `targetUnitInstanceId`, exactly as it does for single-target Charm, and so
+  // never offers the unit's own current location. Skyward Strike is the
+  // precedent for a two-slot card whose FIRST slot is the one that moves; the
+  // damage slot never takes a destination.
+  //
+  // **Slot ORDER here is a consequence of that**, not of the printed sentence
+  // order — the mandatory friendly has to be slot 0 both for `min: 1` to mean
+  // "the move is required, the damage is optional" and for this lookup to find
+  // it. See the card's own entry.
+  "VEN-140",
 ]);
 
 /**
@@ -2020,6 +2047,11 @@ const MOVE_TO_BASE_DEF_IDS = new Set([
   "SFD-129",
   // Relentless Pursuit — "Move a friendly unit." Unrestricted, like Charm.
   "SFD-184",
+  // Shuriken Flip (VEN-140) — "…then move a friendly unit." Names no
+  // destination, so 355.4.a and 198.1 make every Location the unit may occupy
+  // legal, base included. Pulling your own body home out of a fight you have
+  // just softened with the damage half is the play the card is bought for.
+  "VEN-140",
 ]);
 
 /** May this card send its target to base? Asked by the enumerator AND the

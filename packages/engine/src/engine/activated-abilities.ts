@@ -3,7 +3,7 @@ import { domainActivatedAbilities, mergeRegistries } from "./effects/index.js";
 import type { CardInstance, GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
-import { VANGUARD_ARMORY_TOKENS } from "./constants.js";
+import { DOMINUS_READY, VANGUARD_ARMORY_TOKENS } from "./constants.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
 /** Ezreal - Prodigal Explorer's "TWICE this turn" — the whole of his condition,
@@ -546,6 +546,13 @@ const MISS_FORTUNE_BOUNTY_HUNTER = "OGN-267";
 /** Jayce - Defender of Tomorrow and his two suffixed READY ability keys — see
  *  `abilitiesAvailableTo` for why they are not keyed on his bare defId. */
 const JAYCE_DEFENDER = "VEN-149";
+/** Dominus (VEN-142) grants this onto a unit for the turn — "[rainbow][rainbow]:
+ *  Ready me." A synthetic key, like Jayce's two below, because no card prints
+ *  it. The key itself lives in the leaf `constants.ts`: the file that GRANTS it
+ *  is a per-domain effects file, and importing a value from here into one of
+ *  those closes an import cycle. That comment carries the failure. */
+const DOMINUS_READY_POWER = 2;
+
 const JAYCE_READY = "VEN-149-ready";
 const JAYCE_READY_EMPOWERED = "VEN-149-ready-empowered";
 
@@ -822,6 +829,35 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
       // gear readied is a legal outcome rather than a failure.
       return other === undefined ? readied : readyPermanent(readied, ctx.casterIndex, other.instanceId);
     },
+  },
+  [DOMINUS_READY]: {
+    // **The ability Dominus GIVES, not one any card prints.** VEN-142 reads
+    // "This turn, double a unit's Might and give it '[rainbow][rainbow]: Ready
+    // me.'" — so this is a definition with no printed owner, granted onto a unit
+    // for the turn by `grantAbilityThisTurn` and swept by `runEnd`.
+    //
+    // **Here rather than in `effects/signature-fury.ts` beside the spell that
+    // grants it**, and that is forced rather than chosen: `effect-registry.test`
+    // requires every key in a per-domain file's `activatedAbilities` to be a REAL
+    // CARD in the registry, and `VEN-142-ready` is not one. Jayce's two suffixed
+    // keys directly above are here for the neighbouring reason.
+    //
+    // `kind: "Unit"` — the grant lands on a unit, which is the only thing
+    // `grantAbilityThisTurn` can write to.
+    //
+    // **NO exhaust in the cost, and that is the printed card.** Omitting `cost`
+    // entirely would default to `{ exhaust: true }`; this one prints two rainbow
+    // pips and no exhaust symbol, so it may be used as many times as the Power
+    // lasts. On a unit that is already ready that is paying for nothing — and it
+    // is still OFFERED, deliberately. `legal-actions`' "paying for nothing is
+    // never what the player meant" applies to a mode with no legal TARGET, which
+    // 355.8 makes uncastable; this ability names no target at all, so there is no
+    // rule to withhold it under and the project owner's standing ruling is to
+    // never withhold a legal play.
+    kind: "Unit",
+    cost: { power: { domain: null, count: DOMINUS_READY_POWER } },
+    targeting: { kind: "none" },
+    resolve: (state, _ctx, _event, sourceInstanceId) => readyUnit(state, sourceInstanceId),
   },
   ...Object.fromEntries(SEALS.map(([defId, domain]) => [defId, sealAbility(domain)])),
   "SFD-189": {
@@ -2881,8 +2917,10 @@ export function abilitiesAvailableTo(
   playerIndex: 0 | 1,
   /** `attachedToInstanceId` is read only for Svellsongur's copied text; every
    *  caller that has the real instance passes it, and a bare `{ defId }` simply
-   *  copies nothing. */
-  source: { defId: string; attachedToInstanceId?: string | null },
+   *  copies nothing. `grantedAbilitiesThisTurn` is Dominus' grant, read off the
+   *  live instance for the same reason — a caller holding only a defId has no
+   *  grant to report, and a unit is the only thing that can carry one. */
+  source: { defId: string; attachedToInstanceId?: string | null; grantedAbilitiesThisTurn?: readonly string[] },
 ): { abilityDefId: string; definition: ActivatedAbilityDefinition }[] {
   if (source.defId === HEIMERDINGER_INVENTOR) {
     const actor = state.players[playerIndex];
@@ -2935,6 +2973,22 @@ export function abilitiesAvailableTo(
     if (state.players[playerIndex].legend.empowered === true) {
       granted.push({ abilityDefId: JAYCE_READY_EMPOWERED, definition: allActivatedAbilities()[JAYCE_READY_EMPOWERED]! });
     }
+  }
+  // Dominus' "give it '[rainbow][rainbow]: Ready me'" — an ability GRANTED to
+  // this unit for the turn, offered here for the reason Forge of the Fluft's
+  // note above gives: this function is the single answer to "what can this
+  // source activate", so a second path would be a fifth place to keep in step.
+  //
+  // Read off the instance rather than looked up by id, so a stale copy cannot
+  // disagree with the board — every caller passes the live object.
+  //
+  // Appended to whatever the unit already prints rather than replacing it: a
+  // Dominus on a unit with its own ability leaves the printed one usable, which
+  // is what "give it" means. `resolveActivation` picks between them by
+  // `viaAbilityDefId`, so the two are separately addressable actions.
+  for (const abilityDefId of source.grantedAbilitiesThisTurn ?? []) {
+    const definition = allActivatedAbilities()[abilityDefId];
+    if (definition) granted.push({ abilityDefId, definition });
   }
   return own ? [{ abilityDefId: source.defId, definition: own }, ...granted] : granted;
 }

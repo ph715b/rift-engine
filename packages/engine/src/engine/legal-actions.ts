@@ -340,7 +340,18 @@ function floatRuneCandidates(actor: PlayerState, playerIndex: 0 | 1): FloatRuneA
  * floatRuneCandidates — see validate-activate-ability.ts's own doc comment.
  */
 function activateAbilityCandidates(state: GameState, actor: PlayerState, playerIndex: 0 | 1): ActivateAbilityAction[] {
-  const owned: { instanceId: string; defId: string; exhausted: boolean; buffed?: boolean }[] = [
+  // `grantedAbilitiesThisTurn` is declared here rather than left to structural
+  // widening: a UnitInstance assigned into this literal type LOSES the field at
+  // the type level, so `abilitiesAvailableTo` would be handed the grant at
+  // runtime and unable to read it — a Dominus'd unit would silently never offer
+  // its granted ability, with nothing red anywhere.
+  const owned: {
+    instanceId: string;
+    defId: string;
+    exhausted: boolean;
+    buffed?: boolean;
+    grantedAbilitiesThisTurn?: readonly string[];
+  }[] = [
     ...actor.baseUnits,
     ...state.battlefields.flatMap((bf) => bf.units[actor.id] ?? []),
     ...actor.activeGear,

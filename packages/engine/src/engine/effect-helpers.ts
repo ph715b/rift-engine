@@ -1561,6 +1561,34 @@ export function grantTriggerThisTurn(state: GameState, targetInstanceId: string,
   );
 }
 
+/**
+ * Grants an ACTIVATED ability to a unit for the current turn — Dominus' "give it
+ * '[rainbow][rainbow]: Ready me.'"
+ *
+ * The sibling of `grantTriggerThisTurn` directly above, and written the same way
+ * for the same reason: the key is an ACTIVATED-ability registry key, so the
+ * granted ability is declared exactly where a printed one is and is offered,
+ * priced and executed through `abilitiesAvailableTo` — the one funnel the
+ * enumerator, the validator and the executor all reach. `runEnd` sweeps it.
+ *
+ * **Idempotent, and here that is load-bearing rather than a house reading.** Two
+ * Dominuses on one unit would otherwise offer the SAME ability twice in the
+ * action list, which is not a second use — the ability has no exhaust and can
+ * already be paid for as many times as the Power lasts, so a duplicate entry
+ * would be a phantom action that does exactly what the first one does. Contrast
+ * `grantKeywordThisTurn`, where a second source genuinely SUMS (807.2/817).
+ *
+ * A unit that has left the board is a silent no-op — the target-vanished
+ * convention every helper here follows.
+ */
+export function grantAbilityThisTurn(state: GameState, targetInstanceId: string, abilityDefId: string): GameState {
+  return updateUnitAnywhere(state, targetInstanceId, (u) =>
+    (u.grantedAbilitiesThisTurn ?? []).includes(abilityDefId)
+      ? u
+      : { ...u, grantedAbilitiesThisTurn: [...(u.grantedAbilitiesThisTurn ?? []), abilityDefId] },
+  );
+}
+
 export function grantKeywordThisTurn(
   state: GameState,
   targetInstanceId: string,

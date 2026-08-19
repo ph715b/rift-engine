@@ -1,6 +1,12 @@
 import type { MightModifier } from "../effective-might.js";
 import type { UnitTriggerDefinition } from "../unit-triggers.js";
+// A TYPE import from activated-abilities is safe — types are erased. The
+// DOMINUS_READY *value* comes from the leaf `constants.ts` instead, because
+// activated-abilities reaches effects/index.ts and so back to this file: a value
+// imported the other way closes that cycle and registers an ability under the
+// key `undefined`. See the constant's own comment.
 import type { ActivatedAbilityDefinition } from "../activated-abilities.js";
+import { DOMINUS_READY } from "../constants.js";
 import type { EffectDefinition } from "../card-effects.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { DeathWatchDefinition, DeathknellDefinition, EventTriggerDefinition, SelfTriggerDefinition } from "../triggers.js";
@@ -11,6 +17,7 @@ import { applyContested } from "../cleanup.js";
 import { parkDecision } from "../decisions.js";
 import { playUnitToBattlefield } from "../deploy.js";
 import {
+  burn,
   dealDamage,
   destroyUnit,
   discardCards,
@@ -18,6 +25,7 @@ import {
   forceMoveToBattlefield,
   forceMoveToDestination,
   giveMightThisTurn,
+  grantAbilityThisTurn,
   grantTriggerThisTurn,
   legionActive,
   ownUnitsEverywhere,
@@ -32,7 +40,8 @@ import { attachEquipment, isMechUnit, wearerListener } from "../equipment.js";
 import { playUnitFree } from "../free-play.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
-import { placeGoldTokens } from "../token.js";
+import type { TokenDestination } from "../token.js";
+import { SHADOW_CLONE_TOKEN, placeGoldTokens, placeToken } from "../token.js";
 import {
   CURTAIN_CALL_BASE_DAMAGE,
   CURTAIN_CALL_BATTLEFIELD_DAMAGE,
@@ -72,7 +81,157 @@ const DEATH_FROM_BELOW_MIGHT_CAP = 3;
 const HEXTECH_GAUNTLETS_EXCESS_REQUIRED = 3;
 const HEXTECH_GAUNTLETS_DRAW = 1;
 
+/** Vendetta's dual-domain spell block, wave 1 — the three whose first domain in
+ *  canonical order is Fury. */
+const SHURIKEN_FLIP_DAMAGE = 2;
+const DEATH_MARK_BURN = 3;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-140": {
+    // Shuriken Flip (Fury + Calm) — "Deal 2 to up to one enemy unit at a
+    // battlefield, then move a friendly unit. [Flow] [3][rainbow]"
+    //
+    // # The slot order is the OPPOSITE of the printed sentence order, twice over
+    //
+    // `min: 1` on a two-slot spec means "slot 0 is required, slot 1 is optional"
+    // — Zenith Blade's shape, whose stun is mandatory and whose move is a "you
+    // may". This card is the mirror: the "UP TO ONE" is the DAMAGE and the move
+    // carries no hedge at all. So the mandatory friendly has to be slot 0 and the
+    // optional enemy slot 1, and the resolver reads them back in printed order.
+    //
+    // The same order is forced a second time by the DESTINATION: `withDestinations`
+    // finds the unit being moved under `targetUnitInstanceId` — slot 0 — so that
+    // it can leave the unit's own current location out of the offer. Put the
+    // enemy there instead and the enumerator would fan destinations around the
+    // wrong unit. Skyward Strike is the precedent for a `unitSlots` card whose
+    // first slot is the mover.
+    //
+    // # With no friendly unit the spell is UNCASTABLE, and that is 355.8
+    //
+    // "Move a friendly unit" names a target and prints no "up to", so "in order
+    // to put a spell on the chain, valid choices must be made for all targets"
+    // makes an empty board refuse the card outright — the damage half does not
+    // rescue it. Last Breath (`min: 2`) records the same reading one file over.
+    // The reverse is NOT true: no enemy at a battlefield leaves the card
+    // perfectly castable for the move alone, which is what "up to one" buys.
+    //
+    // `slotScopes` because the two halves are scoped differently in print — the
+    // enemy is "at a battlefield" (355.9.b, the NARROWING half), the friendly is
+    // not, and the friendly you most want to send is usually the one at home.
+    //
+    // Base is a legal destination (355.4.a, 198.1) — see `MOVE_TO_BASE_DEF_IDS`.
+    // `[Flow]` needs nothing here: 829 is read off the printed cost by
+    // `parseFlowCost` and granted by `replaced-costs.ts` for the whole pool.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 1,
+      slotScopes: ["anywhere", "battlefield"],
+    },
+    resolve: (state, ctx, event) => {
+      // Damage FIRST, which is printed order and is not cosmetic here: dealing it
+      // can kill the enemy, and a death fires Deathknells that can move, kill or
+      // bounce the friendly this card is about to relocate. `forceMoveToDestination`
+      // is a no-op on a unit that has left play, so the card does as much as it
+      // can (359.3.e.11) rather than throwing.
+      const enemyId = event.secondTargetUnitInstanceId;
+      const damaged = enemyId ? dealDamage(state, ctx.casterIndex, enemyId, SHURIKEN_FLIP_DAMAGE) : state;
+
+      const friendlyId = event.targetUnitInstanceId;
+      if (!friendlyId) return damaged;
+      // `causedByIndex` is the CASTER, not the moved unit's controller — the two
+      // are the same player here, but "when you move a unit" reads the causer and
+      // passing the wrong one is silent.
+      return forceMoveToDestination(damaged, friendlyId, event, ctx.casterIndex);
+    },
+  },
+  "VEN-142": {
+    // Dominus (Fury + Body) — "[Action] This turn, double a unit's Might and give
+    // it '[rainbow][rainbow]: Ready me.'"
+    //
+    // # Doubling is an ADDITION of the current amount, and the rules say so
+    //
+    // 432.1.a: a this-turn effect is a FIXED AMOUNT, worked out when the effect
+    // resolves and unchanged afterwards. So doubling is `+N` where N is the
+    // unit's Might at resolution, read through `effectiveMight` (143.2's "current
+    // Might") so buffs, this-turn modifiers and continuous auras all count. A
+    // unit later pumped by something else is not re-doubled, which is exactly
+    // what the rule says should happen.
+    //
+    // # "A unit" is either side's, and anywhere
+    //
+    // 355.9.a.1 widens a bare noun to objects on the Board, and 198.1 puts the
+    // Bases on it — no owner word and no "at a battlefield" is printed, so
+    // `scope: "anywhere"` with no `owner`. Doubling an ENEMY unit's Might is a
+    // legal and occasionally correct play (feeding it to a bigger blocker), and
+    // withholding it would be the engine choosing.
+    //
+    // # The granted ability
+    //
+    // `DOMINUS_READY` is a real entry in the activated-ability registry, so the
+    // granted "[rainbow][rainbow]: Ready me" is offered, priced, validated and
+    // executed through the ONE funnel every printed ability goes through
+    // (`abilitiesAvailableTo`). It has no exhaust, so it may be used as often as
+    // the Power lasts — see that entry for why it is still offered on a unit that
+    // is already ready.
+    //
+    // Might first, then the grant: printed order, and the grant cannot change a
+    // Might so the two commute today. Doing it in the card's order is what keeps
+    // that true when something makes them disagree.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (!targetId) return state;
+      const location = findUnitAnywhere(state, targetId);
+      if (!location) return state; // it left play while this sat on the chain
+      const might = effectiveMight(
+        state,
+        location.unit,
+        location.ownerIndex,
+        location.zone === "base"
+          ? { isCombat: false }
+          : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id },
+      );
+      // **No floor here, and that is MEASURED rather than assumed.** A shrunk
+      // unit must double to 0 and not be given a negative bonus that shrinks it
+      // further (143.2.b: a Might below 0 is treated as 0 wherever it is
+      // referenced) — and `effectiveMight` already ends in `Math.max(0, m)`, so a
+      // second floor is dead code. A `Math.max(0, might)` was written here first
+      // and a mutant removing it SURVIVED, which is what settled it: the pin for
+      // the behaviour is in the test, and the enforcement is in the one function
+      // that computes a Might.
+      const doubled = giveMightThisTurn(state, targetId, might);
+      return grantAbilityThisTurn(doubled, targetId, DOMINUS_READY);
+    },
+  },
+  "VEN-144": {
+    // Death Mark (Fury + Chaos) — "[Burn 3]. Play a 0 [Might] Shadow Clone unit
+    // token. [Flow] [1][rainbow][rainbow]"
+    //
+    // Both halves are already built, and the card is the first proof they compose:
+    // `burn` is rule 440's helper, `SHADOW_CLONE_TOKEN` is shared out of token.ts
+    // because THIS card and VEN-023 Zed, From the Shadows both mint it from
+    // different files, and `[Flow]` is read off the printed cost pool-wide.
+    //
+    // **The destination IS offered here, and is not for Zed** — see
+    // `TOKEN_PLACEMENT_SPELL_DEF_IDS`. 185.2.a plays a token "following all the
+    // applicable steps for playing a card", and the inherent restriction on
+    // playing a Unit is base or a battlefield you control. This is a SPELL, so it
+    // has a `destinationBattlefieldId` axis to fan out over; Zed's is a unit's
+    // on-play trigger, which has none, and his narrowing is recorded.
+    //
+    // Burn FIRST — printed order, and load-bearing rather than cosmetic: the
+    // Clone's own printed ability banishes a unit FROM YOUR TRASH for [Assault 4],
+    // and 440 puts the three burned cards exactly there. A Death Mark cast off an
+    // empty trash arms itself with the same instruction that made it.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, event) => {
+      const burned = burn(state, ctx.casterIndex, DEATH_MARK_BURN);
+      const destination: TokenDestination =
+        event.destinationBattlefieldId !== undefined ? { battlefieldId: event.destinationBattlefieldId } : "base";
+      return placeToken(burned, ctx.casterIndex, destination, SHADOW_CLONE_TOKEN);
+    },
+  },
   "SFD-182": {
     // Danger Zone (Fury + Mind) — "[Reaction] [Repeat] [1][rainbow] Give your
     // Mechs +1 Might this turn."
