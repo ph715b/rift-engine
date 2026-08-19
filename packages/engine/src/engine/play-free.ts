@@ -5,6 +5,7 @@ import { contextFor } from "./effect-context.js";
 import { cardModeOf, type ResolveEvent } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { playUnitFree } from "./free-play.js";
+import { mayPlaySpellNamed } from "./board-restrictions.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 
 /**
@@ -77,6 +78,20 @@ export function playCardIgnoringCost(
       : playUnitToBattlefield(state, playerIndex, card as UnitInstance, destinationBattlefieldId);
   }
   if (card.kind === "Gear") return playGear(state, playerIndex, card as GearInstance);
+  // **Fallen Feline's ban applies to a FREE play too.** A card played by an
+  // effect is still played, so "opponents can't play spells with that name"
+  // stops this route exactly as it stops `mayPlayCardNow`'s. Without this the
+  // seven "play it ignoring its cost" sites would each be a hole in the one ban
+  // in the pool that names a specific card.
+  //
+  // Silently does nothing rather than throwing — 359.3.e.11's "do as much as you
+  // can". The instruction that reached here carries on; only this half is lost.
+  //
+  // Asked HERE rather than in each caller for the reason this whole module
+  // exists: seven callers asking separately is seven chances to disagree. The
+  // OFFER is a different matter and is still made — see the divergence recorded
+  // in docs/rules-conformance.md.
+  if (card.kind === "Spell" && !mayPlaySpellNamed(state, playerIndex, card.name)) return state;
   if (card.kind === "Spell")
     return playSpellImmediately(state, playerIndex, card as SpellInstance, choices, spellTrashOwnerIndex ?? playerIndex);
   // A Legend is never in a deck or a trash, so nothing can reach here — and a

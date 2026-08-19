@@ -3,7 +3,12 @@ import { mayPlayUnitAt } from "./battlefield-continuous.js";
 import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
-import { mayPlaySpells, mayPlayCardsAtAll, mayPlayUnitToBattlefieldUnderRestrictions } from "./board-restrictions.js";
+import {
+  mayPlaySpells,
+  mayPlaySpellNamed,
+  mayPlayCardsAtAll,
+  mayPlayUnitToBattlefieldUnderRestrictions,
+} from "./board-restrictions.js";
 import { replacedCostFor } from "./replaced-costs.js";
 
 /**
@@ -170,6 +175,13 @@ export function mayPlayCardNow(
   // and for the same reason it is placed here: it bars a SPELL however it is
   // timed, including a [Reaction], which is the point of shutting spells down.
   if (card.kind === "Spell" && !mayPlaySpells(state, playerIndex)) return false;
+  // Fallen Feline's named ban. Beside the two above and before the tier switch
+  // for the same reason they are: it bars a spell HOWEVER it is timed, and a
+  // [Reaction] slipping past a ban aimed at it would be the whole card's failure
+  // mode. Continuous rather than a this-turn flag — see `mayPlaySpellNamed`.
+  //
+  // By NAME (132.1), so it catches every copy in the deck and every printing.
+  if (card.kind === "Spell" && !mayPlaySpellNamed(state, playerIndex, card.name)) return false;
 
   const ambushed =
     destinationBattlefieldId !== undefined && ambushReactionAt(state, playerIndex, card, destinationBattlefieldId);
@@ -348,6 +360,20 @@ export function timingRejection(
     if (state.turnState === "Showdown") return "Your opponent holds Focus in this Showdown.";
     return "It is not your turn.";
   }
+  // The two SPELL bans, AFTER the priority branch above and before the tier
+  // branches below. The order is the order `mayPlayCardNow` asks in, which is
+  // what keeps the message describing the reason it actually stopped on: acting
+  // out of turn outranks a ban, and a ban outranks a complaint about timing
+  // tiers. Without these the message falls through to the tier text, which names
+  // [Action]/[Reaction] at a card that already has them and sends the reader
+  // looking in entirely the wrong place.
+  if (card.kind === "Spell" && !mayPlaySpells(state, playerIndex)) {
+    return "You can't play spells this turn.";
+  }
+  if (card.kind === "Spell" && !mayPlaySpellNamed(state, playerIndex, card.name)) {
+    return `${card.name} was named by an enemy Fallen Feline at a battlefield.`;
+  }
+
   const tier = timingTierOf(card);
   if (!state.chainOpen) {
     return `${card.name} needs [Reaction] to be played while a spell is on the chain.`;

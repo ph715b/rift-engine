@@ -108,6 +108,36 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    */
   baseMightThisTurn?: number;
   /**
+   * The spell name THIS unit has named — Fallen Feline (VEN-132): "When you play
+   * me, name a spell. While I'm at a battlefield, opponents can't play spells
+   * with that name."
+   *
+   * **On the INSTANCE rather than in a `GameState` record keyed by instanceId**,
+   * which is the shape the neighbouring "this turn" fields take. Two reasons, and
+   * both are about the second copy:
+   *
+   *   - Two Fallen Felines name INDEPENDENTLY, and each ban is that unit's. A
+   *     per-player field would have to be a list anyway, and a list keyed by
+   *     instanceId is this field with extra steps and a cleanup problem.
+   *   - The name has to DIE WITH THE UNIT. "While I'm at a battlefield" is a
+   *     CONTINUOUS ability, not a fact about the turn the way Brynhir's and
+   *     Lilting Lullaby's bans are — those are armed on resolution and survive
+   *     her death deliberately. This one must lift the instant she is killed, and
+   *     a field on the instance is deleted by the very act of her leaving play,
+   *     with nothing to remember to sweep.
+   *
+   * Survives across turns and travels with her between battlefields: nothing in
+   * the printed text expires, and the ban is asked of WHERE she is standing when
+   * a spell is played, not of where she was standing when she named.
+   *
+   * Optional, and absent means "she has not named yet" — a real state rather than
+   * just the ordinary case for other units, since her question can sit parked
+   * behind another, and a Feline who has not named bans nothing. Absent rather
+   * than `""` for the reason `baseMightThisTurn` gives: `exactOptionalPropertyTypes`
+   * makes an absent key a different type from a present one.
+   */
+  namedSpell?: string;
+  /**
    * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
    * (rule 705), which persists across turns until it is spent or the unit
    * leaves play (rule 705).

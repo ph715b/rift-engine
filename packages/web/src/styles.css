@@ -2829,6 +2829,34 @@ button:disabled {
   justify-content: flex-end;
 }
 
+/* A question with more options than a row can hold — Fallen Feline's "name a
+   spell" is 233 of them. Wraps and SCROLLS inside the overlay rather than
+   growing it: .choice-overlay is already a fixed-height panel, so an
+   un-capped grid here pushes its own buttons off the bottom of the screen,
+   which is the failure this class exists to prevent.
+
+   `justify-content: flex-start` because a wrapped grid read right-to-left is
+   unreadable, where the 2-button case it inherits from is fine either way. */
+.choice-overlay-actions-wide {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  max-height: 40vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.decision-option-filter {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  box-sizing: border-box;
+}
+
+.decision-option-empty {
+  margin: 0.25rem 0 0;
+  opacity: 0.7;
+}
+
 /* ── The chain (ChainView.tsx) ────────────────────────────────────────────
    An overlay on the centre column, NOT a row in it: .board is a fixed-height
    100dvh overflow:hidden flex column, and adding a fourth competing band is

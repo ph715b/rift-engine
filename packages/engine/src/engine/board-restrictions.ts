@@ -22,6 +22,12 @@ import { canonicalDefId } from "../cards/card-loader.js";
  *  die and the turn is still locked, which is what "this turn" means. */
 const BRYNHIR = "OGN-026";
 
+/** Fallen Feline: "When you play me, name a spell. While I'm at a battlefield,
+ *  opponents can't play spells with that name." Positional and continuous, like
+ *  the Warden below — but keyed to the NAME she recorded rather than to her
+ *  defId alone, so the predicate takes the card being played. */
+const FALLEN_FELINE = "VEN-132";
+
 /** Mageseeker Warden: "While I'm at a battlefield, opponents can only play units
  *  to their base. While I'm at a battlefield, spells and abilities can't ready
  *  enemy units and gear." Two restrictions, both positional and both continuous —
@@ -137,6 +143,44 @@ export function mayPlayCardsAtAll(state: GameState, playerIndex: 0 | 1): boolean
  */
 export function mayPlaySpells(state: GameState, playerIndex: 0 | 1): boolean {
   return !state.players[playerIndex].cannotPlaySpellsThisTurn;
+}
+
+/**
+ * Fallen Feline's second sentence — "while I'm at a battlefield, opponents can't
+ * play spells with that name".
+ *
+ * **Its own predicate rather than a widening of `mayPlaySpells` above, because
+ * it is a different KIND of ban.** The Lullaby's is a fact about the turn: armed
+ * on resolution, cleared by `runEnd`, and deliberately outliving the caster. This
+ * one is continuous and positional — it holds exactly while a Feline who has
+ * named this spell stands at a battlefield, so killing her, recalling her, or
+ * sending her back to base lifts it at once, and nothing needs sweeping. Both can
+ * apply, so `mayPlayCardNow` asks each.
+ *
+ * # By NAME, which is what makes 132.1 load-bearing
+ *
+ * 132.1 — "each card has a name that identifies it uniquely" — so the ban
+ * catches every printing and every copy, not one instance. This is the one
+ * restriction here that has to look at the card being played rather than only at
+ * the board, which is why it takes `cardName` where its neighbours take a player.
+ *
+ * `namedSpell === undefined` is a Feline who has not answered her question yet,
+ * and she bans nothing: 762 makes naming an act the player performs, not a state
+ * the card starts in.
+ *
+ * Canonicalised on the way in, like `mayReadyPermanent`'s Maduli check and unlike
+ * `atOwnBattlefield` below — an alternate printing of the Feline is the same card
+ * (132.1) and must impose the same ban. That is the silently-inert-printing class
+ * this set has already produced ten of.
+ */
+export function mayPlaySpellNamed(state: GameState, playerIndex: 0 | 1, cardName: string): boolean {
+  const opponentIndex: 0 | 1 = playerIndex === 0 ? 1 : 0;
+  const opponent = state.players[opponentIndex];
+  return !state.battlefields.some((bf) =>
+    (bf.units[opponent.id] ?? []).some(
+      (u) => canonicalDefId(u.defId) === FALLEN_FELINE && u.namedSpell === cardName,
+    ),
+  );
 }
 
 /**

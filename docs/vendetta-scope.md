@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=112 unimplemented=64   partial=6      (2026-08-18, after the alias fix and six card waves)
+VEN: needing=176  implemented=113 unimplemented=63   partial=6      (2026-08-18, after the alias fix, six card waves and Fallen Feline)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 64 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 63 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,71 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Fallen Feline (VEN-132) — done 2026-08-18, and the refusal it answers
+
+One card, its own commit, because the question it raised was not a card-authoring
+one. "When you play me, name a spell. While I'm at a battlefield, opponents can't
+play spells with that name." VEN 112 -> 113. Tests in
+`test/ven-fallen-feline.test.ts` (19) and `packages/web/test/wide-decision-filter.test.tsx`
+(8); **20 mutants, 20 killed.**
+
+**She had been refused twice, and the refusal was pinned as an invertible test
+that fired the day she was written** — which is the whole point of writing one.
+The pin's reasoning: 233 distinct spell names in the pool (762 bounds a naming to
+"a card that is legal in the Format being played"), `legal-actions` fans a pending
+decision into one action PER OPTION, and the AI runs a full `applyAction` +
+`evaluate` on each — so a faithful offer costs 233 lookahead simulations every
+time she is played, inside a probe that already took ~340s.
+
+**The owner chose FAITHFUL and asked for the cost to be measured rather than
+estimated. Measured, it is null.** Decomposed by control, same machine, back to
+back:
+
+| | reachability | union |
+|---|---|---|
+| without her (stash, rebuild) | **488s** | 745 |
+| with her | **478s**, then **496s** | 746 |
+
+She sits INSIDE the run-to-run noise, and the reason is a number nobody had
+asked for. Over 200 VEN-deck games she named **15 times across 12 games** —
+3,495 of 268,742 evaluated actions, or **1.30%**. The per-play arithmetic in the
+refusal was exactly right (3495 / 15 = 233 on the nose); what it never asked was
+how often a 2-Energy Order common with a naming ability actually gets played.
+
+**`walkout` cannot see her at all, and that is structural rather than lucky**:
+it runs the Annie preset, she is in none of the 7 preset decks, and the figures
+are identical at 190/113/29. A timing difference there (77s vs 107s) is the
+machine, not the card.
+
+**The lesson worth keeping: ask for the FREQUENCY before pricing a fan-out.**
+The cost of a wide decision is (options x how often it is asked), and this repo
+had twice computed only the first factor.
+
+# What she needed
+
+| piece | where |
+|---|---|
+| the name itself | `UnitInstance.namedSpell` — on the INSTANCE, because two Felines name independently and the name must DIE WITH HER. "While I'm at a battlefield" is continuous, unlike Brynhir's and Lilting Lullaby's this-turn bans, which are armed on resolution and deliberately survive their caster |
+| the offer | a decision in `effects/order.ts` listing every Spell name in the registry, memoised. 762.2 excludes token names and the registry gives that for free |
+| the ban | `board-restrictions.mayPlaySpellNamed`, read at `timing.mayPlayCardNow` BEFORE the tier switch — a ban a `[Reaction]` walks past would be the card's whole failure mode |
+| the ban, again | `playCardIgnoringCost`, so the ~48 "play it ignoring its cost" sites are not a way around it. A card played by an effect is still played |
+| a rejection MESSAGE | `timingRejection` had none for a banned spell and fell through to the tier text, which names `[Action]`/`[Reaction]` at a card that has them. Lilting Lullaby's ban had been doing the same thing since it was written |
+| a CONTROL a human can use | 233 buttons in one un-wrapped flex row. See below |
+
+**The web half is not optional and nearly was.** `.choice-overlay-actions` is a
+single un-wrapped row, so the engine would have been asking a question the board
+could not show — this repo's single most-repeated failure, with four playtest
+reports in one day and its own note in memory: the mechanic is correct, tested and
+reported EXERCISED while the human has nothing to click. Past 20 options the
+buttons now get a filter box and a wrapped scrolling grid, and the filter text is
+tied to the decision id so the NEXT question does not open already narrowed by a
+word typed at the last one.
+
+One divergence recorded: a free play still OFFERS a banned spell (choosing it
+plays nothing). The outcome is right and only the offer is wide — Zed's shape,
+and closing it means teaching ~48 per-card option builders about a restriction
+none of them takes an argument for.
 
 ### Chaos, wave 2 — done 2026-08-18 (the other 10; Chaos is finished but for its partial)
 

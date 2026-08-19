@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { GameState, PendingDecision } from "@rift-engine/engine";
 import { optionsFor, promptFor } from "@rift-engine/engine";
 import type { CardInstance } from "@rift-engine/engine";
@@ -68,9 +69,45 @@ interface DecisionPromptProps {
  * says beats a rule about which family the option came from, because the families
  * are not marked and the next card will belong to whichever one this guessed
  * wrong.
+ *
+ * # A question can be 233 options wide, and a row of buttons is not a control
+ *
+ * Fallen Feline's "name a spell" offers every spell in the pool (rule 762 — any
+ * card legal in the format), which is roughly twenty times the next widest
+ * question here. `.choice-overlay-actions` is a single un-wrapped flex row, so
+ * without this the engine would be asking a question the board physically could
+ * not show — the exact shape of the four playtest reports above, where the
+ * mechanic was right and the human had nothing to click.
+ *
+ * Past `SEARCHABLE_OPTIONS` the buttons get a filter box and a scrolling wrapped
+ * grid. A filter rather than pagination because the player usually knows the name
+ * they want before they open the dialog: naming is a decision about the format,
+ * not about what is in front of them.
+ *
+ * The threshold is deliberately well ABOVE every other question in the pool
+ * (Kennen's stun offer, the widest before her, tops out around a dozen) so that
+ * nothing else changes shape, and well BELOW 233.
  */
+const SEARCHABLE_OPTIONS = 20;
+
 export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: DecisionPromptProps) {
   const options = optionsFor(state, decision);
+  /**
+   * The filter text, TIED TO THE QUESTION IT WAS TYPED FOR.
+   *
+   * This component stays mounted across consecutive decisions — `ChoiceOverlay`'s
+   * `resetKey` exists for exactly that reason, and the note beside it records what
+   * happens when a per-question piece of state is not reset: the second question
+   * inherits the first one's UI. A filter is worse than a collapsed bar, because
+   * a stale one HIDES options: the next question would open already narrowed to a
+   * word typed at the last one, with no indication why most of it is missing.
+   *
+   * Derived during render rather than cleared in an effect, so there is no frame
+   * where the wrong list is on screen.
+   */
+  const [typed, setTyped] = useState({ decisionId: decision.id, text: "" });
+  const filter = typed.decisionId === decision.id ? typed.text : "";
+  const setFilter = (text: string) => setTyped({ decisionId: decision.id, text });
 
   /**
    * Wherever this instance currently is — ANY zone of EITHER player.
@@ -101,6 +138,15 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
     .map((option) => ({ option, card: option.instanceId ? findCard(option.instanceId) : undefined }))
     .filter((entry): entry is { option: (typeof options)[number]; card: CardInstance } => entry.card !== undefined);
   const buttonOptions = options.filter((option) => !cardOptions.some((entry) => entry.option.id === option.id));
+  const searchable = buttonOptions.length > SEARCHABLE_OPTIONS;
+  // Case-insensitive SUBSTRING, not a prefix: "shadow" should find "Twilight
+  // Shroud"'s neighbours by the word a player actually remembers, and 761.2's
+  // naming-by-trait ("the blue Kai'Sa") is the rules' own version of the same
+  // habit. Unfiltered when the list is short enough to read whole.
+  const shownOptions =
+    searchable && filter.trim() !== ""
+      ? buttonOptions.filter((option) => option.label.toLowerCase().includes(filter.trim().toLowerCase()))
+      : buttonOptions;
 
   return (
     <ChoiceOverlay
@@ -129,13 +175,35 @@ export function DecisionPrompt({ state, decision, onAnswer, readOnly = false }: 
         </div>
       )}
       {buttonOptions.length > 0 && (
-        <div className="choice-overlay-actions">
-          {buttonOptions.map((option) => (
-            <button key={option.id} disabled={readOnly} onClick={() => onAnswer(option.id)}>
-              {option.label}
-            </button>
-          ))}
-        </div>
+        <>
+          {searchable && (
+            <input
+              className="decision-option-filter"
+              type="search"
+              // Named for what it does to the LIST rather than for the card, so
+              // the next wide question inherits a control that already reads
+              // correctly.
+              placeholder={`Filter ${buttonOptions.length} options`}
+              aria-label="Filter options"
+              value={filter}
+              disabled={readOnly}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+          )}
+          <div className={searchable ? "choice-overlay-actions choice-overlay-actions-wide" : "choice-overlay-actions"}>
+            {shownOptions.map((option) => (
+              <button key={option.id} disabled={readOnly} onClick={() => onAnswer(option.id)}>
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {searchable && shownOptions.length === 0 && (
+            // A filter that matches nothing must SAY so. An empty grid under a
+            // box you have just typed into reads as a broken dialog, and this
+            // question cannot be cancelled — see the note at the top.
+            <p className="decision-option-empty">No option matches “{filter}”.</p>
+          )}
+        </>
       )}
     </ChoiceOverlay>
   );

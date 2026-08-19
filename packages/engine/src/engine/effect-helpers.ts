@@ -691,6 +691,23 @@ export function setBaseMightThisTurn(state: GameState, targetInstanceId: string,
   return updateUnitAnywhere(state, targetInstanceId, (unit) => ({ ...unit, baseMightThisTurn: might }));
 }
 
+/**
+ * Records the spell name a Fallen Feline (VEN-132) has named, on HER — see
+ * `UnitInstance.namedSpell` for why the name lives on the instance.
+ *
+ * Its own helper beside `setBaseMightThisTurn` above rather than an exported
+ * `updateUnitAnywhere`, for the reason that one is written this way: the walk
+ * over bases and battlefields stays private and every caller states what it is
+ * changing, so a reader can grep the field and find every writer.
+ *
+ * No-ops on a unit that has left play (359.3.e.12) — she can be killed in
+ * response to her own on-play trigger, and the naming then has nobody to record
+ * against.
+ */
+export function nameSpellOn(state: GameState, unitInstanceId: string, spellName: string): GameState {
+  return updateUnitAnywhere(state, unitInstanceId, (unit) => ({ ...unit, namedSpell: spellName }));
+}
+
 export function giveMightThisTurn(
   state: GameState,
   targetInstanceId: string,

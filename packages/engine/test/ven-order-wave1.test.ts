@@ -1022,30 +1022,27 @@ describe("coverage sees every card in this wave", () => {
     }
   });
 
-  it("Fallen Feline (VEN-132) is DELIBERATELY still unimplemented, and here is why", () => {
-    // **A refusal, recorded rather than worked around.** "When you play me, name a
-    // spell. While I'm at a battlefield, opponents can't play spells with that
-    // name."
+  it("Fallen Feline (VEN-132) was the wave's one refusal, and it was ANSWERED", () => {
+    // **The pin that stood here asserted `false`, and it fired the day she was
+    // written — which is what an invertible pin is for.** It recorded a refusal:
+    // "when you play me, name a spell" would offer 233 options, the AI runs a full
+    // `applyAction` + `evaluate` per option, and the probes already took ~340s. The
+    // restriction half was never the blocker; that is Lilting Lullaby's shape.
     //
-    // The blocker is not the restriction — that is Lilting Lullaby's shape, a
-    // predicate in `board-restrictions.ts` read by `timing.mayPlayCardNow`. It is
-    // the NAMING. There are 233 distinct Spell names in the pool, and the AI
-    // answers a pending decision by running a full `applyAction` + `evaluate` per
-    // option, so a faithful offer costs 233 lookahead simulations every time she
-    // is played — inside a probe that already takes ~340s.
+    // The refusal named the trade and refused to guess it, and the owner chose
+    // FAITHFUL and asked for the cost to be measured rather than estimated. It
+    // was: see docs/vendetta-scope.md for the before/after probe figures. The
+    // narrow alternatives the note rejected are still rejected for the same
+    // reasons — naming from the opponent's hand or deck reads PRIVATE information
+    // (108.7.c), and naming from the trash alone withholds the whole point of the
+    // card, which is pre-empting a spell you have not seen.
     //
-    // Every narrower option list leaks or lies: naming from the opponent's deck
-    // and hand uses PRIVATE information (108.7.c), and naming from public
-    // information alone (trash) withholds the main use of the card, which is
-    // pre-empting a spell you have not seen.
-    //
-    // That is a design call about fidelity versus AI runtime, not a card-authoring
-    // one, so it is surfaced instead of guessed. Pinned here as an INVERTIBLE
-    // assertion: the day it is written, this fails and names itself.
+    // Kept as an assertion rather than deleted, inverted rather than weakened: the
+    // premise changed, so the premise is what moved.
     expect(
       isCardImplemented(registry.get("VEN-132")),
-      "Fallen Feline is implemented now — invert this pin and delete the note above",
-    ).toBe(false);
+      "Fallen Feline reports unimplemented again — she is a whole commit, so this is a regression",
+    ).toBe(true);
     // ...and the note is only worth anything if the text still says what it says.
     expect(registry.get("VEN-132").text ?? "").toContain("name a spell");
   });

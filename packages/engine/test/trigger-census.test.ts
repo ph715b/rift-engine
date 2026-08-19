@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("359 held / 8 inline of 367 trigger cards", () => {
+  it("360 held / 8 inline of 368 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -593,10 +593,22 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // The other three are correctly absent across three homes: VEN-098 Stargazer
     // is a cost modifier, VEN-100 Up from the Deep is a SPELL effect, and VEN-107
     // Decree of Discord is a spell effect too.
+    // **359/8/367 -> 360/8/368 on 2026-08-18: Fallen Feline (VEN-132), one card
+    // and one registry.** By family and by name:
+    //
+    //     unit  (+1)  VEN-132 Fallen Feline, "when you play me, name a spell"
+    //     distinct: 1 — she has no alternate printing (0 of the pool's 53 aliased
+    //                   printings is a VEN Order common)
+    //
+    // Her SECOND sentence contributes nothing here and that is the point of the
+    // split: "while I'm at a battlefield, opponents can't play spells with that
+    // name" is a continuous restriction read at the play gate, not a trigger, so
+    // it lives in `board-restrictions.ts` and this census cannot see it. The same
+    // is true of Mageseeker Warden and Lilting Lullaby.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 359,
+      held: 360,
       inline: 8,
-      cards: 367,
+      cards: 368,
     });
   });
 

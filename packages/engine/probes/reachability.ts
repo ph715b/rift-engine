@@ -631,7 +631,27 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // **733 -> 741 on 2026-08-18, against 745 measured after Chaos wave 2.** Ten
 // cards implemented and eight newly exercised (VEN 95 -> 103); the four finished
 // sets held EXACTLY for the SIXTH consecutive wave.
-const PINNED_UNION = 741;
+//
+// **741 -> 742 on 2026-08-18, against 746 measured after Fallen Feline.** ONE
+// card, one newly exercised (VEN 103 -> 104), and the four finished sets held
+// EXACTLY for the SEVENTH consecutive wave.
+//
+// **This run is also the CONTROL for a runtime question, and the answer was
+// null.** Fallen Feline offers all 233 spell names (762), `legal-actions` fans a
+// pending decision into one action per option, and the AI scores every one — so
+// she was refused for two waves on the estimate that a faithful offer would cost
+// this probe dearly. Measured, decomposed by control, same machine, back to
+// back:
+//
+//     without her  488s, union 745
+//     with her     478s and 496s, union 746
+//
+// She is INSIDE the run-to-run noise, and the reason is a frequency nobody had
+// asked for: over 200 VEN-deck games she named 15 times across 12 games, which
+// is 3,495 of 268,742 evaluated actions — **1.30%**. The per-play arithmetic in
+// the refusal was exactly right (3495 / 15 = 233); what it never asked was how
+// often a two-drop with a naming ability actually gets played.
+const PINNED_UNION = 742;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

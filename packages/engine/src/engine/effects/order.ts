@@ -29,6 +29,7 @@ import {
   recycleCardFromHand,
   recycleUnitFromPlayToDeck,
   returnCardFromTrash,
+  nameSpellOn,
   setBaseMightThisTurn,
   spendBuff,
   spendXp,
@@ -38,6 +39,7 @@ import { killGear } from "../triggers.js";
 import { placeGoldTokens, placeRecruitToken, placeToken, type TokenDestination, type TokenSpec, BIRD_TOKEN, SAND_SOLDIER_TOKEN } from "../token.js";
 import { findUnitAnywhere, findUnitOnBattlefield } from "../target-lookup.js";
 import { parkDecision, repeatDecision, type DecisionOption } from "../decisions.js";
+import { defaultCardRegistry } from "../../cards/card-registry.js";
 import { banishFromHandUntilHold } from "../delayed-triggers.js";
 import { playUnitToBase } from "../deploy.js";
 import { playUnitFree } from "../free-play.js";
@@ -166,6 +168,41 @@ const RELUCTANT_LEADER_MIGHT = 2;
 const HUNGRY_WOLF_MIGHT = 1;
 const HUNGRY_WOLF_CHOICES_NEEDED = 1;
 /** Kennen's toll, his stun bonus, and the question his "you may pay" parks. */
+/** Fallen Feline (VEN-132) and her one question. */
+const FALLEN_FELINE = "VEN-132";
+const FALLEN_FELINE_NAME = "VEN-132-name";
+
+/**
+ * Every distinct SPELL name in the pool, sorted — what Fallen Feline's naming
+ * offers, and rule 762's "a card that is legal in the Format being played".
+ *
+ * **Memoised, and that is not a micro-optimisation.** `options()` is called by
+ * `legal-actions` on every enumeration and by `advanceDecisions` on every parked
+ * question, so an un-memoised walk of the registry would run this on states that
+ * have no Feline anywhere near them. The registry is immutable for a process's
+ * life, which is what makes one computation safe — the same reasoning the trigger
+ * registries' lazy `composed ??=` uses.
+ *
+ * Distinct by NAME (132.1), so two printings that share one collapse to a single
+ * option — naming a card bans every printing of it, because they are one card.
+ * **Against TODAY'S pool that `new Set` is a no-op**: all 233 spell defs have
+ * distinct names and none of the 53 aliased printings is a spell. It is stated
+ * rather than measured, and no mutant can kill it — the test asserts the
+ * invariant (the offer has no duplicates) instead, which is the shape this repo
+ * uses whenever the "it does something" half cannot be reached.
+ *
+ * Sorted, because 233 options in registry order is unreadable to a human and the
+ * AI is indifferent. Sorting also makes the offer STABLE, which is what lets a
+ * test assert a position in it.
+ */
+let spellNames: string[] | null = null;
+function allSpellNames(): string[] {
+  spellNames ??= [
+    ...new Set(defaultCardRegistry().all().filter((def) => def.type === "Spell").map((def) => def.name)),
+  ].sort();
+  return spellNames;
+}
+
 const KENNEN = "VEN-135";
 const KENNEN_STUN_ENERGY = 2;
 const KENNEN_MIGHT = 2;
@@ -1124,6 +1161,34 @@ export const unitTriggers: Record<string, UnitTriggerDefinition> = {
       event.optionalPowerPaid && event.targetUnitInstanceId
         ? stunUnits(state, ctx.casterIndex, [event.targetUnitInstanceId])
         : state,
+  },
+  [FALLEN_FELINE]: {
+    // Fallen Feline — "When you play me, name a spell. While I'm at a
+    // battlefield, opponents can't play spells with that name."
+    //
+    // Two sentences and two mechanisms: this one records the name, and
+    // `board-restrictions.mayPlaySpellNamed` is the ban, read at the gate
+    // `timing.mayPlayCardNow` — a continuous "opponents can't" has no resolver to
+    // live in, which is what that module exists for.
+    //
+    // # Naming is not TARGETING
+    //
+    // 761 makes naming an act of identifying a card, and 762 bounds it to "a card
+    // that is legal in the Format being played" — a card, not an object in play.
+    // So `targeting: "none"` and the name is asked as a DECISION, which is the
+    // only mechanism here that can offer something that is not on the board.
+    //
+    // The question is parked unconditionally. "Name a spell" is not a "you may",
+    // and there is always something legal to name, so it never resolves to a bare
+    // decline the way an unaffordable optional cost does (416.3).
+    //
+    // Parked against HER instanceId, because the answer is written onto her —
+    // `UnitInstance.namedSpell`, which is where the ban reads it from and which
+    // dies with her, so a Feline killed in response to this very trigger records
+    // nothing and bans nothing.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      parkDecision(state, { kind: FALLEN_FELINE_NAME, playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
   },
   [KENNEN]: {
     // Kennen, Keeper of Balance — "[Hidden] When you play me OR I attack, you may
@@ -2778,6 +2843,43 @@ export const decisions: Record<string, DecisionDefinition> = {
    * "A unit", bare, so every unit in play is offered including his controller's
    * own (355.9.a.1). Stunning your own is a bad play, not an illegal one.
    */
+  /**
+   * Fallen Feline's "name a spell".
+   *
+   * # EVERY spell in the pool, and that is the faithful reading
+   *
+   * 762 bounds a naming to "a card that is legal in the Format being played" and
+   * 762.1 to a card that exists; nothing narrows it to a card in any zone, in any
+   * deck, or in the opponent's colours. So the offer is the whole pool's SPELLS —
+   * 233 of them, from the registry rather than from a list, so a set adding spells
+   * needs no maintenance here.
+   *
+   * Distinct NAMES rather than defIds (132.1: a name identifies a card uniquely),
+   * which is also what makes the option id the name itself — the ban compares
+   * names, so the answer is already in the form the restriction reads.
+   *
+   * 762.2 excludes token names, and the registry gives that for free: tokens are
+   * not card definitions and never appear in this walk.
+   *
+   * **This is the widest decision in the engine by an order of magnitude**, and
+   * the cost is real rather than theoretical: `legal-actions` fans a pending
+   * decision into one action PER OPTION, and the AI scores every one. Measured on
+   * the probes rather than assumed — see docs/vendetta-scope.md. The narrower
+   * alternatives all lose information the printed card has: offering only spells
+   * in the opponent's DECK leaks hidden information, and offering only spells
+   * already SEEN makes a naming that pre-empts the deck's best card impossible,
+   * which is what the card is for.
+   */
+  [FALLEN_FELINE_NAME]: {
+    prompt: () => "Fallen Feline: name a spell",
+    options: () =>
+      allSpellNames().map((name) => ({ id: name, label: name })),
+    // Written onto HER rather than into a player- or state-level record: see
+    // `UnitInstance.namedSpell`. `nameSpellOn` no-ops if she is already gone
+    // (359.3.e.12), so a Feline killed in the response window names nothing.
+    resolve: (state, d, optionId) =>
+      d.cardInstanceId === undefined ? state : nameSpellOn(state, d.cardInstanceId, optionId),
+  },
   [KENNEN_STUN]: {
     prompt: () => "Kennen: pay 2 Energy to stun a unit?",
     options: (state, d) => [

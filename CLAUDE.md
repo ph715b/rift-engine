@@ -79,13 +79,23 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **741, against an observed 745** of 868 cards needing
-code ever exercised, at its default **500 games per mode**, which takes **~340s**
+`reachability` is pinned at **742, against an observed 746** of 868 cards needing
+code ever exercised, at its default **500 games per mode**, which takes **~480s**
 with Vendetta in the pool.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**188**, UNL **205** have held exactly across both Vendetta waves; VEN is the only
-one that moves. A finished set's figure changing is a displacement in a covering
+**188**, UNL **205** have held exactly across SEVEN Vendetta waves; VEN is the only
+one that moves.
+
+**A wide DECISION costs this probe far less than the arithmetic suggests, and
+that was measured rather than argued.** Fallen Feline offers all 233 spell names
+and `legal-actions` fans a pending decision into one action per option, so she
+was refused twice on the estimate that the AI would then score 233 states per
+play. Decomposed by control, same machine, back to back: **488s without her, 478s
+and 496s with** — inside the noise. Over 200 VEN-deck games she named 15 times
+across 12 games, 3,495 of 268,742 evaluated actions, **1.30%**. The per-play
+arithmetic was right and the conclusion was wrong: nobody had asked how OFTEN the
+card gets played. Ask for the frequency before pricing a fan-out. A finished set's figure changing is a displacement in a covering
 deck rather than new coverage, and is the thing to explain.
 
 **It was 625 against 692 until 2026-08-16, and that was a stale figure rather
