@@ -448,7 +448,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // ability` asks, so the enumerator cannot offer a gear the validator then
         // refuses. That disagreement is this file's most-repeated bug.
         if (mode.targeting.kind === "gear") {
-          for (const g of activatableGearTargets(state, playerIndex, mode.targeting)) {
+          for (const g of activatableGearTargets(state, playerIndex, mode.targeting, permanent.instanceId)) {
             push({ ...withMode, targetPermanentInstanceId: g.instanceId });
           }
           continue;

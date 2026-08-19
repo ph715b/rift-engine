@@ -76,6 +76,15 @@ const GEAR_ENTERING_EXHAUSTED = new Set([
   // this table is shared and the wave could not touch it.
   "UNL-049",
   "UNL-136",
+  // Hextech Formula (VEN-062). Its "This enters exhausted" is UNPARENTHESISED and
+  // therefore a real clause: gear enter READY by default, so for a gear this is a
+  // replacement on entry (369.3). Patched Porobot in the same wave prints the
+  // same sentence in PARENTHESES on a unit, where it is reminder text and owes
+  // nothing — the parentheses are the whole difference.
+  //
+  // Without this row the card would be STRONGER than printed and would look
+  // finished, which is the direction both rows above were added for.
+  "VEN-062",
 ]);
 
 export function gearEntersExhausted(defId: string): boolean {

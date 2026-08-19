@@ -1,7 +1,7 @@
 import type { GameState } from "../model/game-state.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 import { opponentNearVictory } from "./constants.js";
-import { legionActive } from "./effect-helpers.js";
+import { isEmpowered, legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { MIGHTY_THRESHOLD } from "./constants.js";
 import { firstGearDiscountFor, repeatEnergyDiscountFor } from "./battlefield-continuous.js";
@@ -161,6 +161,53 @@ function controlsStargazer(state: GameState, playerIndex: 0 | 1): boolean {
     owner.baseUnits.some((u) => u.defId === STARGAZER) ||
     state.battlefields.some((bf) => (bf.units[owner.id] ?? []).some((u) => u.defId === STARGAZER))
   );
+}
+
+/**
+ * Shock Blast (VEN-059): "This costs [2 Energy] less if you control something
+ * that's [Empowered]."
+ *
+ * **"SOMETHING" is the word to read, and it is not "a unit".** Empowered is a
+ * status a GEAR carries as readily as a unit — Hextech Formula, in this very
+ * wave, does nothing but empower one — so the predicate walks both zones and
+ * `activeGear`. A version that asked only about units would be silently wrong on
+ * exactly the board the set is building toward, and a missing discount looks the
+ * same as a discount that was never printed.
+ *
+ * Binary, not scaled: the card names a condition, not a count, so two Empowered
+ * permanents discount once (441.1.a's status is binary; the reduction is not
+ * per-source the way Shadowblade Lurker's is).
+ */
+const SHOCK_BLAST = "VEN-059";
+const SHOCK_BLAST_DISCOUNT = 2;
+
+/**
+ * Plaza Guardian (VEN-064): "I cost [1 Energy] less for each gear you control.
+ * [Deflect]"
+ *
+ * A 10-Energy 8-Might body that is priced by your board, and `[Deflect]` is a
+ * printed keyword the engine already reads — so this discount plus that keyword
+ * is the WHOLE card, which is why the coverage list below has to name it. That
+ * is the Lucian - Purifier trap: a working card no module claims reports
+ * unimplemented and is dropped from generated decks.
+ *
+ * Gear TOKENS count. "Each gear" is unqualified, and the Gold tokens are gear
+ * (185.1 — each token is its own game object); the cards in this pool that mean
+ * non-token gear say so.
+ *
+ * Floored at 0 like every other reduction here — he states no minimum, so a
+ * board of ten gear really does make him free.
+ */
+const PLAZA_GUARDIAN = "VEN-064";
+const PLAZA_GUARDIAN_DISCOUNT = 1;
+
+/** Does `playerIndex` control ANY Empowered permanent — unit or gear? Shock
+ *  Blast's "something that's [Empowered]", walked over both zones and the gear
+ *  list, which is what "something" costs. */
+function controlsSomethingEmpowered(state: GameState, playerIndex: 0 | 1): boolean {
+  const owner = state.players[playerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  return [...units, ...owner.activeGear].some((c) => isEmpowered(state, c.instanceId));
 }
 
 /** Keeper of Law (VEN-119): "I cost [2 Energy][Order] less if you control a
@@ -1001,6 +1048,12 @@ export function costModifierDefIds(): string[] {
     // Stargazer's Flow discount is his ENTIRE printed text — the Lucian - Purifier
     // trap again, which costs a working card its place in generated decks.
     STARGAZER,
+    // Plaza Guardian's per-gear discount plus a printed `[Deflect]` is his whole
+    // card, so this list is his only registration anywhere — the same trap.
+    PLAZA_GUARDIAN,
+    // NOT Shock Blast: its discount is half the card and the damage half is
+    // registered in effects/mind.ts, so a claim here would say the wrong thing
+    // about where its text lives — the distinction Production Surge draws below.
     // NOT Production Surge: its discount is only half the card, and its effect
     // half (the Mech token and the draw) is registered in effects/mind.ts. A
     // claim here as well would be harmless but would say the wrong thing about
@@ -1097,6 +1150,16 @@ export function modifiedEnergyCost(
     const copies = state.players[playerIndex].trash.filter((c) => c.name === lurkerName()).length;
     cost = Math.max(0, cost - copies * SHADOWBLADE_LURKER_DISCOUNT);
   }
+  // Shock Blast's condition discount. Binary rather than scaled — see the const.
+  if (defId === SHOCK_BLAST && controlsSomethingEmpowered(state, playerIndex)) {
+    cost = Math.max(0, cost - SHOCK_BLAST_DISCOUNT);
+  }
+
+  // Plaza Guardian's per-gear discount, floored at 0 like its neighbours.
+  if (defId === PLAZA_GUARDIAN) {
+    cost = Math.max(0, cost - state.players[playerIndex].activeGear.length * PLAZA_GUARDIAN_DISCOUNT);
+  }
+
   if (defId === SPOILS_OF_WAR && state.players[playerIndex === 0 ? 1 : 0].unitsLostThisTurn > 0) {
     cost = Math.max(0, cost - SPOILS_OF_WAR_DISCOUNT);
   }

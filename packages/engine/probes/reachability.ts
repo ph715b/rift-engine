@@ -643,12 +643,17 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // new funnel and a displacement would have shown up in all four.
 //
 // **This run took 347s against 478/488/496 measured three times earlier the same
-// day on the same machine, and that is NOT explained.** A plausible story exists
-// (Endless Riches skips its controller's draw and burns 7, so a VEN game it
-// appears in should empty a deck sooner) but it was not decomposed by control, so
-// treat the figure as unexplained rather than as the card's doing. It is recorded
-// because the next session comparing runtimes deserves to know the spread is this
-// wide.
+// day on the same machine.** A second run the next wave came in at 340s, so the
+// level is real rather than a single fast run: three runs at ~487s before Endless
+// Riches, two at ~343s after it. The plausible mechanism is the card itself —
+// it skips its controller's draw and burns 7, so a VEN game it appears in should
+// empty a deck sooner — but that was NEVER DECOMPOSED BY CONTROL, and this file's
+// own history says an undecomposed cause is usually the wrong one. Treat it as
+// suggested, not established.
+//
+// **743 -> 750 on 2026-08-18, against 754 measured after Mind wave 1.** Ten cards
+// implemented and SEVEN newly exercised (VEN 105 -> 112); the four finished sets
+// held EXACTLY for the NINTH consecutive wave.
 //
 // **This run is also the CONTROL for a runtime question, and the answer was
 // null.** Fallen Feline offers all 233 spell names (762), `legal-actions` fans a
@@ -665,7 +670,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // is 3,495 of 268,742 evaluated actions — **1.30%**. The per-play arithmetic in
 // the refusal was exactly right (3495 / 15 = 233); what it never asked was how
 // often a two-drop with a naming ability actually gets played.
-const PINNED_UNION = 743;
+const PINNED_UNION = 750;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

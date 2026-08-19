@@ -573,10 +573,18 @@ export function gearTargets(state: GameState): { instanceId: string; name: strin
 export function activatableGearTargets(
   state: GameState,
   playerIndex: 0 | 1,
-  spec: { owner?: "friendly" | "enemy"; exhaustedOnly?: true },
+  spec: { owner?: "friendly" | "enemy"; exhaustedOnly?: true; excludesSelf?: true },
+  /** The permanent whose ability is being activated, so a spec printing "ANOTHER
+   *  gear" can drop it. Optional, and every caller that has it passes it: the two
+   *  that exist are the enumerator and the validator, which is precisely the pair
+   *  that must not disagree about what is on offer. */
+  sourceInstanceId?: string,
 ): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
   return gearTargets(state).filter((g) => {
     if (!gearOwnerMatches(spec.owner, g.ownerIndex, playerIndex)) return false;
+    // "ANOTHER". Dropped from the WALK rather than by each caller, so both of
+    // them get it and the next one cannot forget.
+    if (spec.excludesSelf === true && sourceInstanceId !== undefined && g.instanceId === sourceInstanceId) return false;
     if (spec.exhaustedOnly !== true) return true;
     const owner = state.players[g.ownerIndex];
     return owner.activeGear.some((c) => c.instanceId === g.instanceId && c.exhausted);

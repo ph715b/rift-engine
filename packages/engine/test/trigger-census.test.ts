@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("361 held / 8 inline of 369 trigger cards", () => {
+  it("365 held / 8 inline of 373 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -621,10 +621,27 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // cards from your trash" and "if a card would go to your trash... banish it
     // instead" are continuous, read at gates, and structurally invisible to a
     // census of triggers.
+    // **361/8/369 -> 365/8/373 on 2026-08-18: Vendetta's Mind wave 1, four
+    // trigger cards out of ten.** By family and by name:
+    //
+    //     unit  (+2)  VEN-048 Cloud Drake, VEN-058 Patched Porobot (both "when
+    //                 you play me")
+    //     event (+2)  VEN-065 Swain, Visionary (battlefieldConquered), plus
+    //                 VEN-063 Nasus, Guardian of Knowledge — who is a DEATH-WATCH
+    //                 and reaches the event bus through
+    //                 `deathWatchEventTriggers`, so he shows in both families and
+    //                 is counted once as a card
+    //     distinct: 4
+    //
+    // The other six are correctly absent across four homes: VEN-049 Dredge Up,
+    // VEN-051 Iterative Design, VEN-052 Mesmerize and VEN-059 Shock Blast are
+    // SPELL effects, VEN-062 Hextech Formula is an activated ability plus a
+    // `deploy.ts` row, and VEN-064 Plaza Guardian is a cost modifier plus a
+    // printed keyword.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 361,
+      held: 365,
       inline: 8,
-      cards: 369,
+      cards: 373,
     });
   });
 

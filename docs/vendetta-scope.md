@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=114 unimplemented=62   partial=6      (2026-08-18, after the alias fix, six card waves, Fallen Feline and Endless Riches)
+VEN: needing=176  implemented=124 unimplemented=52   partial=6      (2026-08-18, after the alias fix, seven card waves, Fallen Feline and Endless Riches)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 62 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 52 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,49 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Mind, wave 1 — done 2026-08-18 (10 of the domain's 19)
+
+VEN-048 Cloud Drake, 049 Dredge Up, 051 Iterative Design, 052 Mesmerize, 058
+Patched Porobot, 059 Shock Blast, 062 Hextech Formula, 063 Nasus Guardian of
+Knowledge, 064 Plaza Guardian, 065 Swain Visionary. VEN 114 -> 124. Tests in
+`test/ven-mind-wave1.test.ts` (34); **33 mutants, 33 killed.**
+
+**The wave's shape is "a printed condition, asked in the right place"** — six of
+the ten do nothing unconditionally — so nearly every test is a PAIR: the
+condition met, and the condition one short of met. That boundary is the thing a
+fixture built only at the happy end can never see, and this wave has six chances
+to get it wrong.
+
+**Two traps, both worth keeping:**
+
+| trap | what happened |
+|---|---|
+| coverage cannot see a HALF-written card | Shock Blast and Hextech Formula both reported implemented the moment their effect half landed, while the printed cost discount and the enters-exhausted clause were still missing. Both gaps make the card STRONGER than printed, which is the direction that looks finished. Each is now pinned directly rather than left to `isCardImplemented` |
+| PARENTHESES decide whether a sentence is a clause | Patched Porobot's "(I enter exhausted.)" is reminder text on a unit, which enters exhausted anyway. Hextech Formula's "This enters exhausted." is a real replacement on a GEAR, which does not. Same words, same wave, and only one of them owes a `deploy.ts` row |
+
+**One engine seam and one new field**, both small:
+
+- `excludesSelf` on the `gear` targeting spec — the axis `unitOrGear` has carried
+  since Pack of Wonders, arriving on its narrower neighbour for Hextech Formula's
+  "empower ANOTHER gear". Filtered in `activatableGearTargets`, which the
+  enumerator and the validator both go through, so it can never be a resolver
+  refusal after the exhaust cost is paid.
+- `nonTokenUnitsPlayedThisTurn` for Swain. **Only ONE of his three facts needed
+  new state** — `spellsPlayedThisTurn` already existed, and `gearPlayedThisTurn`
+  already answers "non-token gear" WITHOUT a qualifier because it is bumped in
+  `execute-play-card` and a gear token is minted by `placeToken`, which never goes
+  through it.
+
+**A survivor worth recording.** The first draft of the "another gear" test passed
+`{ excludesSelf: true }` to the walk LITERALLY, so it asserted only that the walk
+honours a flag — a mutant that dropped the flag from Hextech Formula's own
+targeting survived untouched. The spec is now read off the CARD. Same shape as
+the decision-queue survivors from Chaos wave 2: **assert against what the card
+declares, never against a value the test supplies.**
+
+Reachability pin 743 -> 750 against 754; VEN 105 -> 112, and the four finished
+sets held EXACTLY for the NINTH consecutive wave.
 
 ### Endless Riches (VEN-022) — done 2026-08-18, the set's second refusal answered
 

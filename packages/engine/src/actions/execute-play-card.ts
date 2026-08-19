@@ -547,6 +547,14 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // file's own float math) and must give the same answer each time, so the
     // thing it reads cannot move until the play is priced and paid.
     gearPlayedThisTurn: card.kind === "Gear" ? actor.gearPlayedThisTurn + 1 : actor.gearPlayedThisTurn,
+    // Swain, Visionary's "you've played a non-token unit ... this turn". Bumped
+    // here beside the gear counter and for the same reason, and `isToken` is
+    // read off the instance because a token unit never reaches this file anyway —
+    // stated rather than assumed, since that is a fact about the OTHER path.
+    nonTokenUnitsPlayedThisTurn:
+      card.kind === "Unit" && card.isToken !== true
+        ? actor.nonTokenUnitsPlayedThisTurn + 1
+        : actor.nonTokenUnitsPlayedThisTurn,
     // Azir's subset of the same moment. `isEquipmentGear` reads the DEFINITION's
     // `isEquipment`, so it is the same question `[Equip]` and `[Weaponmaster]`
     // already ask rather than a second spelling of "is this Equipment".

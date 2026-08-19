@@ -27,6 +27,8 @@ import {
 import {
   banishCard,
   channelRunesExhausted,
+  empowerPermanent,
+  gainPoints,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
   discardCards,
@@ -234,7 +236,111 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
     : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
 }
 
+/** Mesmerize's shrink, Shock Blast's damage, and the gear Patched Porobot counts. */
+const MESMERIZE_SHRINK = 2;
+const SHOCK_BLAST_DAMAGE = 4;
+const PATCHED_POROBOT_GEAR = 3;
+
+/** Nasus, Guardian of Knowledge (VEN-063), and the per-unit mark that spends his
+ *  "once each turn". `abilityModesUsedThisTurn` is the field — a per-unit list
+ *  swept by `runEnd`, which is what "each turn" means — and it is the same
+ *  mechanism Zilean's double and Deadly Flourish's mark already use. */
+const NASUS_GUARDIAN = "VEN-063";
+const NASUS_GUARDIAN_CHANNELLED = "VEN-063-channelled";
+
+/** Hextech Formula (VEN-062). */
+const HEXTECH_FORMULA = "VEN-062";
+
+/** Swain, Visionary (VEN-065) and his conquest payout. */
+const SWAIN_VISIONARY = "VEN-065";
+const SWAIN_VISIONARY_POINTS = 1;
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-049": {
+    // Dredge Up — "Draw 1. [Flow] [2 Energy]."
+    //
+    // The whole card is one call. `[Flow]` needs nothing here at all: 829.1.c.1's
+    // alternative cost from the trash is plumbed generically by
+    // `replaced-costs.ts`, and a card effect is reached identically whichever
+    // price paid for it — the reading Dragon Form's entry records from the Order
+    // side.
+    //
+    // Worth having anyway rather than dismissing as a blank: a 2-Energy cantrip
+    // that can be cast a second time out of the trash is two cards, and the
+    // engine has to reach the second one.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "VEN-051": {
+    // Iterative Design — "Play a 3 [Might] Mech unit token. [Flow]
+    // [2 Energy][Mind]."
+    //
+    // `MECH_TOKEN` is SHARED from token.ts rather than restated, which is the
+    // point of that file: Production Surge and Rumble - Scrapper already mint it,
+    // and its `Mech` tag is read by four keyword auras in `granted-keywords.ts`.
+    // A third stat line written here is the drift that file exists to prevent.
+    //
+    // To BASE, which is where a token with no printed destination goes — the
+    // convention every unconditional token maker in the pool follows.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => placeToken(state, ctx.casterIndex, "base", MECH_TOKEN),
+  },
+  "VEN-052": {
+    // Mesmerize — "[Reaction] Choose one — Return a friendly unit to its owner's
+    // hand. Give an enemy unit -2 [Might] this turn."
+    //
+    // A MODAL card (`modes`), and the two halves have different targeting, which
+    // is exactly what modes are for: one takes a friendly unit and the other an
+    // enemy one, so a single spec could only express their union and would offer
+    // each mode targets it cannot legally use.
+    //
+    // **[Reaction] needs nothing here** — `timing.timingTierOf` reads `isReaction`
+    // off the card, and that is what lets this be cast into a damage step, which
+    // is where a 1-Energy bounce is worth its slot.
+    //
+    // "A FRIENDLY unit" and "an ENEMY unit" are both bare on location, so both
+    // are `scope: "anywhere"` (355.9.a.1's widening) with only the owner narrowed.
+    modes: [
+      {
+        id: "bounce",
+        label: "Return a friendly unit to its owner's hand",
+        targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId ? returnUnitToHand(state, event.targetUnitInstanceId) : state,
+      },
+      {
+        id: "shrink",
+        label: "Give an enemy unit -2 Might this turn",
+        targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+        resolve: (state, _ctx, event) =>
+          event.targetUnitInstanceId
+            ? giveMightThisTurn(state, event.targetUnitInstanceId, -MESMERIZE_SHRINK)
+            : state,
+      },
+    ],
+  },
+  "VEN-059": {
+    // Shock Blast — "[Action] This costs [2 Energy] less if you control
+    // something that's [Empowered]. Deal 4 to a unit at a battlefield."
+    //
+    // Two halves in two files, the split this pool takes for every conditional
+    // price: the DISCOUNT is a `cost-modifiers.ts` entry (it has to be readable by
+    // the enumerator, the validator and the float math, none of which resolve an
+    // effect), and the damage is here.
+    //
+    // "SOMETHING that's Empowered" is deliberately not "a unit": Empowered is a
+    // status a GEAR can carry too — Hextech Formula in this very wave empowers
+    // one — so the discount's predicate walks gear as well. That is the whole
+    // reason the two cards are in the same wave.
+    //
+    // "A unit AT A BATTLEFIELD" — the location is printed, so `scope:
+    // "battlefield"` (355.9.b's narrowing), and no owner word, so either side's.
+    targeting: { kind: "unit", scope: "battlefield" },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId
+        ? dealDamage(state, ctx.casterIndex, event.targetUnitInstanceId, SHOCK_BLAST_DAMAGE)
+        : state,
+  },
   "SFD-076": {
     // Production Surge — "This costs [2] less if you control a Mech. Play a 3
     // Might Mech unit token to your base. Draw 1."
@@ -1180,6 +1286,40 @@ function ownUnitsAtDestination(state: GameState, playerIndex: 0 | 1, destination
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-048": {
+    // Cloud Drake — "When you play me, draw 1."
+    //
+    // A 6-Energy 5-Might body with a cantrip stapled on, and the whole card is
+    // the one call.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => drawCards(state, ctx.casterIndex, 1),
+  },
+  "VEN-058": {
+    // Patched Porobot — "(I enter exhausted.) When you play me, if you control 3
+    // or more OTHER gear, draw 1."
+    //
+    // **"(I enter exhausted.)" is REMINDER TEXT, not a clause** — the
+    // parentheses are the tell, and units enter exhausted by default. Nothing is
+    // owed for it, which is worth saying because the Hextech Formula in this same
+    // wave prints the same sentence WITHOUT parentheses and does owe a
+    // `deploy.ts` row: gear enter READY by default, so for a gear it is a real
+    // replacement on entry (369.3).
+    //
+    // **"OTHER gear" is the whole condition and the Porobot is a UNIT**, so
+    // "other" costs nothing here: it can never be in `activeGear` to be counted.
+    // Written as a plain count for that reason, and said out loud because the
+    // next reader will check.
+    //
+    // Gear TOKENS count. The card says "gear" without qualification, and the Gold
+    // tokens are gear (185.1 makes each token its own game object); a card that
+    // meant non-token gear says so, as Ornn's Forge and Swain do in this very
+    // wave.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) =>
+      state.players[ctx.casterIndex].activeGear.length >= PATCHED_POROBOT_GEAR
+        ? drawCards(state, ctx.casterIndex, 1)
+        : state,
+  },
   "SFD-079": {
     // Bard - Mercurial - "You may exhaust your legend as an additional cost to
     // play me. When you play me, if you paid the additional cost, move any number
@@ -1820,6 +1960,42 @@ function forgetDeadlyFlourishMark(state: GameState, ownerIndex: 0 | 1, unitInsta
  *  by the LISTENING card's defId. Distinct from `deathTriggers` above, which is
  *  a [Deathknell] keyed by the DYING card. Same one-file-one-owner rule. */
 export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  [NASUS_GUARDIAN]: {
+    // Nasus, Guardian of Knowledge — "Once each turn, when an enemy unit HERE
+    // dies, channel 1 rune exhausted."
+    //
+    // # Three narrowings, and each is asked where it can still be answered
+    //
+    // "ENEMY" and "HERE" are facts about the DEATH, so they live in `applies`:
+    // 808.1.d.3 snapshots the dying unit before it reaches the trash, and the
+    // battlefield it died at is on the `DeathContext`. Asking either at
+    // resolution would be asking about a board the unit has already left — and
+    // `applies` is also where they belong for the reason that field's own note
+    // gives, that a listener whose printed condition is unmet must place NO
+    // Pending Item rather than one that costs both players a PassFocus and then
+    // resolves to nothing.
+    //
+    // "ONCE EACH TURN" is different: it is a fact about NASUS, and it is SPENT
+    // rather than merely read. It is checked here too, because a second death in
+    // the same turn must not place a second Pending Item.
+    //
+    // **The mark is written in `resolve`, not in `applies`.** `applies` is asked
+    // by the trigger walk and its answer must not depend on how many times it has
+    // been asked; spending the turn there would make one listener's question
+    // change the next one's answer. 383's window is also real — the trigger is
+    // HELD, and only its resolution is the moment the ability happens.
+    applies: (state, listener, death) =>
+      death.ownerIndex !== listener.ownerIndex &&
+      death.battlefieldId !== undefined &&
+      listener.battlefieldId === death.battlefieldId &&
+      !nasusHasChannelled(state, listener.card.instanceId),
+    resolve: (state, listener) => {
+      // Re-asked at resolution, because two enemy units dying at once hold two
+      // Pending Items and the first to resolve is the one that spends the turn.
+      if (nasusHasChannelled(state, listener.card.instanceId)) return state;
+      return channelRunesExhausted(markNasusChannelled(state, listener.card.instanceId), listener.ownerIndex, 1);
+    },
+  },
   "UNL-073": {
     // Deadly Flourish's second sentence — "When it dies this turn, play a Gold
     // gear token exhausted." The first is in `cardEffects`, which is where the
@@ -2057,6 +2233,36 @@ function dianaLunariReveal(state: GameState, ownerIndex: 0 | 1): GameState {
  * printed mode ids, which Zilean has none of — and the marker is prefixed with
  * his defId anyway.
  */
+/** Has this Nasus already channelled this turn? Asked of the LIVE unit, never of
+ *  the listener snapshot the chain carries — for the reason `zileanSpent` above
+ *  records: two enemy units dying in one window place two Pending Items (383
+ *  fixes the set at the moment of the event), and the second must see what the
+ *  first spent. */
+function nasusHasChannelled(state: GameState, nasusInstanceId: string): boolean {
+  return (
+    findUnitAnywhere(state, nasusInstanceId)?.unit.abilityModesUsedThisTurn.includes(NASUS_GUARDIAN_CHANNELLED) ===
+    true
+  );
+}
+
+/** Writes the once-a-turn mark onto the live Nasus, wherever he stands. Both
+ *  zones, exactly as `rememberZileanDoubled` walks both and for the same reason:
+ *  the ability requires him at a battlefield when it TRIGGERS, and a chain item
+ *  can send him home before it resolves. */
+function markNasusChannelled(state: GameState, nasusInstanceId: string): GameState {
+  const mark = (u: UnitInstance): UnitInstance =>
+    u.instanceId === nasusInstanceId
+      ? { ...u, abilityModesUsedThisTurn: [...u.abilityModesUsedThisTurn, NASUS_GUARDIAN_CHANNELLED] }
+      : u;
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(mark) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(mark);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
+
 const ZILEAN_DOUBLE_APPLIED = "UNL-086-doubled";
 
 /** Has this Zilean already applied his replacement this turn? Asked of the LIVE
@@ -2122,6 +2328,48 @@ function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDe
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [SWAIN_VISIONARY]: {
+    // Swain, Visionary — "[Vision] When I conquer, if you've played a non-token
+    // unit, a non-token gear, and a spell this turn, you score 1 point."
+    //
+    // **[Vision] needs nothing here.** `unitTriggerHasVisionChoice` reads the
+    // printed keyword — and the auras that GRANT it — so the predict is fanned
+    // onto the PlayCard action by `legal-actions` before this card is on the
+    // board at all. That is the whole reason Vision stopped being a set of two
+    // hardcoded defIds.
+    //
+    // "When I conquer" is the POSITIONAL reading, the same one Plundering Poro's
+    // entry sets out: Swain has to be standing AT the battlefield taken, which is
+    // what separates a unit's own conquest from a Legend's "when YOU conquer".
+    //
+    // # The three facts, and why only one needed a new field
+    //
+    // `spellsPlayedThisTurn` already existed. `gearPlayedThisTurn` already
+    // answers "non-token gear" WITHOUT a qualifier of its own, because it is
+    // bumped in `execute-play-card` and a gear token is minted by `placeToken`,
+    // which never goes through it. Only the unit half needed
+    // `nonTokenUnitsPlayedThisTurn` — `cardsPlayedThisTurn` counts every kind and
+    // cannot tell a unit from the gear beside it.
+    //
+    // Read at RESOLUTION rather than in `applies`, deliberately: the conquest is
+    // what TRIGGERS the ability (383 fixes that at the moment of the event) while
+    // the three plays are its printed CONDITION, which 402.1 checks as the
+    // ability resolves. Nothing today can un-play a spell in the response window,
+    // so the two readings agree — this is the one the rules describe, and it is
+    // the one that stays right when something can.
+    on: "battlefieldConquered",
+    applies: (_state, listener, event) =>
+      event.kind === "battlefieldConquered" &&
+      event.conquerorIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "battlefieldConquered") return state;
+      const actor = state.players[listener.ownerIndex];
+      const all =
+        actor.nonTokenUnitsPlayedThisTurn > 0 && actor.gearPlayedThisTurn > 0 && actor.spellsPlayedThisTurn > 0;
+      return all ? gainPoints(state, listener.ownerIndex, SWAIN_VISIONARY_POINTS) : state;
+    },
+  },
   "VEN-057": {
     // Covert Informant — "[Empowered][>] When I move, draw 1."
     //
@@ -4106,6 +4354,33 @@ export const decisions: Record<string, DecisionDefinition> = {
  * built-in table is a named error at import, not a silent last-write-wins.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  [HEXTECH_FORMULA]: {
+    // Hextech Formula — "This enters exhausted. [Exhaust]: Empower ANOTHER gear."
+    //
+    // Two clauses in two files again: the enter-exhausted half is a `deploy.ts`
+    // table entry, this is the ability, and `coverage.ts` merges them.
+    //
+    // **"ANOTHER gear" is a real narrowing here, unlike Patched Porobot's**, and
+    // the difference is worth stating because the two cards sit in one wave: the
+    // Porobot is a UNIT counting gear, so "other" excludes nothing it could ever
+    // have counted, while this IS a gear and would otherwise be its own best
+    // target. Filtered on the OFFER rather than checked in the resolver, so the
+    // enumerator never proposes a self-empower the resolver would then refuse.
+    //
+    // No owner word, so either side's gear is a legal target (355.9.a.1).
+    // Empowering an ENEMY gear is a bad play rather than an illegal one, and the
+    // card offers it — the reading every bare noun in this pool takes.
+    //
+    // `empowerPermanent` is the single writer of the status and no-ops on a gear
+    // that is already Empowered (441.1.a's binary state), so "it becomes
+    // Empowered if it's not already" is that helper's guard rather than a branch
+    // here.
+    kind: "Gear",
+    targeting: { kind: "gear", excludesSelf: true },
+    cost: { exhaust: true },
+    resolve: (state, _ctx, action) =>
+      action.targetPermanentInstanceId ? empowerPermanent(state, action.targetPermanentInstanceId) : state,
+  },
   "UNL-088": {
     // Gutter Palace, second clause — "Discard 1, [Exhaust]: Play a 1 [Might] Bird
     // unit token with [Deflect]." (Its win condition is in `eventTriggers`.)

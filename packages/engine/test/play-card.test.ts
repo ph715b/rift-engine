@@ -44,6 +44,7 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     restrictedSpellPower: 0,
     restrictedGearPower: 0,
     gearPlayedThisTurn: 0,
+    nonTokenUnitsPlayedThisTurn: 0,
     enemyChoicesThisTurn: 0,
     nextSpellRepeatGrants: 0,
     equipmentPlayedThisTurn: 0,

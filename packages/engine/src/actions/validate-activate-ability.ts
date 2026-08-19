@@ -224,7 +224,7 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     if (action.targetPermanentInstanceId === undefined) {
       return fail(`${card.name}'s ability needs a gear to target`);
     }
-    const legal = activatableGearTargets(state, action.playerIndex, targeting);
+    const legal = activatableGearTargets(state, action.playerIndex, targeting, action.permanentInstanceId);
     if (!legal.some((g) => g.instanceId === action.targetPermanentInstanceId)) {
       return fail(`${action.targetPermanentInstanceId} is not a legal gear for ${card.name}'s ability`);
     }

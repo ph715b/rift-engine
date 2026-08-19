@@ -613,6 +613,26 @@ export interface PlayerState {
    */
   gearPlayedThisTurn: number;
   /**
+   * Non-token UNITS played this turn — Swain, Visionary (VEN-065): "when I
+   * conquer, if you've played a non-token unit, a non-token gear, and a spell
+   * this turn, you score 1 point."
+   *
+   * **Only the UNIT half needed a new field, and that is worth stating so nobody
+   * adds the other two.** `spellsPlayedThisTurn` already answers the third
+   * clause, and `gearPlayedThisTurn` already answers the second WITHOUT a
+   * non-token qualifier of its own: it is bumped in `execute-play-card`, which is
+   * the play path, and a gear token is minted by `placeToken` and never goes
+   * through it. So "gear played" and "non-token gear played" are the same number
+   * here by construction.
+   *
+   * A unit is different only because this counter did not exist —
+   * `cardsPlayedThisTurn` counts every kind, so it cannot tell a unit from the
+   * gear beside it.
+   *
+   * Counted rather than flagged, matching its neighbours, and swept by `runEnd`.
+   */
+  nonTokenUnitsPlayedThisTurn: number;
+  /**
    * How many times this player has CHOSEN an enemy unit or an enemy gear this
    * turn, with a spell or a UNIT's ability — Ezreal - Prodigal Explorer's "use
    * only if you've chosen enemy units and/or gear twice this turn with spells or

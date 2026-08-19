@@ -159,6 +159,20 @@ export type TargetingSpec =
   | {
       kind: "gear";
       /**
+       * **ANOTHER gear** — Hextech Formula's "[Exhaust]: Empower another gear".
+       *
+       * The same axis `unitOrGear` has carried since Pack of Wonders, arriving on
+       * its narrower neighbour for the same reason it was needed there: a gear
+       * that may choose ITSELF is usually its own best target, and for this card
+       * a self-empower would make the printed "another" free text.
+       *
+       * Filtered in `activatableGearTargets`, which both the enumerator and the
+       * validator go through, so the exclusion cannot be a resolver check — a
+       * refusal at resolution comes after the cost is paid, which is the
+       * offered-then-refused shape this codebase has produced six of.
+       */
+      excludesSelf?: true;
+      /**
        * Whose gear may be chosen — Akshan - Mischievous' "move an ENEMY gear to
        * your base".
        *
