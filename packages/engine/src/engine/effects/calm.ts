@@ -41,6 +41,7 @@ import {
   takeOneFromTopAndRecycleRest,
   disempowerPermanent,
   empowerPermanent,
+  armNextCardDiscount,
   fileIntoTrash,
   isEmpowered,
 } from "../effect-helpers.js";
@@ -239,6 +240,20 @@ const NO_COMBAT_DAMAGE_PENALTY = 1000;
  */
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
+/** Vendetta's Calm, wave 2. */
+const AFFECTIONATE_PORO = "VEN-024";
+/** Crumbling Sands' "an opponent has played ANOTHER spell this turn" — the spell
+ *  being countered is itself one of them and has already been counted, so the
+ *  threshold is TWO. */
+const CRUMBLING_SANDS_SPELLS = 2;
+const RESONATING_STRIKE_MIGHT = 2;
+const DECREE_OF_FOCUS_MIGHT = 4;
+const RIVEN_SHATTERED = "VEN-041";
+const RIVEN_DAMAGE_PER_EQUIPMENT = 2;
+const ASTRAL_HERON = "VEN-044";
+const ASTRAL_HERON_ENERGY = 2;
+const ASTRAL_HERON_POWER = 2;
+
 /** Vendetta's Calm, wave 1. */
 const FIELD_MUSICIANS_MIGHT = 3;
 const TWILIGHT_SHROUD_MIGHT = 1;
@@ -315,6 +330,95 @@ function updatePlayerForPakaa(state: GameState, ownerIndex: 0 | 1, top: CardInst
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-034": {
+    // Resonating Strike — "[Hidden] [Reaction] Choose a battlefield you control
+    // and a unit you control AT A DIFFERENT LOCATION. Move that unit to that
+    // battlefield and give it +2 [Might] this turn."
+    //
+    // Two targets of DIFFERENT KINDS with a cross-constraint between them, which
+    // `unitSlots` (two units) and `chainSpellAndUnit` (a spell and a unit) do not
+    // cover — so it reuses the existing `moveTarget` shape: a unit plus a
+    // destination battlefield, which `MOVE_TARGET_SPELL_DEF_IDS` already fans out
+    // as one action per (unit, destination) pair.
+    //
+    // **"A battlefield YOU CONTROL" and "at a DIFFERENT location" are both
+    // narrowings on that fan-out**, and the second is what makes the card a move
+    // rather than a pump: a unit already there has nowhere to go, and offering it
+    // would be an action that changes only the Might.
+    //
+    // `forceMoveToBattlefield` is the funnel, so a move trigger fires and the
+    // arrival is a real move (456) rather than a relocation.
+    // Charm's shape (`MOVE_TARGET_SPELL_DEF_IDS`), which fans out one action per
+    // (unit, destination) pair: the unit is the TARGET and the battlefield rides
+    // on `destinationBattlefieldId` as a place rather than a second target.
+    //
+    // "A unit YOU CONTROL" is `owner: "friendly"`; "a battlefield you control"
+    // and "at a DIFFERENT location" are both narrowings on the DESTINATION half,
+    // which `MOVE_TARGET_DESTINATION_RULES` owns — the same split Twilight Step
+    // records, where the Might ceiling is the spec's and the destination axis is
+    // the table's.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      const unitId = event.targetUnitInstanceId;
+      if (!unitId) return state;
+      const moved = forceMoveToDestination(state, unitId, event);
+      return giveMightThisTurn(moved, unitId, RESONATING_STRIKE_MIGHT);
+    },
+  },
+  "VEN-039": {
+    // Crumbling Sands — "[Reaction] Counter a spell IF AN OPPONENT HAS PLAYED
+    // ANOTHER SPELL THIS TURN."
+    //
+    // A 1-Energy counter with a condition that is about the TURN rather than
+    // about the spell being countered — which is what makes it a punish for a
+    // second spell rather than a general answer.
+    //
+    // **"ANOTHER" means besides the one on the chain**, so the threshold is TWO
+    // spells from that opponent this turn: the one being countered is itself one
+    // of them, and it has already been counted by `spellsPlayedThisTurn` when
+    // this resolves.
+    //
+    // Checked at RESOLUTION rather than on the offer, deliberately: it is the
+    // spell's printed condition (402.1), and the count can rise in the response
+    // window — a second enemy spell cast in reply is exactly what turns this on.
+    targeting: { kind: "chainSpell" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetChainCardInstanceId;
+      if (!targetId) return state;
+      const opponentIndex: 0 | 1 = ctx.casterIndex === 0 ? 1 : 0;
+      if (state.players[opponentIndex].spellsPlayedThisTurn < CRUMBLING_SANDS_SPELLS) return state;
+      return counterSpell(state, targetId);
+    },
+  },
+  "VEN-040": {
+    // Decree of Focus — "[Reaction] Choose a friendly unit that's IN COMBAT WITH
+    // an enemy Fury ([Fury]) unit OR that's BEING CHOSEN BY an enemy Fury spell.
+    // Give it +4 [Might] this turn."
+    //
+    // # The condition is two questions about two different places
+    //
+    // One disjunct is about the BOARD (who is standing at the contested
+    // battlefield), the other about the CHAIN (what is pointed at this unit right
+    // now). Both are why the card is a `[Reaction]`: it is bought to be held up,
+    // and the second disjunct only ever has an answer while something is
+    // resolving.
+    //
+    // Too card-specific to be a targeting AXIS, so it is a NAMED narrowing —
+    // `narrowing: "VEN-040-focus"`, defined in `target-lookup`'s
+    // `NAMED_UNIT_NARROWINGS` beside `UNCHOOSEABLE_BY_ENEMIES`, which makes the
+    // same trade for the same reason. An axis called
+    // `inCombatWithDomainOrChosenBySpellOfDomain` would be a worse lie than
+    // admitting the condition belongs to one card.
+    //
+    // Applied in all three shared places (enumerator, validator,
+    // `hasAnyLegalEffectChoice`), so a unit that does not qualify is never
+    // offered rather than being refused after a click.
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", narrowing: "VEN-040-focus" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, DECREE_OF_FOCUS_MIGHT)
+        : state,
+  },
   "VEN-031": {
     // Twilight Shroud — "Give a friendly unit +1 [Might] this turn. It can't be
     // chosen by enemy spells and abilities this turn. [Flow] [2 Energy]."
@@ -1917,6 +2021,69 @@ function apprenticeSmithReveal(state: GameState, ownerIndex: 0 | 1): GameState {
 const LILLIA_TOKEN_MIGHT = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [AFFECTIONATE_PORO]: {
+    // Affectionate Poro — "When a combat that I was in ends, if I haven't been
+    // dealt damage this turn, draw 1."
+    //
+    // # Both halves needed something the engine did not have
+    //
+    // **"A combat that I was in ENDS"** is a new moment. `combatWon` fires only
+    // when there IS a winner (466.3.a) and is about the RESULT; this fires for
+    // every combat, No Result included. And it carries its PARTICIPANTS, because
+    // rule 466's Step 3 cleanup recalls surviving attackers home before any held
+    // trigger resolves — so by then the board cannot answer "was I in it".
+    //
+    // **"I haven't been dealt damage this turn"** cannot be read off `damage`:
+    // step 3c HEALS every unit on the board at the end of every combat, so the
+    // field is 0 by the time this resolves no matter what happened. That is why
+    // `damagedThisTurn` exists and why it is written by both damage paths.
+    //
+    // The two together are the card: it rewards a Poro that fought and came
+    // through untouched, and the obvious implementation — read `damage` after the
+    // combat — reports EVERY Poro as untouched, which looks like a working card.
+    on: "combatEnded",
+    applies: (state, listener, event) =>
+      event.kind === "combatEnded" &&
+      event.participantInstanceIds.includes(listener.card.instanceId) &&
+      listener.card.kind === "Unit" &&
+      listener.card.damagedThisTurn !== true,
+    resolve: (state, listener, event) => {
+      if (event.kind !== "combatEnded") return state;
+      // Re-read from the LIVE unit rather than from the listener snapshot: the
+      // trigger is held, and a spell resolving in the window can damage it before
+      // this pays out. The listener's copy was taken when the combat ended.
+      const live = findUnitAnywhere(state, listener.card.instanceId);
+      if (!live || live.unit.damagedThisTurn === true) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
+  [ASTRAL_HERON]: {
+    // Astral Heron — "When you play your FIRST card each turn, if I'm at a
+    // battlefield, your NEXT card costs [2 Energy][rainbow][rainbow] less."
+    //
+    // Three conditions and a two-part discount:
+    //
+    //   - **"your FIRST card each turn"**: `cardsPlayedThisTurn` is bumped inside
+    //     `executePlayCardInner`, which runs BEFORE this event is held, so the
+    //     first card of the turn arrives with the counter already at 1. Asked as
+    //     `=== 1` for that reason — the same off-by-one Jayce's gear clause has.
+    //   - **"if I'M AT A BATTLEFIELD"**: positional, so a Heron in base grants
+    //     nothing.
+    //   - **"YOUR next card"**: the controller's, not the opponent's.
+    //
+    // The discount is a CHARGE on the player, spent by the next card played, and
+    // it is the pool's first that reduces ENERGY AND POWER together — hence two
+    // fields rather than reusing `nextSpellEnergyDiscount`, which is Spells only
+    // and has no Power half.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      listener.battlefieldId !== undefined &&
+      state.players[listener.ownerIndex].cardsPlayedThisTurn === 1,
+    resolve: (state, listener) =>
+      armNextCardDiscount(state, listener.ownerIndex, ASTRAL_HERON_ENERGY, ASTRAL_HERON_POWER),
+  },
   [SHEN_SCOURGE]: {
     // Shen, Scourge of Shadows — "When I HOLD, if there is exactly one other unit
     // you control here, draw 1."

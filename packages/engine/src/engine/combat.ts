@@ -374,7 +374,10 @@ function applyDamage(state: GameState, units: readonly UnitInstance[], pending: 
     // damage as it is assigned". It is applied once: combat never routes through
     // `dealDamage`, whose own multiplier is the non-combat half of the same card.
     const landed = dmg !== undefined && damageIsDoubledFor(state, u.instanceId) ? dmg * 2 : dmg;
-    return landed ? { ...u, damage: u.damage + landed } : u;
+    // The COMBAT half of `damagedThisTurn` — see `UnitInstance.damagedThisTurn`.
+    // Two writers because there are two damage paths, and the one that heals the
+    // board three steps later is this one.
+    return landed ? { ...u, damage: u.damage + landed, damagedThisTurn: true as const } : u;
   });
 }
 
@@ -490,6 +493,22 @@ function combatWinner(
   return undefined;
 }
 
+/**
+ * Holds the combat-ended moment, carrying WHO was in it.
+ *
+ * The ids are snapshotted because the Step 3 cleanup has already run by the time
+ * a held trigger resolves — surviving attackers are recalled home (466.3.d) and
+ * the dead are in a trash, so the board can no longer answer "was I in that
+ * combat". The same reason `DeathContext` carries its unit.
+ */
+function holdCombatEnded(state: GameState, battlefieldId: string, participants: readonly UnitInstance[]): GameState {
+  return holdEventTrigger(state, {
+    kind: "combatEnded",
+    battlefieldId,
+    participantInstanceIds: participants.map((u) => u.instanceId),
+  });
+}
+
 /** Holds the 466.3.a win, if there was one. A no-op on a No Result, so callers
  *  do not each repeat the check. */
 function holdCombatWon(
@@ -549,7 +568,16 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
     // still standing has WON, which is the same reading the comment above
     // already took for establishing control.
     const walkoverWinner = combatWinner(attackerUnits, defenderUnits, attackerIndex, defenderIndex);
-    return establishControlAfterCombat(holdCombatWon(healAllUnits(state), battlefieldId, walkoverWinner), bfIndex);
+    // A walkover is still a combat that ENDED — the `walkout` probe counts ~190
+    // of these in 200 games, and a Poro standing alone at an abandoned
+    // battlefield has been in one. Held on this path too, so "a combat I was in
+    // ends" does not quietly mean "a combat with an exchange".
+    const walkoverEnded = holdCombatEnded(
+      holdCombatWon(healAllUnits(state), battlefieldId, walkoverWinner),
+      battlefieldId,
+      [...attackerUnits, ...defenderUnits],
+    );
+    return establishControlAfterCombat(walkoverEnded, bfIndex);
   }
 
   const attackerPool = attackerUnits.reduce((sum, u) => sum + outgoingMight(state, u, attackerIndex, battlefieldId, true), 0);
@@ -655,6 +683,14 @@ export function resolveShowdown(state: GameState, battlefieldId: string, attacke
   // win resolves ahead of any conquer trigger the same combat produces —
   // winning is what caused the conquest, not the other way round.
   next = holdCombatWon(next, battlefieldId, combatWinner(survivingAttackers, survivingDefenders, attackerIndex, defenderIndex));
+  // "When a combat that I was in ENDS" — held here, after the exchange and the
+  // Step 3 cleanup, and BEFORE control is established for the same reason the win
+  // is: the combat ending is what caused the conquest.
+  //
+  // The participant list is the units that were at the battlefield when the
+  // damage step began, which is what "was in" means — a unit recalled home by
+  // 3d, or killed outright, was still in it.
+  next = holdCombatEnded(next, battlefieldId, [...attackerUnits, ...defenderUnits]);
 
   // ── Establish control, rule 466.5 ──────────────────────────────────────
   // The rules ask one question, not three: whoever still has units here takes

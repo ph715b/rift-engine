@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=141 unimplemented=35   partial=6      (2026-08-19, after the alias fix, ten card waves, Fallen Feline and Endless Riches; MIND is finished but for its two partials)
+VEN: needing=176  implemented=147 unimplemented=29   partial=6      (2026-08-19, after the alias fix, eleven card waves, Fallen Feline and Endless Riches; MIND and CALM are both finished but for one partial each)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 35 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 29 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,60 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Calm, wave 2 — done 2026-08-19 (the six that needed mechanism)
+
+VEN-024 Affectionate Poro, 034 Resonating Strike, 039 Crumbling Sands, 040 Decree
+of Focus, 041 Riven Shattered, 044 Astral Heron. VEN 141 -> 147, and **Calm is
+finished apart from its one partial**. Tests in `test/ven-calm-wave2.test.ts`
+(33); **31 mutants — 29 killed, 2 measured-redundant and labelled in place.**
+
+**Two of the six needed a fact the engine was actively DESTROYING**, which is the
+lesson worth keeping from this wave. Affectionate Poro asks two questions and the
+board can answer neither by the time a held trigger resolves:
+
+| the question | what destroys the answer |
+|---|---|
+| "have I been dealt damage this turn" | rule 466 step **3c** heals EVERY unit on the board at the end of every combat, so `damage` reads 0 whatever happened |
+| "was I in that combat" | step **3d** recalls surviving attackers home before the trigger resolves |
+
+So `damagedThisTurn` is a per-unit flag written by BOTH damage paths, and
+`combatEnded` carries its PARTICIPANTS — the same reason `DeathContext` carries
+its unit. The obvious implementation of this card (read `damage` after the
+combat) reports every Poro as untouched and looks like it works.
+
+`combatEnded` is the set's second new moment after `mainPhaseStarted`, and it is
+distinct from `combatWon`: that one fires only when there IS a winner (466.3.a)
+and is about the RESULT. Held, not inline, like its predecessor. **walkout stayed
+at 190/113/29 with it in**, checked immediately rather than at the end.
+
+**Decree of Focus got a NAMED narrowing rather than an axis.** "A friendly unit
+in combat with an enemy Fury unit OR being chosen by an enemy Fury spell" is one
+card's compound condition — one disjunct about the BOARD, one about the CHAIN —
+and an axis called `inCombatWithDomainOrChosenBySpellOfDomain` would be a worse
+lie than admitting it belongs to one card. `NAMED_UNIT_NARROWINGS` sits beside
+`UNCHOOSEABLE_BY_ENEMIES`, which makes the same trade.
+
+**SIX mutants survived the first pass, and they split three ways** — which is the
+first time this session the three categories the `mutation-test` skill names have
+all appeared at once:
+
+1. **Two guards covering one outcome** (the Poro's `applies` and its resolver
+   re-check). With the board static, deleting either leaves the hand empty. Fixed
+   by reading the PLACEMENT for one and by damaging the unit inside the response
+   window for the other — the only state where the resolver's check is the one
+   that matters.
+2. **A test that asserted the wrong end** (the Heron's charge, checked through
+   `runEnd`'s sweep instead of through the play that spends it — one turn too
+   late). Fixed with a real `submit`.
+3. **Two genuinely REDUNDANT guards**, now labelled `MEASURED-REDUNDANT` in place
+   rather than deleted: Resonating Strike's "never base" is already covered by the
+   battlefield lookup failing, and Riven's zero-Equipment early return by
+   `dealDamage` gating on an arriving amount above zero. Both say what the CARD
+   says, and both stop a future change from silently making them false.
+
+Reachability pin 766 -> 773 against 777; VEN 128 -> 135, four finished sets EXACT
+for the TWELFTH wave.
 
 ### Calm, wave 1 — done 2026-08-19 (10 of the domain's 17)
 

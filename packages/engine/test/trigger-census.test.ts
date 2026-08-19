@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("372 held / 8 inline of 380 trigger cards", () => {
+  it("375 held / 8 inline of 383 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -686,10 +686,29 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // is a damage modifier, and VEN-029 Ol' Poro and VEN-036 Sandstone Chimera
     // are board restrictions — a self-imposed play restriction and a channel cap,
     // neither of which is a trigger.
+    // **372/8/380 -> 375/8/383 on 2026-08-19: Vendetta's Calm wave 2, three
+    // trigger cards out of six.** By family and by name:
+    //
+    //     event (+3)  VEN-024 Affectionate Poro on a NEW moment, `combatEnded`
+    //                 (see below); VEN-041 Riven, Shattered (`combatBegan`, via
+    //                 `attackEventTriggers`); VEN-044 Astral Heron (`cardPlayed`)
+    //     distinct: 3
+    //
+    // **`combatEnded` is the second new moment this set has needed**, after
+    // `mainPhaseStarted`, and for a related reason: the engine had `combatWon`,
+    // which fires only when there IS a winner (466.3.a) and is about the RESULT.
+    // "A combat that I was in ENDS" happens for every combat including a No
+    // Result, and it carries its PARTICIPANTS because rule 466's Step 3 cleanup
+    // recalls surviving attackers home before any held trigger resolves.
+    //
+    // `inline` did not move: the new moment is HELD, like `mainPhaseStarted`.
+    //
+    // The other three are correctly absent: VEN-034 Resonating Strike, VEN-039
+    // Crumbling Sands and VEN-040 Decree of Focus are SPELL effects.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 372,
+      held: 375,
       inline: 8,
-      cards: 380,
+      cards: 383,
     });
   });
 

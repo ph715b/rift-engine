@@ -82,6 +82,8 @@ function player(id: string) {
     firstFriendlyDeathUsedThisTurn: false, extraMightPerBuffThisTurn: 0, discardedThisTurn: false,
     scoredBattlefieldsThisTurn: [], unitsEnterReadyThisTurn: false, restrictedSpellEnergy: 0,
     restrictedSpellPower: 0, nextUnitsEnterReady: 0, unitsLostThisTurn: 0, nextSpellEnergyDiscount: 0,
+    nextCardEnergyDiscount: 0,
+    nextCardPowerDiscount: 0,
     nextSpellBonusDamage: 0, cannotPlayCardsThisTurn: false, hideIgnoresCostThisTurn: false,
     preventsSpellDamageThisTurn: false, replacedCostPlays: [],
   };

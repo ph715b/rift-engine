@@ -144,6 +144,22 @@ export type TargetingSpec =
        * disempowered in the response window stops being a legal choice.
        */
       empoweredOnly?: true;
+      /**
+       * A narrowing too CARD-SPECIFIC to be an axis — named here and defined in
+       * `target-lookup.NAMED_UNIT_NARROWINGS`.
+       *
+       * Decree of Focus (VEN-040) is the first: "a friendly unit that's in combat
+       * with an enemy Fury unit OR that's being chosen by an enemy Fury spell".
+       * That is one card's compound condition, and an axis named after it
+       * (`inCombatWithDomainOrChosenBySpellOfDomain`) would be a worse lie than
+       * admitting it is card-specific.
+       *
+       * The same trade `UNCHOOSEABLE_BY_ENEMIES` makes one file over: a table of
+       * per-card predicates, so the next card is a row rather than a field. And
+       * like every other narrowing here it is applied in the shared places, so the
+       * enumerator, the validator and `hasAnyLegalEffectChoice` cannot disagree.
+       */
+      narrowing?: string;
       attackingOnly?: true;
       /**
        * The printed text says "you MAY choose" — declining is a legal option, so
@@ -1792,6 +1808,11 @@ export function cardPlacesTokens(defId: string): boolean {
  *  the token-placing spells use, for the same reason: it is a place, not a
  *  second target. Unlike those, it is mandatory — a move with nowhere to go is
  *  not a move, so a card here is not offered without one. */
+/** Cards whose printed destination is "a battlefield YOU CONTROL", and which
+ *  additionally require the unit to be somewhere else — Resonating Strike is the
+ *  first, and both halves are one sentence of its text. */
+const MOVE_DESTINATION_MUST_BE_CONTROLLED = new Set(["VEN-034"]);
+
 const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   "OGN-043", // Charm — "Move an enemy unit."
   // Twilight Step (VEN-105) — "Move a unit with 3 [Might] or less." Charm's shape
@@ -1799,6 +1820,11 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // drags an enemy out of a battlefield they were holding. The ceiling is a
   // `maxMight` on its targeting spec; only the DESTINATION axis is this table's.
   "VEN-105",
+  // Resonating Strike (VEN-034) — "choose a battlefield you control and a unit
+  // you control at a different location. Move that unit to that battlefield."
+  // Charm's shape again, and the only card here whose DESTINATION is narrowed by
+  // its own text: `moveDestinationMustBeControlled` reads that.
+  "VEN-034",
   // Tricksy Tentacles — "Move any number of enemy units with the same controller
   // and a total Might of 8 or less to a single location."
   //
@@ -1886,6 +1912,39 @@ export function moveDestinationAllowed(
    *  base — 107.1.c means there is only ever one base it could go to. */
   destination: string | "base",
 ): boolean {
+  // Resonating Strike (VEN-034) — "choose a BATTLEFIELD YOU CONTROL and a unit
+  // you control AT A DIFFERENT LOCATION".
+  //
+  // Two narrowings on the destination, and both are printed. "A different
+  // location" is what makes the card a move rather than a pump: a unit already
+  // standing there has nowhere to go, and offering it would be an action whose
+  // only effect is the +2 — which is not what the card says it does.
+  //
+  // Asked HERE rather than in the resolver because this function is the one both
+  // the enumerator and the validator go through, which is the split its own doc
+  // comment above is about.
+  if (MOVE_DESTINATION_MUST_BE_CONTROLLED.has(defId)) {
+    if (movedUnitInstanceId === undefined) return false;
+    const moved = findUnitAnywhere(state, movedUnitInstanceId);
+    if (!moved) return false;
+    // Never base: the card names a battlefield.
+    //
+    // **MEASURED-REDUNDANT.** Deleting this line changes nothing, because the
+    // lookup two lines down cannot find a battlefield called "base" and returns
+    // false anyway. Kept because it says what the CARD says rather than relying
+    // on a lookup failing for an unrelated reason — the next narrowing added
+    // here might well accept a base, and this line is what stops that from
+    // silently becoming true for Resonating Strike too.
+    if (destination === "base") return false;
+    const battlefield = state.battlefields.find((bf) => bf.id === destination);
+    if (!battlefield) return false;
+    if (battlefield.controllerId !== state.players[moved.ownerIndex].id) return false;
+    // "AT A DIFFERENT LOCATION" — the unit must not already be standing there.
+    const alreadyHere = (battlefield.units[state.players[moved.ownerIndex].id] ?? []).some(
+      (u) => u.instanceId === movedUnitInstanceId,
+    );
+    if (alreadyHere) return false;
+  }
   if (!MOVE_DESTINATION_NEEDS_SAME_CONTROLLER.has(defId)) return true;
   if (movedUnitInstanceId === undefined) return false;
   const moved = findUnitAnywhere(state, movedUnitInstanceId);

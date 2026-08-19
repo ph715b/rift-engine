@@ -706,7 +706,19 @@ export function scaledPowerDiscount(state: GameState, playerIndex: 0 | 1, defId:
   if (defId === KEEPER_OF_LAW && keeperOfLawConditionMet(state, playerIndex)) {
     return KEEPER_OF_LAW_POWER;
   }
-  return 0;
+  // Astral Heron's charge, POWER half. Card-agnostic, unlike the three branches
+  // above: the Heron discounts your NEXT card whatever it is, so this one is
+  // keyed on the player rather than on a defId — the first entry here that is.
+  //
+  // The ENERGY half is the matching branch in `modifiedEnergyCost`; both read
+  // the same pair of fields so they cannot disagree about whether the charge is
+  // live.
+  // `?? 0` because this is the FIRST branch here keyed on the player rather than
+  // on a defId, so it reads a field on every play rather than on one card's — and
+  // a hand-built `GameState` missing it produced `NaN power` in a web test rather
+  // than a missing discount. A cost helper that can return NaN is worse than one
+  // that under-discounts, and the fixtures were fixed too.
+  return state.players[playerIndex].nextCardPowerDiscount ?? 0;
 }
 
 /**
@@ -1284,6 +1296,12 @@ export function modifiedEnergyCost(
   // Read here and SPENT in execute-play-card — a cost modifier is asked several
   // times per play (enumeration, validation, the float math) and must give the
   // same answer each time, so it cannot be the thing that consumes the charge.
+  // Astral Heron's charge, on a card of ANY kind. Applied beside the spell-only
+  // one below rather than folded into it: the two have different reach and are
+  // spent by different plays, and a player can hold both at once.
+  if (player.nextCardEnergyDiscount > 0) {
+    cost = Math.max(0, cost - player.nextCardEnergyDiscount);
+  }
   if (cardKind === "Spell" && player.nextSpellEnergyDiscount > 0) {
     cost = Math.max(0, cost - player.nextSpellEnergyDiscount);
   }

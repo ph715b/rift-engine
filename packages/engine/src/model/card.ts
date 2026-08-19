@@ -159,6 +159,24 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    */
   unchooseableByEnemiesThisTurn?: true;
   /**
+   * Has this unit been dealt damage THIS TURN — Affectionate Poro's (VEN-024)
+   * "if I haven't been dealt damage this turn".
+   *
+   * **`damage` cannot answer this, and rule 466 step 3c is why.** Combat ends by
+   * healing EVERY unit on the board, so a unit that soaked ten damage in the
+   * exchange has `damage: 0` by the time any combat-ended trigger resolves. The
+   * fact the card asks about does not survive in the field that looks like it
+   * holds it — which is exactly the shape `test/fixtures` warns about for reading
+   * combat outcomes through damage rather than through deaths.
+   *
+   * Written by BOTH damage paths: `dealDamage` for spells and abilities, and
+   * `combat.ts`'s own arithmetic for the damage step. A flag rather than a count,
+   * because every reader so far asks "any at all".
+   *
+   * Swept by `runEnd`, and DELETED rather than set false, like its neighbours.
+   */
+  damagedThisTurn?: true;
+  /**
    * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
    * (rule 705), which persists across turns until it is spent or the unit
    * leaves play (rule 705).

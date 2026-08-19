@@ -95,6 +95,8 @@ function makePlayer(id: string): PlayerState {
     conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
+    nextCardEnergyDiscount: 0,
+    nextCardPowerDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
     cannotPlaySpellsThisTurn: false,

@@ -503,7 +503,12 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
           ),
         };
 
-  const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + arriving };
+  // `damagedThisTurn` is set beside the damage itself — Affectionate Poro asks
+  // "have I been dealt damage this turn", and rule 466 step 3c heals the board at
+  // the end of every combat, so the `damage` field cannot answer it later. Set
+  // where the damage LANDS rather than where it was announced: a prevented or
+  // fully-absorbed hit is not damage that was dealt.
+  const damagedUnit: UnitInstance = { ...unit, damage: unit.damage + arriving, damagedThisTurn: true };
   // A base unit has no battlefield id — continuous auras keyed on location
   // (Garen - Commander) resolve it as "base" from the omitted field.
   const mightCtx = zone === "base" ? { isCombat: false } : { isCombat: false, battlefieldId: state.battlefields[zone.battlefieldIndex]!.id };
@@ -777,6 +782,29 @@ export function setBaseMightThisTurn(state: GameState, targetInstanceId: string,
  * response to her own on-play trigger, and the naming then has nobody to record
  * against.
  */
+/**
+ * Arms Astral Heron's "your next card costs [2][rainbow][rainbow] less".
+ *
+ * SET rather than added, deliberately: two Herons both firing on the same first
+ * card do not stack to [4], because each grants "your next card costs [2] less"
+ * about the same next card. That is the reading `nextSpellEnergyDiscount`'s
+ * neighbours take for the same phrasing, and it is recorded Unverified in
+ * docs/rules-conformance.md — a stacking reading is defensible and the pool
+ * cannot currently distinguish them.
+ */
+export function armNextCardDiscount(
+  state: GameState,
+  playerIndex: 0 | 1,
+  energy: number,
+  power: number,
+): GameState {
+  return updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    nextCardEnergyDiscount: energy,
+    nextCardPowerDiscount: power,
+  }));
+}
+
 export function nameSpellOn(state: GameState, unitInstanceId: string, spellName: string): GameState {
   return updateUnitAnywhere(state, unitInstanceId, (unit) => ({ ...unit, namedSpell: spellName }));
 }

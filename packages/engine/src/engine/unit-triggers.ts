@@ -28,7 +28,7 @@ import { domainUnitTriggers, mergeRegistries } from "./effects/index.js";
 import { parkDecision } from "./decisions.js";
 import { attackerIndexAt, isAttackingAt, isStillHere } from "./combat-designation.js";
 import type { EventTriggerDefinition } from "./triggers.js";
-import { holdWeaponmasterOffer } from "./equipment.js";
+import { equipmentAttachedTo, holdWeaponmasterOffer } from "./equipment.js";
 
 export type UnitPlayDestination = TokenDestination;
 
@@ -111,6 +111,9 @@ export interface UnitTriggerDefinition {
   targeting: TargetingSpec;
   resolve: (state: GameState, ctx: EffectContext, unitInstanceId: string, event: UnitTriggerEvent) => GameState;
 }
+
+/** Riven, Shattered's damage per attached Equipment. */
+const RIVEN_SHATTERED_DAMAGE = 2;
 
 /**
  * Will this card predict as it enters — fanned into two distinct legal PlayCard
@@ -783,6 +786,42 @@ type AttackTriggerBody = (state: GameState, ctx: EffectContext, unit: UnitInstan
  * gated on it.
  */
 const ATTACK_TRIGGERS: Record<string, AttackTriggerBody> = {
+  // Riven, Shattered (VEN-041) — "[Weaponmaster] When I attack, choose an enemy
+  // unit here. Deal 2 to it for each Equipment attached to me."
+  //
+  // **`[Weaponmaster]` needs nothing here.** It is a printed keyword, fired
+  // generically from `execute-play-card`'s Unit branch by `holdWeaponmasterOffer`
+  // — so her first sentence works the moment the card exists, and only this one
+  // is card work. Coverage merges the two claims.
+  //
+  // The damage SCALES with the Equipment she is wearing, which is what makes the
+  // Weaponmaster half more than flavour: the discount that attaches a second
+  // Equipment is also what doubles this. Zero Equipment deals zero and the
+  // trigger is a no-op rather than an error — a Riven played with nothing to
+  // equip still attacks.
+  //
+  // **AUTO-SELECTED, like every other attack trigger in this table**, and for the
+  // structural reason they all record: an attack trigger fires inside the move
+  // executor with no action left to hang a choice on. The pick is the first enemy
+  // unit here in board order. Recorded Unverified in docs/rules-conformance.md
+  // alongside the others.
+  "VEN-041": (state, ctx, unit, battlefieldId) => {
+    const attached = equipmentAttachedTo(state, unit.instanceId).length;
+    // **MEASURED-REDUNDANT.** Deleting this early return changes nothing: the
+    // damage below is `attached * 2`, and `dealDamage` gates on an arriving
+    // amount above zero. Kept because "deal 0 damage to a unit" is not what the
+    // card describes and the guard says so — and because a future damage
+    // modifier that ADDS to what arrives would turn a 0 into a 1 without it.
+    if (attached === 0) return state;
+    const bf = state.battlefields.find((b) => b.id === battlefieldId);
+    if (!bf) return state;
+    const casterId = state.players[ctx.casterIndex].id;
+    const victim = Object.entries(bf.units)
+      .filter(([ownerId]) => ownerId !== casterId)
+      .flatMap(([, units]) => units)[0];
+    if (!victim) return state;
+    return dealDamage(state, ctx.casterIndex, victim.instanceId, attached * RIVEN_SHATTERED_DAMAGE);
+  },
   // Volibear - Furious — "[Deflect 2] When I attack, deal 5 damage SPLIT among any
   // number of enemy units here."
   //

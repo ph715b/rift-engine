@@ -471,6 +471,10 @@ export function runEnd(state: GameState): GameState {
     // Twilight Shroud's "can't be chosen by enemy spells and abilities this
     // turn". Deleted rather than set false, like its neighbour above.
     ...("unchooseableByEnemiesThisTurn" in u ? { unchooseableByEnemiesThisTurn: undefined } : {}),
+    // Affectionate Poro's "haven't been dealt damage this turn". Deleted rather
+    // than set false, like its neighbours — and swept HERE rather than at the end
+    // of combat, because the card asks about the TURN and a unit can fight twice.
+    ...("damagedThisTurn" in u ? { damagedThisTurn: undefined } : {}),
     ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
@@ -561,6 +565,8 @@ export function runEnd(state: GameState): GameState {
     // Raging Firebrand's unspent charge and Unyielding Spirit's prevention are
     // both "this turn" and end with it, exactly like the fields above.
     nextSpellEnergyDiscount: 0,
+    nextCardEnergyDiscount: 0,
+    nextCardPowerDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
     // Lilting Lullaby's narrower ban expires with the turn exactly as Brynhir's

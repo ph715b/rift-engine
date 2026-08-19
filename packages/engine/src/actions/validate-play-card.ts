@@ -15,6 +15,7 @@ import {
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
   unitSatisfiesEmpoweredOnly,
+  unitSatisfiesNarrowing,
   unitWithinMaxMight,
 } from "../engine/target-lookup.js";
 import type { TargetScope, UnitSlotRole } from "../engine/card-effects.js";
@@ -210,6 +211,9 @@ function targetingRejection(
     }
     if (!unitSatisfiesEmpoweredOnly(state, location.unit, targeting.empoweredOnly)) {
       return `${cardName} can only target an [Empowered] unit`;
+    }
+    if (!unitSatisfiesNarrowing(state, location.unit, location.ownerIndex, targeting.narrowing)) {
+      return `${cardName} cannot target that unit`;
     }
     if (!unitSatisfiesAttackingOnly(state, location.unit, targeting.attackingOnly)) {
       return `${cardName} can only target an ATTACKING unit`;

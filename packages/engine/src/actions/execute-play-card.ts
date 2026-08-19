@@ -574,6 +574,11 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
     // Spell consumes the whole standing discount however many Firebrands built
     // it, and the second Spell this turn gets nothing.
     nextSpellEnergyDiscount: card.kind === "Spell" ? 0 : actor.nextSpellEnergyDiscount,
+    // Astral Heron's charge is spent by the NEXT CARD of any kind, so unlike the
+    // spell-only one above it clears unconditionally — this file is only reached
+    // by a card being played.
+    nextCardEnergyDiscount: 0,
+    nextCardPowerDiscount: 0,
   };
 
   if (card.kind === "Unit") {

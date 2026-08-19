@@ -26,7 +26,9 @@ import {
   gearOwnerMatches,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
+  ownerIndexOf,
   unitSatisfiesEmpoweredOnly,
+  unitSatisfiesNarrowing,
   unitWithinMaxMight,
   activatableGearTargets,
 } from "./target-lookup.js";
@@ -1272,6 +1274,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope, targeting.domain)) {
         if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
         if (!unitSatisfiesEmpoweredOnly(state, target, targeting.empoweredOnly)) continue;
+        if (!unitSatisfiesNarrowing(state, target, ownerIndexOf(state, target), targeting.narrowing)) continue;
         if (!unitSatisfiesAttackingOnly(state, target, targeting.attackingOnly)) continue;
         if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetUnitInstanceId: target.instanceId });

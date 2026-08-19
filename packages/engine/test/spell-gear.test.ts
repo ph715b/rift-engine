@@ -74,6 +74,8 @@ function emptyPlayer(id: string, name: string, legend: LegendInstance): PlayerSt
     conqueredBattlefieldsThisTurn: [],
     unitsLostThisTurn: 0,
     nextSpellEnergyDiscount: 0,
+    nextCardEnergyDiscount: 0,
+    nextCardPowerDiscount: 0,
     nextSpellBonusDamage: 0,
     cannotPlayCardsThisTurn: false,
     cannotPlaySpellsThisTurn: false,

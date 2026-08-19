@@ -475,6 +475,7 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
         (u) =>
           unitWithinMaxMight(state, u, targeting.maxMight) &&
           unitSatisfiesEmpoweredOnly(state, u, targeting.empoweredOnly) &&
+          unitSatisfiesNarrowing(state, u, ownerIndexOf(state, u), targeting.narrowing) &&
           unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
       );
     case "unitSlots": {
@@ -853,6 +854,110 @@ export function chooseRestrictionDefIds(): string[] {
  * `unitSatisfiesAttackingOnly` beside it has one: the enumerator, the validator
  * and `hasAnyLegalEffectChoice` must ask it in exactly the same words.
  */
+/**
+ * Narrowings that are one card's compound condition rather than a reusable axis.
+ *
+ * Keyed by a name the card's spec supplies, so adding one is a row here plus a
+ * `narrowing` on the spec — the same shape `UNCHOOSEABLE_BY_ENEMIES` above takes,
+ * and for the same reason: a field per card would grow the shared type by one
+ * lie each time.
+ */
+const NAMED_UNIT_NARROWINGS: Readonly<
+  Record<string, (state: GameState, unit: UnitInstance, unitOwnerIndex: 0 | 1) => boolean>
+> = {
+  // Decree of Focus (VEN-040) — "a friendly unit that's IN COMBAT WITH an enemy
+  // Fury unit, or that's BEING CHOSEN BY an enemy Fury spell".
+  //
+  // Two disjuncts, and they are two different questions about the same moment:
+  // one is about the BOARD (who is standing at the contested battlefield), the
+  // other about the CHAIN (what is pointed at this unit right now). Both are why
+  // the card is a `[Reaction]` — it is bought to be held up.
+  //
+  // "ENEMY Fury" is measured from the unit's own controller, so a Fury unit of
+  // your own fighting beside it does not qualify it.
+  "VEN-040-focus": (state, unit, unitOwnerIndex) =>
+    inCombatWithEnemyOfDomain(state, unit, unitOwnerIndex, "Fury") ||
+    chosenByEnemySpellOfDomain(state, unit, unitOwnerIndex, "Fury"),
+};
+
+/** Is this unit at a Contested battlefield where the OTHER player has a unit of
+ *  `domain`? The board half of Decree of Focus's condition. */
+function inCombatWithEnemyOfDomain(
+  state: GameState,
+  unit: UnitInstance,
+  unitOwnerIndex: 0 | 1,
+  domain: Domain,
+): boolean {
+  const owner = state.players[unitOwnerIndex];
+  const enemy = state.players[unitOwnerIndex === 0 ? 1 : 0];
+  const here = state.battlefields.find((bf) => (bf.units[owner.id] ?? []).some((u) => u.instanceId === unit.instanceId));
+  if (!here || here.contestedByIndex === null) return false;
+  return (here.units[enemy.id] ?? []).some((u) => u.domains.includes(domain));
+}
+
+/** Is this unit named as a target by an enemy spell of `domain` currently on the
+ *  chain? The chain half of the same condition — and the reason the card is a
+ *  `[Reaction]`. */
+function chosenByEnemySpellOfDomain(
+  state: GameState,
+  unit: UnitInstance,
+  unitOwnerIndex: 0 | 1,
+  domain: Domain,
+): boolean {
+  return state.spellChain.some((entry) => {
+    // A TRIGGER on the chain has no `card` — 377.3.a.1's "the ability goes on the
+    // chain but has no card to represent it" — so the narrowing asks only about
+    // spells, which is what the card prints.
+    if (!("card" in entry)) return false;
+    if (entry.playerIndex === unitOwnerIndex) return false;
+    if (!entry.card.domains.includes(domain)) return false;
+    return chosenUnitIdsOf(entry).includes(unit.instanceId);
+  });
+}
+
+/** Every unit instance a spell on the chain has named as a target — the single
+ *  target and the list, since the pool uses both. */
+function chosenUnitIdsOf(entry: {
+  targetUnitInstanceId?: string;
+  targetUnitInstanceIds?: readonly string[];
+}): string[] {
+  return [entry.targetUnitInstanceId, ...(entry.targetUnitInstanceIds ?? [])].filter(
+    (id): id is string => id !== undefined,
+  );
+}
+
+/**
+ * Does this unit satisfy a `narrowing` named on the spec?
+ *
+ * An unknown name returns TRUE rather than false, deliberately: a spec naming a
+ * narrowing nobody registered is a bug in the card, and failing open makes it a
+ * visible over-offer rather than a card that silently targets nothing.
+ */
+/** Whose unit is this? The narrowings need it and `eligibleTargets` has already
+ *  thrown the answer away by the time they run, so it is re-derived here — a
+ *  walk over two zones, which is cheap beside the lookahead that calls it. */
+export function ownerIndexOf(state: GameState, unit: UnitInstance): 0 | 1 {
+  return state.players[0].baseUnits.some((u) => u.instanceId === unit.instanceId) ||
+    state.battlefields.some((bf) => (bf.units[state.players[0].id] ?? []).some((u) => u.instanceId === unit.instanceId))
+    ? 0
+    : 1;
+}
+
+export function unitSatisfiesNarrowing(
+  state: GameState,
+  unit: UnitInstance,
+  unitOwnerIndex: 0 | 1,
+  narrowing: string | undefined,
+): boolean {
+  if (narrowing === undefined) return true;
+  return NAMED_UNIT_NARROWINGS[narrowing]?.(state, unit, unitOwnerIndex) ?? true;
+}
+
+/** For coverage.ts — the cards whose whole targeting condition lives here. */
+export function namedNarrowingDefIds(): string[] {
+  return Object.keys(NAMED_UNIT_NARROWINGS).map((name) => name.split("-").slice(0, 2).join("-"));
+}
+
 export function unitSatisfiesEmpoweredOnly(
   state: GameState,
   unit: UnitInstance,

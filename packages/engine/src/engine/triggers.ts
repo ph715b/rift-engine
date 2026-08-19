@@ -739,6 +739,21 @@ export type GameEvent =
    */
   | { kind: "mainPhaseStarted"; playerIndex: 0 | 1 }
   /**
+   * A combat at `battlefieldId` has ENDED — rule 466's Step 3 Cleanup is done.
+   *
+   * **`participantInstanceIds` is carried rather than re-derived, and 466.3.d is
+   * why**: the cleanup recalls surviving attackers home before anything can look
+   * at the board, so "was I in that combat" has no answer left by the time a held
+   * trigger resolves. The same reason `DeathContext` snapshots the dying unit.
+   *
+   * Distinct from `combatWon` beside it: that one fires only when there is a
+   * winner (466.3.a) and is about the RESULT, while this fires for every combat
+   * including a No Result and is about the MOMENT. Affectionate Poro's "when a
+   * combat that I was in ends" needs the second and would be silently wrong on
+   * the first.
+   */
+  | { kind: "combatEnded"; battlefieldId: string; participantInstanceIds: readonly string[] }
+  /**
    * `playerIndex`'s turn is ending — Sona - Harmonious's "at the end of your
    * turn", and the same moment `dispatchLegendEndOfTurn` already serves for
    * Annie - Dark Child.
@@ -1283,6 +1298,7 @@ export type HeldEventKind =
   | "battlefieldConquered"
   | "cardPlayed"
   | "mainPhaseStarted"
+  | "combatEnded"
   | "unitMoved"
   | "endOfTurn"
   | "unitReadied"

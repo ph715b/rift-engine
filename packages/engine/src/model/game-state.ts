@@ -949,6 +949,24 @@ export interface PlayerState {
    *  than a flag that is read. Cleared by `runEnd` with the rest of the
    *  this-turn state, and consumed by the first Spell played. */
   nextSpellEnergyDiscount: number;
+  /**
+   * A discount on the NEXT CARD of any kind — Astral Heron (VEN-044): "your next
+   * card costs [2 Energy][rainbow][rainbow] less."
+   *
+   * **Two fields rather than a reuse of `nextSpellEnergyDiscount` above**, and
+   * both differences are printed: that one is SPELLS only and has no Power half,
+   * while this reaches units and gear and takes two rainbow pips off as well. A
+   * card is the pool's first to discount both resources at once.
+   *
+   * Spent by the next card PLAYED, whatever it is, and cleared by `runEnd` with
+   * the rest of the turn's charges — a discount held over to the next turn would
+   * be a different and much stronger card.
+   */
+  nextCardEnergyDiscount: number;
+  /** The Power half of Astral Heron's discount, in RAINBOW pips — spent by the
+   *  same play that spends the Energy half. Its own field because Energy and
+   *  Power are paid from different pools and reduced at different sites. */
+  nextCardPowerDiscount: number;
   /** Ravenborn Tome's "the NEXT spell you play this turn deals 1 Bonus Damage" —
    *  a charge like `nextSpellEnergyDiscount` above, but spent one layer later:
    *  the discount is consumed when the spell is PAID for, this one when the spell

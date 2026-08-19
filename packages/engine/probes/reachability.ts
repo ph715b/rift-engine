@@ -698,7 +698,12 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // **757 -> 766 on 2026-08-19, against 770 measured after Calm wave 1.** Ten cards
 // implemented and NINE newly exercised (VEN 119 -> 128); the four finished sets
 // held EXACTLY for the ELEVENTH consecutive wave.
-const PINNED_UNION = 766;
+// **766 -> 773 on 2026-08-19, against 777 measured after Calm wave 2.** Six cards
+// implemented and SEVEN newly exercised (VEN 128 -> 135); the four finished sets
+// held EXACTLY for the TWELFTH consecutive wave — which matters more than usual
+// here, because this wave added an event to COMBAT, and a combat change that
+// displaced anything would show up in all four.
+const PINNED_UNION = 773;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();
