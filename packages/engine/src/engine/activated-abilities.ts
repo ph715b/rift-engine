@@ -41,7 +41,7 @@ import {
   readyPermanent,
 } from "./effect-helpers.js";
 import { placeRecruitToken } from "./token.js";
-import { destroyUnit, spendXp } from "./effect-helpers.js";
+import { destroyUnit, fileIntoTrash, spendXp } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
 import { eligibleTargets, findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
@@ -2489,7 +2489,10 @@ export function payActivationCost(
     players[playerIndex] = {
       ...actor,
       hand: actor.hand.filter((c) => c.instanceId !== card.instanceId),
-      trash: [...actor.trash, card],
+      // From the HAND, so Endless Riches banishes it instead. The discard still
+      // HAPPENED — `discardedThisTurn` on the next line is set either way — and
+      // only the resting place changes.
+      ...fileIntoTrash(next, playerIndex, actor, card, "elsewhere"),
       discardedThisTurn: true,
     };
     next = { ...next, players };

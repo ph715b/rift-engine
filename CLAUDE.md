@@ -79,12 +79,14 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **742, against an observed 746** of 868 cards needing
-code ever exercised, at its default **500 games per mode**, which takes **~480s**
-with Vendetta in the pool.
+`reachability` is pinned at **743, against an observed 747** of 868 cards needing
+code ever exercised, at its default **500 games per mode**. Its runtime with
+Vendetta in the pool has been measured between **347s and 496s on the same
+machine in one day**, so treat any single timing as noise unless it is
+decomposed by control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**188**, UNL **205** have held exactly across SEVEN Vendetta waves; VEN is the only
+**188**, UNL **205** have held exactly across EIGHT Vendetta waves; VEN is the only
 one that moves.
 
 **A wide DECISION costs this probe far less than the arithmetic suggests, and

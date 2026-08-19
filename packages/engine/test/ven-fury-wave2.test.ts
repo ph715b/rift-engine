@@ -316,7 +316,7 @@ describe("coverage sees the wave", () => {
     }
   });
 
-  it("Endless Riches (VEN-022) is DELIBERATELY still unimplemented", () => {
+  it("Endless Riches (VEN-022) was the wave's refusal, and it was ANSWERED", () => {
     // Four continuous clauses on one gear, and only the first is card work:
     // "banish your hand and trash, then [Burn 7]" is an on-play effect the pieces
     // already exist for. The other three are each an engine seam:
@@ -331,12 +331,23 @@ describe("coverage sees the wave", () => {
     //    Deck, banish it instead" — a replacement on TRASHING, which nothing in
     //    this engine currently replaces; the trash is written from ~15 sites.
     //
-    // Left as its own change rather than smuggled into a card wave. Pinned as an
-    // INVERTIBLE assertion: the day it is written this fails and names itself.
+    // Left as its own change rather than smuggled into a card wave, and written
+    // as its own commit on 2026-08-18 — see `test/ven-endless-riches.test.ts`.
+    //
+    // **The analysis above was right about the shape and wrong about one number**:
+    // it said the trash is written from "~15 sites". Measured, it is NINE, and
+    // seven of those had to change — the rest of the `trash:` writes in `src/` are
+    // REMOVALS. That is worth leaving in place rather than correcting silently,
+    // because the estimate is what made this look like a refactor when it was a
+    // funnel: `effect-helpers.fileIntoTrash` now owns the resting step and every
+    // caller names the zone the card came from.
+    //
+    // Inverted rather than deleted: the premise moved, so the premise is what
+    // changes.
     expect(
       isCardImplemented(registry.get("VEN-022")),
-      "Endless Riches is implemented now — invert this pin and delete the note above",
-    ).toBe(false);
+      "Endless Riches reports unimplemented again — it is a whole commit, so this is a regression",
+    ).toBe(true);
     expect(registry.get("VEN-022").text ?? "").toContain("Skip your Draw Phase");
   });
 });

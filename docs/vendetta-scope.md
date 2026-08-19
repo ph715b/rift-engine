@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=113 unimplemented=63   partial=6      (2026-08-18, after the alias fix, six card waves and Fallen Feline)
+VEN: needing=176  implemented=114 unimplemented=62   partial=6      (2026-08-18, after the alias fix, six card waves, Fallen Feline and Endless Riches)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 63 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 62 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,53 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Endless Riches (VEN-022) — done 2026-08-18, the set's second refusal answered
+
+One Gear, four clauses, its own commit. "When you play this, banish your hand and
+trash, then [Burn 7]. Skip your Draw Phase. You may play cards from your trash.
+If a card would go to your trash from anywhere other than your Main Deck, banish
+it instead." VEN 113 -> 114. Tests in `test/ven-endless-riches.test.ts` (26);
+**21 mutants, 21 killed on the first pass.**
+
+**The card is a LOOP, and every clause is load-bearing in it**: the opening
+banish empties both private zones, the Burn refills the trash FROM THE DECK —
+the one source clause four exempts — clause three turns that trash into a hand,
+and clause four stops anything ever accumulating there again. Implementing any
+three of them gives a card that does nothing.
+
+| clause | where it lives |
+|---|---|
+| "when you play this…" | a `played` SELF trigger in `effects/fury.ts` — the route all ten other gears printing that take, and the split VEN-108 was refused for mixing |
+| "skip your Draw Phase" | `turn-manager.runDraw`. The PHASE still happens; only the draw does not — which also skips the Burn Out (431) an empty deck would have caused, and a card bought to survive an empty deck must not lose to one |
+| "you may play cards from your trash" | a THIRD permission in `timing.mayPlayFromTrash` — continuous rather than banked, every card kind rather than Units, at the PRINTED price rather than a replaced one |
+| "banish it instead" | `effect-helpers.fileIntoTrash`, one funnel every trash write now goes through |
+
+**The refusal's analysis was right about the shape and wrong about one number.**
+It said the trash is written from "~15 sites". Measured, it is NINE — the rest of
+the `trash:` writes in `src/` are REMOVALS — and seven of the nine had to change.
+That estimate is what made this look like a refactor when it was a funnel, and it
+is left in place in the inverted pin rather than corrected silently.
+
+**The one thing that could quietly have been wrong, and the reason the tests are
+shaped the way they are:** "banish it instead" replaces the RESTING PLACE, not
+the event. A unit under Endless Riches still DIES — its `[Deathknell]` fires and
+`unitsLostThisTurn` counts it — where UNL-007 Smite's "if it would die this turn,
+banish it instead" replaces the death itself and returns before any of that.
+Getting those two the same way round is the whole risk, so it is asserted
+directly rather than left to where the funnel happens to sit.
+
+**A second offered-then-refused shape, with its halves swapped.** The first draft
+passed every predicate assertion while the enumerator silently dropped the card:
+`mayPlayFromTrash` permitted the zone, but `printedPriceAvailable` was still
+asking `mayPlayFromTrashOnCharge`, so a permitted card was unpriceable in every
+variant. Permitted, then refused — and nothing anywhere was "wrong". Closed by
+`mayPlayFromTrashAtPrintedPrice`, which the enumerator and the validator now both
+ask.
+
+Reachability pin 742 -> 743 against 747; VEN 104 -> 105, four finished sets held
+EXACTLY for the EIGHTH wave — the check that matters most here, since this change
+touched every trash write in the engine.
 
 ### Fallen Feline (VEN-132) — done 2026-08-18, and the refusal it answers
 

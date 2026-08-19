@@ -4,6 +4,7 @@ import type { Domain } from "../model/domain.js";
 import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
 import {
+  controlsEndlessRiches,
   mayPlaySpells,
   mayPlaySpellNamed,
   mayPlayCardsAtAll,
@@ -277,21 +278,55 @@ export function mayPlayFromTrashOnCharge(state: GameState, playerIndex: 0 | 1, c
  * and the one the enumerator and validator ask, because they care whether the
  * card is reachable rather than which permission reached it.
  *
- * Two permissions answer it and they are deliberately not merged:
+ * THREE permissions answer it and they are deliberately not merged:
  *
  *  - **A Last Rites charge** (`mayPlayFromTrashOnCharge`), Units only, at the
  *    PRINTED price, and consumed by being used.
  *  - **A card's own "play me from your trash for [Cost]"** (356.1.a), which is
  *    not consumed, is not Units-only, and carries a REPLACED price. UNL-025
  *    Undying Legion is the first.
+ *  - **Endless Riches's "you may play cards from your trash"** (VEN-022), which
+ *    is none of those things: continuous rather than banked, every card kind
+ *    rather than Units, and at the PRINTED price rather than a replaced one. It
+ *    is the first permission here that is a property of the BOARD instead of a
+ *    property of the card or of a counter, which is why it takes no argument
+ *    about the card at all.
  *
  * The executor keeps them apart for a reason worth stating: a player holding a
  * banked Last Rites charge who plays Undying Legion on ITS OWN permission must
  * not have the charge burnt. Both predicates can be true at once, and the
- * action's `replacedCostPaid` is what says which one the player chose.
+ * action's `replacedCostPaid` is what says which one the player chose. Endless
+ * Riches makes that three-way, and it is settled the same way — see
+ * `usedTrashCharge` in `execute-play-card.ts`.
  */
-export function mayPlayFromTrash(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+/**
+ * May this trash play be made at the card's PRINTED price?
+ *
+ * The question `legal-actions` asks as `printedPriceAvailable` and
+ * `validate-play-card` asks to refuse the play it declines to offer — and it is
+ * NOT the same question as "may it be played from the trash at all". A card
+ * reachable only through its own "play me from your trash for [Cost]" (UNL-025
+ * Undying Legion) must not be playable there for the printed price it prints for
+ * a play from HAND, which would drop the pip its trash price adds.
+ *
+ * **This used to be `mayPlayFromTrashOnCharge` read directly at both sites, and
+ * that stopped being the same question when Endless Riches landed.** Its
+ * permission is at the printed price and is not a charge, so a card in its
+ * controller's trash was permitted by `mayPlayFromTrash`, offered by the
+ * enumerator with `printedPriceAvailable: false`, and then priced out of every
+ * variant — the enumerator dropped it silently and nothing anywhere was wrong.
+ * That is this codebase's offered-then-refused class with the two halves swapped:
+ * permitted, then unpriceable.
+ *
+ * One predicate, asked by both, so the next permission is added in one place.
+ */
+export function mayPlayFromTrashAtPrintedPrice(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
   if (mayPlayFromTrashOnCharge(state, playerIndex, card)) return true;
+  return controlsEndlessRiches(state, playerIndex) && state.players[playerIndex].trash.some((c) => c.instanceId === card.instanceId);
+}
+
+export function mayPlayFromTrash(state: GameState, playerIndex: 0 | 1, card: CardInstance): boolean {
+  if (mayPlayFromTrashAtPrintedPrice(state, playerIndex, card)) return true;
   return replacedCostFor(state, playerIndex, card)?.zone === "trash";
 }
 

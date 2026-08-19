@@ -1,6 +1,7 @@
 import type { GameState, HiddenCard, PlayerState } from "../model/game-state.js";
 import type { CardDefinition } from "../model/card-definition.js";
 import type { CardInstance } from "../model/card.js";
+import { fileIntoTrash } from "./effect-helpers.js";
 
 /**
  * `[Hidden]` — rule 811.
@@ -234,7 +235,11 @@ export function removeUnheldHiddenCards(state: GameState): GameState {
 
   const players = [...state.players] as [PlayerState, PlayerState];
   for (const h of orphaned) {
-    players[h.ownerIndex] = { ...players[h.ownerIndex], trash: [...players[h.ownerIndex].trash, h.card] };
+    // From a BATTLEFIELD's hidden zone, so Endless Riches banishes it instead.
+    players[h.ownerIndex] = {
+      ...players[h.ownerIndex],
+      ...fileIntoTrash(state, h.ownerIndex, players[h.ownerIndex], h.card, "elsewhere"),
+    };
   }
   return { ...state, players, battlefields };
 }

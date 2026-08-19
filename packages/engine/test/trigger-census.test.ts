@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("360 held / 8 inline of 368 trigger cards", () => {
+  it("361 held / 8 inline of 369 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -605,10 +605,26 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // name" is a continuous restriction read at the play gate, not a trigger, so
     // it lives in `board-restrictions.ts` and this census cannot see it. The same
     // is true of Mageseeker Warden and Lilting Lullaby.
+    // **360/8/368 -> 361/8/369 on 2026-08-18: Endless Riches (VEN-022).** By
+    // family and by name:
+    //
+    //     self  (+1)  VEN-022 Endless Riches, "when you play this, banish your
+    //                 hand and trash, then [Burn 7]"
+    //     distinct: 1 — no alternate printing
+    //
+    // A `played` SELF trigger rather than a `unitTriggers` entry because it is a
+    // GEAR, which is the route all ten other gears printing "when you play this"
+    // take — and the split VEN-108 Forgotten Relic was refused for trying to mix.
+    //
+    // Its other THREE clauses contribute nothing here, which is the same point
+    // Fallen Feline's entry above makes: "skip your Draw Phase", "you may play
+    // cards from your trash" and "if a card would go to your trash... banish it
+    // instead" are continuous, read at gates, and structurally invisible to a
+    // census of triggers.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 360,
+      held: 361,
       inline: 8,
-      cards: 368,
+      cards: 369,
     });
   });
 

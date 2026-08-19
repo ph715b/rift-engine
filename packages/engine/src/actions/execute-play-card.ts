@@ -26,6 +26,8 @@ import { recordEnemyChoices } from "../engine/effect-helpers.js";
 import { powerCostOf } from "../model/card.js";
 import { chosenUnitsOfPlay } from "../engine/granted-keywords.js";
 import { mayPlayFromTrash, mayPlayFromTrashOnCharge } from "../engine/timing.js";
+import { fileIntoTrash } from "../engine/effect-helpers.js";
+import { controlsEndlessRiches } from "../engine/board-restrictions.js";
 import { holdsGrantedReplacedCost, replacedCostFor } from "../engine/replaced-costs.js";
 import { addBattlefieldToken, baronPitEntryFor } from "../engine/battlefield-tokens.js";
 
@@ -452,7 +454,15 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
   // Read here rather than trusted from the validator, the convention this whole
   // block follows.
   const usedTrashCharge =
-    playedFromTrash && !action.replacedCostPaid && mayPlayFromTrashOnCharge(state, action.playerIndex, card);
+    playedFromTrash &&
+    !action.replacedCostPaid &&
+    // Endless Riches permits the same play for free and forever, so a player who
+    // has it would never choose to spend a banked charge — 372 leaves the choice
+    // to the controller, and this is that choice made the only way it would ever
+    // be made. Exactly the reasoning the `replacedCostPaid` clause above records,
+    // one permission along.
+    !controlsEndlessRiches(state, action.playerIndex) &&
+    mayPlayFromTrashOnCharge(state, action.playerIndex, card);
   // The GRANTED permission's twin of the line above: read to decide the spend,
   // never spent by being read. 419.3.b's window is ONE play, so a permission that
   // outlived its own use would let one [rainbow] buy Death from Below back out of
@@ -816,8 +826,18 @@ function executePlayCardInner(rawState: GameState, action: PlayCardAction): Game
       : {
           ...actor,
           ...sharedUpdates,
-          // ...and onto the discard the shared updates already appended.
-          trash: [...sharedUpdates.trash, card],
+          // ...and onto the discard the shared updates already appended, which is
+          // why the funnel is handed `sharedUpdates.trash` rather than
+          // `actor.trash`. From the CHAIN, so Endless Riches banishes it instead
+          // — and a spell played out of the trash under it therefore does not
+          // return to that trash to be played again.
+          ...fileIntoTrash(
+            state,
+            action.playerIndex,
+            { trash: sharedUpdates.trash, banished: actor.banished },
+            card,
+            "elsewhere",
+          ),
         };
     nextState = {
       ...nextState,

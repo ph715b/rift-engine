@@ -3,14 +3,22 @@ import { selfNearVictory } from "./constants.js";
 import { canonicalDefId } from "../cards/card-loader.js";
 
 /**
- * Static restrictions a permanent imposes on the OPPONENT — and one grant it
- * gives its own side.
+ * Static effects a permanent has just by being on the board — restrictions it
+ * imposes on the OPPONENT, and the grants and permissions it gives its own side.
  *
  * Its own module because these are read at GATES rather than resolved as
- * effects: `timing.mayPlayCardNow` and `mayPlayUnitToBattlefield` for the two
- * that restrict plays, `unit-triggers.mayPlaceWithoutPresence` for the grant, and
- * `readyUnit`/`readyPermanent` for the ready-lock. A card whose whole text is
- * "you may not" has no resolver to live in.
+ * effects: `timing.mayPlayCardNow` and `mayPlayUnitToBattlefield` for the ones
+ * that restrict plays, `timing.mayPlayFromTrash` for the one that widens them,
+ * `unit-triggers.mayPlaceWithoutPresence` for the placement grant,
+ * `readyUnit`/`readyPermanent` for the ready-lock, `turn-manager.runDraw` for the
+ * skipped draw and `effect-helpers.fileIntoTrash` for the trash replacement. A
+ * card whose whole text is "you may not" — or "you may", said continuously — has
+ * no resolver to live in.
+ *
+ * **A LEAF, deliberately.** It imports the model, the card loader and constants
+ * and nothing else, which is what lets `timing`, `turn-manager`, `effect-helpers`
+ * and `execute-play-card` all ask it without a cycle. Anything here that needed
+ * to reach back into the effect machinery would belong somewhere else.
  *
  * The shared hazard, and the reason all three are together: every one of these
  * is asked by BOTH the enumerator and the validator, and them disagreeing is how
@@ -21,6 +29,46 @@ import { canonicalDefId } from "../cards/card-loader.js";
  *  turn." A one-shot lock armed by her on-play trigger, not a static — she can
  *  die and the turn is still locked, which is what "this turn" means. */
 const BRYNHIR = "OGN-026";
+
+/**
+ * Endless Riches (VEN-022) — a Gear whose three continuous clauses are all read
+ * from here:
+ *
+ *     "Skip your Draw Phase."
+ *     "You may play cards from your trash."
+ *     "If a card would go to your trash from anywhere other than your Main Deck,
+ *      banish it instead."
+ *
+ * (Its FOURTH clause, "when you play this, banish your hand and trash, then
+ * [Burn 7]", is an on-play self trigger and lives in `effects/fury.ts` with the
+ * rest of the card's domain.)
+ *
+ * All three bind only its CONTROLLER — this is the module's first entry that
+ * restricts and grants entirely on its own side — and all three are continuous,
+ * so trashing or banishing the Gear lifts every one of them at once. No armed
+ * state, nothing to sweep.
+ *
+ * **Read off `activeGear`, which is where a played Gear lives.** A Gear in a
+ * trash or a hand does nothing, which is the ordinary continuous-ability reading
+ * and the same positional care `atOwnBattlefield` takes for a unit.
+ */
+const ENDLESS_RICHES = "VEN-022";
+
+/**
+ * Does `playerIndex` have Endless Riches in play?
+ *
+ * One predicate for all three clauses rather than three, because they are one
+ * card's presence asked three times — and a card that stopped answering one of
+ * them while still answering the others would be a strictly stranger game object
+ * than either the card that is there or the card that is not.
+ *
+ * Canonicalised, like `mayPlaySpellNamed` and `mayReadyPermanent`: an alternate
+ * printing is the same card (132.1). VEN-022 has none today, and this costs
+ * nothing to be right about in advance.
+ */
+export function controlsEndlessRiches(state: GameState, playerIndex: 0 | 1): boolean {
+  return state.players[playerIndex].activeGear.some((g) => canonicalDefId(g.defId) === ENDLESS_RICHES);
+}
 
 /** Fallen Feline: "When you play me, name a spell. While I'm at a battlefield,
  *  opponents can't play spells with that name." Positional and continuous, like

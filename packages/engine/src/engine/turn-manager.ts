@@ -7,7 +7,7 @@ import { destroyUnit, disempowerPermanent, drawCards, healAllUnits, returnBorrow
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
-import { unitMayBeReadied } from "./board-restrictions.js";
+import { controlsEndlessRiches, unitMayBeReadied } from "./board-restrictions.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -292,6 +292,24 @@ export function runChannel(state: GameState): GameState {
 export function runDraw(state: GameState): GameState {
   if (state.phase !== "Draw") {
     throw new Error(`runDraw requires Draw phase, currently: ${state.phase}`);
+  }
+  // Endless Riches (VEN-022): "Skip your Draw Phase." Continuous and its
+  // controller's own, so it is read off the board here rather than armed
+  // anywhere — trashing the Gear on your opponent's turn gives you your draw back
+  // on your next one, with nothing to remember.
+  //
+  // **The PHASE still happens; only the draw is skipped**, which is why this
+  // returns the same `phase: "Action"` transition rather than short-circuiting.
+  // A Beginning Phase ability that fires "at the start of your Draw Phase" would
+  // still fire — the pool has none today, and this is the reading that keeps that
+  // true when it gets one.
+  //
+  // Skipping the draw also skips its Burn Out (431): with an empty deck you would
+  // otherwise lose here, and a card that says "skip your Draw Phase" is bought
+  // precisely to stop that. `drawCards` is the funnel that would have burned you
+  // out, so not calling it is the whole of it.
+  if (controlsEndlessRiches(state, state.activePlayerIndex)) {
+    return { ...state, phase: "Action" };
   }
   return { ...drawCards(state, state.activePlayerIndex, 1), phase: "Action" };
 }

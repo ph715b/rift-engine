@@ -6,7 +6,7 @@ import { contextFor, type EffectContext } from "./effect-context.js";
 // safe because the binding is only read INSIDE a resolver, long after both
 // modules have initialised — the same reason the registries here compose lazily.
 // Doing module-init work across this cycle is what broke the engine once before.
-import { banishCard, drawCards, fileIntoNonBoardZone, gainXp, grantKeywordThisTurn } from "./effect-helpers.js";
+import { banishCard, drawCards, fileIntoNonBoardZone, fileIntoTrash, gainXp, grantKeywordThisTurn } from "./effect-helpers.js";
 import { SHADOW_CLONE_TOKEN_DEF_ID } from "./constants.js";
 import { isAttackingAt } from "./combat-designation.js";
 // Same cycle as the two above, and safe for the same reason: read inside a
@@ -2128,9 +2128,18 @@ export function killGear(state: GameState, gear: GearInstance, ownerIndex: 0 | 1
   players[ownerIndex] = {
     ...owner,
     activeGear: owner.activeGear.filter((g) => g.instanceId !== gear.instanceId),
-    // A GEAR token (the Gold tokens) ceases to exist rather than resting in a
-    // trash — rule 186.1, same as a unit token. See fileIntoNonBoardZone.
-    trash: fileIntoNonBoardZone(owner.trash, gear),
+    // From the BOARD, so Endless Riches banishes it instead. A GEAR token (the
+    // Gold tokens) still ceases to exist rather than resting anywhere — rule
+    // 186.1, same as a unit token, and `fileIntoTrash` goes through
+    // `fileIntoNonBoardZone` on both of its branches for exactly that reason.
+    //
+    // **Endless Riches is itself a Gear, and killing it is the one ordering worth
+    // stating**: this reads the board BEFORE the removal above is committed to
+    // state, so the Gear's own death is banished by its own replacement. That is
+    // the right answer — a continuous ability applies to the event that ends it
+    // (the Gear is still in play as the event is replaced), and it is also the
+    // only self-referential case in this card.
+    ...fileIntoTrash(state, ownerIndex, owner, gear, "elsewhere"),
   };
   // Trash first, then trigger — the trigger has to see a board the gear has
   // already left, the same ordering killUnit uses. HELD (383) rather than

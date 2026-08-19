@@ -58,7 +58,7 @@ import {
   acceleratePowerDomain,
   hasAccelerate,
   mayPlayFromTrash,
-  mayPlayFromTrashOnCharge,
+  mayPlayFromTrashAtPrintedPrice,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
   timingRejection,
@@ -503,7 +503,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
     !isChampion &&
     !fromHidden &&
     !action.replacedCostPaid &&
-    !mayPlayFromTrashOnCharge(state, action.playerIndex, card)
+    !mayPlayFromTrashAtPrintedPrice(state, action.playerIndex, card)
   ) {
     return fail(`${card.name} may only be played from the trash for its replaced cost`);
   }

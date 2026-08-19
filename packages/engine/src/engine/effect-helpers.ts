@@ -30,7 +30,7 @@ import { findUnitAnywhere, findUnitOnBattlefield } from "./target-lookup.js";
 import { isMighty } from "./granted-keywords.js";
 import { mergeGrantedKeyword } from "./keyword-stacking.js";
 import { applyContested } from "./cleanup.js";
-import { mayReadyPermanent, unitMayBeReadied } from "./board-restrictions.js";
+import { controlsEndlessRiches, mayReadyPermanent, unitMayBeReadied } from "./board-restrictions.js";
 import { unitMayMoveToBase } from "./battlefield-continuous.js";
 import { detachAllFrom } from "./equipment.js";
 import { mayGainPoints } from "./board-restrictions.js";
@@ -262,6 +262,67 @@ export function fileIntoNonBoardZone<T extends { isToken?: boolean }>(zone: read
   return arriving.isToken === true ? [...zone] : [...zone, arriving];
 }
 
+/**
+ * WHERE the card was when something sent it to a trash.
+ *
+ * Exists for exactly one card — Endless Riches (VEN-022), "if a card would go to
+ * your trash FROM ANYWHERE OTHER THAN YOUR MAIN DECK, banish it instead" — and
+ * the distinction it draws is the whole engine that card builds: your deck still
+ * mills into your trash, and everything else banishes, so the trash holds only
+ * what you burned and `mayPlayFromTrash` turns it into a hand.
+ *
+ * Named for the ZONE rather than for the card, and stated at every call site
+ * rather than inferred, because the two deck-sourced sites (a Burn, Minefield's
+ * mill) are indistinguishable from the others by the time they reach here — they
+ * hand over a card and a player exactly as a discard does.
+ */
+export type TrashSource = "mainDeck" | "elsewhere";
+
+/**
+ * THE way a card comes to rest in a trash — and the one place Endless Riches's
+ * replacement (367-370) intercedes.
+ *
+ * Returns BOTH zones rather than a state, so the ~9 sites that trash something
+ * can keep building their player object inline and spread this into it. That is
+ * what made routing them all through here a mechanical change instead of a
+ * rewrite: every one of them already owned a `{ ...p, trash: [...] }` literal.
+ *
+ * # It replaces the DESTINATION, not the event
+ *
+ * "Banish it instead" attaches to "would go to your trash", so a unit that dies
+ * still DIES: its `[Deathknell]` fires, `unitsLostThisTurn` counts it, and a
+ * death-watch sees it. Only the resting place changes. That is a different
+ * replacement from UNL-007 Smite's "if it would die this turn, banish it
+ * instead", which replaces the death itself and is why `completeDeath` returns
+ * before any of that — 808.1.d.1, a banish is not a death.
+ *
+ * Getting these two the same way round is the whole risk in this card, and it is
+ * why this helper sits at the RESTING STEP rather than anywhere earlier.
+ *
+ * Tokens still cease to exist (186.1) whichever zone they were bound for, which
+ * is `fileIntoNonBoardZone`'s job and why both branches go through it.
+ */
+export function fileIntoTrash(
+  state: GameState,
+  ownerIndex: 0 | 1,
+  /** The zones as they stand RIGHT NOW — passed rather than read off `state`,
+   *  because most callers are mid-way through building an updated player and the
+   *  trash they mean is the one in their hand, not the one in the old state. */
+  zones: { trash: readonly CardInstance[]; banished: readonly CardInstance[] },
+  arriving: CardInstance | readonly CardInstance[],
+  from: TrashSource,
+): { trash: CardInstance[]; banished: CardInstance[] } {
+  const cards = Array.isArray(arriving) ? (arriving as readonly CardInstance[]) : [arriving as CardInstance];
+  const banishInstead = from !== "mainDeck" && controlsEndlessRiches(state, ownerIndex);
+  let trash = [...zones.trash];
+  let banished = [...zones.banished];
+  for (const card of cards) {
+    if (banishInstead) banished = fileIntoNonBoardZone(banished, card);
+    else trash = fileIntoNonBoardZone(trash, card);
+  }
+  return { trash, banished };
+}
+
 /** Lotus Trap doubles. Named so the multiplier is not a bare 2 beside an
  *  additive modifier that reads similarly. */
 const LOTUS_TRAP_MULTIPLIER = 2;
@@ -279,7 +340,13 @@ export function completeDeath(state: GameState, death: PendingDeath): GameState 
   // is a unit dying, and Spoils of War prices itself off units that actually did.
   const inTrash = updatePlayer(state, ownerIndex, (p) => ({
     ...p,
-    trash: fileIntoNonBoardZone(p.trash, trashed),
+    // Through the funnel, so Endless Riches can banish it INSTEAD of trashing it
+    // — and note where this sits: below the death, so the unit has still died and
+    // everything downstream of that still happens. "Banish it instead" replaces
+    // the resting place, not the event. The `unitsLostThisTurn` bump on the very
+    // next line is the proof that it does: a Smite banish returns long before
+    // here and never reaches it.
+    ...fileIntoTrash(state, ownerIndex, p, trashed, "elsewhere"),
     unitsLostThisTurn: p.unitsLostThisTurn + 1,
     // Shadow Watcher reads deaths in the OWNER's own Beginning Phase, so both
     // halves are checked: the phase, and that the dying unit's controller is the
@@ -1612,7 +1679,10 @@ export function discardCards(
   const moved = updatePlayer(state, playerIndex, (p) => ({
     ...p,
     hand: p.hand.filter((c) => !discardedIds.has(c.instanceId)),
-    trash: [...p.trash, ...chosen],
+    // From the HAND, so Endless Riches banishes it instead (422's discard still
+    // happened — `discardedThisTurn` below is set either way, and Jinx - Rebel's
+    // "when you discard" still fires. Only where it lands changes).
+    ...fileIntoTrash(state, playerIndex, p, chosen, "elsewhere"),
     // Raging Soul asks whether you have discarded THIS TURN, so the fact has to
     // outlive the discard itself. Set here rather than at each call site, since
     // this is the one funnel every discard goes through.
@@ -2016,7 +2086,16 @@ export function burnCards(
     const top = next.players[playerIndex].deck[0];
     if (!top) return { state: next, burned };
     burned.push(top);
-    next = updatePlayer(next, playerIndex, (p) => ({ ...p, deck: p.deck.slice(1), trash: [...p.trash, top] }));
+    // **`"mainDeck"`, and this is the exemption Endless Riches is built around**
+    // — a Burn takes from the top of the deck (440), which is the one source its
+    // replacement does not intercept. Stated here rather than left implicit: by
+    // the time a card reaches the funnel nothing about it says where it came
+    // from, so every call site says so itself.
+    next = updatePlayer(next, playerIndex, (p) => ({
+      ...p,
+      deck: p.deck.slice(1),
+      ...fileIntoTrash(next, playerIndex, p, top, "mainDeck"),
+    }));
   }
   return { state: next, burned };
 }

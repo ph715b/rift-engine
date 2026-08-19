@@ -20,6 +20,7 @@ import { detachEquipment, isEquipmentGear } from "./equipment.js";
 import { isMighty } from "./granted-keywords.js";
 import { eventTriggerFor, type Listener } from "./triggers.js";
 import { gainPoints } from "./effect-helpers.js";
+import { fileIntoTrash } from "./effect-helpers.js";
 import { payPowerFromChanneled, returnUnitToHand } from "./effect-helpers.js";
 import { SAND_SOLDIER_TOKEN, placeToken, type TokenSpec } from "./token.js";
 import {
@@ -443,7 +444,11 @@ export const BATTLEFIELD_TRIGGERS: Record<string, readonly BattlefieldTriggerDef
         updatePlayer(state, event.playerIndex, (p) => ({
           ...p,
           deck: p.deck.slice(MINEFIELD_MILL),
-          trash: [...p.trash, ...p.deck.slice(0, MINEFIELD_MILL)],
+          // `"mainDeck"` — straight from the deck, so Endless Riches does NOT
+          // intercept it. The second of the two exempt sources, and the reason
+          // the funnel makes every caller name its own: by the time a card
+          // arrives here nothing about it says where it came from.
+          ...fileIntoTrash(state, event.playerIndex, p, p.deck.slice(0, MINEFIELD_MILL), "mainDeck"),
         })),
     },
   ],

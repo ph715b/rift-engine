@@ -6,6 +6,7 @@ import { cardModeOf, type ResolveEvent } from "./card-effects.js";
 import { gearEntersExhausted, playUnitToBase, playUnitToBattlefield } from "./deploy.js";
 import { playUnitFree } from "./free-play.js";
 import { mayPlaySpellNamed } from "./board-restrictions.js";
+import { fileIntoTrash } from "./effect-helpers.js";
 import { holdEventTrigger, holdSelfTrigger } from "./triggers.js";
 
 /**
@@ -147,7 +148,13 @@ function playSpellImmediately(
   const players = [...resolved.players] as [PlayerState, PlayerState];
   // The OWNER's trash, which is `playerIndex` for every caller but Dancing
   // Grenade — see `spellTrashOwnerIndex`.
-  players[trashOwnerIndex] = { ...players[trashOwnerIndex], trash: [...players[trashOwnerIndex].trash, card] };
+  // From the CHAIN, so Endless Riches banishes it instead — which is what stops
+  // a spell played out of the trash under it from returning to that trash to be
+  // played again next turn.
+  players[trashOwnerIndex] = {
+    ...players[trashOwnerIndex],
+    ...fileIntoTrash(resolved, trashOwnerIndex, players[trashOwnerIndex], card, "elsewhere"),
+  };
   return { ...resolved, players };
 }
 

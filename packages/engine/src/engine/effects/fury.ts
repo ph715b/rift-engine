@@ -58,6 +58,7 @@ import type { GameState } from "../../model/game-state.js";
 import type { PlayerState } from "../../model/game-state.js";
 import type { CardInstance, GearInstance, UnitInstance } from "../../model/card.js";
 import { gainPoints } from "../effect-helpers.js";
+import { fileIntoTrash } from "../effect-helpers.js";
 import { attachEquipment, detachEquipment, isEquipmentGear, wearerListener } from "../equipment.js";
 import {
   revealedFromDeck,
@@ -143,6 +144,13 @@ const OASIS_RAIDER_MIGHT = 2;
 /** Baccai Reaper's "you may pay [Fury]" — ONE pip, of his own domain. */
 const BACCAI_REAPER_POWER = 1;
 /** ...and the question that offer parks. */
+/** Endless Riches (VEN-022) and the size of its opening Burn. Declared up here
+ *  with the other card ids because the registry literals below are evaluated at
+ *  module load — a `const` beside its own entry is a temporal dead zone, which is
+ *  the ReferenceError the Shadow Clone constants were moved for. */
+const ENDLESS_RICHES = "VEN-022";
+const ENDLESS_RICHES_BURN = 7;
+
 const BACCAI_REAPER_PUMP = "VEN-009-assault";
 /** Baccai Reaper's granted `[Assault 2]`. Printed on his frame AND granted by
  *  the clause, and 817 makes the two SUM — see the card's entry. */
@@ -3051,8 +3059,16 @@ function jhinBanishWithLegend(state: GameState, playerIndex: 0 | 1, spellInstanc
   // so a fifth spell starts a fresh set of four rather than firing every time.
   const cashed = updatePlayer(attached, playerIndex, (p) => ({
     ...p,
-    trash: [...p.trash, ...p.banished.filter((c) => withSpell.includes(c.instanceId))],
-    banished: p.banished.filter((c) => !withSpell.includes(c.instanceId)),
+    // From BANISH, so under Endless Riches the four spells simply stay banished
+    // — the funnel is handed the already-emptied banish list so the cards are
+    // not counted twice on the way back into it.
+    ...fileIntoTrash(
+      attached,
+      playerIndex,
+      { trash: p.trash, banished: p.banished.filter((c) => !withSpell.includes(c.instanceId)) },
+      p.banished.filter((c) => withSpell.includes(c.instanceId)),
+      "elsewhere",
+    ),
     legend: { ...p.legend, banishedInstanceIds: [] },
   }));
   return drawCards(channelRunesReady(cashed, playerIndex, JHIN_RUNES_CHANNELED), playerIndex, JHIN_CARDS_DRAWN);
@@ -3243,6 +3259,45 @@ function firstEnemyAt(state: GameState, ownerIndex: 0 | 1, battlefieldId: string
  *  by that card's own defId, because at those moments it may not be in play for
  *  a listener walk to reach (see triggers.ts's SelfTriggerDefinition). */
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {
+  [ENDLESS_RICHES]: {
+    // Endless Riches — "When you play this, banish your hand and trash, then
+    // [Burn 7]." The FIRST of the card's four clauses and the only one that is
+    // card work; the other three are continuous and are read from
+    // `board-restrictions.controlsEndlessRiches` by the draw phase, the trash
+    // permission and the trash funnel.
+    //
+    // # The order is the card, and "then" is what makes it an engine
+    //
+    // Banish first, THEN burn: the hand and the old trash go away, and the seven
+    // cards the Burn puts in the trash are what is left to play with. Reversed,
+    // the burn would be banished by the very clause it is fuel for — this Gear's
+    // own "if a card would go to your trash from anywhere other than your Main
+    // Deck, banish it instead" does not touch a Burn (440 takes from the deck)
+    // but DOES touch a trash that is being emptied around it.
+    //
+    // **A `played` SELF trigger, not a `unitTriggers` entry**, because this is a
+    // Gear: `unitTriggers` is keyed by an arriving UNIT. It is the route all ten
+    // other gears printing "when you play this" already take, and the one the
+    // trigger census refused to let VEN-108 Forgotten Relic mix with an event.
+    //
+    // Both zones are emptied through `banishCard`, one card at a time and by
+    // instanceId, rather than by moving the arrays: that is the single writer of
+    // the banish zone, it drops tokens (186.1) and it is a no-op on a card that
+    // has already left — which matters because the two lists are read once and
+    // walked while the state changes underneath them.
+    //
+    // The Gear itself is in `activeGear` by the time this fires, not in hand, so
+    // it does not banish itself.
+    on: ["played"],
+    resolve: (state, event) => {
+      const owner = state.players[event.ownerIndex];
+      const emptied = [...owner.hand, ...owner.trash].reduce(
+        (next, card) => banishCard(next, event.ownerIndex, card.instanceId),
+        state,
+      );
+      return burn(emptied, event.ownerIndex, ENDLESS_RICHES_BURN);
+    },
+  },
   "OGN-006": {
     // Flame Chompers — "When you discard me, you may pay [Fury] to play me."
     //

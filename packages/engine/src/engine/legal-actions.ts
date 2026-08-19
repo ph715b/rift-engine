@@ -84,7 +84,7 @@ import {
   ambushHasAnyDestination,
   mayPlayCardNow,
   mayPlayFromTrash,
-  mayPlayFromTrashOnCharge,
+  mayPlayFromTrashAtPrintedPrice,
   mayPlayUnitToBase,
   mayPlayUnitToBattlefield,
 } from "./timing.js";
@@ -910,7 +910,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       .map((card) => ({
         card,
         fromHand: false,
-        printedPriceAvailable: mayPlayFromTrashOnCharge(state, playerIndex, card),
+        printedPriceAvailable: mayPlayFromTrashAtPrintedPrice(state, playerIndex, card),
       })),
     ...state.battlefields.flatMap((bf) =>
       bf.hiddenCards
