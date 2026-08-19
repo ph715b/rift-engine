@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("366 held / 8 inline of 374 trigger cards", () => {
+  it("367 held / 8 inline of 375 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -652,10 +652,28 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // VEN-060 Sky Cruiser is an activated ability, and VEN-061 Decree of Insight
     // is a spell effect plus rule 766's ignore-while-paying. None of the three is
     // a trigger, and a census of triggers structurally cannot see them.
+    // **366/8/374 -> 367/8/375 on 2026-08-18: Vendetta's Mind wave 3, ONE trigger
+    // card out of three.** By family and by name:
+    //
+    //     event (+1)  VEN-067 Bottled Constellation, on a NEW moment —
+    //                 `mainPhaseStarted`, fired by `runDraw` as it hands over
+    //                 (316.1). It is the only card in 907 that names the Main
+    //                 Phase, where 26 name the Beginning Phase
+    //     distinct: 1
+    //
+    // **`inline` did not move, and that is the interesting half.** The
+    // Beginning-Phase abilities are dispatched INLINE, which this file records as
+    // a deliberate exception rather than a licence — so the new Main-Phase moment
+    // took the engine's DEFAULT instead and is HELD (383). The card offers to kill
+    // three of its controller's own permanents, and an opponent holding removal
+    // has a real decision in that window.
+    //
+    // The other two are correctly absent: VEN-056 Clairvoyance and VEN-066
+    // Temporal Breach are SPELL effects, however much queue machinery they park.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 366,
+      held: 367,
       inline: 8,
-      cards: 374,
+      cards: 375,
     });
   });
 

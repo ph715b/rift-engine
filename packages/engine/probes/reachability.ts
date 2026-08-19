@@ -677,6 +677,24 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // is 3,495 of 268,742 evaluated actions — **1.30%**. The per-play arithmetic in
 // the refusal was exactly right (3495 / 15 = 233); what it never asked was how
 // often a two-drop with a naming ability actually gets played.
+// **NOT bumped after Mind wave 3 (2026-08-18), and the flat figure is the
+// interesting result.** Three cards were implemented and the union did not move
+// at all: 761 before, 761 after, VEN 119 both times. Decomposed off the BUCKETS
+// rather than off the total, which is what this file's own advice says to do:
+//
+//     VEN-056 Clairvoyance    offeredNeverTaken — 7 Energy for Predict 5 + draw
+//                             2; the engine offers it and the AI never wants it
+//     VEN-066 Temporal Breach offeredNeverTaken — [Hidden], which the AI plays
+//                             face-up rarely and hides rarely
+//     VEN-061 Decree of Insight  drawnNeverOffered — it needs an enemy BODY unit
+//                             to target, and the VEN covering decks' opponents
+//                             field few. The narrowing is under test separately
+//                             and works; this is a fact about deck generation
+//
+// `unexplained` stayed at 0 and every control passed, so this is not a
+// regression — it is three cards the AI has no reason to play. Worth leaving
+// here because a flat union after a wave looks like a broken wave, and the next
+// session deserves to know it was diagnosed rather than shrugged at.
 const PINNED_UNION = 757;
 const PINNED_AT_GAMES = 500;
 

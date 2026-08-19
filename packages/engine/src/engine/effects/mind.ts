@@ -11,6 +11,7 @@ import type {
 import { killGear } from "../triggers.js";
 import { isAttackingAt, isDefendingAt, isFightingAt } from "../combat-designation.js";
 import type { DecisionDefinition, DecisionOption } from "../decisions.js";
+import type { CardInstance } from "../../model/card.js";
 import { drawCards, isEmpowered, readyPermanent } from "../effect-helpers.js";
 import { controlsAnyFacedownCard, isHiddenCard } from "../hidden.js";
 import { hasKeyword } from "../granted-keywords.js";
@@ -31,6 +32,7 @@ import {
   gainPoints,
   dealDamage,
   dealDamageToAllUnitsAtAllBattlefields,
+  destroyUnit,
   discardCards,
   exhaustAllFriendlyUnits,
   exhaustGear,
@@ -54,7 +56,7 @@ import {
   returnUnitToHand,
   takeOneFromTopAndRecycleRest,
 } from "../effect-helpers.js";
-import { playUnitToBase } from "../deploy.js";
+import { playUnitToBase, playUnitToBattlefield } from "../deploy.js";
 import { playCardIgnoringCost } from "../play-free.js";
 import { parkDecision, repeatDecision } from "../decisions.js";
 import { eligibleTargets } from "../target-lookup.js";
@@ -236,6 +238,16 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
     : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
 }
 
+/** Clairvoyance (VEN-056), Temporal Breach (VEN-066), Bottled Constellation
+ *  (VEN-067) — Mind wave 3, the three that needed real mechanism. */
+const CLAIRVOYANCE_LOOK = 5;
+const CLAIRVOYANCE_DRAW = 2;
+const CLAIRVOYANCE_RECYCLE = "VEN-056-recycle";
+const CLAIRVOYANCE_ORDER = "VEN-056-order";
+const BOTTLED_CONSTELLATION = "VEN-067";
+const BOTTLED_CONSTELLATION_KILLS = 3;
+const BOTTLED_CONSTELLATION_PICK = "VEN-067-pick";
+
 /** Sky Cruiser (VEN-060), Decree of Insight (VEN-061), Jayce (VEN-068). */
 const SKY_CRUISER = "VEN-060";
 const SKY_CRUISER_DAMAGE = 4;
@@ -290,6 +302,99 @@ export const cardEffects: Record<string, EffectDefinition> = {
       event.targetUnitInstanceId
         ? giveMightThisTurn(state, event.targetUnitInstanceId, -DECREE_OF_INSIGHT_SHRINK)
         : state,
+  },
+  "VEN-056": {
+    // Clairvoyance — "[Reaction] [Predict 5]. Draw 2."
+    //
+    // # `[Predict 5]` is the pool's first VALUED Predict, and it is two questions
+    //
+    // "Look at the top 5 cards of your Main Deck. Recycle any of them and put the
+    // rest back in any order." Bare `[Predict]` is one card and one yes/no, which
+    // `effects/chaos.ts` already builds and whose note says outright that the
+    // valued form "is a subset choice plus an ordering, which is not". This is
+    // that subset and that ordering:
+    //
+    //   1. `VEN-056-recycle` — repeatedly offer the looked-at cards, plus Done.
+    //      Each answer recycles ONE to the bottom (416.1) and re-asks with the
+    //      rest. "ANY of them" includes none and includes all.
+    //   2. `VEN-056-order` — repeatedly ask which of the survivors goes on top
+    //      next. The last one is forced and `advanceDecisions` retires it without
+    //      prompting.
+    //
+    // The working set rides on `PendingDecision.cardInstanceIds`, which exists for
+    // exactly this: the question NARROWS as it is answered, which is neither
+    // `count`'s "ask me N times" nor `targetInstanceId`'s "about this one thing".
+    //
+    // **Parked rather than fanned onto the action**, for both of the reasons bare
+    // Predict's entry gives: the top of a deck is not public state, so enumerating
+    // it would hand the AI its own deck order; and this is a later part of the
+    // effect, decided on resolution (383.3.a.3).
+    //
+    // # The DRAW happens LAST, and parking it first does not achieve that
+    //
+    // "Predict 5. Draw 2" is sequential, and a card drawn before the ordering
+    // finished could be one of the five being ordered. The obvious move — park
+    // the draw first so it sits at the BACK of the queue — is WRONG, and
+    // measured: `parkDecision` calls `advanceDecisions`, and a `draw` question
+    // has exactly ONE option, so it is executed on the spot rather than queued.
+    // The two cards came off the top before the predict had asked anything, and
+    // the looked-at window then held two cards that were no longer in the deck.
+    //
+    // So the draw is parked by the LAST step of the predict chain instead —
+    // `finishPredict` — where "the ordering has finished" is a fact rather than a
+    // hope about queue order.
+    targeting: { kind: "none" },
+    resolve: (state, ctx) => {
+      const looked = state.players[ctx.casterIndex].deck.slice(0, CLAIRVOYANCE_LOOK);
+      // An empty deck asks nothing at all and just draws (422's do as much as you
+      // can) — the same treatment bare `[Predict]` gives.
+      if (looked.length === 0) return finishPredict(state, ctx.casterIndex);
+      // Nocturne - Horrifying's "as you LOOK AT me" is offered first, the
+      // convention `offerTopOfDeckBanish` documents for the six existing look
+      // sites.
+      return parkDecision(offerTopOfDeckBanish(state, ctx.casterIndex, looked), {
+        kind: CLAIRVOYANCE_RECYCLE,
+        playerIndex: ctx.casterIndex,
+        cardInstanceIds: looked.map((c) => c.instanceId),
+      });
+    },
+  },
+  "VEN-066": {
+    // Temporal Breach — "[Hidden] Banish a unit, then its owner plays it to the
+    // SAME LOCATION, ignoring its cost."
+    //
+    // A BLINK, and Portal Rescue's entry above is the whole explanation of why it
+    // goes through banish-and-play rather than a relocation: leaving play strips
+    // the Buff (705), clears damage and this-turn Might, and makes the return a
+    // genuine PLAY, so on-play triggers fire again.
+    //
+    // Two differences from the Rescue, both printed:
+    //
+    //   - **"A UNIT", not "a friendly unit"** — either side's, so this is removal
+    //     that resets an enemy's buffs and damage as readily as it rescues your
+    //     own. `scope: "anywhere"`.
+    //   - **"to the SAME LOCATION", not "to their base"** — a unit at a
+    //     battlefield goes back to that battlefield, and one in base returns to
+    //     base. That is what makes it a reset rather than a bounce, and it is why
+    //     the destination is read off `findUnitAnywhere` before the removal.
+    //
+    // **[Hidden] needs nothing here** — 811's facedown play is the timing layer's,
+    // and it is what makes this a 0-Energy reaction to a combat trick.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, event) => {
+      if (!event.targetUnitInstanceId) return state;
+      const found = findUnitAnywhere(state, event.targetUnitInstanceId);
+      if (!found) return state;
+      // A fresh copy, exactly as Portal Rescue rebuilds one — the body that comes
+      // back is not the body that left.
+      const returning = { ...found.unit, damage: 0, mightThisTurn: 0, buffed: false, stunned: false, movesThisTurn: 0 };
+      const removed = removeUnitAnywhere(state, event.targetUnitInstanceId);
+      // The SAME location. `found.zone` is captured before the removal, because
+      // afterwards there is nothing left to ask.
+      return found.zone === "base"
+        ? playUnitToBase(removed, found.ownerIndex, returning)
+        : playUnitToBattlefield(removed, found.ownerIndex, returning, state.battlefields[found.zone.battlefieldIndex]!.id);
+    },
   },
   "VEN-049": {
     // Dredge Up — "Draw 1. [Flow] [2 Energy]."
@@ -2343,6 +2448,77 @@ function readyableForJayce(
   });
 }
 
+/**
+ * The looked-at cards a Predict question is still working through, in DECK
+ * order.
+ *
+ * Read off the live deck by the ids on `cardInstanceIds` rather than carried as
+ * cards, for the reason that field's own note gives: a question that carried
+ * copies could hand back something the board has since changed.
+ */
+function lookedAtCards(state: GameState, d: { playerIndex: 0 | 1; cardInstanceIds?: string[] }): CardInstance[] {
+  const ids = new Set(d.cardInstanceIds ?? []);
+  return state.players[d.playerIndex].deck.filter((c) => ids.has(c.instanceId));
+}
+
+/**
+ * Hands the survivors of a Predict to the ordering question — or straight past it
+ * when there is nothing left to order.
+ *
+ * A single survivor is skipped rather than parked as a one-option question:
+ * `advanceDecisions` would retire it silently anyway, and not parking it keeps
+ * the queue honest about what was actually asked.
+ */
+function orderPredicted(
+  state: GameState,
+  d: { playerIndex: 0 | 1 },
+  remaining: readonly string[],
+): GameState {
+  if (remaining.length < 2) return finishPredict(state, d.playerIndex);
+  return repeatDecision(state, {
+    kind: CLAIRVOYANCE_ORDER,
+    playerIndex: d.playerIndex,
+    cardInstanceIds: [...remaining],
+    count: 0,
+  });
+}
+
+/**
+ * The last step of Clairvoyance — "Draw 2", after the predict has finished.
+ *
+ * Parked from HERE rather than up front, because `parkDecision` runs
+ * `advanceDecisions` and a `draw` question has exactly one option: parking it
+ * early executes it early. See the card's own entry for what that produced.
+ */
+function finishPredict(state: GameState, playerIndex: 0 | 1): GameState {
+  return parkDecision(state, { kind: "draw", playerIndex, count: CLAIRVOYANCE_DRAW });
+}
+
+/**
+ * Everything Bottled Constellation may kill to pay — every friendly unit and gear
+ * EXCEPT itself.
+ *
+ * Shared between the trigger's affordability check (is there anything to ask
+ * about?), the option list and the resolver's re-check, so all three agree about
+ * what "3 other friendly units and/or gear" means. Those three disagreeing is how
+ * a question gets asked that cannot be answered.
+ */
+function constellationFodder(
+  state: GameState,
+  playerIndex: 0 | 1,
+  selfInstanceId: string | undefined,
+): { instanceId: string; name: string }[] {
+  const owner = state.players[playerIndex];
+  const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+  return [...units, ...owner.activeGear]
+    .filter((c) => c.instanceId !== selfInstanceId)
+    .map((c) => ({ instanceId: c.instanceId, name: c.name }));
+}
+
+/**
+ * The looked-at cards a Predict question is still working through, in DECK
+ * order.
+ */
 const ZILEAN_DOUBLE_APPLIED = "UNL-086-doubled";
 
 /** Has this Zilean already applied his replacement this turn? Asked of the LIVE
@@ -2408,6 +2584,43 @@ function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDe
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [BOTTLED_CONSTELLATION]: {
+    // Bottled Constellation — "At the start of your Main Phase, you may kill 3
+    // OTHER friendly units and/or gear to score 1 point."
+    //
+    // **The only card in 907 that names the MAIN Phase**, where 26 name the
+    // Beginning Phase — so it needed a moment the engine did not have.
+    // `mainPhaseStarted` is fired by `runDraw` as it hands over (316.1), which is
+    // after the draw and after holds have scored; firing it as `beginningPhase`
+    // would offer the choice about a board three steps too early.
+    //
+    // # "Kill 3 ... TO score" is a COST, not an effect
+    //
+    // 355.10.c.1's "[do X] to [do Y]": the kills are the price of the point, so
+    // they are all-or-nothing. That is why the question ACCUMULATES three picks
+    // before anything dies — a repeated decision that killed as it went would
+    // leave a player two units down with no point when they backed out, and there
+    // is no rule that lets them.
+    //
+    // "YOU MAY" is 402.1, decided at resolution, so this parks rather than fires,
+    // and 416.3 means a board with fewer than three other friendly permanents is
+    // never asked at all.
+    //
+    // "OTHER" excludes the Constellation itself, which is a gear and would
+    // otherwise be one of its own three.
+    on: "mainPhaseStarted",
+    applies: (state, listener, event) =>
+      event.kind === "mainPhaseStarted" &&
+      event.playerIndex === listener.ownerIndex &&
+      constellationFodder(state, listener.ownerIndex, listener.card.instanceId).length >= BOTTLED_CONSTELLATION_KILLS,
+    resolve: (state, listener) =>
+      parkDecision(state, {
+        kind: BOTTLED_CONSTELLATION_PICK,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+        cardInstanceIds: [],
+      }),
+  },
   [JAYCE_INVENTOR]: {
     // Jayce's second moment — "the FIRST TIME you play a non-token gear each
     // turn". The on-play half is in `unitTriggers` above and parks the same
@@ -3622,6 +3835,120 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  [CLAIRVOYANCE_RECYCLE]: {
+    // `[Predict 5]`, first half — "recycle ANY of them".
+    //
+    // Repeated rather than multi-select: each answer recycles one card to the
+    // bottom of the deck (416.1, through `holdCardsRecycled` so Karma - Channeler
+    // sees it) and re-asks with the rest. "Any" therefore covers none (Done
+    // straight away) and all (five answers).
+    //
+    // Done is offered FIRST so `answerDecisions`' default pick is the harmless
+    // one — and the tests answer with a non-default pick precisely because of
+    // that, which is the lesson Chaos wave 2's four survivors left.
+    prompt: (state, d) => `Predict: recycle any of the top ${d.cardInstanceIds?.length ?? 0}?`,
+    options: (state, d) => [
+      { id: "done", label: "Keep the rest" },
+      ...lookedAtCards(state, d).map((c) => ({ id: c.instanceId, label: `Recycle ${c.name}`, instanceId: c.instanceId })),
+    ],
+    resolve: (state, d, optionId) => {
+      const remaining = (d.cardInstanceIds ?? []).filter((id) => id !== optionId);
+      if (optionId === "done") return orderPredicted(state, d, d.cardInstanceIds ?? []);
+      const looked = lookedAtCards(state, d);
+      const chosen = looked.find((c) => c.instanceId === optionId);
+      if (!chosen) return orderPredicted(state, d, remaining);
+      // To the BOTTOM (416.1), and through the funnel so "when you recycle" sees
+      // it. The card is taken out of the looked-at window rather than off the top
+      // of the deck, because the window is what this question is about.
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const owner = players[d.playerIndex];
+      players[d.playerIndex] = {
+        ...owner,
+        deck: [...owner.deck.filter((c) => c.instanceId !== optionId), chosen],
+      };
+      const recycled = holdCardsRecycled({ ...state, players }, d.playerIndex, 1);
+      return remaining.length === 0
+        ? orderPredicted(recycled, d, [])
+        : repeatDecision(recycled, { ...d, cardInstanceIds: remaining });
+    },
+  },
+  [CLAIRVOYANCE_ORDER]: {
+    // `[Predict 5]`, second half — "put the rest back in ANY ORDER".
+    //
+    // Each answer names the card that goes on TOP next; it is moved to the front
+    // of the deck and the question re-asks with the rest. A single survivor is
+    // one option, which `advanceDecisions` retires without prompting — so an
+    // ordering of one costs the player no click, and an ordering of none is never
+    // parked at all.
+    //
+    // **Placed from the BOTTOM of the window upward.** Each answer is moved to
+    // the front, so the LAST card answered ends up on top; asking "which goes on
+    // top next" and prepending would reverse the player's intent. The prompt says
+    // which end it is placing.
+    prompt: (state, d) => `Predict: which card goes back next, under the ${(d.count ?? 0)} already placed?`,
+    options: (state, d) =>
+      lookedAtCards(state, d).map((c) => ({ id: c.instanceId, label: c.name, instanceId: c.instanceId })),
+    resolve: (state, d, optionId) => {
+      const remaining = (d.cardInstanceIds ?? []).filter((id) => id !== optionId);
+      const players = [...state.players] as [PlayerState, PlayerState];
+      const owner = players[d.playerIndex];
+      const chosen = owner.deck.find((c) => c.instanceId === optionId);
+      if (!chosen) return state;
+      players[d.playerIndex] = { ...owner, deck: [chosen, ...owner.deck.filter((c) => c.instanceId !== optionId)] };
+      const moved = { ...state, players } as GameState;
+      return remaining.length === 0
+        ? finishPredict(moved, d.playerIndex)
+        : repeatDecision(moved, { ...d, cardInstanceIds: remaining, count: (d.count ?? 0) + 1 });
+    },
+  },
+  [BOTTLED_CONSTELLATION_PICK]: {
+    // Bottled Constellation's cost — "kill 3 other friendly units and/or gear".
+    //
+    // **Accumulates, then pays.** Three picks are collected on
+    // `cardInstanceIds` and NOTHING dies until the third is in: 355.10.c.1 makes
+    // the kills the cost of the point, and a cost is all-or-nothing. Killing as
+    // the picks came in would let a player back out two permanents down with
+    // nothing to show, which no rule provides for.
+    //
+    // Decline is offered only on the FIRST pick — once a player has started
+    // paying they have not yet paid anything, so backing out is free, and the
+    // Decline stays available throughout for exactly that reason.
+    //
+    // The offer is rebuilt from live state and excludes what has already been
+    // picked, so the same unit cannot pay twice.
+    prompt: (state, d) =>
+      `Bottled Constellation: kill ${BOTTLED_CONSTELLATION_KILLS - (d.cardInstanceIds?.length ?? 0)} more to score 1?`,
+    options: (state, d) => {
+      const picked = d.cardInstanceIds ?? [];
+      return [
+        { id: "decline", label: "Decline" },
+        ...constellationFodder(state, d.playerIndex, d.cardInstanceId)
+          .filter((c) => !picked.includes(c.instanceId))
+          .map((c) => ({ id: c.instanceId, label: `Kill ${c.name}`, instanceId: c.instanceId })),
+      ];
+    },
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      const picked = [...(d.cardInstanceIds ?? []), optionId];
+      if (picked.length < BOTTLED_CONSTELLATION_KILLS) {
+        return repeatDecision(state, { ...d, cardInstanceIds: picked });
+      }
+      // The cost is paid now, all at once. Re-checked against live state: the
+      // picks were made across a queue, and 359.3.e's vanished-referent
+      // convention means anything that has left play simply is not there to kill
+      // — in which case the cost cannot be completed and nothing happens.
+      const live = constellationFodder(state, d.playerIndex, d.cardInstanceId);
+      if (!picked.every((id) => live.some((c) => c.instanceId === id))) return state;
+      // Units through `destroyUnit`, gear through `killGear` — the split every
+      // "kill a friendly permanent" cost in this engine makes, and the same two
+      // calls `activated-abilities` pays its own kill cost with.
+      const killed = picked.reduce((next, id) => {
+        const gear = next.players[d.playerIndex].activeGear.find((g) => g.instanceId === id);
+        return gear ? killGear(next, gear, d.playerIndex) : destroyUnit(next, id);
+      }, state);
+      return gainPoints(killed, d.playerIndex, 1);
+    },
+  },
   [JAYCE_READY]: {
     // Jayce's "you may ready SOMETHING BESIDES ME that's exhausted" — one
     // question kind for BOTH of his moments, parked from two registrations.

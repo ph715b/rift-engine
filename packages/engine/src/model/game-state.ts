@@ -1187,6 +1187,27 @@ export interface PendingDecision {
    *  the time the answer arrives. Nothing can move him in between today, and that
    *  is exactly the kind of fact that stops being true without anyone noticing. */
   battlefieldId?: string;
+  /**
+   * The cards this question is still working through — Clairvoyance's
+   * `[Predict 5]` (which five am I still ordering?) and Bottled Constellation's
+   * "kill 3" (which have I picked so far?).
+   *
+   * **A LIST, because those two questions are the first here that are neither
+   * one-shot nor merely repeated.** `count` already expresses "ask me N times"
+   * (the discard), and `targetInstanceId` expresses "about this one thing". A
+   * subset choice is neither: the question narrows as it is answered, and the
+   * SET that remains is the state.
+   *
+   * Instance ids rather than cards, like every other reference on this type: the
+   * cards themselves live in a zone, and a question that carried copies could
+   * hand back something the board has since changed.
+   *
+   * **Not a general-purpose scratchpad.** Both users read it as "the cards this
+   * particular question is about", and a third card wanting different bookkeeping
+   * should get its own field rather than overloading this one — the reason
+   * `targetInstanceId` and `battlefieldId` are separate fields above.
+   */
+  cardInstanceIds?: string[];
 }
 
 /**

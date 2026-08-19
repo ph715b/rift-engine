@@ -722,6 +722,23 @@ export type GameEvent =
    *  left to be affected by it. */
   | { kind: "beginningPhase"; playerIndex: 0 | 1 }
   /**
+   * The start of the active player's MAIN PHASE — rule 316.1, "when all steps of
+   * the Start of Turn have been completed, the Main Phase begins", and 316.4's
+   * "at the start of Main Phase game effects take place".
+   *
+   * **A different moment from `beginningPhase` above, and the pool has exactly
+   * ONE card that knows the difference**: VEN-067 Bottled Constellation is the
+   * only card in 907 that names the Main Phase, where 26 name the Beginning
+   * Phase. The engine's Beginning phase is part of the Start of Turn (Awaken ->
+   * Beginning -> Channel -> Draw); the Main Phase is what this codebase calls
+   * `Action`, and it begins when `runDraw` hands over.
+   *
+   * Firing this one as `beginningPhase` would put the Constellation's offer
+   * BEFORE the draw and before holds score, which is three steps too early and
+   * would change what board the player is looking at when they choose.
+   */
+  | { kind: "mainPhaseStarted"; playerIndex: 0 | 1 }
+  /**
    * `playerIndex`'s turn is ending — Sona - Harmonious's "at the end of your
    * turn", and the same moment `dispatchLegendEndOfTurn` already serves for
    * Annie - Dark Child.
@@ -1265,6 +1282,7 @@ export type HeldEventKind =
   | "unitBuffed"
   | "battlefieldConquered"
   | "cardPlayed"
+  | "mainPhaseStarted"
   | "unitMoved"
   | "endOfTurn"
   | "unitReadied"

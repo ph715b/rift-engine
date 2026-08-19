@@ -308,10 +308,27 @@ export function runDraw(state: GameState): GameState {
   // otherwise lose here, and a card that says "skip your Draw Phase" is bought
   // precisely to stop that. `drawCards` is the funnel that would have burned you
   // out, so not calling it is the whole of it.
-  if (controlsEndlessRiches(state, state.activePlayerIndex)) {
-    return { ...state, phase: "Action" };
-  }
-  return { ...drawCards(state, state.activePlayerIndex, 1), phase: "Action" };
+  const drawn = controlsEndlessRiches(state, state.activePlayerIndex)
+    ? state
+    : drawCards(state, state.activePlayerIndex, 1);
+  // **316.1 — the Main Phase begins when the Start of Turn is complete.** This is
+  // that seam, and it is deliberately not the `beginningPhase` event three steps
+  // earlier: the pool's one Main-Phase card (Bottled Constellation) offers a
+  // choice, and the board it offers it about must be the one AFTER the draw and
+  // after holds have scored.
+  //
+  // **HELD (383), not dispatched inline** — and that is a deliberate departure
+  // from the Beginning-Phase abilities twenty lines up, which are inline. Those
+  // are a legacy exception the trigger census records as "a deliberate exception
+  // for a phase ability rather than a licence"; a new moment should take the
+  // engine's default, which is a Chain Pending Item with a response window. The
+  // one card that listens offers to kill three of its controller's own
+  // permanents, and an opponent holding a removal spell has a real decision to
+  // make in that window.
+  return holdEventTrigger({ ...drawn, phase: "Action" }, {
+    kind: "mainPhaseStarted",
+    playerIndex: state.activePlayerIndex,
+  });
 }
 
 /** Runs Awaken -> Beginning -> Channel -> Draw, landing in Action phase.

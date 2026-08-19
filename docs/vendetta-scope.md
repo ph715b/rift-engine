@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=128 unimplemented=48   partial=6      (2026-08-18, after the alias fix, eight card waves, Fallen Feline and Endless Riches)
+VEN: needing=176  implemented=131 unimplemented=45   partial=6      (2026-08-18, after the alias fix, nine card waves, Fallen Feline and Endless Riches; MIND is finished but for its two partials)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 48 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 45 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,54 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Mind, wave 3 — done 2026-08-18 (the three that needed real mechanism)
+
+VEN-056 Clairvoyance, 066 Temporal Breach, 067 Bottled Constellation. VEN 128 ->
+131, and **Mind is finished apart from its two partials**. Tests in
+`test/ven-mind-wave3.test.ts` (21); **18 mutants, 18 killed** after two fixes.
+
+**`[Predict 5]` is the pool's first VALUED Predict**, and `effects/chaos.ts`'s
+bare `[Predict]` had already written down why it was not built: "a subset choice
+plus an ordering, which is not". It is now both, as two chained decisions over a
+new `PendingDecision.cardInstanceIds` — a working SET, which is neither `count`'s
+"ask me N times" nor `targetInstanceId`'s "about this one thing".
+
+**Bottled Constellation needed a moment the engine did not have.** It is the only
+card in 907 that names the MAIN Phase, where 26 name the Beginning Phase — and
+the engine's Beginning phase is part of the Start of Turn, three steps earlier.
+`mainPhaseStarted` now fires from `runDraw` as it hands over (316.1), and it is
+HELD rather than dispatched inline: the Beginning-Phase abilities' inline
+dispatch is a legacy exception this repo records as "not a licence", and a card
+that offers to kill three of your own permanents deserves a response window.
+
+Its kills are a COST (355.10.c.1's "[do X] to [do Y]"), so the question
+ACCUMULATES three picks and NOTHING dies until the third lands — a resolver that
+killed as the picks arrived would let a player back out two permanents down with
+no point, which no rule provides for.
+
+**The bug worth keeping: parking a `draw` question up front does not queue it.**
+"Predict 5. Draw 2" is sequential, so the draw was parked first on the reasoning
+that it would sit at the BACK. It does not — `parkDecision` calls
+`advanceDecisions`, and a `draw` has exactly ONE option, so it executed on the
+spot. Two cards came off the top before the predict had asked anything, and the
+looked-at window then named two cards that were no longer in the deck. The draw
+is now parked by the LAST step of the chain, where "the ordering has finished" is
+a fact rather than a hope about queue order.
+
+**And one survivor that was purely the test's fault, in this wave's own idiom:**
+the ordering test asserted only that all the cards were still present, so an
+ordering step that moved NOTHING passed it. **An ordering is only under test when
+a different answer produces a different deck** — the same shape as wave 2's three
+survivors, one level up.
+
+**Reachability did NOT move, and that was diagnosed rather than shrugged at.**
+761 before, 761 after; VEN 119 both times. Off the buckets: Clairvoyance and
+Temporal Breach are `offeredNeverTaken` (7 Energy for a draw spell; `[Hidden]`),
+and Decree of Insight from wave 2 is `drawnNeverOffered` because it needs an
+enemy BODY unit and the covering decks' opponents field few. `unexplained` stayed
+at 0 and every control passed. A flat union after a wave looks like a broken
+wave; this one is three cards the AI has no reason to play.
 
 ### Mind, wave 2 — done 2026-08-18 (the four that are engine seams)
 
