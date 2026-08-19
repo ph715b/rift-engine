@@ -703,7 +703,12 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // held EXACTLY for the TWELFTH consecutive wave — which matters more than usual
 // here, because this wave added an event to COMBAT, and a combat change that
 // displaced anything would show up in all four.
-const PINNED_UNION = 773;
+// **773 -> 779 on 2026-08-19, against 783 measured after Legends wave 1.** THREE
+// cards written and SIX newly exercised (VEN 135 -> 141) — the other three are
+// their Overnumbered printings, which come free through the alias table and are
+// exercised the moment their canonical is. The four finished sets held EXACTLY
+// for the THIRTEENTH consecutive wave.
+const PINNED_UNION = 779;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

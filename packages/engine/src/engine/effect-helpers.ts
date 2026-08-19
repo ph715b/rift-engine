@@ -1156,8 +1156,80 @@ export function isEmpowered(state: GameState, instanceId: string): boolean {
  */
 export function empowerPermanent(state: GameState, instanceId: string): GameState {
   if (isEmpowered(state, instanceId)) return state;
-  return setEmpowered(state, instanceId, true);
+  // **"When you empower something ELSE, empower me"** — Mel - Soul's Reflection
+  // and Ambessa - Matriarch of War (VEN-151, VEN-153).
+  //
+  // Hooked at the single WRITER of the status rather than fired as an event by
+  // each card that empowers, for the reason the funnel exists at all: eleven
+  // cards in the pool empower something, and eleven `holdEventTrigger` calls is
+  // eleven chances to forget one. `disempowerPermanent` needs no counterpart —
+  // nothing watches a disempower.
+  //
+  // "SOMETHING ELSE" is what stops the obvious infinite loop: the Legend
+  // empowering herself in response would re-enter this function, and the guard
+  // above (441.1.a's binary status) would stop it anyway — but the printed word
+  // is the reason, not the guard.
+  return legendsEmpoweredBySomethingElse(setEmpowered(state, instanceId, true), instanceId);
 }
+
+/**
+ * The "when you empower something else" hook, applied to both Legends that print
+ * it.
+ *
+ * INLINE rather than held, and deliberately: it is a status change on a Legend
+ * with no choice attached, the shape `[Empower]`'s own reminder text describes
+ * ("it becomes Empowered if it's not already"). A held trigger here would open a
+ * response window on something that cannot be responded to usefully — and would
+ * re-enter this funnel from inside a chain pop.
+ *
+ * Reads the Legend zone directly rather than through the listener walk, because
+ * a Legend is not a permanent on the board and the walk that finds one is
+ * `allListeningPermanents` — which cannot be called from here without a cycle.
+ */
+function legendsEmpoweredBySomethingElse(state: GameState, empoweredInstanceId: string): GameState {
+  // **"When YOU empower something else" — whose empowerment was it?**
+  //
+  // This funnel takes no actor, and threading one through the eleven call sites
+  // that empower would be a wide change for one clause. So "you" is read as the
+  // OWNER of the thing that became Empowered, which is right for every card in
+  // the pool but one: Sanction (VEN-035) can empower an ENEMY unit, and under
+  // this reading that empowers the ENEMY's Mel rather than the caster's.
+  //
+  // NARROWER than printed in that one case and wider in none, which is the safe
+  // direction this repo takes for a targeting or trigger question it cannot
+  // answer exactly. Recorded in docs/rules-conformance.md.
+  const owner = ownerOfPermanent(state, empoweredInstanceId);
+  if (owner === undefined) return state;
+  const legend = state.players[owner].legend;
+  if (!EMPOWERED_BY_SOMETHING_ELSE.has(canonicalDefId(legend.defId))) return state;
+  // "SOMETHING ELSE" — she does not fire on her own empowerment.
+  //
+  // **MEASURED-REDUNDANT.** Deleting this line changes nothing: by the time the
+  // hook runs she has already been set Empowered, so the binary-status guard on
+  // the next line stops her anyway (441.1.a). Kept because it says what the CARD
+  // says, and because the next Legend added to this table might be re-empowerable
+  // in a way that makes the guard below stop covering it.
+  if (legend.instanceId === empoweredInstanceId) return state;
+  if (legend.empowered === true) return state;
+  return setEmpowered(state, legend.instanceId, true);
+}
+
+/** Whose permanent is this — a unit anywhere, a gear, or a Legend? Undefined for
+ *  an id that is in no zone this hook cares about. */
+function ownerOfPermanent(state: GameState, instanceId: string): 0 | 1 | undefined {
+  const unit = findUnitAnywhere(state, instanceId);
+  if (unit) return unit.ownerIndex;
+  for (const ownerIndex of [0, 1] as const) {
+    const player = state.players[ownerIndex];
+    if (player.activeGear.some((g) => g.instanceId === instanceId)) return ownerIndex;
+    if (player.legend.instanceId === instanceId) return ownerIndex;
+  }
+  return undefined;
+}
+
+/** The Legends whose first sentence is "when you empower something else, empower
+ *  me" — Mel - Soul's Reflection and Ambessa - Matriarch of War. */
+const EMPOWERED_BY_SOMETHING_ELSE = new Set(["VEN-151", "VEN-153"]);
 
 /**
  * The Disempower game action (442) — "removing the Empowered status".

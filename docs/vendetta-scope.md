@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=147 unimplemented=29   partial=6      (2026-08-19, after the alias fix, eleven card waves, Fallen Feline and Endless Riches; MIND and CALM are both finished but for one partial each)
+VEN: needing=176  implemented=153 unimplemented=23   partial=6      (2026-08-19, after the alias fix, twelve card waves, Fallen Feline and Endless Riches; MIND and CALM are both finished but for one partial each, and 3 of the 7 LEGENDS are in)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 29 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 23 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,48 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Legends, wave 1 — done 2026-08-19 (3 of the 7, and 3 free printings)
+
+VEN-147 Shen - Eye of Twilight, 151 Mel - Soul's Reflection, 153 Ambessa -
+Matriarch of War — **plus VEN-193, 195 and 196, their Overnumbered printings,
+which came free through the alias table**. VEN 147 -> 153, six rows for three
+pieces of work. Tests in `test/ven-legends-wave1.test.ts` (19); **15 mutants —
+14 killed, 1 measured-redundant.**
+
+Two of the three share a first sentence and a cost, and both are new mechanism:
+
+- **"When you empower something ELSE, empower me"** is hooked inside
+  `empowerPermanent`, the SINGLE WRITER of the status, rather than fired by each
+  of the eleven cards that empower — eleven call sites is eleven chances to miss
+  one. `disempowerPermanent` needs no counterpart; nothing watches a disempower.
+- **"Disempower me, [Exhaust]:" is a COST, not an `[Empowered][>]` gate.** A gate
+  can be used every turn the status is held; this SPENDS it, so the Legend must
+  be re-empowered before it works again — which is exactly what her first
+  sentence is for. On the card face the two read almost identically, and Jayce -
+  Defender of Tomorrow is the gate one file over.
+
+**The test caught a real over-reach before the mutation run did.** The first
+draft's hook fired for BOTH players' Legends, because `empowerPermanent` takes no
+actor. "You" is now read as the OWNER of the newly-Empowered permanent — exact
+for ten of the eleven empowering cards, and narrower than printed only for
+Sanction's second mode, which can empower an enemy unit. Recorded in
+docs/rules-conformance.md along with Ambessa's friendly-only ready.
+
+**Three survivors, and the two real ones are the same lesson in two costumes:
+assert through the ENUMERATOR, not through the resolver.** Handing a resolver a
+friendly target works whatever the spec says (Shen's printed "a friendly unit"),
+and a cost that is paid by the EXECUTOR is not observable from the effect at all
+(the disempower). The third was a set-membership boundary no test could see until
+one used the fixture's default Legend.
+
+**The census did NOT move, correctly**: an activated ability is not a trigger, and
+the empower hook lives in a funnel rather than in a registry. A wave that adds
+three cards and moves no census figure is the expected shape here, not a missed
+update.
+
+Reachability pin 773 -> 779 against 783; VEN 135 -> 141 — six newly exercised
+from three cards, the other three being the free printings.
 
 ### Calm, wave 2 — done 2026-08-19 (the six that needed mechanism)
 

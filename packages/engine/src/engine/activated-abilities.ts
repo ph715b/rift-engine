@@ -52,7 +52,7 @@ import { computeAutoPayment, energyAfterFloat } from "./rune-payment.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { type TargetingSpec } from "./card-effects.js";
 import { attachEquipment, attachableEquipment, copiedTextSourceFor, unitsBanishedWith } from "./equipment.js";
-import { banishCard, empowerPermanent, isEmpowered } from "./effect-helpers.js";
+import { banishCard, disempowerPermanent, empowerPermanent, isEmpowered } from "./effect-helpers.js";
 import { playCardIgnoringCost } from "./play-free.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
 
@@ -215,6 +215,22 @@ export interface ActivationCost {
    * exhaust: a Drive that has paid is gone.
    */
   banishSelf?: true;
+  /**
+   * **Disempower this permanent to pay** — the cost three Vendetta Legends print
+   * ("Disempower me, [Exhaust]: ...").
+   *
+   * A cost rather than an `[Empowered][>]` gate, and the difference is the whole
+   * design of those cards: an Empowered-gated ability can be used every turn the
+   * status is held, while this SPENDS the status, so the Legend has to be
+   * re-empowered before it can be used again. Jayce - Defender of Tomorrow's
+   * `[Empowered][>]` ability is the other shape, one file over, and reads
+   * identically on the card face.
+   *
+   * 416.3 makes an unpayable cost one that is not offered, so a Legend that is
+   * not Empowered simply does not present the ability — `canPayActivationCost`
+   * asks, and `abilitiesAvailableTo` never sees it.
+   */
+  disempowerSelf?: true;
   /**
    * Power of a specific domain, recycled from the channeled pool (rule 416) —
    * Treasure Trove's "[Chaos], Exhaust: Kill this".
@@ -473,6 +489,13 @@ export interface ActivatedAbilityDefinition {
  * costs may drain (rune-payment.ts's computeEffectiveCost). Behaviour is
  * unchanged; only where it lives moved.
  */
+/** Vendetta's Legends, wave 1 — the three that need no new event of their own
+ *  beyond the `empowerPermanent` hook two of them share. */
+const SHEN_EYE_OF_TWILIGHT = "VEN-147";
+const MEL_SOULS_REFLECTION = "VEN-151";
+const MEL_SHRINK = 2;
+const AMBESSA_MATRIARCH = "VEN-153";
+
 const LUX_CROWNGUARD = "OGS-014";
 
 /** Orb of Regret: "Exhaust: Give a unit -1 Might this turn, to a minimum of 1
@@ -1583,6 +1606,70 @@ const ACTIVATED_ABILITIES: Record<string, ActivatedAbilityDefinition> = {
     targeting: { kind: "none" },
     resolve: (state) => state,
   },
+  [SHEN_EYE_OF_TWILIGHT]: {
+    // Shen - Eye of Twilight (VEN-147) — "[Action][>] [Exhaust]: Give a friendly
+    // unit [Tank] this turn."
+    //
+    // The simplest of Vendetta's seven Legends and the only one with no trigger
+    // at all: one ability, one exhaust, one grant. `[Tank]` is a printed keyword
+    // the combat code already reads ("it must be assigned combat damage first"),
+    // so this grants it and nothing else is owed.
+    //
+    // "A FRIENDLY unit" is printed, unlike Jayce's "a gear" — so the narrowing
+    // here is the card's rather than a recorded simplification.
+    kind: "Legend",
+    cost: { exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : grantKeywordThisTurn(state, event.targetUnitInstanceId, "Tank", 1),
+  },
+  [MEL_SOULS_REFLECTION]: {
+    // Mel - Soul's Reflection (VEN-151) — "Disempower me, [Exhaust]: Give a unit
+    // AT A BATTLEFIELD -2 [Might] this turn."
+    //
+    // Her first sentence ("when you empower something else, empower me") is a
+    // hook inside `empowerPermanent`, the single writer of the status; coverage
+    // merges the two claims.
+    //
+    // **"Disempower me" is a COST, not an `[Empowered][>]` gate**, and the
+    // difference is the card: a gate can be used every turn the status is held,
+    // while this SPENDS it — so she has to be re-empowered before she works
+    // again, which is what her first sentence is for. `disempowerSelf` is that
+    // cost, and 416.3 keeps her off the list entirely while she is not Empowered.
+    //
+    // "A unit AT A BATTLEFIELD" — the location is printed, so `scope:
+    // "battlefield"` (355.9.b's narrowing), and no owner word, so either side's.
+    kind: "Legend",
+    cost: { disempowerSelf: true, exhaust: true },
+    targeting: { kind: "unit", scope: "battlefield" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : giveMightThisTurn(state, event.targetUnitInstanceId, -MEL_SHRINK),
+  },
+  [AMBESSA_MATRIARCH]: {
+    // Ambessa - Matriarch of War (VEN-153) — "Disempower me, [rainbow],
+    // [Exhaust]: Ready a unit."
+    //
+    // Mel's shape with a rainbow pip on top, and the same first sentence — so the
+    // two arrive together and share the `empowerPermanent` hook.
+    //
+    // **`owner: "friendly"` is a NARROWING and a recorded one**, exactly as
+    // Jayce - Defender of Tomorrow's "a gear" is: her text names no owner, so an
+    // enemy unit is legal to name, and `readyPermanent` only reaches the acting
+    // player's. Withholding it is the safe direction — readying an opponent's
+    // unit is never desirable — and it is in docs/rules-conformance.md rather
+    // than silent.
+    kind: "Legend",
+    cost: { disempowerSelf: true, power: { domain: null, count: 1 }, exhaust: true },
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere", exhaustedOnly: true },
+    resolve: (state, ctx, event) =>
+      event.targetUnitInstanceId === undefined
+        ? state
+        : readyPermanent(state, ctx.casterIndex, event.targetUnitInstanceId),
+  },
   [LUX_CROWNGUARD]: {
     kind: "Unit",
     targeting: { kind: "none" },
@@ -2362,6 +2449,9 @@ export function canPayActivationCost(
   // Through the shared walk, so a hand that cannot pay a NARROWED discard makes
   // the ability unofferable rather than offerable-then-refused (416.3).
   if (cost.discard !== undefined && discardableForCost(state, playerIndex, cost).length < cost.discard) return false;
+  // 416.3 — a permanent that is not Empowered cannot pay a disempower, so the
+  // ability is not offered at all rather than offered and refused.
+  if (cost.disempowerSelf === true && !isEmpowered(state, card.instanceId)) return false;
   // `killSelf` needs no check here: the source was found in play by
   // resolveActivation before this was called, and unlike an exhaust there is no
   // second state it could be in — a Forge that has paid is gone, not spent.
@@ -2478,6 +2568,15 @@ export function payActivationCost(
     // killing it, so its own "when I am killed" self-trigger must fire — the
     // same reasoning Cruel Patron's kill-as-a-cost already follows.
     next = killGear(next, gear, playerIndex);
+  }
+  if (cost.disempowerSelf === true) {
+    // Re-checked at PAYMENT as well as at the offer, the convention every cost
+    // here follows: the ability was offered a chain-pop ago and the status can
+    // have been stripped in between. `disempowerPermanent` is the single writer
+    // and no-ops on something already disempowered (442.1.a.1), so the guard is
+    // this line rather than that helper's.
+    if (!isEmpowered(next, instanceId)) return undefined;
+    next = disempowerPermanent(next, instanceId);
   }
   if (cost.banishSelf) {
     const gear = next.players[playerIndex].activeGear.find((g) => g.instanceId === instanceId);
