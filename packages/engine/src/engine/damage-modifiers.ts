@@ -1,4 +1,5 @@
 import type { GameState } from "../model/game-state.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { battlefieldBonusDamageAt } from "./battlefield-continuous.js";
 
@@ -46,7 +47,17 @@ const KAYN_MOVES_REQUIRED = 2;
 const ELDER_DRAGON = "UNL-118";
 
 export function damageModifierDefIds(): string[] {
-  return [ANNIE_FIERY, RAVENBORN_TOME, KAYN_UNLEASHED, RABADONS_DEATHCROWN, ELDER_DRAGON, AMBESSA_THE_WOLF];
+  return [
+    ANNIE_FIERY,
+    RAVENBORN_TOME,
+    KAYN_UNLEASHED,
+    RABADONS_DEATHCROWN,
+    ELDER_DRAGON,
+    AMBESSA_THE_WOLF,
+    // Esteemed Hierophant's prevention is his ENTIRE printed text, so this list
+    // is his only registration anywhere — the Lucian - Purifier trap.
+    ESTEEMED_HIEROPHANT,
+  ];
 }
 
 /**
@@ -116,6 +127,38 @@ export function anyDamageIsLethalTo(state: GameState, ownerIndex: 0 | 1): boolea
  * that needs no new assignment concept; recorded Unverified in
  * docs/rules-conformance.md.
  */
+/**
+ * Esteemed Hierophant (VEN-025) — "While you control 7 or more runes, prevent all
+ * damage that ENEMY SPELLS AND ABILITIES would deal to me."
+ *
+ * **`dealDamage` IS the spell-and-ability path**, which is what makes this one
+ * predicate rather than a new axis on the damage pipeline: combat never routes
+ * through it (`combat.ts` does its own Might arithmetic), so "spells and
+ * abilities" needs no flag saying which kind of damage this is. Unyielding
+ * Spirit's prevention is the same reading one clause wider.
+ *
+ * "ENEMY" is the half that DOES need an argument, and it is the caster: a
+ * Hierophant's controller can still burn their own unit down, which is a legal if
+ * strange play and the card does not stop it.
+ *
+ * "You control 7 or more runes" is `channeled.length` — the Rune Pool, the same
+ * count Renekton and Eclipse Dragon read. Live, so spending back under seven
+ * mid-turn stops the prevention.
+ */
+const ESTEEMED_HIEROPHANT = "VEN-025";
+const ESTEEMED_HIEROPHANT_RUNES = 7;
+
+export function preventsEnemySpellDamage(
+  state: GameState,
+  unit: UnitInstance,
+  unitOwnerIndex: 0 | 1,
+  casterIndex: 0 | 1,
+): boolean {
+  if (canonicalDefId(unit.defId) !== ESTEEMED_HIEROPHANT) return false;
+  if (casterIndex === unitOwnerIndex) return false;
+  return state.players[unitOwnerIndex].channeled.length >= ESTEEMED_HIEROPHANT_RUNES;
+}
+
 export function takesNoDamage(state: GameState, unit: UnitInstance): boolean {
   if (unit.defId === KAYN_UNLEASHED && (unit.movesThisTurn ?? 0) >= KAYN_MOVES_REQUIRED) return true;
   return ambessaIsProtected(state, unit);

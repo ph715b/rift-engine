@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("367 held / 8 inline of 375 trigger cards", () => {
+  it("372 held / 8 inline of 380 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -670,10 +670,26 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     //
     // The other two are correctly absent: VEN-056 Clairvoyance and VEN-066
     // Temporal Breach are SPELL effects, however much queue machinery they park.
+    // **367/8/375 -> 372/8/380 on 2026-08-18: Vendetta's Calm wave 1, five
+    // trigger cards out of ten.** By family and by name:
+    //
+    //     unit  (+2)  VEN-026 Field Musicians, VEN-037 Tomb-Raider Barbara
+    //                 (both "when you play me")
+    //     event (+3)  VEN-033 Pakaa Protector and VEN-038 Akali, Silent (both
+    //                 `unitMoved`, and they differ in exactly one clause — Akali
+    //                 prints "to a battlefield" and the Protector does not);
+    //                 VEN-042 Shen, Scourge of Shadows (`battlefieldHeld`)
+    //     distinct: 5
+    //
+    // The other five are correctly absent across four homes: VEN-031 Twilight
+    // Shroud and VEN-035 Sanction are SPELL effects, VEN-025 Esteemed Hierophant
+    // is a damage modifier, and VEN-029 Ol' Poro and VEN-036 Sandstone Chimera
+    // are board restrictions — a self-imposed play restriction and a channel cap,
+    // neither of which is a trigger.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 367,
+      held: 372,
       inline: 8,
-      cards: 375,
+      cards: 380,
     });
   });
 

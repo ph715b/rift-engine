@@ -5,6 +5,7 @@ import { lowestOrdinalDomain } from "../model/domain.js";
 import type { CardInstance } from "../model/card.js";
 import {
   controlsEndlessRiches,
+  mayPlayCardThisTurn,
   mayPlaySpells,
   mayPlaySpellNamed,
   mayPlayCardsAtAll,
@@ -172,6 +173,11 @@ export function mayPlayCardNow(
   // card however it is timed — including a [Reaction], which is the whole point
   // of a card that shuts a turn down.
   if (!mayPlayCardsAtAll(state, playerIndex)) return false;
+  // Ol' Poro's own "I can't be played on your first, second, or third turns" —
+  // a restriction the card imposes on ITSELF, so it is asked of the defId rather
+  // than of the board. Beside the board-wide locks and before the tier switch,
+  // because it bars the card however it is timed.
+  if (!mayPlayCardThisTurn(state, card.defId)) return false;
   // Lilting Lullaby's narrower ban. Beside Brynhir's rather than folded into it,
   // and for the same reason it is placed here: it bars a SPELL however it is
   // timed, including a [Reaction], which is the point of shutting spells down.

@@ -133,6 +133,17 @@ export type TargetingSpec =
       maxMight?: number;
       scope?: TargetScope;
       exhaustedOnly?: true;
+      /**
+       * Only an ALREADY-Empowered unit — Sanction's second mode, "disempower a
+       * unit THAT'S [Empowered]".
+       *
+       * Printed, and load-bearing: without it that mode is a free way to Empower
+       * an enemy unit at end of turn, which is the opposite of what it does.
+       * Filtered on the OFFER beside `exhaustedOnly` above, which is the same
+       * shape — a status the unit either has or does not, read live so a unit
+       * disempowered in the response window stops being a legal choice.
+       */
+      empoweredOnly?: true;
       attackingOnly?: true;
       /**
        * The printed text says "you MAY choose" — declining is a legal option, so

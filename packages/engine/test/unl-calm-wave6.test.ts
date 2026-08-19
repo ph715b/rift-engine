@@ -343,8 +343,15 @@ describe("the eight Calm cards this re-audit still REFUSES, each asserted agains
     // chosen by enemy spells and abilities" is Ruin Runner's shape exactly —
     // unconditional, `() => true` — and was one of the three clauses a wave-7
     // agent named as writable in one row. It is the row.
+    // **VEN-038 Akali, Silent joined on 2026-08-18, and she widened the table
+    // again.** "I can't be chosen by enemy spells and abilities UNLESS I'M IN
+    // COMBAT" is the first condition here about the protected unit's own POSITION
+    // rather than about its controller — so the predicate grew a `unit`
+    // parameter, exactly as it grew `state` for Master Yi on 2026-08-11. The
+    // refusal that pin recorded named the signature as the blocker and was right
+    // both times; widening it is the same one-line answer.
     expect(chooseRestrictionDefIds().sort(), "a card lost its choose restriction").toEqual(
-      ["SFD-105", "UNL-057", "UNL-059", "UNL-147"].sort(),
+      ["SFD-105", "UNL-057", "UNL-059", "UNL-147", "VEN-038"].sort(),
     );
   });
 });

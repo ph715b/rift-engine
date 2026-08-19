@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=131 unimplemented=45   partial=6      (2026-08-18, after the alias fix, nine card waves, Fallen Feline and Endless Riches; MIND is finished but for its two partials)
+VEN: needing=176  implemented=141 unimplemented=35   partial=6      (2026-08-19, after the alias fix, ten card waves, Fallen Feline and Endless Riches; MIND is finished but for its two partials)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 45 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 35 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,52 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Calm, wave 1 — done 2026-08-19 (10 of the domain's 17)
+
+VEN-025 Esteemed Hierophant, 026 Field Musicians, 029 Ol' Poro, 031 Twilight
+Shroud, 033 Pakaa Protector, 035 Sanction, 036 Sandstone Chimera, 037
+Tomb-Raider Barbara, 038 Akali Silent, 042 Shen Scourge of Shadows. VEN 131 ->
+141. Tests in `test/ven-calm-wave1.test.ts` (34); **34 mutants, 34 killed on the
+first pass** — the first wave this session with no survivors, and the narrowing
+rule from Mind waves 2 and 3 is why.
+
+**The wave's motif is PROHIBITION, and it arrives in four shapes the engine had
+to keep apart:**
+
+| card | shape |
+|---|---|
+| Twilight Shroud | shrouds ONE BODY for ONE TURN — a per-instance flag, `unchooseableByEnemiesThisTurn`, swept by `runEnd` |
+| Akali, Silent | shrouds HERSELF while she is not in combat — so `UNCHOOSEABLE_BY_ENEMIES`' predicate grew a `unit` parameter, exactly as it grew `state` for Master Yi in UNL |
+| Esteemed Hierophant | prevents DAMAGE from enemy spells and abilities — and needed no new axis, because `dealDamage` already IS that path (combat does its own arithmetic) |
+| Ol' Poro | forbids its OWN play for three turns — the first entry in `board-restrictions.ts` read while the card is still in hand |
+
+**And a second card that binds BOTH players from a bare noun**: Sandstone
+Chimera's "PLAYERS only channel 1", after Otterpus's "a player". That reading has
+now caught this set twice, and both times the card is symmetrical by design.
+
+Sanction completed a pair the engine had half of: `disempowerAtEndOfTurn` was
+built for Tornado Warrior in Chaos wave 2, and its mirror `empowerAtEndOfTurn`
+landed here. Two lists rather than one signed list, because both can be armed in
+the same turn and `runEnd` applies the disempowers first.
+
+**One shared axis, `empoweredOnly` on the unit targeting spec**, for Sanction's
+second mode — "disempower a unit THAT'S [Empowered]", without which the mode is a
+free way to Empower an enemy unit at end of turn.
+
+**Akali's FIRST sentence was silently missing after the first build**, which is
+the half-written class Mind wave 1 recorded: her move trigger registered her, so
+`isCardImplemented` went green while the prohibition she is named for did not
+exist. Caught by reading the printed text against what was written, not by any
+instrument.
+
+**A premise pin fired and was EXTENDED rather than weakened**: UNL's
+choose-restriction census listed four cards, and Akali is the fifth. That pin
+records a refusal from 2026-08-11 which named the SIGNATURE as the blocker and
+was right; widening it is the same one-line answer a second time.
+
+Reachability pin 757 -> 766 against 770; VEN 119 -> 128, and the four finished
+sets held EXACTLY for the ELEVENTH consecutive wave.
 
 ### Mind, wave 3 — done 2026-08-18 (the three that needed real mechanism)
 

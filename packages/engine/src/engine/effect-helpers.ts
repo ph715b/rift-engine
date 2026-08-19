@@ -4,7 +4,7 @@ import type { CardInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import type { Keyword } from "../model/keyword.js";
 import { effectiveMight } from "./effective-might.js";
-import { anyDamageIsLethalTo, damageIsDoubledFor, modifiedDamageAmount, takesNoDamage } from "./damage-modifiers.js";
+import { anyDamageIsLethalTo, damageIsDoubledFor, modifiedDamageAmount, preventsEnemySpellDamage, takesNoDamage } from "./damage-modifiers.js";
 import { matchesPowerDomain } from "./rune-payment.js";
 import {
   ZHONYAS_HOURGLASS,
@@ -429,6 +429,12 @@ export function dealDamage(state: GameState, casterIndex: 0 | 1, targetInstanceI
   // modified rather than after: a prevented 0 is still prevented, and Annie's
   // bonus damage has nothing to add to.
   if (takesNoDamage(state, unit)) return state;
+  // Esteemed Hierophant, while his controller holds 7+ runes. Beside the two
+  // preventions above and for the same reason they sit here: a prevented 0 is
+  // still prevented, and nothing downstream should see damage that never landed.
+  // The CASTER is what makes "enemy" answerable, which is why this one takes it
+  // where its neighbours do not.
+  if (preventsEnemySpellDamage(state, unit, ownerIndex, casterIndex)) return state;
   // Counter Strike — "the NEXT time that unit would be dealt damage this turn,
   // prevent it."
   //

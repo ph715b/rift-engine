@@ -131,6 +131,7 @@ function makeState(): GameState {
     damagePreventedOnceInstanceIds: [],
     damagePreventionPoolByInstanceId: {},
     disempowerAtEndOfTurn: [],
+    empowerAtEndOfTurn: [],
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,

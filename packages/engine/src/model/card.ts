@@ -138,6 +138,27 @@ export interface UnitInstance extends CardInstanceBase, EmpowerableInstance {
    */
   namedSpell?: string;
   /**
+   * "It can't be chosen by enemy spells and abilities THIS TURN" — Twilight
+   * Shroud (VEN-031).
+   *
+   * **A per-INSTANCE, per-TURN flag, which is a third shape for a prohibition
+   * this engine already had two of.** `UNCHOOSEABLE_BY_ENEMIES` is keyed by defId
+   * (Ruin Runner, Baron Nashor, Master Yi - Unstoppable) and answers a question
+   * about a CARD; Alpha Wildclaw's is an aura over other units. Neither can say
+   * "this one, until the turn ends", because the subject is a body rather than a
+   * printing and the reason expires.
+   *
+   * Read by `unitChooseableBy`, the one predicate the enumerator, the validator
+   * and `hasAnyLegalEffectChoice` all go through, so a shrouded unit disappears
+   * from every offer at once rather than being refused after a click.
+   *
+   * Swept by `runEnd` with the other this-turn state, and DELETED rather than set
+   * false, for the reason `baseMightThisTurn` records: `exactOptionalPropertyTypes`
+   * makes an absent key a different type from a present one, and absent is what
+   * every untouched unit carries.
+   */
+  unchooseableByEnemiesThisTurn?: true;
+  /**
    * Whether this unit carries a Buff — a counter placed on it, worth +1 Might
    * (rule 705), which persists across turns until it is spent or the unit
    * leaves play (rule 705).

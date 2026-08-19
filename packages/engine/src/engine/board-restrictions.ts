@@ -71,6 +71,44 @@ export function controlsEndlessRiches(state: GameState, playerIndex: 0 | 1): boo
 }
 
 /**
+ * Ol' Poro (VEN-029) — "I can't be played on your first, second, or third turns."
+ *
+ * A restriction the CARD imposes on itself, which is a new direction for this
+ * module: every other entry is a permanent in play restricting somebody. This one
+ * is read while the card is still in hand, which is why it takes a defId rather
+ * than walking the board.
+ *
+ * `turnNumber` is a ROUND counter (115.1.c's looping queue) and advances only
+ * when play returns to the FIRST player, so "your Nth turn" is the same number
+ * for either player — the reading Otterpus's entry below sets out at length.
+ *
+ * Read by `timing.mayPlayCardNow`, so the card is never OFFERED on turns 1-3
+ * rather than being offered and refused.
+ */
+const OL_PORO = "VEN-029";
+const OL_PORO_EARLIEST_TURN = 4;
+
+/** May this card be played at all this turn, by its own printed text? */
+export function mayPlayCardThisTurn(state: GameState, defId: string): boolean {
+  if (canonicalDefId(defId) !== OL_PORO) return true;
+  return state.turnNumber >= OL_PORO_EARLIEST_TURN;
+}
+
+/**
+ * Sandstone Chimera (VEN-036) — "while I'm at a battlefield, players only channel
+ * 1 rune at the start of their Channel Phase."
+ *
+ * Positional, like the Warden and the Feline: she does nothing from base. Bare
+ * "players", so EITHER side's Chimera caps EVERYONE's channelling, which is why
+ * this takes no player argument at all.
+ */
+const SANDSTONE_CHIMERA = "VEN-036";
+
+export function chimeraCapsChannelling(state: GameState): boolean {
+  return ([0, 1] as const).some((ownerIndex) => atOwnBattlefield(state, ownerIndex, SANDSTONE_CHIMERA));
+}
+
+/**
  * Otterpus (VEN-053) — "If a player would score 1 point from conquering or
  * holding during their first or second turn, they draw 1 instead."
  *
@@ -205,6 +243,17 @@ export function boardRestrictionDefIds(): string[] {
     MISS_FORTUNE_BUCCANEER,
     MADULI_THE_GATEKEEPER,
     OTTERPUS,
+    // Ol' Poro's "I can't be played on your first, second, or third turns" and
+    // Sandstone Chimera's channel cap are each the card's ENTIRE printed text,
+    // and both live here — the Lucian - Purifier trap, which reports a working
+    // card unimplemented and drops it from generated decks.
+    //
+    // The Chimera's cap is applied in `turn-manager.runChannel`, which reads this
+    // module's predicate; coverage is claimed HERE because this is where her
+    // sentence is decided, and a second claim would say the wrong thing about
+    // where her text lives.
+    OL_PORO,
+    SANDSTONE_CHIMERA,
   ];
 }
 

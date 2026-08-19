@@ -26,6 +26,7 @@ import {
   gearOwnerMatches,
   unitOrGearTargets,
   unitSatisfiesAttackingOnly,
+  unitSatisfiesEmpoweredOnly,
   unitWithinMaxMight,
   activatableGearTargets,
 } from "./target-lookup.js";
@@ -1270,6 +1271,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // two gates drift apart in the first place.
       for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope, targeting.domain)) {
         if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
+        if (!unitSatisfiesEmpoweredOnly(state, target, targeting.empoweredOnly)) continue;
         if (!unitSatisfiesAttackingOnly(state, target, targeting.attackingOnly)) continue;
         if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;
         effectVariants.push({ targetUnitInstanceId: target.instanceId });

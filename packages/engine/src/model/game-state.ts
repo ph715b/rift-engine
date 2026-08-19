@@ -1548,6 +1548,18 @@ export interface GameState {
    */
   disempowerAtEndOfTurn: string[];
   /**
+   * Permanents to EMPOWER as this turn ends — Sanction's (VEN-035) second mode,
+   * "disempower a unit that's [Empowered]. Empower it at end of turn."
+   *
+   * The exact mirror of `disempowerAtEndOfTurn` above, and deliberately a second
+   * list rather than a signed entry on the first: the two are opposite
+   * instructions that can both be armed in one turn (two Sanctions, one of each
+   * mode), and a single list would have to encode which way each entry points.
+   * `runEnd` applies both, disempowers first, so a permanent named by both ends
+   * the turn Empowered — which is the order the card's own two modes read in.
+   */
+  empowerAtEndOfTurn: string[];
+  /**
    * How many times each CARD INSTANCE has dealt damage this turn — UNL-020
    * Dancing Grenade's "1 additional Bonus Damage for each time this spell has
    * dealt damage this turn", which is the pool's first text to count a single

@@ -695,7 +695,10 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // regression — it is three cards the AI has no reason to play. Worth leaving
 // here because a flat union after a wave looks like a broken wave, and the next
 // session deserves to know it was diagnosed rather than shrugged at.
-const PINNED_UNION = 757;
+// **757 -> 766 on 2026-08-19, against 770 measured after Calm wave 1.** Ten cards
+// implemented and NINE newly exercised (VEN 119 -> 128); the four finished sets
+// held EXACTLY for the ELEVENTH consecutive wave.
+const PINNED_UNION = 766;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

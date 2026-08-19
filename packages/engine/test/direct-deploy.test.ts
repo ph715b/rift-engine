@@ -140,6 +140,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     damagePreventedOnceInstanceIds: [],
     damagePreventionPoolByInstanceId: {},
     disempowerAtEndOfTurn: [],
+    empowerAtEndOfTurn: [],
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,

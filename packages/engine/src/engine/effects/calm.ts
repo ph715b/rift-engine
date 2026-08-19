@@ -13,7 +13,7 @@ import type {
 import { isAttackingAt, isFightingAt, isStillHere } from "../combat-designation.js";
 import type { DecisionDefinition } from "../decisions.js";
 import type { GameState, PlayerState } from "../../model/game-state.js";
-import type { UnitInstance } from "../../model/card.js";
+import type { CardInstance, UnitInstance } from "../../model/card.js";
 import type { AnyUnitLocation } from "../target-lookup.js";
 import {
   addBuff,
@@ -39,6 +39,9 @@ import {
   returnUnitToHand,
   stunUnits,
   takeOneFromTopAndRecycleRest,
+  disempowerPermanent,
+  empowerPermanent,
+  fileIntoTrash,
   isEmpowered,
 } from "../effect-helpers.js";
 import { killGear } from "../triggers.js";
@@ -236,7 +239,146 @@ const NO_COMBAT_DAMAGE_PENALTY = 1000;
  */
 const SPRITE_TOKEN: TokenSpec = { name: "Sprite", might: 3, tag: "Sprite", entersReady: true, keywords: { Temporary: 1 } };
 
+/** Vendetta's Calm, wave 1. */
+const FIELD_MUSICIANS_MIGHT = 3;
+const TWILIGHT_SHROUD_MIGHT = 1;
+const TOMB_RAIDER_BARBARA = "VEN-037";
+const TOMB_RAIDER_BARBARA_RUNES = 7;
+const AKALI_SILENT = "VEN-038";
+const AKALI_SILENT_MIGHT = 2;
+const PAKAA_PROTECTOR = "VEN-033";
+const PAKAA_PROTECTOR_MIGHT = 2;
+const SHEN_SCOURGE = "VEN-042";
+/** "EXACTLY one other unit you control here" — the formation four cards in this
+ *  set turn on, and the boundary a board built with a single ally cannot see. */
+const SHEN_SCOURGE_ALLIES = 1;
+
+/**
+ * Twilight Shroud's shroud — marks ONE unit unchooseable by enemies for the turn.
+ *
+ * Written onto the instance rather than into a state-level list, and swept by
+ * `runEnd`: see `UnitInstance.unchooseableByEnemiesThisTurn` for why this is a
+ * third shape rather than an entry in the defId table. No-ops on a unit that has
+ * left play (359.3.e.12).
+ */
+function shroudUnit(state: GameState, targetInstanceId: string): GameState {
+  const mark = (u: UnitInstance): UnitInstance =>
+    u.instanceId === targetInstanceId ? { ...u, unchooseableByEnemiesThisTurn: true } : u;
+  const players = state.players.map((p) => ({ ...p, baseUnits: p.baseUnits.map(mark) })) as [PlayerState, PlayerState];
+  const battlefields = state.battlefields.map((bf) => {
+    const units: typeof bf.units = {};
+    for (const [playerId, list] of Object.entries(bf.units)) units[playerId] = list.map(mark);
+    return { ...bf, units };
+  });
+  return { ...state, players, battlefields };
+}
+
+/**
+ * How many OTHER units its controller has at the battlefield this one is
+ * standing at — Shen, Scourge of Shadows' "exactly one other unit you control
+ * here".
+ *
+ * A private copy of the one in effects/order.ts, deliberately: the shared home
+ * would be effect-helpers.ts, and the one-file-one-owner rule these domain files
+ * exist for keeps a card implementation out of the shared file. Both copies are
+ * four lines around the same walk, which is the trade `recycleTopCard` records.
+ *
+ * Returns 0 for a unit in base — a base is not a battlefield, so "here" has no
+ * answer and "exactly one" is false, which is the right reading rather than an
+ * edge case.
+ */
+function otherOwnUnitsHereForShen(state: GameState, unit: UnitInstance, ownerIndex: 0 | 1): number {
+  const owner = state.players[ownerIndex];
+  const here = state.battlefields.find((bf) => (bf.units[owner.id] ?? []).some((u) => u.instanceId === unit.instanceId));
+  if (!here) return 0;
+  return (here.units[owner.id] ?? []).filter((u) => u.instanceId !== unit.instanceId).length;
+}
+
+/**
+ * Pakaa Protector's "otherwise, put it in your trash" — the revealed top card,
+ * moved from the deck to the trash.
+ *
+ * Through `fileIntoTrash` with `"mainDeck"`, which is the honest source: the card
+ * is coming off the top of the Main Deck, so Endless Riches does NOT banish it
+ * instead. That is the same exemption a Burn takes, and reading it the other way
+ * would make the two cards disagree about the same movement.
+ */
+function updatePlayerForPakaa(state: GameState, ownerIndex: 0 | 1, top: CardInstance): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const owner = players[ownerIndex];
+  players[ownerIndex] = {
+    ...owner,
+    deck: owner.deck.slice(1),
+    ...fileIntoTrash(state, ownerIndex, owner, top, "mainDeck"),
+  };
+  return { ...state, players };
+}
+
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-031": {
+    // Twilight Shroud — "Give a friendly unit +1 [Might] this turn. It can't be
+    // chosen by enemy spells and abilities this turn. [Flow] [2 Energy]."
+    //
+    // The pump is incidental; the SHROUD is the card, and it needed a third shape
+    // of prohibition. `UNCHOOSEABLE_BY_ENEMIES` is keyed by defId and answers a
+    // question about a CARD (Ruin Runner, Baron Nashor, Master Yi - Unstoppable);
+    // Alpha Wildclaw's is an aura over other units. Neither can say "this body,
+    // until the turn ends", so `UnitInstance.unchooseableByEnemiesThisTurn` is a
+    // per-instance flag swept by `runEnd`.
+    //
+    // Read by `unitChooseableBy` — the predicate the enumerator, the validator and
+    // `hasAnyLegalEffectChoice` all go through — so a shrouded unit vanishes from
+    // every enemy offer at once rather than being refused after a click.
+    //
+    // "A FRIENDLY unit", bare on location, so `scope: "anywhere"` (355.9.a.1).
+    // [Flow] needs nothing here (829.1.c.1 is plumbed generically).
+    targeting: { kind: "unit", owner: "friendly", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? shroudUnit(giveMightThisTurn(state, event.targetUnitInstanceId, TWILIGHT_SHROUD_MIGHT), event.targetUnitInstanceId)
+        : state,
+  },
+  "VEN-035": {
+    // Sanction — "[Reaction] Choose one — Empower a unit. Disempower it at end of
+    // turn. / Disempower a unit that's [Empowered]. Empower it at end of turn."
+    //
+    // Two modes that are exact mirrors, and the pair is why the engine now has
+    // BOTH `disempowerAtEndOfTurn` (built for Tornado Warrior) and its twin
+    // `empowerAtEndOfTurn`. Two lists rather than one signed list: both can be
+    // armed in the same turn by two Sanctions, and `runEnd` applies the
+    // disempowers first so a permanent named by both ends the turn Empowered —
+    // the order the card's own two sentences read in.
+    //
+    // **The second mode's target is narrowed to an ALREADY-Empowered unit**, which
+    // the first mode's is not: "disempower a unit THAT'S [Empowered]" is printed,
+    // and without it the mode would be a way to Empower an enemy unit at end of
+    // turn for free. Filtered on the offer rather than checked in the resolver.
+    //
+    // Neither mode names an owner, so both reach either side (355.9.a.1) —
+    // Empowering an enemy unit for a turn to strip it later is a real line.
+    modes: [
+      {
+        id: "empower",
+        label: "Empower a unit, disempower it at end of turn",
+        targeting: { kind: "unit", scope: "anywhere" },
+        resolve: (state, _ctx, event) => {
+          const id = event.targetUnitInstanceId;
+          if (!id) return state;
+          return { ...empowerPermanent(state, id), disempowerAtEndOfTurn: [...state.disempowerAtEndOfTurn, id] };
+        },
+      },
+      {
+        id: "disempower",
+        label: "Disempower an Empowered unit, empower it at end of turn",
+        targeting: { kind: "unit", scope: "anywhere", empoweredOnly: true },
+        resolve: (state, _ctx, event) => {
+          const id = event.targetUnitInstanceId;
+          if (!id) return state;
+          return { ...disempowerPermanent(state, id), empowerAtEndOfTurn: [...state.empowerAtEndOfTurn, id] };
+        },
+      },
+    ],
+  },
   "SFD-031": {
     // Desert's Call — "[Repeat] [2] Play a 2 Might Sand Soldier unit token."
     //
@@ -1025,6 +1167,47 @@ function mightContext(state: GameState, location: AnyUnitLocation): { isCombat: 
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  "VEN-026": {
+    // Field Musicians — "When you play me, give a unit +3 [Might] this turn."
+    //
+    // "A unit", bare, so either side's and anywhere (355.9.a.1). Pumping an enemy
+    // is a bad play rather than an illegal one, and the card offers it.
+    targeting: { kind: "unit", scope: "anywhere" },
+    resolve: (state, _ctx, _unitId, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, FIELD_MUSICIANS_MIGHT)
+        : state,
+  },
+  [TOMB_RAIDER_BARBARA]: {
+    // Tomb-Raider Barbara — "When you play me, if you control 7 or more runes,
+    // choose an enemy gear. If it's [Empowered], disempower it. Otherwise, kill
+    // it."
+    //
+    // # The branch is the card, and it is the WRONG way round from instinct
+    //
+    // Empowered gear is HARDER to remove, not easier: the Empowered one survives
+    // and is merely stripped, while the ordinary one dies. That reading follows
+    // the printed order and is what makes Empowering your own gear a defence.
+    //
+    // "7 OR MORE RUNES" is `channeled.length` — the Rune Pool, the same count
+    // Renekton, Eclipse Dragon and the Hierophant read. Checked at RESOLUTION
+    // rather than on the offer: it is the ability's printed condition (402.1),
+    // and the target is chosen whether or not it is met — the trade Masa's and
+    // Blast Corps Cadet's entries already record.
+    //
+    // Her own printed `[Empowered]` keyword is unrelated to the branch and needs
+    // nothing here.
+    targeting: { kind: "gear", owner: "enemy" },
+    resolve: (state, ctx, _unitId, event) => {
+      const id = event.targetPermanentInstanceId;
+      if (!id) return state;
+      if (state.players[ctx.casterIndex].channeled.length < TOMB_RAIDER_BARBARA_RUNES) return state;
+      if (isEmpowered(state, id)) return disempowerPermanent(state, id);
+      const enemyIndex: 0 | 1 = ctx.casterIndex === 0 ? 1 : 0;
+      const gear = state.players[enemyIndex].activeGear.find((g) => g.instanceId === id);
+      return gear ? killGear(state, gear, enemyIndex) : state;
+    },
+  },
   "SFD-044": {
     // Legion Quartermaster — "As an additional cost to play me, return a
     // friendly gear to its owner's hand."
@@ -1734,6 +1917,73 @@ function apprenticeSmithReveal(state: GameState, ownerIndex: 0 | 1): GameState {
 const LILLIA_TOKEN_MIGHT = 1;
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [SHEN_SCOURGE]: {
+    // Shen, Scourge of Shadows — "When I HOLD, if there is exactly one other unit
+    // you control here, draw 1."
+    //
+    // The set's formation motif, and the FOURTH card to print it: "exactly one
+    // other unit you control here" is as dead with two allies as with none, which
+    // is the boundary a board built with a single ally can never see. Order wave
+    // 1's Shen scores a point off the same sentence; this one draws.
+    //
+    // Asked in `applies` AND re-asked at resolution: the count is a fact about the
+    // BOARD rather than about the event, and a chain item resolving in between can
+    // move a unit in or out. That is the split `applies`' own note describes.
+    on: "battlefieldHeld",
+    applies: (state, listener, event) =>
+      event.kind === "battlefieldHeld" &&
+      event.holderIndex === listener.ownerIndex &&
+      listener.battlefieldId === event.battlefieldId &&
+      listener.card.kind === "Unit" &&
+      otherOwnUnitsHereForShen(state, listener.card, listener.ownerIndex) === SHEN_SCOURGE_ALLIES,
+    resolve: (state, listener) => {
+      if (listener.card.kind !== "Unit") return state;
+      if (otherOwnUnitsHereForShen(state, listener.card, listener.ownerIndex) !== SHEN_SCOURGE_ALLIES) return state;
+      return drawCards(state, listener.ownerIndex, 1);
+    },
+  },
+  [AKALI_SILENT]: {
+    // Akali, Silent's second sentence — "when I move to a BATTLEFIELD, give me +2
+    // [Might] this turn." Her first ("I can't be chosen by enemy spells and
+    // abilities unless I'm in combat") is a `target-lookup` table entry, so
+    // coverage merges the two claims.
+    //
+    // `event.to !== "base"` is what "to a battlefield" means here — the same test
+    // Ribbon Dancer's move trigger makes, and a recall home must not pump her.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId && event.to !== "base",
+    resolve: (state, listener) =>
+      giveMightThisTurnToOwnUnit(state, listener.ownerIndex, listener.card.instanceId, AKALI_SILENT_MIGHT),
+  },
+  [PAKAA_PROTECTOR]: {
+    // Pakaa Protector — "When I move, reveal the top card of your Main Deck. If
+    // it's a unit, draw it. Otherwise, put it in your trash and give me +2
+    // [Might] this turn."
+    //
+    // **"When I MOVE", with no destination** — unlike Akali above, so a move home
+    // to base fires it too. The two cards are in the same wave precisely so the
+    // difference is visible: one prints "to a battlefield" and one does not.
+    //
+    // Revealing moves nothing (425: "cards remain in the zone they are being
+    // Revealed from"), so the card is still on top while the branch is decided,
+    // and each arm then moves it — to hand, or to the trash through the funnel so
+    // Endless Riches can banish it instead.
+    //
+    // An empty deck reveals nothing and does nothing (422's do as much as you
+    // can): no draw, no trash, and NO Might, because the Might is the second half
+    // of the "otherwise" arm rather than a separate sentence.
+    on: "unitMoved",
+    applies: (_state, listener, event) =>
+      event.kind === "unitMoved" && event.unitInstanceId === listener.card.instanceId,
+    resolve: (state, listener) => {
+      const top = state.players[listener.ownerIndex].deck[0];
+      if (!top) return state;
+      if (top.kind === "Unit") return drawCards(state, listener.ownerIndex, 1);
+      const trashed = updatePlayerForPakaa(state, listener.ownerIndex, top);
+      return giveMightThisTurnToOwnUnit(trashed, listener.ownerIndex, listener.card.instanceId, PAKAA_PROTECTOR_MIGHT);
+    },
+  },
   "VEN-046": {
     // Nasus, Ascended — "[Empowered][>] When I conquer, you score 1 point."
     //

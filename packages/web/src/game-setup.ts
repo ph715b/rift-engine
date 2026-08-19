@@ -126,6 +126,7 @@ export function createNewGame(config: MatchConfig, seed: number, battlefields?: 
     damagePreventedOnceInstanceIds: [],
     damagePreventionPoolByInstanceId: {},
     disempowerAtEndOfTurn: [],
+    empowerAtEndOfTurn: [],
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,

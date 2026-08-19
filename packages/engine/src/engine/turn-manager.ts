@@ -3,11 +3,11 @@ import { canonicalDefId } from "../cards/card-loader.js";
 import type { UnitInstance } from "../model/card.js";
 import { scoreHolds } from "./scoring.js";
 import { dispatchLegendBeginningPhase } from "./legend-abilities.js";
-import { destroyUnit, disempowerPermanent, drawCards, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
+import { destroyUnit, disempowerPermanent, drawCards, empowerPermanent, healAllUnits, returnBorrowedUnits } from "./effect-helpers.js";
 import { dispatchEvent, holdEventTrigger, killGear } from "./triggers.js";
 import { holdBattlefieldTrigger, runBattlefieldBeginningPhase } from "./battlefield-abilities.js";
 import { withoutAttachFreshness } from "./equipment.js";
-import { controlsEndlessRiches, unitMayBeReadied } from "./board-restrictions.js";
+import { chimeraCapsChannelling, controlsEndlessRiches, unitMayBeReadied } from "./board-restrictions.js";
 
 /**
  * The turn/phase loop, ported from engine/TurnManager.java. Each function is
@@ -265,7 +265,17 @@ export function runChannel(state: GameState): GameState {
   }
   const active = state.activePlayerIndex;
   const goingSecond = active !== state.firstPlayerIndex;
-  const toChannel = state.turnNumber === 1 && goingSecond ? 3 : 2;
+  // Sandstone Chimera (VEN-036) — "while I'm at a battlefield, players only
+  // channel 1 rune at the start of their Channel Phase."
+  //
+  // **"PLAYERS", bare, so it binds BOTH sides including her own controller** —
+  // the second card in the set to do that after Otterpus, and the same reading:
+  // an 8-Might 7-Energy body that slows the whole game is symmetrical by design.
+  //
+  // It CAPS rather than replaces, which is what "only channel 1" means: the
+  // going-second player's first-turn 3 becomes 1, not 3.
+  const capped = chimeraCapsChannelling(state);
+  const toChannel = capped ? 1 : state.turnNumber === 1 && goingSecond ? 3 : 2;
 
   const next = updatePlayer(state, active, (p) => {
     const runeDeck = [...p.runeDeck];
@@ -431,6 +441,12 @@ export function runEnd(state: GameState): GameState {
     (next, instanceId) => disempowerPermanent(next, instanceId),
     afterBorrows,
   );
+  // Sanction's mirror, applied AFTER the disempowers so a permanent named by both
+  // ends the turn Empowered — the order the card's own two modes read in.
+  const afterEmpowers = afterDisempowers.empowerAtEndOfTurn.reduce(
+    (next, instanceId) => empowerPermanent(next, instanceId),
+    afterDisempowers,
+  );
 
   // This-turn Might expires; Buffs deliberately do NOT. Rule 705 removes a Buff
   // only when its unit leaves play, so "buff a friendly unit" is a lasting
@@ -452,6 +468,9 @@ export function runEnd(state: GameState): GameState {
     // from an empty one, and absent is what every unit that was never granted
     // anything carries.
     ...("grantedTriggersThisTurn" in u ? { grantedTriggersThisTurn: undefined } : {}),
+    // Twilight Shroud's "can't be chosen by enemy spells and abilities this
+    // turn". Deleted rather than set false, like its neighbour above.
+    ...("unchooseableByEnemiesThisTurn" in u ? { unchooseableByEnemiesThisTurn: undefined } : {}),
     ...("abilityModesUsedThisTurn" in u ? { abilityModesUsedThisTurn: [] } : {}),
     // Miss Fortune - Captain's "the first time I move EACH TURN" — the memory
     // has to be per unit and has to expire, exactly like the two above.
@@ -464,7 +483,7 @@ export function runEnd(state: GameState): GameState {
     ...("baseMightThisTurn" in u ? { baseMightThisTurn: undefined } : {}),
   });
 
-  const players = afterDisempowers.players.map((p) => ({
+  const players = afterEmpowers.players.map((p) => ({
     ...p,
     baseUnits: p.baseUnits.map(expireMightThisTurn),
     // Brutalizer is fresh only for the turn it was attached in, and this is
@@ -554,7 +573,7 @@ export function runEnd(state: GameState): GameState {
     preventsSpellDamageThisTurn: false,
   })) as [PlayerState, PlayerState];
 
-  const battlefields = afterDisempowers.battlefields.map((bf) => {
+  const battlefields = afterEmpowers.battlefields.map((bf) => {
     const units: typeof bf.units = {};
     for (const [playerId, list] of Object.entries(bf.units)) {
       units[playerId] = list.map(expireMightThisTurn);
@@ -574,7 +593,7 @@ export function runEnd(state: GameState): GameState {
   // Global damage heal — the same one combat cleanup performs, expressed once
   // in effect-helpers.ts rather than inlined per unit here.
   return healAllUnits({
-    ...afterDisempowers,
+    ...afterEmpowers,
     players,
     battlefields,
     activePlayerIndex: nextIndex,
@@ -612,6 +631,7 @@ export function runEnd(state: GameState): GameState {
     // `withDelayedDisempowers`, which has to run first or the ids would be gone
     // before anything read them.
     disempowerAtEndOfTurn: [],
+    empowerAtEndOfTurn: [],
     // Dancing Grenade's tally. "This turn" is printed, so it is cleared here with
     // every other this-turn field — a Grenade whose history survived the turn
     // would open its next dance already escalated.

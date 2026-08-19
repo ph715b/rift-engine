@@ -474,6 +474,7 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
       return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope, targeting.domain).some(
         (u) =>
           unitWithinMaxMight(state, u, targeting.maxMight) &&
+          unitSatisfiesEmpoweredOnly(state, u, targeting.empoweredOnly) &&
           unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
       );
     case "unitSlots": {
@@ -716,7 +717,18 @@ export function unitOrGearTargets(
  * Unstoppable's is gated on `[Level 16]`, which is a fact about the CONTROLLER
  * and cannot be answered by a defId alone.
  */
-const UNCHOOSEABLE_BY_ENEMIES: Readonly<Record<string, (state: GameState, unitOwnerIndex: 0 | 1) => boolean>> = {
+/**
+ * Cards whose own text says enemies may not choose them.
+ *
+ * **The predicate takes the UNIT as well as the board, and Akali, Silent is why.**
+ * Every earlier entry asked a question about the card ("always") or about its
+ * controller ("while you have 16 XP"); hers is "unless I'm IN COMBAT", which is a
+ * question about this body's position — the same distinction `takesNoDamage`
+ * grew a `state` parameter for when Ambessa arrived after Kayn.
+ */
+const UNCHOOSEABLE_BY_ENEMIES: Readonly<
+  Record<string, (state: GameState, unitOwnerIndex: 0 | 1, unit: UnitInstance) => boolean>
+> = {
   // Ruin Runner — "I can't be chosen by enemy spells and abilities." No
   // condition at all, which is why this was a Set until a conditional one landed.
   "SFD-105": () => true,
@@ -733,9 +745,45 @@ const UNCHOOSEABLE_BY_ENEMIES: Readonly<Record<string, (state: GameState, unitOw
   // "while you have N or more XP", and 824.1.d turns it Inactive the moment XP
   // drops below — so spending back under 16 makes him choosable again mid-turn.
   "UNL-059": (state, unitOwnerIndex) => state.players[unitOwnerIndex].xp >= MASTER_YI_UNSTOPPABLE_LEVEL,
+  // Akali, Silent — "I can't be chosen by enemy spells and abilities UNLESS I'M
+  // IN COMBAT." The first conditional here whose condition is about this BODY's
+  // position rather than about its controller, which is why this table's
+  // predicate grew a `unit` parameter.
+  //
+  // **"In combat" is a STATE question, not the combat-designation event** —
+  // `isFightingAt` takes a unit and answers whether it is standing at a Contested
+  // battlefield right now. Vex - Cheerless's note settles the identical phrase for
+  // the damage side, and Ambessa's prevention reads it the same way.
+  //
+  // So she is answerable exactly when she is worth answering: safe while she sits
+  // at an uncontested battlefield or in base, and open the moment she commits.
+  // Her second sentence (a move trigger) lives in effects/calm.ts, and coverage
+  // merges the two claims.
+  "VEN-038": (state, _unitOwnerIndex, unit) => !unitIsInCombat(state, unit),
 };
 
 const MASTER_YI_UNSTOPPABLE_LEVEL = 16;
+
+/**
+ * Is this unit IN COMBAT right now — standing at the battlefield a Combat
+ * showdown is being fought at?
+ *
+ * **A STATE question, not the combat-designation event.** `isFightingAt` in
+ * `combat-designation.ts` answers "did this listener's card attack or defend in
+ * the event being dispatched", which is a different thing and needs an event to
+ * ask about; Akali's prohibition has to be answerable at any moment an enemy
+ * tries to choose her, with no event in hand at all.
+ *
+ * The same reading — and the same walk — `ambessaIsProtected` makes for the
+ * identical printed phrase on the damage side. Two copies rather than a shared
+ * helper because the shared home would be `effect-helpers.ts`, which this module
+ * deliberately does not import; both are four lines around `showdownKind`.
+ */
+function unitIsInCombat(state: GameState, unit: UnitInstance): boolean {
+  if (state.showdownKind !== "Combat" || state.showdownBattlefieldId === null) return false;
+  const bf = state.battlefields.find((b) => b.id === state.showdownBattlefieldId);
+  return bf !== undefined && Object.values(bf.units).some((side) => (side ?? []).some((u) => u.instanceId === unit.instanceId));
+}
 
 /**
  * Alpha Wildclaw — "Your units HERE with less Might than me can't be chosen by
@@ -797,6 +845,26 @@ export function chooseRestrictionDefIds(): string[] {
  * Cheap on the hot path: the Set is consulted only when the chooser is not the
  * unit's own controller, which is the minority of reads in a fan-out.
  */
+/**
+ * Does this unit satisfy an `empoweredOnly` restriction — Sanction's "disempower
+ * a unit THAT'S [Empowered]"?
+ *
+ * Its own predicate rather than an inline check, for the reason
+ * `unitSatisfiesAttackingOnly` beside it has one: the enumerator, the validator
+ * and `hasAnyLegalEffectChoice` must ask it in exactly the same words.
+ */
+export function unitSatisfiesEmpoweredOnly(
+  state: GameState,
+  unit: UnitInstance,
+  empoweredOnly: true | undefined,
+): boolean {
+  // Read straight off the INSTANCE rather than through `effect-helpers.isEmpowered`,
+  // which this module deliberately does not import. That helper exists to search
+  // three zones for an id; here the unit is already in hand, so the flag on it is
+  // the same answer without the cycle.
+  return empoweredOnly !== true || unit.empowered === true;
+}
+
 export function unitChooseableBy(
   state: GameState,
   unit: UnitInstance,
@@ -807,7 +875,10 @@ export function unitChooseableBy(
   // `state` was added 2026-08-11 and every one of the four call sites already had
   // it in scope, which is why this stayed a pure function of the unit for so
   // long: nothing needed the board until a CONDITIONAL prohibition arrived.
-  if (UNCHOOSEABLE_BY_ENEMIES[canonicalDefId(unit.defId)]?.(state, unitOwnerIndex) === true) return false;
+  // Twilight Shroud's THIS-TURN shroud, before the per-card table: it is the
+  // only one of the three that can be true of a unit whose printing says nothing.
+  if (unit.unchooseableByEnemiesThisTurn === true) return false;
+  if (UNCHOOSEABLE_BY_ENEMIES[canonicalDefId(unit.defId)]?.(state, unitOwnerIndex, unit) === true) return false;
   return !shieldedByWildclaw(state, unit, unitOwnerIndex);
 }
 

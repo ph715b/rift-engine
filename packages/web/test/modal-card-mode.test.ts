@@ -58,6 +58,7 @@ const DISPOSAL_ORDER = "UNL-103"; // arrived in wave 2, after the mode step exis
 const FLURRY_OF_FEATHERS = "UNL-044"; // wave 3 — its two modes want DIFFERENT target kinds
 const CURTAIN_CALL = "UNL-182"; // wave 5 — FOUR modes, and one of them is scoped to base
 const MESMERIZE = "VEN-052"; // Vendetta Mind wave 1 — two modes differing only in `owner`
+const SANCTION = "VEN-035"; // Vendetta Calm wave 1 — two modes that are exact MIRRORS
 const CHARM = "OGN-043"; // non-modal control: one mode, plain `unit` targeting
 
 /** A candidate as the enumerator emits it — only the fields these comparisons
@@ -203,7 +204,7 @@ describe("the census of modal cards", () => {
    * A third arriving is exactly when this fix stops being complete — and the
    * failure mode of a modal card is silent, so nothing else would say so.
    */
-  it("is Angle Shot, Rocket Barrage, Disposal Order, Flurry of Feathers, Curtain Call and Mesmerize", () => {
+  it("is Angle Shot, Rocket Barrage, Disposal Order, Flurry of Feathers, Curtain Call, Mesmerize and Sanction", () => {
     // **UNL-103 Disposal Order arrived from a card wave the day after the mode
     // step was built, and this is the assertion that noticed.** It needed no UI
     // change: the step fires for any card with more than one mode, so the card
@@ -245,8 +246,18 @@ describe("the census of modal cards", () => {
     // step was built and work on landing. And this test failed in the ROOT run of
     // a wave that touched only engine domain files, for the FOURTH time: exactly
     // what CLAUDE.md's step 1 is for.
+    // **A SEVENTH arrived with Vendetta's Calm wave 1: VEN-035 Sanction**, whose
+    // two modes are exact MIRRORS — empower now / disempower at end of turn, and
+    // the reverse. They differ in a way none of the six before them did: one mode
+    // is NARROWED (`empoweredOnly`) and the other is not, so the same board offers
+    // a different set of targets per mode. Asking the mode first is the only thing
+    // that makes both usable.
+    //
+    // Needed no UI change — the fifth modal card to arrive after the mode step was
+    // built and work on landing. And this test failed in the ROOT run for the
+    // FIFTH time this session on a wave that touched only engine files.
     expect(modalCardIds()).toEqual(
-      [ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER, FLURRY_OF_FEATHERS, CURTAIN_CALL, MESMERIZE].sort(),
+      [ANGLE_SHOT, ROCKET_BARRAGE, DISPOSAL_ORDER, FLURRY_OF_FEATHERS, CURTAIN_CALL, MESMERIZE, SANCTION].sort(),
     );
   });
 });

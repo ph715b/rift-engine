@@ -125,6 +125,7 @@ export function newGameState(a: DeckList, b: DeckList, seed: number, opts: GameO
     damagePreventedOnceInstanceIds: [],
     damagePreventionPoolByInstanceId: {},
     disempowerAtEndOfTurn: [],
+    empowerAtEndOfTurn: [],
     damageInstancesByCardThisTurn: {},
     extraTurns: 0,
     extraTurnsForIndex: 0,
