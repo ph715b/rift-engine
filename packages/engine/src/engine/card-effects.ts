@@ -116,6 +116,20 @@ export type TargetingSpec =
   | {
       kind: "unit";
       owner?: "friendly" | "enemy";
+      /**
+       * The unit's DOMAIN — Decree of Insight's "an enemy Body ([Body]) unit".
+       *
+       * The same axis `unitOrGear` and `unitList` were given in earlier Vendetta
+       * waves, arriving on the plain `unit` spec for the first card that prints a
+       * domain word on a SINGLE target. Vendetta's Decrees are a cycle, so expect
+       * more of them.
+       *
+       * Filtered inside `eligibleTargets`, the ONE walk the enumerator, the
+       * validator, the AI's candidate list and five effect files all go through —
+       * a narrowing honoured at some of those and ignored at others is this
+       * codebase's most-repeated bug.
+       */
+      domain?: Domain;
       maxMight?: number;
       scope?: TargetScope;
       exhaustedOnly?: true;

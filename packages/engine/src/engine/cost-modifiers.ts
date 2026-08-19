@@ -1,5 +1,6 @@
 import type { GameState } from "../model/game-state.js";
 import { defaultCardRegistry } from "../cards/card-registry.js";
+import { canonicalDefId } from "../cards/card-loader.js";
 import { opponentNearVictory } from "./constants.js";
 import { isEmpowered, legionActive } from "./effect-helpers.js";
 import { effectiveMight } from "./effective-might.js";
@@ -973,11 +974,44 @@ export function rainbowSurchargeForPlay(
   playerIndex: 0 | 1,
   cardKind: string,
   chosenInstanceIds: readonly (string | undefined)[],
+  /** The card being played, for the one card in the pool that IGNORES `[Deflect]`
+   *  while paying. Optional so the callers that price something other than a
+   *  named card are unchanged — and every play-path caller passes it, which is
+   *  what keeps the enumerator and the validator on the same price. */
+  defId?: string,
 ): number {
   return (
-    deflectSurchargeForTargets(state, playerIndex, chosenInstanceIds) +
+    (defId !== undefined && ignoresDeflectWhilePaying(defId)
+      ? 0
+      : deflectSurchargeForTargets(state, playerIndex, chosenInstanceIds)) +
     Math.max(0, vexSpellSwing(state, playerIndex, cardKind)) * VEX_POWER_SWING
   );
+}
+
+/**
+ * Decree of Insight (VEN-061) — "Ignore [Deflect] while paying this spell's
+ * cost."
+ *
+ * **Rules 764-766 have a name for this and the pool had never used it**: "some
+ * Game Effects may instruct players to IGNORE abilities while performing a game
+ * action or procedure", and "any abilities ignored in this way are treated as
+ * inactive for the purposes of the game action or procedure". 766's worked
+ * example is this exact sentence — "A spell reads 'Ignore Deflect while paying
+ * this spell's costs.'"
+ *
+ * So the keyword is not removed and nothing about the target changes; only the
+ * SURCHARGE this one payment computes is skipped. That is why this lives beside
+ * `rainbowSurchargeForPlay` rather than in `granted-keywords.ts`: a version that
+ * stripped `[Deflect]` from the unit would also stop it deflecting the NEXT
+ * spell, which is a different and much larger card.
+ *
+ * A set rather than a bare comparison, because 766 is a general mechanism and the
+ * next card printing it should need one row rather than a second branch.
+ */
+const IGNORES_DEFLECT_WHILE_PAYING = new Set(["VEN-061"]);
+
+export function ignoresDeflectWhilePaying(defId: string): boolean {
+  return IGNORES_DEFLECT_WHILE_PAYING.has(canonicalDefId(defId));
 }
 
 /** Does `playerIndex` have a Jayce permission that this card can use? Asked

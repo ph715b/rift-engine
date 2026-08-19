@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=124 unimplemented=52   partial=6      (2026-08-18, after the alias fix, seven card waves, Fallen Feline and Endless Riches)
+VEN: needing=176  implemented=128 unimplemented=48   partial=6      (2026-08-18, after the alias fix, eight card waves, Fallen Feline and Endless Riches)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 52 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 48 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,45 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Mind, wave 2 — done 2026-08-18 (the four that are engine seams)
+
+VEN-053 Otterpus, 060 Sky Cruiser, 061 Decree of Insight, 068 Jayce Brilliant
+Inventor. VEN 124 -> 128. Tests in `test/ven-mind-wave2.test.ts` (26); **26
+mutants, 26 killed** after three survivors were fixed.
+
+**Four cards, four things the engine did not have** — and every one of them is
+shared rather than card-local:
+
+| card | the seam |
+|---|---|
+| Otterpus | a replacement on SCORING. Applied at the two scoring sites and NOT in `gainPoints`, because the card names "score 1 point from conquering or holding" — putting it in the funnel would silently widen it to every point in the game |
+| Sky Cruiser | a KIND filter on a discard cost. It decides whether the ability is OFFERED (416.3), so it lives in `discardableForCost`, asked by the affordability check, the enumerator, the validator and the payment |
+| Decree of Insight | **rules 764-766's IGNORE mechanism**, which the pool had never used. 766's worked example is this card's sentence verbatim. The keyword is NOT removed — only the surcharge this one payment computes is skipped, which is why it sits beside `rainbowSurchargeForPlay` and not in `granted-keywords` |
+| Decree of Insight | ...and a `domain` axis on the plain `unit` targeting spec — the axis `unitOrGear` and `unitList` were given in earlier waves |
+
+Otterpus is also the first entry in `board-restrictions.ts` that binds its OWN
+controller: "a player", bare, so it is a symmetrical early clock rather than a
+defensive one.
+
+**THREE mutants survived the first pass, and all three were the same mistake in
+three costumes: a fixture that could not tell the narrowed answer from the wide
+one.**
+
+- the enumerator test held a hand of ONE gear, where a narrowed walk and an
+  un-narrowed one produce the same single variant;
+- the domain test seated both units at a BATTLEFIELD, exercising one of
+  `eligibleTargets`' two branches;
+- the "besides me" test passed an exhausted Jayce as an ARGUMENT while the board
+  copy stayed ready, so "besides me" excluded nothing observable.
+
+**The rule that covers all three: a narrowing is only under test when the wide
+answer would differ.** Put something in the fixture that the narrowing must
+reject, and put it in every branch the walk has.
+
+Reachability pin 750 -> 757 against 761; VEN 112 -> 119 — seven newly exercised
+from four cards, which is the covering decks reshuffling rather than seven cards
+of new coverage. Four finished sets held EXACTLY for the TENTH wave.
 
 ### Mind, wave 1 — done 2026-08-18 (10 of the domain's 19)
 

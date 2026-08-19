@@ -608,7 +608,7 @@ function activatedAbilityValue(state: GameState, playerIndex: 0 | 1): number {
       for (const mode of availableModes(abilityDefId, gear)) {
         const targets =
           mode.targeting.kind === "unit"
-            ? eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope).map((u) => u.instanceId)
+            ? eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope, mode.targeting.domain).map((u) => u.instanceId)
             : [undefined];
         for (const targetUnitInstanceId of targets) {
           const used = mode.resolve(

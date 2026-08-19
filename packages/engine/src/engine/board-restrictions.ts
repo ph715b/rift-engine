@@ -70,6 +70,45 @@ export function controlsEndlessRiches(state: GameState, playerIndex: 0 | 1): boo
   return state.players[playerIndex].activeGear.some((g) => canonicalDefId(g.defId) === ENDLESS_RICHES);
 }
 
+/**
+ * Otterpus (VEN-053) — "If a player would score 1 point from conquering or
+ * holding during their first or second turn, they draw 1 instead."
+ *
+ * **"A PLAYER", bare, so it binds BOTH sides including its own controller.** That
+ * is the first entry in this module that does, and it is what makes the card a
+ * symmetrical clock rather than a defensive one: it slows whoever is ahead on
+ * board early, which is as often the Otterpus's own side.
+ *
+ * # "Their first or second turn" is `turnNumber <= 2`
+ *
+ * `turnNumber` is a ROUND counter — 115.1.c's looping queue — and it advances
+ * only when play returns to the FIRST player, so both players' first turns happen
+ * during `turnNumber === 1` and both second turns during `turnNumber === 2`.
+ * "Their Nth turn" is therefore the same number for either player, and no
+ * per-player tally is needed. Written out because the alternative (a per-player
+ * turn count) is the thing a reader will assume was missing.
+ *
+ * Read off the BOARD from either zone: nothing in the printed text says "while
+ * I'm at a battlefield", unlike the Warden and the Feline above, so a base
+ * Otterpus replaces just as well.
+ */
+const OTTERPUS = "VEN-053";
+const OTTERPUS_TURNS = 2;
+
+/**
+ * Does a score of 1 point from conquering or holding become a draw instead?
+ *
+ * Asked at the two SCORING sites rather than inside `gainPoints`, and the
+ * distinction is the card: it names "score 1 point from conquering or holding",
+ * so a point from Swain's conquest clause, from Bottled Constellation, or from
+ * any other source is untouched. `gainPoints` is the funnel for ALL of those, and
+ * putting this there would silently widen the card to every point in the game.
+ */
+export function scoringBecomesDraw(state: GameState, playerIndex: 0 | 1): boolean {
+  if (state.turnNumber > OTTERPUS_TURNS) return false;
+  return ([0, 1] as const).some((ownerIndex) => inPlayFor(state, ownerIndex, OTTERPUS));
+}
+
 /** Fallen Feline: "When you play me, name a spell. While I'm at a battlefield,
  *  opponents can't play spells with that name." Positional and continuous, like
  *  the Warden below — but keyed to the NAME she recorded rather than to her
@@ -150,7 +189,23 @@ export function boardRestrictionDefIds(): string[] {
   // so it lives here beside the other restrictions. Coverage MERGES this claim
   // with the two his [Chaos] move ability already makes (pending decisions,
   // activated abilities) — the same split Concentrate and Master Yi have.
-  return [TIANNA_CROWNGUARD, RENATA_INDUSTRIALIST, BRYNHIR, MAGESEEKER_WARDEN, MISS_FORTUNE_BUCCANEER, MADULI_THE_GATEKEEPER];
+  // Otterpus's replacement is his ENTIRE printed text and lives in this module
+  // plus the two scoring sites that read it, so this list is his only
+  // registration anywhere — the Lucian - Purifier trap, which costs a working
+  // card its place in generated decks and reports it unimplemented.
+  //
+  // Fallen Feline is deliberately NOT here: her naming half is a `unitTriggers`
+  // entry in effects/order.ts, so coverage already sees her, and a second claim
+  // would say the wrong thing about where her text lives.
+  return [
+    TIANNA_CROWNGUARD,
+    RENATA_INDUSTRIALIST,
+    BRYNHIR,
+    MAGESEEKER_WARDEN,
+    MISS_FORTUNE_BUCCANEER,
+    MADULI_THE_GATEKEEPER,
+    OTTERPUS,
+  ];
 }
 
 /** Is `defId` in play for `playerIndex`, AT A BATTLEFIELD? The positional test

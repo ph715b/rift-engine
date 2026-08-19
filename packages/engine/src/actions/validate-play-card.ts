@@ -210,6 +210,15 @@ function targetingRejection(
     if (!unitSatisfiesAttackingOnly(state, location.unit, targeting.attackingOnly)) {
       return `${cardName} can only target an ATTACKING unit`;
     }
+    // The DOMAIN narrowing — Decree of Insight's "an enemy Body unit". Checked
+    // here beside the other per-unit narrowings rather than left to
+    // `eligibleTargets`, because this branch walks by `findUnitInScope` and the
+    // enumerator walks by `eligibleTargets`: two spellings of one rule, which is
+    // the disagreement the comment at the top of this branch is about. Both are
+    // now narrowed, which is what makes the offer and the refusal the same set.
+    if (targeting.domain !== undefined && !location.unit.domains.includes(targeting.domain)) {
+      return `${cardName} can only target a ${targeting.domain} unit`;
+    }
   } else if (targeting.kind === "battlefield") {
     if (!choices.targetBattlefieldId) {
       return `${cardName} requires a target battlefield`;

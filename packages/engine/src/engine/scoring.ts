@@ -4,7 +4,8 @@ import { victoryScore } from "./constants.js";
 import { holdEventTrigger } from "./triggers.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 import { holdDelayedReturnTrigger } from "./delayed-triggers.js";
-import { gainPoints } from "./effect-helpers.js";
+import { drawCards, gainPoints } from "./effect-helpers.js";
+import { scoringBecomesDraw } from "./board-restrictions.js";
 import { mayScoreAt } from "./battlefield-continuous.js";
 
 function updatePlayer(state: GameState, index: 0 | 1, update: (p: PlayerState) => PlayerState): GameState {
@@ -39,6 +40,34 @@ function isHeldBy(bf: BattlefieldState, playerId: string): boolean {
  * Hold triggers are no longer among the omissions — see the `battlefieldHeld`
  * hold at the end of this function.
  */
+/**
+ * Otterpus's replacement (VEN-053) — "if a player would score 1 point from
+ * conquering or holding during their first or second turn, they draw 1 instead."
+ *
+ * Applied at the two SCORING sites and nowhere else, which is what keeps the card
+ * to what it prints: a point from Swain's conquest clause or from Bottled
+ * Constellation is not scored "from conquering or holding" and is untouched.
+ * `gainPoints` is the funnel for all of those and would have widened it silently.
+ *
+ * # Per POINT, and the scoring still HAPPENS
+ *
+ * "Would score 1 point" is written per point, so holding two battlefields
+ * replaces two points with two draws — `amount` is passed rather than a boolean
+ * for exactly that.
+ *
+ * **The battlefield is still recorded as scored** (470's once-per-turn lockout
+ * fires), which follows Tianna Crownguard's treatment one line down: the
+ * project-owner ruling of 2026-08-06 is that blocking the POINT does not unrecord
+ * the scoring. The alternative reading — that replacing "would score" means no
+ * scoring occurred, so the battlefield could be scored again the same turn —
+ * is recorded Unverified in docs/rules-conformance.md. Nothing in this pool can
+ * score the same battlefield twice in one turn anyway, so the two readings differ
+ * only in principle today.
+ */
+function replaceScoreWithDraw(state: GameState, playerIndex: 0 | 1, amount: number): GameState {
+  return drawCards(state, playerIndex, amount);
+}
+
 export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
   const player = state.players[playerIndex];
   const held = state.battlefields
@@ -72,7 +101,12 @@ export function scoreHolds(state: GameState, playerIndex: 0 | 1): GameState {
     // scoring still happens, and a hold she blocked did not score a point.
     // Bumped below instead, beside `gainPoints`.
   }));
-  const awarded = gainPoints(recorded, playerIndex, held.length);
+  // Otterpus turns each of these points into a draw on the first two turns. Read
+  // BEFORE the award and applied instead of it, which is what a replacement (369)
+  // is; the scoring itself is already recorded above either way.
+  const awarded = scoringBecomesDraw(recorded, playerIndex)
+    ? replaceScoreWithDraw(recorded, playerIndex, held.length)
+    : gainPoints(recorded, playerIndex, held.length);
   // The tally follows the POINTS, not the holds: `gainPoints` is what Tianna
   // Crownguard blocks, so a blocked hold records its lockout above and adds
   // nothing here. Read off the difference rather than assuming `held.length`.
@@ -245,5 +279,7 @@ export function recordConquest(
   // The battlefield is recorded as scored ABOVE regardless — blocking a point
   // does not unrecord the scoring (project-owner ruling), so 471.1.b's
   // once-per-turn lockout still fires.
-  return gainPoints(next, playerIndex, 1);
+  return scoringBecomesDraw(next, playerIndex)
+    ? replaceScoreWithDraw(next, playerIndex, 1)
+    : gainPoints(next, playerIndex, 1);
 }

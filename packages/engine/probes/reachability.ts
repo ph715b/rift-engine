@@ -655,6 +655,13 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // implemented and SEVEN newly exercised (VEN 105 -> 112); the four finished sets
 // held EXACTLY for the NINTH consecutive wave.
 //
+// **750 -> 757 on 2026-08-18, against 761 measured after Mind wave 2.** FOUR
+// cards implemented and SEVEN newly exercised (VEN 112 -> 119) — more newly
+// exercised than were written, which is the covering decks reshuffling as four
+// new cards became seatable, not seven cards' worth of new coverage. The four
+// finished sets held EXACTLY for the TENTH consecutive wave, which is what says
+// the movement is inside VEN.
+//
 // **This run is also the CONTROL for a runtime question, and the answer was
 // null.** Fallen Feline offers all 233 spell names (762), `legal-actions` fans a
 // pending decision into one action per option, and the AI scores every one — so
@@ -670,7 +677,7 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // is 3,495 of 268,742 evaluated actions — **1.30%**. The per-play arithmetic in
 // the refusal was exactly right (3495 / 15 = 233); what it never asked was how
 // often a two-drop with a naming ability actually gets played.
-const PINNED_UNION = 750;
+const PINNED_UNION = 757;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

@@ -236,6 +236,14 @@ function mightContextFor(state: GameState, location: AnyUnitLocation) {
     : { isCombat: false, battlefieldId: state.battlefields[location.zone.battlefieldIndex]!.id };
 }
 
+/** Sky Cruiser (VEN-060), Decree of Insight (VEN-061), Jayce (VEN-068). */
+const SKY_CRUISER = "VEN-060";
+const SKY_CRUISER_DAMAGE = 4;
+const SKY_CRUISER_ENERGY = 1;
+const DECREE_OF_INSIGHT_SHRINK = 5;
+const JAYCE_INVENTOR = "VEN-068";
+const JAYCE_READY = "VEN-068-ready";
+
 /** Mesmerize's shrink, Shock Blast's damage, and the gear Patched Porobot counts. */
 const MESMERIZE_SHRINK = 2;
 const SHOCK_BLAST_DAMAGE = 4;
@@ -256,6 +264,33 @@ const SWAIN_VISIONARY = "VEN-065";
 const SWAIN_VISIONARY_POINTS = 1;
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-061": {
+    // Decree of Insight — "[Reaction] Ignore [Deflect] while paying this spell's
+    // cost. Give an enemy Body ([Body]) unit -5 [Might] this turn."
+    //
+    // Two clauses, and the FIRST is a rules mechanism the pool had never used.
+    // 764-766: "some Game Effects may instruct players to IGNORE abilities while
+    // performing a game action or procedure", and 766's worked example is this
+    // exact sentence. It lives in `cost-modifiers.ignoresDeflectWhilePaying`,
+    // beside the surcharge it switches off, because the keyword is NOT removed —
+    // the unit keeps `[Deflect]` and deflects the next spell normally. Only this
+    // one payment skips the surcharge.
+    //
+    // That split is the whole card: a 1-Energy Decree that stripped [Deflect]
+    // would be a permanent answer to the mechanic rather than a way past it once.
+    //
+    // "An ENEMY BODY unit" — two printed narrowings, both on the OFFER. The
+    // domain axis arrived on `unitOrGear` and `unitList` in earlier waves and is
+    // read here off the plain `unit` spec for the first time.
+    //
+    // -5 is enormous for one Energy, which is what the domain restriction is
+    // paying for: it answers exactly one colour.
+    targeting: { kind: "unit", owner: "enemy", domain: "Body", scope: "anywhere" },
+    resolve: (state, _ctx, event) =>
+      event.targetUnitInstanceId
+        ? giveMightThisTurn(state, event.targetUnitInstanceId, -DECREE_OF_INSIGHT_SHRINK)
+        : state,
+  },
   "VEN-049": {
     // Dredge Up — "Draw 1. [Flow] [2 Energy]."
     //
@@ -1286,6 +1321,27 @@ function ownUnitsAtDestination(state: GameState, playerIndex: 0 | 1, destination
 }
 
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {
+  [JAYCE_INVENTOR]: {
+    // Jayce, Brilliant Inventor — "When you play me OR the first time you play a
+    // non-token gear each turn, you may ready something besides me that's
+    // exhausted."
+    //
+    // **ONE ability with two moments**, and this engine has no table keyed by
+    // both: on-play lives here (keyed by the arriving unit) and the gear half is
+    // a `cardPlayed` listener in `eventTriggers` below. Registered twice, parking
+    // the SAME question kind — the shape Kennen, Keeper of Balance's entry sets
+    // out, and what keeps the two moments from drifting into two different
+    // offers.
+    //
+    // "You MAY" is 402.1, decided at resolution, so it parks a question rather
+    // than firing. "SOMETHING besides me that's exhausted" is a unit OR a gear,
+    // either side's, minus himself — the filtering lives in the decision's option
+    // list, which is rebuilt from live state so a unit readied by something else
+    // in the response window is simply no longer offered.
+    targeting: { kind: "none" },
+    resolve: (state, ctx, unitId) =>
+      parkDecision(state, { kind: JAYCE_READY, playerIndex: ctx.casterIndex, cardInstanceId: unitId }),
+  },
   "VEN-048": {
     // Cloud Drake — "When you play me, draw 1."
     //
@@ -2263,6 +2319,30 @@ function markNasusChannelled(state: GameState, nasusInstanceId: string): GameSta
   return { ...state, players, battlefields };
 }
 
+/**
+ * Everything Jayce may ready — every EXHAUSTED unit or gear in play on either
+ * side, minus Jayce himself.
+ *
+ * Shared between his option list and his resolver so the offer and the check
+ * cannot drift, the same reason `unitsAtBattlefield` above is shared between
+ * Icevale Archer's trigger and her decision.
+ */
+function readyableForJayce(
+  state: GameState,
+  jayceInstanceId: string | undefined,
+): { instanceId: string; name: string; ownerIndex: 0 | 1 }[] {
+  return ([0, 1] as const).flatMap((ownerIndex) => {
+    const owner = state.players[ownerIndex];
+    const units = [...owner.baseUnits, ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? [])];
+    return [...units, ...owner.activeGear]
+      .filter((c) => c.exhausted && c.instanceId !== jayceInstanceId)
+      // The OWNER is carried out of the walk because `readyPermanent` needs it —
+      // it is the argument that lets the Mageseeker Warden's ready-lock be asked
+      // about the right side.
+      .map((c) => ({ instanceId: c.instanceId, name: c.name, ownerIndex }));
+  });
+}
+
 const ZILEAN_DOUBLE_APPLIED = "UNL-086-doubled";
 
 /** Has this Zilean already applied his replacement this turn? Asked of the LIVE
@@ -2328,6 +2408,37 @@ function destinationOf(state: GameState, zone: AnyUnitLocation["zone"]): TokenDe
 }
 
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
+  [JAYCE_INVENTOR]: {
+    // Jayce's second moment — "the FIRST TIME you play a non-token gear each
+    // turn". The on-play half is in `unitTriggers` above and parks the same
+    // question kind.
+    //
+    // # Three conditions, and each is asked of the event
+    //
+    // **"non-token"**: `event.isToken` is required on `cardPlayed` precisely so a
+    // Gold token cannot pass for a gear card (185: tokens are not cards).
+    //
+    // **"the FIRST time each turn"**: `gearPlayedThisTurn` is bumped inside
+    // `executePlayCardInner`, which runs BEFORE this event is held — so the first
+    // gear of the turn arrives here with the counter already at 1. Asked as `=== 1`
+    // rather than `=== 0` for that reason, and it is the kind of off-by-one that
+    // would silently make him fire on the second gear instead of the first.
+    //
+    // **"you play"**: his controller's play, not the opponent's.
+    on: "cardPlayed",
+    applies: (state, listener, event) =>
+      event.kind === "cardPlayed" &&
+      event.casterIndex === listener.ownerIndex &&
+      event.playedKind === "Gear" &&
+      event.isToken !== true &&
+      state.players[listener.ownerIndex].gearPlayedThisTurn === 1,
+    resolve: (state, listener) =>
+      parkDecision(state, {
+        kind: JAYCE_READY,
+        playerIndex: listener.ownerIndex,
+        cardInstanceId: listener.card.instanceId,
+      }),
+  },
   [SWAIN_VISIONARY]: {
     // Swain, Visionary — "[Vision] When I conquer, if you've played a non-token
     // unit, a non-token gear, and a spell this turn, you score 1 point."
@@ -3511,6 +3622,49 @@ function evolutionaryCandidates(state: GameState, playerIndex: 0 | 1) {
 }
 
 export const decisions: Record<string, DecisionDefinition> = {
+  [JAYCE_READY]: {
+    // Jayce's "you may ready SOMETHING BESIDES ME that's exhausted" — one
+    // question kind for BOTH of his moments, parked from two registrations.
+    //
+    // A second kind would be a second option list to keep in step, and the
+    // printed ability is one sentence with two triggers rather than two
+    // abilities.
+    //
+    // "SOMETHING" is a unit OR a gear, and no owner word means either side's
+    // (355.9.a.1) — readying an enemy permanent is a bad play rather than an
+    // illegal one, and the card offers it.
+    //
+    // "BESIDES ME" drops him by instanceId. He is usually exhausted himself at
+    // this moment (a unit enters exhausted), so without it he would be his own
+    // most obvious target and the printed word would be free text.
+    //
+    // "THAT'S EXHAUSTED" filters the offer rather than being checked on
+    // resolution: readying a ready permanent is a no-op, and offering it would
+    // put a choice in front of the player that does nothing.
+    //
+    // Rebuilt from live state, like every option list here, so a permanent readied
+    // in the response window is simply not offered by the time the answer comes.
+    // A board with nothing to ready leaves a bare Decline, which
+    // `advanceDecisions` retires without prompting.
+    prompt: () => "Jayce: ready something exhausted?",
+    options: (state, d) => [
+      { id: "decline", label: "Decline" },
+      ...readyableForJayce(state, d.cardInstanceId).map((p) => ({
+        id: p.instanceId,
+        label: `Ready ${p.name}`,
+        instanceId: p.instanceId,
+      })),
+    ],
+    resolve: (state, d, optionId) => {
+      if (optionId === "decline") return state;
+      // Re-checked against the live list rather than trusted: the question was
+      // parked a chain-pop ago, and 359.3.e's vanished-referent convention is the
+      // one every resolver here follows.
+      const chosen = readyableForJayce(state, d.cardInstanceId).find((p) => p.instanceId === optionId);
+      if (!chosen) return state;
+      return readyPermanent(state, chosen.ownerIndex, optionId);
+    },
+  },
   /**
    * Frigid Jewel's "give a FRIENDLY unit +2 [Might] this turn", asked on the
    * second draw of each of her controller's turns.
@@ -4354,6 +4508,31 @@ export const decisions: Record<string, DecisionDefinition> = {
  * built-in table is a named error at import, not a silent last-write-wins.
  */
 export const activatedAbilities: Record<string, ActivatedAbilityDefinition> = {
+  [SKY_CRUISER]: {
+    // Sky Cruiser — "Discard a gear, [1 Energy], [Exhaust]: Deal 4 to a unit at a
+    // battlefield."
+    //
+    // A THREE-part cost, and the first part is the new one: `discardKind` narrows
+    // the discard to gear. That narrowing decides whether the ability is OFFERED
+    // at all (416.3 — a cost that cannot be completed is not one you may choose
+    // to pay), which is why it lives in `discardableForCost` and is asked by the
+    // affordability check, the enumerator, the validator and the payment rather
+    // than being a check in this resolver.
+    //
+    // A hand of five spells therefore cannot activate this, and the ability
+    // simply does not appear — the same treatment `exhaustableFriendlyUnits`
+    // gives a board of exhausted units.
+    //
+    // "A unit AT A BATTLEFIELD" — printed location, so `scope: "battlefield"`
+    // (355.9.b), and no owner word, so either side's.
+    kind: "Unit",
+    targeting: { kind: "unit", scope: "battlefield" },
+    cost: { discard: 1, discardKind: "Gear", energy: SKY_CRUISER_ENERGY, exhaust: true },
+    resolve: (state, ctx, action) =>
+      action.targetUnitInstanceId
+        ? dealDamage(state, ctx.casterIndex, action.targetUnitInstanceId, SKY_CRUISER_DAMAGE)
+        : state,
+  },
   [HEXTECH_FORMULA]: {
     // Hextech Formula — "This enters exhausted. [Exhaust]: Empower ANOTHER gear."
     //

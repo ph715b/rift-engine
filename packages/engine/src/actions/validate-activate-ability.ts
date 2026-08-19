@@ -5,6 +5,7 @@ import {
   activationCostFor,
   canPayActivationCost,
   costPayerPairingAllowed,
+  discardableForCost,
   exhaustableFriendlyUnits,
   killableFriendlyPermanents,
   resolveActivation,
@@ -177,8 +178,12 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     }
   }
   if (cost.discard !== undefined) {
-    if (!actor.hand.some((c) => c.instanceId === action.costDiscardCardInstanceId)) {
-      return fail(`${card.name}'s ability must discard a card from hand to pay`);
+    // The same narrowed walk the enumerator offers from, so a gear-only discard
+    // cannot be paid with a spell — and the message names the kind, since "must
+    // discard a card" in front of a hand full of cards reads as a bug.
+    if (!discardableForCost(state, action.playerIndex, cost).some((c) => c.instanceId === action.costDiscardCardInstanceId)) {
+      const what = cost.discardKind === undefined ? "a card" : `a ${cost.discardKind}`;
+      return fail(`${card.name}'s ability must discard ${what} from hand to pay`);
     }
   }
 
@@ -191,7 +196,7 @@ export function validateActivateAbility(state: GameState, action: ActivateAbilit
     // action and an accepted action can't come apart — the failure mode that bit
     // this codebase before, when legal-actions offered a destination the
     // validator refused.
-    const legal = eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope).filter(
+    const legal = eligibleTargets(state, action.playerIndex, targeting.owner, targeting.scope, targeting.domain).filter(
       (u) => (!targeting.exhaustedOnly || u.exhausted) && unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),
     );
     if (!legal.some((u) => u.instanceId === action.targetUnitInstanceId)) {

@@ -63,9 +63,19 @@ export function eligibleTargets(
   playerIndex: 0 | 1,
   owner?: "friendly" | "enemy",
   scope: "battlefield" | "anywhere" | "base" = "battlefield",
+  /** The unit's DOMAIN, for the specs that print one — Decree of Insight's "an
+   *  enemy Body unit". Absent leaves the walk unfiltered, which is every other
+   *  targeted card in the pool. Filtered HERE rather than by each caller so a
+   *  narrowing cannot be honoured by the enumerator and ignored by the
+   *  validator. */
+  domain?: Domain,
 ): UnitInstance[] {
   const ownerMatches = (ownerIndex: 0 | 1) =>
     !(owner === "friendly" && ownerIndex !== playerIndex) && !(owner === "enemy" && ownerIndex === playerIndex);
+  // Read off the INSTANCE's domains, which is what a printed domain word asks
+  // about — and the same list `unitList`'s narrowing reads, so the two specs
+  // cannot come to different answers about the same unit.
+  const domainMatches = (unit: UnitInstance) => domain === undefined || unit.domains.includes(domain);
 
   const inBase =
     scope === "anywhere" || scope === "base"
@@ -74,23 +84,32 @@ export function eligibleTargets(
             ? // Ruin Runner. Filtered in the WALK rather than by each caller, so
               // every one of the six fan-out sites and both validator sites get
               // the negative from one place — see `unitChooseableBy`.
-              state.players[ownerIndex].baseUnits.filter((u) => unitChooseableBy(state, u, ownerIndex, playerIndex))
+              state.players[ownerIndex].baseUnits.filter(
+                (u) => domainMatches(u) && unitChooseableBy(state, u, ownerIndex, playerIndex),
+              )
             : [],
         )
       : [];
   // "base" is base and NOTHING else — the one scope that excludes battlefields
   // rather than adding to them.
   if (scope === "base") return inBase;
-  return [...inBase, ...eligibleBattlefieldUnits(state, playerIndex, owner)];
+  return [...inBase, ...eligibleBattlefieldUnits(state, playerIndex, owner, domain)];
 }
 
-function eligibleBattlefieldUnits(state: GameState, playerIndex: 0 | 1, owner?: "friendly" | "enemy"): UnitInstance[] {
+function eligibleBattlefieldUnits(
+  state: GameState,
+  playerIndex: 0 | 1,
+  owner?: "friendly" | "enemy",
+  domain?: Domain,
+): UnitInstance[] {
   return state.battlefields.flatMap((bf) =>
     Object.entries(bf.units).flatMap(([ownerId, units]) => {
       const ownerIndex: 0 | 1 = state.players[0]!.id === ownerId ? 0 : 1;
       if (owner === "friendly" && ownerIndex !== playerIndex) return [];
       if (owner === "enemy" && ownerIndex === playerIndex) return [];
-      return units.filter((u) => unitChooseableBy(state, u, ownerIndex, playerIndex));
+      return units.filter(
+        (u) => (domain === undefined || u.domains.includes(domain)) && unitChooseableBy(state, u, ownerIndex, playerIndex),
+      );
     }),
   );
 }
@@ -452,7 +471,7 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
     case "battlefield":
       return state.battlefields.length > 0;
     case "unit":
-      return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope).some(
+      return eligibleTargets(state, playerIndex, targeting.owner, targeting.scope, targeting.domain).some(
         (u) =>
           unitWithinMaxMight(state, u, targeting.maxMight) &&
           unitSatisfiesAttackingOnly(state, u, targeting.attackingOnly),

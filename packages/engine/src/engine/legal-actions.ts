@@ -71,6 +71,7 @@ import {
   activationCostFor,
   canPayActivationCost,
   costPayerPairingAllowed,
+  discardableForCost,
   exhaustableFriendlyUnits,
   killableFriendlyPermanents,
   type AbilityMode,
@@ -461,7 +462,7 @@ function activateAbilityCandidates(state: GameState, actor: PlayerState, playerI
         // for a targeted Spell — the choice has to be in the submitted action. A
         // mode with no legal target is simply not offered, since paying for
         // nothing is never what the player meant.
-        for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope)) {
+        for (const target of eligibleTargets(state, playerIndex, mode.targeting.owner, mode.targeting.scope, mode.targeting.domain)) {
           if (!unitWithinMaxMight(state, target, mode.targeting.maxMight)) continue;
           if (mode.targeting.exhaustedOnly && !target.exhausted) continue;
           // Wired on the ability path too, though no ability prints it today.
@@ -657,7 +658,9 @@ function activationCostChoices(
     // for a choice that cannot differ. The same de-duplication the hand-play
     // enumerator already does.
     const seen = new Set<string>();
-    const hand = state.players[playerIndex].hand.filter((c) => !seen.has(c.defId) && seen.add(c.defId));
+    // Through the shared walk, so Sky Cruiser's "discard a GEAR" offers gear and
+    // nothing else — the narrowing the validator asks about too.
+    const hand = discardableForCost(state, playerIndex, cost).filter((c) => !seen.has(c.defId) && seen.add(c.defId));
     choices = choices.flatMap((c) => hand.map((card) => ({ ...c, costDiscardCardInstanceId: card.instanceId })));
   }
   // An X cost — Hextech Anomaly's rainbow, Ancient Henge's Energy. Fanned out
@@ -1265,7 +1268,7 @@ export function legalActions(state: GameState): PlayerAction[] {
       // "a unit" (Final Spark) includes both bases, "a unit at a battlefield"
       // (Incinerate) does not. Enumerating it here by hand is what let the
       // two gates drift apart in the first place.
-      for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope)) {
+      for (const target of eligibleTargets(state, playerIndex, targeting.owner, targeting.scope, targeting.domain)) {
         if (!unitWithinMaxMight(state, target, targeting.maxMight)) continue;
         if (!unitSatisfiesAttackingOnly(state, target, targeting.attackingOnly)) continue;
         if (!atHiddenBattlefield(state, target.instanceId, fromHiddenBattlefieldId)) continue;

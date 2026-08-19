@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("365 held / 8 inline of 373 trigger cards", () => {
+  it("366 held / 8 inline of 374 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -638,10 +638,24 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // SPELL effects, VEN-062 Hextech Formula is an activated ability plus a
     // `deploy.ts` row, and VEN-064 Plaza Guardian is a cost modifier plus a
     // printed keyword.
+    // **365/8/373 -> 366/8/374 on 2026-08-18: Vendetta's Mind wave 2, ONE trigger
+    // card out of four.** By family and by name:
+    //
+    //     unit  (+1)  VEN-068 Jayce, Brilliant Inventor — "when you play me"
+    //     event (+1)  the SAME card — "or the first time you play a non-token
+    //                 gear each turn", a `cardPlayed` listener
+    //     distinct: 1, because one ability with two moments is registered twice
+    //               and counted once. Kennen, Keeper of Balance is the same shape
+    //
+    // The other three are correctly absent, and each for a different reason worth
+    // keeping: VEN-053 Otterpus is a REPLACEMENT read at the two scoring sites,
+    // VEN-060 Sky Cruiser is an activated ability, and VEN-061 Decree of Insight
+    // is a spell effect plus rule 766's ignore-while-paying. None of the three is
+    // a trigger, and a census of triggers structurally cannot see them.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 365,
+      held: 366,
       inline: 8,
-      cards: 373,
+      cards: 374,
     });
   });
 

@@ -1,6 +1,6 @@
 import type { GameState, PlayerState } from "../model/game-state.js";
 import { domainActivatedAbilities, mergeRegistries } from "./effects/index.js";
-import type { GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
+import type { CardInstance, GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
 import { VANGUARD_ARMORY_TOKENS } from "./constants.js";
@@ -113,6 +113,23 @@ export interface ActivatedAbilityEvent {
  * with no exhaust symbol at all, so it is repeatable while the trash lasts.
  * Assuming the exhaust would have quietly made her once per turn.
  */
+/**
+ * The cards in `playerIndex`'s hand that may pay `cost`'s discard.
+ *
+ * ONE walk for the four callers that must agree — affordability, enumeration,
+ * validation and payment. Sky Cruiser's "discard a GEAR" is the first cost in the
+ * pool that narrows this; before it, every discard cost took any card and the
+ * four sites each read `hand` directly, which is exactly how they drift.
+ */
+export function discardableForCost(
+  state: GameState,
+  playerIndex: 0 | 1,
+  cost: { discardKind?: CardInstance["kind"] },
+): CardInstance[] {
+  const hand = state.players[playerIndex].hand;
+  return cost.discardKind === undefined ? [...hand] : hand.filter((c) => c.kind === cost.discardKind);
+}
+
 export interface ActivationCost {
   /** Exhaust the source. Absent means the ability does NOT exhaust. */
   exhaust?: true;
@@ -258,6 +275,21 @@ export interface ActivationCost {
    * for the same reason the kill above does.
    */
   discard?: number;
+  /**
+   * WHICH cards may pay that discard — Sky Cruiser's "Discard a GEAR".
+   *
+   * Absent means any card in hand, which is Unlicensed Armory's "Discard 1" and
+   * leaves it untouched. Present narrows the walk, and the narrowing has to be
+   * shared rather than checked at one site: a hand of five spells cannot pay this
+   * cost at all, so it decides whether the ability is OFFERED (416.3), not only
+   * whether a submitted discard is legal.
+   *
+   * `discardableForCost` is the one walk, asked by the affordability check, the
+   * enumerator, the validator and the payment — the same four-caller discipline
+   * `exhaustableFriendlyUnits` keeps, and for the same reason: those four
+   * disagreeing is this codebase's most-repeated bug.
+   */
+  discardKind?: CardInstance["kind"];
 }
 
 /**
@@ -2327,7 +2359,9 @@ export function canPayActivationCost(
   // A board of nothing but EXHAUSTED units cannot pay this, which is the whole
   // reason `exhaustableFriendlyUnits` filters rather than the caller.
   if (cost.exhaustFriendlyUnit && exhaustableFriendlyUnits(state, playerIndex).length === 0) return false;
-  if (cost.discard !== undefined && state.players[playerIndex].hand.length < cost.discard) return false;
+  // Through the shared walk, so a hand that cannot pay a NARROWED discard makes
+  // the ability unofferable rather than offerable-then-refused (416.3).
+  if (cost.discard !== undefined && discardableForCost(state, playerIndex, cost).length < cost.discard) return false;
   // `killSelf` needs no check here: the source was found in play by
   // resolveActivation before this was called, and unlike an exhaust there is no
   // second state it could be in — a Forge that has paid is gone, not spent.
@@ -2483,7 +2517,11 @@ export function payActivationCost(
   if (cost.discard !== undefined) {
     if (!chosen?.costDiscardCardInstanceId) return undefined;
     const actor = next.players[playerIndex];
-    const card = actor.hand.find((c) => c.instanceId === chosen.costDiscardCardInstanceId);
+    // Found in the NARROWED walk, not in the hand, so a payment naming a card the
+    // cost does not accept fails here rather than paying with the wrong kind.
+    const card = discardableForCost(next, playerIndex, cost).find(
+      (c) => c.instanceId === chosen.costDiscardCardInstanceId,
+    );
     if (!card) return undefined;
     const players = [...next.players] as [PlayerState, PlayerState];
     players[playerIndex] = {
