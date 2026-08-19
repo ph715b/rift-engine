@@ -177,6 +177,14 @@ const TRASH_LISTENER_DEF_IDS = new Set([
   // A wave-3 note had recorded the trash route as closed for exactly this card.
   // It was not; nothing had checked.
   "UNL-073",
+  // Siphoning Strike (VEN-146) — "Deal 4 to a unit at a battlefield… When it
+  // dies this turn, channel 1 rune exhausted."
+  //
+  // Deadly Flourish's shape exactly, and here for the same reason rather than a
+  // similar one: it says nothing about a trash, but a Spell is filed there when
+  // it is PLAYED, so its own delayed clause fires from there. The two share
+  // `delayedDeathMark` for the same reason two files sharing a token spec do.
+  "VEN-146",
 ]);
 
 /**

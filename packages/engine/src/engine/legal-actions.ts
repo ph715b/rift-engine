@@ -1697,6 +1697,7 @@ export function legalActions(state: GameState): PlayerAction[] {
                 card.defId,
                 withDest.targetUnitInstanceId,
                 withDest.destinationIsBase === true ? "base" : withDest.destinationBattlefieldId!,
+                playerIndex,
               ),
             );
         })

@@ -2979,3 +2979,84 @@ export function recordModeUsed(state: GameState, playerIndex: 0 | 1, instanceId:
   });
   return { ...state, players, battlefields };
 }
+
+/**
+ * The key a "when IT dies this turn" spell stamps onto its victim — UNL-073
+ * Deadly Flourish's and VEN-146 Siphoning Strike's.
+ *
+ * # Why a delayed clause has to be a mark at all
+ *
+ * "When it dies this turn" is a delayed triggered ability (390.2) that must
+ * outlive the very death it watches for, and the victim is off the board by the
+ * time `completeDeath` fires the event — so no board-keyed lookup could find it.
+ * The mark rides `DeathContext.unit`, the snapshot 808.1.d.3 requires be taken
+ * "before the card is moved to the Trash", which is the only channel that
+ * survives.
+ *
+ * The LISTENER is the spell itself, sitting in its caster's trash from the moment
+ * it was played (`execute-play-card` files a Spell there at play time), which is
+ * why both cards are named in `TRASH_LISTENER_DEF_IDS`.
+ *
+ * # What each part of the key is for
+ *
+ * The **defId** scopes it to one CARD, so a Flourish and a Siphoning Strike on
+ * one victim pay each other nothing. The **spell instance** scopes it to one
+ * COPY: two Flourishes on one victim are two delayed abilities and pay twice,
+ * which is what 390.2 makes them. The **turn** is the printed "this turn", and it
+ * has to be IN the key rather than checked separately because nothing sweeps
+ * `abilityModesUsedThisTurn` off a victim that has left the board —
+ * `expireMightThisTurn` reaches base and battlefield units and nothing else.
+ * `activePlayerIndex` rides along because `turnNumber` counts ROUNDS, so the
+ * number alone would let a mark survive from one player's turn into the other's.
+ *
+ * **Not exhaustive, and knowingly so:** an extra turn (Time Warp) repeats both
+ * halves of the key, so a victim that reached a non-board zone on the first of
+ * two consecutive turns and came back could still match. That needs rule 124's
+ * "becomes a new object" as a zone-change hook. Recorded in
+ * docs/rules-conformance.md.
+ *
+ * **Shared from here rather than copied, on the two-makers threshold this repo
+ * already applies to token specs.** Siphoning Strike is Deadly Flourish's shape
+ * exactly, in a different effects file, and the failure a second copy produces is
+ * invisible: two key builders that stop agreeing about what "this turn" means
+ * would each still work in their own tests.
+ */
+export function delayedDeathMark(state: GameState, defId: string, spellInstanceId: string): string {
+  return `${defId}|${spellInstanceId}|t${state.turnNumber}|p${state.activePlayerIndex}`;
+}
+
+/**
+ * Takes a delayed-death mark back off the card it has already paid for, wherever
+ * that card has come to rest.
+ *
+ * The trash, in practice: `completeDeath` has filed the victim there by the time
+ * a death-watch resolves, and it preserves `abilityModesUsedThisTurn` along with
+ * everything else on the instance.
+ *
+ * **Rule 124 is why this exists at all.** A card played back out of the trash on
+ * the same turn — Last Rites grants exactly that — is "a new object for the
+ * purposes of tracking that object", so a spell that already paid must not pay
+ * again when the new object dies. Without this the mark would still be on the
+ * instance and would still match its own turn's key.
+ *
+ * Only the mark PASSED is removed, so a second copy of the same spell on the same
+ * victim keeps its own.
+ */
+export function forgetDelayedDeathMark(
+  state: GameState,
+  ownerIndex: 0 | 1,
+  unitInstanceId: string,
+  mark: string,
+): GameState {
+  const players = [...state.players] as [PlayerState, PlayerState];
+  const owner = players[ownerIndex]!;
+  players[ownerIndex] = {
+    ...owner,
+    trash: owner.trash.map((c) =>
+      c.instanceId === unitInstanceId && c.kind === "Unit"
+        ? { ...c, abilityModesUsedThisTurn: c.abilityModesUsedThisTurn.filter((m) => m !== mark) }
+        : c,
+    ),
+  };
+  return { ...state, players };
+}

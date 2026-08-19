@@ -194,7 +194,7 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     expect(inline).toEqual(["OGN-101", "OGN-109", "OGN-251", "UNL-084", "UNL-088", "VEN-005", "VEN-006", "VEN-108"]);
   });
 
-  it("379 held / 8 inline of 387 trigger cards", () => {
+  it("380 held / 8 inline of 388 trigger cards", () => {
     const all = allTriggerCards(knownCardIds);
     const inline = new Set([...inlineEventTriggerDefIds(), ...legendInlineTriggerDefIds()]);
     const held = [...all].filter((defId) => !inline.has(defId));
@@ -721,10 +721,23 @@ describe("trigger census: held vs inline, recomputed from the registries", () =>
     // writer of the banished zone — rather than a registry entry. A funnel hook is
     // not a trigger and this census cannot see one, which is the same shape wave
     // 1's `empowerPermanent` hook took.
+    // **379/8/387 -> 380/8/388 on 2026-08-19: the dual-domain spell block, wave
+    // 2.** One card and one entry:
+    //
+    //     deathWatch (+1)  VEN-146 Siphoning Strike — "when it dies this turn,
+    //                      channel 1 rune exhausted", a DELAYED clause that fires
+    //                      from the caster's TRASH, which is Deadly Flourish's
+    //                      mechanism rather than a new one
+    //     distinct: 1, and no alternate printing — this block prints none
+    //
+    // VEN-148 Shadow Dash is correctly absent: it is a SPELL effect with a
+    // restricted move destination and no trigger of any kind.
+    //
+    // `inline` did not move: the new moment is HELD, like every death-watch.
     expect({ held: held.length, inline: inline.size, cards: all.size }).toEqual({
-      held: 379,
+      held: 380,
       inline: 8,
-      cards: 387,
+      cards: 388,
     });
   });
 

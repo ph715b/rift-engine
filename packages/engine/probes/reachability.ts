@@ -717,7 +717,15 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // 145 -> 148) — this wave adds no alternate printings, so for once the two
 // numbers are the same. The four finished sets held EXACTLY for the FIFTEENTH
 // consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
-const PINNED_UNION = 786;
+// **786 -> 787 on 2026-08-19, against 791 measured after the spell block's wave
+// 2.** TWO cards written and the union moved by ONE — and both new cards are
+// exercised, neither in any never-bucket, so the missing one is a DISPLACEMENT
+// in a fixed-size covering deck rather than a regression: `deck-generator` seats
+// on `isCardImplemented`, so finishing a card adds it and pushes another out.
+// (At this size a one-or-two move is also inside this probe's per-run noise; it
+// reshuffles decks every run.) Four finished sets EXACT for the SIXTEENTH
+// consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
+const PINNED_UNION = 787;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

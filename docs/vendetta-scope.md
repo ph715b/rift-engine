@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=164 unimplemented=12   partial=6      (2026-08-19, after the alias fix, fourteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 3 of the 9 dual-domain SPELLS)
+VEN: needing=176  implemented=166 unimplemented=10   partial=6      (2026-08-19, after the alias fix, fifteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 5 of the 9 dual-domain SPELLS)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 12 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 10 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,58 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Dual-domain spells, wave 2 — done 2026-08-19 (the two whose first domain is Calm)
+
+VEN-146 Siphoning Strike, 148 Shadow Dash. VEN 164 -> 166. Tests in
+`test/ven-signature-calm.test.ts` (17); **18 mutants, 18 killed** — one after the
+test that was supposed to catch it turned out to be measuring something else.
+
+**Neither card needed a new mechanism, and finding that out WAS the work.**
+
+**Siphoning Strike's "when it dies this turn" is Deadly Flourish's mechanism
+exactly.** A delayed triggered ability (390.2) has to outlive the death it
+watches for, and the victim is off the board by the time `completeDeath` fires —
+so the join is a MARK written onto the victim before the damage, riding
+`DeathContext.unit` (the snapshot 808.1.d.3 requires be taken before the card
+moves), read by a listener sitting in the caster's TRASH where
+`execute-play-card` filed the Spell at play time. All of that was built two sets
+ago. The scope notes said a delayed death clause needed machinery; the code said
+otherwise, which is this project's most-repeated finding.
+
+The key builder is now SHARED (`delayedDeathMark` / `forgetDelayedDeathMark` in
+`effect-helpers.ts`) rather than copied, on the same two-makers threshold the
+token specs use, and scoped by defId so the two cards' marks on one victim pay
+each other nothing.
+
+**Shadow Dash reuses `moveDestinationAllowed` — but NOT Temptation's entry in
+it.** That set asks about the MOVED unit's controller ("a location where there's
+a unit with the same controller"), and this card asks about the CASTER's ("a
+battlefield where YOU have units"). On a split board the two predicates name
+DISJOINT destinations: Temptation lets the enemy regroup, Shadow Dash drags them
+onto your guns. It is also the first destination restriction measured from the
+caster at all, so that function had to start taking one — threaded through both
+the enumerator and the validator, never one.
+
+**The mutant that mattered was about the TEST, not the card.** Removing the TURN
+STAMP from the mark's key left the "expires with the turn" test green — because
+`runEnd` sweeps `abilityModesUsedThisTurn` off every unit on the board, so a
+victim that simply survived never reaches the key at all. **Two different
+mechanisms end "this turn", and the test was exercising the other one.** The
+stamp's real case is a victim that spent the turn boundary in a NON-board zone,
+where nothing sweeps; that is now its own test, built as the state that arises.
+
+Three fixture defects were found and named on the way, all the same shape — a
+measurement that moves for a reason other than the one being tested: counting
+"exhausted channeled runes" (paying a spell's Energy exhausts four of them),
+a `runeDeck` baseline set for one player only, and a victim sized to need two
+spells' damage added together across a `runEnd` that heals.
+
+Reachability pin 786 -> 787 against 791 — TWO cards written and the union moved
+by ONE, with both new cards exercised and neither in a never-bucket, so the
+missing one is a covering-deck displacement rather than a regression. Trigger
+census 379/8/387 -> 380/8/388. Four finished sets EXACT for the SIXTEENTH wave.
+`walkout` unmoved at 190/113/29.
 
 ### Dual-domain spells, wave 1 — done 2026-08-19 (the three whose first domain is Fury)
 

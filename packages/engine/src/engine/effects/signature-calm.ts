@@ -10,15 +10,19 @@ import { counterSpell } from "../counter-spell.js";
 import { parkDecision } from "../decisions.js";
 import { BRUSH, isBrush, replaceBattlefieldWithToken } from "../battlefield-tokens.js";
 import {
+  channelRunesExhausted,
   dealDamage,
+  delayedDeathMark,
   destroyUnit,
   drawCards,
+  forgetDelayedDeathMark,
   forceMoveToBattlefield,
   forceMoveToDestination,
   gainXp,
   giveMightThisTurn,
   ownUnitsEverywhere,
   readyUnit,
+  recordModeUsed,
   stunUnits,
 } from "../effect-helpers.js";
 import { effectiveMight } from "../effective-might.js";
@@ -55,6 +59,24 @@ import {
 const SHADOW_ENERGY_COST = 1;
 const SHADOW_POWER_COST = 1;
 
+/** Vendetta's dual-domain spell block, wave 2 — the two whose first domain in
+ *  canonical order is Calm. */
+const SIPHONING_STRIKE = "VEN-146";
+const SIPHONING_STRIKE_BASE = 4;
+const SIPHONING_STRIKE_BIG = 7;
+/** "If you control 7 or more runes" — `channeled.length`, the Rune Pool. */
+const SIPHONING_STRIKE_RUNES = 7;
+const SIPHONING_STRIKE_CHANNEL = 1;
+const SHADOW_DASH_PAIR = 2;
+const SHADOW_DASH_MIGHT = 1;
+
+/** Siphoning Strike's delayed-death mark. A one-line wrapper over the shared
+ *  builder, so the card's own defId is written once and the death-watch at the
+ *  bottom of this file cannot key off a different one than the resolver. */
+function siphoningStrikeMark(state: GameState, spellInstanceId: string): string {
+  return delayedDeathMark(state, SIPHONING_STRIKE, spellInstanceId);
+}
+
 /**
  * How much damage would finish this unit off right now — effective Might minus
  * the damage already on it, floored at 1.
@@ -89,6 +111,99 @@ function lethalDamageFor(state: GameState, instanceId: string): number | undefin
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-146": {
+    // Siphoning Strike (Calm + Mind) — "Deal 4 to a unit at a battlefield. If you
+    // control 7 or more runes, deal 7 to it instead. When it dies this turn,
+    // channel 1 rune exhausted."
+    //
+    // # "Instead" is one damage event, not two
+    //
+    // The amount is picked BEFORE the damage is dealt, so the card deals 4 or 7
+    // and never both — which matters for everything that counts damage
+    // INSTANCES rather than points (Dancing Grenade's escalation, Affectionate
+    // Poro's "have I been dealt damage this turn"). A version that dealt 4 and
+    // then 3 more would be two instances and a different card.
+    //
+    // "You control 7 or more runes" is `channeled.length` — the Rune Pool, the
+    // same count Tomb Raider Barbara and Esteemed Hierophant read for the same
+    // printed phrase. Read at RESOLUTION, so a rune recycled in the response
+    // window drops the card to 4.
+    //
+    // # "When it dies this turn" is Deadly Flourish's mechanism, not a new one
+    //
+    // A delayed triggered ability (390.2) that has to outlive the death it
+    // watches for. The victim is off the board by the time `completeDeath` fires
+    // the event, so the join is a MARK written onto the victim before the damage
+    // — `killUnit`'s snapshot (808.1.d.3) carries it into `DeathContext.unit` —
+    // and read by a listener sitting in the caster's TRASH, where
+    // `execute-play-card` filed this Spell when it was played. The death-watch
+    // half is at the bottom of this file; `delayedDeathMark` is shared out of
+    // `effect-helpers.ts` because two cards in two files now build the same key.
+    //
+    // **Marked BEFORE the damage**, because the damage is usually what kills: the
+    // whole death funnel runs inside `dealDamage`, and a mark written after it
+    // would arrive at an empty board.
+    targeting: { kind: "unit" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      if (targetId === undefined) return state;
+      // 359.3.e: a target that left play in the response window makes both
+      // instructions no-ops, and marking a unit that is not there would be an
+      // invention rather than a no-op.
+      const victim = findUnitAnywhere(state, targetId);
+      if (victim === undefined) return state;
+
+      const marked =
+        ctx.sourceCardInstanceId === undefined
+          ? state
+          : recordModeUsed(state, victim.ownerIndex, targetId, siphoningStrikeMark(state, ctx.sourceCardInstanceId));
+      const amount =
+        state.players[ctx.casterIndex].channeled.length >= SIPHONING_STRIKE_RUNES
+          ? SIPHONING_STRIKE_BIG
+          : SIPHONING_STRIKE_BASE;
+      return dealDamage(marked, ctx.casterIndex, targetId, amount);
+    },
+  },
+  "VEN-148": {
+    // Shadow Dash (Calm + Order) — "Move an enemy unit to a battlefield where you
+    // have units. If you have exactly two units there, they each get +1 [Might]
+    // this turn. [Flow] [5][rainbow][rainbow]"
+    //
+    // # The destination restriction is measured from the CASTER
+    //
+    // "Where YOU have units" — the first move restriction in the pool that is not
+    // derivable from the moved unit alone, which is why `moveDestinationAllowed`
+    // now takes a caster. Temptation's neighbouring set asks about the MOVED
+    // unit's controller, which for an enemy unit is the enemy's own board: on a
+    // split board the two predicates name disjoint destinations, so reusing it
+    // would have let this card send the enemy home.
+    //
+    // No base destination: the card names a battlefield.
+    //
+    // # "Exactly two" is counted AFTER the move, and counts only YOURS
+    //
+    // The enemy that just arrived is not one of "your units", so a battlefield
+    // where you have two and they now have one still pays. Counted after the move
+    // because that is printed order and because the move is what the sentence is
+    // about — and read live off the board rather than from the pre-move count,
+    // since a Deathknell fired by the arrival can change it.
+    //
+    // "THEY each get +1" is your two, not the newcomer. Exactly two, so a third
+    // friendly there pays nothing — this is a reward for a specific board shape
+    // rather than a scaling pump.
+    targeting: { kind: "unit", owner: "enemy", scope: "anywhere" },
+    resolve: (state, ctx, event) => {
+      const targetId = event.targetUnitInstanceId;
+      const destinationId = event.destinationBattlefieldId;
+      if (targetId === undefined || destinationId === undefined) return state;
+      const moved = forceMoveToBattlefield(state, targetId, destinationId, ctx.casterIndex);
+
+      const battlefield = moved.battlefields.find((bf) => bf.id === destinationId);
+      const mine = battlefield?.units[moved.players[ctx.casterIndex].id] ?? [];
+      if (mine.length !== SHADOW_DASH_PAIR) return moved;
+      return mine.reduce((next, u) => giveMightThisTurn(next, u.instanceId, SHADOW_DASH_MIGHT), moved);
+    },
+  },
   "OGN-258": {
     // Dragon's Rage (Calm + Body) — "Move an enemy unit. Then do this: Choose
     // another enemy unit at its destination. They deal damage equal to their
@@ -839,7 +954,45 @@ export const mightModifiers: Record<string, MightModifier> = {
  */
 export const unitTriggers: Record<string, UnitTriggerDefinition> = {};
 export const deathTriggers: Record<string, DeathknellDefinition> = {};
-export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {};
+export const deathWatchTriggers: Record<string, DeathWatchDefinition> = {
+  "VEN-146": {
+    // Siphoning Strike's second sentence — "When it dies this turn, channel 1
+    // rune exhausted." The first is in `cardEffects` above, which is where the
+    // whole card is explained; this end only reads the mark that one wrote.
+    //
+    // **The listener is a SPELL in a trash**, which is why `TRASH_LISTENER_DEF_IDS`
+    // names it: `allListeningPermanents` walks the board plus that set, and this
+    // card is in its caster's trash from the moment it was played. Nothing on the
+    // board could stand in for it — the victim is gone by the time
+    // `completeDeath` fires the event.
+    //
+    // The mark is read off `death.unit`, the snapshot 808.1.d.3 requires be taken
+    // "before the card is moved to the Trash", so this is a fact about the death
+    // and settles whether the ability TRIGGERED at all. `state` is the board as
+    // the unit died, so the turn half of the key is asked against the turn the
+    // death happened on — exactly the printed "this turn".
+    //
+    // **It fires however the unit died**, not only off this spell's own damage.
+    // The card says "when it dies", not "when this kills it", so a victim that
+    // survives the 4 and falls in combat later the same turn still pays.
+    applies: (state, listener, death) =>
+      death.unit.abilityModesUsedThisTurn.includes(siphoningStrikeMark(state, listener.card.instanceId)),
+    // The rune goes to the STRIKE's controller — "channel 1 rune exhausted" with
+    // no owner word is the ability's controller doing it, and a trash listener's
+    // `ownerIndex` is whose trash it is.
+    resolve: (state, listener, death) =>
+      channelRunesExhausted(
+        forgetDelayedDeathMark(
+          state,
+          death.ownerIndex,
+          death.unit.instanceId,
+          siphoningStrikeMark(state, listener.card.instanceId),
+        ),
+        listener.ownerIndex,
+        SIPHONING_STRIKE_CHANNEL,
+      ),
+  },
+};
 export const eventTriggers: Record<string, EventTriggerDefinition> = {
   "UNL-195": {
     // Ivern - Green Father (Calm + Order) — "When you conquer or hold, you may

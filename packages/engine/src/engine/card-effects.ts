@@ -1903,6 +1903,12 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
   // "the move is required, the damage is optional" and for this lookup to find
   // it. See the card's own entry.
   "VEN-140",
+  // Shadow Dash (VEN-148) — "Move an enemy unit to a battlefield where you have
+  // units." Charm's shape with a RESTRICTED destination, and the first one
+  // measured from the CASTER rather than from the moved unit —
+  // `MOVE_DESTINATION_NEEDS_CASTER_UNITS` reads it. Deliberately NOT in
+  // `MOVE_TO_BASE_DEF_IDS`: the card names a battlefield.
+  "VEN-148",
 ]);
 
 /**
@@ -1918,6 +1924,25 @@ const MOVE_TARGET_SPELL_DEF_IDS = new Set([
  * targeting-spec field.
  */
 const MOVE_DESTINATION_NEEDS_SAME_CONTROLLER = new Set(["SFD-129"]);
+
+/**
+ * Cards whose move destination must be a battlefield where the **CASTER** has
+ * units — Shadow Dash's "move an enemy unit **to a battlefield where you have
+ * units**".
+ *
+ * A separate set from `MOVE_DESTINATION_NEEDS_SAME_CONTROLLER` above rather than
+ * a second reading of it, and the difference is the whole card. Temptation asks
+ * about the MOVED unit's controller ("a location where there's a unit with the
+ * same controller"), which for an enemy unit means the enemy's own units; this
+ * asks about YOURS. On a board where each side holds a different battlefield the
+ * two predicates name disjoint destinations — Temptation lets the enemy regroup,
+ * Shadow Dash drags them onto your guns.
+ *
+ * It is also the first destination restriction measured from the CASTER at all,
+ * which is why `moveDestinationAllowed` had to start taking one: every earlier
+ * narrowing was derivable from the moved unit alone.
+ */
+const MOVE_DESTINATION_NEEDS_CASTER_UNITS = new Set(["VEN-148"]);
 
 /**
  * May this card move that unit to that battlefield?
@@ -1938,7 +1963,33 @@ export function moveDestinationAllowed(
   /** The battlefield being considered, or `"base"` for the moved unit's own
    *  base — 107.1.c means there is only ever one base it could go to. */
   destination: string | "base",
+  /** Who is CASTING, for the one restriction measured from that seat rather than
+   *  from the moved unit — Shadow Dash's "where YOU have units". Optional so
+   *  every existing caller is unchanged; a card in that set with no caster given
+   *  refuses every destination rather than silently widening, which is the safe
+   *  direction for a narrowing. */
+  casterIndex?: 0 | 1,
 ): boolean {
+  // Shadow Dash (VEN-148) — "move an enemy unit to a battlefield where YOU have
+  // units."
+  //
+  // Asked here, not in the resolver, for the reason this function exists: the
+  // enumerator and the validator both come through it, and a destination offered
+  // by one and refused by the other is this codebase's most-repeated bug.
+  //
+  // Never base — the card names a battlefield, and there is no reading of "a
+  // battlefield where you have units" that reaches one.
+  if (MOVE_DESTINATION_NEEDS_CASTER_UNITS.has(defId)) {
+    if (casterIndex === undefined || destination === "base") return false;
+    const battlefield = state.battlefields.find((bf) => bf.id === destination);
+    if (!battlefield) return false;
+    // The MOVED unit is excluded the way Temptation's branch excludes it — it is
+    // not there yet. Here that exclusion is free rather than load-bearing, since
+    // the unit being moved is an enemy's and could never be in the caster's list;
+    // stated anyway so the next card added to this set inherits it.
+    const mine = battlefield.units[state.players[casterIndex].id] ?? [];
+    if (!mine.some((u) => u.instanceId !== movedUnitInstanceId)) return false;
+  }
   // Resonating Strike (VEN-034) — "choose a BATTLEFIELD YOU CONTROL and a unit
   // you control AT A DIFFERENT LOCATION".
   //

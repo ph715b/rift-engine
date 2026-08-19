@@ -935,6 +935,7 @@ export function validatePlayCard(state: GameState, action: PlayCardAction): Vali
       card.defId,
       action.targetUnitInstanceId,
       action.destinationIsBase === true ? "base" : action.destinationBattlefieldId!,
+      action.playerIndex,
     )
   ) {
     return fail(`${card.name} can only move a unit to a location where its controller already has one`);

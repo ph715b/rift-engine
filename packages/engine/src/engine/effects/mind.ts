@@ -49,6 +49,8 @@ import {
   payPowerFromChanneled,
   readyRunes,
   readyUnit,
+  delayedDeathMark,
+  forgetDelayedDeathMark,
   recordModeUsed,
   recycleUnitFromPlayToDeck,
   removeUnitAnywhere,
@@ -192,6 +194,10 @@ function spriteFountainPlayEffect(state: GameState, ownerIndex: 0 | 1): GameStat
 }
 
 /** Deadly Flourish's damage. Its second sentence is unwritten — see the entry. */
+/** Deadly Flourish's own defId, for the delayed-death mark it stamps on its
+ *  victim — the key is scoped by CARD as well as by copy, so its mark and
+ *  Siphoning Strike's on one victim pay each other nothing. */
+const DEADLY_FLOURISH = "UNL-073";
 const DEADLY_FLOURISH_DAMAGE = 3;
 
 /**
@@ -2081,7 +2087,7 @@ export const deathTriggers: Record<string, DeathknellDefinition> = {
  * comment.
  */
 function deadlyFlourishMark(state: GameState, spellInstanceId: string): string {
-  return `UNL-073|${spellInstanceId}|t${state.turnNumber}|p${state.activePlayerIndex}`;
+  return delayedDeathMark(state, DEADLY_FLOURISH, spellInstanceId);
 }
 
 /**
@@ -2102,17 +2108,7 @@ function deadlyFlourishMark(state: GameState, spellInstanceId: string): string {
  * keeps its own.
  */
 function forgetDeadlyFlourishMark(state: GameState, ownerIndex: 0 | 1, unitInstanceId: string, mark: string): GameState {
-  const players = [...state.players] as [PlayerState, PlayerState];
-  const owner = players[ownerIndex]!;
-  players[ownerIndex] = {
-    ...owner,
-    trash: owner.trash.map((c) =>
-      c.instanceId === unitInstanceId && c.kind === "Unit"
-        ? { ...c, abilityModesUsedThisTurn: c.abilityModesUsedThisTurn.filter((m) => m !== mark) }
-        : c,
-    ),
-  };
-  return { ...state, players };
+  return forgetDelayedDeathMark(state, ownerIndex, unitInstanceId, mark);
 }
 
 /** Listeners for board EVENTS other than a death (see triggers.ts's GameEvent).
