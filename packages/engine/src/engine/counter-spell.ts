@@ -314,12 +314,19 @@ function isPlayedTriggerFor(entry: ChainEntry, spellCardInstanceId: string): boo
  * for the fresh round of passes on it (345), and — for every effect that reads
  * `ctx.casterIndex` — who "you" is. A card that draws now draws for the thief.
  *
- * **"You may make new choices for it" is NOT implemented**, and it is the half
- * that needs a mid-resolution question the engine cannot yet ask: the choices
- * were made when the spell was announced, and re-making them means offering the
- * new controller the original spec's candidate list while a resolution is
- * suspended. Recorded in docs/rules-conformance.md; the control change alone is
- * the card's larger half and works on its own.
+ * **"You may make new choices for it" IS implemented, and this comment claimed
+ * otherwise until 2026-08-19.** It said the clause "needs a mid-resolution
+ * question the engine cannot yet ask"; `parkDecision` does exactly that, and
+ * OGN-080 Mystic Reversal has been asking it through `retargetCandidates`
+ * (target-lookup.ts) and the `OGN-080-retarget` decision. The card's own entry in
+ * `effects/calm.ts` described the working mechanism the whole time.
+ *
+ * Found while writing VEN-152 Rebuttal, which prints the same sentence — and it
+ * is the shape CLAUDE.md warns about: a note about this codebase's own mechanism,
+ * confidently worded, wrong. Re-read the code, not the note.
+ *
+ * What IS still scoped is WHICH specs are re-offered: only `kind: "unit"`. See
+ * `retargetCandidates` for why, and docs/rules-conformance.md for the row.
  */
 export function gainControlOfSpell(state: GameState, spellCardInstanceId: string, playerIndex: 0 | 1): GameState {
   const target = spellsOnChain(state).find(({ entry }) => entry.card.instanceId === spellCardInstanceId);

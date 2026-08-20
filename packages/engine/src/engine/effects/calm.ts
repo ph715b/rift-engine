@@ -54,7 +54,7 @@ import { findUnitAnywhere } from "../target-lookup.js";
 import { holdCardsRecycled } from "../effect-helpers.js";
 import { cardModeOf } from "../card-effects.js";
 import { spellsOnChain } from "../counter-spell.js";
-import { eligibleTargets } from "../target-lookup.js";
+import { eligibleTargets, retargetCandidates, spellOnChain } from "../target-lookup.js";
 import {
   offerTopOfDeckBanish,
   revealedFromDeck,
@@ -3959,37 +3959,6 @@ export const decisions: Record<string, DecisionDefinition> = {
   },
 };
 
-/** The chain entry a stolen spell is sitting in, if it is still there — a
- *  Reversal answered after its target resolved has nothing to re-aim.
- *
- *  Through `spellsOnChain` rather than a raw find, because the chain also holds
- *  TRIGGER entries, which have no card at all. */
-function spellOnChain(state: GameState, cardInstanceId: string) {
-  return spellsOnChain(state).find(({ entry }) => entry.card.instanceId === cardInstanceId);
-}
-
-/**
- * The units a stolen spell could be re-aimed at — its OWN spec's candidate list,
- * minus the one it already names.
- *
- * Excluding the current target is what makes "is there a choice to make" a real
- * question: re-choosing the same unit is not a new choice, and offering it would
- * put a prompt in front of a player with nothing to decide.
- *
- * Returns nothing for every spec kind but `unit`, deliberately — see the card's
- * own note.
- */
-function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId: string) {
-  const stolen = spellOnChain(state, cardInstanceId);
-  if (!stolen) return [];
-  const spec = cardModeOf(stolen.entry.card, stolen.entry.modeId)?.targeting;
-  if (!spec || spec.kind !== "unit") return [];
-  // Asked from the NEW controller's seat: "friendly" and "enemy" are relative to
-  // whoever controls the spell now, which is the whole point of stealing it.
-  return eligibleTargets(state, playerIndex, spec.owner, spec.scope).filter(
-    (u) => u.instanceId !== stolen.entry.targetUnitInstanceId,
-  );
-}
 
 /**
  * Activated abilities contributed by this domain file.

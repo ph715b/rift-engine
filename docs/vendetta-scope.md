@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=166 unimplemented=10   partial=6      (2026-08-19, after the alias fix, fifteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 5 of the 9 dual-domain SPELLS)
+VEN: needing=176  implemented=168 unimplemented=8    partial=6      (2026-08-19, after the alias fix, sixteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 7 of the 9 dual-domain SPELLS)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 10 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 8 cards, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,57 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Dual-domain spells, wave 3 — done 2026-08-19 (the two whose first domain is Mind)
+
+VEN-150 Acceleration Gate, 152 Rebuttal. VEN 166 -> 168. Tests in
+`test/ven-signature-mind.test.ts` (17); **17 mutants, 15 killed, 2
+measured-redundant.**
+
+**Acceleration Gate needed one new axis and a STATED MODEL.** "Ready up to 4
+units, gear, and/or runes" is one allowance across three kinds, and only the
+units are chosen — a `unitList` of up to 4 friendly EXHAUSTED ones, with whatever
+is left spilling to gear and then runes in board order. `exhaustedOnly` is new on
+`unitList`, the same axis the single-target `unit` and `gear` specs already
+carry.
+
+What makes that a simplification rather than a divergence is that **the one line
+it cannot express is strictly dominated**: a player who chooses 2 units cannot
+also decline the leftover 2, and readying anything is never worse for them.
+Everything they might actually want IS expressible — 4 units, or 0 units and 4
+runes, or any split. The "which gear" sub-choice is the same one Jayce -
+Defender of Tomorrow's "Ready 2 gear" already records, and "which rune" is the
+one `readyRunes` has never offered.
+
+**Rebuttal needed almost nothing, and finding that out corrected a comment.**
+`gainControlOfSpell`'s own doc said "you may make new choices for it" was NOT
+implemented and "needs a mid-resolution question the engine cannot yet ask".
+`parkDecision` does exactly that, and OGN-080 Mystic Reversal has been asking it
+since it shipped — the card's own entry described the working mechanism the whole
+time. `retargetCandidates` moved from `effects/calm.ts` to `target-lookup.ts` on
+becoming a second card's, since two effect files may not import each other.
+
+Its "you may pay [rainbow]" is rule **205** — explicitly NOT part of the cost —
+so the pip is a question at RESOLUTION, Hard Bargain's ransom with the seats
+swapped. Declining is not "nothing happens", it is the counter.
+
+**Both survivors are measured-redundant and both are recorded in place rather
+than deleted.** `exhaustedOnly` is enforced at two sites and NEITHER is
+observable alone — mutating both together does fail, which is the `lethalDamageFor`
+double-guard finding again. And the retarget guard survives because a zero-option
+decision is popped by `advanceDecisions` without prompting.
+
+**A test was added for the site a mutant exposed**: everything else drove
+`legalActions`, which can only see the OFFER, so the validator's own check needed
+a hand-built action the enumerator would never produce.
+
+Two fixture defects, both the wave-2 shape — a measurement moving for the wrong
+reason. Reading the board straight after `accept` looks a whole chain pop too
+early (a Spell resolves on the pop), and counting readied runes across the whole
+cast counts the three the card's own Energy exhausted.
+
+Reachability pin 787 -> 788 against 792; VEN 149 -> 150, four finished sets EXACT
+for the SEVENTEENTH wave. `walkout` unmoved at 190/113/29.
 
 ### Dual-domain spells, wave 2 — done 2026-08-19 (the two whose first domain is Calm)
 

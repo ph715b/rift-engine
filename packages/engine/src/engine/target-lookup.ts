@@ -1,10 +1,10 @@
 import type { GameState } from "../model/game-state.js";
 import type { UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
-import { slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
+import { cardModeOf, slotOwner, slotScope, type TargetingSpec, type TargetScope } from "./card-effects.js";
 import { effectiveMight } from "./effective-might.js";
 import { canonicalDefId } from "../cards/card-loader.js";
-import { counterableSpells } from "./counter-spell.js";
+import { counterableSpells, spellsOnChain } from "./counter-spell.js";
 import { attackerIndexAt } from "./combat-designation.js";
 // NOTE: equipment.ts imports findUnitAnywhere from this module, so this is a
 // CYCLE. It resolves because both sides are hoisted function declarations called
@@ -13,6 +13,53 @@ import { attackerIndexAt } from "./combat-designation.js";
 // instead would put the "same controller" rule in two places, which is the bug
 // this repo keeps shipping.
 import { equipmentPairedWith } from "./equipment.js";
+
+/**
+ * The chain entry a stolen spell is sitting in, if it is still there — a spell
+ * whose thief is asked after its target resolved has nothing to re-aim.
+ *
+ * Through `spellsOnChain` rather than a raw find, because the chain also holds
+ * TRIGGER entries, which have no card at all.
+ */
+export function spellOnChain(state: GameState, cardInstanceId: string) {
+  return spellsOnChain(state).find(({ entry }) => entry.card.instanceId === cardInstanceId);
+}
+
+/**
+ * The units a stolen spell could be re-aimed at — its OWN spec's candidate list,
+ * minus the one it already names. The engine's answer to "you may make new
+ * choices for it".
+ *
+ * Excluding the current target is what makes "is there a choice to make" a real
+ * question: re-choosing the same unit is not a new choice, and offering it would
+ * put a prompt in front of a player with nothing to decide.
+ *
+ * **Scoped to a `unit` spec, deliberately.** The other kinds either name no
+ * choice at all (`none`), or carry choices with their own group constraints
+ * (`unitList`'s `maxTotalMight`, `unitSlots`' second-at-destination,
+ * `chainSpell`'s cost filter) that are enforced at announce time by machinery
+ * this question cannot reach. Offering those without the constraints would let a
+ * stolen Fox-Fire kill a set it was never allowed to choose, which is worse than
+ * not offering them. Recorded Unverified in docs/rules-conformance.md.
+ *
+ * **Here rather than in `effects/calm.ts`, where it was written for OGN-080
+ * Mystic Reversal.** VEN-152 Rebuttal prints the same sentence and lives in
+ * `effects/signature-mind.ts`; two effect files cannot import each other under
+ * the ownership rule, and a second copy is how the two would come to disagree
+ * about which specs are re-choosable. This module already imports both
+ * `card-effects` and `counter-spell`, so it costs no new edge.
+ */
+export function retargetCandidates(state: GameState, playerIndex: 0 | 1, cardInstanceId: string): UnitInstance[] {
+  const stolen = spellOnChain(state, cardInstanceId);
+  if (!stolen) return [];
+  const spec = cardModeOf(stolen.entry.card, stolen.entry.modeId)?.targeting;
+  if (!spec || spec.kind !== "unit") return [];
+  // Asked from the NEW controller's seat: "friendly" and "enemy" are relative to
+  // whoever controls the spell now, which is the whole point of stealing it.
+  return eligibleTargets(state, playerIndex, spec.owner, spec.scope).filter(
+    (u) => u.instanceId !== stolen.entry.targetUnitInstanceId,
+  );
+}
 
 export interface BattlefieldUnitLocation {
   unit: UnitInstance;
@@ -267,6 +314,13 @@ export function unitListChoiceError(
     if (spec.domain !== undefined && !location.unit.domains.includes(spec.domain)) {
       return `${location.unit.name} is not a ${spec.domain} unit`;
     }
+    // Acceleration Gate's "ready up to 4 …" — a ready unit is nothing to ready,
+    // and a card whose only instruction is to ready must not spend one of its
+    // four on it. Checked here as well as filtered out of the pool, so a hand-
+    // built action cannot name one either.
+    if (spec.exhaustedOnly === true && !location.unit.exhausted) {
+      return `${location.unit.name} is not exhausted`;
+    }
 
     if (spec.sameBattlefield) {
       const at = findUnitOnBattlefield(state, id);
@@ -399,7 +453,18 @@ export function unitListCandidates(state: GameState, playerIndex: 0 | 1, spec: U
   // `unitListChoiceError` will reject — the check is what makes it correct, and
   // this is what makes it find anything.
   const pool = eligibleTargets(state, playerIndex, spec.owner, spec.scope).filter(
-    (t) => spec.domain === undefined || t.domains.includes(spec.domain),
+    // **`exhaustedOnly` here is MEASURED-REDUNDANT for correctness and kept
+    // anyway**, the same finding `lethalDamageFor`'s double base-unit guard
+    // records one file over. Removing it changes no outcome, because
+    // `unitListChoiceError` rejects the same sets a line later; removing THAT one
+    // changes no outcome either, because this filter keeps them out of the pool.
+    // Mutating both together does fail.
+    //
+    // Kept because the two serve different consumers: this one is the SAMPLER's
+    // budget — with a wide board it stops `unitListCandidates` spending its
+    // bounded allowance building sets the check will throw away — and the check
+    // is what refuses a hand-built action the enumerator never produced.
+    (t) => (spec.domain === undefined || t.domains.includes(spec.domain)) && (spec.exhaustedOnly !== true || t.exhausted),
   );
   const out: string[][] = [];
   const push = (ids: string[]) => {

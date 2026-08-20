@@ -14,14 +14,18 @@ import {
   discardCards,
   forceMoveToBattlefield,
   giveMightThisTurn,
+  payPowerFromChanneled,
+  readyPermanent,
+  readyRunes,
   readyUnit,
   removeUnitAnywhere,
 } from "../effect-helpers.js";
+import { counterSpell, gainControlOfSpell } from "../counter-spell.js";
 import { parkDecision } from "../decisions.js";
 import { placeToken, type TokenDestination, type TokenSpec } from "../token.js";
 import { playUnitFree } from "../free-play.js";
 import { isHiddenCard } from "../hidden.js";
-import { findUnitAnywhere } from "../target-lookup.js";
+import { findUnitAnywhere, retargetCandidates, spellOnChain } from "../target-lookup.js";
 
 /**
  * Dual-domain (champion signature) cards whose FIRST domain in canonical order —
@@ -38,6 +42,25 @@ import { findUnitAnywhere } from "../target-lookup.js";
  *  at the call site so the ABSENT floor reads plainly beside Siphon Power's
  *  printed one two entries down. */
 const MOONFALL_SHRINK = 2;
+
+/** Vendetta's dual-domain spell block, wave 3 — the two whose first domain in
+ *  canonical order is Mind. */
+const ACCELERATION_GATE_READIES = 4;
+const REBUTTAL_MAX_ENERGY = 4;
+const REBUTTAL_POWER = 1;
+const REBUTTAL_CHOICE = "VEN-152-choice";
+/**
+ * The decision key for "you may make new choices for it", REUSED rather than
+ * copied.
+ *
+ * It is named after OGN-080 Mystic Reversal because that card asked the question
+ * first and `effects/calm.ts` still owns the entry — the same convention
+ * `SHADOW_CLONE_BANISH` follows, where a key names its mechanism's first owner
+ * rather than every card that reaches it. Written as a constant here so the
+ * cross-file string is declared once and a typo is a compile error rather than a
+ * decision nothing registers.
+ */
+const SPELL_RETARGET = "OGN-080-retarget";
 
 /** Moonfall's "you may move up to one enemy unit to that battlefield" — written
  *  once because the resolver that raises it and the entry that answers it must
@@ -214,6 +237,103 @@ function playReflectionCopy(
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-150": {
+    // Acceleration Gate (Mind + Body) — "Ready up to 4 units, gear, and/or
+    // runes."
+    //
+    // # One allowance spread over three kinds, and only one of them is chosen
+    //
+    // The player picks the UNITS — a `unitList` of up to 4 friendly exhausted
+    // ones — and whatever allowance is left over is spent on GEAR and then RUNES,
+    // in board order. That is a recorded simplification of "which gear", the same
+    // one Jayce - Defender of Tomorrow's "Ready 2 gear" makes ("the first
+    // remaining exhausted one") and the same one `readyRunes` has always made
+    // ("which specific runes are readied is deliberately not offered as a choice:
+    // readying is strictly beneficial and never wrong").
+    //
+    // **The ONE thing the model cannot express is strictly dominated**, which is
+    // why it is a simplification rather than a divergence: a player who chooses 2
+    // units cannot also decline the remaining 2. But readying anything is never
+    // worse for them (416 has no downside, and nothing in this pool punishes a
+    // ready permanent), so the unexpressible line is one nobody would take.
+    //
+    // Everything the player might actually want IS expressible: 4 units, or 0
+    // units and 4 runes, or any split between.
+    //
+    // `exhaustedOnly` is new on `unitList` and is the reason the card cannot
+    // waste its allowance on a unit that is already ready — the offer-side
+    // narrowing Jayce's ready-a-gear states the reason for. `owner: "friendly"`
+    // and `scope: "anywhere"` are printed: no owner word, but "ready" is only
+    // ever about your own board (`readyPermanent` refuses an enemy's), and no
+    // location word at all.
+    //
+    // # Order: units, then gear, then runes
+    //
+    // Not printed — the card lists them in one breath — but it has to be SOME
+    // order and this is the one that spends the chosen half first. Gear before
+    // runes because a gear is a board permanent and a rune is a resource, so the
+    // board effect is the one a player is more likely to have wanted.
+    targeting: { kind: "unitList", min: 0, max: ACCELERATION_GATE_READIES, owner: "friendly", scope: "anywhere", exhaustedOnly: true },
+    resolve: (state, ctx, event) => {
+      const chosen = event.targetUnitInstanceIds ?? [];
+      const afterUnits = chosen.reduce((next, id) => readyUnit(next, id), state);
+
+      let remaining = ACCELERATION_GATE_READIES - chosen.length;
+      let next = afterUnits;
+      // Re-read per gear rather than snapshotted: `readyPermanent` returns a new
+      // state, and a stale list would be readying ids off a board that has moved.
+      for (const gear of next.players[ctx.casterIndex].activeGear) {
+        if (remaining <= 0) break;
+        if (!gear.exhausted) continue;
+        next = readyPermanent(next, ctx.casterIndex, gear.instanceId);
+        remaining -= 1;
+      }
+      // `readyRunes` readies "up to" what there is, so a short pool is not an
+      // error — 359.3.e.11's do-as-much-as-you-can, which that helper already
+      // implements for every "ready up to N runes" in the pool.
+      return remaining > 0 ? readyRunes(next, ctx.casterIndex, remaining) : next;
+    },
+  },
+  "VEN-152": {
+    // Rebuttal (Mind + Chaos) — "[Reaction] Choose a spell with Energy cost no
+    // more than [4]. You may pay [rainbow]. If you do, gain control of it and you
+    // may make new choices for it. Otherwise, counter it."
+    //
+    // # "You may pay X. If you do" is rule 205 — NOT a cost
+    //
+    // 205 is explicit that this construction is not part of the card's cost, so
+    // the pip is not paid when the Rebuttal is announced and cannot be enumerated
+    // onto the action. It is a question asked at RESOLUTION, which is what
+    // `parkDecision` is for — Hard Bargain's ransom is the same shape one file
+    // over, with the seats swapped (there the SPELL's controller answers; here it
+    // is the Rebuttal's caster).
+    //
+    // **Declining is not "nothing happens" — it is the counter.** So the two
+    // options are both live, and the convention that puts the free option first
+    // still holds: declining costs no Power and is the card's baseline mode.
+    //
+    // # Both halves of "gain control … and make new choices" already existed
+    //
+    // `gainControlOfSpell` is OGN-080 Mystic Reversal's, and so is the re-choice
+    // — `retargetCandidates` plus the `OGN-080-retarget` decision, moved to
+    // `target-lookup.ts` when this card became its second caller. That helper's
+    // own doc in counter-spell.ts claimed the re-choice was unimplemented; it had
+    // been working since Mystic Reversal shipped, which is the "re-read the code,
+    // not the note" finding CLAUDE.md keeps recording.
+    //
+    // `maxPrintedEnergy` reads the PRINTED cost, which the rules state generally
+    // and then work using Defy by name — so a spell played for a discount, or for
+    // its `[Flow]` cost, is still judged at what it prints.
+    targeting: { kind: "chainSpell", maxPrintedEnergy: REBUTTAL_MAX_ENERGY },
+    resolve: (state, ctx, event) => {
+      const spellId = event.targetChainCardInstanceId;
+      if (!spellId) return state;
+      // Already gone — countered by something else that resolved first, or its
+      // own resolution finished. 359.3: the instruction has nothing to act on.
+      if (!spellOnChain(state, spellId)) return state;
+      return parkDecision(state, { kind: REBUTTAL_CHOICE, playerIndex: ctx.casterIndex, cardInstanceId: spellId });
+    },
+  },
   "OGN-264": {
     // Guerilla Warfare (Mind + Chaos) — "Return up to two cards with [Hidden]
     // from your trash to your hand. You can hide cards ignoring costs this turn."
@@ -532,6 +652,66 @@ export const eventTriggers: Record<string, EventTriggerDefinition> = {
 export const selfTriggers: Record<string, SelfTriggerDefinition> = {};
 
 export const decisions: Record<string, DecisionDefinition> = {
+  [REBUTTAL_CHOICE]: {
+    // Rebuttal's "you may pay [rainbow]. If you do, gain control of it … .
+    // Otherwise, counter it."
+    //
+    // Asked of the REBUTTAL's caster, unlike Hard Bargain's ransom next door,
+    // which asks the victim's controller. Both are decisions rather than costs
+    // for the same reason (205), and both re-check the chain at ANSWER time
+    // rather than trusting the target still exists (359.3) — a spell can be
+    // countered by something else between the question and the answer.
+    prompt: (state, d) => {
+      const spell = d.cardInstanceId ? spellOnChain(state, d.cardInstanceId) : undefined;
+      return spell
+        ? `Rebuttal: pay [rainbow] to steal ${spell.entry.card.name}, or counter it?`
+        : "Rebuttal: nothing left to counter";
+    },
+    options: (state, d) => {
+      const spell = d.cardInstanceId ? spellOnChain(state, d.cardInstanceId) : undefined;
+      // Gone already. ONE option, which `advanceDecisions` retires without
+      // prompting — the shape Hard Bargain's "gone" branch uses.
+      if (!spell) return [{ id: "gone", label: "Nothing to counter" }];
+      // Countering leads, and here that is the FREE option rather than the
+      // do-nothing one: it costs no Power and is what the card does by default.
+      // The convention this file keeps is that a mis-click and the AI's tie-break
+      // both land on the option that costs nothing.
+      const options: DecisionOption[] = [{ id: "counter", label: `Counter ${spell.entry.card.name}` }];
+      // Offered only when the pip is really payable — floating Power first, then
+      // the channeled pool, which is what `payPowerFromChanneled` does. A caster
+      // who cannot pay simply counters.
+      if (payPowerFromChanneled(state, d.playerIndex, null, REBUTTAL_POWER)) {
+        options.push({ id: "steal", label: `Pay [rainbow] to gain control of ${spell.entry.card.name}` });
+      }
+      return options;
+    },
+    resolve: (state, d, optionId) => {
+      if (!d.cardInstanceId || optionId === "gone") return state;
+      if (optionId !== "steal") return counterSpell(state, d.cardInstanceId);
+      // Re-derived rather than trusted: the Power may have gone between the offer
+      // and the answer, and a payment that cannot be made does not steal the
+      // spell — it falls through to the "otherwise", which is the counter.
+      const paid = payPowerFromChanneled(state, d.playerIndex, null, REBUTTAL_POWER);
+      if (!paid) return counterSpell(state, d.cardInstanceId);
+
+      const stolen = gainControlOfSpell(paid, d.cardInstanceId, d.playerIndex);
+      // "…and you may make new choices for it." Asked only when there is a choice
+      // to re-make, exactly as Mystic Reversal asks it — a spell with no `unit`
+      // target, or one whose only legal target is the one it already names, is not
+      // a question.
+      //
+      // **MEASURED-REDUNDANT, and kept for the same reason Mystic Reversal keeps
+      // it.** A mutant parking the question unconditionally survives: the
+      // decision's `options` returns `[]` when there is nothing to re-aim at, and
+      // `advanceDecisions` pops a zero-option decision without resolving or
+      // prompting anything. So the guard changes no outcome — it states the
+      // card's intent at the site that has it, rather than relying on a
+      // neighbouring function's handling of an empty list.
+      return retargetCandidates(stolen, d.playerIndex, d.cardInstanceId).length > 0
+        ? parkDecision(stolen, { kind: SPELL_RETARGET, playerIndex: d.playerIndex, cardInstanceId: d.cardInstanceId })
+        : stolen;
+    },
+  },
   // Moonfall's "you may move up to one enemy unit to that battlefield", raised by
   // its resolver, which has already established that the caster has units there.
   //

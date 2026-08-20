@@ -378,6 +378,23 @@ export type TargetingSpec =
        * deals 6 to it.
        */
       allowsDuplicates?: true;
+      /**
+       * Only EXHAUSTED units may be chosen — Acceleration Gate's "ready up to 4
+       * units, gear, and/or runes".
+       *
+       * The same axis the single-target `unit` and `gear` specs already carry,
+       * arriving on the list for the first card that readies a GROUP. Jayce's
+       * ready-a-gear states the reason it is on the OFFER rather than in the
+       * resolver: `legal-actions` does not offer a target with nothing to do,
+       * "since paying for nothing is never what the player meant", and a ready
+       * unit is exactly that for a card whose only instruction is to ready.
+       *
+       * Filtered in `unitListCandidates`' pool AND checked in
+       * `unitListChoiceError`, which is what the two-site discipline in this file
+       * keeps repeating: the pool filter is what makes the sampler find anything,
+       * and the per-set check is what makes it correct.
+       */
+      exhaustedOnly?: true;
       /** Fox-Fire's "units at A battlefield" — every chosen unit at ONE
        *  battlefield, which the PDF works by name. */
       sameBattlefield?: true;

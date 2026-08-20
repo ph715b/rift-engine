@@ -725,7 +725,12 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // (At this size a one-or-two move is also inside this probe's per-run noise; it
 // reshuffles decks every run.) Four finished sets EXACT for the SIXTEENTH
 // consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
-const PINNED_UNION = 787;
+// **787 -> 788 on 2026-08-19, against 792 measured after the spell block's wave
+// 3.** TWO cards written, the union up ONE again — the same covering-deck
+// displacement wave 2 saw, and the same one-or-two this probe's own noise floor
+// covers. VEN 149 -> 150. Four finished sets EXACT for the SEVENTEENTH
+// consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
+const PINNED_UNION = 788;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();
