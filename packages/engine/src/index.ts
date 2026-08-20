@@ -58,6 +58,11 @@ export * from "./engine/card-effects.js";
 export * from "./engine/effect-context.js";
 export * from "./engine/effect-helpers.js";
 export * from "./engine/target-lookup.js";
+// Exported for the WEB's blocked-reason text, which has to say WHICH half of a
+// counter's targeting is missing — "there is no spell you may counter" and "you
+// have no unit it could protect" are different problems with different fixes,
+// and the board used to assert one card's wording for both.
+export * from "./engine/counter-spell.js";
 export * from "./engine/card-effect-resolution.js";
 export * from "./engine/chain-description.js";
 export * from "./engine/unit-triggers.js";

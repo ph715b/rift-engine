@@ -28,7 +28,7 @@ import {
   pendingDecision,
   modifiedEnergyCost,
   submit,
-    timingRejection,
+          timingRejection,
   unitTriggerHasVisionChoice,
   victoryScore,
   type CardInstance,
@@ -45,6 +45,7 @@ import {
   type SubmitResult,
   type UnitInstance,
 } from "@rift-engine/engine";
+import { targetingBlockedReason } from "../unplayable-target-reason.js";
 import { createNewGame, rollAiBattlefield, winsNeeded, type MatchConfig } from "../game-setup.js";
 import { CardView, type DragPoint } from "./CardView.js";
 import { BattlefieldView } from "./BattlefieldView.js";
@@ -849,33 +850,7 @@ export function GameBoard({ initialConfig, onMainMenu }: GameBoardProps) {
     // modal card lands in `default:` with the generic "can't be played right
     // now", which for "neither mode has a target" is the honest answer.
     const targeting = targetingForPlay(card, undefined);
-    switch (targeting.kind) {
-      case "unit": {
-        const who = targeting.owner === "friendly" ? "friendly " : targeting.owner === "enemy" ? "enemy " : "";
-        const might = targeting.maxMight !== undefined ? `with ${targeting.maxMight} Might or less ` : "";
-        return `${card.name} needs a ${who}unit ${might}at a battlefield to target — there isn't one.`;
-      }
-      case "unitSlots": {
-        // Only reachable for a mandatory-target card: a `min: 0` spec is
-        // always satisfiable (the empty choice is legal), so it never lands
-        // here — see hasAnyLegalEffectChoice.
-        const roles = targeting.slots.map((r) => (r === "any" ? "any" : r)).join(" + ");
-        return `${card.name} needs ${targeting.min} units to target (${roles}) — the board doesn't have them.`;
-      }
-      case "battlefield":
-        return `${card.name} needs a battlefield to target.`;
-      case "ownTrashCard":
-        return `${card.name} needs a ${targeting.cardKind ?? "card"} in your trash — you have none there.`;
-      case "chainSpellAndUnit": {
-        // Two ways to be blocked and they look nothing alike from the player's
-        // side, so they are named separately — "can't be played right now" on a
-        // Reaction with a full chain reads as a bug.
-        const who = targeting.owner === "friendly" ? "friendly " : targeting.owner === "enemy" ? "enemy " : "";
-        return `${card.name} needs both a spell on the chain to counter and a ${who}unit to buff.`;
-      }
-      default:
-        return `${card.name} can't be played right now.`;
-    }
+    return targetingBlockedReason(state, HUMAN_INDEX, card, targeting);
   }
 
   /** Do this card's two target slots take the same role (Singularity's
