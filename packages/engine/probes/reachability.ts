@@ -730,6 +730,14 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // displacement wave 2 saw, and the same one-or-two this probe's own noise floor
 // covers. VEN 149 -> 150. Four finished sets EXACT for the SEVENTEENTH
 // consecutive wave: OGN 228, OGS 21, SFD 188, UNL 205.
+// **UNCHANGED at 788 on 2026-08-19 after the spell block's wave 4, and the
+// observed 792 did not move either.** TWO more cards written (VEN-154, VEN-156)
+// and both ARE exercised — neither appears in any never-bucket — so two others
+// were displaced out of a fixed-size covering deck, which is `deck-generator`
+// seating on `isCardImplemented` doing exactly what this file's 250 -> 500 note
+// describes. A wave where the figure holds is the ordinary case for that
+// mechanism, not a sign the cards are inert; read the BUCKETS, not the total.
+// Four finished sets EXACT for the EIGHTEENTH consecutive wave.
 const PINNED_UNION = 788;
 const PINNED_AT_GAMES = 500;
 

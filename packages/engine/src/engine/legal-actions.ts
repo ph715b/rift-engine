@@ -20,6 +20,7 @@ import {
   eligibleTargets,
   findUnitAnywhere,
   findUnitOnBattlefield,
+  secondMightIsBelowFirst,
   shareABattlefield,
   unitListCandidates,
   gearTargets,
@@ -1450,6 +1451,12 @@ export function legalActions(state: GameState): PlayerAction[] {
           if (first.instanceId === second.instanceId) continue;
           if (symmetric && j < i) continue; // keep one ordering of each pair
           if (targeting.sameBattlefield && !shareABattlefield(state, first.instanceId, second.instanceId)) continue;
+          // Public Execution — "an enemy unit with LESS Might than it". Filtered
+          // on the OFFER for the reason every other pair relation here is: a
+          // pairing refused at resolution is one the caster already paid for.
+          if (targeting.secondMightBelowFirst && !secondMightIsBelowFirst(state, first.instanceId, second.instanceId)) {
+            continue;
+          }
           effectVariants.push({ targetUnitInstanceId: first.instanceId, secondTargetUnitInstanceId: second.instanceId });
         }
       }

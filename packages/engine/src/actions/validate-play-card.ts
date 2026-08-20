@@ -8,6 +8,7 @@ import {
   findUnitOnBattlefield,
   hasAnyLegalEffectChoice,
   scopeDescription,
+  secondMightIsBelowFirst,
   shareABattlefield,
   unitListChoiceError,
   gearTargets,
@@ -418,6 +419,13 @@ function targetingRejection(
     // drift apart.
     if (targeting.sameBattlefield && filled.length === 2 && !shareABattlefield(state, filled[0]!, filled[1]!)) {
       return `${cardName} requires two units at the same battlefield`;
+    }
+    // Public Execution's "with less Might than it" — the same shape, re-derived
+    // from the same predicate the enumerator filtered with rather than trusted
+    // from the action, and re-read at THIS moment because a Reaction in the
+    // response window can move either Might.
+    if (targeting.secondMightBelowFirst && filled.length === 2 && !secondMightIsBelowFirst(state, filled[0]!, filled[1]!)) {
+      return `${cardName} requires its second target to have less Might than its first`;
     }
     // Dragon's Rage — the second target must stand where the first is GOING, not
     // where it is now. Asked through the same predicate the enumerator filters

@@ -86,7 +86,7 @@ machine**, so treat any single timing as noise unless it is decomposed by
 control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**188**, UNL **205** have held exactly across SEVENTEEN Vendetta waves; VEN is the
+**188**, UNL **205** have held exactly across EIGHTEEN Vendetta waves; VEN is the
 only one that moves.
 
 **A wide DECISION costs this probe far less than the arithmetic suggests, and

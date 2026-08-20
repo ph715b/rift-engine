@@ -180,6 +180,39 @@ export function shareABattlefield(state: GameState, firstInstanceId: string, sec
 }
 
 /**
+ * Does the SECOND unit have strictly less Might than the first — Public
+ * Execution's "kill an enemy unit with less Might than it"?
+ *
+ * Beside `shareABattlefield` and for the same reason: it is a relation between
+ * the two chosen units, so it belongs to neither slot's own filter, and the
+ * enumerator and the validator must ask it in exactly the same words. Those two
+ * disagreeing is the offered-then-refused split this repo has shipped six of.
+ *
+ * EFFECTIVE Might on both sides — 143.2's "current Might" — so buffs, this-turn
+ * modifiers and continuous auras all count on either unit. A unit in base is
+ * measured with no battlefield context, which is what `effectiveMight` expects
+ * and what the card's silence about location asks for.
+ *
+ * **STRICTLY less, and a vanished unit is false.** The tie is the price of the
+ * card (it cannot trade evenly), and a unit that has left play in the response
+ * window makes the pairing unsatisfiable rather than trivially true.
+ */
+export function secondMightIsBelowFirst(state: GameState, firstInstanceId: string, secondInstanceId: string): boolean {
+  const mightOf = (instanceId: string): number | undefined => {
+    const at = findUnitAnywhere(state, instanceId);
+    if (!at) return undefined;
+    const ctx =
+      at.zone === "base"
+        ? { isCombat: false }
+        : { isCombat: false, battlefieldId: state.battlefields[at.zone.battlefieldIndex]!.id };
+    return effectiveMight(state, at.unit, at.ownerIndex, ctx);
+  };
+  const first = mightOf(firstInstanceId);
+  const second = mightOf(secondInstanceId);
+  return first !== undefined && second !== undefined && second < first;
+}
+
+/**
  * Does this unit satisfy an `attackingOnly` restriction (Thwonk!'s "stun an
  * ATTACKING unit")?
  *
@@ -557,7 +590,22 @@ export function hasAnyLegalEffectChoice(state: GameState, playerIndex: 0 | 1, ta
         second.some(
           (b) =>
             a.instanceId !== b.instanceId &&
-            (!targeting.sameBattlefield || shareABattlefield(state, a.instanceId, b.instanceId)),
+            (!targeting.sameBattlefield || shareABattlefield(state, a.instanceId, b.instanceId)) &&
+            // Public Execution's Might relation, asked HERE too.
+            //
+            // **UNREACHABLE for that card, and measured rather than assumed.** A
+            // mutant removing this line survives every test: the one consumer of
+            // this function is `validate-play-card`'s `targetOmissionAllowed`,
+            // which is gated on `card.kind === "Unit"`, and Public Execution is a
+            // Spell. A Spell's castability comes from the enumerator producing no
+            // variant, which the fan-out's own copy of this filter already
+            // decides.
+            //
+            // Kept because the branch is about the SPEC, not the card: the next
+            // card to carry `secondMightBelowFirst` may well be a Unit with an
+            // on-play trigger, and that one reaches here. Its neighbour
+            // `sameBattlefield` sits in this same expression for the same reason.
+            (!targeting.secondMightBelowFirst || secondMightIsBelowFirst(state, a.instanceId, b.instanceId)),
         ),
       );
     }

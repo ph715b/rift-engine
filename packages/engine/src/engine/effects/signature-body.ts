@@ -14,6 +14,7 @@ import {
   addBuff,
   canSpendXp,
   dealDamageToEnemyUnitsAtBattlefield,
+  destroyUnit,
   drawCards,
   fileIntoNonBoardZone,
   forceMoveToBase,
@@ -210,6 +211,58 @@ function owningSeatOf(state: GameState, unitInstanceId: string): 0 | 1 | undefin
 }
 
 export const cardEffects: Record<string, EffectDefinition> = {
+  "VEN-154": {
+    // Public Execution (Body + Order) — "Choose a friendly unit. Kill an enemy
+    // unit with less Might than it. [Flow] [5][rainbow][rainbow]"
+    //
+    // # The friendly unit is a TARGET, not a measurement
+    //
+    // "CHOOSE a friendly unit" is printed, so it is a target in the rules' sense
+    // (355) and both halves are required — `min: 2`. Nothing happens to it: it is
+    // named purely to set the ceiling the kill has to fit under, which is why the
+    // pair reads asymmetrically even though both slots are ordinary units.
+    //
+    // That also settles the castability question the way 355.8 does rather than
+    // the way a resolver would: with no friendly unit, or with no enemy small
+    // enough, the card CANNOT BE PLAYED. `secondMightBelowFirst` is what makes
+    // "small enough" part of the pairing rather than a check after the fact — a
+    // resolver that refused would leave the card paid for and doing nothing.
+    //
+    // # No location word anywhere, so `scope: "anywhere"`
+    //
+    // 355.9.a.1 widens both bare nouns to objects on the Board and 198.1 puts the
+    // Bases on it. So this reaches into a base on either side, which is the
+    // difference between it and every "kill a unit at a battlefield" in the pool.
+    //
+    // # STRICTLY less
+    //
+    // A tie is not a legal pairing — the card cannot trade evenly, let alone
+    // upward, which is the whole price of a 2-Energy unconditional kill. Read as
+    // EFFECTIVE Might on both sides at the moment the pair is offered and again
+    // when it is validated, so a Reaction that pumps the victim in the response
+    // window takes the kill away.
+    //
+    // `destroyUnit` rather than `killUnit`: the enemy is killed BY the caster, so
+    // "when you kill" listeners and the killer-attributed death context both need
+    // the caster's index. `[Flow]` needs nothing here — 829 is read off the
+    // printed cost pool-wide.
+    targeting: {
+      kind: "unitSlots",
+      slots: ["friendly", "enemy"],
+      min: 2,
+      scope: "anywhere",
+      secondMightBelowFirst: true,
+      // The two slots have DIFFERENT roles, so the enumerator's symmetric-pair
+      // pruning never applies and this needs no `asymmetricSlots`.
+    },
+    resolve: (state, ctx, event) => {
+      const victimId = event.secondTargetUnitInstanceId;
+      // The friendly is `targetUnitInstanceId` and is deliberately untouched: it
+      // was the measuring stick. 359.3 — a victim that left play in the response
+      // window leaves nothing to kill.
+      return victimId ? destroyUnit(state, victimId, ctx.casterIndex) : state;
+    },
+  },
   "OGN-268": {
     // Bullet Time (Body + Chaos) — "Pay any amount of [rainbow] to deal that much
     // damage to all enemy units at a battlefield."

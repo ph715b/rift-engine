@@ -15,6 +15,7 @@ import * as signatureFury from "./signature-fury.js";
 import * as signatureCalm from "./signature-calm.js";
 import * as signatureMind from "./signature-mind.js";
 import * as signatureBody from "./signature-body.js";
+import * as signatureChaos from "./signature-chaos.js";
 
 /** Every per-domain source file, in a stable order. Exported so the ownership
  *  test can walk them without re-listing the set (a new domain file added here
@@ -34,9 +35,17 @@ export const EFFECT_SOURCES = [
   // fan-out could not parallelise — six domain files, one signature file.
   //
   // A card's home is its FIRST domain in canonical order (Fury, Calm, Mind, Body,
-  // Chaos, Order), so `Body+Fury` is Fury's and `Body+Order` is Body's. Nothing
-  // lands in Chaos or Order today because every such card carries an earlier
-  // domain; those files are not created until a card needs them.
+  // Chaos, Order), so `Body+Fury` is Fury's and `Body+Order` is Body's.
+  //
+  // **`signature-chaos.ts` arrived on 2026-08-19**, with VEN-156 Lightning Rush —
+  // the pool's first card whose two domains are BOTH later than Body
+  // (Chaos+Order). This note used to say "nothing lands in Chaos or Order today
+  // because every such card carries an earlier domain; those files are not
+  // created until a card needs them", and that is exactly how it happened.
+  //
+  // Order still has no file, and by this rule it cannot get one: Order is LAST in
+  // canonical order, so a card could only be filed there if it were Order+Order,
+  // which is not a dual-domain card at all.
   //
   // `name` is explicit now rather than derived from `domain`, which was null for
   // all of them and would have labelled four files "signature.ts".
@@ -44,6 +53,7 @@ export const EFFECT_SOURCES = [
   { domain: null, name: "effects/signature-calm.ts", module: signatureCalm },
   { domain: null, name: "effects/signature-mind.ts", module: signatureMind },
   { domain: null, name: "effects/signature-body.ts", module: signatureBody },
+  { domain: null, name: "effects/signature-chaos.ts", module: signatureChaos },
 ];
 
 /**

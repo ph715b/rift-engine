@@ -296,6 +296,28 @@ export type TargetingSpec =
       slotScopes?: readonly [TargetScope, TargetScope];
       sameBattlefield?: true;
       /**
+       * The SECOND target must have strictly LESS Might than the first — Public
+       * Execution's "choose a friendly unit. Kill an enemy unit with less Might
+       * than it."
+       *
+       * A relation between the two targets, like `sameBattlefield` above and
+       * unlike `maxMight`, which bounds one slot against a printed number. It has
+       * to be part of the SPEC for the reason that one gives: by the time a
+       * resolver runs the choice has been made and paid for, so a resolver that
+       * refused would leave the card spent and doing nothing — and a card whose
+       * pairing cannot be satisfied must be UNCASTABLE (355.8), which only the
+       * spec can decide.
+       *
+       * Read as EFFECTIVE Might on both sides (143.2's "current Might"), so
+       * buffs, this-turn modifiers and continuous auras all count — and read at
+       * the moment the pair is offered AND again when it is validated, since a
+       * Reaction in the response window can change either number.
+       *
+       * STRICTLY less: "less Might than it" excludes a tie, which is the whole
+       * price of the card — it cannot trade upward and it cannot trade evenly.
+       */
+      secondMightBelowFirst?: true;
+      /**
        * The two slots take the same ROLE but are not interchangeable, so BOTH
        * orderings of a pair must be enumerated.
        *

@@ -2012,6 +2012,66 @@ export function takeOneFromTopAndRecycleRest(
 }
 
 /**
+ * "Look at the top N of your Main Deck. You may choose a card from among them and
+ * DRAW it. Put the rest into your trash." — Lightning Rush (VEN-156).
+ *
+ * # Three things this is NOT, each of which would be a different card
+ *
+ * **Not `takeOneFromTopAndRecycleRest`.** That one puts the rest on the BOTTOM
+ * OF THE DECK (416) and this one puts them in the trash, which for a set with
+ * `[Flow]`, Last Rites and a dozen trash-readers is the opposite of a cost.
+ *
+ * **Not a Burn.** 440's Burn has its own semantics — 440.4's burn-out-and-
+ * continue, and Forgotten Relic's "when you burn a unit this way" — and this card
+ * says none of that. It is a plain move, so it goes through `fileIntoTrash`
+ * directly rather than through `burnCards`.
+ *
+ * **A real DRAW, not "put it into your hand".** The card says "draw it", so
+ * `cardDrawn` fires, `cardsDrawnThisTurn` moves, and everything watching a draw
+ * sees one. Implemented by floating the chosen card to the top and calling
+ * `drawCards`, so the whole draw funnel — the event, the ordinal, rule 431's Burn
+ * Out — is reached rather than reimplemented. Stacked Deck deliberately does the
+ * other thing, and its text deliberately says the other thing.
+ *
+ * `chosenInstanceId` is optional because the card's is a "you may": declining
+ * puts all N into the trash. A named card that is not among the top N is
+ * ignored — a forged answer must not reach deeper into the deck.
+ *
+ * `"mainDeck"` on the funnel is the same exemption `burnCards` records: Endless
+ * Riches' replacement does not intercept what leaves the top of a deck.
+ */
+export function drawOneFromTopAndTrashRest(
+  state: GameState,
+  playerIndex: 0 | 1,
+  count: number,
+  chosenInstanceId?: string,
+): GameState {
+  const looked = state.players[playerIndex].deck.slice(0, count);
+  const chosen = chosenInstanceId === undefined ? undefined : looked.find((c) => c.instanceId === chosenInstanceId);
+
+  // Floated to the top FIRST, so the draw below takes exactly the chosen card
+  // while still being an ordinary draw. The others keep their relative order.
+  const rest = looked.filter((c) => c.instanceId !== chosen?.instanceId);
+  let next = updatePlayer(state, playerIndex, (p) => ({
+    ...p,
+    deck: [...(chosen ? [chosen] : []), ...rest, ...p.deck.slice(looked.length)],
+  }));
+  if (chosen) next = drawCards(next, playerIndex, 1);
+
+  // The rest, one at a time and re-reading the player each time: `fileIntoTrash`
+  // is a replacement funnel, and a batched write would compute every destination
+  // against the board as it was before the first card moved.
+  for (const card of rest) {
+    next = updatePlayer(next, playerIndex, (p) => ({
+      ...p,
+      deck: p.deck.filter((c) => c.instanceId !== card.instanceId),
+      ...fileIntoTrash(next, playerIndex, p, card, "mainDeck"),
+    }));
+  }
+  return next;
+}
+
+/**
  * "Recycle me" paid with a unit already in play — Ekko - Recurrent. The unit
  * leaves the board for the BOTTOM of its owner's Main Deck (rule 416).
  *

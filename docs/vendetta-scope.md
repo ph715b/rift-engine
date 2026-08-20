@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=168 unimplemented=8    partial=6      (2026-08-19, after the alias fix, sixteen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and 7 of the 9 dual-domain SPELLS)
+VEN: needing=176  implemented=170 unimplemented=6    partial=6      (2026-08-19, after the alias fix, seventeen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and ALL NINE dual-domain SPELLS. What is left IS the 6 partials, and nothing else)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 8 cards, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 6 cards, which are exactly the 6 PARTIALS, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,59 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Dual-domain spells, wave 4 — done 2026-08-19 (the last two, and a FIFTH signature file)
+
+VEN-154 Public Execution, 156 Lightning Rush. VEN 168 -> 170, and **the spell
+block is finished — the 6 unimplemented rows are now exactly the 6 PARTIALS**.
+Tests in `test/ven-signature-body-chaos.test.ts` (15); **17 mutants, 16 killed, 1
+measured-unreachable.**
+
+**`effects/signature-chaos.ts` exists now, and it was predicted by name.** When
+the dual-domain block was split four ways in August, `effects/index.ts` wrote:
+"nothing lands in Chaos or Order today because every such card carries an earlier
+domain; those files are not created until a card needs them." VEN-156 Lightning
+Rush is Chaos+Order — the pool's first card whose two domains are BOTH later than
+Body — so it is that card. Order still has no file and by the same rule cannot get
+one: it is last in canonical order, so a card could only be filed there if it were
+Order+Order.
+
+The new file is asserted to be IN `EFFECT_SOURCES`, which is the premise for the
+card working at all: a written-but-unregistered effects file reads exactly like a
+card nobody implemented.
+
+**Public Execution brings the block's one genuinely new targeting axis.**
+`secondMightBelowFirst` is a RELATION between two chosen units rather than a bound
+on one, and it lives on the SPEC because a card whose pairing cannot be satisfied
+must be uncastable (355.8) — a resolver that refused would leave the card paid for
+and doing nothing. Applied at all three sites that own a pair relation, exactly as
+`sameBattlefield` is.
+
+The friendly unit is a TARGET and nothing happens to it: it is named purely to set
+the ceiling. STRICTLY less, so no even trade — which is the whole price of a
+2-Energy unconditional kill.
+
+**Lightning Rush is three things it would be easy to make it not be.** The rest go
+to the TRASH and not the deck bottom (Stacked Deck recycles; in a set built on
+`[Flow]` and Last Rites that is closer to a benefit than a cost). It is NOT a Burn
+— 440 carries burn-out-and-continue and Forgotten Relic's "when you burn a unit
+this way", and this card says none of it. And "DRAW it" is a real draw, reached by
+floating the chosen card to the top and calling `drawCards`, so `cardDrawn` fires
+and the ordinal moves.
+
+**The survivor is UNREACHABLE for this card and measured so.** The Might relation
+in `hasAnyLegalEffectChoice` can be removed with every test still green, because
+that function's one consumer is gated on `card.kind === "Unit"` and Public
+Execution is a Spell. Kept, because the branch is about the SPEC: the next card to
+carry the axis may be a Unit with an on-play trigger, and its neighbour
+`sameBattlefield` sits in the same expression for the same reason.
+
+**The reachability pin did NOT move, and neither did the observed figure** — 788
+against 792, both unchanged. Two cards written, both exercised, neither in any
+never-bucket, so two others were displaced out of a fixed-size covering deck.
+That is `deck-generator` seating on `isCardImplemented` doing exactly what it
+always does; read the buckets, not the total. Four finished sets EXACT for the
+EIGHTEENTH wave, and `neverSeated` is down to the five remaining partials.
 
 ### Dual-domain spells, wave 3 — done 2026-08-19 (the two whose first domain is Mind)
 
