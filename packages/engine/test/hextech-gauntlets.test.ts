@@ -105,17 +105,40 @@ describe("the Energy cost falls by the chosen unit's Might", () => {
     expect(activationCostFor(state, 0, GAUNTLETS).energy, "the gate priced something other than the best target").toBe(0);
   });
 
-  it("re-prices EVERY other activated ability to exactly what it always cost", () => {
-    // `activationCostFor` sits at all three cost sites now, so a version that
-    // reduced the wrong card would silently re-price the whole pool. Asserted
-    // across the registry rather than on one sample, which is the only form that
-    // cannot be outrun by a new ability.
-    const { state } = board([9]);
-    const moved = activatedAbilityDefIds().filter(
-      (defId) => defId !== GAUNTLETS && JSON.stringify(activationCostFor(state, 0, defId)) !== JSON.stringify(activationCostOf(defId)),
-    );
+  it("re-prices EXACTLY the abilities that declare a board-dependent price", () => {
+    // **This pin used to assert that NOTHING but the Gauntlets was re-priced, and
+    // it flipped on 2026-08-19** when Vendetta's three self-modifying `[Empower]`
+    // costs landed ("This ability costs [1] less for each rune you control",
+    // 827.1.c.3). Its premise — "the Gauntlets are the only state-priced ability"
+    // — was a fact about the pool at the time, not an invariant, so it was
+    // guaranteed to fire for the second such card whether or not anything was
+    // wrong.
+    //
+    // Replaced with the invariant it was reaching for, which cannot be outrun:
+    // `activationCostFor` differs from `activationCostOf` for exactly those
+    // abilities that DECLARE a board-dependent price, and no others.
+    //
+    // **Two-sided on purpose, which is what stops it going vacuous.** The old
+    // form asserted an empty list; deleting `applyEnergyDiscount` entirely would
+    // have kept that green forever. Here the declared set must ALSO actually move,
+    // so a rule that is declared and never applied is red.
+    //
+    // FOUR runes, not the fixture's default eight, and that is load-bearing:
+    // Baccai Sandspinner's discount is "if you control 4 OR FEWER runes", so at
+    // eight it correctly does not bite and would drop out of the moved set for a
+    // reason that has nothing to do with the wiring. Four makes every declared
+    // rule bite at once — 5 -> 2, and 12 -> 8 for the two per-rune cards.
+    const { state } = board([9], 4);
 
-    expect(moved, "an unrelated ability was re-priced").toEqual([]);
+    const declaresBoardPrice = (defId: string) =>
+      defId === GAUNTLETS || activationCostOf(defId).energyDiscount !== undefined;
+    const moved = activatedAbilityDefIds().filter(
+      (defId) => JSON.stringify(activationCostFor(state, 0, defId)) !== JSON.stringify(activationCostOf(defId)),
+    );
+    const declared = activatedAbilityDefIds().filter(declaresBoardPrice);
+
+    expect(declared.length, "no ability declares a board-dependent price — this test measures nothing").toBeGreaterThan(1);
+    expect(moved.sort(), "the re-priced set is not exactly the declared set").toEqual(declared.sort());
   });
 });
 

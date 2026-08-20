@@ -6,7 +6,7 @@ import venRaw from "./ven.json" with { type: "json" };
 import type { Domain } from "../model/domain.js";
 import { isDomain, lowestOrdinalDomain } from "../model/domain.js";
 import { keywordFromBracketText, type Keyword } from "../model/keyword.js";
-import type { CardDefinition } from "../model/card-definition.js";
+import type { CardDefinition, EnergyDiscountRule } from "../model/card-definition.js";
 import { extractCardItems, type RawCard } from "./raw-card-schema.js";
 
 /**
@@ -526,7 +526,9 @@ export function parseFlowCost(plain: string): { energy: number; powerCost: numbe
  * card's Empower cost for any reason", so honouring the printed number alone
  * would be too EXPENSIVE and the card would be unplayable at the price it means.
  */
-export function parseEmpowerCost(plain: string): { energy: number; powerCost: number; powerDomain: Domain | null } | undefined {
+export function parseEmpowerCost(
+  plain: string,
+): { energy: number; powerCost: number; powerDomain: Domain | null; energyDiscount?: EnergyDiscountRule } | undefined {
   const at = plain.indexOf("[Empower]");
   if (at < 0) return undefined;
   const after = plain.slice(at + "[Empower]".length);
@@ -538,14 +540,27 @@ export function parseEmpowerCost(plain: string): { energy: number; powerCost: nu
   // pip, so nothing matches and `costFromPips` refuses below. That is
   // `parseEquipCost`'s rule: half a cost is CHEAPER than printed.
   //
-  // **A SELF-MODIFYING cost is refused explicitly**, and it is the one shape a
-  // pip check alone cannot see: "[Empower] :rb_energy_12:. This ability costs
+  // **A SELF-MODIFYING cost is READ, as of 2026-08-19** — it used to be refused
+  // here, and the comment said why: "[Empower] :rb_energy_12:. This ability costs
   // :rb_energy_1: less for each rune you control" reads as a clean 12 and is not
   // one. 827.1.c.3 says such text "is taken into account when determining a
   // card's Empower cost for any reason", so honouring 12 alone is too EXPENSIVE
-  // and the card is unplayable at the price it actually means.
+  // and the card was unplayable at the price it actually means. Refusing was the
+  // safe direction while nothing could express the discount; `EnergyDiscountRule`
+  // is that expression, so the sentence is now parsed and the three cards that
+  // print one are finished.
+  //
+  // **An UNRECOGNISED "This ability costs…" still refuses the whole cost**, which
+  // is `parseEquipCost`'s rule and the only safe direction: reading the pips and
+  // dropping a modifier nobody understood is the too-expensive bug this comment
+  // was originally written about.
   const rest = after.slice(pips[0].length);
-  if (/^\s*\.\s*This ability costs/i.test(rest)) return undefined;
+  const selfModifying = /^\s*\.\s*This ability costs/i.test(rest);
+  if (selfModifying) {
+    const base = costFromPips(pips[1], pips[2] ?? "");
+    const energyDiscount = parseEnergyDiscount(rest);
+    return base && energyDiscount ? { ...base, energyDiscount } : undefined;
+  }
   // **A COMPOUND cost (827.1.c.2) is read term by term, not refused wholesale.**
   // The em dash introduces the non-resource half, and every term in it is a cost
   // this engine already has an `ActivationCost` field for. An UNKNOWN term still
@@ -561,6 +576,36 @@ export function parseEmpowerCost(plain: string): { energy: number; powerCost: nu
   // own note says it is for: VEN-181 disagreed with VEN-086 about being
   // implemented, which is the same card twice.
   return costFromPips(pips[1], pips[2] ?? "");
+}
+
+/**
+ * The "This ability costs [N] less…" sentence, as an `EnergyDiscountRule`.
+ *
+ * Two printed shapes across three cards, and the regexes are deliberately
+ * ANCHORED to the whole sentence rather than sniffing for a number: a
+ * near-miss must fail to match and refuse the cost, not match loosely and
+ * mis-price it. That is the same rule `compoundEmpowerCost` applies term by term
+ * — an unrecognised shape refuses the whole cost, because reading half of one is
+ * how an ability ends up cheaper (or here, dearer) than printed.
+ *
+ * Parsed rather than tabulated by defId, which is what `parseEmpoweredGrant` and
+ * `parseEmpowerCost` itself already do — 827.1.c.3 makes the sentence part of the
+ * cost, so it is card TEXT and reading it is the loader's job. A fourth card
+ * printing either shape needs nothing.
+ */
+function parseEnergyDiscount(rest: string): EnergyDiscountRule | undefined {
+  const perRune = /^\s*\.\s*This ability costs :rb_energy_(\d+): less for each rune you control\./i.exec(rest);
+  if (perRune) return { kind: "perRuneControlled", amount: Number.parseInt(perRune[1]!, 10) };
+
+  const threshold = /^\s*\.\s*This ability costs :rb_energy_(\d+): less if you control (\d+) or fewer runes\./i.exec(rest);
+  if (threshold) {
+    return {
+      kind: "ifRunesAtMost",
+      amount: Number.parseInt(threshold[1]!, 10),
+      max: Number.parseInt(threshold[2]!, 10),
+    };
+  }
+  return undefined;
 }
 
 /**

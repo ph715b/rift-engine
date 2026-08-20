@@ -218,19 +218,65 @@ describe("what the parsers refuse (and why coverage must agree)", () => {
     ).toBeUndefined();
   });
 
-  it("refuses a self-modifying [Empower] cost", () => {
-    // 827.1.c.3: text altering the cost "is taken into account when determining a
-    // card's Empower cost for any reason", so honouring the printed number alone
-    // is too EXPENSIVE and the card is unplayable at the price it means. This is
-    // the one shape a term-by-term reader cannot see, so it is refused explicitly.
+  it("READS a self-modifying [Empower] cost, rather than refusing it", () => {
+    // **This pin used to assert `toBeUndefined()`, and it was right about its
+    // BLOCKER and wrong about its fix** — the shape `triage-a-refusal` warns is
+    // the most common here. Its note said, correctly, that 827.1.c.3 makes cost-
+    // altering text "taken into account when determining a card's Empower cost
+    // for any reason", so honouring the printed number ALONE is too EXPENSIVE and
+    // the card is unplayable at the price it actually means. Refusing was the safe
+    // direction while nothing could express the discount. `EnergyDiscountRule` is
+    // that expression, so the sentence is read now and the three cards that print
+    // one are finished.
+    //
+    // The plain case is kept unchanged beside it — a cost with no such sentence
+    // must not grow a rule.
     expect(parseEmpowerCost("[Empower] :rb_energy_2::rb_rune_fury: (reminder)")).toEqual({
       energy: 2,
       powerCost: 1,
       powerDomain: "Fury",
     });
+
+    // Baccai Sandspinner's shape: a flat discount behind a threshold.
     expect(
       parseEmpowerCost("[Empower] :rb_energy_5:. This ability costs :rb_energy_3: less if you control 4 or fewer runes."),
-      "a self-modifying cost is not the printed number",
+    ).toEqual({
+      energy: 5,
+      powerCost: 0,
+      powerDomain: null,
+      energyDiscount: { kind: "ifRunesAtMost", amount: 3, max: 4 },
+    });
+
+    // Frostcoat Mother's and Grumpy Rockbear's: one per rune, no ceiling.
+    expect(
+      parseEmpowerCost("[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control."),
+    ).toEqual({
+      energy: 12,
+      powerCost: 0,
+      powerDomain: null,
+      energyDiscount: { kind: "perRuneControlled", amount: 1 },
+    });
+  });
+
+  it("...and still refuses a self-modifying sentence it does NOT recognise", () => {
+    // **The half of the old pin that is still true, and the half worth keeping.**
+    // Reading the pips and dropping a modifier nobody understood is exactly the
+    // mis-pricing the original refusal existed to prevent — `parseEquipCost`'s
+    // rule, applied here: an unrecognised shape refuses the WHOLE cost.
+    //
+    // Written against a synthetic sentence rather than a real card's, so no future
+    // set can implement this control out from under it: if the pool ever prints
+    // "costs [2] less while I'm at a battlefield", the right response is to teach
+    // the parser that shape and leave this one alone.
+    expect(
+      parseEmpowerCost("[Empower] :rb_energy_9:. This ability costs :rb_energy_2: less while the moon is full."),
+      "an unreadable modifier was dropped and the pips charged alone",
+    ).toBeUndefined();
+    // Not "costs N less" at all, but still self-modifying in shape — the anchored
+    // regex must not half-match it into a discount of nothing.
+    expect(
+      parseEmpowerCost("[Empower] :rb_energy_9:. This ability costs :rb_rune_fury: more if you control a Poro."),
+      "a cost-INCREASING sentence was read as a discount",
     ).toBeUndefined();
   });
 

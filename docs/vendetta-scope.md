@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=170 unimplemented=6    partial=6      (2026-08-19, after the alias fix, seventeen card waves, Fallen Feline and Endless Riches; MIND and CALM finished but for one partial each, ALL SEVEN LEGENDS are in, and ALL NINE dual-domain SPELLS. What is left IS the 6 partials, and nothing else)
+VEN: needing=176  implemented=173 unimplemented=3    partial=3      (2026-08-19, after the alias fix, eighteen card waves; ALL SEVEN LEGENDS and ALL NINE dual-domain SPELLS are in, and 3 of the 6 partials. What is left is VEN-074, VEN-110 and VEN-069)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — 6 cards, which are exactly the 6 PARTIALS, and the "no subsystems" claim
+**What is left is ORDINARY CARD WORK — 3 cards, which are the last 3 PARTIALS, and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,58 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Partials, wave 1 — done 2026-08-19 (the three self-modifying [Empower] costs)
+
+VEN-001 Baccai Sandspinner, 032 Frostcoat Mother, 050 Grumpy Rockbear. VEN 170 ->
+173. Tests in `test/ven-empower-scaling.test.ts` (16); **11 mutants, 11 killed.**
+
+**All three were partial for ONE reason, and it was not the one the "six partials"
+framing suggested.** Their `[Empowered]` payloads already parsed —
+`empoweredGrant` was populated for every one of them. The single blocker was that
+`parseEmpowerCost` REFUSED to read "This ability costs [N] less…", so they had no
+`empowerCost` at all and no ability was generated. Measured before writing
+anything, which is what turned six bespoke cards into one mechanism plus three.
+
+**827.1.c.3 is why the sentence is part of the COST rather than a discount on
+it**: such text "is taken into account when determining a card's Empower cost for
+any reason". Frostcoat Mother's printed 12 is not a 12 — it is a 12 minus one per
+rune you control — and honouring the pips alone made her unplayable at a price
+the card never asked for. **The old refusal was right about its blocker and wrong
+about its fix**, the shape `triage-a-refusal` names: refusing was the safe
+direction while nothing could express the discount, and stopped being so the
+moment something could.
+
+`EnergyDiscountRule` is that expression — a discriminated union of the two printed
+shapes (`perRuneControlled`, `ifRunesAtMost`), parsed rather than tabulated
+because 827.1.c.3 makes the sentence card TEXT. Applied in `activationCostFor`,
+which already existed for Hextech Gauntlets' target-scaled Energy and is the ONE
+function the enumerator, `canPayActivationCost`, the validator and
+`payActivationCost` all reach. Unlike the Gauntlets it needs no per-card set: the
+rule travels on the cost, so a fourth card printing the sentence costs nothing.
+
+**Two premise pins flipped and both were repaired rather than weakened:**
+
+  - `empower-keyword.test.ts`'s "refuses a self-modifying [Empower] cost" was
+    INVERTED, keeping the half that is still true — an UNRECOGNISED modifier
+    still refuses the whole cost, now asserted against a SYNTHETIC sentence no
+    future set can implement out from under it.
+  - `hextech-gauntlets.test.ts`'s "re-prices EVERY other activated ability to
+    exactly what it always cost" was RETIRED and replaced. Its premise ("the
+    Gauntlets are the only state-priced ability") was a fact about the pool, not
+    an invariant, so it was guaranteed to fire for the second such card whether or
+    not anything was wrong. The replacement asserts the re-priced set EQUALS the
+    declared set — two-sided, so deleting the discount entirely is red where the
+    old empty-list form would have stayed green forever.
+
+**One mutant reported KILLED for the wrong reason and had to be rewritten twice.**
+The first version of the threshold mutant was byte-identical to the original plus
+a marker; the second broke the syntax. Neither measures an assertion. The real one
+swaps the discount and the ceiling, and is killed by the boundary test.
+
+Reachability pin 788 -> 791 against 795; VEN 150 -> 153, three cards and three
+newly exercised with no displacement. Four finished sets EXACT for the NINETEENTH
+wave. `walkout` unmoved at 190/113/29.
 
 ### Dual-domain spells, wave 4 — done 2026-08-19 (the last two, and a FIFTH signature file)
 

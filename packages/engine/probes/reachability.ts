@@ -738,7 +738,12 @@ const GAMES = Number(process.env.GAMES ?? 500);
 // describes. A wave where the figure holds is the ordinary case for that
 // mechanism, not a sign the cards are inert; read the BUCKETS, not the total.
 // Four finished sets EXACT for the EIGHTEENTH consecutive wave.
-const PINNED_UNION = 788;
+// **788 -> 791 on 2026-08-19, against 795 measured after Vendetta's three
+// self-modifying `[Empower]` costs.** THREE cards written and exactly three newly
+// exercised (VEN 150 -> 153) — no displacement this time, unlike the two waves
+// before it. Four finished sets EXACT for the NINETEENTH consecutive wave: OGN
+// 228, OGS 21, SFD 188, UNL 205. `neverSeated` is down to VEN-074 and VEN-110.
+const PINNED_UNION = 791;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

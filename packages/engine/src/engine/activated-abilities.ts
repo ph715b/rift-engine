@@ -3,6 +3,7 @@ import { domainActivatedAbilities, mergeRegistries } from "./effects/index.js";
 import type { CardInstance, GearInstance, LegendInstance, UnitInstance } from "../model/card.js";
 import type { Domain } from "../model/domain.js";
 import { GOLD_TOKEN_DEF_ID, MECH_TOKEN, SAND_SOLDIER_TOKEN, placeToken } from "./token.js";
+import type { EnergyDiscountRule } from "../model/card-definition.js";
 import { DOMINUS_READY, VANGUARD_ARMORY_TOKENS } from "./constants.js";
 import { goldAddsExtraEnergy } from "./board-restrictions.js";
 /** Ornn - Fire Below the Mountain adds one rainbow Power per activation. */
@@ -306,6 +307,27 @@ export interface ActivationCost {
    * disagreeing is this codebase's most-repeated bug.
    */
   discardKind?: CardInstance["kind"];
+  /**
+   * An Energy price that reads the BOARD — the "This ability costs [N] less…"
+   * sentence three Vendetta units print after their `[Empower]` pips.
+   *
+   * **827.1.c.3 makes this part of the cost, not a discount applied to it**:
+   * such text "is taken into account when determining a card's Empower cost for
+   * any reason". So the number here is not a modifier on a real price, it IS how
+   * the price is computed, and every site that asks what the ability costs has to
+   * go through the one function that applies it.
+   *
+   * That function is `activationCostFor`, which already existed for Hextech
+   * Gauntlets' target-scaled Energy and is reached by all four consumers — the
+   * enumerator, `canPayActivationCost`, the validator and `payActivationCost`.
+   * Unlike the Gauntlets, this needs no per-card set: the rule travels ON the
+   * cost, so a fourth card printing the sentence costs nothing here.
+   *
+   * Applied AFTER the flat `energy` above and floored at 0 (357.4 — a cost cannot
+   * go below zero), which is what makes Frostcoat Mother's 12 free at 12 runes
+   * rather than a negative that pays the player.
+   */
+  energyDiscount?: EnergyDiscountRule;
 }
 
 /**
@@ -739,7 +761,7 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
   for (const def of defaultCardRegistry().all()) {
     if (def.empowerCost === undefined) continue;
     if (def.type !== "Unit" && def.type !== "Gear" && def.type !== "Legend") continue;
-    const { energy, powerCost, powerDomain, extra } = def.empowerCost;
+    const { energy, powerCost, powerDomain, extra, energyDiscount } = def.empowerCost;
     out[def.id] = {
       kind: def.type,
       // NO exhaust unless the card printed one: 827.1.c.1's expansion is
@@ -754,6 +776,12 @@ function empowerAbilities(): Record<string, ActivatedAbilityDefinition> {
         // fields it becomes — every one of them already existed for other
         // abilities, so a compound Empower needed no new cost model at all.
         ...(extra ?? {}),
+        // The SELF-MODIFYING half (827.1.c.3) — "This ability costs [N] less…".
+        // Carried onto the cost rather than resolved here, because it reads the
+        // BOARD: the price is whatever `activationCostFor` computes at the moment
+        // it is asked, and baking a number in at load time would freeze it at the
+        // rune count of an empty game.
+        ...(energyDiscount ? { energyDiscount } : {}),
       },
       availableWhile: (state, _playerIndex, sourceInstanceId) => !isEmpowered(state, sourceInstanceId),
       resolve: (state, _ctx, _event, sourceInstanceId) => empowerPermanent(state, sourceInstanceId),
@@ -2384,7 +2412,7 @@ export function activationCostFor(
   modeId?: string,
   targetUnitInstanceId?: string,
 ): ActivationCost {
-  const cost = activationCostOf(defId, modeId);
+  const cost = applyEnergyDiscount(state, playerIndex, activationCostOf(defId, modeId));
   if (!EQUIP_ENERGY_REDUCED_BY_TARGET_MIGHT.has(canonicalDefId(defId)) || cost.energy === undefined) return cost;
   const reduction =
     targetUnitInstanceId !== undefined
@@ -2396,6 +2424,39 @@ export function activationCostFor(
           ),
         );
   return { ...cost, energy: Math.max(0, cost.energy - reduction) };
+}
+
+/**
+ * Applies an `energyDiscount` rule to a cost — the whole of "This ability costs
+ * [N] less…" (827.1.c.3).
+ *
+ * Both printed shapes count **runes you control**, which is `channeled.length`:
+ * the Rune Pool, the same count every other card reading that phrase uses. Read
+ * LIVE at the moment the price is asked, which is the point of putting this in
+ * `activationCostFor` rather than in the loader — a rune recycled between the
+ * offer and the payment really does change what Frostcoat Mother costs, and all
+ * four consumers of that function get the same answer at the same instant.
+ *
+ * **Floored at 0**, so a 12-rune board makes her free rather than paying the
+ * player 0 Energy and some change. `energy: 0` is then dropped entirely, because
+ * an `ActivationCost` with a zero Energy field and one with no field at all must
+ * price identically — `canPayActivationCost` and `activationPayment` both branch
+ * on the field's PRESENCE, and a lingering 0 would ask for a rune payment nobody
+ * needs to make.
+ *
+ * A no-op for every ability that prints no such sentence, which is all but three
+ * cards — so this sits on the shared path without changing any of them.
+ */
+function applyEnergyDiscount(state: GameState, playerIndex: 0 | 1, cost: ActivationCost): ActivationCost {
+  const rule = cost.energyDiscount;
+  if (rule === undefined || cost.energy === undefined) return cost;
+  const runes = state.players[playerIndex].channeled.length;
+  const reduction =
+    rule.kind === "perRuneControlled" ? rule.amount * runes : runes <= rule.max ? rule.amount : 0;
+  const energy = Math.max(0, cost.energy - reduction);
+  if (energy > 0) return { ...cost, energy };
+  const { energy: _dropped, ...withoutEnergy } = cost;
+  return withoutEnergy;
 }
 
 /** A unit's CURRENT Might (143.2), or 0 if it is no longer anywhere. */

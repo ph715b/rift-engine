@@ -3,6 +3,31 @@ import type { Keyword } from "./keyword.js";
 import type { EquipExtraCost } from "../cards/card-loader.js";
 
 /**
+ * A cost that reads the BOARD rather than a printed number — the "This ability
+ * costs [N] less…" sentence three Vendetta units print after their `[Empower]`
+ * pips.
+ *
+ * Both variants count **runes you control**, which is `channeled.length` — the
+ * Rune Pool, the same count Tomb Raider Barbara, Esteemed Hierophant and
+ * Siphoning Strike read for the same printed phrase.
+ *
+ * A discriminated union rather than one optional-field shape, so each variant
+ * names the sentence it came from and neither can be half-filled:
+ *
+ *   `perRuneControlled`  "costs [1] less FOR EACH rune you control" — Frostcoat
+ *                        Mother and Grumpy Rockbear, both 12 minus one per rune
+ *   `ifRunesAtMost`      "costs [3] less IF you control 4 or fewer runes" —
+ *                        Baccai Sandspinner, a flat discount behind a threshold
+ *
+ * Deliberately Energy-only: every printed instance reduces Energy, and a Power
+ * pip is a domain requirement rather than an amount, so "3 less Power" would need
+ * to say which pip goes. A card that prints one can widen this then.
+ */
+export type EnergyDiscountRule =
+  | { kind: "perRuneControlled"; amount: number }
+  | { kind: "ifRunesAtMost"; amount: number; max: number };
+
+/**
  * Static, printed-card data — one entry per real card, loaded once from the
  * OGN/OGS JSON and never mutated. Mirrors registry/CardDefinition.java's
  * sealed interface, reshaped as a TS discriminated union on `type` instead
@@ -52,6 +77,22 @@ export interface CardDefinitionBase {
      * already existed as an activation cost, so none needed a new cost model.
      */
     extra?: { exhaust?: true; discard?: number; killFriendlyPermanent?: true };
+    /**
+     * A SELF-MODIFYING Empower cost — the sentence that follows the pips and
+     * changes what they mean.
+     *
+     * **827.1.c.3 is what makes this part of the cost rather than a rider on
+     * it**: text of this kind "is taken into account when determining a card's
+     * Empower cost for any reason". So Frostcoat Mother's printed 12 is not a 12
+     * — it is a 12 minus one per rune you control, and a board with 9 runes pays
+     * 3. Honouring the pips alone makes the ability far too EXPENSIVE and the card
+     * unplayable at the price it actually means, which is why `parseEmpowerCost`
+     * refused to read these at all until this field existed.
+     *
+     * Shaped as the `ActivationCost.energyDiscount` it becomes, the same
+     * spread-not-translate choice `extra` above makes.
+     */
+    energyDiscount?: EnergyDiscountRule;
   };
   /**
    * What this card's `[Empowered][>]` clause grants it while it holds the status
