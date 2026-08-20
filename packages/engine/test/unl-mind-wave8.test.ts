@@ -8,7 +8,7 @@ import type { UnitInstance } from "../src/model/card.js";
 import type { RuneCard } from "../src/model/rune.js";
 import type { PlayCardAction } from "../src/actions/player-action.js";
 import type { GameState } from "../src/model/game-state.js";
-import { makeState, realUnitInstance, spellInstance } from "./fixtures.js";
+import { makeState, realUnitInstance, spellInstance, keepTriggerOrder } from "./fixtures.js";
 
 /**
  * Deadly Flourish's SECOND sentence — "When it dies this turn, play a Gold gear
@@ -52,6 +52,10 @@ function accept(state: GameState, action: unknown): GameState {
 function passUntilSettled(state: GameState): GameState {
   let current = state;
   for (let guard = 0; guard < 24; guard += 1) {
+    // 383.3.d's ordering question is settled with the order already placed, so
+    // this loop keeps driving whatever it was actually written to test. See
+    // `fixtures.keepTriggerOrder`.
+    current = keepTriggerOrder(current);
     if (current.pendingDecisions.length > 0) return current;
     if (current.spellChain.length === 0 && current.pendingTriggers.length === 0) return current;
     const pass = legalActions(current).find((a) => a.type === "PassFocus");

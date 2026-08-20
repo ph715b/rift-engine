@@ -8,6 +8,7 @@ import { executeRecallUnit } from "../actions/execute-recall-unit.js";
 import { executePassFocus } from "../actions/execute-pass-focus.js";
 import { executeActivateAbility } from "../actions/execute-activate-ability.js";
 import { executeAnswerDecision } from "../actions/execute-answer-decision.js";
+import { ORDER_TRIGGERS, answerDecision } from "../engine/decisions.js";
 import {
   abilitiesAvailableTo,
   abilityBanksResource,
@@ -175,7 +176,15 @@ const MAX_SETTLE_PASSES_WITHOUT_PROGRESS = 16;
 /** How much deferred work is outstanding. The quantity the loop must drive to
  *  zero, and the one a stall is defined against. */
 function outstandingWork(state: GameState): number {
-  return state.spellChain.length + state.pendingDecisions.length + (state.turnState === "Showdown" ? 1 : 0);
+  // **383.3.d's remaining ordering choices count**, and they have to: letting a
+  // player order N simultaneous triggers is N-1 answers that each re-park the
+  // question and change neither the chain length nor the queue depth. Without
+  // this the loop sees N-1 iterations of "no progress" and calls a perfectly
+  // healthy resolution stuck — the same case `MAX_SETTLE_PASSES_WITHOUT_PROGRESS`
+  // above was widened for once already. Each answer shortens `chainSlots` by one,
+  // so this decreases strictly.
+  const ordering = state.pendingDecisions.reduce((total, d) => total + (d.chainSlots?.length ?? 0), 0);
+  return state.spellChain.length + state.pendingDecisions.length + ordering + (state.turnState === "Showdown" ? 1 : 0);
 }
 
 /**
@@ -284,6 +293,34 @@ function settleDeferredResolution(
     // keeps the lookahead self-consistent — it is exactly what the AI will do
     // when the question really reaches it.
     const pending = settled.pendingDecisions[0];
+    if (pending?.kind === ORDER_TRIGGERS) {
+      // **383.3.d's ordering question is answered without scoring, deliberately.**
+      //
+      // `evaluate` reads points, Might, hand and gear. None of those can see the
+      // difference between two orderings of the same set of triggers — the
+      // interaction that makes an order matter is between the abilities
+      // themselves. So the AI has no basis to prefer one, which is the same
+      // reasoning `banksResource` records for an ability that only stores Energy.
+      //
+      // **And scoring them is not merely uninformative, it is quadratic.** Every
+      // answer re-parks the question over the remaining slots, so an N-trigger
+      // group costs N-1 answers of up to N options, each one a full apply-and-
+      // evaluate, inside every lookahead candidate. Measured the hard way: the
+      // heuristic-ai suite ran past ten minutes on a mass-death board before this
+      // branch existed.
+      //
+      // The identity permutation: the chain is LIFO, so the item already in the
+      // LAST slot already resolves first. Choosing it changes nothing, which is
+      // what "the AI has no preference" should mean — and `walkout` holding at
+      // 190/113/29 is the check that the AI's play really did not change.
+      const slots = pending.chainSlots ?? [];
+      const keep = slots[slots.length - 1];
+      const answered = keep === undefined ? undefined : answerDecision(settled, pending.id, String(keep));
+      if (answered) {
+        settled = answered;
+        continue;
+      }
+    }
     if (pending) {
       const answers = legalActions(settled);
       // A question at the front of the queue always has an answer, and that is an

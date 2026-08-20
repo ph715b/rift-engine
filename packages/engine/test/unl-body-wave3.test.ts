@@ -19,8 +19,7 @@ import {
   realGearInstance,
   realUnitInstance,
   resolveHeldTriggers,
-  spellInstance,
-} from "./fixtures.js";
+  spellInstance, keepTriggerOrder, } from "./fixtures.js";
 
 /**
  * Wave 3's Body cards — four written, four refused.
@@ -65,6 +64,10 @@ function accept(state: GameState, action: unknown): GameState {
 function resolveChain(state: GameState): GameState {
   let current = state;
   for (let guard = 0; guard < 12 && current.spellChain.length > 0; guard += 1) {
+    // 383.3.d's ordering question is settled with the order already placed, so
+    // this loop keeps driving whatever it was actually written to test. See
+    // `fixtures.keepTriggerOrder`.
+    current = keepTriggerOrder(current);
     if (current.pendingDecisions.length > 0) return current;
     const pass = legalActions(current).find((a) => a.type === "PassFocus");
     expect(pass, "no focus pass was offered while the chain was non-empty").toBeDefined();

@@ -1,4 +1,5 @@
 import type { GameState, PendingDecision } from "../model/game-state.js";
+import { isSpellChainEntry } from "../model/game-state.js";
 import type { RunePayment } from "../actions/player-action.js";
 import { domainDecisions, mergeRegistries } from "./effects/index.js";
 import { equipmentDecisions, weaponmasterDecisions } from "./equipment.js";
@@ -82,7 +83,75 @@ function nextDecisionId(): string {
 
 /** Generic questions with no owning card. Card-specific ones live in the
  *  per-domain effect files under the same one-file-one-owner rule. */
+/** The kind of the trigger-ordering question, written once because
+ *  `cleanup.finalizePendingTriggers` parks it and this file answers it. */
+export const ORDER_TRIGGERS = "order-triggers";
+
 const GENERIC: Record<string, DecisionDefinition> = {
+  /**
+   * **383.3.d — "If more than one Triggered Ability is Triggered simultaneously,
+   * then the player that controls the Abilities selects the order to place them
+   * on the Chain."**
+   *
+   * Reported from playtesting: "triggers that happen at the same time should be
+   * able to be stacked in whichever way the user wants. as an example if you have
+   * two triggers that happen on conquer. You should be able to decide which one
+   * happens first." That is the rule, and the engine placed them in
+   * listener-walk order instead.
+   *
+   * **The APNAP half was already right** and is not touched here:
+   * `finalizePendingTriggers`' own comment records that the pen is appended in
+   * turn order, which under LIFO resolution (340.1) gives 383.3.d.1's "starting
+   * with the Turn Player and proceeding in Turn Order, each player orders their
+   * Triggered Abilities". What was missing is the choice WITHIN one player's
+   * group.
+   *
+   * # The question is "which resolves FIRST", not "which is placed first"
+   *
+   * The chain is LIFO, so the item placed LAST resolves FIRST. Asking in
+   * placement order would be asking the player to think backwards about their own
+   * board. So an answer moves the chosen item to the LAST of the slots still
+   * being ordered, and the question repeats over the rest — the same
+   * `count`-free, shrink-the-subject shape the `discard` handler below uses,
+   * with the subject in `chainSlots`.
+   *
+   * # Only the player's OWN slots move
+   *
+   * The permutation is confined to the slots this group already occupies, so the
+   * other player's items keep their positions and 383.3.d.1's between-player
+   * order survives. That also keeps `chainPriority` correct without recomputing
+   * it: the topmost item may change identity but never changes CONTROLLER.
+   */
+  [ORDER_TRIGGERS]: {
+    prompt: () => "Two of your abilities triggered at once — which resolves FIRST?",
+    options: (state, d) =>
+      (d.chainSlots ?? []).map((slot) => {
+        const entry = state.spellChain[slot];
+        const name = entry !== undefined && !isSpellChainEntry(entry) ? entry.listenerName : "an ability";
+        return { id: String(slot), label: name };
+      }),
+    resolve: (state, d, optionId) => {
+      const slots = d.chainSlots ?? [];
+      const chosen = Number(optionId);
+      if (slots.length < 2 || !slots.includes(chosen)) return state;
+
+      // The chosen item takes the LAST slot (it resolves first); the rest keep
+      // their relative order in the slots before it. Read the entries out, then
+      // write them back into the same positions — the group never grows, moves or
+      // interleaves with anyone else's.
+      const others = slots.filter((slot) => slot !== chosen).map((slot) => state.spellChain[slot]!);
+      const reordered = [...others, state.spellChain[chosen]!];
+      const spellChain = [...state.spellChain];
+      slots.forEach((slot, i) => {
+        spellChain[slot] = reordered[i]!;
+      });
+
+      // That last slot is settled now. Ask again only while a real choice is left.
+      const remaining = slots.slice(0, -1);
+      const next: GameState = { ...state, spellChain };
+      return remaining.length >= 2 ? repeatDecision(next, { ...d, chainSlots: remaining }) : next;
+    },
+  },
   /**
    * "Discard N" where the discarding player picks — rule 422's discard, with the
    * choice the rules always gave them. `count` is how many are still owed, so

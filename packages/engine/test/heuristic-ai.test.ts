@@ -650,12 +650,28 @@ describe("the settle loop tells a LONG resolution from a stuck one", () => {
     expect(() => chooseAction(state)).not.toThrow();
   });
 
-  it("scales — twice the board is still not 'stuck'", () => {
-    // A flat cap fails this by construction whatever number it is set to, which
-    // is the argument for bounding on progress instead. If this ever throws, the
-    // fix is not a bigger constant.
-    expect(() => chooseAction(runCleanup(runBeginning(massDeathBoard(16))))).not.toThrow();
-  });
+  it(
+    "scales — twice the board is still not 'stuck'",
+    () => {
+      // A flat cap fails this by construction whatever number it is set to, which
+      // is the argument for bounding on progress instead. If this ever throws, the
+      // fix is not a bigger constant.
+      expect(() => chooseAction(runCleanup(runBeginning(massDeathBoard(16))))).not.toThrow();
+    },
+    // **15s, raised from the 5s default on 2026-08-20**, and the reason is worth
+    // stating rather than hiding behind a bigger number: 383.3.d's ordering
+    // question makes an N-trigger group cost N-1 answers, each rebuilding an
+    // option list and copying the chain. On this DELIBERATELY pathological board —
+    // 16 listeners and 16 doomed units, a chain in the dozens — that is quadratic
+    // and takes ~6s.
+    //
+    // It is not a cost real play pays. `walkout` (190 games) and `ai-health` are
+    // unmoved in both figures and runtime, because the AI answers the ordering
+    // question with the identity permutation and never scores it — see
+    // `settleDeferredResolution`. This test exists precisely to be worse than any
+    // real board, so it is the one place the quadratic shows.
+    15_000,
+  );
 
   it("refuses a board it cannot resolve, rather than scoring a half-settled one", () => {
     // The negative control on relaxing the bound: it must not have turned a

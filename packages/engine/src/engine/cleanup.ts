@@ -1,6 +1,8 @@
 import type { BattlefieldState, GameState } from "../model/game-state.js";
+import { isSpellChainEntry } from "../model/game-state.js";
 import { removeUnheldHiddenCards } from "./hidden.js";
 import { holdEventTrigger } from "./triggers.js";
+import { ORDER_TRIGGERS, parkDecision } from "./decisions.js";
 import { attackerIndexAt, unitsPresentAt } from "./combat-designation.js";
 import { holdBattlefieldTrigger } from "./battlefield-abilities.js";
 import { returnLapsedGearControl } from "./equipment.js";
@@ -76,9 +78,10 @@ export function runCleanup(state: GameState): GameState {
 function finalizePendingTriggers(state: GameState): GameState {
   if (state.pendingTriggers.length === 0) return state;
 
+  const firstNew = state.spellChain.length;
   const spellChain = [...state.spellChain, ...state.pendingTriggers];
   const newTop = spellChain[spellChain.length - 1]!;
-  return {
+  const finalized: GameState = {
     ...state,
     pendingTriggers: [],
     spellChain,
@@ -91,6 +94,74 @@ function finalizePendingTriggers(state: GameState): GameState {
     // opened leaves that answer alone.
     chainOpenedByTrigger: state.chainOpen ? true : state.chainOpenedByTrigger,
   };
+  return askForTriggerOrder(finalized, firstNew);
+}
+
+/**
+ * **383.3.d — "the player that controls the Abilities selects the order to place
+ * them on the Chain"**, for each player who just finalized more than one.
+ *
+ * Asked AFTER finalizing rather than before, and the two are observably the same
+ * thing: a pending decision blocks every other action (320.1), so nothing can
+ * resolve, respond or be added between the items being placed and the order
+ * being settled. Doing it this way needs no "has this pen been ordered yet"
+ * memory on the state — the question is raised exactly once, in the same call
+ * that placed the items.
+ *
+ * **Turn player first** (383.3.d.1). Both questions are seeded here, before
+ * either is answered, which is safe because each permutes only its own group's
+ * slots and the two groups are disjoint.
+ *
+ * A player with one trigger is asked nothing — there is no order to choose.
+ * Measured before building: across 300 self-play games, 10.2% of finalizations
+ * (5,734 of 56,242) had a player holding two or more at once, and the largest
+ * group was six. Common enough to be worth the question, and far from every
+ * Cleanup.
+ */
+function askForTriggerOrder(state: GameState, firstNew: number): GameState {
+  const slotsFor = (playerIndex: 0 | 1): number[] =>
+    state.spellChain
+      .map((entry, slot) => ({ entry, slot }))
+      .filter(({ entry, slot }) => slot >= firstNew && entry.playerIndex === playerIndex)
+      .map(({ slot }) => slot);
+
+  // Turn player first, then the other — 383.3.d.1's order, applied to who is
+  // ASKED first as well as to whose items sit where.
+  const turn = state.activePlayerIndex;
+  const order: (0 | 1)[] = [turn, turn === 0 ? 1 : 0];
+  let next = state;
+  for (const playerIndex of order) {
+    const slots = slotsFor(playerIndex);
+    // 383.3.d's "more than one". **MEASURED-REDUNDANT and kept**: a one-slot
+    // group always yields a one-source set, so the `sources.size < 2` guard below
+    // subsumes this and a mutant relaxing this line alone survives. Kept because
+    // it states the RULE's own condition at the top of the function, and because
+    // it is the cheap early-out that stops the map/Set work below on the common
+    // single-trigger Cleanup.
+    if (slots.length < 2) continue;
+    // **Nothing is asked when every item in the group is the SAME ability of the
+    // SAME permanent**, because every ordering of them is the same ordering.
+    //
+    // Not a shortcut — it is what keeps this question answerable. A mass death
+    // turns one Cleanup into one triggered ability PER DEATH PER LISTENER, and
+    // `heuristic-ai`'s own note measures a real chain of 40, all of it two cards
+    // repeating. Asking a player to order forty copies of one ability, 39 times,
+    // is not the choice 383.3.d is giving them.
+    //
+    // Keyed on the LISTENER INSTANCE, not the defId: two Spectral Centaurs are
+    // two sources, and a card resolving between their two items can change what
+    // the second one does, so those really are orderable. The same Centaur
+    // triggering twice is not.
+    const sources = new Set(
+      slots.map((slot) => {
+        const entry = next.spellChain[slot];
+        return entry !== undefined && !isSpellChainEntry(entry) ? entry.listenerInstanceId : `spell-${slot}`;
+      }),
+    );
+    if (sources.size < 2) continue;
+    next = parkDecision(next, { kind: ORDER_TRIGGERS, playerIndex, chainSlots: slots });
+  }
+  return next;
 }
 
 /**

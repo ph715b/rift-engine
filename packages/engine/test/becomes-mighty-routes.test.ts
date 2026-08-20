@@ -9,7 +9,7 @@ import { legalActions } from "../src/engine/legal-actions.js";
 import { submit } from "../src/engine/game-engine.js";
 import type { UnitInstance } from "../src/model/card.js";
 import { isSpellChainEntry, type GameState } from "../src/model/game-state.js";
-import { beginCombatAt, makePlayer, makeState, makeUnit, realGearInstance, realUnitInstance, spellInstance } from "./fixtures.js";
+import { beginCombatAt, makePlayer, makeState, makeUnit, realGearInstance, realUnitInstance, spellInstance, keepTriggerOrder } from "./fixtures.js";
 
 /**
  * "Becomes [Mighty]" — the ROUTES, not the two cards.
@@ -102,12 +102,17 @@ function whoTriggered(state: GameState): string[] {
 /** Drains the pen onto the chain and passes focus until a question is on the
  *  table — the real path a player reaches these offers by. */
 function settled(state: GameState): GameState {
-  let current = runCleanup(state);
+  // `keepTriggerOrder` runs on every step, not once at the end: 383.3.d's
+  // ordering question is raised the moment the pen is finalized, and this loop
+  // BREAKS on any pending decision — so leaving it unanswered here would stop the
+  // walk before a single chain item resolved, and no card's question would ever
+  // be reached.
+  let current = keepTriggerOrder(runCleanup(state));
   for (let guard = 0; guard < 8 && current.spellChain.length > 0; guard += 1) {
     if (pendingDecision(current)) break;
     const pass = legalActions(current).find((a) => a.type === "PassFocus");
     if (!pass) break;
-    current = submit(current, pass).state;
+    current = keepTriggerOrder(submit(current, pass).state);
   }
   return current;
 }
@@ -115,6 +120,12 @@ function settled(state: GameState): GameState {
 /** The first offer actually PUT to the player. A held item nobody is ever asked
  *  about is not a working trigger. */
 function firstQuestion(state: GameState): string | undefined {
+  // **383.3.d's ordering question is settled first, and only then is the CARD's
+  // question read.** Two Fioras are two distinct sources triggering at once, so
+  // the engine now correctly asks their controller which resolves first — a
+  // question about the chain, not about either card, and not what any assertion
+  // in this file is about. `keepTriggerOrder` answers it with the order already
+  // placed, so nothing else here moves.
   return pendingDecision(settled(state))?.kind;
 }
 

@@ -1,6 +1,6 @@
 import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { createCardInstance, type GearInstance, type SpellInstance, type UnitInstance } from "../src/model/card.js";
-import { answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
+import { ORDER_TRIGGERS, answerDecision, optionsFor, pendingDecision, type DecisionOption } from "../src/engine/decisions.js";
 import { runCleanup } from "../src/engine/cleanup.js";
 import { executePassFocus } from "../src/actions/execute-pass-focus.js";
 import { dispatchOnPlayUnit, holdMoveTrigger } from "../src/engine/unit-triggers.js";
@@ -199,12 +199,46 @@ export function makeState(overrides: Partial<GameState> = {}): GameState {
  *
  * Returns unchanged states unchanged, so it is safe to wrap any call.
  */
+/**
+ * Answers a pending **trigger-ordering** question (383.3.d) by keeping the order
+ * the engine already placed, and does nothing to any other question.
+ *
+ * The chain is LIFO, so the item in the LAST slot already resolves first —
+ * choosing it is the identity permutation. That is what makes this helper safe to
+ * drop into every harness that drives triggers to resolution: it settles the
+ * question without changing a single outcome, so the ~30 test files that predate
+ * the choice keep asserting exactly what they always did.
+ *
+ * A test that cares about the ORDER answers the question itself instead — see
+ * `test/trigger-order-choice.test.ts`, which is the one place that picks the
+ * other option on purpose.
+ *
+ * Loops, because both players can be asked in the same Cleanup and a group of
+ * three asks twice.
+ */
+export function keepTriggerOrder(state: GameState): GameState {
+  let current = state;
+  for (let guard = 0; guard < 16; guard += 1) {
+    const pending = pendingDecision(current);
+    if (!pending || pending.kind !== ORDER_TRIGGERS) return current;
+    const slots = pending.chainSlots ?? [];
+    const keep = slots[slots.length - 1];
+    if (keep === undefined) return current;
+    const answered = answerDecision(current, pending.id, String(keep));
+    if (!answered) throw new Error("keepTriggerOrder: the engine refused the identity ordering");
+    current = answered;
+  }
+  throw new Error("keepTriggerOrder: the ordering question never settled");
+}
+
 export function resolveHeldTriggers(state: GameState): GameState {
-  let current = runCleanup(state);
+  let current = keepTriggerOrder(runCleanup(state));
   for (let guard = 0; guard < 32; guard += 1) {
     if (current.pendingDecisions.length > 0) return current;
     if (current.chainOpen) return current;
-    current = runCleanup(executePassFocus(current, { type: "PassFocus", playerIndex: current.chainPriority }));
+    current = keepTriggerOrder(
+      runCleanup(executePassFocus(current, { type: "PassFocus", playerIndex: current.chainPriority })),
+    );
   }
   throw new Error("resolveHeldTriggers: the chain never reopened");
 }

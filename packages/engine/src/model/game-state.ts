@@ -1247,6 +1247,24 @@ export interface PendingDecision {
    * `targetInstanceId` and `battlefieldId` are separate fields above.
    */
   cardInstanceIds?: string[];
+  /**
+   * POSITIONS on the chain this question is still ordering — 383.3.d's "the
+   * player that controls the Abilities selects the order to place them on the
+   * Chain".
+   *
+   * **Indices rather than ids, and that is safe for exactly one reason**: a
+   * pending decision blocks every other action (320.1 — `legalActions` returns
+   * only `AnswerDecision` while the queue is non-empty), so nothing can be added
+   * to or removed from the chain between the question being raised and answered.
+   * The alternative was minting a unique id on `TriggerChainEntry`, which would
+   * have touched all seven places that create one and every fixture that builds
+   * one, to identify things that cannot move.
+   *
+   * Its own field rather than `cardInstanceIds` above, which that field's own
+   * doc asks for: these are chain items, and a trigger has no card (377.3.a.1 —
+   * "the ability goes on the chain but has no card to represent it").
+   */
+  chainSlots?: number[];
 }
 
 /**
