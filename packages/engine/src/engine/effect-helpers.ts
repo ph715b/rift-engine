@@ -2161,6 +2161,10 @@ export function drawOneFromTopAndTrashRest(
  * played again fresh.
  */
 export function recycleUnitFromPlayToDeck(state: GameState, playerIndex: 0 | 1, unitInstanceId: string): GameState {
+  // 435.4.b — a Main Deck is a non-board zone, so the Equipment detaches and
+  // stays on the board. Ekko - Recurrent recycles HIMSELF as a cost and can be
+  // wearing something when he does.
+  state = detachAllFrom(state, unitInstanceId);
   const location = findUnitAnywhere(state, unitInstanceId);
   if (!location || location.ownerIndex !== playerIndex) return state;
   const clean: UnitInstance = {
@@ -2554,10 +2558,14 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
     const owner = state.players[index];
     const gear = owner.activeGear.find((g) => g.instanceId === instanceId);
     if (gear) {
+      // The MIRROR of the unit case above: a gear returning to hand is itself
+      // leaving the board, so its own attachment goes with it (435.1.b). A gear
+      // sitting in a hand with a live `attachedToInstanceId` is the same dangling
+      // pointer from the other end, and would re-enter play still "worn".
       return updatePlayer(state, index, (p) => ({
         ...p,
         activeGear: p.activeGear.filter((g) => g.instanceId !== instanceId),
-        hand: fileIntoNonBoardZone(p.hand, gear),
+        hand: fileIntoNonBoardZone(p.hand, { ...gear, attachedToInstanceId: null }),
       }));
     }
   }
@@ -2582,6 +2590,10 @@ export function returnPermanentToHand(state: GameState, instanceId: string): Gam
  *  it's leaving play entirely and may be replayed fresh, unlike
  *  recallUnitToBase (which keeps a unit "in play," just relocated). */
 export function returnUnitToHand(state: GameState, targetInstanceId: string): GameState {
+  // 435.4.b — a hand is a NON-BOARD zone, so every Equipment on this unit
+  // detaches and stays behind. Before the removal, because `detachAllFrom` finds
+  // its gear by the wearer's id and a removed unit has none.
+  state = detachAllFrom(state, targetInstanceId);
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   // Gangplank, Naval's replacement (369.1) — he stays on the board and grows
@@ -2664,6 +2676,10 @@ export function relocateToBaseUnchanged(state: GameState, targetInstanceId: stri
  * helper here follows (359.3.e.12).
  */
 export function banishUnitFromPlay(state: GameState, targetInstanceId: string): GameState {
+  // 435.4.b — banished is a non-board zone. `killUnit` already detaches on the
+  // death path, and a banish that REPLACES a death goes through it; this is the
+  // direct banish (Mel, Defiant Soul's, Smite's armed one), which does not.
+  state = detachAllFrom(state, targetInstanceId);
   const location = findUnitAnywhere(state, targetInstanceId);
   if (!location) return state;
   const { unit, ownerIndex } = location;

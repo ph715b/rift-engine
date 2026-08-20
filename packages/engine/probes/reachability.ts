@@ -768,6 +768,15 @@ const GAMES = Number(process.env.GAMES ?? 500);
 //
 // Four finished sets EXACT for the TWENTY-FIRST consecutive wave: OGN 228, OGS
 // 21, SFD 188, UNL 205.
+// **HELD at 796 on 2026-08-20 while the observed figure FELL, 800 -> 798**, and
+// the pin is deliberately not lowered: it is a FLOOR, and a floor that follows a
+// drop downwards stops being able to catch the next one.
+//
+// The drop is the Equipment `[Equip]` gate (718.2), decomposed by control twice
+// on the same machine — gate OFF gives union 800 and SFD 188, gate ON gives 798
+// and 186, both repeating. It is an ACTION-SPACE change, the shape `walkout`'s
+// note already describes, not a card regression. See CLAUDE.md for the two cards
+// named by diffing `neverExercised`.
 const PINNED_UNION = 796;
 const PINNED_AT_GAMES = 500;
 

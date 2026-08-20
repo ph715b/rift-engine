@@ -79,16 +79,33 @@ by control, exactly as above.
 **`walkout` IS deterministic — five runs, same figures — and `reachability` is
 NOT.** Do not carry an assumption from one to the other; see the pin note below.
 
-`reachability` is pinned at **796, against an observed 800** of 868 cards needing
+`reachability` is pinned at **796, against an observed 798** of 868 cards needing
 code ever exercised, at its default **500 games per mode**. Its runtime with
 Vendetta in the pool has been measured between **292s and 496s on the same
 machine**, so treat any single timing as noise unless it is decomposed by
 control.
 
 **Read the PER-SET figures, not only the union.** OGN **228**, OGS **21**, SFD
-**188**, UNL **205** have held exactly across TWENTY-ONE Vendetta waves; VEN is the
-only one that moves. **VEN joined `COMPLETE_SETS` on 2026-08-19** — all five sets
+**186**, UNL **205**. **VEN joined `COMPLETE_SETS` on 2026-08-19** — all five sets
 are declared, and `everyUnexercisedExplained` now covers the whole pool.
+
+**SFD moved for the FIRST time on 2026-08-20, 188 -> 186, and it is not a card
+regression.** It had held exactly across twenty-one Vendetta waves. The cause is
+the same one `walkout`'s note records: **the ACTION SPACE**, not the rules the
+cards implement. Gating an attached Equipment's own `[Equip]` (718.2 — an
+attached card's printed Rules Text is Inactive) removed a class of AI action, and
+the trajectories that followed reached two fewer SFD cards.
+
+Decomposed by CONTROL, twice, same machine: with the gate OFF, SFD **188** and
+union **800**; with it ON, SFD **186** and union **798**, both figures repeating.
+The two cards named by diffing `neverExercised` are **SFD-139 Edge of Night** and
+**SFD-168 Vanguard Armory**. Only the first is explained by the change — its
+`[Equip]` is correctly Inactive once it attaches itself, so the AI's repeated
+re-equip is gone. **Vanguard Armory is a plain Gear the gate cannot touch**, and
+its ability was verified still offered; it is pure trajectory.
+
+Expect this pin to move for any change that narrows or widens what the AI may
+DO, and re-derive it by control exactly as above rather than accepting it.
 
 **A wide DECISION costs this probe far less than the arithmetic suggests, and
 that was measured rather than argued.** Fallen Feline offers all 233 spell names

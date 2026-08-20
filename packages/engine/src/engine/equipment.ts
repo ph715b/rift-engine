@@ -495,8 +495,22 @@ export function detachEquipment(state: GameState, ownerIndex: 0 | 1, gearInstanc
  * `attachedToInstanceId` pointing at a unit that no longer exists — which reads
  * as a Might bonus from a gear attached to nothing.
  *
- * Called from every path a unit leaves play by. The gear SURVIVES: see the
- * module comment's two cards that presuppose exactly that.
+ * **435.4.b is the rule**: "If the Attached card was Detached because the
+ * Top-Most Card changed zones from a board zone to a non-board zone, then the
+ * location that the Attached Card will Detach to is the last location the
+ * Top-Most Card was at". The gear SURVIVES on the board — see the module
+ * comment's two cards that presuppose exactly that.
+ *
+ * **This comment used to say "called from every path a unit leaves play by", and
+ * that was false for three of the four.** Only `killUnit` called it; a bounce, a
+ * Recycle to deck and a banish all left the gear pointing at a card sitting in a
+ * hand or a deck. Reported from playtesting as "if equipped unit gets bounced to
+ * hand the equipment detaches from the unit" — it did not, and the dangling
+ * pointer is what the player was seeing.
+ *
+ * A stale claim about this codebase's own mechanism, which CLAUDE.md rates ten
+ * times out of eleven. Now genuinely called from all four, and each caller cites
+ * the rule so the next zone-change site has something to grep for.
  */
 export function detachAllFrom(state: GameState, unitInstanceId: string): GameState {
   const players = [...state.players] as [PlayerState, PlayerState];

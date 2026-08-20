@@ -472,25 +472,51 @@ describe("Shepherd's Heirloom (UNL-158): gain 1 XP on play, then Spend 1 XP to a
     expect(activationsOf(funded, gear.instanceId), "1 XP was not enough — the gate reads the wrong number").toHaveLength(1);
   });
 
-  it("re-equipping costs another XP each time, and stops when the XP runs out", () => {
-    // No exhaust is printed, so the ability repeats — what BOUNDS it is the XP.
+  it("cannot be re-equipped once attached — 718.2 makes its own text Inactive", () => {
+    // **This pin asserted the opposite and flipped on 2026-08-20.** Its note read
+    // "No exhaust is printed, so the ability repeats — what BOUNDS it is the XP",
+    // which is true of 818.4 and of the missing exhaust, and misses the rule that
+    // actually settles it:
+    //
+    //   718.2  "While in this state, the card's printed Rules Text is Inactive."
+    //          (434.1.e says it a second time, "for as long as they remain
+    //          Attached".)
+    //   721.2  "Inactive Abilities do not trigger, do not apply, and CANNOT BE
+    //          ACTIVATED."
+    //
+    // So an attached Equipment's `[Equip]` is unusable, and 821.1.c is the
+    // exception that proves it: Weaponmaster has to say "necessary portions of
+    // its Rules Text are no longer Inactive IF THEY ARE CURRENTLY INACTIVE"
+    // before it may re-pay an Equip cost, and 821.1.c.5 anticipates the gear
+    // needing to be detached from its current Top-Most card.
+    //
+    // **Reported from playtesting**: "you should not be able to move around an
+    // equipment that is attached to a unit. once it is attached an effect can
+    // only be used to move it, not the equip cost."
+    //
+    // The XP half of the old assertion is KEPT — the first equip really does cost
+    // 1 — because that is what this test was also protecting.
     const gear = realGearInstance(SHEPHERDS_HEIRLOOM);
     const state = makeState({ phase: "Action" });
     state.players[0]!.activeGear = [gear];
     state.players[0]!.baseUnits = [makeUnit({ instanceId: "a", name: "A" }), makeUnit({ instanceId: "b", name: "B" })];
     const funded = { ...state, players: [{ ...state.players[0]!, xp: 2 }, state.players[1]!] as GameState["players"] };
+    // Both targets are on offer while it is DETACHED — the control that makes the
+    // refusal below about being attached rather than about B being unreachable.
+    expect(activationsOf(funded, gear.instanceId).map((a) => a.targetUnitInstanceId).sort()).toEqual(["a", "b"]);
 
     const once = passUntilSettled(
       accept(funded, activationsOf(funded, gear.instanceId).find((a) => a.targetUnitInstanceId === "a"), "equip A"),
     );
-    expect(once.players[0]!.xp).toBe(1);
-    const twice = passUntilSettled(
-      accept(once, activationsOf(once, gear.instanceId).find((a) => a.targetUnitInstanceId === "b"), "re-equip to B"),
-    );
+    expect(once.players[0]!.activeGear[0]!.attachedToInstanceId, "it never attached").toBe("a");
+    expect(once.players[0]!.xp, "the 1 XP cost was not taken").toBe(1);
 
-    expect(twice.players[0]!.activeGear[0]!.attachedToInstanceId, "the move did not happen").toBe("b");
-    expect(twice.players[0]!.xp).toBe(0);
-    expect(activationsOf(twice, gear.instanceId), "a third attach was offered with no XP left").toHaveLength(0);
+    // XP to spare, a second legal wearer, and nothing on offer — because the
+    // ability itself is Inactive now.
+    expect(
+      activationsOf(once, gear.instanceId),
+      "an attached Equipment still offered its [Equip] — 721.2 says it cannot be activated",
+    ).toHaveLength(0);
   });
 });
 

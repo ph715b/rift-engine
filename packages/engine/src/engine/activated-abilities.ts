@@ -3057,7 +3057,39 @@ export function abilitiesAvailableTo(
     const wearerAbility = allActivatedAbilities()[copiedFrom.unit.defId];
     if (wearerAbility) copied.push({ abilityDefId: copiedFrom.unit.defId, definition: wearerAbility });
   }
-  const own = allActivatedAbilities()[source.defId];
+  // **434.1.e — an ATTACHED card's printed Rules Text is Inactive** "for as long
+  // as they remain Attached", so an Equipment already on a unit does not offer
+  // its own printed ability, and the generated `[Equip]` is exactly that ability
+  // (818.1.c.2, "[Cost]: Attach this gear to a unit you control").
+  //
+  // **Reported from playtesting**: "you should not be able to move around an
+  // equipment that is attached to a unit. once it is attached an effect can only
+  // be used to move it, not the equip cost." That is the rule, and 821.1.c is the
+  // exception that proves it — Vanguard Armory has to say "necessary portions of
+  // its Rules Text are NO LONGER INACTIVE if they are currently Inactive" before
+  // it can re-pay an attached gear's Equip cost.
+  //
+  // The engine also offered a re-attach to the unit the gear was ALREADY on,
+  // which 434.1.g/h make a no-op — a play that costs Energy and does nothing.
+  //
+  // **`own` only**, deliberately. 434.1.e names "those cards' printed Rules
+  // Text"; the COPIED text above is Svellsongur's, which 434.1.c appends to the
+  // Top-Most card and which only exists WHILE attached, and the grants below
+  // belong to other cards entirely.
+  //
+  // **The gate is on being ATTACHED, not on having `[Equip]`**, which is what
+  // 718.2 says — any attached card's printed Rules Text is Inactive. So a gear
+  // attached by something else (821.1.c.1 lets Weaponmaster choose an Equipment
+  // "whether it has an Equip ability or not") loses its own exhaust ability too,
+  // and that is correct rather than incidental.
+  //
+  // Measured before narrowing: of the 50 cards in the pool whose TEXT prints
+  // `[Equip]`, none prints a second activated ability, so for those this changes
+  // the one ability and nothing else. That measurement does NOT bound the gate —
+  // see the paragraph above — and saying it did was the first version of this
+  // comment.
+  const attached = source.attachedToInstanceId !== undefined && source.attachedToInstanceId !== null;
+  const own = attached ? undefined : allActivatedAbilities()[source.defId];
   const granted: { abilityDefId: string; definition: ActivatedAbilityDefinition }[] = [...copied];
   // Forge of the Fluft — "while you control this battlefield, friendly LEGENDS
   // have ...". Offered here rather than by a new registry for the reason

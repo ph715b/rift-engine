@@ -10,6 +10,7 @@ import { counterSpell, spellsOnChain } from "../counter-spell.js";
 import { parkDecision, repeatDecision } from "../decisions.js";
 import { mayMoveToBaseFrom } from "../battlefield-continuous.js";
 import { findUnitAnywhere } from "../target-lookup.js";
+import { detachAllFrom } from "../equipment.js";
 import {
   addBuff,
   canSpendXp,
@@ -119,7 +120,14 @@ function placeUnitIntoOwnersDeck(state: GameState, unitInstanceId: string, end: 
     movesThisTurn: 0,
   };
   const ownerIndex = loanedFrom ?? location.ownerIndex;
-  const removed = removeUnitAnywhere(state, unitInstanceId);
+  // **435.4.b** — a Main Deck is a non-board zone, so every Equipment on this
+  // unit detaches and stays on the board. Before the removal, because
+  // `detachAllFrom` finds the gear by the wearer's id.
+  //
+  // Added 2026-08-20 with the three in `effect-helpers.ts`: only `killUnit`
+  // detached, so every other way off the board left a gear pointing at a card in
+  // a hand or a deck. Reported from playtesting against a bounce.
+  const removed = removeUnitAnywhere(detachAllFrom(state, unitInstanceId), unitInstanceId);
   const players = [...removed.players] as [PlayerState, PlayerState];
   const owner = players[ownerIndex];
   const arriving = fileIntoNonBoardZone<UnitInstance>([], clean);
