@@ -809,6 +809,49 @@ export function nameSpellOn(state: GameState, unitInstanceId: string, spellName:
   return updateUnitAnywhere(state, unitInstanceId, (unit) => ({ ...unit, namedSpell: spellName }));
 }
 
+/** Mel, Newly Awakened's deepening, as a POSITIVE number; the sign is applied at
+ *  the call site so the subtraction below reads as "one more off". */
+const MEL_NEWLY_AWAKENED = "VEN-069";
+const MEL_ADDITIONAL_SHRINK = 1;
+
+/**
+ * How much DEEPER a -Might goes because of Mel, Newly Awakened — 1, or 0.
+ *
+ * Three conditions, all printed, and each one is a way to get this wrong:
+ *
+ *   **"a spell or ability YOU CONTROL"** — the chooser is whoever announced the
+ *   effect now resolving, which `chosenByResolvingEffect.chooserIndex` carries.
+ *   Not the -Might's target's owner, and not the active player.
+ *
+ *   **"to a unit it CHOOSES"** — membership in that same record. A mass debuff
+ *   (`giveMightThisTurnToAllEnemies`) routes through this very function and
+ *   chooses NOTHING, so without the list Mel would widen every sweep on the
+ *   board. 355.10.b draws the same line between a target and a restriction.
+ *
+ *   **`[Empowered][>]`** — 828.1.c gates the whole clause on the status, so a
+ *   Mel who has not been Empowered does nothing at all.
+ *
+ * Read LIVE at the moment the Might is given rather than captured when the spell
+ * was announced: Mel can be Empowered — or disempowered (442) — in the response
+ * window, and 369 asks the board as the replaced event happens.
+ *
+ * **Every Mel her controller has is counted**, not just one: 369 applies each
+ * replacement effect that is applicable, and two Empowered Mels are two of them.
+ * Nothing in the pool puts two on a board today, which is why this is stated
+ * rather than tested against a real card.
+ */
+function melExtraShrink(state: GameState, targetInstanceId: string): number {
+  const choosing = state.chosenByResolvingEffect;
+  if (choosing === undefined || choosing === null) return 0;
+  if (!choosing.unitInstanceIds.includes(targetInstanceId)) return 0;
+  const owner = state.players[choosing.chooserIndex];
+  const mels = [
+    ...owner.baseUnits,
+    ...state.battlefields.flatMap((bf) => bf.units[owner.id] ?? []),
+  ].filter((u) => canonicalDefId(u.defId) === MEL_NEWLY_AWAKENED && u.empowered === true);
+  return mels.length * MEL_ADDITIONAL_SHRINK;
+}
+
 export function giveMightThisTurn(
   state: GameState,
   targetInstanceId: string,
@@ -823,10 +866,28 @@ export function giveMightThisTurn(
   if (amount < 0 && gangplankReplaces(state, targetInstanceId)) {
     return gangplankInstead(state, targetInstanceId);
   }
+  // **Mel, Newly Awakened's second sentence** (VEN-069) — "[Empowered][>] … if a
+  // spell or ability you control would give -[Might] to a unit it chooses, it
+  // gives an additional -1 [Might]."
+  //
+  // A replacement (369.1), applied AFTER Gangplank's above and never instead of
+  // it: his replaces the -Might with a +3, so a Might that is about to become a
+  // pump has nothing left for Mel to deepen. Ordering the two the other way would
+  // change nothing observable today and would be wrong the moment a card replaces
+  // a -Might with a smaller one.
+  //
+  // **NEGATIVE amounts only**, the same guard Gangplank's carries and for a
+  // sharper reason here: without it the deepening would apply to pumps, and Mel
+  // would be shrinking her own side's buffs.
+  //
+  // The `floor` still binds afterwards, which is right — a card printing "to a
+  // minimum of 1 [Might]" prints its own minimum, and 369 replaces the AMOUNT
+  // given rather than the instruction's own limits.
+  const shrunk = amount < 0 ? amount - melExtraShrink(state, targetInstanceId) : amount;
   const raised = updateUnitAnywhere(state, targetInstanceId, (u) => {
-    if (floor === undefined) return { ...u, mightThisTurn: u.mightThisTurn + amount };
+    if (floor === undefined) return { ...u, mightThisTurn: u.mightThisTurn + shrunk };
     const lowest = floor - u.might;
-    return { ...u, mightThisTurn: Math.max(lowest, u.mightThisTurn + amount) };
+    return { ...u, mightThisTurn: Math.max(lowest, u.mightThisTurn + shrunk) };
   });
   // Fiora - Grand Duelist. A DEBUFF passes through here too (a negative
   // `amount`), and `withMightTransitions` only fires on a crossing UPWARD, so

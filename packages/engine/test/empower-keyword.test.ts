@@ -374,12 +374,16 @@ describe("what the parsers refuse (and why coverage must agree)", () => {
     const empowerCards = registry.all().filter((d) => (d.text ?? "").includes("[Empower]"));
     expect(empowerCards.length, "no card prints [Empower] — this sweep measures nothing").toBeGreaterThan(10);
 
-    // **A readable cost is not the same as a finished card**, and one card proves
-    // it: VEN-069 Mel, Newly Awakened's `[Empower] [3]` has always parsed, and she
-    // is PARTIAL for something else entirely — her second sentence, a replacement
-    // effect on -Might. Named here so the sweep above is not read as "every
-    // Empower card is done".
+    // **A readable cost is not the same as a finished card**, and this line named
+    // VEN-069 Mel, Newly Awakened until her second sentence landed later the same
+    // day — her `[Empower] [3]` had always parsed and she was partial for a
+    // replacement effect on -Might instead.
+    //
+    // Kept, EMPTY, rather than deleted: the distinction it draws is the one this
+    // whole `describe` is about, and an Empower card that becomes partial for some
+    // other reason is exactly what should show up here rather than being absorbed
+    // by the readable-cost sweep above.
     const stillPartial = empowerCards.filter((d) => partialImplementationNote(d) !== undefined).map((d) => d.id);
-    expect(stillPartial, "the set of Empower cards that are partial for OTHER reasons moved").toEqual(["VEN-069"]);
+    expect(stillPartial, "an Empower card became partial for a reason this sweep cannot see").toEqual([]);
   });
 });

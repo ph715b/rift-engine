@@ -457,7 +457,7 @@ Re-measure rather than trusting this; it is one `coverageBySet` call, and this
 document's own advice has been right every time it was ignored.
 
 ```
-VEN: needing=176  implemented=175 unimplemented=1    partial=1      (2026-08-19, after the alias fix, nineteen card waves; ALL SEVEN LEGENDS, ALL NINE dual-domain SPELLS and 5 of the 6 partials are in. ONE card is left in the set: VEN-069 Mel, Newly Awakened)
+VEN: needing=176  implemented=176 unimplemented=0    partial=0      (2026-08-19, twenty card waves. THE SET IS DONE and DECLARED in COMPLETE_SETS — and so is the POOL: all five sets report zero unimplemented and zero partial)
 ```
 
 **Phases 0–2 are done except for one upstream gate.** The set is landed, all
@@ -487,7 +487,7 @@ Fixed by dropping the filter (2026-08-16). Three of the ten are RE-TEMPLATED —
 same card, Vendetta's newer wording — so the alias test now asserts type and every
 printed number unconditionally, and quotes both texts for those three by name.
 
-**What is left is ORDINARY CARD WORK — ONE card, the last PARTIAL, and the "no subsystems" claim
+**Nothing is left. The section below is history —** it read "ORDINARY CARD WORK", and the "no subsystems" claim
 has now been wrong twice.** Order alone needed rule 477's layer order (an
 assignment of base Might, distinct from every pump in the pool), an amount-based
 damage prevention pool, and owner/domain narrowings on `unitOrGear` targeting
@@ -575,6 +575,63 @@ opponent's deck and hand, 108.7.c) or withholds the card's main use (naming a
 spell you have not seen). Pinned as an invertible assertion in
 `ven-order-wave1.test.ts`. The restriction half is easy and is not the blocker —
 it is Lilting Lullaby's shape, a predicate in `board-restrictions.ts`.
+
+### Partials, wave 3 — done 2026-08-19 (Mel, and THE SET IS DONE)
+
+VEN-069 Mel, Newly Awakened. VEN 175 -> **176 of 176**, and the POOL is finished:
+all five sets report zero unimplemented and zero partial. Tests in
+`test/ven-mel-newly-awakened.test.ts` (13); **11 mutants, 11 killed** after three
+were rewritten.
+
+**Her partial note was STALE, not wrong.** It said her second sentence — "if a
+spell or ability you control would give -[Might] to a unit it chooses, it gives an
+additional -1" — "is a REPLACEMENT effect on the giving of Might, which this
+engine has no seam for". `giveMightThisTurn` IS that seam and had been one since
+Gangplank, Naval's replacement landed on the very same `amount < 0` branch.
+
+What was actually missing was not a seam but INFORMATION, and it is two facts the
+engine had never needed together:
+
+| the printed phrase | what it rules out |
+|---|---|
+| "a spell or ability **you control**" | the target's owner, and the active player. `spellResolvingForIndex` is the closest thing that existed and covers SPELLS only — the card says "or ability" |
+| "to a unit **it chooses**" | a board sweep. Every mass debuff routes through the same `giveMightThisTurn`, so a hook that knew only the caster would widen all of them (355.10.b draws the same line) |
+
+Both live on `GameState.chosenByResolvingEffect`, set by the TWO executors that
+already compute them to fire `unitChosen` — rather than threaded through the ~20
+single-target call sites, which is the wide-change-for-one-clause shape
+`legendsEmpoweredBySomethingElse` already refused.
+
+**The sweep test passes for a weaker reason than it looks**, and a mutant said so:
+a unit's on-play trigger never goes through the spell resolution, so the record is
+absent there and the membership check is never consulted. The check's own case —
+a resolution that debuffs a unit it did not choose — has no card in the pool, so
+it is built rather than cast, and named as such.
+
+**FOUR more premise pins flipped, including the set-completion gate.**
+`set-coverage.test.ts` went red naming Vendetta the moment the last card landed,
+which is exactly the instrument `land-a-set`'s Phase 4 says to wait for. One of
+them — "only the four finished sets raise the flag" — has now been rewritten once
+per set that finished, four times, so it no longer holds a list: it asserts the
+RELATIONSHIP (flagged exactly when nothing is unimplemented), which cannot go
+stale.
+
+### The set is DECLARED — what that does and does not claim
+
+`COMPLETE_SETS` now holds all five sets. It means **every card the pool HAS is
+implemented**. It does NOT mean every printed Vendetta card is in this repo:
+`ven.json` is still 209 of 227 records, because 18 cannot be classified from the
+upstream data. `test/ven-partial-set.test.ts` asserts BOTH halves side by side so
+the two can never be read as one.
+
+Declaring it switched on `reachability.everyUnexercisedExplained` for VEN, and
+**it passed with ZERO allowlist entries** — all 18 unexercised Vendetta cards are
+`provenReachableByOffer`, meaning the enumerator demonstrably offers each one and
+the 1-ply AI simply never takes it. Nothing is silently unreachable. That is the
+cheapest this phase has ever been; `land-a-set` budgets a session for it.
+
+Reachability pin 795 -> 796 against 800; four finished sets EXACT for the
+TWENTY-FIRST wave. `walkout` unmoved at 190/113/29.
 
 ### Partials, wave 2 — done 2026-08-19 (the two compound [Empower] costs)
 

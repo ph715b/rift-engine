@@ -126,12 +126,20 @@ describe("coverage tells the truth about both cards", () => {
     expect(isCardImplemented(registry.get(DECREE_OF_RAGE))).toBe(true);
   });
 
-  it("keeps Mel PARTIAL — only the first of her two sentences is written", () => {
-    // "If a spell or ability you control would give -[Might] to a unit it
-    // chooses, it gives an additional -1" is a REPLACEMENT effect this engine has
-    // no seam for. Registration is per defId, so without the partial row her
-    // counter-prevention half would report the whole card finished.
-    expect(partialImplementationNote(registry.get(MEL)), "Mel has no partial note").toBeDefined();
-    expect(isCardImplemented(registry.get(MEL)), "a half-written Mel reported implemented").toBe(false);
+  it("claims Mel WHOLE — both her sentences are written now", () => {
+    // **This pin asserted the opposite and flipped on 2026-08-19.** It said the
+    // second sentence "is a REPLACEMENT effect this engine has no seam for", and
+    // that was stale rather than wrong: `giveMightThisTurn` had been that seam
+    // since Gangplank, Naval's replacement landed on the same `amount < 0` branch.
+    // What was missing was the INFORMATION — "a spell or ability you control" and
+    // "a unit it chooses" — which `GameState.chosenByResolvingEffect` now carries.
+    //
+    // Inverted rather than deleted, and it keeps the half that was always the
+    // point: registration is per defId, so a card whose second clause quietly
+    // stopped being written would report finished again with nothing to see. The
+    // partial note being ABSENT is the claim, and `ven-mel-newly-awakened.test.ts`
+    // is what holds the behaviour behind it.
+    expect(partialImplementationNote(registry.get(MEL)), "Mel is partial again").toBeUndefined();
+    expect(isCardImplemented(registry.get(MEL)), "Mel reports unimplemented").toBe(true);
   });
 });

@@ -755,7 +755,20 @@ const GAMES = Number(process.env.GAMES ?? 500);
 //
 // Four finished sets EXACT for the TWENTIETH consecutive wave: OGN 228, OGS 21,
 // SFD 188, UNL 205.
-const PINNED_UNION = 795;
+// **795 -> 796 on 2026-08-19, against 800 after VEN-069 Mel, Newly Awakened —
+// the LAST unimplemented card in the pool.** One card, one newly exercised (VEN
+// 157 -> 158).
+//
+// **This is the first run with VEN in `COMPLETE_SETS`, so
+// `everyUnexercisedExplained` now holds Vendetta too — and it passed with ZERO
+// allowlist entries.** All 18 unexercised VEN cards sit in
+// `provenReachableByOffer`: the enumerator demonstrably offers each one and the
+// 1-ply AI simply never takes it. Nothing is silently unreachable, which is the
+// only thing that gate exists to prove.
+//
+// Four finished sets EXACT for the TWENTY-FIRST consecutive wave: OGN 228, OGS
+// 21, SFD 188, UNL 205.
+const PINNED_UNION = 796;
 const PINNED_AT_GAMES = 500;
 
 const registry = defaultCardRegistry();

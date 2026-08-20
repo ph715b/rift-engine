@@ -130,14 +130,27 @@ describe("per-set completeness gating", () => {
     // and that is where it belongs permanently: borrowing whichever real set
     // happens to be under construction is how this assertion came to be rewritten
     // three times, once per set that finished.
-    // **VEN joined the pool on 2026-08-16 and is NOT finished**, which hands this
-    // assertion back the real negative case the note above says it had to give
-    // up. The two lines below now differ: every set is undeclared, and only the
-    // four finished ones raise the flag. A VEN appearing in the second list would
-    // mean the coverage gates had stopped seeing 173 unimplemented cards.
+    // **VEN finished on 2026-08-19 and the real negative case is gone AGAIN.**
+    // The note above records this assertion being rewritten three times, once per
+    // set that finished, and warns that borrowing whichever real set happens to be
+    // under construction is why. It happened a fourth time, so the list is not
+    // written down any more.
+    //
+    // What is asserted instead is the RELATIONSHIP, computed from the same
+    // coverage rows: undeclared here, so a set is flagged exactly when it has
+    // nothing unimplemented. That holds with five finished sets, with none, and
+    // with any mixture — there is no list to go stale, and it still fails if the
+    // flag starts firing for a set with open cards or stops firing for one
+    // without.
     const undeclared = coverageBySet(registry.all(), []);
     expect(undeclared.map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL", "VEN"]);
-    expect(undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set)).toEqual(["OGN", "OGS", "SFD", "UNL"]);
+    expect(
+      undeclared.filter((c) => c.finishedButUndeclared).map((c) => c.set),
+      "the flag is not exactly the set of finished sets",
+    ).toEqual(undeclared.filter((c) => c.unimplemented.length === 0).map((c) => c.set));
+    // Not vacuous: something really is flagged. With every real set finished this
+    // is all five, and the synthetic ZZZ above is what proves the other direction.
+    expect(undeclared.some((c) => c.finishedButUndeclared), "nothing was flagged — this measures nothing").toBe(true);
     // And declaring only one leaves the flag on the other, so the check is per
     // set rather than an all-or-nothing.
     const half = coverageBySet(registry.all(), ["OGN"]);

@@ -3,7 +3,15 @@ import { defaultCardRegistry } from "../src/cards/card-registry.js";
 import { COMPLETE_SETS } from "../src/engine/coverage.js";
 
 /**
- * **Vendetta's card file is PARTIAL, on purpose, and this is what says so.**
+ * **Vendetta's card FILE is partial, on purpose, and this is what says so — even
+ * though the SET is now declared complete.**
+ *
+ * Those are two different claims and conflating them is the trap this file now
+ * exists to keep open. `COMPLETE_SETS` means "every card the pool HAS is
+ * implemented"; it does not mean "every card Riot printed for Vendetta is in this
+ * repo". As of 2026-08-19 the first is true and the second is not: 18 records are
+ * still dropped by the generator because upstream cannot classify them, and this
+ * file is the only thing that says so.
  *
  * Every other set in `src/cards/` is the whole set. `ven.json` is 209 of the
  * set's 227 cards, because the Riftcodex API serves Vendetta as TWO live ingests
@@ -19,9 +27,11 @@ import { COMPLETE_SETS } from "../src/engine/coverage.js";
  *     set playable at all;
  *   - the missing ids are named, so re-running the generator after upstream
  *     reconciles fails HERE and nowhere else;
- *   - VEN is not in `COMPLETE_SETS`, and cannot be while any id is missing.
+ *   - VEN IS in `COMPLETE_SETS` as of 2026-08-19, and what that does and does
+ *     not claim is asserted below rather than left to be inferred.
  *
- * Delete this file when the generator's dropped list empties and VEN is declared.
+ * Delete this file when the generator's dropped list empties — NOT when the set
+ * is declared, which has already happened.
  */
 
 const registry = defaultCardRegistry();
@@ -86,12 +96,23 @@ describe("Vendetta is landed PARTIALLY, and says so", () => {
     ).toEqual([]);
   });
 
-  it("is NOT declared complete, and must not be while anything is missing", () => {
-    // `COMPLETE_SETS` turns on `reachability.everyUnexercisedExplained`, which
-    // would hold a set that is 173 cards short of implemented to "every card no
-    // run has seen act is offered or excused". That is a wall of noise arriving
-    // exactly when the instruments most need to be readable.
-    expect(COMPLETE_SETS).not.toContain("VEN");
+  it("IS declared complete — and that is a claim about the cards, not the file", () => {
+    // **This pin asserted `not.toContain` and flipped on 2026-08-19**, when the
+    // last card in the pool (VEN-069 Mel, Newly Awakened) landed. Its reasoning
+    // was right for as long as it stood: declaring early turns on
+    // `reachability.everyUnexercisedExplained` and would have held a set 173 cards
+    // short to "every card no run has seen act is offered or excused" — a wall of
+    // noise exactly when the instruments most need to be readable.
+    //
+    // Inverted rather than deleted, and paired with the negative that is STILL
+    // TRUE, because the pair is the whole point: the set is declared while the
+    // file is short 18 records. Anyone reading "VEN is complete" and expecting all
+    // 227 printed cards is reading a claim nobody made.
+    expect(COMPLETE_SETS, "the set was un-declared again").toContain("VEN");
+    expect(
+      NOT_YET_CLASSIFIABLE.length,
+      "the dropped list emptied — re-run tools/card-data/set-audit.mjs VEN and delete this file",
+    ).toBeGreaterThan(0);
   });
 
   it("loads 178 playable definitions from 209 records", () => {

@@ -11,6 +11,32 @@ import { contextFor } from "./effect-context.js";
  * exactly how a field comes to be forwarded on one execution and dropped on the
  * other — the dropped-field bug execute-play-card.ts records having shipped.
  */
+/**
+ * Every UNIT this chain entry named, across all three target fields plus any
+ * `[Repeat]` execution's own.
+ *
+ * 355's Make Relevant Choices is the moment these were fixed, and this is the
+ * same set `holdUnitsChosen` fires `unitChosen` for — read off the ENTRY rather
+ * than recomputed, so a replacement asking "did this effect choose that unit"
+ * and a trigger asking "was that unit chosen" cannot disagree.
+ *
+ * Deliberately not deduplicated: a `unitList` spec may name one unit twice, and
+ * a membership test does not care while a future counter might.
+ */
+function unitsChosenBy(entry: SpellChainEntry): string[] {
+  const fromExecutions = repeatExecutionsOf(entry).flatMap((execution) => [
+    execution.choices?.targetUnitInstanceId,
+    execution.choices?.secondTargetUnitInstanceId,
+    ...(execution.choices?.targetUnitInstanceIds ?? []),
+  ]);
+  return [
+    entry.targetUnitInstanceId,
+    entry.secondTargetUnitInstanceId,
+    ...(entry.targetUnitInstanceIds ?? []),
+    ...fromExecutions,
+  ].filter((id): id is string => id !== undefined);
+}
+
 function choicesOf(entry: SpellChainEntry): ResolveEvent {
   return {
     ...(entry.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: entry.targetUnitInstanceId } : {}),
@@ -124,7 +150,17 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
   // Immortal Phoenix's "with a SPELL". Marked around the resolution and cleared
   // straight after, so nothing outside this call can see it — `killerIndex`
   // already says who killed, and this is the only place that knows with what.
-  const marked: GameState = { ...state, spellResolvingForIndex: entry.playerIndex };
+  const marked: GameState = {
+    ...state,
+    spellResolvingForIndex: entry.playerIndex,
+    // Mel, Newly Awakened's "a unit IT CHOOSES" — see the field's own doc. Set
+    // around the whole resolution, `[Repeat]`s included, because every execution
+    // acts on the same announced choices (820.2 gives a repeat its own choices,
+    // and `repeatChoicesOf` carries them; the union below is what a replacement
+    // reading "did this effect choose that unit" needs, and re-narrowing it per
+    // execution would make the second pass forget the first's targets).
+    chosenByResolvingEffect: { chooserIndex: entry.playerIndex, unitInstanceIds: unitsChosenBy(entry) },
+  };
   // The resolving card names itself through the context — Time Warp's
   // "Banish this" is the first text that needs it.
   const ctx = contextFor(entry.playerIndex, entry.card.instanceId);
@@ -172,5 +208,5 @@ export function resolveCardEffect(state: GameState, entry: SpellChainEntry): Gam
   // them. The same board-reads-the-previous-execution rule applies either way
   // (359.3), so the third pass sees what the second left behind.
   if (entry.grantedRepeatPaid) resolved = effect.resolve(resolved, ctx, choicesOf(entry));
-  return { ...clearCharge(resolved), spellResolvingForIndex: null };
+  return { ...clearCharge(resolved), spellResolvingForIndex: null, chosenByResolvingEffect: null };
 }

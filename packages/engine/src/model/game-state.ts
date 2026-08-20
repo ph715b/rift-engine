@@ -1515,6 +1515,48 @@ export interface GameState {
    */
   spellResolvingForIndex: 0 | 1 | null;
   /**
+   * The units the spell or ability resolving RIGHT NOW chose, and who chose
+   * them — or null outside any resolution.
+   *
+   * **Mel, Newly Awakened's "if a spell or ability YOU CONTROL would give
+   * -[Might] to a unit IT CHOOSES, it gives an additional -1" needs both halves
+   * at once**, and nothing else in the engine carried either. `spellResolvingForIndex`
+   * above is the closest thing and answers neither: it covers spells only (the
+   * card says "or ability"), and it says nothing about which units were chosen.
+   *
+   * # Why this, and not a parameter on `giveMightThisTurn`
+   *
+   * The information exists at ~20 single-target call sites, and threading a
+   * chooser through all of them is the wide-change-for-one-clause shape
+   * `legendsEmpoweredBySomethingElse` already refused. It exists in exactly TWO
+   * places as well: the spell resolution in `card-effect-resolution.ts` and the
+   * ability execution in `execute-activate-ability.ts`, which are the same two
+   * that already compute this to fire `unitChosen` (355's Make Relevant Choices).
+   * So it is set there, wrapping the resolution, and cleared straight after.
+   *
+   * # "It CHOOSES" is the half that makes this a list rather than an index
+   *
+   * A group effect — Bellows Breath's sweep, `giveMightThisTurnToAllEnemies` —
+   * chooses nothing: 355.10.b's worked example draws exactly this line, "'Kill a
+   * unit at a battlefield' targets a unit, but not a battlefield, because the
+   * units are targets and 'at a battlefield' is a restriction". Those helpers
+   * route through the same `giveMightThisTurn`, so a hook that only knew the
+   * caster would make Mel widen every mass debuff on the board. The list is what
+   * keeps her to the units her side actually pointed at.
+   *
+   * A fact about the CURRENT CALL, like `spellResolvingForIndex`, so `runEnd`
+   * does not clear it and nothing outside one resolution can observe it.
+   *
+   * **OPTIONAL as well as nullable, and both spellings mean the same thing** —
+   * nothing is resolving. Absent is what a hand-built state has and null is what
+   * the two resolution sites write on the way out, so the reader accepts either.
+   * Made optional after `npm run typecheck` named ten test files that build a
+   * `GameState` by hand: the engine `build` config excludes tests, so the suite
+   * was green while those states were the wrong type — which is the exact trap
+   * CLAUDE.md records typecheck existing to catch.
+   */
+  chosenByResolvingEffect?: { chooserIndex: 0 | 1; unitInstanceIds: readonly string[] } | null;
+  /**
    * Noxian Guillotine's "kill it the next time it takes damage this turn" —
    * units under a delayed, single-use death sentence.
    *

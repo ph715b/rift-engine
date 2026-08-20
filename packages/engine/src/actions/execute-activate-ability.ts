@@ -103,8 +103,24 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
     sourceInstanceId: action.permanentInstanceId,
   });
 
-  return mode.resolve(
-    announced,
+  // Mel, Newly Awakened's "a spell or ABILITY you control … a unit it CHOOSES".
+  // The ability half of the pair `card-effect-resolution` sets for spells, and
+  // set from the same information this function already gathered above to fire
+  // `unitChosen`. CLEARED on the way out, so it is a fact about this call only.
+  //
+  // A `targetPermanentInstanceId` is deliberately NOT included: it names a gear
+  // as often as a unit, and a -Might replacement asking "was this unit chosen"
+  // must not match on a gear's id that happens to be handed around.
+  const choosing: GameState = {
+    ...announced,
+    chosenByResolvingEffect: {
+      chooserIndex: action.playerIndex,
+      unitInstanceIds: action.targetUnitInstanceId !== undefined ? [action.targetUnitInstanceId] : [],
+    },
+  };
+
+  const resolved = mode.resolve(
+    choosing,
     contextFor(action.playerIndex),
     {
       ...(action.targetUnitInstanceId !== undefined ? { targetUnitInstanceId: action.targetUnitInstanceId } : {}),
@@ -133,4 +149,5 @@ export function executeActivateAbility(state: GameState, action: ActivateAbility
     },
     action.permanentInstanceId,
   );
+  return { ...resolved, chosenByResolvingEffect: null };
 }

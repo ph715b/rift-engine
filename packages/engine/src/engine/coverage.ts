@@ -532,19 +532,23 @@ function unreadableEmpowerCostNote(def: CardDefinition): string | undefined {
 }
 
 const PARTIALLY_IMPLEMENTED = new Map<string, string>([
-  // Mel, Newly Awakened — her `[Empowered][>]` clause is TWO sentences and only
-  // the first is written. "Your spells and abilities can't be countered" is
-  // `counter-spell.canBeCountered`; "if a spell or ability you control would give
-  // -[Might] to a unit it chooses, it gives an additional -1" is a REPLACEMENT
-  // effect on the giving of Might, which this engine has no seam for.
+  // **Mel, Newly Awakened LEFT this map on 2026-08-19**, and her row is worth the
+  // paragraph because of what it got right and what it got wrong.
   //
-  // Listed because registration is per defId and she is now registered: without
-  // this row her counter-prevention half would report the whole card finished,
-  // which is the over-report this map exists for.
-  [
-    "VEN-069",
-    "Mel's second sentence is unwritten — a spell or ability she controls gives its printed -[Might] and not the additional -1",
-  ],
+  // Right: registration is per defId, and her counter-prevention half alone would
+  // have reported the whole card finished. That is exactly the over-report this
+  // map exists for, and the row did its job for as long as it stood.
+  //
+  // Wrong: it said the second sentence "is a REPLACEMENT effect on the giving of
+  // Might, which this engine has no seam for". `giveMightThisTurn` is that seam,
+  // and it had been one since Gangplank, Naval's replacement landed on the very
+  // same `amount < 0` branch. What was genuinely missing was not a seam but the
+  // INFORMATION — "a spell or ability YOU CONTROL" and "a unit it CHOOSES" —
+  // which `GameState.chosenByResolvingEffect` now carries from the two executors
+  // that already computed it to fire `unitChosen`.
+  //
+  // The shape CLAUDE.md keeps recording: a partial note is a claim about the
+  // code, and this one was stale rather than wrong when written.
   // **Keep the mechanism even when this list empties**, for the reason
   // `UNIMPLEMENTED_KEYWORDS` above keeps its own empty map: registration is per
   // defId, so the next two-clause card written by halves reports DONE on the
@@ -1055,7 +1059,20 @@ export function setCodeOf(defId: string): string {
  * the last card landed. Finishing a set is what tells you to promote it, and it
  * did.
  */
-export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD", "UNL"];
+/**
+ * **VEN joined on 2026-08-19, and the same gate said so** — `set-coverage.test.ts`
+ * went red naming Vendetta the moment VEN-069 Mel, Newly Awakened's second
+ * sentence landed. That was the last unimplemented card in the POOL, not just in
+ * the set: all five sets are now declared, and `coverageBySet` reports nothing
+ * unimplemented anywhere.
+ *
+ * Declaring it turns on `reachability.everyUnexercisedExplained` for VEN, which
+ * holds the set to "every implemented card no run has seen act is either offered
+ * by the enumerator or excused BY NAME in `probes/unexercised-allowlist.ts`".
+ * That is the gate this promotion is actually for; the coverage half was already
+ * green.
+ */
+export const COMPLETE_SETS: readonly string[] = ["OGN", "OGS", "SFD", "UNL", "VEN"];
 
 /**
  * Sets whose BATTLEFIELDS are all implemented — a separate list, and it has to
